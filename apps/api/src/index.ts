@@ -1,10 +1,11 @@
 // @countersign/api: the Hono Worker. Serves /api/*, the built apps/web as static assets, the
 // Cloudflare Workflow classes and the cron handler. The only place that wires packages together.
+import { routes } from "@countersign/core";
 import { Hono } from "hono";
 
-export const app = new Hono<{ Bindings: Env }>().basePath("/api");
+export const app = new Hono<{ Bindings: Env }>();
 
-app.get("/health", (c) => c.json({ ok: true }));
+app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
 
 export default {
   fetch: app.fetch,

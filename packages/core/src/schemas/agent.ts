@@ -1,0 +1,72 @@
+import { z } from "zod";
+import { DecimalString } from "../money";
+import { SkillRef, Slug, ToolId } from "./common";
+import { AgentMode } from "./permissions";
+import { Workflow } from "./workflow";
+
+/** ARCHITECTURE §9.1. */
+export const AgentDefinition = z
+  .object({
+    schemaVersion: z.literal(2),
+    identity: z.object({
+      name: z.string().min(1),
+      role: z.string(),
+      mission: z.string(),
+      avatar: z.string().optional(),
+    }),
+    kind: z.enum(["functional", "platform"]),
+    model: z.object({
+      id: z.string().min(1),
+      maxTokens: z.number().int().positive().default(4096),
+    }),
+    /** Plain language: how this agent works. */
+    instructions: z.string(),
+    skills: z.array(
+      z.object({
+        skill: SkillRef,
+        /** Overrides the skill's settings defaults. */
+        settings: z.record(z.string(), z.unknown()).default({}),
+      }),
+    ),
+    /** Tools beyond those its skills bring. */
+    extraTools: z.array(ToolId).default([]),
+    /** Agent slugs (same client) it may ask. */
+    canCommand: z.array(Slug).default([]),
+    permissions: z
+      .object({
+        mode: AgentMode.default("suggest_only"),
+        /** Default approver for this agent's steps (role or user id). */
+        approver: z.string().min(1).optional(),
+      })
+      .prefault({}),
+    budgets: z
+      .object({
+        maxSteps: z.number().int().positive().default(12),
+        // DECISION: a decimal string, not a JS number as the sketch in ARCHITECTURE §9.1 has it,
+        // because cost is money (CLAUDE.md invariant 6) and is compared with decimal.js.
+        maxCostUsd: DecimalString.default("0.50"),
+      })
+      .prefault({}),
+    memory: z.object({ enabled: z.boolean().default(true) }).prefault({}),
+  })
+  .meta({ id: "AgentDefinition" });
+export type AgentDefinition = z.infer<typeof AgentDefinition>;
+
+export const BundleWorkflow = z.object({
+  slug: Slug,
+  name: z.string(),
+  enabled: z.boolean().default(true),
+  workflow: Workflow,
+});
+export type BundleWorkflow = z.infer<typeof BundleWorkflow>;
+
+/** One agent version: the whole agent (ARCHITECTURE §9.1), stored in `agent_version.bundle`. */
+export const AgentBundle = z
+  .object({
+    schemaVersion: z.literal(1),
+    definition: AgentDefinition,
+    workflows: z.array(BundleWorkflow),
+  })
+  .meta({ id: "AgentBundle" });
+export type AgentBundle = z.infer<typeof AgentBundle>;
+export type AgentBundleInput = z.input<typeof AgentBundle>;

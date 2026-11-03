@@ -70,6 +70,21 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Page thumbnails (match review) | Render in the browser with pdf.js from the signed R2 URL. No server-side rendering, so no container is needed. |
 | Invoices for fixtures | Synthetic invoices that look like normal vendor invoices. Swap in real (redacted) ones later and re-record. |
 
+### 1.3 Decisions made while building `packages/core`
+
+| Topic | Decision |
+|---|---|
+| Durations | Cloudflare Workflows' own string form (`"30 seconds"`, `"5 days"`, units up to weeks), so the executor passes them to `step.sleep` / `waitForEvent` unchanged. `parseDuration()` gives milliseconds. |
+| Budgets | `budgets.maxCostUsd` is a decimal string (default `"0.50"`), not a JS number, because cost is money (invariant 6). |
+| External tools | A `ToolSpec` with `sideEffect: 'external'` must name its `connector`; the gate and the publish check find the connection matrix by it. A `none` tool's verb is `read`. |
+| Pack templates | `PackManifest.templates` is a list of `{ slug, bundle: AgentBundle }` (whole bundles, the unit v0.6 versions), not separate agent and workflow lists. |
+| Trigger payloads | Event triggers carry the event type's payload; manual triggers their declared input; schedule triggers `{ scheduledAt }`; command triggers `{ args }`. |
+| Built-in step outputs | `person` → `{ approved, answer, by }`; `fork` → `{ pathId, pathName }` (which path ran); `for_each` → `{ count }`; `wait`, `notify`, `stop` → nothing. |
+| Rule operators | `=` / `!=` compare loosely (JSONLogic `==`), so `"5"` from a form equals `5`; `is` is strict (for `true`, `false`, `null`); `contains` is substring or membership; a rule's value that is exactly one `{{ref}}` compares against that field. An empty `all` matches, an empty `any` doesn't; a fork path with no conditions is a validation error. |
+| Merge details | Entity keys `skill:<id>`, `workflow:<slug>`, `step:<id>`, `path:<id>`, `otherwise:<id>`; conflict paths `<key>#<JSON pointer>`, `<key>#@exists`, `<key>#@location`, `<list>#@order`. Two inserts at the same spot are both kept, ours first. Deleting an item conflicts with any edit, insert or move-out inside it on the other side, reported once at the topmost deleted item. A move between lists counts as an edit; a reorder within a list doesn't. Unresolved conflicts keep ours so the draft is always complete. |
+| Portal field check | The contract test refuses portal response fields named `bundle`, `definition`, `instructions`, `prompt(s)`, `systemPrompt`, `cost`, `costUsd`, `cost_usd`, `modelCost` and token counts; business figures such as `landedCost` are allowed. |
+| Workers tests | `apps/api` pins Vitest 4 for `@cloudflare/vitest-pool-workers` (as Plenary Labs does); the rest of the repo is on Vitest 5. |
+
 ---
 
 ## 2. Package layering

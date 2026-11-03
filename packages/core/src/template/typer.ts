@@ -1,0 +1,313 @@
+import { isPlainObject } from "../json";
+import type { JsonSchema } from "../schemas/common";
+import { parseSkillRef } from "../schemas/common";
+import type { EventTypeSpec } from "../schemas/event";
+import type { SkillDefinition } from "../schemas/skill";
+import type { ToolSpec } from "../schemas/tool";
+import type { Step, Workflow } from "../schemas/workflow";
+import { type StepLocation, walkSteps } from "../workflow/walk";
+import { singleRef } from "./template";
+
+/**
+ * Template typing (docs/plan.md §1.2): which references are valid at a step, and their JSON
+ * Schemas, from the trigger payload and upstream outputs. The builder's field picker and workflow
+ * validation share it. An unknown schema (`undefined` or `{}`) accepts any path.
+ */
+
+export interface TypingContext {
+  skills?: Record<string, SkillDefinition>;
+  tools?: Record<string, ToolSpec>;
+  events?: Record<string, EventTypeSpec>;
+}
+
+export type PathType =
+  | { ok: true; schema: JsonSchema | undefined }
+  | { ok: false; message: string };
+
+const OBJ = (properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema => ({
+  type: "object",
+  properties,
+  required,
+  additionalProperties: false,
+});
+
+/** What a `person` step outputs, so a later fork can branch on it (ARCHITECTURE §10.1). */
+export const PERSON_OUTPUT: JsonSchema = OBJ(
+  { approved: { type: "boolean" }, answer: {}, by: { type: "string" } },
+  ["approved"],
+);
+/** A fork exposes which path ran. */
+export const FORK_OUTPUT: JsonSchema = OBJ(
+  { pathId: { type: "string" }, pathName: { type: "string" } },
+  ["pathId", "pathName"],
+);
+export const FOR_EACH_OUTPUT: JsonSchema = OBJ({ count: { type: "integer" } }, ["count"]);
+export const NO_OUTPUT: JsonSchema = OBJ({});
+// DECISION: schedule triggers carry the tick they are for; command triggers the text after the
+// command. Event and manual triggers carry their declared payload.
+export const SCHEDULE_PAYLOAD: JsonSchema = OBJ({ scheduledAt: { type: "string" } }, [
+  "scheduledAt",
+]);
+export const COMMAND_PAYLOAD: JsonSchema = OBJ({ args: { type: "string" } }, ["args"]);
+
+export function lookupSkill(ref: string, ctx: TypingContext): SkillDefinition | undefined {
+  return ctx.skills?.[ref] ?? ctx.skills?.[parseSkillRef(ref).id];
+}
+
+export function triggerSchema(workflow: Workflow, ctx: TypingContext): JsonSchema | undefined {
+  const on = workflow.trigger.on;
+  switch (on.type) {
+    case "event":
+      return ctx.events?.[on.event]?.payload;
+    case "manual":
+      return on.input;
+    case "schedule":
+      return SCHEDULE_PAYLOAD;
+    case "command":
+      return COMMAND_PAYLOAD;
+  }
+}
+
+export function outputSchemaOf(step: Step, ctx: TypingContext): JsonSchema | undefined {
+  switch (step.kind) {
+    case "skill":
+      return lookupSkill(step.skill, ctx)?.output;
+    case "action":
+      return ctx.tools?.[step.tool]?.output;
+    case "person":
+      return PERSON_OUTPUT;
+    case "fork":
+      return FORK_OUTPUT;
+    case "for_each":
+      return FOR_EACH_OUTPUT;
+    default:
+      return NO_OUTPUT;
+  }
+}
+
+function isUnknown(schema: JsonSchema | undefined): boolean {
+  return schema === undefined || Object.keys(schema).length === 0;
+}
+
+function resolveRef(schema: JsonSchema, root: JsonSchema | undefined): JsonSchema {
+  const ref = schema.$ref;
+  if (typeof ref !== "string" || !root || !ref.startsWith("#/")) return schema;
+  let cur: unknown = root;
+  for (const seg of ref.slice(2).split("/")) {
+    cur = isPlainObject(cur) ? cur[seg.replace(/~1/g, "/").replace(/~0/g, "~")] : undefined;
+  }
+  return isPlainObject(cur) ? (cur as JsonSchema) : {};
+}
+
+function types(schema: JsonSchema): string[] {
+  const t = schema.type;
+  if (typeof t === "string") return [t];
+  if (Array.isArray(t)) return t.filter((x): x is string => typeof x === "string");
+  if (isPlainObject(schema.properties)) return ["object"];
+  if (schema.items !== undefined) return ["array"];
+  return [];
+}
+
+/** The schema at `path` inside `schema`, or why the path doesn't exist. */
+export function schemaAtPath(
+  schema: JsonSchema | undefined,
+  path: readonly string[],
+  root: JsonSchema | undefined = schema,
+): PathType {
+  if (path.length === 0) return { ok: true, schema };
+  if (schema === undefined || isUnknown(schema)) return { ok: true, schema: undefined };
+  const s = resolveRef(schema, root);
+  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+    const alts = s[key];
+    if (Array.isArray(alts)) {
+      for (const alt of alts) {
+        if (!isPlainObject(alt)) continue;
+        const r = schemaAtPath(alt as JsonSchema, path, root);
+        if (r.ok) return r;
+      }
+      if (types(s).length === 0) return { ok: false, message: `no field "${path[0]}"` };
+    }
+  }
+  const [seg, ...rest] = path as [string, ...string[]];
+  const ts = types(s);
+  if (ts.length === 0) return { ok: true, schema: undefined };
+  if (ts.includes("array")) {
+    if (seg === "length") return schemaAtPath({ type: "integer" }, rest, root);
+    if (/^\d+$/.test(seg)) {
+      const items = isPlainObject(s.items) ? (s.items as JsonSchema) : undefined;
+      return schemaAtPath(items, rest, root);
+    }
+  }
+  if (ts.includes("string") && seg === "length")
+    return schemaAtPath({ type: "integer" }, rest, root);
+  if (ts.includes("object")) {
+    const props = isPlainObject(s.properties) ? (s.properties as Record<string, unknown>) : {};
+    if (Object.hasOwn(props, seg) && isPlainObject(props[seg])) {
+      return schemaAtPath(props[seg] as JsonSchema, rest, root);
+    }
+    const extra = s.additionalProperties;
+    if (isPlainObject(extra)) return schemaAtPath(extra as JsonSchema, rest, root);
+    // An object with declared properties is closed unless it says otherwise: the field picker
+    // and validation should catch a misspelt field rather than let it resolve to nothing.
+    if (extra === true || !isPlainObject(s.properties)) return { ok: true, schema: undefined };
+    return { ok: false, message: `no field "${seg}"` };
+  }
+  return { ok: false, message: `"${seg}" is not a field of a ${ts.join("/")}` };
+}
+
+/** What references are in scope at a step. */
+export interface Scope {
+  trigger: JsonSchema | undefined;
+  /** Upstream steps visible here, by id, with their output schemas. */
+  steps: Record<string, { step: Step; output: JsonSchema | undefined }>;
+  /** Inside a for_each: the item schema (undefined when unknown). */
+  loop?: { item: JsonSchema | undefined; step: Step };
+}
+
+function itemSchemaOf(over: string, scope: Omit<Scope, "loop"> & { loop?: Scope["loop"] }) {
+  let path: string[] | null;
+  try {
+    path = singleRef(over);
+  } catch {
+    return undefined;
+  }
+  if (!path) return undefined;
+  const t = typeTemplatePath(scope as Scope, path);
+  if (!t.ok || !t.schema) return undefined;
+  const items = t.schema.items;
+  return isPlainObject(items) ? (items as JsonSchema) : undefined;
+}
+
+function scopeFor(
+  workflow: Workflow,
+  loc: StepLocation,
+  ctx: TypingContext,
+  byId: Map<string, Step>,
+): Scope {
+  const scope: Scope = { trigger: triggerSchema(workflow, ctx), steps: {} };
+  for (const id of loc.before) {
+    const s = byId.get(id);
+    if (s) scope.steps[id] = { step: s, output: outputSchemaOf(s, ctx) };
+  }
+  const loop = loc.loops.at(-1);
+  if (loop) scope.loop = { step: loop, item: itemSchemaOf(loop.over, scope) };
+  return scope;
+}
+
+/** The scope at a step, or undefined when the step isn't in the workflow. */
+export function scopeAt(workflow: Workflow, stepId: string, ctx: TypingContext = {}) {
+  const byId = new Map<string, Step>();
+  let found: StepLocation | undefined;
+  walkSteps(workflow, (loc) => {
+    byId.set(loc.step.id, loc.step);
+    if (loc.step.id === stepId) found = loc;
+  });
+  return found ? scopeFor(workflow, found, ctx, byId) : undefined;
+}
+
+/** Scopes for every step at once (validation uses this). */
+export function scopes(workflow: Workflow, ctx: TypingContext = {}): Map<string, Scope> {
+  const byId = new Map<string, Step>();
+  const locs: StepLocation[] = [];
+  walkSteps(workflow, (loc) => {
+    byId.set(loc.step.id, loc.step);
+    locs.push(loc);
+  });
+  return new Map(locs.map((l) => [l.step.id, scopeFor(workflow, l, ctx, byId)]));
+}
+
+/** The type of a workflow reference (`trigger...`, `steps.<id>.output...`, `item...`, `index`). */
+export function typeTemplatePath(scope: Scope, path: readonly string[]): PathType {
+  const [root, ...rest] = path;
+  switch (root) {
+    case "trigger":
+      return schemaAtPath(scope.trigger, rest);
+    case "steps": {
+      const [id, output, ...tail] = rest;
+      if (id === undefined) return { ok: false, message: "steps.<id>.output... needs a step id" };
+      const s = scope.steps[id];
+      if (!s) {
+        return {
+          ok: false,
+          message: `step "${id}" does not run before this one on its path`,
+        };
+      }
+      if (output !== "output") {
+        return { ok: false, message: `use steps.${id}.output.<field>` };
+      }
+      return schemaAtPath(s.output, tail);
+    }
+    case "item":
+      if (!scope.loop)
+        return { ok: false, message: "{{item}} is only available inside a for_each" };
+      return schemaAtPath(scope.loop.item, rest);
+    case "index":
+      if (!scope.loop)
+        return { ok: false, message: "{{index}} is only available inside a for_each" };
+      if (rest.length > 0) return { ok: false, message: "{{index}} is a number" };
+      return { ok: true, schema: { type: "integer" } };
+    default:
+      return {
+        ok: false,
+        message: `unknown reference "${root}": use trigger, steps, item or index`,
+      };
+  }
+}
+
+export interface PathOption {
+  /** The reference to insert, without braces, e.g. "steps.extract.output.total". */
+  path: string;
+  schema: JsonSchema | undefined;
+  /** The step it comes from, when it is a step output. */
+  stepId?: string;
+}
+
+function listPaths(
+  schema: JsonSchema | undefined,
+  prefix: string,
+  depth: number,
+  out: PathOption[],
+  stepId: string | undefined,
+  root: JsonSchema | undefined = schema,
+) {
+  const push = (path: string, s: JsonSchema | undefined) =>
+    out.push(stepId ? { path, schema: s, stepId } : { path, schema: s });
+  push(prefix, schema);
+  if (!schema || depth <= 0) return;
+  const s = resolveRef(schema, root);
+  const ts = types(s);
+  if (ts.includes("object") && isPlainObject(s.properties)) {
+    for (const [k, v] of Object.entries(s.properties)) {
+      if (isPlainObject(v))
+        listPaths(v as JsonSchema, `${prefix}.${k}`, depth - 1, out, stepId, root);
+    }
+  }
+  if (ts.includes("array")) push(`${prefix}.length`, { type: "integer" });
+}
+
+/** Every reference the field picker offers at a step, depth-limited. */
+export function pathsAt(
+  workflow: Workflow,
+  stepId: string,
+  ctx: TypingContext = {},
+  depth = 4,
+): PathOption[] {
+  const scope = scopeAt(workflow, stepId, ctx);
+  if (!scope) return [];
+  const out: PathOption[] = [];
+  listPaths(scope.trigger, "trigger", depth, out, undefined);
+  for (const [id, { output }] of Object.entries(scope.steps)) {
+    listPaths(output, `steps.${id}.output`, depth, out, id);
+  }
+  if (scope.loop) {
+    listPaths(scope.loop.item, "item", depth, out, undefined);
+    out.push({ path: "index", schema: { type: "integer" } });
+  }
+  return out;
+}
+
+/** JSON type names a value or schema can take, for compatibility checks. */
+export function schemaTypes(schema: JsonSchema | undefined): string[] {
+  if (!schema) return [];
+  return types(schema);
+}
