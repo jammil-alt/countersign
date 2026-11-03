@@ -7,7 +7,7 @@ ends green: `pnpm typecheck && pnpm test` pass and its "done when" check is show
 Nothing here adds to the v1 scope in ARCHITECTURE §1. When this plan fills a gap the architecture leaves
 open, it says **DECISION**, and the code carries a `// DECISION:` comment at the spot.
 
-Status: **M0 not started.** Folder skeleton, workspace config, local Postgres and this plan exist.
+Status: **M0 not started.** Folder skeleton, workspace config, local Postgres and this plan exist. Hosting decided: Cloudflare + Neon (§1.1).
 
 ---
 
@@ -17,9 +17,10 @@ Status: **M0 not started.** Folder skeleton, workspace config, local Postgres an
 
 | Item | Decision | Why |
 |---|---|---|
-| Auth provider | **Supabase Auth**, behind `packages/auth` with two adapters: `supabase` (deployed) and `dev` (local + e2e: seeded users, email-only sign in, refused when `NODE_ENV=production`). Selected by `AUTH_PROVIDER`. | One vendor can host Postgres, Auth and Storage. The `dev` adapter means M0 login and the Playwright e2e need no network or keys. Clerk's orgs don't fit an advisor who works across many tenants, and our own `membership` table owns roles either way. |
-| Hosting | **Vercel** (Next.js + Inngest serve endpoint) + **Supabase** (Postgres 16 with pgvector, Auth, Storage through its S3 API) + **Inngest Cloud**. | Fewest moving parts. Storage goes through the S3 API, so R2 is a config change. *If you'd rather match Datum (Neon + Cloudflare), say so before M0 deploys. Only env changes.* |
-| Purchaser doc requests | **Inbox only in v1.** `docs.request_from_purchaser` creates an `inbox_item(kind='doc_request')`. A `Mailer` interface with a Resend adapter is wired up but used only when `RESEND_API_KEY` is set. | External side effects stay off by default (§16). The demo doesn't need email. |
+| Hosting | **Cloudflare + Neon, same as Datum.** Next.js runs on Workers through the OpenNext adapter (`@opennextjs/cloudflare`); config lives in `apps/web/wrangler.jsonc`. Postgres 16 with pgvector on **Neon** (`main` = prod, `dev`, `pr-<n>` preview branches, reusing Datum's `neon-preview.yml` / `ops/neon.sh` pattern). Files in **R2** through its S3 API. Jobs on **Inngest Cloud**, calling the Worker's `/api/inngest`. | Same stack as your other two projects: one set of accounts, deploy workflows, runbooks and branch-per-PR habits. Supabase's main extra is built-in auth, and v1 doesn't need it (see the Auth row). |
+| DB driver from Workers | **Hyperdrive → Neon, with `postgres-js` + Drizzle.** Locally, Hyperdrive's `localConnectionString` points at Docker Postgres. Fallback: Neon's serverless driver in WebSocket `Pool` mode. | `withTenant()` needs interactive transactions (`set_config(..., true)` then queries). Hyperdrive supports them, and Neon's HTTP mode doesn't. Datum reaches Neon from containers, so this is new; prove it in the M0 deploy spike. |
+| Auth provider | **Cloudflare Access**, as in Datum (verify the `Cf-Access-Jwt-Assertion` JWT on every request; reuse Datum's `access.ts`). Identity is the Access email, mapped to `app_user`. Roles and tenants stay in our `membership` table. Behind `packages/auth` with two adapters: `access` (deployed) and `dev` (local + e2e: seeded users, refused when `NODE_ENV=production`). | Zero new vendors and already proven in your stack. Inviting a user means adding their email to the Access policy, which is fine for the first client and a few advisors. When clients need self-serve sign-up, password reset or many seats, switch the adapter to Better Auth (users stored in our Neon DB). No migration of roles is needed. |
+| Purchaser doc requests | **Inbox only in v1, routed to an admin.** `docs.request_from_purchaser` creates an `inbox_item(kind='doc_request', assignee_role='client_admin')`. Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. A `Mailer` interface with a Resend adapter is wired up but used only when `RESEND_API_KEY` is set. | External side effects stay off by default (§16). The demo doesn't need email. |
 | Embeddings | **Ship without vectors.** `catalog_item.embedding` stays nullable. Candidates come from key attributes plus `pg_trgm`. | §20 says trigram + attributes is enough for v1. Adding a provider later is one tool change. |
 
 ### 1.2 Gaps filled while planning
@@ -42,7 +43,9 @@ Status: **M0 not started.** Folder skeleton, workspace config, local Postgres an
 | LLM record/replay | `packages/llm` hashes (model, system, messages, tools, tool_choice) into `fixtures/llm/<hash>.json`. `LLM_MODE=replay` is the test default and fails loudly on a miss. `record` calls the API and writes the file. `live` doesn't touch fixtures. |
 | Cost | Per-model token price table in `packages/llm/pricing.ts`. Check the numbers against current Anthropic pricing when M4 starts; nothing is hard-coded from memory. |
 | Extraction input | Send a PDF as a `document` content block (base64) and images as `image` blocks, with `tool_choice` forcing the `record_invoice` tool, whose schema is `InvoiceExtraction` (Zod → JSON Schema). Check page and size limits at M2 and split long PDFs by page if needed. |
-| UI | Tailwind + shadcn/ui, themed through CSS variables named after the Groundwork tokens. Open question: does Groundwork exist as a package (§7)? |
+| UI | Built from the owner's screen designs (coming), on the **Groundwork** design system. Tailwind + shadcn/ui primitives, themed by Groundwork tokens as CSS variables (one `tokens.css`, mapped into the Tailwind theme), so screens use token names, never raw colours. If Groundwork ships components, they replace the matching shadcn ones. Until the designs land, M0 builds only the shell and token plumbing; screen work (M6+) follows the designs. |
+| Page thumbnails (match review) | Render in the browser with pdf.js from the signed R2 URL. No server-side rendering, so no container is needed. |
+| Invoices for fixtures | Synthetic invoices that look like normal vendor invoices. Swap in real (redacted) ones later and re-record. |
 
 ---
 
@@ -98,14 +101,15 @@ Each milestone lists the work, the tests it adds, and the check that closes it.
 Work
 - `apps/web`: `create-next-app` (App Router, TS, Tailwind, ESLint) and `shadcn init`. Theme tokens in `globals.css`. App shell: sidebar with the §15 screens (placeholders), header with tenant switcher.
 - `packages/db`: Drizzle client (`postgres-js`), `drizzle.config.ts`, migration runner script, `withTenant()`. Migration `0000_platform`: extensions (`vector`, `pg_trgm`, `pgcrypto`), `uuid_generate_v7()`, `app_user` role, plus the `tenant`, `app_user` and `membership` tables (M1 adds the rest).
-- `packages/auth`: `getSession()`, `requireRole()`, `activeTenant()`. `dev` and `supabase` adapters.
+- `packages/auth`: `getSession()`, `requireRole()`, `activeTenant()`. `dev` and `access` adapters.
+- Deploy spike (do this first): OpenNext build of the empty app → Worker `countersign-dev` on a custom domain behind Access, Hyperdrive → Neon `dev`, R2 bucket, Inngest Cloud syncing `/api/inngest`, and one `withTenant()` round trip. GitHub workflows modelled on Datum's `deploy.yml`, `neon-preview.yml` and `ci.yml`.
 - Inngest: client in `packages/workflows`, `/api/inngest` serve route, one `hello` function.
 - Seed: one tenant ("Millwork demo"), one advisor (`advisor@example.com`), one client_admin.
 - Tooling: `scripts/check-deps.mjs`, Vitest workspace config, `pnpm dev` runs Next and the Inngest dev server together (`concurrently`). CI workflow: install, typecheck, check-deps, test against a `pgvector/pgvector:pg16` service.
 
 Tests: `withTenant` sets and clears the setting; check-deps fails on a bad import (fixture).
 
-**Done when** `pnpm dev` serves the app and Inngest dashboard shows the `hello` function; signing in as the seeded advisor lands on the shell.
+**Done when** `pnpm dev` serves the app and Inngest dashboard shows the `hello` function; signing in as the seeded advisor lands on the shell; the deploy spike's Worker answers behind Access and reads a tenant row from Neon.
 
 ### M1: Full schema, RLS, immutability, seed
 
@@ -126,7 +130,7 @@ Tests
 ### M2: Upload connector, storage, extraction, validation
 
 Work
-- `packages/connectors`: `Connector` interface (§6.1). `ObjectStore` (S3 client: Supabase Storage / R2 / MinIO). `upload/`: files go to `document(source='upload')`, stored once per sha256. CSV of purchases goes to `raw_record(provider='upload')`, then `mapUploadPurchase` produces transactions.
+- `packages/connectors`: `Connector` interface (§6.1). `ObjectStore` (S3 client against R2; local filesystem adapter for dev and tests). `upload/`: files go to `document(source='upload')`, stored once per sha256. CSV of purchases goes to `raw_record(provider='upload')`, then `mapUploadPurchase` produces transactions.
 - `packages/core/mappers`: raw → `TransactionInput` (upload now, QBO in M9).
 - `packages/llm`: client wrapper, record/replay, cost accounting, `callTool<T>(schema)`.
 - `packages/documents`: `extract(documentId)` → `doc_extraction` + `doc_line` (always a new row). `validateTotals()` per §7.1. On failure: `needs_review` + `inbox_item(extraction_review)`. `linkToTransaction()` by vendor + total + date ±7 days.
@@ -229,7 +233,9 @@ Tests: command parser; Playwright e2e: upload invoice → match review → Price
 - Intuit API details (M9, see above).
 - Anthropic: PDF input limits, the tool-use output format with `tool_choice`, and current model prices (M2/M4). Model ids come from agent definitions, with defaults in §2 of the architecture.
 - Inngest: wildcard triggers (`senses/*`), `waitForEvent` with an `if` expression, and `@inngest/test` support for waits, all on the SDK version installed in M0.
-- Supabase: `app_user` role creation and `force row level security` behaviour with its pooler (transaction mode + `set_config(..., true)` is fine; session-level settings are not).
+- Neon + Hyperdrive: `app_user` role creation on Neon, `force row level security`, and that Hyperdrive's transaction pooling keeps `set_config(..., true)` inside the transaction (session-level settings would leak between requests).
+- OpenNext on Workers: bundle size within the Worker limit, server actions and route handlers working, and the Inngest serve handler running under `nodejs_compat`.
+- Inngest on Workers: a step making a long Claude call (30–90 s) completes. Workers limit CPU time, not time spent waiting on I/O.
 
 ## 6. Risks
 
@@ -240,10 +246,15 @@ Tests: command parser; Playwright e2e: upload invoice → match review → Price
 | RLS bypassed by connecting as owner | App env only has `app_user`; a test asserts `current_user` isn't the owner in the request path. |
 | Inngest semantics differ from this plan | Checked at the start of M0 (hello function) and M5 before the executor is built on them. |
 | QBO app approval delays | Upload connector is the demo path; M9 runs only against the sandbox. |
+| Next.js on Workers fights back (bundle size, Node APIs) | Found in the M0 deploy spike, before any screens exist. Fallback is Datum's shape: Vite + React SPA as Worker assets with a Hono API in the same Worker. Packages are unaffected; only `apps/web` changes. |
 
-## 7. Questions for the owner
+## 7. Owner answers and open questions
 
-1. Auth/hosting: OK with Supabase + Vercel (§1.1), or match Datum's Neon + Cloudflare?
-2. Groundwork: is there a package or token file to import, or should M0 copy the tokens in by hand?
-3. Sample invoices: can we get 3–5 real (redacted) invoices from the millwork shop's vendors? Synthetic fixtures cover M2, but real ones set the accuracy bar.
-4. Purchaser identity: how does the shop know who bought what (QBO class, memo, card holder)? This shapes `purchaser_ref` and doc requests.
+Answered (2026-11-03)
+- Hosting: keep Cloudflare + Neon for consistency with the other projects (§1.1).
+- UI: the owner is designing the screens on Groundwork; designs to be uploaded.
+- Invoices: build on synthetic invoices; real ones can be added later.
+- Purchaser routing: undecided. Send all doc requests to an admin for now (§1.1).
+
+Open
+1. Groundwork: is there a package or token file to import, or should M0 copy the tokens in by hand? (Probably answered by the design upload.)
