@@ -29,9 +29,6 @@ importers:
       '@countersign/auth':
         specifier: workspace:*
         version: link:../../packages/auth
-      '@countersign/catalog':
-        specifier: workspace:*
-        version: link:../../packages/catalog
       '@countersign/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
@@ -47,9 +44,9 @@ importers:
       '@countersign/llm':
         specifier: workspace:*
         version: link:../../packages/llm
-      '@countersign/pricing':
+      '@countersign/pack-materials':
         specifier: workspace:*
-        version: link:../../packages/pricing
+        version: link:../../packs/materials
       '@countersign/senses':
         specifier: workspace:*
         version: link:../../packages/senses
@@ -68,9 +65,9 @@ importers:
 
   packages/agents:
     dependencies:
-      '@countersign/catalog':
+      '@countersign/connectors':
         specifier: workspace:*
-        version: link:../catalog
+        version: link:../connectors
       '@countersign/core':
         specifier: workspace:*
         version: link:../core
@@ -83,9 +80,9 @@ importers:
       '@countersign/llm':
         specifier: workspace:*
         version: link:../llm
-      '@countersign/pricing':
+      '@countersign/senses':
         specifier: workspace:*
-        version: link:../pricing
+        version: link:../senses
       '@countersign/threads':
         specifier: workspace:*
         version: link:../threads
@@ -98,21 +95,6 @@ importers:
       '@countersign/db':
         specifier: workspace:*
         version: link:../db
-
-  packages/catalog:
-    dependencies:
-      '@countersign/core':
-        specifier: workspace:*
-        version: link:../core
-      '@countersign/db':
-        specifier: workspace:*
-        version: link:../db
-      '@countersign/llm':
-        specifier: workspace:*
-        version: link:../llm
-      '@countersign/senses':
-        specifier: workspace:*
-        version: link:../senses
 
   packages/connectors:
     dependencies:
@@ -155,18 +137,6 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/pricing:
-    dependencies:
-      '@countersign/core':
-        specifier: workspace:*
-        version: link:../core
-      '@countersign/db':
-        specifier: workspace:*
-        version: link:../db
-      '@countersign/senses':
-        specifier: workspace:*
-        version: link:../senses
-
   packages/senses:
     dependencies:
       '@countersign/core':
@@ -205,6 +175,27 @@ importers:
       '@countersign/threads':
         specifier: workspace:*
         version: link:../threads
+
+  packs/materials:
+    dependencies:
+      '@countersign/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
+      '@countersign/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@countersign/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@countersign/documents':
+        specifier: workspace:*
+        version: link:../../packages/documents
+      '@countersign/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+      '@countersign/senses':
+        specifier: workspace:*
+        version: link:../../packages/senses
 
 packages:
 

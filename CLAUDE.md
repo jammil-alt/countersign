@@ -1,15 +1,17 @@
 # Countersign: working rules
 
-Back-office agent platform: connects to a small business's systems (QuickBooks Online first), keeps a clean
-copy of their data, and runs versioned agents that each own one back-office job. First job: material
-cost management for a millwork shop.
+Back-office **agent platform**: a business connects its tools in one place (QuickBooks Online first), picks
+from a library of skills, creates agents from scratch, lays out their work as a drag-and-drop workflow,
+and the agents do the work and update the tools (writes approved by a person). The first agent, Pia, does
+material cost management for a millwork shop; she ships as the Materials pack and is built only from
+platform parts.
 
-- What to build: `docs/ARCHITECTURE.md` (v0.2). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.3). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: repo set up, M0 not started. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.3. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys).
 
@@ -18,19 +20,18 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | Path | What |
 |---|---|
 | `apps/api` | Hono Worker: `/api` routes, auth, static assets, Workflow classes, cron. The only place that wires packages together and the only place with Workers bindings. |
-| `apps/web` | React + Vite app: screens and typed API client. Imports only `@countersign/core`. |
-| `packages/core` | Domain types, Zod schemas (`AgentDefinition`, `WorkflowDefinition`), API route contract, units of measure, money, raw → normalized mappers. |
+| `apps/web` | React + Vite app: screens, the workflow canvas (React Flow), pack screens under `src/packs/<id>/`, typed API client. Imports only `@countersign/core`. |
+| `packages/core` | Domain types and Zod schemas (agent, skill, workflow graph, tool, connector, pack), graph validation and template typing (shared with the canvas), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
 | `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
 | `packages/senses` | Event outbox (`emit`, `undispatched`, `markDispatched`); `apps/api` dispatches. |
-| `packages/connectors` | `Connector` interface, `upload/`, `qbo/`, object storage. |
-| `packages/documents` | Locate, store, extract, validate totals. |
-| `packages/catalog` | Normalize, parse attributes, candidates, match, alias learning. |
-| `packages/pricing` | Price observations, alert rules. |
+| `packages/connectors` | Connector framework (manifest with tools), `upload/`, `qbo/`, object storage. |
+| `packages/documents` | Documents capability: store, locate, extract, validate, link. |
 | `packages/threads` | Threads, messages, `/command` parsing. |
-| `packages/agents` | Definition versioning, runtime, tool registry, Builder. |
-| `packages/workflows` | Workflow executor against a `StepRunner` interface, senses router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
+| `packages/agents` | Tool, skill and agent registries; versioning (agents, skills, workflows); runtime; permission gate; external actions; Builder. |
+| `packages/workflows` | Workflow graph executor against a `StepRunner` interface, trigger router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
+| `packs/materials` | Materials pack: catalog, matching, pricing, alerts; its tools, skills, tables, routes; the Pia template agent and her two workflows. |
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
@@ -60,18 +61,22 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 
 1. **Tenant isolation.** Every tenant table has `tenant_id` and RLS (`force`d). The Worker connects as `cs_worker`
    (member of `cs_runtime` only, created with SQL, never a Neon-managed role) and touches tenant data only inside `withTenant()`. Queries also filter by `tenant_id`.
-2. **Layering.** Packages depend downward only (`docs/plan.md` §2). Agent reasoning reaches business data
-   only through registered tools; in `packages/agents`, only `src/registry/` and `src/log/` import `db`.
-3. **Immutable history.** `agent_version`, `workflow_version`, `raw_record` and `doc_extraction` are never
+2. **Layering.** Packages depend downward only (`docs/plan.md` §2). **The platform never imports a pack**;
+   packs never import `agents` or `workflows`; nothing in `packages/*` special-cases a pack. Agent reasoning
+   reaches business data only through registered tools; in `packages/agents`, only `src/registry/` and
+   `src/log/` import `db`.
+3. **Immutable history.** `agent_version`, `skill_version`, `workflow_version`, `raw_record` and `doc_extraction` are never
    updated (status columns excepted) or deleted. Edits insert new versions; re-extraction inserts new rows.
-4. **No settings in code.** The runtime reads agent and workflow definitions only from version rows.
-   Seeded definitions live as JSON under `packages/db/seed/` and are inserted by the seed.
+4. **No settings in code.** The runtime reads agent, skill and workflow definitions only from version rows.
+   Platform agents are seeded from `packages/db/seed/`; pack templates are installed when a pack is enabled.
+   The canvas and the executor share one graph schema and one validator (`packages/core`).
 5. **Validate at every boundary.** Zod for definitions, tool inputs/outputs, API bodies, model output.
 6. **Money is decimal.** `numeric(14,4)` + currency; `decimal.js` in code; never JS floats.
 7. **Deterministic first, model second, human last.** Hard matching rules veto the model. Never compare prices
    across different `standard_uom` without a conversion rule.
-8. **Side effects are gated.** `external` tools are never in `auto`; new agents start `suggest_only`.
-   Read-only toward client systems in v1 (no QBO write scopes).
+8. **Side effects are gated.** Writes to connected tools happen only through `external` tools, each an
+   `external_action` approved by a person in v1, executed once (idempotency key), with prior state recorded.
+   `external` tools are never in `auto`; new agents start `suggest_only`; test runs never write.
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
    instructions. Agents cannot change their own permissions.
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without

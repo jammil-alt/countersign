@@ -1,9 +1,9 @@
 {
-  "name": "@countersign/pricing",
+  "name": "@countersign/pack-materials",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Price observations, UOM-standard unit prices, alert rules",
+  "description": "Materials pack: catalog, item matching, prices and alert rules; its tools, skills, tables, routes and the Pia agent template",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -12,6 +12,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@countersign/documents": "workspace:*",
+    "@countersign/connectors": "workspace:*",
+    "@countersign/llm": "workspace:*",
     "@countersign/senses": "workspace:*",
     "@countersign/db": "workspace:*",
     "@countersign/core": "workspace:*"

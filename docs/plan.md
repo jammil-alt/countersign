@@ -1,13 +1,13 @@
 # Countersign: v1 implementation plan
 
-Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.2). This file says *how* and
+Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.3). This file says *how* and
 *in what order*. It follows the Build plan (ARCHITECTURE §18) milestone by milestone. Each milestone
 ends green: `pnpm typecheck && pnpm test` pass and its "done when" check is shown working.
 
 Nothing here adds to the v1 scope in ARCHITECTURE §1. When this plan fills a gap the architecture leaves
 open, it says **DECISION**, and the code carries a `// DECISION:` comment at the spot.
 
-Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1).
+Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1). Product shape: an agent platform, with Materials as the first agent (ARCHITECTURE v0.3).
 
 ---
 
@@ -20,7 +20,7 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Stack and hosting | **Same as Plenary Labs** (ARCHITECTURE v0.2). `apps/api`: one Hono Worker serving `/api/*`, the built `apps/web` as static assets (`run_worker_first: ["/api/*"]`), the Cloudflare Workflow classes and the cron handler. `apps/web`: React + Vite + React Router. Postgres 16 with pgvector on **Neon** (branches `main` = production, `staging`, plus throwaway `ci-run*` branches per CI run, as in Plenary Labs; environments in `docs/operations.md`). Files in **R2** (Worker binding; S3 API only for signed URLs). Toolchain copied from Plenary Labs: pnpm, TypeScript, Biome, Vitest with `@cloudflare/vitest-pool-workers`. | One stack across projects: same accounts, deploy workflows, runbooks and habits. No Next.js-on-Workers adapter and no second job vendor. Supabase's extras (auth, realtime, storage) are covered by WorkOS, Durable Objects and R2. |
 | DB driver from Workers | **Hyperdrive → Neon, with `postgres-js` + Drizzle.** Locally, Hyperdrive's `localConnectionString` points at Docker Postgres. Fallback: Neon's serverless driver in WebSocket `Pool` mode. | `withTenant()` needs interactive transactions (`set_config(..., true)` then queries). Hyperdrive supports them, and Neon's HTTP mode doesn't. Plenary Labs already reaches Neon through Hyperdrive with Drizzle; check `set_config` inside a transaction in the M0 deploy spike. |
 | Auth provider | **WorkOS (AuthKit), as in Plenary Labs.** Port its `apps/api/src/identity/` (WorkOS client, AES-GCM sealed session cookie with a 5-minute refresh, provisioning on callback). Identity is the WorkOS user, mapped to `app_user`. A WorkOS organization maps to a `tenant` (`tenant.workos_organization_id`). Roles stay in our `membership` table, so an advisor can belong to many tenants. Behind `packages/auth` with two adapters: `workos` (deployed) and `dev` (local + e2e: seeded users, refused when `NODE_ENV=production`). | Already proven in your stack. Covers what Supabase Auth would add (invites, magic links, client self-serve) plus B2B extras for later (SSO, directory sync, an admin portal per client). |
-| Purchaser doc requests | **Inbox only in v1, routed to an admin.** `docs.request_from_purchaser` creates an `inbox_item(kind='doc_request', assignee_role='client_admin')`. Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. A `Mailer` interface with a Resend adapter is wired up but used only when `RESEND_API_KEY` is set. | External side effects stay off by default (§16). The demo doesn't need email. |
+| Document requests | **Inbox only in v1, routed to an admin.** `docs.request_from_person` creates an `inbox_item(kind='request', assignee_role='client_admin')`. Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. A `Mailer` interface with a Resend adapter is wired up but used only when `RESEND_API_KEY` is set. | Email is off by default. The demo doesn't need it. |
 | Embeddings | **Ship without vectors.** `catalog_item.embedding` stays nullable. Candidates come from key attributes plus `pg_trgm`. | §20 says trigram + attributes is enough for v1. Adding a provider later is one tool change. |
 
 ### 1.2 Gaps filled while planning
@@ -32,20 +32,25 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Global tables | `tenant` and `app_user` have no `tenant_id`. They are read only by `packages/auth` through a narrow owner-side query module. `membership` is tenant-scoped like every other table. |
 | Advisor across tenants | The session holds an *active tenant*. Every request checks it against `membership`. A tenant switcher sits in the header. |
 | Migrations | `drizzle-kit generate` for tables. Hand-written custom SQL migrations (`drizzle-kit generate --custom`) for extensions, roles, `uuid_generate_v7`, the RLS loop, immutability triggers, and the `item_alias` expression unique index (`coalesce(...)`), which Drizzle can't express. |
-| Immutability | One trigger function `forbid_update_except(variadic cols text[])`. Attached to `agent_version`, `workflow_version` (allow `status`), `raw_record` (allow `is_deleted`) and `doc_extraction` (allow nothing). `DELETE` is blocked on all four. |
+| Immutability | One trigger function `forbid_update_except(variadic cols text[])`. Attached to `agent_version`, `skill_version`, `workflow_version` (allow `status`), `raw_record` (allow `is_deleted`) and `doc_extraction` (allow nothing). `DELETE` is blocked on all five. |
 | Money | `numeric(14,4)` maps to `string` in Drizzle. `packages/core/money` wraps `decimal.js`. No JS floats for money. |
 | Senses outbox | `event` gets one extra column, `dispatched_at timestamptz null`. `emit()` inserts the row inside the caller's transaction. After commit, the Worker dispatches it in `ctx.waitUntil()` (router below) and stamps `dispatched_at`. The cron (every minute) re-dispatches anything undispatched for more than 30 s. Dispatching twice is harmless because run ids are deterministic (next row). |
-| Starting runs | One Workflow class, **`RunWorkflow`**, executes any definition. A pure router in `packages/workflows` maps a sense event to the enabled workflows (live version) whose `trigger.event` and `filter` match. `apps/api` then calls `env.RUN_WORKFLOW.create({ id: runId, params })` for each. **Run ids are deterministic** for triggered runs: uuid v5 of (event id, workflow id) for events and of (workflow id, scheduled time) for schedules, so a re-dispatch or a repeated cron tick can't start a second run (`create` with a used id is refused). Command runs get a fresh v7. Schedules: the same every-minute cron checks each schedule trigger (`cron` + `tz`, via `cron-parser`). // DECISION: v5 for triggered run ids, v7 elsewhere. |
-| Waiting on inbox items | `inbox_item` gets `run_id uuid null` (the workflow instance waiting on it). The step creates the item, then checks it isn't already resolved, then calls `step.waitForEvent(name, { type: 'inbox-<id without dashes>', timeout })`. `POST /api/inbox/:id/resolve` writes the resolution, then `env.RUN_WORKFLOW.get(runId).sendEvent({ type, payload })`. A timeout throws inside the step; the executor catches it and follows `onTimeout` (or marks the step `expired`). |
-| Executor and Workers types | `packages/workflows` runs definitions against a small `StepRunner` interface (`do`, `waitForEvent`, `sleep`) and has no Workers types. `apps/api`'s `RunWorkflow` adapts Cloudflare's `WorkflowStep` to it, the way Plenary Labs' `run-group.ts` passes `step.sleep` in. Unit tests use a fake runner; one Workers-pool test drives the real class. Step outputs stay small (ids and short summaries), because step results have a size limit. `loop` runs items with bounded concurrency (10) through parallel `step.do` calls named `${stepId}:${index}`. |
-| Expressions and templates | JSONLogic (`json-logic-js`) for `condition.if` and `map`. Templates `{{steps.<id>.output.<path>}}` / `{{trigger.<path>}}` use a small path resolver. No `eval`, no JS. |
-| Agents vs `db` | §3 says agents never import `db` directly. Read as: **agent reasoning reaches business data only through tools**. Inside `packages/agents`, only `src/registry/` (agent, agent_version) and `src/log/` (step_run, tool_call) may import `@countersign/db`. Tool handlers call domain packages (`catalog`, `pricing`, …). A dependency check enforces this (§2). |
-| Seeded agent definitions | JSON files in `packages/db/seed/agents/<slug>.v1.json`, validated by `AgentDefinition` and inserted as v1 rows by the seed. The runtime only ever reads `agent_version` rows (§9.2). The same goes for workflows: `packages/db/seed/workflows/*.v1.json`. |
+| Starting runs | One Workflow class, **`RunWorkflow`**, executes any graph. A pure router in `packages/workflows` maps a sense event to the enabled workflows (live version) whose trigger node's `event` and `filter` match. `apps/api` then calls `env.RUN_WORKFLOW.create({ id: runId, params })` for each. **Run ids are deterministic** for triggered runs: uuid v5 of (event id, workflow id) for events and of (workflow id, scheduled time) for schedules, so a re-dispatch or a repeated cron tick can't start a second run (`create` with a used id is refused). Manual, command and test runs get a fresh v7. Schedules: the same every-minute cron checks each schedule trigger (`cron` + `tz`, via `cron-parser`). // DECISION: v5 for triggered run ids, v7 elsewhere. |
+| Waiting on inbox items | The node (approval, request, or a gated tool call) creates the inbox item with `run_id`, checks it isn't already resolved, then calls `step.waitForEvent(name, { type: 'inbox-<id without dashes>', timeout })`. `POST /api/inbox/:id/resolve` writes the resolution, then `env.RUN_WORKFLOW.get(runId).sendEvent({ type, payload })`. A timeout throws inside the step; the executor catches it and follows the node's `timeout` port (or marks the step `expired`). |
+| Executor and Workers types | `packages/workflows` walks graphs against a small `StepRunner` interface (`do`, `waitForEvent`, `sleep`) and has no Workers types. `apps/api`'s `RunWorkflow` adapts Cloudflare's `WorkflowStep` to it, the way Plenary Labs' `run-group.ts` passes `step.sleep` in. Unit tests use a fake runner; one Workers-pool test drives the real class. Step outputs stay small (ids and short summaries), because step results have a size limit. Parallel branches run as concurrent `step.do` calls; `loop` children run with the node's `concurrency` (default 10) under names `${nodeId}:${index}:${childId}`. |
+| Expressions and templates | JSONLogic (`json-logic-js`) for `condition.if`. Templates `{{nodes.<id>.output.<path>}}` / `{{trigger.<path>}}` / `{{item}}` use a small path resolver in `packages/core`, shared by the canvas (template picker, validation) and the executor. No `eval`, no JS. |
+| Agents vs `db` | **Agent reasoning reaches business data only through tools.** Inside `packages/agents`, only `src/registry/` (agent, skill and workflow versions) and `src/log/` (step_run, tool_call, external_action) may import `@countersign/db`. Tool handlers live with their owners (platform, connectors, packs). The dependency check enforces this (§2). |
+| Seeded and template definitions | Platform agents (`document-clerk`, `coordinator`, `builder`): JSON in `packages/db/seed/agents/<slug>.v1.json`, inserted per tenant as v1 rows. Pack templates (Pia and her workflows) live in the pack's manifest and are inserted when the pack is enabled for a tenant. All are validated by their Zod schemas (and graph validation) before insert. The runtime only ever reads version rows. |
 | LLM record/replay | `packages/llm` hashes (model, system, messages, tools, tool_choice) into `fixtures/llm/<hash>.json`. `LLM_MODE=replay` is the test default and fails loudly on a miss. `record` calls the API and writes the file. `live` doesn't touch fixtures. |
 | Cost | Per-model token price table in `packages/llm/pricing.ts`. Check the numbers against current Anthropic pricing when M4 starts; nothing is hard-coded from memory. |
 | Extraction input | Send a PDF as a `document` content block (base64) and images as `image` blocks, with `tool_choice` forcing the `record_invoice` tool, whose schema is `InvoiceExtraction` (Zod → JSON Schema). Check page and size limits at M2 and split long PDFs by page if needed. |
-| UI | Built from the owner's screen designs (coming), on the **Groundwork** design system. Tailwind + shadcn/ui primitives, themed by Groundwork tokens as CSS variables (one `tokens.css`, mapped into the Tailwind theme), so screens use token names, never raw colours. If Groundwork ships components, they replace the matching shadcn ones. Until the designs land, M0 builds only the shell and token plumbing; screen work (M6+) follows the designs. |
+| UI | Built from the owner's screen designs (coming), on the **Groundwork** design system. Tailwind + shadcn/ui primitives, themed by Groundwork tokens as CSS variables (one `tokens.css`, mapped into the Tailwind theme), so screens use token names, never raw colours. If Groundwork ships components, they replace the matching shadcn ones. Until the designs land, M0 builds only the shell and token plumbing; screen work (M5+) follows the designs. |
 | Live updates | **v1 polls.** The run page polls every 2 s while a run is going; the inbox badge and thread view every 15–30 s. Every long job exposes a status the UI can poll. Later upgrade: push over WebSockets from a Durable Object, the way Plenary Labs' `GroupLog` streams sessions. |
+| Workflow graph model | Graph (`nodes` + `edges` with ports), not an ordered step list, so the canvas and the executor share one shape (ARCHITECTURE §10.1). `position` lives on each node and is ignored by the executor; moving a node is still a new draft version, because the definition changed. // DECISION: drafts save every 2 s of idle editing as one rolling draft version per editor session, so history isn't flooded; publish creates the version people see in history. |
+| Canvas | React Flow (`@xyflow/react`) for the canvas, ELK (`elkjs`, in a web worker) for auto-layout. Nodes are our components styled with Groundwork tokens. The palette, inspector and node forms are generated from skill and tool schemas, so a new skill appears in the palette without UI code. Graph validation runs in the browser on every change (same code as the server). |
+| Packs | A pack is a workspace package under `packs/` exporting a `PackManifest` (ARCHITECTURE §12.1), tool handlers, a Drizzle schema and Hono routes. Its tables go in the one migration sequence (drizzle config lists every pack schema). `apps/api` registers packs in one list; enabling a pack per tenant is a row in `tenant_pack` plus template installation. |
+| External actions | A gated tool call writes `external_action(status='proposed')` and an inbox item in the same transaction; approval flips it to `approved`; execution runs in its own `step.do` keyed by the idempotency key (`<run id>:<node id>:<index>`), so a retried step can't write twice. Connectors implement `before` capture where the API allows (QBO: read the record with its `SyncToken` first). |
+| Custom skills | Authored as a form (name, description, instructions, tool picker limited to tools available to the tenant, input/output field editors that produce JSON Schema, settings). Always `agent` mode. No code. |
 | Page thumbnails (match review) | Render in the browser with pdf.js from the signed R2 URL. No server-side rendering, so no container is needed. |
 | Invoices for fixtures | Synthetic invoices that look like normal vendor invoices. Swap in real (redacted) ones later and re-record. |
 
@@ -54,17 +59,17 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
-`scripts/check-deps.mjs` (run by `pnpm lint:deps`) fails on any other workspace import.
+`scripts/check-deps.mjs` (run by `pnpm lint:deps`) fails on any other workspace import, on a platform
+package that depends on a pack, and on a pack that depends on anything outside its allowed set.
 
 ```
 apps/api ─▶ workflows ─▶ agents ─▶ documents ─▶ connectors ─▶ db ─▶ core
-                │          │  ├──▶ catalog ────────────────▶ db
-                │          │  ├──▶ pricing ────────────────▶ db
-                │          │  └──▶ threads ────────────────▶ db
-                │          └──▶ llm ─▶ core        (also used by documents, catalog)
-                └──▶ senses ─▶ db                   (used by documents, catalog, pricing, threads)
-auth ─▶ db                                          (used by apps/api only)
-apps/web ─▶ core                                    (route contract + shared types; talks to apps/api over HTTP)
+   │            │          └─▶ threads ─────────────────────▶ db
+   │            │          └─▶ llm, senses, connectors
+   │            └─▶ senses ─▶ db
+   ├─▶ auth ─▶ db
+   └─▶ packs/materials ─▶ documents, connectors, llm, senses, db, core   (never agents or workflows)
+apps/web ─▶ core                    (route contract, schemas, graph validation; HTTP to apps/api)
 ```
 
 | Package | Workspace deps |
@@ -76,23 +81,29 @@ apps/web ─▶ core                                    (route contract + shared
 | `senses` | db, core |
 | `connectors` | db, core |
 | `documents` | connectors, llm, senses, db, core |
-| `catalog` | llm, senses, db, core |
-| `pricing` | senses, db, core |
 | `threads` | senses, db, core |
-| `agents` | documents, catalog, pricing, threads, llm, db\*, core |
+| `agents` | documents, threads, connectors, llm, senses, db\*, core |
 | `workflows` | agents, threads, senses, db, core |
+| `packs/materials` | documents, connectors, llm, senses, db, core |
 | `apps/api` | any |
 | `apps/web` | core |
 
 \* only from `agents/src/registry/` and `agents/src/log/` (see §1.2).
 
+The registries in `agents` hold tools and skills from three sources: the platform, connectors and packs.
+`apps/api` builds them at startup from the platform's own list, each registered connector's manifest,
+and each pack's manifest; nothing in `packages/*` names a pack.
+
 ---
 
-## 3. Today's demo cutline
+## 3. Demo cutline
 
-ARCHITECTURE §18: if time is short, **M0–M8 with the upload connector is the demo**. M9 (QBO) follows.
-The order below keeps something runnable at every step. A good fallback stop is after M6: upload → priced
-lines → alerts on Price watch, with inbox decisions made through the API.
+ARCHITECTURE §18: if time is short, **M0–M8 with the upload connector is the demo**: create an agent
+on the canvas, and show Pia running purchase-intake on uploaded invoices. M9 (QBO) follows.
+Fallback stops that still demo the platform:
+- after **M7**: build an agent from scratch on the canvas with platform skills (extract a document,
+  ask for approval, post to a thread), test-run and publish it, watch it run;
+- after **M8**: the same, plus Pia end to end on uploaded invoices with Price watch.
 
 ---
 
@@ -106,131 +117,133 @@ Work
 - Deploy spike (do this first, against real Cloudflare + Neon): Worker `countersign-staging` with WorkOS sign-in; Hyperdrive → Neon `staging` with one `withTenant()` round trip (checks `set_config` stays inside the transaction); R2 put, get and a 5-minute signed URL; a `HelloWorkflow` instance that runs one `step.do` making a 60–90 s Claude call, waits on `step.waitForEvent`, resumes on `sendEvent`, and on a second instance takes the timeout path. Any surprise here changes this plan before M1.
 - `apps/api`: Hono Worker. `wrangler.jsonc` with assets (`../web/dist`), Hyperdrive, R2 and Workflow bindings, cron `* * * * *`. `/api/health`, `/api/session`. Zod route contract in `packages/core/src/api/`.
 - `apps/web`: Vite + React + React Router, Tailwind + shadcn primitives, Groundwork tokens in `tokens.css`. App shell: sidebar with the §15 screens (placeholders), header with tenant switcher. Typed client from the route contract.
-- `packages/db`: Drizzle client (`postgres-js` over Hyperdrive), `drizzle.config.ts`, migration runner (direct URL), `withTenant()`. Migration `0000_platform`: extensions (`vector`, `pg_trgm`, `pgcrypto`), `uuid_generate_v7()`, the `cs_runtime` role and its grants, plus the `tenant`, `app_user` and `membership` tables (M1 adds the rest).
+- `packages/db`: Drizzle client (`postgres-js` over Hyperdrive), `drizzle.config.ts` (platform + pack schemas), migration runner (direct URL), `withTenant()`. Migration `0000_platform`: extensions (`vector`, `pg_trgm`, `pgcrypto`), `uuid_generate_v7()`, the `cs_runtime` role and its grants, plus the `tenant`, `app_user` and `membership` tables (M1 adds the rest).
 - `packages/auth`: `getSession()`, `requireRole()`, `activeTenant()`. `dev` and `workos` adapters (ported from Plenary Labs' `apps/api/src/identity/`).
 - Seed: one tenant ("Millwork demo"), one advisor (`advisor@example.com`), one client_admin.
 - `packages/db/scripts/provision-worker-role.mjs`: creates or re-keys `cs_worker` (used by `scripts/setup-postgres.sh` and on each Neon branch). Port Plenary Labs' `scripts/connect.sh` to wire Hyperdrive and local env files.
-- Already done in repo setup: toolchain, Biome, `scripts/check-deps.mjs`, `pnpm dev` / `dev:web` scripts, `ci.yml` / `checks.yml` / `deploy.yml`, `scripts/setup-postgres.sh`. M0 adds `wrangler`, `@cloudflare/vitest-pool-workers`, Vite and React, and the `staging` env in `apps/api/wrangler.jsonc`.
+- Already done in repo setup: toolchain, Biome, `scripts/check-deps.mjs` (including the pack rules), `pnpm dev` / `dev:web` scripts, `ci.yml` / `checks.yml` / `deploy.yml`, `scripts/setup-postgres.sh`. M0 adds `wrangler`, `@cloudflare/vitest-pool-workers`, Vite and React, and the `staging` env in `apps/api/wrangler.jsonc`.
 
 Tests: `withTenant` sets and clears the setting; check-deps fails on a bad import (fixture); `HelloWorkflow` resumes on an event and times out without one (Workers pool).
 
 **Done when** `pnpm dev` runs the Worker (API + Workflows) and the app, signing in as the seeded advisor lands on the shell, and the deployed spike signs in through WorkOS, reads a tenant row from Neon and resumes a waiting Workflow.
 
-### M1: Full schema, RLS, immutability, seed
+### M1: Platform schema, core schemas, graph validation, seed
 
 Work
-- Drizzle schema for every table in ARCHITECTURE §5.1–5.3. Composite `(tenant_id, …)` indexes as listed. `ext jsonb default '{}'` on `vendor`, `transaction`, `catalog_item`. `event.dispatched_at` and `inbox_item.run_id` (§1.2).
-- Custom migrations: RLS loop over every tenant table, `forbid_update_except` triggers, `item_alias` expression unique index, `price_observation` index.
-- `packages/core`: Zod schemas `AgentDefinition` (§9.1) and `WorkflowDefinition` + `Step` (§10.1), exported as JSON Schema too (`zod-to-json-schema`). Units table and conversions (§12). Money.
-- Seed: agent definitions for `document-clerk`, `catalog`, `purchasing` ("Pia"), `coordinator`, `builder` as v1 rows (live). Workflows `purchase-intake` and `weekly-price-review` as v1 (live, enabled). `definition_hash` = sha256 of canonical JSON (sorted keys).
+- Drizzle schema for ARCHITECTURE §5.1–5.3: connections and raw data, `external_action`, shared business records, `tenant_pack`, skills, agents, workflows, runs, events, threads, inbox, memory. Composite `(tenant_id, …)` indexes. `ext jsonb default '{}'` where §5 says.
+- Custom migrations: RLS loop over every tenant table, `forbid_update_except` triggers (§1.2), grants to `cs_runtime`.
+- `packages/core`: Zod schemas `AgentDefinition` v2, `SkillDefinition`, `WorkflowGraph` + node types, `ToolSpec`, `ConnectorManifest`, `PackManifest`, `EventTypeSpec`, each also exported as JSON Schema. **Graph validation** (ARCHITECTURE §10.2) returning errors with node id and field, and the template resolver + typer. Units table and conversions. Money.
+- Seed: tenant, users, platform agents (`document-clerk`, `coordinator`, `builder`) as v1 rows. `definition_hash` = sha256 of canonical JSON (sorted keys).
 
 Tests
-- Migrations apply on an empty DB, and the seed runs twice without duplicates (idempotent).
-- RLS: as `cs_worker`, tenant A sees nothing from tenant B on every tenant table (one test loops over the table list). No tenant set → no rows.
-- Immutability: `UPDATE agent_version SET definition…` fails; `UPDATE … SET status` works; `DELETE` fails. Same for the other three tables.
-- Every seeded definition parses with its Zod schema.
+- Migrations apply on an empty DB, roll back, re-apply; the seed runs twice without duplicates.
+- RLS: as `cs_worker`, tenant A sees nothing from tenant B on every tenant table (one test loops over the table list). No tenant set → no rows. Privileges: `cs_worker` is not a member of `neon_superuser` and can't bypass RLS.
+- Immutability: `UPDATE agent_version SET definition…` fails; `UPDATE … SET status` works; `DELETE` fails. Same for the other version tables, `raw_record` and `doc_extraction`.
+- Graph validation: one failing fixture per rule, plus valid fixtures for every node type and port; template typing across branches (a field produced on only one branch is an error after the merge).
 
-**Done when** migrations apply and the seed inserts the tenant, agents v1 and workflows v1.
+**Done when** migrations apply, the seed inserts the tenant and platform agents, and the validation suite passes.
 
-### M2: Upload connector, storage, extraction, validation
+### M2: Connector framework, upload, documents
 
 Work
-- `packages/connectors`: `Connector` interface (§6.1). `ObjectStore` (S3 client against R2; local filesystem adapter for dev and tests). `upload/`: files go to `document(source='upload')`, stored once per sha256. CSV of purchases goes to `raw_record(provider='upload')`, then `mapUploadPurchase` produces transactions.
+- `packages/connectors`: `Connector` interface and manifest (ARCHITECTURE §6.1), connector registry, `ObjectStore` (R2 binding; local adapter for tests). `upload/`: files go to `document(source='upload')`, stored once per sha256; CSV of purchases goes to `raw_record(connector='upload')`, then `mapUploadPurchase` produces transactions.
 - `packages/core/mappers`: raw → `TransactionInput` (upload now, QBO in M9).
 - `packages/llm`: client wrapper, record/replay, cost accounting, `callTool<T>(schema)`.
-- `packages/documents`: `extract(documentId)` → `doc_extraction` + `doc_line` (always a new row). `validateTotals()` per §7.1. On failure: `needs_review` + `inbox_item(extraction_review)`. `linkToTransaction()` by vendor + total + date ±7 days.
-- `POST /api/uploads`, `GET /api/documents/:id` (5-minute signed URL + latest extraction).
+- `packages/documents`: store, `findSupport(transactionId)`, `extract(documentId)` → `doc_extraction` + `doc_line` (always a new row), `validateTotals()` (ARCHITECTURE §7), `linkToTransaction()` by vendor + total + date ±7 days. Platform tools `docs.*` and skills `docs.find-support`, `docs.extract`.
+- `POST /api/uploads`, `GET /api/documents/:id` (5-minute signed URL + latest extraction), `GET /api/connectors`.
 - Fixtures: 3 synthetic millwork invoices (sheet goods, hardwood, hardware/finishes; one with freight + fuel surcharge; one multi-page) plus `*.expected.json`. Recorded LLM responses.
 
-Tests: totals validation unit tests (tolerance edges); golden extraction in replay mode (header exact; each line: qty and prices within $0.01, description fuzzy ≥ 0.9); dedupe by sha256; linking window.
+Tests: totals validation (tolerance edges); golden extraction in replay mode (header exact; each line: qty and prices within $0.01, description fuzzy ≥ 0.9); dedupe by sha256; linking window; manifests validate.
 
 **Done when** uploading the 3 fixture invoices produces extractions that match the expected JSON within tolerance.
 
-### M3: Catalog matching
-
-Work in `packages/catalog`, following ARCHITECTURE §12 step by step.
-- `normalize()` with the global abbreviation dictionary plus per-tenant/vendor learned abbreviations.
-- Parsers: sheet goods, hardwood, hardware (required for M3). Mouldings/edgebanding and finishes/adhesives use a basic parser plus the LLM fallback. Each parser declares its **key attributes**.
-- Alias lookup → candidate query (equal key attributes, then `pg_trgm` top-k) → Haiku adjudication → route by `match_confidence_auto` → hard rules last, as a veto the model can't override.
-- `item_alias` learning on human decisions. `POST /api/catalog/:id/merge` sets `merged_into_id` and repoints aliases.
-- Fixtures: `fixtures/matching/*.json`, ≥ 150 labeled pairs, heavy on near-misses (3/4 vs 1/2, BB/BB vs B/BB, 4x8 vs 5x5, prefinished vs not).
-
-Tests: parser tables (`3/4"`, `.75`, `18MM`, `23/32` → `3/4in`; `4X8`, `48X96`, `4'X8'` → `48x96in`); golden precision ≥ 95% on "same" at the auto threshold, with recall reported; Baltic birch across 3 vendors resolves to one catalog item.
-
-**Done when** golden tests show ≥ 95% precision and the Baltic birch example matches across 3 vendors.
-
-### M4: Agent runtime and tools
+### M3: Registries, agent runtime, permission gate, external actions
 
 Work in `packages/agents`.
-- `registry/`: resolve `slug` or `slug@version`; `createVersion` (rejects a no-op by hash); `publish` (one transaction: new live, previous retired, `agent.live_version_id`); `rollback` (copy as a new version with `parent_version_id`).
-- `tools/`: registry with the 16 v1 tools (§9.4). Each has Zod in/out, `sideEffect` and a handler that calls a domain package.
-- `runtime/`: `runAgent()` per §9.3. Platform preamble; memory notes; `finish` tool typed to the command output; budget enforcement → `escalated` + inbox item; permission gate (`auto` / `approval` / `suggest_only` → `inbox_item(approval)` + pending marker); `sources` required for alert-producing commands. Document text always goes in tool results, never in the system prompt (§16).
-- `log/`: `step_run` and `tool_call` rows with tokens and cost.
-- `purchasing` commands: `record-prices` (mode `tool`), `price-check` (mode `agent`).
+- `registry/`: tool registry (platform + connector + pack sources), skill registry (built-ins from code, custom skills from `skill_version` rows, availability by connections and packs), agent registry (resolve `slug[@version]`, `createVersion` rejecting a no-op by hash, `publish` in one transaction, `rollback` as a copy with `parent_version_id`). Same version operations for skills and workflows.
+- `runtime/`: `runAgent()` per ARCHITECTURE §9.5: tool-mode skills call their handler; agent-mode skills run the loop with the skill's tools and a `finish` tool typed to the skill output; budgets → `escalated` + inbox item; `sources` required for skills that produce alerts. Document text only ever in tool results (§16).
+- Permission gate and **external actions** (§1.2): `none` runs; `internal` runs if allowed, else approval; `external` always proposes an action and waits.
+- `log/`: `step_run`, `tool_call`, `external_action` rows with tokens and cost.
+- A test-only connector (`testkit`) with one read tool and one external write tool, so external actions are tested without QBO.
 
-Tests: version publish/rollback/no-op; the permission gate gives each sideEffect × mode combination the right outcome; budget hit escalates; `price-check` in replay mode.
+Tests: version publish/rollback/no-op for agents, skills and workflows; the gate gives each sideEffect × permission × mode the right outcome; an approved external action executes exactly once across a retried step; a rejected one never executes; budget hit escalates; a test agent with `docs.extract` in replay mode.
 
-**Done when** `purchasing.price-check` runs end to end and logs cost.
+**Done when** a test agent with `docs.extract` runs end to end and logs cost, and its external tool call creates an approval and executes once when approved.
 
-### M5: Workflow executor, seeded workflows, senses
-
-Work
-- `packages/senses`: typed `emit()` (outbox), `undispatched()`, `markDispatched()`. Emitted from the mappers, documents, catalog and pricing.
-- `packages/workflows`: the router, the `StepRunner` interface and step executors for all 8 step types (§1.2); each step writes `step_run`; cost rolls up to `run`. Every run appends to the subject's thread.
-- `apps/api`: `RunWorkflow` class, after-commit dispatch in `ctx.waitUntil`, cron sweep and schedule check.
-- `purchase-intake` and `weekly-price-review` run from their seeded definitions.
-
-Tests: template resolution; JSONLogic conditions; executor with a fake `StepRunner` for condition branches, loop fan-out and a wait that resolves and one that times out; `RunWorkflow` in the Workers pool for one full run; a re-dispatched event doesn't start a second run; the cron sweep picks up an undispatched event.
-
-**Done when** uploading an invoice runs intake to priced lines with alerts.
-
-### M6: Pricing, alerts, Price watch
+### M4: Graph executor, triggers, senses, test runs
 
 Work
-- `packages/pricing`: `record()` (std unit price; freight not folded in; landed cost computed separately); the 6 alert rules (§13) with thresholds from the live `purchasing` version; `dollar_impact`; one open alert per (kind, item, vendor).
-- `/prices` screen: item × vendor table with last price, Δ%, 90-day sparkline; alert list with evidence links (invoice page, observations). `GET /api/prices`, `GET/PATCH /api/alerts`.
-- Seed script `seed:demo-prices`: 6 months of observations for ~10 items across 3 vendors.
+- `packages/senses`: typed `emit()` (outbox), `undispatched()`, `markDispatched()`. Emitted by mappers, documents, inbox and external actions.
+- `packages/workflows`: trigger router, `StepRunner` interface, executors for every node type and port (ARCHITECTURE §10.1, §10.3); each node writes `step_run`; cost rolls up to `run`; every run appends to its subject's thread.
+- `apps/api`: `RunWorkflow` class, after-commit dispatch in `ctx.waitUntil`, cron sweep and schedule check, manual and command triggers. **Test runs** (`mode='test'`): external actions recorded as proposed only, no events emitted.
+- Event catalogue (`GET /api/catalog/events`): platform + enabled pack event types with sample payloads.
 
-Tests: one table-driven test per alert rule (fires / doesn't fire at the threshold edge); dedupe; UOM guard (no comparison across different `standard_uom`).
+Tests: template resolution; JSONLogic conditions; executor with a fake `StepRunner` for every node type and port, parallel branches, loop with concurrency, a wait that resolves and one that times out; `RunWorkflow` in the Workers pool for one full run; a re-dispatched event doesn't start a second run; the cron sweep picks up an undispatched event; a test run never executes an external action.
 
-**Done when** seeded price history produces a `price_jump` and a `vendor_spread` alert, each with evidence links.
+**Done when** a seeded graph with a condition, a loop and an approval runs to the end, and a test run proposes but never executes external actions.
 
-### M7: Inbox and match review
+### M5: Inbox, approvals, threads, Connections screen
 
-Work: `/inbox` filtered by role and assignee; match review UI (§15: line + page thumbnail, parsed attributes, candidates side by side with differing attributes highlighted, Match / New item / Skip); approval and extraction-review cards; `POST /api/inbox/:id/resolve` → writes the resolution (and `item_alias(source='human')`) and sends the event to the waiting run (`RUN_WORKFLOW.get(runId).sendEvent`).
+Work: `/inbox` filtered by role and assignee; cards for approval, external action (tool, target record, change, current state), request, extraction review; `POST /api/inbox/:id/resolve` → resolution + `inbox.resolved` + `sendEvent` to the waiting run. `/threads/[id]` basics (messages with source links, post, `/skill` commands → `skill` node on that agent). `/connections`: connectors, status, connect/disconnect, the tools each gives agents, upload.
 
-Tests: resolving a match review resumes the waiting run (Workers pool); client_user sees only items assigned to them.
+Tests: resolving an approval resumes the waiting run (Workers pool); client_user sees only items assigned to them; `/skill` parsing.
 
-**Done when** resolving a match review continues the waiting run.
+**Done when** resolving an approval in the UI continues the waiting run.
 
-### M8: Agents UI and Builder
+### M6: Agents UI, Skills library, Builder
 
 Work
-- `/agents`, `/agents/[slug]` (definition view, version history with change notes, recent runs), publish and rollback actions.
-- Builder: `draft-agent` and `revise-agent` (§9.6). Prompt context = tool registry (id, description, sideEffect), tenant connectors and entities, `AgentDefinition` JSON Schema. Server-side guards: Zod validation, `permissions.mode='suggest_only'` on new agents, `external` tools removed from `auto`, saved as `draft`. Field-level JSON diff rendered as sentences.
-- `/agents/new` and `/agents/[slug]/revise`: describe → draft → review (summary, gaps, diff) → publish.
+- `/agents`, `/agents/new` (from scratch: name, role, mission, instructions, model; or describe → Builder), `/agents/[slug]` editor: identity, instructions, skills picker with per-skill settings, extra tools, permissions (with the external-never-auto rule shown), budgets, version history with change notes and diffs, publish, rollback, spend.
+- `/skills` library: built-in and custom, availability with reasons; custom skill editor (§1.2) with draft/publish.
+- Builder: `draft-agent` and `revise-agent` (ARCHITECTURE §9.6) producing an agent definition **and** workflow graphs; server guards; drafts open in the editor and the canvas.
 
-Tests: guards hold even when the model output violates them; diff sentences; the M8 script below in replay mode.
+Tests: guards hold even when the model output violates them (external tool in `auto`, unknown skill, invalid graph); diff sentences; skill availability rules; the Builder script below in replay mode.
 
-**Done when** "flag card charges over $500 missing receipts" produces a valid draft that lists gaps (no card connector), publish creates v1, revise creates v2 with a diff, and rollback works.
+**Done when** an agent created from scratch with two skills publishes; "flag card charges over $500 missing receipts" produces a valid draft with gaps listed (no card connector); revise creates v2 with a diff; rollback works.
+
+### M7: Workflow canvas and run view
+
+Work (`apps/web`, ARCHITECTURE §10.5)
+- Canvas with React Flow: palette (triggers from the event catalogue, the agent's skills then the library, logic, people, tools by connection, notify, end), drag to add, connect ports, delete, multi-select, undo/redo, ELK auto-layout, loop groups.
+- Inspector: forms generated from skill/tool input schemas; template picker of upstream outputs valid at the node; settings with defaults.
+- Live validation (shared `packages/core` code) with node badges and a clickable summary; save draft; test run with a chosen payload (sample event, recent record, manual input); publish; version history with rollback and a visual diff.
+- Run view: the canvas read-only, nodes coloured by `step_run` status, cost per node, side panel with input, output, tool calls and inbox items; polls while running.
+
+Tests: component tests for add, connect, delete, undo, invalid markers; a round trip (canvas → graph JSON → canvas) keeps every node, edge and position; the done-when script as a Playwright test against `pnpm dev`.
+
+**Done when** a 5-node workflow (trigger → skill → condition → approval → notify) is built on the canvas, test-run, published, and a live run's nodes change state on the run view.
+
+### M8: Materials pack and Pia
+
+Work in `packs/materials` (ARCHITECTURE §12.2–12.4).
+- Schema (`catalog_item`, `item_alias`, `item_match`, `price_observation`) in the shared migration sequence, with RLS and grants; the `item_alias` expression unique index.
+- Catalog: `normalize()`, parsers (sheet goods, hardwood, hardware required; mouldings/edgebanding and finishes/adhesives basic + LLM fallback), each declaring **key attributes**; alias lookup → candidates (equal key attributes, then `pg_trgm`) → Haiku adjudication → route by `match_confidence_auto` → hard rules as a veto; alias learning on human decisions; merge.
+- Pricing: `record()` (std unit price; freight not folded in; landed cost separate); the 6 alert rules with thresholds from skill settings; `dollar_impact`; one open alert per (kind, item, vendor).
+- Manifest: tools, skills, events, Pia and both workflow graphs (validated by the same graph validation); `POST /api/packs/materials/enable` installs them.
+- Screens under `apps/web/src/packs/materials/`: Catalog, Price watch (item × vendor table with last price, Δ%, 90-day sparkline; alerts with evidence links); match review card in the Inbox.
+- Fixtures: `fixtures/matching/*.json` (≥ 150 labeled pairs, heavy on near-misses: 3/4 vs 1/2, BB/BB vs B/BB, 4x8 vs 5x5, prefinished vs not); seed script `seed:demo-prices` (6 months, ~10 items, 3 vendors).
+
+Tests: parser tables (`3/4"`, `.75`, `18MM`, `23/32` → `3/4in`; `4X8`, `48X96`, `4'X8'` → `48x96in`); golden precision ≥ 95% on "same" at the auto threshold, recall reported; Baltic birch across 3 vendors → one item; one table-driven test per alert rule at the threshold edge; dedupe; UOM guard; the pack's templates pass graph validation; layering (the pack imports no `agents`/`workflows`).
+
+**Done when** golden tests pass, Baltic birch matches across 3 vendors, uploading an invoice runs purchase-intake to priced lines with a `price_jump` alert, and Pia's workflow opens and edits on the canvas.
 
 ### M9: QuickBooks Online
 
-First, check against Intuit's current developer docs: base URLs, minor version, CDC limits, webhook signature header and payload format (CloudEvents vs legacy), Attachable download, throttling limits and the current API terms. Record the findings in `packages/connectors/src/qbo/NOTES.md`.
+First, check against Intuit's current developer docs: base URLs, minor version, CDC limits, webhook signature header and payload format, Attachable download and upload, sparse updates and `SyncToken` rules, throttling limits and the current API terms. Record the findings in `packages/connectors/src/qbo/NOTES.md`.
 
-Work: OAuth (authorize, callback, encrypted tokens with AES-256-GCM, refresh and persist the new refresh token every time); initial sync with paging; CDC every 15 min plus a webhook nudge; `POST /api/webhooks/qbo` verifies the HMAC and starts a `QboSyncWorkflow` instance for the realm (the cron starts one for CDC every 15 min); attachables fetched, stored once per sha256 and linked; per-realm throttle with backoff on 429; QBO mappers including both line detail types.
+Work: OAuth (authorize, callback, encrypted tokens with AES-256-GCM, refresh and persist the new refresh token every time); initial sync with paging; CDC every 15 min plus a webhook nudge (`POST /api/webhooks/qbo` verifies the HMAC and starts a `QboSyncWorkflow` instance for the realm); attachables fetched, stored once per sha256 and linked; per-realm throttle with backoff on 429; QBO mappers including both line detail types; read tools; write tools behind approval with `before` capture and stale-`SyncToken` handling (first write: `qbo.attachable.upload`, ARCHITECTURE §20).
 
-Tests: mappers on `fixtures/qbo/*`; webhook signature; token refresh rotation; sync is idempotent per `(connection, entity, id, SyncToken)`.
+Tests: mappers on `fixtures/qbo/*`; webhook signature; token refresh rotation; sync is idempotent per `(connection, entity, id, SyncToken)`; a write with a stale token fails cleanly and leaves the action `failed` with the reason.
 
-**Done when** a sandbox company syncs and a Bill with an attachment flows through intake.
+**Done when** a sandbox company syncs, a Bill with an attachment flows through intake, and an approved `qbo.attachable.upload` attaches the invoice in the sandbox.
 
-### M10: Threads, run detail, Connectors polish
+### M10: Home, polish, end-to-end
 
-Work: `/threads/[id]` (messages with source links, post, `/command` parsing → `command` step); `/runs/[id]` (steps, agent versions, tool calls, cost); `/workflows` read-only step view and run history; `/connectors` (QBO connect/disconnect, last sync, upload); each alert links to its thread and run.
+Work: Home (what agents did, what needs you, spend); thread view polish; every alert and external action links to its thread and run; empty states and first-run guidance (connect a tool → enable a pack or create an agent).
 
-Tests: command parser; Playwright e2e: upload invoice → match review → Price watch shows the item (§19).
+Tests: Playwright e2e: create an agent from scratch → build its workflow on the canvas → publish → upload a document → approve in the inbox → see the run complete (ARCHITECTURE §19).
 
-**Done when** every alert links to its thread and run.
+**Done when** the e2e passes against `pnpm dev`.
 
 ---
 
@@ -248,6 +261,9 @@ Tests: command parser; Playwright e2e: upload invoice → match review → Price
 |---|---|
 | Extraction accuracy on messy scans | Totals validation routes failures to review; re-extraction inserts new rows; goldens catch regressions. |
 | Matcher false positives (the costly error) | Hard-rule veto on key attributes; precision gate in CI; auto-threshold set per agent version. |
+| The canvas grows into a project of its own | Scope is fixed by ARCHITECTURE §10.5; nodes and forms come from schemas, not hand-built per skill; React Flow does the canvas mechanics. Pia's workflows are seeded as graphs, so M8 doesn't wait on canvas polish. |
+| Generic platform, nothing finished | Every milestone ends with something runnable; M8 (Pia) is the proof that the platform is enough to build a real agent; nothing in `packages/*` may special-case a pack (layering check). |
+| A write to a client's system goes wrong | Every external write is approved by a person, idempotent, records the prior state, and fails on a stale `SyncToken`; test runs never write. |
 | RLS bypassed by connecting as owner | The Worker only has `cs_worker`; a test asserts `current_user` isn't the owner in the request path. |
 | Workflows' wait semantics differ from this plan | Checked in the M0 deploy spike, before the executor is built on them. The executor only sees `StepRunner`, so a change stays in `apps/api`. |
 | QBO app approval delays | Upload connector is the demo path; M9 runs only against the sandbox. |
@@ -261,5 +277,10 @@ Answered (2026-11-03)
 - Purchaser routing: undecided. Send all doc requests to an admin for now (§1.1).
 - Stack: match Plenary Labs fully: Vite + React + Hono instead of Next.js, Cloudflare Workflows instead of Inngest (ARCHITECTURE v0.2).
 
+- Product shape: an agent platform (connections, skills, agents, drag-and-drop workflows, write-back); material cost management is the first agent, as a pack (ARCHITECTURE v0.3).
+
 Open
 1. Groundwork: is there a package or token file to import, or should M0 copy the tokens in by hand? (Probably answered by the design upload.)
+2. First QBO writes: proposal is `qbo.attachable.upload` first, then `update_memo` and `update_purchase_cost` (ARCHITECTURE §20).
+3. Connectors after QBO and upload: email inbox, Google Drive, card/bank feeds, Slack? This orders post-v1 work.
+4. Publishing: can client_admins publish agents themselves, or does an advisor review first?

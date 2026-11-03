@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Hono Worker: /api routes, auth, static assets, Workflow classes, cron",
+  "description": "Hono Worker: /api routes, auth, static assets, Workflow classes, cron; registers connectors and packs",
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
@@ -14,12 +14,11 @@
     "@countersign/agents": "workspace:*",
     "@countersign/documents": "workspace:*",
     "@countersign/connectors": "workspace:*",
-    "@countersign/catalog": "workspace:*",
-    "@countersign/pricing": "workspace:*",
     "@countersign/threads": "workspace:*",
     "@countersign/senses": "workspace:*",
     "@countersign/llm": "workspace:*",
     "@countersign/db": "workspace:*",
-    "@countersign/core": "workspace:*"
+    "@countersign/core": "workspace:*",
+    "@countersign/pack-materials": "workspace:*"
   }
 }

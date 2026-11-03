@@ -1,10 +1,14 @@
 # Countersign
 
-A multi-tenant back-office agent platform. It connects to a small business's systems (QuickBooks Online
-first, plus manual upload), keeps a clean copy of their data, and runs named, versioned agents that each
-own one back-office job. The first job is material cost management for a millwork shop: pull purchases,
-find and extract the invoice, match each line to a shared item catalog across vendors, track unit prices
-and alert when they change.
+An agent platform for back-office work. A business connects its tools in one place (QuickBooks Online
+first, plus file upload) and picks from a library of skills. People create agents from scratch, or
+describe one and let the Builder draft it, then lay out the agent's work on a drag-and-drop canvas:
+triggers, skill steps, conditions, approvals, requests and tool actions. Agents run that work, ask people
+when they must, and update the connected tools, with every write approved by a person.
+
+The first agent is **Pia**, who manages material costs for a millwork shop: she finds and extracts
+invoices, matches line items to a shared catalog across vendors, tracks unit prices and raises alerts.
+She ships as the Materials pack and is built only from platform parts.
 
 Status: **repo set up, M0 next** (Worker, app, database, Workflows, sign-in). Nothing is deployed yet.
 
@@ -18,7 +22,7 @@ sign-in, Anthropic models. TypeScript throughout, pnpm workspace, Biome, Vitest.
 
 | Document | What it answers |
 |---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | What we are building: scope, data model, agents, workflows, API, screens, build order. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | What we are building: concepts, scope, data model, skills, agents, workflow graphs and canvas, packs, API, screens, build order. |
 | [`docs/plan.md`](docs/plan.md) | How and in what order: decisions, package layering, milestones M0–M10 with tests and exit checks. |
 | [`docs/local-development.md`](docs/local-development.md) | Running it on your machine with no API keys. |
 | [`docs/operations.md`](docs/operations.md) | Environments, what to provision by hand, secrets, CI and deploys. |
@@ -28,9 +32,10 @@ sign-in, Anthropic models. TypeScript throughout, pnpm workspace, Biome, Vitest.
 
 ```
 apps/api        Hono Worker: /api, sign-in, static assets, Workflow classes, cron
-apps/web        React + Vite app (imports only packages/core)
-packages/       core, db, llm, auth, senses, connectors, documents, catalog, pricing,
-                threads, agents, workflows: layering in docs/plan.md §2
+apps/web        React + Vite app and workflow canvas (imports only packages/core)
+packages/       the platform: core, db, llm, auth, senses, connectors, documents, threads,
+                agents, workflows (layering in docs/plan.md §2; never imports a pack)
+packs/          domain packs; materials/ is the first (Pia)
 fixtures/       invoices, QBO payloads, matching pairs, recorded model responses
 scripts/        layering check, Postgres role setup
 ```

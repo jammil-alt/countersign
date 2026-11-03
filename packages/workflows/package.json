@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Workflow definition schema, step executors (StepRunner interface), senses router",
+  "description": "Workflow graph executor (StepRunner interface), trigger router",
   "exports": {
     ".": "./src/index.ts"
   },

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Agent definition schema, versioning, runtime, tool registry, Builder",
+  "description": "Tool, skill and agent registries, versioning, runtime, permission gate, Builder",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@countersign/documents": "workspace:*",
-    "@countersign/catalog": "workspace:*",
-    "@countersign/pricing": "workspace:*",
     "@countersign/threads": "workspace:*",
     "@countersign/llm": "workspace:*",
     "@countersign/db": "workspace:*",
-    "@countersign/core": "workspace:*"
+    "@countersign/core": "workspace:*",
+    "@countersign/connectors": "workspace:*",
+    "@countersign/senses": "workspace:*"
   }
 }

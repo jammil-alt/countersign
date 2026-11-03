@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Domain types, Zod schemas, units of measure, money, QBO mappers",
+  "description": "Domain types and Zod schemas (agent, skill, workflow graph, tool, connector, pack), graph validation, route contract, units, money, mappers",
   "exports": {
     ".": "./src/index.ts"
   },
