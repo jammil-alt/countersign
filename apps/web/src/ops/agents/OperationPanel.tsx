@@ -33,7 +33,7 @@ type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
 const RUN_STATUS_TONE: Record<string, Tone> = {
   active: "positive",
-  paused: "warning",
+  paused: "neutral",
   retired: "neutral",
   draft: "neutral",
 };
@@ -133,13 +133,13 @@ function StatusCard({
         <span className="flex items-center gap-2">
           Status
           <Badge tone={RUN_STATUS_TONE[status] ?? "neutral"} testId="agent-run-status">
-            {status}
+            {status.charAt(0).toUpperCase() + status.slice(1)}
           </Badge>
         </span>
       </SectionLabel>
 
       {agent.testCopy ? (
-        <p className="mb-3 text-body">
+        <p className="mb-3 text-ink">
           A template's test copy in the Sandbox client: it only test-runs, and is never activated.
           Fork the template into a client to run it there.
         </p>
@@ -151,13 +151,13 @@ function StatusCard({
       {!activation.data && !activation.error ? <Loading label="Checking activation…" /> : null}
       {activation.data && status !== "active" && status !== "retired" ? (
         problems.length === 0 ? (
-          <p className="text-body" data-testid="agent-activation-ready">
+          <p className="text-ink" data-testid="agent-activation-ready">
             Ready to activate: connections bound, live version valid and tested on this client.
           </p>
         ) : (
           <div data-testid="agent-activation-problems">
-            <p className="mb-1.5 text-body">Before it can be activated:</p>
-            <ul className="list-disc pl-5 text-body">
+            <p className="mb-1.5 text-ink">Before it can be activated:</p>
+            <ul className="list-disc pl-5 text-ink">
               {problems.map((p) => (
                 <li key={p}>{p}</li>
               ))}
@@ -246,7 +246,7 @@ function TestRun({
 
   if (!live || !liveBundle) {
     return (
-      <p className="mt-4 text-sm text-secondary">
+      <p className="mt-4 text-sm text-ink-muted">
         Publish a version, then test-run it here: activation needs one passing test run of the live
         version on this client.
       </p>
@@ -254,7 +254,7 @@ function TestRun({
   }
   if (workflows.length === 0) {
     return (
-      <p className="mt-4 text-sm text-secondary">v{live.version} has no workflows to test-run.</p>
+      <p className="mt-4 text-sm text-ink-muted">v{live.version} has no workflows to test-run.</p>
     );
   }
 
@@ -276,8 +276,8 @@ function TestRun({
   }
 
   return (
-    <div className="mt-5 border-t border-divider pt-4" data-testid="agent-test-run">
-      <p className="mb-3 text-sm text-secondary">
+    <div className="mt-5 border-t border-line pt-4" data-testid="agent-test-run">
+      <p className="mb-3 text-sm text-ink-muted">
         Test run of the live version v{live.version} on this client's data. It never changes the
         client's tools: what it would do is recorded as proposed.
       </p>
@@ -312,7 +312,7 @@ function TestRun({
         </Button>
       </div>
       {started ? (
-        <p className="mt-3 text-sm text-body" data-testid="agent-test-run-started">
+        <p className="mt-3 text-sm text-ink" data-testid="agent-test-run-started">
           Started.{" "}
           <Link to={`/ops/runs/${started}`} className="text-link underline">
             Open the run
@@ -371,7 +371,7 @@ function ServiceForm({
   return (
     <Card className="p-5" testId="agent-operation">
       <SectionLabel>Operation</SectionLabel>
-      <p className="mb-4 text-sm text-secondary">
+      <p className="mb-4 text-sm text-ink-muted">
         These apply at once and are not a new version. Every change is logged.
       </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -410,9 +410,9 @@ function ServiceForm({
       </div>
 
       <div className="mt-5">
-        <p className="mb-2 text-sm font-medium text-primary">Connections it works in</p>
+        <p className="mb-2 text-sm font-medium text-ink">Connections it works in</p>
         {connectors.length === 0 ? (
-          <p className="text-sm text-secondary">Its live version needs no connections.</p>
+          <p className="text-sm text-ink-muted">Its live version needs no connections.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {connectors.map((c) => {
@@ -422,9 +422,9 @@ function ServiceForm({
                   key={c}
                   className="grid grid-cols-1 items-center gap-2 md:grid-cols-[220px_1fr]"
                 >
-                  <span className="flex items-center gap-2 text-[15px] text-primary">
+                  <span className="flex items-center gap-2 text-base text-ink">
                     {c}
-                    {required.includes(c) ? <Badge tone="neutral">needed</Badge> : null}
+                    {required.includes(c) ? <Badge tone="neutral">Needed</Badge> : null}
                   </span>
                   <Select
                     data-testid={`agent-operation-binding-${c}-select`}

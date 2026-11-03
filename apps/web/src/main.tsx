@@ -1,5 +1,6 @@
-// @countersign/web: React + Vite app. Talks to apps/api over HTTP using the route contract in
-// @countersign/core; screens follow the owner's Groundwork designs (docs/design/).
+// @countersign/web: the Mezonas app (React + Vite). Talks to apps/api over HTTP using the route
+// contract in @countersign/core; screens follow the owner's v1 layouts (docs/design/) on the Mezonas
+// design system (packages/design-system).
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";

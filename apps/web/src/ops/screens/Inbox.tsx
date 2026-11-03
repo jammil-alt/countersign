@@ -11,6 +11,7 @@ import { OPEN_RESOLVED, StatusFilter } from "../../inbox/StatusFilter";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { EmptyState, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { Select } from "../agents/ui";
 
 const ROLE_WORDS: Record<string, string> = {
   client_admin: "the client admin",
@@ -65,13 +66,14 @@ export function OpsInboxScreen() {
           label="Status"
           options={OPEN_RESOLVED}
         />
-        <label className="flex items-center gap-2 text-sm text-secondary">
+        {/* biome-ignore lint/a11y/noLabelWithoutControl: the Select is the label's control. */}
+        <label className="flex items-center gap-2 text-sm text-ink-muted">
           Client
-          <select
+          <Select
             data-testid="ops-inbox-client-select"
             value={client}
             onChange={(e) => setClient(e.target.value)}
-            className="h-8 rounded-sm border border-control bg-card px-2 text-sm text-primary"
+            className="h-8 w-44 text-sm"
           >
             <option value="">All clients</option>
             {[...clients].map(([id, name]) => (
@@ -79,7 +81,7 @@ export function OpsInboxScreen() {
                 {name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </div>
       {loading && !data ? <Loading /> : null}

@@ -34,6 +34,7 @@ import {
   Loading,
   PageHeader,
   SectionLabel,
+  Tag,
   type Tone,
 } from "../../ui/primitives";
 import { checklistRows } from "../run/checklist";
@@ -127,7 +128,7 @@ export function OpsRunScreen() {
           .join(" · ")}
         actions={
           waitingOnYou.length > 0 ? (
-            <Badge tone="accent" testId="ops-run-waiting">
+            <Badge tone="warning" testId="ops-run-waiting">
               Waiting on you · {waitingOnYou.length}
             </Badge>
           ) : undefined
@@ -141,9 +142,9 @@ export function OpsRunScreen() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         <Card testId="ops-run-checklist" className="self-start overflow-hidden">
-          <div className="flex items-center justify-between border-b border-edge px-4 py-3">
-            <h2 className="label-caps text-secondary">What it did</h2>
-            <span className="font-mono text-xs text-secondary">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <h2 className="eyebrow text-ink-muted">What it did</h2>
+            <span className="text-sm text-ink-muted figures">
               {done} of {rows.length} steps · {usd(run.costUsd)}
             </span>
           </div>
@@ -153,19 +154,19 @@ export function OpsRunScreen() {
                 key={r.key}
                 data-testid={`ops-run-step-${r.key}`}
                 className={cx(
-                  "flex gap-3 border-b border-divider px-4 py-3 last:border-b-0",
-                  r.status === "waiting" && "bg-tone-accent",
+                  "flex gap-3 border-b border-line px-4 py-3 last:border-b-0",
+                  r.status === "waiting" && "bg-signal-tint",
                   r.status === "pending" && "opacity-60",
                 )}
               >
                 <StepMark status={r.status} n={i + 1} />
                 <div className="min-w-0">
                   <p className="flex flex-wrap items-center gap-2">
-                    <Badge>{r.kind}</Badge>
-                    <span className="text-primary">{r.title}</span>
+                    <Tag>{r.kind}</Tag>
+                    <span className="text-ink">{r.title}</span>
                   </p>
-                  {r.detail ? <p className="mt-1 text-sm text-body">{r.detail}</p> : null}
-                  <p className="mt-0.5 text-xs text-secondary">
+                  {r.detail ? <p className="mt-1 text-sm text-ink">{r.detail}</p> : null}
+                  <p className="mt-0.5 text-xs text-ink-muted">
                     {[
                       shortTime(r.at),
                       stepStatusLabel(r.status),
@@ -213,7 +214,7 @@ export function OpsRunScreen() {
               ))}
             </>
           ) : null}
-          <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-secondary">
+          <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-ink-muted">
             <span>
               Every change records which agent, version and step made it, what it looked like
               before, and who approved it.
@@ -235,10 +236,11 @@ function actionBadge(a: Action, testRun: boolean): { label: string; tone: Tone }
     case "proposed":
       return testRun
         ? { label: "Would have done", tone: "neutral" }
-        : { label: "Needs approval", tone: "accent" };
+        : { label: "Needs approval", tone: "warning" };
     case "approved":
     case "executing":
-      return { label: "Approved", tone: "accent" };
+      // A person signed it: copper marks a person's touch.
+      return { label: "Approved", tone: "person" };
     case "done":
       return {
         label: a.executedAt ? `Done · ${shortTime(a.executedAt)}` : "Done",
@@ -247,7 +249,7 @@ function actionBadge(a: Action, testRun: boolean): { label: string; tone: Tone }
     case "rejected":
       return { label: "Rejected", tone: "neutral" };
     case "failed":
-      return { label: "Failed", tone: "warning" };
+      return { label: "Failed", tone: "risk" };
     default:
       return { label: a.status, tone: "neutral" };
   }
@@ -273,17 +275,19 @@ function ActionPanel({
   const mine = item ? operatorMayResolve(item, userId) : false;
   return (
     <Card testId={`ops-run-action-${action.id}`} className="overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
-        <h3 className="font-semibold text-primary">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <h3 className="font-medium text-ink">
           {connector}
           {target ? ` · ${target}` : ""}
-          <span className="ml-2 font-mono text-xs font-normal text-secondary">{action.tool}</span>
+          <span className="ml-2 reference font-normal text-ink-muted">{action.tool}</span>
         </h3>
         <Badge tone={badge.tone} testId="ops-run-action-status">
           {badge.label}
         </Badge>
       </div>
-      <ChangeTables before={action.before} input={action.input} />
+      <div className="p-4">
+        <ChangeTables before={action.before} input={action.input} />
+      </div>
       <ActionFooter
         action={action}
         item={item}
@@ -318,15 +322,15 @@ function ActionFooter({
   let text: string;
   if (testRun) text = "Test run: recorded as it would have been made, never written.";
   else if (waiting && !mine) text = "Waiting on the client admin to approve.";
-  else if (waiting) text = "Nothing changes in the tool until you approve.";
+  else if (waiting) text = "Nothing changes in the tool until you sign.";
   else if (action.status === "failed")
     text = `The change failed: ${String(failure?.message ?? "unknown error")}`;
   else if (action.approvedAt)
     text = `Approved ${shortTime(action.approvedAt)}${action.approvedBy ? "" : " automatically"}.`;
   else text = "";
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge px-4 py-3">
-      <p className="text-sm text-secondary">{text}</p>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
+      <p className="text-sm text-ink-muted">{text}</p>
       {waiting && mine && item ? (
         <div className="flex gap-2">
           <Button
@@ -339,9 +343,10 @@ function ActionFooter({
           <Button
             data-testid="ops-run-action-approve"
             variant="primary"
+            className="font-semibold"
             onClick={() => void onResolve(item.id, { decision: "approve" })}
           >
-            Approve and update {connector}
+            Sign and update {connector}
           </Button>
         </div>
       ) : null}
@@ -351,7 +356,7 @@ function ActionFooter({
 
 function Json({ value }: { value: unknown }) {
   return (
-    <pre className="overflow-x-auto rounded-sm bg-subtle p-3 font-mono text-xs whitespace-pre-wrap break-words text-body">
+    <pre className="overflow-x-auto rounded-sm bg-surface-subtle p-3 font-mono text-xs whitespace-pre-wrap break-words text-ink">
       {value === null || value === undefined ? "—" : JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -382,9 +387,9 @@ function RunLog({ data, names }: { data: RunDetail; names: StepNames }) {
   return (
     <section id="run-log" className="mt-8" data-testid="ops-run-log">
       <SectionLabel>Full run log</SectionLabel>
-      <Card className="divide-y divide-divider">
+      <Card className="divide-y divide-line">
         <details className="px-4 py-3">
-          <summary className="cursor-pointer text-primary">Trigger</summary>
+          <summary className="cursor-pointer text-ink">Trigger</summary>
           <div className="mt-3">
             <Json value={data.run.trigger} />
           </div>
@@ -394,8 +399,8 @@ function RunLog({ data, names }: { data: RunDetail; names: StepNames }) {
           return (
             <details key={s.id} className="px-4 py-3" data-testid={`ops-run-log-${s.id}`}>
               <summary className="cursor-pointer">
-                <span className="text-primary">{nodeName(names, s.nodeId) ?? s.nodeId}</span>
-                <span className="ml-2 text-sm text-secondary">
+                <span className="text-ink">{nodeName(names, s.nodeId) ?? s.nodeId}</span>
+                <span className="ml-2 text-sm text-ink-muted">
                   {[
                     s.nodeType,
                     s.skillRef,
@@ -410,23 +415,23 @@ function RunLog({ data, names }: { data: RunDetail; names: StepNames }) {
               </summary>
               <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <div>
-                  <h4 className="label-caps mb-1 text-secondary">Input</h4>
+                  <h4 className="eyebrow mb-1 text-ink-muted">Input</h4>
                   <Json value={s.input} />
                 </div>
                 <div>
-                  <h4 className="label-caps mb-1 text-secondary">Output</h4>
+                  <h4 className="eyebrow mb-1 text-ink-muted">Output</h4>
                   <Json value={s.output} />
                 </div>
               </div>
               {calls.length > 0 ? (
                 <div className="mt-3">
-                  <h4 className="label-caps mb-1 text-secondary">Tool calls</h4>
+                  <h4 className="eyebrow mb-1 text-ink-muted">Tool calls</h4>
                   <ul className="flex flex-col gap-2">
                     {calls.map((c) => (
-                      <li key={c.id} className="rounded-sm border border-edge p-3">
+                      <li key={c.id} className="rounded-sm border border-line p-3">
                         <p className="text-sm">
-                          <span className="font-mono text-primary">{c.tool}</span>
-                          <span className="ml-2 text-secondary">
+                          <span className="reference text-ink">{c.tool}</span>
+                          <span className="ml-2 text-ink-muted">
                             {[c.status, c.durationMs === null ? null : `${c.durationMs} ms`]
                               .filter(Boolean)
                               .join(" · ")}
@@ -446,7 +451,7 @@ function RunLog({ data, names }: { data: RunDetail; names: StepNames }) {
         })}
         {data.run.error ? (
           <details className="px-4 py-3" open>
-            <summary className="cursor-pointer text-primary">Error</summary>
+            <summary className="cursor-pointer text-ink">Error</summary>
             <div className="mt-3">
               <Json value={data.run.error} />
             </div>

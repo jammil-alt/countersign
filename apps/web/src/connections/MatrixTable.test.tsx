@@ -52,7 +52,7 @@ describe("MatrixTable", () => {
 
     expect(screen.queryByTestId("matrix-changes-save")).toBeNull();
     await userEvent.selectOptions(within(row).getByTestId("matrix-update-select"), "off");
-    expect(screen.getByText(/Only your operator can loosen them again/)).toBeInTheDocument();
+    expect(screen.getByText(/Only we can loosen them again/)).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("matrix-changes-save"));
     expect(onSave).toHaveBeenCalledWith(ROW.id, { update: "off" });
   });

@@ -175,7 +175,7 @@ export function DefinitionEditor({
             text="A step whose approval the operator switched off may change a tool without asking, where the client's connection allows it."
           />
         </fieldset>
-        <p className="mt-3 text-sm text-secondary" data-testid="agent-editor-approval-rule">
+        <p className="mt-3 text-sm text-ink-muted" data-testid="agent-editor-approval-rule">
           Approval stays on for every step that changes a client's tool until it is switched off in
           the workflow, and only where the connection allows automatic changes. Delete is never
           automatic.
@@ -212,8 +212,9 @@ export function DefinitionEditor({
               onChange={(e) => set("maxCostUsd", e.target.value)}
             />
           </Field>
-          <label className="flex items-center gap-2 self-end pb-2 text-[15px] text-primary">
+          <label className="flex items-center gap-2 self-end pb-2 text-base text-ink">
             <input
+              className="size-4 accent-slate"
               type="checkbox"
               data-testid="agent-editor-memory-toggle"
               checked={form.memory}
@@ -269,7 +270,7 @@ export function DefinitionEditor({
           </div>
         ) : null}
         <div className="mt-4 flex items-center justify-end gap-3">
-          <span className="text-sm text-secondary">
+          <span className="text-sm text-ink-muted">
             A new draft version, edited from v{from.version}. Publish it from Versions.
           </span>
           <Button
@@ -303,20 +304,20 @@ function ModeOption({
   return (
     <label
       className={`flex cursor-pointer items-start gap-3 rounded-md border px-4 py-3 ${
-        selected ? "border-tone-accent-edge bg-tone-accent" : "border-edge bg-card hover:bg-hover"
+        selected ? "border-slate bg-slate-tint" : "border-line bg-surface hover:bg-surface-subtle"
       }`}
     >
       <input
         type="radio"
         name="agent-mode"
-        className="mt-1"
+        className="mt-1 size-4 accent-slate"
         data-testid={`agent-editor-mode-${value}`}
         checked={selected}
         onChange={() => onSelect(value)}
       />
       <span>
-        <span className="block font-medium text-primary">{title}</span>
-        <span className="block text-sm text-secondary">{text}</span>
+        <span className="block font-medium text-ink">{title}</span>
+        <span className="block text-sm text-ink-muted">{text}</span>
       </span>
     </label>
   );
@@ -406,7 +407,7 @@ function SkillsCard({
     <Card className="p-5">
       <SectionLabel>Skills it uses</SectionLabel>
       {form.skills.length === 0 ? (
-        <p className="mb-4 text-sm text-secondary">
+        <p className="mb-4 text-sm text-ink-muted">
           No skills yet. Its workflows can still use actions, people and logic steps.
         </p>
       ) : null}
@@ -417,26 +418,26 @@ function SkillsCard({
             <li
               key={entry.skill}
               data-testid={`agent-editor-skill-${entry.skill}`}
-              className="rounded-md border border-edge p-4"
+              className="rounded-md border border-line p-4"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-medium text-primary">
+                  <p className="font-medium text-ink">
                     {option?.name ?? entry.skill}
-                    <span className="ml-2 font-mono text-xs text-secondary">{entry.skill}</span>
+                    <span className="ml-2 reference text-ink-muted">{entry.skill}</span>
                   </p>
                   {option ? (
-                    <p className="text-sm text-secondary">{option.description}</p>
+                    <p className="text-sm text-ink-muted">{option.description}</p>
                   ) : (
                     <p
-                      className="text-sm text-tone-warning-ink"
+                      className="text-sm text-risk"
                       data-testid={`agent-editor-skill-${entry.skill}-missing`}
                     >
                       This skill isn't available to this agent; publishing will refuse it.
                     </p>
                   )}
                   {errors[`skills.${i}`] ? (
-                    <p className="text-sm text-tone-warning-ink">{errors[`skills.${i}`]}</p>
+                    <p className="text-sm text-risk">{errors[`skills.${i}`]}</p>
                   ) : null}
                 </div>
                 <Button
@@ -518,7 +519,7 @@ function SettingField({
     <span className="flex items-center gap-2">
       {setting.label}
       {setting.clientSpecific ? (
-        <Badge tone="neutral">{template ? "set per client" : "this client's"}</Badge>
+        <Badge tone="neutral">{template ? "Set per client" : "This client's"}</Badge>
       ) : null}
     </span>
   );

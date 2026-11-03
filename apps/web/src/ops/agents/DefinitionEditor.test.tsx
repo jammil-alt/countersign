@@ -181,7 +181,7 @@ describe("DefinitionEditor", () => {
     );
     await user.click(screen.getByTestId("agent-editor-skill-add"));
     expect(screen.getByTestId("agent-editor-skill-custom:price-watch")).toHaveTextContent(
-      "this client's",
+      "This client's",
     );
     await user.click(screen.getByTestId("agent-editor-mode-act"));
     await user.selectOptions(screen.getByTestId("agent-editor-approver-select"), "operator");

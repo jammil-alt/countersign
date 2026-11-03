@@ -7,6 +7,7 @@ import { ApiProvider } from "./api/useApi";
 import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
 import { SessionProvider, useSessionState } from "./session/session";
+import { IconSprite } from "./ui/icons";
 import { ErrorNotice, Loading } from "./ui/primitives";
 
 /** Its own chunk: only reached after the operator check below. */
@@ -90,6 +91,7 @@ export function AppProviders({ client, children }: { client?: ApiClient; childre
 export function App() {
   return (
     <BrowserRouter>
+      <IconSprite />
       <AppProviders>
         <AppRoutes />
       </AppProviders>

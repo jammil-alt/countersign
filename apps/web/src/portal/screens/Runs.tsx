@@ -8,7 +8,6 @@ import { usePoll } from "../../runs/usePoll";
 import {
   AgentAvatar,
   Badge,
-  Card,
   EmptyState,
   ErrorNotice,
   Loading,
@@ -26,41 +25,39 @@ export function PortalRunsScreen() {
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.runs.length === 0 ? <EmptyState>No runs yet.</EmptyState> : null}
       {data && data.runs.length > 0 ? (
-        <Card className="overflow-hidden">
-          <table data-testid="portal-runs" className="w-full text-sm">
+        <div className="dt dt-ana">
+          <table data-testid="portal-runs">
             <thead>
-              <tr className="bg-subtle text-left">
-                <th className="label-caps px-4 py-2 font-medium text-secondary">Service</th>
-                <th className="label-caps px-4 py-2 font-medium text-secondary">Status</th>
-                <th className="label-caps px-4 py-2 font-medium text-secondary">Started</th>
-                <th className="label-caps px-4 py-2 font-medium text-secondary">Took</th>
+              <tr className="dt-cols">
+                <th>Service</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Took</th>
               </tr>
             </thead>
             <tbody>
               {data.runs.map((r) => (
-                <tr key={r.id} className="border-t border-divider hover:bg-subtle">
-                  <td className="px-4 py-2.5">
+                <tr key={r.id}>
+                  <td>
                     <Link
                       to={`/runs/${r.id}`}
                       data-testid={`portal-run-${r.id}-open`}
-                      className="flex items-center gap-3 font-medium text-primary hover:underline"
+                      className="flex items-center gap-3 font-medium text-ink hover:underline"
                     >
                       <AgentAvatar name={r.service.name} seed={r.service.id} />
                       {r.service.name}
                     </Link>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td>
                     <Badge tone={runStatusTone(r.status)}>{runStatusLabel(r.status)}</Badge>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-body">{shortTime(r.startedAt)}</td>
-                  <td className="px-4 py-2.5 font-mono text-body">
-                    {duration(r.startedAt, r.finishedAt)}
-                  </td>
+                  <td className="text-ink figures">{shortTime(r.startedAt)}</td>
+                  <td className="text-ink figures">{duration(r.startedAt, r.finishedAt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </Card>
+        </div>
       ) : null}
     </div>
   );

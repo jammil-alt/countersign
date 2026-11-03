@@ -37,12 +37,13 @@ export function allowedLevels(
 
 export function levelTone(level: PermissionLevel): Tone {
   switch (level) {
+    // Auto: the team does it alone (slate); approval: a person signs first (copper); off: nothing.
     case "auto":
-      return "neutral";
-    case "approval":
       return "accent";
+    case "approval":
+      return "person";
     case "off":
-      return "warning";
+      return "neutral";
   }
 }
 
@@ -57,6 +58,6 @@ export function levelMeaning(verb: Verb, level: PermissionLevel): string {
   if (level === "off") return `Agents can't ${verb} here.`;
   if (verb === "read") return "Agents read what they need.";
   return level === "auto"
-    ? "A step may run without asking, if your operator set it to."
+    ? "A step may run without asking, if we set it to."
     : "Every change waits in your inbox until someone says yes.";
 }

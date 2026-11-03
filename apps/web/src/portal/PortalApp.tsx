@@ -26,7 +26,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       surface="portal"
       home="/"
       context={
-        <span data-testid="portal-client-name" className="text-sm font-medium text-primary">
+        <span data-testid="portal-client-name" className="text-sm font-medium text-ink">
           {client?.name ?? "No client"}
         </span>
       }

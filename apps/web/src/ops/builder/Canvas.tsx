@@ -25,7 +25,8 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { ReactNode } from "react";
-import { Badge, cx } from "../../ui/primitives";
+import { Icon } from "../../ui/icons";
+import { Badge, cx, StepKindTag, Tag } from "../../ui/primitives";
 import {
   KIND_LABEL,
   rulesText,
@@ -130,7 +131,7 @@ export function Canvas(props: CanvasProps) {
     <div data-testid="builder-canvas" className="flex flex-col items-center">
       <TriggerCard {...props} invalid={triggerErrors} />
       <List {...props} id={ROOT} steps={workflow.steps} numbered />
-      <span aria-hidden className="h-4 border-l border-control" />
+      <span aria-hidden className="h-4 border-l border-line-strong" />
       <DropZone
         id={ROOT}
         label="Drop a step here, or press + in the palette"
@@ -147,26 +148,26 @@ function TriggerCard(props: CanvasProps & { invalid: number }) {
     <div
       data-testid="builder-trigger"
       className={cx(
-        "flex w-full max-w-[480px] items-center gap-3 rounded-md border bg-card px-4 py-3 elevation-xs",
-        selected ? "border-action" : "border-edge",
+        "flex w-full max-w-[480px] items-center gap-3 rounded-md border bg-surface px-4 py-3",
+        selected ? "border-slate" : "border-line",
       )}
     >
       <span aria-hidden className="w-4" />
-      <span className="w-5 text-right font-mono text-sm text-secondary">1</span>
-      <Badge>{KIND_LABEL.trigger}</Badge>
+      <span className="w-5 text-right text-sm text-ink-muted figures">1</span>
+      <StepKindTag kind="trigger" label={KIND_LABEL.trigger} />
       <button
         type="button"
         data-testid="builder-trigger-select"
         onClick={() => onSelect("trigger")}
         className="min-w-0 flex-1 text-left"
       >
-        <span className="block font-medium text-primary">{triggerTitle(workflow.trigger)}</span>
-        <span className="block truncate text-sm text-secondary">
+        <span className="block font-medium text-ink">{triggerTitle(workflow.trigger)}</span>
+        <span className="block truncate text-sm text-ink-muted">
           {triggerDetail(workflow.trigger)}
         </span>
       </button>
       {invalid > 0 ? (
-        <Badge tone="warning" testId="builder-trigger-invalid">
+        <Badge tone="risk" testId="builder-trigger-invalid">
           Invalid
         </Badge>
       ) : null}
@@ -187,7 +188,7 @@ function List(props: CanvasProps & { id: ContainerId; steps: Step[]; numbered?: 
             {numbered || index > 0 ? (
               <span
                 aria-hidden
-                className={cx("border-l border-control", numbered ? "h-6" : "h-3")}
+                className={cx("border-l border-line-strong", numbered ? "h-6" : "h-3")}
               />
             ) : null}
             <StepNode
@@ -249,19 +250,19 @@ function StepCard(
   const selected = selectedId === step.id;
   const testId = `builder-step-${step.id}`;
   const nested = number === undefined;
-  const kindTag = (
-    <Badge tone={step.kind === "fork" ? "accent" : "neutral"}>{KIND_LABEL[step.kind]}</Badge>
-  );
+  const kindTag = <StepKindTag kind={step.kind} label={KIND_LABEL[step.kind]} />;
   const hasBadges = invalid > 0 || approval !== null || hidden || Boolean(custom);
   const badges = (
     <>
       {invalid > 0 ? (
-        <Badge tone="warning" testId={`${testId}-invalid`}>
+        <Badge tone="risk" testId={`${testId}-invalid`}>
           Invalid
         </Badge>
       ) : null}
       {approval ? (
-        <Badge tone={approval.automatic ? "accent" : "neutral"} testId={`${testId}-approval`}>
+        // Approval is a person's sign-off (copper); a step the operator let run on its own is the
+        // team's work (accent).
+        <Badge tone={approval.automatic ? "accent" : "person"} testId={`${testId}-approval`}>
           {approval.automatic ? "Runs automatically" : "Approval"}
         </Badge>
       ) : null}
@@ -280,14 +281,14 @@ function StepCard(
       data-testid={testId}
       data-container={container}
       className={cx(
-        "relative flex w-full items-center gap-3 rounded-md border bg-card elevation-xs",
+        "relative flex w-full items-center gap-3 rounded-md border bg-surface",
         nested ? "px-3 py-2.5" : "max-w-[480px] px-4 py-3",
-        selected ? "border-action" : invalid ? "border-tone-warning-edge" : "border-edge",
+        selected ? "border-slate" : invalid ? "border-risk" : "border-line",
         isDragging && "opacity-40",
       )}
     >
       {isOver ? (
-        <span aria-hidden className="absolute -top-2 right-2 left-2 h-0.5 rounded-sm bg-action" />
+        <span aria-hidden className="absolute -top-2 right-2 left-2 h-0.5 rounded-sm bg-slate" />
       ) : null}
       <button
         type="button"
@@ -296,14 +297,14 @@ function StepCard(
         {...listeners}
         aria-label={`Move ${step.name || KIND_LABEL[step.kind]}`}
         data-testid={`${testId}-handle`}
-        className="w-4 cursor-grab touch-none font-mono text-sm leading-none text-faint hover:text-secondary"
+        className="flex w-4 cursor-grab touch-none justify-center text-ink-muted hover:text-ink"
       >
-        ⠿
+        <Icon name="more" className="rotate-90" />
       </button>
       {number !== undefined ? (
         <span
           data-testid={`${testId}-number`}
-          className="w-5 text-right font-mono text-sm text-secondary"
+          className="w-5 text-right text-sm text-ink-muted figures"
         >
           {number}
         </span>
@@ -323,10 +324,10 @@ function StepCard(
             {badges}
           </span>
         ) : null}
-        <span className="block truncate font-medium text-primary">
+        <span className="block truncate font-medium text-ink">
           {step.name || KIND_LABEL[step.kind]}
         </span>
-        <span className="block truncate text-sm text-secondary">{stepDetail(step)}</span>
+        <span className="block truncate text-sm text-ink-muted">{stepDetail(step)}</span>
         {!nested && hasBadges ? (
           // Under the name, never beside it: three badges beside it left the name "Upd…".
           <span className="mt-1.5 flex flex-wrap items-center gap-1">{badges}</span>
@@ -337,9 +338,9 @@ function StepCard(
         aria-label={`Delete ${step.name || KIND_LABEL[step.kind]}`}
         data-testid={`${testId}-delete`}
         onClick={() => props.onDelete(step.id)}
-        className="px-1 text-secondary hover:text-primary"
+        className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm text-ink-muted hover:text-ink"
       >
-        ×
+        <Icon name="close" />
       </button>
     </div>
   );
@@ -364,7 +365,7 @@ function DropZone({
       data-testid={`builder-drop-${id}`}
       className={cx(
         "rounded-sm border border-dashed px-3 py-2.5 text-center text-sm",
-        isOver ? "border-action bg-selected text-selected-ink" : "border-control text-secondary",
+        isOver ? "border-slate bg-slate-tint text-slate" : "border-line-strong text-ink-muted",
         className,
       )}
     >
@@ -388,9 +389,9 @@ function Fork(props: CanvasProps & { step: ForkStep }) {
   const names = stepNames(props.workflow);
   return (
     <div data-testid={`builder-fork-${step.id}`} className="flex w-full flex-col items-center">
-      <span aria-hidden className="h-4 border-l border-control" />
+      <span aria-hidden className="h-4 border-l border-line-strong" />
       <div
-        className="grid w-full gap-3 rounded-lg border border-dashed border-control p-3"
+        className="grid w-full gap-3 rounded-lg border border-dashed border-line-strong p-3"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >
         {step.paths.map((path, i) => (
@@ -398,11 +399,11 @@ function Fork(props: CanvasProps & { step: ForkStep }) {
             key={path.id}
             data-testid={`builder-fork-${step.id}-path-${path.id}`}
             aria-label={`Path ${i + 1}: ${path.name}`}
-            className="flex flex-col gap-2 rounded-md border border-edge bg-subtle p-3"
+            className="flex flex-col gap-2 rounded-md border border-line bg-surface-subtle p-3"
           >
             <div>
-              <h3 className="font-medium text-primary">{path.name}</h3>
-              <p className="font-mono text-xs break-words text-secondary">
+              <h3 className="font-medium text-ink">{path.name}</h3>
+              <p className="reference break-words text-ink-muted">
                 if {rulesText(path.when, names)}
               </p>
             </div>
@@ -412,16 +413,16 @@ function Fork(props: CanvasProps & { step: ForkStep }) {
         <section
           data-testid={`builder-fork-${step.id}-otherwise`}
           aria-label="Otherwise"
-          className="flex flex-col gap-2 rounded-md border border-edge bg-subtle p-3"
+          className="flex flex-col gap-2 rounded-md border border-line bg-surface-subtle p-3"
         >
           <div>
-            <h3 className="font-medium text-primary">Otherwise</h3>
-            <p className="font-mono text-xs text-secondary">none of the above</p>
+            <h3 className="font-medium text-ink">Otherwise</h3>
+            <p className="text-sm text-ink-muted">None of the above</p>
           </div>
           <Branch {...props} id={`otherwise:${step.otherwise.id}`} steps={step.otherwise.steps} />
         </section>
       </div>
-      <p className="label-caps mt-2 text-secondary">Paths join here</p>
+      <p className="eyebrow mt-2 text-ink-muted">Paths join here</p>
     </div>
   );
 }
@@ -433,11 +434,9 @@ function Loop(props: CanvasProps & { step: ForEachStep }) {
       data-testid={`builder-loop-${step.id}`}
       className="flex w-full max-w-[560px] flex-col items-center"
     >
-      <span aria-hidden className="h-4 border-l border-control" />
-      <div className="flex w-full flex-col gap-2 rounded-lg border border-dashed border-control p-3">
-        <p className="font-mono text-xs text-secondary">
-          each item · up to {step.concurrency} at once
-        </p>
+      <span aria-hidden className="h-4 border-l border-line-strong" />
+      <div className="flex w-full flex-col gap-2 rounded-lg border border-dashed border-line-strong p-3">
+        <p className="text-sm text-ink-muted">each item · up to {step.concurrency} at once</p>
         <Branch {...props} id={`loop:${step.id}`} steps={step.steps} />
       </div>
     </div>
@@ -460,26 +459,32 @@ export function Palette({
   return (
     <div data-testid="builder-palette" className="flex flex-col gap-4">
       <div>
-        <h2 className="font-semibold text-primary">Add a step</h2>
-        <p className="mt-1 text-sm text-secondary">
+        <h2 className="type-subheading text-ink">Add a step</h2>
+        <p className="mt-1 text-sm text-ink-muted">
           Drag onto the workflow or into a fork path, or press + to add at the end.
         </p>
       </div>
-      <input
-        type="search"
-        aria-label="Search skills and actions"
-        data-testid="builder-palette-search"
-        value={search}
-        onChange={(e) => onSearch(e.target.value)}
-        placeholder="Search skills and actions"
-        className="h-9 w-full rounded-md border border-control bg-card px-3 text-sm text-primary placeholder:text-faint"
-      />
-      {sections.length === 0 ? <p className="text-sm text-secondary">Nothing matches.</p> : null}
+      <span className="relative">
+        <Icon
+          name="search"
+          className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-muted"
+        />
+        <input
+          type="search"
+          aria-label="Search skills and actions"
+          data-testid="builder-palette-search"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Search skills and actions"
+          className="ds-input pl-9 text-sm"
+        />
+      </span>
+      {sections.length === 0 ? <p className="text-sm text-ink-muted">Nothing matches.</p> : null}
       {sections.map((s) => (
         <section key={s.key} data-testid={`builder-palette-${s.key}`}>
-          <h3 className="label-caps mb-2 text-secondary">{s.label}</h3>
+          <h3 className="eyebrow mb-2 text-ink-muted">{s.label}</h3>
           {s.items.length === 0 ? (
-            <p className="text-sm text-secondary">
+            <p className="text-sm text-ink-muted">
               {s.key === "skills" ? "No skills yet." : "None yet."}
             </p>
           ) : (
@@ -507,7 +512,7 @@ function PaletteCard({ item, onAdd }: { item: PaletteItem; onAdd(item: PaletteIt
       ref={setNodeRef}
       data-testid={`builder-palette-item-${item.key}`}
       className={cx(
-        "flex items-center gap-2 rounded-md border border-edge bg-card px-2.5 py-2",
+        "flex items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-2",
         isDragging && "opacity-40",
       )}
     >
@@ -516,12 +521,14 @@ function PaletteCard({ item, onAdd }: { item: PaletteItem; onAdd(item: PaletteIt
         {...listeners}
         className="flex min-w-0 flex-1 cursor-grab touch-none items-start gap-2"
       >
-        <span aria-hidden className="pt-0.5 font-mono text-sm leading-none text-faint">
-          ⠿
+        <span aria-hidden className="pt-0.5 text-ink-muted">
+          <Icon name="more" className="rotate-90" />
         </span>
         <span className="min-w-0">
-          <span className="block text-sm font-medium text-primary">{item.title}</span>
-          <span className="block text-xs text-secondary">
+          <span className="block text-sm font-medium [overflow-wrap:anywhere] text-ink">
+            {item.title}
+          </span>
+          <span className="block text-xs text-ink-muted">
             {item.detail}
             {own ? " · this agent's" : ""}
           </span>
@@ -534,9 +541,9 @@ function PaletteCard({ item, onAdd }: { item: PaletteItem; onAdd(item: PaletteIt
         }
         data-testid={`builder-palette-item-${item.key}-add`}
         onClick={() => onAdd(item)}
-        className="shrink-0 px-1.5 text-lg leading-none text-secondary hover:text-primary"
+        className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm shrink-0 text-ink-muted hover:text-ink"
       >
-        +
+        <Icon name="add" />
       </button>
     </li>
   );
@@ -547,10 +554,10 @@ export function DragCard({ title, kind }: { title: string; kind: string }): Reac
   return (
     <div
       data-drag-overlay=""
-      className="flex max-w-[420px] items-center gap-3 rounded-md border border-action bg-card px-4 py-3 elevation-md"
+      className="flex max-w-[420px] items-center gap-3 rounded-md border border-slate bg-surface px-4 py-3"
     >
-      <Badge>{kind}</Badge>
-      <span className="truncate font-medium text-primary">{title}</span>
+      <Tag>{kind}</Tag>
+      <span className="truncate font-medium text-ink">{title}</span>
     </div>
   );
 }

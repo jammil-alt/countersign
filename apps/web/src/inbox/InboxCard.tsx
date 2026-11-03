@@ -7,7 +7,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
 import { shortTime } from "../runs/format";
-import { Badge, Button, Card, cx, ErrorNotice, type Tone } from "../ui/primitives";
+import { Icon } from "../ui/icons";
+import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
 import { ChangeTables } from "./ChangePanel";
 import { changeTarget, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
 
@@ -79,10 +80,15 @@ export function payloadFacts(payload: Record<string, unknown>): [string, string]
 
 function statusBadge(item: InboxCardItem, outcome: string | null): { label: string; tone: Tone } {
   if (item.status === "expired") return { label: "Expired", tone: "neutral" };
-  if (item.status === "resolved") return { label: outcome ?? "Resolved", tone: "positive" };
-  if (item.kind === "external_action") return { label: "Needs approval", tone: "accent" };
-  if (item.kind === "request") return { label: "Needs an answer", tone: "accent" };
-  return { label: "Waiting", tone: "accent" };
+  // Resolved by a person (approved, answered): copper; rejected or declined stays neutral.
+  if (item.status === "resolved") {
+    const declined = /^(Rejected|Declined)/.test(outcome ?? "");
+    return { label: outcome ?? "Resolved", tone: declined ? "neutral" : "person" };
+  }
+  // Open items wait on you: signal, with a word.
+  if (item.kind === "external_action") return { label: "Needs approval", tone: "warning" };
+  if (item.kind === "request") return { label: "Needs an answer", tone: "warning" };
+  return { label: "Waiting", tone: "warning" };
 }
 
 export function InboxCard({
@@ -139,88 +145,77 @@ export function InboxCard({
   }
 
   return (
-    <Card testId={testId ?? `inbox-item-${item.id}`} className="overflow-hidden">
-      <header className="flex items-start justify-between gap-4 border-b border-edge px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge>{KIND_LABEL[item.kind] ?? item.kind}</Badge>
-            <h3 className="font-semibold text-primary">
-              {isChange && toolName ? `${toolName} · ${target ?? item.title}` : item.title}
-            </h3>
-          </div>
-          <p className="mt-1 text-sm text-secondary">
-            {[context, shortTime(item.createdAt)].filter(Boolean).join(" · ")}
-            {runHref ? (
-              <>
-                {" · "}
-                <Link
-                  to={runHref}
-                  className="text-link underline"
-                  data-testid="inbox-item-run-open"
-                >
-                  View run
-                </Link>
-              </>
-            ) : null}
-          </p>
+    // The Mezonas SignCard (mz-sign): one decision per card, what changes before and after, the
+    // run behind it as a Receipt, then the decision.
+    <article data-testid={testId ?? `inbox-item-${item.id}`} className="mz-sign">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={badge.tone} testId="inbox-item-status">
+            {badge.label}
+          </Badge>
+          <Tag>{KIND_LABEL[item.kind] ?? item.kind}</Tag>
         </div>
-        <Badge tone={badge.tone} testId="inbox-item-status">
-          {badge.label}
-        </Badge>
-      </header>
+        <span className="text-sm text-ink-muted">
+          {[context, shortTime(item.createdAt)].filter(Boolean).join(" · ")}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <h3 className="mz-sign__title text-lg leading-6 font-medium">
+          {isChange && toolName ? `${toolName} · ${target ?? item.title}` : item.title}
+        </h3>
+        {isChange ? (
+          <p className="text-sm text-ink-muted">
+            {tool ? item.title.replace(` (${tool})`, "") : item.title}
+            {tool ? <span className="ml-2 reference">{tool}</span> : null}
+          </p>
+        ) : null}
+      </div>
 
       {isChange ? (
-        <>
-          <p className="px-4 pt-3 text-sm text-body">
-            {tool ? item.title.replace(` (${tool})`, "") : item.title}
-            {tool ? <span className="ml-2 font-mono text-xs text-secondary">{tool}</span> : null}
-          </p>
-          <ChangeTables before={item.payload.before} input={item.payload.input} />
-        </>
+        <ChangeTables before={item.payload.before} input={item.payload.input} />
       ) : facts.length > 0 ? (
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 px-4 py-3 text-sm">
+        <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
           {facts.map(([k, v]) => (
             <div key={k} className="contents">
-              <dt className="text-secondary">{k}</dt>
-              <dd className="break-words text-primary">{v}</dd>
+              <dt className="text-ink-muted">{k}</dt>
+              <dd className="break-words text-ink">{v}</dd>
             </div>
           ))}
         </dl>
       ) : null}
 
       {item.kind === "request" && open && onResolve ? (
-        <div className="px-4 pb-1 pt-2">
-          <label className="block text-sm text-secondary" htmlFor={`answer-${item.id}`}>
-            Your answer
-          </label>
+        <label className="ds-field" htmlFor={`answer-${item.id}`}>
+          <span className="text-sm font-medium text-ink">Your answer</span>
           <textarea
             id={`answer-${item.id}`}
             data-testid="inbox-item-answer-input"
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
             rows={2}
-            className="mt-1 w-full rounded-sm border border-control bg-card px-3 py-2 text-[15px] text-primary"
+            className="ds-textarea text-base"
           />
+        </label>
+      ) : null}
+
+      {runHref ? (
+        <div className="mz-sign__receipts">
+          <Link to={runHref} className="mz-receipt" data-testid="inbox-item-run-open">
+            <Icon name="worksheet" size={14} className="ds-icon" />
+            View run
+          </Link>
         </div>
       ) : null}
 
-      {error ? (
-        <div className="px-4 pt-2">
-          <ErrorNotice error={error} />
-        </div>
-      ) : null}
+      {error ? <ErrorNotice error={error} /> : null}
 
-      <footer
-        className={cx(
-          "flex flex-wrap items-center justify-between gap-3 px-4 py-3",
-          (isChange || facts.length > 0) && "border-t border-edge",
-        )}
-      >
-        <p className="text-sm text-secondary">
+      <footer className="mz-sign__foot">
+        <p className="text-sm text-ink-muted">
           {open
             ? onResolve
               ? isChange
-                ? "Nothing changes in the tool until you approve."
+                ? "Nothing changes in the tool until you sign."
                 : item.dueAt
                   ? `Waits until ${shortTime(item.dueAt)}.`
                   : null
@@ -239,7 +234,7 @@ export function InboxCard({
           />
         ) : null}
       </footer>
-    </Card>
+    </article>
   );
 }
 
@@ -257,7 +252,7 @@ function Actions({
   onResolve: (body: ResolveInput) => void;
 }) {
   if (kind === "change_request") {
-    return <span className="text-sm text-secondary">Handled in the requests queue.</span>;
+    return <span className="text-sm text-ink-muted">Handled in the requests queue.</span>;
   }
   if (kind === "request") {
     return (
@@ -294,10 +289,12 @@ function Actions({
       <Button
         data-testid="inbox-item-approve"
         variant="primary"
+        className="font-semibold"
         disabled={busy}
         onClick={() => onResolve({ decision: "approve" })}
       >
-        {kind === "external_action" && toolName ? `Approve and update ${toolName}` : "Approve"}
+        {/* Approving an action is always "Sign" (brand book). */}
+        {kind === "external_action" && toolName ? `Sign and update ${toolName}` : "Sign"}
       </Button>
     </div>
   );

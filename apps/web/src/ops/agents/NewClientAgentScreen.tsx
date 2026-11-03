@@ -347,7 +347,7 @@ export function NewClientAgentScreen() {
             bundle={preview}
             title={start.kind === "blank" ? "Starting workflow" : "Workflow it starts with"}
             note={
-              <p className="text-sm text-secondary">
+              <p className="text-sm text-ink-muted">
                 It starts as a draft, with suggest-only permissions and approval on for every step
                 that changes a tool. Bind its connections, test-run and publish before activating.
               </p>

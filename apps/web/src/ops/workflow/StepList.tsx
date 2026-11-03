@@ -4,7 +4,7 @@
 // builder (ARCHITECTURE §10.5) replaces this view later and keeps its look.
 import type { ForEachStep, ForkStep, Step, Workflow } from "@countersign/core";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
-import { Badge, cx } from "../../ui/primitives";
+import { cx, StepKindTag } from "../../ui/primitives";
 import {
   KIND_LABEL,
   rulesText,
@@ -35,6 +35,7 @@ function StepListItems({ workflow }: { workflow: Workflow }) {
           testId={`step-${workflow.trigger.id}`}
           number={1}
           kind={KIND_LABEL.trigger}
+          kindId="trigger"
           title={triggerTitle(workflow.trigger)}
           detail={triggerDetail(workflow.trigger)}
         />
@@ -51,7 +52,7 @@ function StepListItems({ workflow }: { workflow: Workflow }) {
 function Item({ children, connector }: { children: ReactNode; connector?: boolean }) {
   return (
     <li className="flex w-full flex-col items-center">
-      {connector ? <span aria-hidden className="h-6 border-l border-control" /> : null}
+      {connector ? <span aria-hidden className="h-6 border-l border-line-strong" /> : null}
       {children}
     </li>
   );
@@ -63,7 +64,7 @@ function StepNode({ step, number }: { step: Step; number?: number }) {
       testId={`step-${step.id}`}
       number={number}
       kind={KIND_LABEL[step.kind]}
-      tone={step.kind === "fork" ? "accent" : "neutral"}
+      kindId={step.kind}
       title={step.name}
       detail={stepDetail(step)}
     />
@@ -92,7 +93,7 @@ function StepCard({
   kind,
   title,
   detail,
-  tone = "neutral",
+  kindId,
   testId,
   compact,
 }: {
@@ -100,7 +101,8 @@ function StepCard({
   kind: string;
   title: string;
   detail: string | null;
-  tone?: "neutral" | "accent";
+  /** The step's kind id ("person"), for its tag's colour. */
+  kindId: string;
   testId: string;
   compact?: boolean;
 }) {
@@ -108,22 +110,22 @@ function StepCard({
     <div
       data-testid={testId}
       className={cx(
-        "flex w-full items-center gap-3 rounded-md border border-edge bg-card elevation-xs",
+        "flex w-full items-center gap-3 rounded-md border border-line bg-surface",
         compact ? "px-3 py-2.5" : "max-w-[480px] px-4 py-3.5",
       )}
     >
       {number !== undefined ? (
         <span
           data-testid={`${testId}-number`}
-          className="w-5 text-right font-mono text-sm text-secondary"
+          className="w-5 text-right text-sm text-ink-muted figures"
         >
           {number}
         </span>
       ) : null}
-      <Badge tone={tone}>{kind}</Badge>
+      <StepKindTag kind={kindId} label={kind} />
       <div className="min-w-0">
-        <p className="font-medium text-primary">{title}</p>
-        {detail ? <p className="truncate text-sm text-secondary">{detail}</p> : null}
+        <p className="font-medium text-ink">{title}</p>
+        {detail ? <p className="truncate text-sm text-ink-muted">{detail}</p> : null}
       </div>
     </div>
   );
@@ -132,7 +134,7 @@ function StepCard({
 function Branch({ steps }: { steps: Step[] }) {
   if (steps.length === 0) {
     return (
-      <p className="rounded-sm border border-dashed border-control px-3 py-3 text-center text-sm text-secondary">
+      <p className="rounded-sm border border-dashed border-line-strong px-3 py-3 text-center text-sm text-ink-muted">
         Nothing · continue
       </p>
     );
@@ -141,7 +143,7 @@ function Branch({ steps }: { steps: Step[] }) {
     <ol className="flex flex-col items-stretch">
       {steps.map((s, i) => (
         <li key={s.id} className="flex flex-col items-center">
-          {i > 0 ? <span aria-hidden className="h-4 border-l border-control" /> : null}
+          {i > 0 ? <span aria-hidden className="h-4 border-l border-line-strong" /> : null}
           <NestedNode step={s} />
         </li>
       ))}
@@ -157,7 +159,7 @@ function NestedNode({ step }: { step: Step }) {
         compact
         testId={`step-${step.id}`}
         kind={KIND_LABEL[step.kind]}
-        tone={step.kind === "fork" ? "accent" : "neutral"}
+        kindId={step.kind}
         title={step.name}
         detail={stepDetail(step)}
       />
@@ -172,9 +174,9 @@ function Fork({ step }: { step: ForkStep }) {
   const columns = step.paths.length + 1;
   return (
     <div data-testid={`fork-${step.id}`} className="flex w-full flex-col items-center">
-      <span aria-hidden className="h-4 border-l border-control" />
+      <span aria-hidden className="h-4 border-l border-line-strong" />
       <div
-        className="grid w-full gap-3 rounded-lg border border-dashed border-control p-3"
+        className="grid w-full gap-3 rounded-lg border border-dashed border-line-strong p-3"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >
         {step.paths.map((path, i) => (
@@ -182,10 +184,10 @@ function Fork({ step }: { step: ForkStep }) {
             key={path.id}
             data-testid={`fork-${step.id}-path-${path.id}`}
             aria-label={`Path ${i + 1}: ${path.name}`}
-            className="rounded-md border border-edge bg-subtle p-3"
+            className="rounded-md border border-line bg-surface-subtle p-3"
           >
-            <h3 className="font-medium text-primary">{path.name}</h3>
-            <p className="mb-3 font-mono text-xs break-words text-secondary">
+            <h3 className="font-medium text-ink">{path.name}</h3>
+            <p className="mb-3 reference break-words text-ink-muted">
               if {rulesText(path.when, names)}
             </p>
             <Branch steps={path.steps} />
@@ -194,14 +196,14 @@ function Fork({ step }: { step: ForkStep }) {
         <section
           data-testid={`fork-${step.id}-otherwise`}
           aria-label="Otherwise"
-          className="rounded-md border border-edge bg-subtle p-3"
+          className="rounded-md border border-line bg-surface-subtle p-3"
         >
-          <h3 className="font-medium text-primary">Otherwise</h3>
-          <p className="mb-3 font-mono text-xs text-secondary">none of the above</p>
+          <h3 className="font-medium text-ink">Otherwise</h3>
+          <p className="mb-3 text-sm text-ink-muted">None of the above</p>
           <Branch steps={step.otherwise.steps} />
         </section>
       </div>
-      <p className="label-caps mt-2 text-secondary">Paths join here</p>
+      <p className="eyebrow mt-2 text-ink-muted">Paths join here</p>
     </div>
   );
 }
@@ -212,11 +214,9 @@ function Loop({ step }: { step: ForEachStep }) {
       data-testid={`loop-${step.id}`}
       className="flex w-full max-w-[560px] flex-col items-center"
     >
-      <span aria-hidden className="h-4 border-l border-control" />
-      <div className="w-full rounded-lg border border-dashed border-control p-3">
-        <p className="mb-3 font-mono text-xs text-secondary">
-          each item · up to {step.concurrency} at once
-        </p>
+      <span aria-hidden className="h-4 border-l border-line-strong" />
+      <div className="w-full rounded-lg border border-dashed border-line-strong p-3">
+        <p className="mb-3 text-sm text-ink-muted">each item · up to {step.concurrency} at once</p>
         <Branch steps={step.steps} />
       </div>
     </div>

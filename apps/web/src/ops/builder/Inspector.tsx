@@ -24,6 +24,7 @@ import {
   type Workflow,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { Icon } from "../../ui/icons";
 import { Badge, Button, cx } from "../../ui/primitives";
 import { KIND_LABEL } from "../workflow/describe";
 import { type BuilderData, connectorName } from "./catalog";
@@ -115,8 +116,8 @@ export function Inspector(props: InspectorProps) {
     body = <StepInspector {...props} step={step} />;
   } else {
     body = (
-      <div className="flex flex-col gap-2 text-sm text-secondary">
-        <p className="label-caps">Inspector</p>
+      <div className="flex flex-col gap-2 text-sm text-ink-muted">
+        <p className="eyebrow">Inspector</p>
         <p>Click a step or the trigger to edit it. Drag steps by their handle to reorder them.</p>
       </div>
     );
@@ -159,17 +160,17 @@ function Heading({
 }) {
   return (
     <div className="mb-4">
-      <p className="label-caps text-secondary">{eyebrow}</p>
-      <h2 className="mt-1 text-xl font-semibold text-primary">{title}</h2>
-      {intro ? <p className="mt-2 text-sm text-body">{intro}</p> : null}
+      <p className="eyebrow text-ink-muted">{eyebrow}</p>
+      <h2 className="mt-1 type-heading text-ink">{title}</h2>
+      {intro ? <p className="mt-2 text-sm text-ink">{intro}</p> : null}
     </div>
   );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 border-t border-divider pt-4">
-      <h3 className="label-caps text-secondary">{title}</h3>
+    <section className="flex flex-col gap-3 border-t border-line pt-4">
+      <h3 className="eyebrow text-ink-muted">{title}</h3>
       {children}
     </section>
   );
@@ -179,13 +180,10 @@ function NodeErrors({ errors, node }: { errors: readonly ValidationError[]; node
   const mine = errors.filter((e) => e.stepId === node);
   if (mine.length === 0) return null;
   return (
-    <ul
-      className="mb-4 flex flex-col gap-1 rounded-md border border-tone-warning-edge bg-tone-warning px-3 py-2 text-sm text-tone-warning-ink"
-      data-testid="builder-inspector-errors"
-    >
+    <ul className="ds-banner mb-4 flex-col gap-1 text-sm" data-testid="builder-inspector-errors">
       {mine.map((e) => (
         <li key={`${e.field}:${e.code}:${e.message}`}>
-          {e.field ? <span className="font-mono text-xs">{e.field}: </span> : null}
+          {e.field ? <span className="reference">{e.field}: </span> : null}
           {e.message}
         </li>
       ))}
@@ -240,7 +238,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       {step.kind === "skill" ? <SettingsSection {...props} set={set} /> : null}
       <TimelineSection step={step} set={set} />
 
-      <div className="flex justify-end border-t border-divider pt-4">
+      <div className="flex justify-end border-t border-line pt-4">
         {step.kind === "fork" ? null : (
           <Button
             variant="ghost"
@@ -272,13 +270,13 @@ function KindFields(
       return (
         <>
           <Row label="Skill" field="skill" errors={fieldErrors}>
-            <p className="font-mono text-sm text-body" data-field="skill" tabIndex={-1}>
+            <p className="reference text-ink" data-field="skill" tabIndex={-1}>
               {step.skill}
-              {skill ? <span className="font-sans text-secondary"> · {skill.name}</span> : null}
+              {skill ? <span className="font-sans text-ink-muted"> · {skill.name}</span> : null}
             </p>
           </Row>
           {skill?.description ? (
-            <p className="text-sm text-secondary">{skill.description}</p>
+            <p className="text-sm text-ink-muted">{skill.description}</p>
           ) : null}
           <Section title="Input">
             <SchemaForm
@@ -299,17 +297,17 @@ function KindFields(
       return (
         <>
           <Row label="Changes" field="tool" errors={fieldErrors}>
-            <p className="font-mono text-sm text-body" data-field="tool" tabIndex={-1}>
+            <p className="reference text-ink" data-field="tool" tabIndex={-1}>
               {step.tool}
               {tool?.connector ? (
-                <span className="font-sans text-secondary">
+                <span className="font-sans text-ink-muted">
                   {" "}
                   · {connectorName(data, tool.connector)}
                 </span>
               ) : null}
             </p>
           </Row>
-          {tool?.description ? <p className="text-sm text-secondary">{tool.description}</p> : null}
+          {tool?.description ? <p className="text-sm text-ink-muted">{tool.description}</p> : null}
           <Section title="Input">
             <SchemaForm
               schema={tool?.input}
@@ -586,13 +584,14 @@ function ApprovalSection(props: InspectorProps & { step: Step; set: SetStep }) {
   const tools = option.writes.map((t) => t.id).join(", ");
   return (
     <Section title="Approval">
-      <p className="text-sm text-body">
+      <p className="text-sm text-ink">
         This step changes the client's tools ({tools}). It waits for a person unless you switch
         approval off.
       </p>
       <Row label="" field="approval.required" errors={fieldErrors}>
-        <label className="flex items-center gap-2 text-sm text-primary">
+        <label className="flex items-center gap-2 text-sm text-ink">
           <input
+            className="size-4 accent-slate"
             type="checkbox"
             data-field="approval.required"
             data-testid="builder-approval-toggle"
@@ -617,7 +616,7 @@ function ApprovalSection(props: InspectorProps & { step: Step; set: SetStep }) {
         </label>
       </Row>
       {option.reason ? (
-        <p className="text-xs text-secondary" data-testid="builder-approval-reason">
+        <p className="text-xs text-ink-muted" data-testid="builder-approval-reason">
           {option.required ? "Run without approval isn't available: " : "Not allowed here: "}
           {option.reason}
         </p>
@@ -694,7 +693,7 @@ function SettingsSection(props: InspectorProps & { step: Step; set: SetStep }) {
 
   return (
     <Section title="Settings">
-      <p className="text-xs text-secondary">
+      <p className="text-xs text-ink-muted">
         Empty means the agent's setting, else the skill's default.
       </p>
       {skill.settings.map((setting) => {
@@ -797,8 +796,9 @@ function TimelineSection({ step, set }: { step: Step; set: SetStep }) {
   const visible = isClientVisible(step);
   return (
     <Section title="Client timeline">
-      <label className="flex items-center gap-2 text-sm text-primary">
+      <label className="flex items-center gap-2 text-sm text-ink">
         <input
+          className="size-4 accent-slate"
           type="checkbox"
           data-field="client.visible"
           data-testid="builder-timeline-visible"
@@ -907,7 +907,7 @@ function RulesEditor({
           // biome-ignore lint/suspicious/noArrayIndexKey: rules have no ids; their order is their identity.
           <div key={i} className="flex flex-col gap-1" data-testid={`${testPrefix}-rule-${i}`}>
             <div className="flex items-center gap-1.5">
-              <span className="w-7 shrink-0 font-mono text-[11px] text-secondary">
+              <span className="w-7 shrink-0 eyebrow text-ink-muted">
                 {i === 0 ? "IF" : rules.match === "any" ? "OR" : "AND"}
               </span>
               <div className="min-w-0 flex-1">
@@ -965,13 +965,13 @@ function RulesEditor({
                 onClick={() =>
                   onChange({ ...rules, rules: rules.rules.filter((_, j) => j !== i) }, "rules")
                 }
-                className="px-1 text-secondary hover:text-primary"
+                className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm shrink-0 text-ink-muted hover:text-ink"
               >
-                ×
+                <Icon name="close" />
               </button>
             </div>
             {messages.map((m) => (
-              <span key={m} className="pl-8 text-xs text-tone-warning-ink">
+              <span key={m} className="pl-8 text-xs text-risk">
                 {m}
               </span>
             ))}
@@ -979,7 +979,7 @@ function RulesEditor({
         );
       })}
       {errors.at(`${prefix}.rules`).map((m) => (
-        <span key={m} className="text-xs text-tone-warning-ink">
+        <span key={m} className="text-xs text-risk">
           {m}
         </span>
       ))}
@@ -994,9 +994,10 @@ function RulesEditor({
               "rules",
             )
           }
-          className="text-sm font-medium text-link"
+          className="ds-btn ds-btn--link text-sm"
         >
-          + Add condition
+          <Icon name="add" />
+          Add condition
         </button>
         {rules.rules.length > 1 ? (
           <SmallSelect
@@ -1036,7 +1037,7 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
       {errorsFor(errors, step.id)
         .at("paths")
         .map((m) => (
-          <span key={m} className="text-sm text-tone-warning-ink">
+          <span key={m} className="text-sm text-risk">
             {m}
           </span>
         ))}
@@ -1049,8 +1050,8 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
             data-node={p.id}
             data-testid={`builder-path-${p.id}`}
             className={cx(
-              "flex flex-col gap-2 rounded-md border bg-subtle p-3",
-              invalid ? "border-tone-warning-edge" : "border-edge",
+              "flex flex-col gap-2 rounded-md border bg-surface-subtle p-3",
+              invalid ? "border-risk" : "border-line",
             )}
           >
             <div className="flex items-center gap-2">
@@ -1062,7 +1063,7 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
                 className="min-w-0 flex-1 font-medium"
                 onChange={(e) => setPath(p.id, "name", (x) => ({ ...x, name: e.target.value }))}
               />
-              <span className="shrink-0 font-mono text-xs text-secondary">
+              <span className="shrink-0 text-sm text-ink-muted figures">
                 {p.steps.length} {p.steps.length === 1 ? "step" : "steps"}
               </span>
             </div>
@@ -1080,7 +1081,7 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
                 disabled={i === 0}
                 data-testid={`builder-path-${p.id}-up`}
                 onClick={() => move(i, -1)}
-                className="text-secondary hover:text-primary disabled:opacity-40"
+                className="text-ink-muted hover:text-ink disabled:opacity-40"
               >
                 Move up
               </button>
@@ -1089,7 +1090,7 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
                 disabled={i === step.paths.length - 1}
                 data-testid={`builder-path-${p.id}-down`}
                 onClick={() => move(i, 1)}
-                className="text-secondary hover:text-primary disabled:opacity-40"
+                className="text-ink-muted hover:text-ink disabled:opacity-40"
               >
                 Move down
               </button>
@@ -1097,7 +1098,7 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
                 type="button"
                 data-testid={`builder-path-${p.id}-remove`}
                 onClick={() => setPaths("remove", (ps) => ps.filter((x) => x.id !== p.id))}
-                className="ml-auto text-secondary hover:text-primary"
+                className="ml-auto text-ink-muted hover:text-ink"
               >
                 Remove path
               </button>
@@ -1105,27 +1106,28 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
           </section>
         );
       })}
-      <section className="rounded-md border border-edge bg-subtle p-3">
+      <section className="rounded-md border border-line bg-surface-subtle p-3">
         <div className="flex items-center justify-between">
-          <span className="font-medium text-primary">Otherwise</span>
-          <span className="font-mono text-xs text-secondary">
+          <span className="font-medium text-ink">Otherwise</span>
+          <span className="text-sm text-ink-muted figures">
             {step.otherwise.steps.length} {step.otherwise.steps.length === 1 ? "step" : "steps"}
           </span>
         </div>
-        <p className="mt-1 text-sm text-secondary">When none of the paths above match</p>
+        <p className="mt-1 text-sm text-ink-muted">When none of the paths above match</p>
       </section>
       <div className="flex items-center gap-3">
         <Button
           data-testid="builder-fork-add-path"
           onClick={() => setPaths("add", (ps) => [...ps, newPath(ps.length + 1)])}
         >
-          + Add path
+          <Icon name="add" />
+          Add path
         </Button>
         <Button variant="ghost" data-testid="builder-fork-remove" onClick={() => onDelete(step.id)}>
           Remove fork
         </Button>
       </div>
-      <p className="text-xs text-secondary">
+      <p className="text-xs text-ink-muted">
         Fields come from earlier steps' outputs and the trigger, such as a total, a vendor or a
         person's answer.
       </p>
@@ -1202,7 +1204,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
               ))}
             </SmallSelect>
           </Row>
-          <p className="text-sm text-secondary">
+          <p className="text-sm text-ink-muted">
             {events.find((e) => e.type === on.event)?.description}
           </p>
           <Section title="Only when">

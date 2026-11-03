@@ -1,6 +1,5 @@
-// A quiet segmented filter (open / resolved, assigned to you / all), shared by the inboxes and
-// run lists of both surfaces.
-import { cx } from "../ui/primitives";
+// A segmented filter (the Mezonas Segmented, ds-seg: open / resolved, assigned to you / all),
+// shared by the inboxes and run lists of both surfaces.
 
 export const OPEN_RESOLVED: ["open" | "resolved", string][] = [
   ["open", "Open"],
@@ -22,27 +21,20 @@ export function StatusFilter<S extends string>({
   label?: string;
 }) {
   return (
-    <div
-      role="tablist"
-      aria-label={label}
-      className="inline-flex rounded-md border border-control bg-card p-0.5"
-    >
+    <fieldset className="ds-seg m-0">
+      <legend className="sr-only">{label}</legend>
       {options.map(([s, text]) => (
         <button
           key={s}
           type="button"
-          role="tab"
-          aria-selected={value === s}
+          aria-pressed={value === s}
           data-testid={`${area}-filter-${s}`}
           onClick={() => onChange(s)}
-          className={cx(
-            "rounded-sm px-3 py-1 text-sm",
-            value === s ? "bg-selected font-medium text-selected-ink" : "text-body hover:bg-subtle",
-          )}
+          className="hover:text-ink"
         >
           {text}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }

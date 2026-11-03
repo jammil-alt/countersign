@@ -168,15 +168,15 @@ function ConnectedCard({
       <div className="flex items-start gap-3">
         <ConnectorMark name={item.name} />
         <div className="min-w-0">
-          <p className="font-semibold text-primary">{item.name}</p>
-          <p className="text-sm text-secondary">{conn.externalAccountId ?? item.description}</p>
+          <p className="font-medium text-ink">{item.name}</p>
+          <p className="text-sm text-ink-muted">{conn.externalAccountId ?? item.description}</p>
         </div>
       </div>
-      <p className="mt-3 flex items-center gap-2 text-sm text-secondary">
+      <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
         <Badge tone="positive">{connectionStatusLabel(conn.status)}</Badge>
         {conn.lastSyncAt ? `synced ${shortTime(conn.lastSyncAt)}` : "live"}
       </p>
-      <p className="mt-2 text-sm text-secondary">
+      <p className="mt-2 text-sm text-ink-muted">
         Used by {conn.usedBy.length} {conn.usedBy.length === 1 ? "service" : "services"} · {writes}{" "}
         {writes === 1 ? "action" : "actions"}
       </p>
@@ -184,12 +184,12 @@ function ConnectedCard({
         <ul data-testid="portal-connection-tools" className="mt-3 flex flex-col gap-1.5 text-sm">
           {conn.access.map((a) => (
             <li key={a.toolId} className="flex items-start justify-between gap-3">
-              <span className="text-body">{a.description}</span>
-              <span className="shrink-0 text-secondary">{accessLabel(a.access)}</span>
+              <span className="text-ink">{a.description}</span>
+              <span className="shrink-0 text-ink-muted">{accessLabel(a.access)}</span>
             </li>
           ))}
           {conn.usedBy.length > 0 ? (
-            <li className="text-secondary">Used by {conn.usedBy.map((u) => u.name).join(", ")}</li>
+            <li className="text-ink-muted">Used by {conn.usedBy.map((u) => u.name).join(", ")}</li>
           ) : null}
         </ul>
       ) : null}
@@ -212,7 +212,7 @@ function ConnectedCard({
         ) : null}
       </div>
       {confirming ? (
-        <div className="mt-3 rounded-md border border-tone-warning-edge bg-tone-warning p-3 text-sm text-tone-warning-ink">
+        <div className="ds-banner mt-3 block">
           <p>Agents stop using {item.name} until you connect it again.</p>
           <div className="mt-2 flex gap-2">
             <Button
@@ -253,13 +253,13 @@ function AvailableCard({
       <div className="flex items-start gap-3">
         <ConnectorMark name={item.name} />
         <div className="min-w-0">
-          <p className="font-semibold text-primary">{item.name}</p>
+          <p className="font-medium text-ink">{item.name}</p>
           {status && status !== "pending" ? (
-            <p className="text-sm text-secondary">{connectionStatusLabel(status)}</p>
+            <p className="text-sm text-ink-muted">{connectionStatusLabel(status)}</p>
           ) : null}
         </div>
       </div>
-      <p className="mt-3 text-sm text-body">{item.description}</p>
+      <p className="mt-3 text-sm text-ink">{item.description}</p>
       <div className="mt-auto pt-4">
         {!item.available ? (
           <Badge testId="portal-connection-unavailable">Not available yet</Badge>
@@ -276,7 +276,7 @@ function AvailableCard({
             {reconnect ? "Reconnect" : "Connect"}
           </Button>
         ) : (
-          <p className="text-sm text-secondary">Your admin can connect it.</p>
+          <p className="text-sm text-ink-muted">Your admin can connect it.</p>
         )}
       </div>
     </Card>

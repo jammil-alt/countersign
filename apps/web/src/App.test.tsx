@@ -123,8 +123,8 @@ describe("app", () => {
 
     await user.click(within(tabs).getByRole("link", { name: /^Versions/ }));
     const versions = await screen.findByTestId("agent-versions");
-    expect(within(versions).getByTestId("agent-version-1")).toHaveTextContent("live");
-    expect(within(versions).getByTestId("agent-version-2")).toHaveTextContent("draft");
+    expect(within(versions).getByTestId("agent-version-1")).toHaveTextContent("Live");
+    expect(within(versions).getByTestId("agent-version-2")).toHaveTextContent("Draft");
 
     // Opening the draft from the versions list shows its workflow.
     await user.click(within(versions).getByRole("link", { name: "v2" }));
