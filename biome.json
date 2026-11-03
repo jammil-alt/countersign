@@ -10,7 +10,8 @@
       "!**/.wrangler",
       "!**/migrations/meta",
       "!**/worker-configuration.d.ts",
-      "!fixtures/llm"
+      "!fixtures/llm",
+      "!docs/design"
     ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
