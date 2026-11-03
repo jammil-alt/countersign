@@ -87,5 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm --filter @countersign/web run --if-present build
-          env_flag=$([ "$TARGET" = production ] && echo '--env=' || echo '--env=staging')
+          # Always an explicit environment: the top level of wrangler.jsonc is local development (dev
+          # sign-in) and must never be deployed.
+          env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
           pnpm --filter @countersign/api exec wrangler deploy "$env_flag"

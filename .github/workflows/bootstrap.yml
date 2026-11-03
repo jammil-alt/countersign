@@ -5,7 +5,7 @@ name: Bootstrap cloud
 # repository's secrets and never in a developer's shell or an agent session (docs/operations.md §1).
 #
 # What it does, each step idempotent (it looks before it creates):
-#   1. Neon project: uses the NEON_PROJECT_ID variable if set; otherwise finds or creates "countersign"
+#   1. Neon project: uses the NEON_PROJECT_ID variable if set; otherwise finds or creates "mezonas"
 #      (Postgres 16) in the region given as input, in the key's own account or the given organization.
 #      Countersign shares no resources with any other project.
 #   2. On branch main: role cs_owner (Neon-managed is fine for the owner) and database countersign.
@@ -14,9 +14,10 @@ name: Bootstrap cloud
 #      it if missing) and cs_worker (LOGIN, member of cs_runtime only). cs_worker is never created through
 #      the Neon API: Neon-managed roles join neon_superuser and would bypass row-level security
 #      (docs/plan.md §1.2). Each run gives cs_worker a new random password per branch.
-#   5. Hyperdrive configs countersign-db (→ main) and countersign-db-staging (→ staging), connecting as
+#   5. Hyperdrive configs mezonas-db (→ main) and mezonas-db-staging (→ staging), connecting as
 #      cs_worker with that password. The password exists only inside this job and in Hyperdrive.
-#   6. R2 buckets countersign and countersign-staging.
+#   6. R2 buckets mezonas and mezonas-staging. (Public resources are named Mezonas; the database,
+#      roles and code keep the code name countersign.)
 #
 # Needs: secrets NEON_API_KEY, CLOUDFLARE_API_TOKEN (Hyperdrive edit, R2 edit, account read),
 # CLOUDFLARE_ACCOUNT_ID. After the first run, save the printed project id as the repository variable
@@ -75,16 +76,16 @@ jobs:
             region="$REGION"
             org="$ORG_ID"
             echo "Region $region${org:+, organization $org}"
-            existing=$(neon "$NEON/projects?search=countersign${org:+&org_id=$org}" \
-              | jq -r '[.projects[] | select(.name == "countersign")][0].id // empty')
+            existing=$(neon "$NEON/projects?search=mezonas${org:+&org_id=$org}" \
+              | jq -r '[.projects[] | select(.name == "mezonas")][0].id // empty')
             if [ -n "$existing" ]; then
               project="$existing"
-              echo "Found existing project countersign: $project"
+              echo "Found existing project mezonas: $project"
             else
               body=$(jq -n --arg r "$region" --arg o "$org" \
-                '{project: ({name: "countersign", region_id: $r, pg_version: 16} + (if $o == "" then {} else {org_id: $o} end))}')
+                '{project: ({name: "mezonas", region_id: $r, pg_version: 16} + (if $o == "" then {} else {org_id: $o} end))}')
               project=$(neon -X POST "$NEON/projects" -d "$body" | jq -r '.project.id')
-              echo "Created project countersign: $project"
+              echo "Created project mezonas: $project"
             fi
           fi
           echo "PROJECT=$project" >> "$GITHUB_ENV"
@@ -166,11 +167,11 @@ jobs:
           echo "### Hyperdrive (ids go in apps/api/wrangler.jsonc)" >> "$GITHUB_STEP_SUMMARY"
           echo "| Config | Id |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          provision "$MAIN_BRANCH" countersign-db
-          provision "$STAGING_BRANCH" countersign-db-staging
+          provision "$MAIN_BRANCH" mezonas-db
+          provision "$STAGING_BRANCH" mezonas-db-staging
 
           echo "### R2 buckets" >> "$GITHUB_STEP_SUMMARY"
-          for bucket in countersign countersign-staging; do
+          for bucket in mezonas mezonas-staging; do
             if cf "$CF/accounts/$CF_ACCOUNT/r2/buckets/$bucket" > /dev/null 2>&1; then
               echo "R2 bucket $bucket exists"
             else

@@ -1,6 +1,9 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "countersign",
+  // Top level = local development only (`wrangler dev`, the Workers tests). It is never deployed:
+  // deploy.yml always passes --env=staging or --env=production, so the dev sign-in below can't reach
+  // a real domain. Public resources are named Mezonas; the code name stays countersign.
+  "name": "mezonas-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   // postgres-js needs Node's net/tls shims under Workers.
@@ -17,18 +20,18 @@
   // The senses sweep and schedule check run every minute (docs/plan.md §1.2).
   "triggers": { "crons": ["* * * * *"] },
 
-  // Neon through Hyperdrive, as cs_worker (docs/plan.md §1.1). PLACEHOLDER id: the Bootstrap cloud
-  // workflow creates the real config (docs/operations.md). Locally, `wrangler dev` and the Workers
-  // tests read CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE instead (.env.example).
+  // Neon through Hyperdrive, as cs_worker (docs/plan.md §1.1). Locally, `wrangler dev` and the
+  // Workers tests read CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE instead (.env.example),
+  // so this id is never used.
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000000" }],
 
   // Original documents and other files. Local R2 simulation under `wrangler dev`.
-  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "countersign-artifacts" }],
+  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas-local" }],
 
   // One Workflow class runs any workflow of any client agent; the instance id is the run id
   // (ARCHITECTURE §10.3).
   "workflows": [
-    { "name": "countersign-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+    { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
   ],
 
   // Non-secret configuration. Secrets (WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD, ANTHROPIC_API_KEY,
@@ -45,27 +48,45 @@
     "LLM_MODE": "live"
   },
 
+  // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
+  // Resource names match .github/workflows/bootstrap.yml; domains are on the mezonas.com zone
+  // (docs/operations.md, "Environments").
   "env": {
-    // Mirrors every binding above: wrangler does not inherit bindings into an environment.
     "staging": {
-      "name": "countersign-staging",
+      "name": "mezonas-staging",
+      "routes": [{ "pattern": "staging.mezonas.com", "custom_domain": true }],
       "triggers": { "crons": ["* * * * *"] },
-      // PLACEHOLDER id, as above.
+      // PLACEHOLDER: the id of Hyperdrive `mezonas-db-staging`, printed by Bootstrap cloud.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000000" }],
-      "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "countersign-staging-artifacts" }],
+      "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas-staging" }],
       "workflows": [
-        {
-          "name": "countersign-staging-run",
-          "binding": "RUN_WORKFLOW",
-          "class_name": "RunWorkflow"
-        }
+        { "name": "mezonas-staging-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
       ],
       "vars": {
         "ENVIRONMENT": "staging",
         "AUTH_PROVIDER": "workos",
-        // PLACEHOLDER: the staging WorkOS client id and origin are set when WorkOS is provisioned.
+        // PLACEHOLDER: the staging WorkOS client id, set when WorkOS is provisioned.
         "WORKOS_CLIENT_ID": "",
-        "APP_ORIGIN": "https://staging.countersign.example",
+        "APP_ORIGIN": "https://staging.mezonas.com",
+        "LLM_MODE": "live"
+      }
+    },
+    "production": {
+      "name": "mezonas",
+      "routes": [{ "pattern": "app.mezonas.com", "custom_domain": true }],
+      "triggers": { "crons": ["* * * * *"] },
+      // PLACEHOLDER: the id of Hyperdrive `mezonas-db`, printed by Bootstrap cloud.
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000000" }],
+      "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas" }],
+      "workflows": [
+        { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+      ],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "AUTH_PROVIDER": "workos",
+        // PLACEHOLDER: the production WorkOS client id, set when WorkOS is provisioned.
+        "WORKOS_CLIENT_ID": "",
+        "APP_ORIGIN": "https://app.mezonas.com",
         "LLM_MODE": "live"
       }
     }
