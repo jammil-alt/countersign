@@ -19,6 +19,10 @@
     "@countersign/llm": "workspace:*",
     "@countersign/senses": "workspace:*",
     "@countersign/threads": "workspace:*",
+    "drizzle-orm": "^0.45.4",
     "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
   }
 }
