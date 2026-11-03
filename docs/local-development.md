@@ -75,8 +75,20 @@ Or open http://localhost:8787 and pick a user on the sign-in screen. The seed ha
 database. Runs execute locally as real Workflows. Model calls need `ANTHROPIC_API_KEY`; without it,
 skills that call a model fail, while actions, person, fork and notify steps still run.
 
+To try a workflow end to end as the operator: create a template (Templates → New template), build
+its workflow in the Workflow tab, publish it, and fork it into a client. In the **Sandbox** you connect
+the testkit yourself (client → Connections → Connect); in the Demo client, offer the testkit from the
+same page and sign in as the client admin to connect it from the portal. Bind the connection in the
+agent's Settings, then Test run from the builder. A test run's person steps wait in your Inbox. After a
+passing test run of the live version, Activate in Settings; the client admin then approves its changes
+from the portal inbox. The testkit is in memory: `testkit.record.update` fails on a record it doesn't
+hold, and it forgets everything when the Worker restarts.
+
+There is no screen for writing skills yet; skill steps also need `ANTHROPIC_API_KEY` to run.
+
 ## Status
 
-Phase 1 (`docs/plan.md` §3) runs locally end to end: migrations and seed, the Worker with its
-Workflows and cron, sign-in, the back office and portal routes, and the app shells. QuickBooks,
-email and document extraction are not built yet.
+Phase 1 (`docs/plan.md` §3) and most of Track B run locally end to end: migrations and seed, the
+Worker with its Workflows and cron, sign-in, templates and client agents with the workflow builder,
+test and live runs with approvals, the back office's and the portal's inbox, runs and connections.
+The merge view, QuickBooks, email and document extraction are not built yet.
