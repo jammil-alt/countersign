@@ -20,6 +20,7 @@ import {
 } from "@countersign/agents";
 import {
   type AgentBundle,
+  type BuilderCatalog,
   type BundleChange,
   diffBundles,
   flattenBundle,
@@ -196,6 +197,54 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     );
     return {
       skills: [...builtins, ...custom].sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  });
+
+  mount(app, routes.opsBuilderCatalog, async (ctx) => {
+    const { tx, services } = ctx;
+    const { platform } = services;
+    const row = await agentInScope(ctx, ctx.params.id);
+    type Entry = BuilderCatalog["skills"][number];
+    // Instructions stay out: the builder places skills, it doesn't read their prompts.
+    const entry = (
+      ref: string,
+      def: SkillDefinition,
+      source: Entry["source"],
+      version: number | null,
+    ): Entry => {
+      const { instructions: _instructions, ...definition } = def;
+      return { ref, source, version, definition };
+    };
+    const skills = new Map<string, Entry>();
+    for (const def of platform.catalog.list())
+      skills.set(def.id, entry(def.id, def, "builtin", null));
+    for (const s of await operatorSkills(ctx, row.tenantId)) {
+      if (!skills.has(s.def.id)) skills.set(s.def.id, entry(s.def.id, s.def, s.source, s.version));
+    }
+    // DECISION: the builder validates with the skills the server would: a reference the latest
+    // version already makes (a pinned `@version`, a client's snapshot of a shared skill) resolves
+    // as validateForPublish resolves it, and is offered under that reference.
+    const [latest] = await listVersions(tx, row.id);
+    if (latest) {
+      const resolved = await skillContext(tx, {
+        tenantId: row.tenantId,
+        bundle: latest.bundle,
+        catalog: platform.catalog,
+      });
+      for (const [ref, def] of Object.entries(resolved.skills)) {
+        if (!skills.has(ref)) skills.set(ref, entry(ref, def, "pinned", null));
+      }
+    }
+    return {
+      skills: [...skills.values()].sort((a, b) =>
+        a.definition.name.localeCompare(b.definition.name),
+      ),
+      tools: platform.tools.list().map((t) => t.spec),
+      connectors: platform.connectors.list().map((c) => ({
+        id: c.manifest.id,
+        name: c.manifest.name,
+        icon: c.manifest.icon || null,
+      })),
     };
   });
 

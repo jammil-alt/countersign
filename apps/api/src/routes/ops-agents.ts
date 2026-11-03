@@ -345,6 +345,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       type: e.type,
       description: e.description,
       subjectType: e.subjectType ?? null,
+      payload: e.payload,
       sample: e.sample,
     })),
   }));

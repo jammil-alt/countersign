@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
+import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
+import { SkillDefinition } from "../schemas/skill";
+import { ToolSpec } from "../schemas/tool";
 import { defineRoute } from "./contract";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -375,6 +378,26 @@ export const SkillOption = z.object({
   requiresConnectors: z.array(z.string()),
 });
 export type SkillOption = z.infer<typeof SkillOption>;
+
+/**
+ * What the workflow builder places and types steps with (ARCHITECTURE §10.5): every skill the agent
+ * may use with its full definition (input and output schemas, tools, settings; instructions are
+ * left out), every registered tool, and the connectors their actions are grouped under.
+ */
+export const BuilderCatalog = z.object({
+  skills: z.array(
+    z.object({
+      /** The reference a bundle names it by: its id, or a pinned `id@version` the agent uses. */
+      ref: z.string(),
+      source: z.enum(["builtin", "client", "shared", "pinned"]),
+      version: z.number().int().nullable(),
+      definition: SkillDefinition,
+    }),
+  ),
+  tools: z.array(ToolSpec),
+  connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
+});
+export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -793,10 +816,21 @@ export const opsRoutes = {
           type: z.string(),
           description: z.string(),
           subjectType: z.string().nullable(),
+          /** The payload's JSON Schema: what `{{trigger.…}}` can reference. */
+          payload: JsonSchema,
           sample: z.unknown(),
         }),
       ),
     }),
+  }),
+  opsBuilderCatalog: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/builder-catalog",
+    auth: "session",
+    roles: OPS,
+    summary: "What the workflow builder needs for an agent: skills with schemas, tools, connectors",
+    params: IdParams,
+    response: BuilderCatalog,
   }),
   opsRuns: defineRoute({
     method: "GET",

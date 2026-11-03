@@ -238,6 +238,43 @@ describe.skipIf(!h)("agent pages API", () => {
         }),
       ]);
     });
+
+    it("gives the builder every skill with its schemas, every tool and the connectors", async () => {
+      const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/builder-catalog`);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const catalog = j(res.json);
+      expect(catalog.skills).toEqual([
+        expect.objectContaining({
+          ref: "custom:price-watch",
+          source: "client",
+          version: 1,
+          definition: expect.objectContaining({
+            id: "custom:price-watch",
+            name: "Price watch for A",
+            mode: "agent",
+            input: { type: "object" },
+            output: { type: "object" },
+          }),
+        }),
+      ]);
+      // Prompts stay with the skill: the builder never needs them.
+      expect(catalog.skills[0].definition.instructions).toBeUndefined();
+      const update = catalog.tools.find((t: { id: string }) => t.id === "testkit.record.update");
+      expect(update).toMatchObject({
+        sideEffect: "external",
+        connector: "testkit",
+        verb: "update",
+      });
+      expect(catalog.tools.map((t: { id: string }) => t.id)).toContain("inbox.create");
+      expect(catalog.connectors).toEqual([expect.objectContaining({ id: "testkit" })]);
+
+      // Triggers come from the event catalogue, now with each payload's schema.
+      const events = await H.call(OPERATOR, "GET", "/api/ops/catalog/events");
+      const received = j(events.json).events.find(
+        (e: { type: string }) => e.type === "document.received",
+      );
+      expect(received.payload).toMatchObject({ type: "object" });
+    });
   });
 
   describe("operation", () => {
@@ -297,6 +334,7 @@ describe.skipIf(!h)("agent pages API", () => {
         ["POST", `/api/ops/agents/${agentA}/retire`],
         ["GET", `/api/ops/agents/${agentA}/activation`],
         ["GET", `/api/ops/agents/${agentA}/skills`],
+        ["GET", `/api/ops/agents/${agentA}/builder-catalog`],
         ["GET", `/api/ops/agents/${agentA}/versions/${agentAv2}/diff`],
         ["GET", `/api/ops/agents/${agentA}/customizations`],
         ["GET", `/api/ops/templates/${templateId}/used-by`],
