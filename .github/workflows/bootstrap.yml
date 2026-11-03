@@ -1,0 +1,181 @@
+name: Bootstrap cloud
+
+# One-time (and safely re-runnable) provisioning of Countersign's cloud resources, run by hand from
+# Actions → Bootstrap cloud. It runs here, on GitHub, so the account-level API keys live only in this
+# repository's secrets and never in a developer's shell or an agent session (docs/operations.md §1).
+#
+# What it does, each step idempotent (it looks before it creates):
+#   1. Neon project: uses the NEON_PROJECT_ID variable if set; otherwise finds or creates "countersign"
+#      (Postgres 16) in the region given as input, in the key's own account or the given organization.
+#      Countersign shares no resources with any other project.
+#   2. On branch main: role cs_owner (Neon-managed is fine for the owner) and database countersign.
+#   3. Branch staging from main (it inherits the role and database).
+#   4. On each branch, with SQL as cs_owner: role cs_runtime (NOLOGIN; the first migration also creates
+#      it if missing) and cs_worker (LOGIN, member of cs_runtime only). cs_worker is never created through
+#      the Neon API: Neon-managed roles join neon_superuser and would bypass row-level security
+#      (docs/plan.md §1.2). Each run gives cs_worker a new random password per branch.
+#   5. Hyperdrive configs countersign-db (→ main) and countersign-db-staging (→ staging), connecting as
+#      cs_worker with that password. The password exists only inside this job and in Hyperdrive.
+#   6. R2 buckets countersign and countersign-staging.
+#
+# Needs: secrets NEON_API_KEY, CLOUDFLARE_API_TOKEN (Hyperdrive edit, R2 edit, account read),
+# CLOUDFLARE_ACCOUNT_ID. After the first run, save the printed project id as the repository variable
+# NEON_PROJECT_ID, and the Hyperdrive ids in apps/api/wrangler.jsonc (M0).
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: Neon region id for a new project (e.g. aws-us-east-2), as chosen by the owner
+        type: string
+        required: true
+      org_id:
+        description: Neon organization id for a new project (leave empty for the API key's own account)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      REGION: ${{ inputs.region }}
+      ORG_ID: ${{ inputs.org_id }}
+      NEON: https://console.neon.tech/api/v2
+      CF: https://api.cloudflare.com/client/v4
+    steps:
+      - name: Secrets present
+        run: |
+          missing=()
+          for name in NEON_API_KEY CF_TOKEN CF_ACCOUNT; do [ -n "${!name}" ] || missing+=("$name"); done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets (NEON_API_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID): ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Neon project
+        run: |
+          set -euo pipefail
+          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          if [ -n "$NEON_PROJECT_ID" ]; then
+            project="$NEON_PROJECT_ID"
+            echo "Using NEON_PROJECT_ID=$project"
+          else
+            region="$REGION"
+            org="$ORG_ID"
+            echo "Region $region${org:+, organization $org}"
+            existing=$(neon "$NEON/projects?search=countersign${org:+&org_id=$org}" \
+              | jq -r '[.projects[] | select(.name == "countersign")][0].id // empty')
+            if [ -n "$existing" ]; then
+              project="$existing"
+              echo "Found existing project countersign: $project"
+            else
+              body=$(jq -n --arg r "$region" --arg o "$org" \
+                '{project: ({name: "countersign", region_id: $r, pg_version: 16} + (if $o == "" then {} else {org_id: $o} end))}')
+              project=$(neon -X POST "$NEON/projects" -d "$body" | jq -r '.project.id')
+              echo "Created project countersign: $project"
+            fi
+          fi
+          echo "PROJECT=$project" >> "$GITHUB_ENV"
+          echo "### Neon project: \`$project\`" >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$NEON_PROJECT_ID" ] || echo "Save it as the repository **variable** \`NEON_PROJECT_ID\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Owner role, database and staging branch
+        run: |
+          set -euo pipefail
+          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          wait_ops() { # Neon applies changes asynchronously; wait until nothing is running
+            for _ in $(seq 1 60); do
+              running=$(neon "$NEON/projects/$PROJECT/operations?limit=20" \
+                | jq '[.operations[] | select(.status == "running" or .status == "scheduling")] | length')
+              [ "$running" = 0 ] && return 0
+              sleep 2
+            done
+            echo "::error::Neon operations still running after 2 minutes"; exit 1
+          }
+          branches=$(neon "$NEON/projects/$PROJECT/branches")
+          main=$(jq -r '[.branches[] | select(.default == true or .primary == true)][0].id' <<<"$branches")
+          echo "MAIN_BRANCH=$main" >> "$GITHUB_ENV"
+          wait_ops
+          if ! neon "$NEON/projects/$PROJECT/branches/$main/roles/cs_owner" > /dev/null 2>&1; then
+            neon -X POST "$NEON/projects/$PROJECT/branches/$main/roles" -d '{"role":{"name":"cs_owner"}}' > /dev/null
+            echo "Created role cs_owner on main"
+            wait_ops
+          fi
+          if ! neon "$NEON/projects/$PROJECT/branches/$main/databases/countersign" > /dev/null 2>&1; then
+            neon -X POST "$NEON/projects/$PROJECT/branches/$main/databases" \
+              -d '{"database":{"name":"countersign","owner_name":"cs_owner"}}' > /dev/null
+            echo "Created database countersign on main"
+            wait_ops
+          fi
+          staging=$(jq -r '[.branches[] | select(.name == "staging")][0].id // empty' <<<"$branches")
+          if [ -z "$staging" ]; then
+            staging=$(neon -X POST "$NEON/projects/$PROJECT/branches" \
+              -d "$(jq -n --arg p "$main" '{branch: {name: "staging", parent_id: $p}, endpoints: [{type: "read_write"}]}')" \
+              | jq -r '.branch.id')
+            echo "Created branch staging"
+            wait_ops
+          fi
+          echo "STAGING_BRANCH=$staging" >> "$GITHUB_ENV"
+
+      - name: Worker role, Hyperdrive and R2
+        run: |
+          set -euo pipefail
+          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          cf() { curl -fsS -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
+
+          provision() { # branch_id, hyperdrive name
+            local branch=$1 name=$2 owner_uri worker_password host existing body id
+            owner_uri=$(neon "$NEON/projects/$PROJECT/connection_uri?branch_id=$branch&database_name=countersign&role_name=cs_owner&pooled=false" | jq -r '.uri')
+            echo "::add-mask::$owner_uri"
+            worker_password=$(openssl rand -hex 24)
+            echo "::add-mask::$worker_password"
+            psql "$owner_uri" -v ON_ERROR_STOP=1 -q -v pw="$worker_password" <<'SQL'
+          SELECT format('CREATE ROLE cs_runtime NOLOGIN')
+            WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cs_runtime') \gexec
+          SELECT format('CREATE ROLE cs_worker LOGIN PASSWORD %L', :'pw')
+            WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cs_worker') \gexec
+          SELECT format('ALTER ROLE cs_worker LOGIN PASSWORD %L', :'pw') \gexec
+          GRANT cs_runtime TO cs_worker;
+          SQL
+            host=$(sed -E 's#^postgres(ql)?://[^@]+@([^/:]+).*#\2#' <<<"$owner_uri")
+            body=$(jq -n --arg n "$name" --arg h "$host" --arg pw "$worker_password" \
+              '{name: $n, origin: {scheme: "postgres", host: $h, port: 5432, database: "countersign", user: "cs_worker", password: $pw}}')
+            existing=$(cf "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs" | jq -r --arg n "$name" '[.result[] | select(.name == $n)][0].id // empty')
+            if [ -n "$existing" ]; then
+              cf -X PATCH "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs/$existing" -d "$(jq '{origin}' <<<"$body")" > /dev/null
+              id=$existing; echo "Updated Hyperdrive $name"
+            else
+              id=$(cf -X POST "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs" -d "$body" | jq -r '.result.id')
+              echo "Created Hyperdrive $name"
+            fi
+            echo "| \`$name\` | \`$id\` |" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          echo "### Hyperdrive (ids go in apps/api/wrangler.jsonc)" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Config | Id |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          provision "$MAIN_BRANCH" countersign-db
+          provision "$STAGING_BRANCH" countersign-db-staging
+
+          echo "### R2 buckets" >> "$GITHUB_STEP_SUMMARY"
+          for bucket in countersign countersign-staging; do
+            if cf "$CF/accounts/$CF_ACCOUNT/r2/buckets/$bucket" > /dev/null 2>&1; then
+              echo "R2 bucket $bucket exists"
+            else
+              cf -X POST "$CF/accounts/$CF_ACCOUNT/r2/buckets" -d "{\"name\":\"$bucket\"}" > /dev/null
+              echo "Created R2 bucket $bucket"
+            fi
+            echo "- \`$bucket\`" >> "$GITHUB_STEP_SUMMARY"
+          done

@@ -1,5 +1,35 @@
-# Back Office Agent Platform — Architecture v0.4
+# Back Office Agent Platform — Architecture v0.8
 
+> **v0.8 (2026-11-03, owner):** **approvals are on by default and set step by step.** Every step that
+> changes a client's tool waits for a person unless that step is explicitly set to run without approval,
+> which is only possible where the client's connection allows it. A **MVP** is defined (§1): Pia live
+> for the millwork shop on its own QuickBooks; everything else follows. Slack stays out until later.
+> Changed: §1, §6.1, §6.2, §6.5 (new), §9.1, §9.5, §9.6, §10.1, §10.2, §10.5, §16, §18, §20.
+>
+> **v0.7 (2026-11-03, owner's v1 screens, `docs/design/`):** workflows are **structured step lists**
+> (numbered steps, drag to reorder, forks with ordered paths that join again), not free-form graphs, and
+> the builder is a sortable list rather than a node canvas. Each connection has a **permission matrix**
+> per client (read / create / update / delete: auto, approval or off, plus scope); writes are automatic
+> only where it says so. **Connections live in the client portal:** the operator builds connectors and
+> chooses which ones a client is offered; the client signs in to each of its own tools there. Changed:
+> §1, §2, §4, §5.1, §6.1, §9.1, §9.3, §9.4, §9.5, §10, §12.2, §14, §15, §16, §18–20.
+>
+> **v0.6 (2026-11-03, owner):** **templates and client agents.** Agents are effectively built per client.
+> What the operator reuses is a **template**; putting it into a client **forks** it into that client's own
+> agent, which is then customized (different data, different flows) and has its own version history. A
+> client agent remembers the template version it is based on, so template improvements reach each client
+> as a reviewable **update** (a three-way merge), and a client's improvement can be **promoted** back into
+> the template. One version = the whole agent (definition + workflows + settings). Replaces v0.5's
+> deployments. Changed: §1, §4, §5.3, §9.1, §9.3, §9.5–9.7, §10.1, §10.3–10.5, §12.1, §12.2, §13–15,
+> §18–20.
+>
+> **v0.5 (2026-11-03, owner):** a **managed-agents service suite**, not each client's own agent layer.
+> The operator (the owner and their team) builds a **catalogue** of agents, skills and workflows once, in
+> a **back office** that reaches into every client, and **deploys** them to clients with per-client
+> settings and connections. Clients get a **portal** with self-service around reports, runs, approvals,
+> connections and requests; they never edit agents. "Advisor" becomes **operator**. Changed: §1, §3, §4,
+> §5.3, §9.2, §9.3, §9.5, §9.6, §9.7, §10.1, §10.3–10.5, §11, §12.1, §12.2, §13–16, §18–20.
+>
 > **v0.4 (2026-11-03, owner):** a **managed service**, not self-serve. Advisors (our team) build, review and
 > publish every agent, skill and workflow; clients connect their tools, approve what agents want to do,
 > answer requests, see their agents' work read-only, and ask for changes. Connectors for v1:
@@ -28,81 +58,143 @@ design system. This file covers how to build it.
 
 ## 1. What we are building
 
-A multi-tenant **agent platform for back-office work, run as a managed service.** Our advisors set up and
-run agents for each client business (a tenant); the client connects its tools, approves what agents want
-to do, and sees the work. For each tenant:
+A **managed-agents service suite for back-office work.** The operator (the owner and their team) runs
+agents for many client businesses from one back office. Agents are built **per client**, but not from
+scratch each time: the operator keeps **templates** of proven agents and puts them into a client by
+**forking** one into that client's own agent, then customizing it for the client's data and flows.
+Clients connect their systems, approve what agents want to do, and see the work in a portal.
 
-1. **Connect your tools in one place.** QuickBooks Online and Gmail, plus file upload. The client grants
-   access (OAuth) from a link the advisor sends. Each connection brings its data in and exposes **tools**:
-   actions an agent can take against that system, reads and writes.
-2. **A library of skills.** A skill is a reusable capability ("extract an invoice", "find the receipt for
-   a transaction", "match line items to the catalog", "write a weekly summary"): instructions plus the
-   tools it needs, with typed input and output. Skills come built in (from the platform and from packs)
-   or are written by advisors for a client.
-3. **An advisor creates an agent from scratch,** or describes it in plain language and lets the Builder
-   draft it. An agent has an identity, instructions, a set of skills, permissions and budgets. Every
-   change is a new, immutable version, and only an advisor publishes one.
-4. **The advisor lays out the agent's work on a canvas.** Drag in a trigger, skill steps, conditions,
-   approvals, requests to people, tool actions and notifications; connect them; test; publish. The client
-   sees the same canvas read-only, so they can follow what their agent does.
-5. **Agents do the work and update the tools.** Runs are durable, logged step by step with cost, and
-   every write to a connected system goes through a person's approval in v1, by default the client's.
-6. **Clients ask, advisors change.** A client asks for a new agent or a change from the app; it lands in
-   the advisor's queue as a change request, and the advisor builds, tests and publishes it.
+Two surfaces, one platform:
+
+- **The back office** (operator): every client in one place. Build and version templates and skills;
+  fork templates into clients and customize each client's agents in the drag-and-drop workflow builder; test them
+  against the client's own data; publish, pause and roll back per client; see which clients run which
+  template version and how far each has been customized; offer template updates to clients and merge
+  them; promote a good client change back into its template; watch runs and failures across clients; work
+  clients' requests; see usage and model cost per client and per agent.
+- **The client portal** (each client): self-service around the service they receive: what their agents
+  did (reports and outcomes), runs as a plain-language timeline, the inbox (approve writes, answer
+  requests, review matches), connections (connect or reconnect QuickBooks and Gmail), requests to the
+  operator, and their users. No agent building, no prompts, no workflow builder, no model costs.
+
+How the parts fit:
+
+1. **Connections.** The operator builds the connectors (QuickBooks Online and Gmail, plus upload) and
+   chooses which ones each client is offered; the client signs in to each of its own tools from the
+   portal's Connections page. A connection brings data in and exposes **tools**: actions agents can take
+   against that system, reads and writes, within the permissions set for it.
+2. **Skills.** Reusable capabilities ("extract an invoice", "find the receipt for a transaction", "match
+   line items to the catalog", "write a weekly summary"): instructions plus the tools they need, typed
+   input and output, settings. Built in (platform and packs) or written by the operator; shared by every
+   agent, or written for one client.
+3. **Templates.** A reusable agent: identity, instructions, skills and settings, permissions, budgets, and
+   its workflows (step lists in the builder). Created from scratch or by the Builder. Versioned as a whole.
+4. **Client agents.** Forking a template into a client creates that client's agent at the template's
+   current version. The operator customizes it (settings, instructions, skills, workflows, steps) for
+   that client, binds the client's connections, test-runs it on the client's data, publishes and
+   activates it. Every change is a new version of **that client's** agent. Client agents can also be
+   built from scratch for one client.
+5. **Lineage and updates.** Each client-agent version records the template version it is based on. When
+   the template moves on, the back office shows which clients are behind and what the update changes;
+   applying it is a three-way merge (template base → new template, against the client's customizations),
+   reviewed, test-run and published per client. A client change worth keeping for everyone can be
+   promoted into a new template draft. A client agent can be detached from its template.
+6. **Runs.** Agents do the work and update the client's tools; every run is logged step by step with cost
+   (operator-only); every write to a client's system follows that connection's permissions: automatic,
+   approved by a person, or off.
+7. **Requests.** A client asks for a change or a new service from the portal; it lands in the operator's
+   queue.
 
 ### Concepts
 
 | Concept | What it is | Defined in |
 |---|---|---|
-| Connection | One tenant's link to an external system (credentials, sync state) | §6 |
+| Operator | The owner and their team; one back office across all clients | §4 |
+| Client | A business served by the operator (a tenant); its data is isolated | §4 |
+| Connection | One client's link to an external system (credentials, sync state) | §6 |
 | Tool | One atomic action with typed input/output and a side-effect level (`none`, `internal`, `external`) | §6.1, §9.4 |
 | Skill | A reusable capability: instructions + tools + input/output schema + settings | §9.2 |
-| Agent | Identity, instructions, skills, permissions, budgets; versioned | §9.1 |
-| Workflow | A graph of steps an agent runs, edited on the canvas; versioned | §10 |
-| Run | One execution of a workflow version, with every step, tool call and cost | §10.3 |
+| Agent bundle | One agent version: definition + workflows + settings, versioned as a whole | §9.1 |
+| Template | An operator agent kept for reuse; not run for clients directly | §9.3 |
+| Client agent | A client's own agent, usually forked from a template, customized and versioned per client | §9.3 |
+| Workflow | A structured list of steps (with forks) inside an agent bundle, edited in the builder | §10 |
+| Run | One execution of a client agent's workflow, with every step, tool call and cost | §10.3 |
 | Inbox | Where people approve, review and answer what agents ask | §11 |
-| Thread | Per-subject conversation between people and agents | §11 |
-| Pack | A bundle of domain tools, skills, tables, screens and template agents (e.g. Materials) | §12 |
+| Request | A client's ask to the operator (change or new service) | §11 |
+| Pack | A bundle of domain tools, skills, tables, reports and templates (e.g. Materials) | §12 |
 
-### First customer and first agent
+### First client and first agent
 
-First client: a ~$2M millwork shop. First agent: **Pia, the Materials agent** (Materials pack, §12).
+First client: a ~$2M millwork shop. First template: **Pia, the Materials agent** (Materials pack, §12).
 She pulls purchases, finds the supporting invoice, extracts line items, matches each line to a shared
 item catalog (e.g. "BB PLY 3/4 4X8" from vendor A and "Baltic Birch 18mm 48x96" from vendor B are the
-same item), records unit prices, and alerts when prices change. Pia is built entirely from platform
-parts: she is seeded as an agent definition plus two workflow graphs that open in the same canvas
-advisors use for every client. **Nothing in the platform core is material-specific;** a test enforces that platform
-packages never import a pack (§3).
+same item), records unit prices, and alerts when prices change. Pia is a template built entirely from
+platform parts; the millwork shop gets its own fork of her, customized to its vendors, categories and
+approvals. **Nothing in the platform core is material-specific;** a check enforces that platform packages
+never import a pack (§3).
 
-### v1 scope (build today)
+### MVP (build first)
+
+**Goal:** Pia running for the millwork shop on its own QuickBooks. A new bill or purchase arrives; Pia
+finds the invoice (attached in QuickBooks, uploaded, or forwarded by email), reads it, matches the lines
+to the shop's item catalog, records prices and raises alerts, and proposes the QuickBooks update
+(itemized lines and the invoice attached). The shop approves it in the portal and QuickBooks is updated.
+The shop sees the run and Price watch in the portal; the operator runs it all from the back office and
+can change Pia's workflow, publish a new version and roll it back.
+
+In the MVP:
+- Sign-in (WorkOS), one operator, clients (the millwork shop and the sandbox), back office and portal
+  shells, inbox and approvals, the portal's Connections page
+- Connectors: **QuickBooks Online** (sync, read tools, the two write tools in §6.2) and **upload, with
+  email forwarding** (§6.5); documents capability
+- Templates and client agents: create, fork, edit, versions, publish, rollback, bindings, activation
+  (lineage is recorded from the start so updates can come later without a migration)
+- Workflow engine and the step-list builder with forks, person steps and **per-step approvals**; test
+  runs; back-office run view and portal run timeline
+- Materials pack: catalog, matching, prices, alerts, Price watch; Pia forked and customized for the shop
+
+After the MVP, in this order unless the owner reorders: template updates and promotion (three-way merge
+and merge view); Gmail connector; the Builder (drafting agents and skills from a description);
+operator-written skills; requests from clients; usage and cost views beyond per-run cost; notification
+emails and CSV export; threads and `/skill` commands; agents asking other agents. Later still: Slack,
+Google Drive and the other connectors in the design, and the header command bar.
+
+### v1 scope (the full target)
 
 In:
-- Tenancy, auth, roles (advisor, client_admin, client_user); **advisor console** across clients;
-  advisor-led onboarding (create tenant, invite client users, send connect links)
+- Tenancy for many clients, one operator; roles `operator`, `client_admin`, `client_user`; operator-led
+  onboarding (create client, invite users, offer connectors); a **sandbox client** with fixture data
+  for building and demos
 - Connector framework (manifest: auth, synced entities, tools). Connectors: **QuickBooks Online**
   (sandbox + production; read sync plus write tools), **Gmail** (find invoices and receipts in a
-  mailbox; drafts and labels as write tools), and **upload** (PDF/image documents, CSV)
+  mailbox; drafts and labels as write tools), and **upload with email forwarding** (PDF/image
+  documents, CSV, forwarded emails)
 - Documents capability: store originals, extract with Claude, validate, link to records
-- **Skills library:** built-in skills from the platform and packs; **custom skills** authored by advisors
-  in the UI (instructions + a selection of existing tools + input/output fields). No custom code
-- **Agents:** advisors create from scratch or with the Builder, edit, immutable versions, publish,
-  rollback; clients see them read-only
-- **Workflow canvas:** advisors edit workflow graphs by drag and drop with live validation, drafts,
-  versions, publish, rollback and **test runs**; clients see the canvas and run view read-only
-- **Change requests:** clients ask for new agents or changes; advisors work them from a queue
-- Workflow engine executing stored graphs; triggers by event, schedule, manual and command
-- **Write-back:** external tools act on connected systems, always behind an approval in v1, with an
-  audit record per action
-- Inbox (approvals, reviews, requests), threads, run log with cost
-- **Materials pack:** catalog, matching, prices, alerts, Price watch; Pia and her two workflows
+- **Skills** (operator): built-in plus operator-written (no code), shared or for one client; versioned
+- **Templates** (operator): from scratch or the Builder; workflows in the **drag-and-drop builder**;
+  immutable versions, release notes, publish, rollback
+- **Client agents** (operator): fork from a template or build from scratch; customize in the same editor
+  and builder; bind connections; test-run on the client's data; publish, activate, pause, roll back;
+  **diff against the template**; **template updates** by three-way merge with conflict resolution;
+  **promote** a client change into a template draft; detach
+- Workflow engine executing client agents' workflows; triggers by event, schedule, manual and command
+- **Write-back:** external tools act on client systems with **approval on by default, set per step**,
+  within each connection's permission matrix, with an audit record and the before state for every write
+- **Back office:** clients overview and health, client detail, template lineage ("used by", versions
+  behind, customizations), runs and failures across clients, request queue, operator inbox, usage and
+  model cost per client and agent
+- **Client portal:** overview of their services and outcomes, reports (pack reports + activity, CSV
+  export), run timeline, inbox, connections, requests, users and notification settings
+- **Materials pack:** catalog, matching, prices, alerts, Price watch report; the Pia template and its two
+  workflows, forked and customized for the millwork shop
 
 Out (designed for, not built):
-- **Client self-serve building** (clients creating or publishing agents, skills or workflows): the roles
-  and screens are designed so it can be switched on per tenant later
-- Connectors beyond QBO, Gmail and upload (Outlook, Google Drive, bank and card feeds, Slack); Gmail
-  push notifications (v1 polls); sending email without a person's approval; code steps
-  in workflows; per-tool auto-approval of external writes; sharing agents, skills or packs across
-  tenants (marketplace); A/B versions; outbound SMS; custom collections and custom fields UI
+- Billing and invoicing clients (usage is metered so it can be added); client self-serve building;
+  showing workflows or instructions to clients; other operators on the platform (one operator in v1);
+  automatic template updates (every update is reviewed per client)
+- Connectors beyond QBO, Gmail and upload (Slack, Google Drive, Outlook, bank and card feeds, Ramp,
+  HubSpot); Gmail push notifications (v1 polls); sending email without a person's approval; code steps
+  in workflows; A/B versions; outbound SMS; custom collections and fields UI
 - Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials
 
 ---
@@ -115,14 +207,14 @@ Out (designed for, not built):
 | App | React + Vite single-page app, served as static assets by the API Worker | Same shape as Plenary Labs |
 | API | Hono on Cloudflare Workers; one Zod route contract shared by API and client | |
 | UI | Tailwind + shadcn/ui primitives, themed with Groundwork tokens | Owner's designs; Groundwork components replace shadcn ones where they exist |
-| Workflow canvas | React Flow (`@xyflow/react`) with ELK (`elkjs`) for auto-layout | MIT; nodes are our own components |
+| Workflow builder | A nested sortable list (`@dnd-kit/core` + `@dnd-kit/sortable`) | Structured steps and forks (owner's design); no node canvas |
 | DB | Postgres 16 with `pgvector`, `pg_trgm` | Neon, reached from Workers through Hyperdrive; local via Docker |
 | ORM / migrations | Drizzle | Platform schema in `packages/db`, pack schemas in their packs, one migration sequence |
 | Durable jobs / workflows | Cloudflare Workflows | `step.do` with retries, `step.waitForEvent`, `step.sleep`; Worker cron for schedules |
 | LLM | Anthropic API via `@anthropic-ai/sdk`, tool use + structured outputs | Models below |
 | Object storage | Cloudflare R2 (Worker binding; S3 API for signed URLs) | Original documents, never mutated |
 | Auth | WorkOS (AuthKit), sealed session cookie; behind `packages/auth` | Same as Plenary Labs |
-| Validation | Zod for every definition, tool input/output, API body | Shared with the canvas through `packages/core` |
+| Validation | Zod for every definition, tool input/output, API body | Shared with the builder through `packages/core` |
 | Email (optional) | Resend | Behind an interface; SMS later |
 | Tests | Vitest (`@cloudflare/vitest-pool-workers` for Worker and Workflow tests); Playwright e2e | |
 
@@ -141,10 +233,11 @@ pnpm monorepo.
 /apps
   /api                 Hono Worker: /api routes, auth, static assets, Workflow classes, cron;
                        registers connectors and packs
-  /web                 React + Vite app: screens, workflow canvas, typed API client
+  /web                 React + Vite app: back office (incl. the workflow builder) and client portal, typed API client
 /packages              the platform: never imports a pack
-  /core                Domain types and Zod schemas (AgentDefinition, SkillDefinition, WorkflowGraph,
-                       ToolSpec, ConnectorManifest, PackManifest), graph validation, route contract,
+  /core                Domain types and Zod schemas (AgentBundle, AgentDefinition, SkillDefinition,
+                       Workflow, ToolSpec, ConnectorManifest, PackManifest), workflow validation,
+                       bundle diff and three-way merge (shared with the merge view), route contract,
                        units, money
   /db                  Drizzle platform schema, migrations (platform + packs), seed, withTenant()
   /llm                 Anthropic client wrapper, cost tracking, record/replay
@@ -154,7 +247,7 @@ pnpm monorepo.
   /documents           Document store, extraction, validation, linking
   /threads             Threads + messages, command parsing
   /agents              Tool, skill and agent registries; versioning; runtime; Builder
-  /workflows           Graph executor (against a StepRunner interface), trigger router
+  /workflows           Workflow executor (against a StepRunner interface), trigger router
 /packs
   /materials           Materials pack: catalog, matching, pricing and alert rules; its tools,
                        skills, tables, API routes and seeded agent + workflows
@@ -179,22 +272,29 @@ Dependency rules (enforced by `scripts/check-deps.mjs`):
 
 ## 4. Tenancy and auth
 
-- Every tenant table has `tenant_id uuid not null`, with Postgres Row Level Security keyed on the
-  `app.tenant_id` setting, set per transaction; queries also filter by tenant.
-Managed service: advisors build, clients use and approve.
+One operator, many clients. Each client is a tenant; the operator's staff reach into every client they
+serve from the back office.
 
 | Role | Who | Can |
 |---|---|---|
-| `advisor` | Our team, across the tenants they're assigned to | Create tenants, invite client users, send connect links, enable packs; create, edit, test, **publish** and roll back agents, skills and workflows; use the Builder; work change requests; see everything in their tenants; approve on a client's behalf when the client has delegated it |
-| `client_admin` | The client's owner or manager | Connect and disconnect tools (OAuth); approve external actions and reviews (default approver); answer requests; invite client users; see agents, workflows and runs read-only; raise change requests |
-| `client_user` | Client staff | Inbox items assigned to them, threads, pack screens; raise change requests |
+| `operator` | The owner and their team | Everything in the back office: create clients, invite users, offer connectors and set their permissions and configuration, enable packs; build, test, **publish** and roll back templates, skills and client agents; fork, customize, update, promote, activate and pause client agents; work requests; see runs, usage and cost across their clients; approve on a client's behalf when delegated |
+| `client_admin` | The client's owner or manager | Portal: connect and disconnect tools (OAuth); approve external actions and reviews (default approver); answer requests; reports, runs and services; raise requests; invite client users; notification settings |
+| `client_user` | Client staff | Portal: inbox items assigned to them, reports, runs; raise requests |
 
-- Tables: `tenant(id, name, settings jsonb, workos_organization_id, created_at)`, `app_user`,
-  `membership(tenant_id, user_id, role)` (an advisor's membership in a tenant is their assignment to it;
-  the advisor console lists the tenants where they are `advisor`).
-- Tenant setting `approvals.external_actions`: `client_admin` (default) or `advisor` (the client has
-  delegated approvals). Every approval records who approved.
-- Publishing is advisor-only in v1. Self-serve is a later per-tenant switch, not a different data model.
+- Tables: `tenant(id, name, timezone, settings jsonb, workos_organization_id, created_at)` (a client),
+  `app_user`, `membership(tenant_id, user_id, role)`. An operator's memberships list the clients they
+  serve (the owner is a member of all); client users belong to exactly one client.
+- **RLS:** every tenant table has `tenant_id uuid not null` and a policy
+  `tenant_id = any(current_setting('app.tenant_ids', true)::uuid[])`, set per transaction. A client
+  request sets one id; an operator request in the back office sets the ids of the clients they serve,
+  so cross-client views are still enforced by the database. Queries also filter by tenant.
+- Client setting `approvals.external_actions`: `client_admin` (default) or `operator` (delegated);
+  overridable per client agent. Every approval records who approved.
+- Templates and shared skills (§5.3) belong to the operator: their rows have `tenant_id` null and are
+  readable only in operator sessions (`app.operator = on`) through the policy
+  `tenant_id = any(app.tenant_ids) or (tenant_id is null and current_setting('app.operator', true) = 'on')`.
+  Client agents and client-only skills carry their client's `tenant_id` like any client data, but their
+  definitions are still never returned through portal routes (§14).
 
 ---
 
@@ -209,6 +309,10 @@ stated). Three groups: platform, shared business records, pack tables.
 connection(id, tenant_id, connector /*'qbo'|'gmail'|'upload'*/, status, external_account_id
            /*QBO realmId, Gmail address*/, credentials_encrypted jsonb, config jsonb /*e.g. Gmail query*/,
            last_sync_at, sync_cursor jsonb /*QBO CDC time, Gmail historyId*/, connected_by, created_at)
+
+-- connection also has: permissions jsonb  /*{ read, create, update, delete: 'auto'|'approval'|'off', scope }*/
+-- tenant.settings.connectors_offered: connector ids the operator offers this client
+connection_change(id, tenant_id, connection_id, actor_id, change jsonb, created_at)   -- append-only
 
 raw_record(id, tenant_id, connection_id, connector, entity_type, external_id,
            external_version /*QBO SyncToken*/, payload jsonb, synced_at, is_deleted bool)
@@ -257,30 +361,45 @@ alert(id, tenant_id, pack null, kind, subject_type, subject_id, severity, title,
 ### 5.3 Platform
 
 ```
-tenant_pack(tenant_id, pack, version, enabled_at)        -- packs switched on for a tenant
+tenant_pack(tenant_id, pack, version, enabled_at)        -- packs switched on for a client
 
-skill(id, tenant_id, slug, name, live_version_id null, status, created_at)        -- custom skills
-skill_version(id, tenant_id, skill_id, version int, definition jsonb /*SkillDefinition*/,
+-- Skills: tenant_id null = shared by every agent; set = written for one client
+skill(id, tenant_id null, slug, name, live_version_id null, status, created_at)
+skill_version(id, tenant_id null, skill_id, version int, definition jsonb /*SkillDefinition*/,
               definition_hash, status /*draft|live|retired*/, change_note, author_id,
               parent_version_id null, created_at)
   unique(skill_id, version)          -- immutable except status (trigger)
 
-agent(id, tenant_id, slug, name, role, live_version_id null, status /*active|disabled*/, created_at)
-agent_version(id, tenant_id, agent_id, version int, definition jsonb /*AgentDefinition*/,
-              definition_hash, status /*draft|testing|live|retired*/, change_note,
-              author_type /*user|builder|pack*/, author_id, parent_version_id null, created_at)
+-- Agents: templates (tenant_id null) and client agents (tenant_id set)
+agent(id, tenant_id null, kind /*template|client*/, slug, name, role,
+      template_id null,              -- client agents: the template they were forked from
+      linked bool default true,      -- false = detached: no further template updates
+      live_version_id null, status /*active|disabled*/, created_at,
+      -- client agents only (operational, not part of the versioned bundle):
+      service_name, service_description,                  -- what the client sees in the portal
+      bindings jsonb /*connector → connection_id*/,
+      approver /*null = client setting | client_admin | operator*/,
+      run_status /*draft|testing|active|paused|retired*/)
+  unique(tenant_id, slug)            -- templates: unique among templates; client agents: per client
+
+agent_version(id, tenant_id null, agent_id, version int,
+              bundle jsonb /*AgentBundle: definition + workflows + settings*/, bundle_hash,
+              status /*draft|live|retired*/, change_note, release_note null /*templates*/,
+              author_type /*operator|builder|pack|merge|promote*/, author_id,
+              parent_version_id null,           -- the version it was edited from (same agent)
+              based_on_template_version_id null, -- client versions: the template version they reconcile with
+              merged_from_version_ids uuid[] null, -- update merges and promotions: the other inputs
+              created_at)
   unique(agent_id, version)          -- immutable except status (trigger)
 
-workflow(id, tenant_id, agent_id, slug, name, live_version_id null, enabled, created_at)
-workflow_version(id, tenant_id, workflow_id, version int, definition jsonb /*WorkflowGraph*/,
-                 definition_hash, status /*draft|live|retired*/, change_note,
-                 author_type /*user|builder|pack*/, author_id, parent_version_id null, created_at)
-  unique(workflow_id, version)       -- immutable except status (trigger)
+agent_change(id, tenant_id null, agent_id, actor_id, change jsonb, created_at)
+                                     -- append-only log of operational changes (bindings, approver, run_status)
 
-run(id, tenant_id, workflow_version_id, agent_version_id, mode /*live|test*/, trigger jsonb, status,
-    started_at, finished_at, cost_usd numeric(10,4), error jsonb)
+run(id, tenant_id, agent_id, agent_version_id, workflow_slug, config jsonb /*bindings + approver snapshot*/,
+    mode /*live|test*/, trigger jsonb, status, started_at, finished_at, cost_usd numeric(10,4), error jsonb)
 step_run(id, tenant_id, run_id, node_id, node_type, skill_ref null, agent_version_id null, input jsonb,
-         output jsonb, status, attempts, cost_usd, tokens_in, tokens_out, started_at, finished_at)
+         output jsonb, summary text null /*plain-language line for the client timeline*/, status,
+         attempts, cost_usd, tokens_in, tokens_out, started_at, finished_at)
 tool_call(id, tenant_id, step_run_id, tool, input jsonb, output jsonb, status, duration_ms,
           external_action_id null)
 
@@ -288,22 +407,27 @@ event(id, tenant_id, type, subject_type, subject_id, payload jsonb, created_at, 
 
 thread(id, tenant_id, subject_type, subject_id, title, status, step_budget int, steps_used int)
 message(id, tenant_id, thread_id, sender_type /*agent|user|system*/, sender_id, agent_version_id null,
-        kind /*text|command|result*/, command text null, body jsonb, sources jsonb, created_at)
+        kind /*text|command|result*/, command text null, body jsonb, sources jsonb,
+        audience /*client|operator*/, created_at)
 
-inbox_item(id, tenant_id, kind /*approval|review|request|extraction_review|external_action|change_request*/, pack null,
-           subject_type, subject_id, run_id null, assignee_user_id null, assignee_role, title,
-           payload jsonb, status /*open|resolved|expired*/, resolution jsonb, due_at, created_at,
-           resolved_at)
+inbox_item(id, tenant_id, kind /*approval|review|request|extraction_review|external_action|change_request*/,
+           pack null, agent_id null, subject_type, subject_id, run_id null, assignee_user_id null,
+           assignee_role, title, payload jsonb, status /*open|resolved|expired*/, resolution jsonb, due_at,
+           created_at, resolved_at)
 
 memory_note(id, tenant_id, agent_id, scope, note, source_message_id null, created_at)
+                                     -- per client agent; never shared across clients or with templates
+
+usage_daily(tenant_id, day, agent_id, runs, steps, documents, external_actions, tokens_in, tokens_out,
+            cost_usd)                -- rollup for the back office and future billing
 
 schema_extension(id, tenant_id, target, json_schema jsonb, version, created_at)  -- UI later
 custom_record(id, tenant_id, collection, data jsonb, created_at, updated_at)       -- v1 unused
 ```
 
 Built-in tools and skills live in code (connectors, platform, packs) and are versioned with them;
-only custom skills are rows. Extensibility rule: `vendor`, `transaction` and pack tables that hold
-customer-facing records get `ext jsonb default '{}'`, validated against the latest `schema_extension`.
+operator-written skills are rows. Extensibility rule: `vendor`, `transaction` and pack tables that hold
+client-facing records get `ext jsonb default '{}'`, validated against the latest `schema_extension`.
 
 ### 5.4 Pack tables
 
@@ -337,6 +461,25 @@ interface Connector {
 }
 ```
 
+**Who does what.** The operator builds connectors (code: manifest, sync, tools) and, per client,
+chooses which are **offered**, sets each connection's permission matrix and configuration (e.g. the Gmail
+query), and watches sync health. The **client** signs in to its own tools in the portal's Connections
+page (OAuth with the provider, so the operator never sees or holds the client's passwords), and can
+reconnect, disconnect and see what each connection lets agents do. The operator cannot connect a tool
+on a client's behalf; a connector that needs reconnecting shows up in both the portal and the back
+office. Upload is built in and always on. An operator may send a reminder that opens the portal's
+Connections page at the right connector.
+
+**Permissions per connection** (owner's design, Connections screen). Each tool declares a `verb`
+(`read`, `create`, `update`, `delete`). Each client connection stores a matrix: for each verb `auto`,
+`approval` or `off`, plus a scope the connector understands (e.g. "AP folder only", "bills, purchases,
+vendors, items, attachments"). For writes, the matrix is a **ceiling**: `approval` means every write
+waits for a person; `auto` means a step **may** be set to run without approval (each step still
+defaults to approval, §9.5); `off` means agents can't do it at all. Defaults when a tool is connected:
+read `auto`, create and update `approval`, delete `off` (v1 has no delete tools). The operator sets the
+matrix; the client admin sees it in the portal and can tighten it, never loosen it; every change is a
+`connection_change` row.
+
 Connectors produce raw records, files and tool results. Normalization happens in `packages/core` mappers
 per connector (`mapQboPurchase(raw) → TransactionInput`). The Connections screen lists every connector,
 its status for the tenant, and the tools it gives agents. Tool ids are `<connector>.<entity>.<verb>`
@@ -361,10 +504,12 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
   bytes in R2, dedupe by sha256.
 - **Tools, read** (`none`): `qbo.purchase.query`, `qbo.bill.query`, `qbo.vendor.query`, `qbo.item.query`,
   `qbo.attachable.list`.
-- **Tools, write** (`external`, approval required in v1): `qbo.attachable.upload` (attach a document to
-  a transaction), `qbo.purchase.update_memo`, `qbo.item.update_purchase_cost`. Each write sends the
-  current `SyncToken`, stores the prior state in `external_action.before`, and fails cleanly on a stale
-  token (the record changed since the agent read it). // open: which writes ship first (§20).
+- **Tools, write** (`external`; approval per step, §9.5). MVP, as in the design's run screen:
+  `qbo.bill.update_lines` / `qbo.purchase.update_lines` (replace an account line with the invoice's item
+  lines; the total must stay unchanged or the write is refused) and `qbo.attachable.upload` (attach the
+  invoice). Later: `qbo.bill.create` (draft bills from invoices), `qbo.item.update_purchase_cost`, memo
+  updates. Each write sends the current `SyncToken`, stores the prior state in `external_action.before`,
+  and fails cleanly on a stale token (the record changed since the agent read it).
 - Rate limits: central throttle per realm with retry/backoff on 429.
 - Verify endpoint shapes, minor version, and current Intuit API terms against Intuit's developer docs
   before coding.
@@ -376,15 +521,15 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 - Upload CSV of purchases (date, vendor, amount, memo) → `raw_record(connector='upload')` → transactions.
 - The demo path when QBO is not connected.
 
-### 6.4 Gmail
+### 6.4 Gmail (after the MVP)
 
 - OAuth 2.0 with Google, granted by the client for one mailbox (a shared `invoices@` / `ap@` box is the
   usual case; a person's mailbox works too). Scopes: `gmail.readonly` (search and read),
   `gmail.labels` (create and apply labels), `gmail.compose` (create drafts). Tokens encrypted like QBO's.
   Verify current scope classifications and Google's app verification rules before launch (§20).
-- **What is ingested is narrow:** each connection has a Gmail search query set by the advisor (default:
+- **What is ingested is narrow:** each connection has a Gmail search query set by the operator (default:
   messages with PDF or image attachments from the last 90 days, from vendor addresses/domains known in
-  `vendor` plus any added by the advisor, or carrying a chosen label). Only matching messages are
+  `vendor` plus any added by the operator, or carrying a chosen label). Only matching messages are
   synced: headers and snippet to `raw_record(entity_type='Message')`, attachments to `document(source=
   'email')`. Bodies are fetched on demand through a tool, never bulk-stored.
 - Incremental sync: `users.history.list` from the stored `historyId` every 5 minutes (cron), falling back
@@ -401,13 +546,28 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 
 ---
 
+### 6.5 Email forwarding (built in, with upload)
+
+The MVP's email path, and a fallback for clients who don't connect a mailbox (the design's "Upload and
+forwarding · built in"). Each client gets a private forwarding address (e.g.
+`<client>-<random>@in.<domain>`, kept with the allowed senders on the client's upload connection), shown
+on the portal's Connections page; the client adds a forwarding
+rule in their own mail (e.g. from `ap@`).
+- Received by **Cloudflare Email Routing** into the Worker's `email()` handler. Only mail from the
+  sender addresses or domains the client lists is accepted; everything else is dropped and counted.
+- Each message's PDF and image attachments become `document(source='email')`, deduplicated by sha256
+  and linked like uploads (vendor + total + date, with the sender domain as a vendor signal). Headers and
+  subject are kept on the document; bodies are not stored. Email text is untrusted (§16).
+- Verify Email Workers' message size limits and MIME parsing (e.g. `postal-mime`) at the start of M2.
+
 ## 7. Documents capability
 
 A platform capability any pack or custom skill can use; exposed as tools (`docs.*`, §9.4).
 
 - Store: originals in R2 keyed by sha256, never mutated.
-- Locate support for a transaction: connector attachments first (QBO Attachables), then email (Gmail
-  documents already synced, then a scoped Gmail search), then uploaded documents (vendor + total + date
+- Locate support for a transaction: connector attachments first (QBO Attachables), then email
+  (forwarded documents; with Gmail connected, documents already synced, then a scoped Gmail search), then
+  uploaded documents (vendor + total + date
   match), then a request to a person (inbox, or a Gmail draft to the purchaser for approval).
 - Extract: send the document to Claude as a PDF or image content block with a forced tool whose input
   schema is `InvoiceExtraction` (Zod → JSON Schema): header fields, lines[], subtotal, freight,
@@ -429,16 +589,29 @@ behind.
 Platform event types: `transaction.created`, `transaction.updated`, `document.received`,
 `document.extracted`, `document.extraction_failed`, `inbox.resolved`, `external_action.done`,
 `external_action.failed`, `alert.raised`, `schedule.tick`. Packs declare their own
-(`materials.line.matched`, `materials.price.changed`, ...). The canvas's trigger picker lists the event
+(`materials.line.matched`, `materials.price.changed`, ...). The builder's trigger picker lists the event
 types available to the tenant (platform + enabled packs), each with a sample payload.
 
 ---
 
 ## 9. Tools, skills and agents
 
-### 9.1 Agent definition (stored in `agent_version.definition`)
+### 9.1 Agent bundle (stored in `agent_version.bundle`)
+
+One version is the **whole agent**: its definition, its workflows and its settings. Editing anything
+(instructions, a skill setting, one step in the builder) makes a new version of the bundle. This keeps a
+client agent's history linear and makes template updates one merge, not one per workflow.
 
 ```ts
+const AgentBundle = z.object({
+  schemaVersion: z.literal(1),
+  definition: AgentDefinition,
+  workflows: z.array(z.object({
+    slug: z.string(), name: z.string(), enabled: z.boolean().default(true),
+    workflow: Workflow,                            // §10.1
+  })),
+});
+
 const AgentDefinition = z.object({
   schemaVersion: z.literal(2),
   identity: z.object({ name: z.string(), role: z.string(), mission: z.string(), avatar: z.string().optional() }),
@@ -446,39 +619,42 @@ const AgentDefinition = z.object({
   model: z.object({ id: z.string(), maxTokens: z.number().default(4096) }),
   instructions: z.string(),                       // plain language; how this agent works
   skills: z.array(z.object({
-    skill: z.string(),                            // 'materials.match-line' | 'custom:<slug>' [@version]
+    skill: z.string(),                            // 'materials.match-lines' | 'custom:<slug>' [@version]
     settings: z.record(z.unknown()).default({}),  // overrides the skill's settings defaults
   })),
   extraTools: z.array(z.string()).default([]),    // tools beyond those its skills bring
-  canCommand: z.array(z.string()).default([]),    // agent slugs it may ask
+  canCommand: z.array(z.string()).default([]),    // agent slugs it may ask (same client)
   permissions: z.object({
-    auto: z.array(z.string()),                    // tool ids allowed without approval
-    approval: z.array(z.string()),                // tool ids that create an inbox approval
-    mode: z.enum(['suggest_only', 'act']).default('suggest_only'),
+    mode: z.enum(['suggest_only', 'act']).default('suggest_only'),   // suggest_only: every write waits
+    approver: z.string().optional(),              // default approver for this agent's steps (role or user)
   }),
   budgets: z.object({ maxSteps: z.number().default(12), maxCostUsd: z.number().default(0.5) }),
   memory: z.object({ enabled: z.boolean().default(true) }),
 });
 ```
 
+Every item a merge must line up carries a **stable id** that survives forking and editing: workflows
+by `slug`, steps and fork paths by `id` (generated once, copied on fork, never reused), skills by `skill`.
+
 An agent's **commands** are its skills: anything that can be a workflow step can be invoked in a
-thread as `/skill-slug args` or by another agent.
+thread as `/skill-slug args` or by another agent of the same client.
 
 ### 9.2 Skill definition
 
 ```ts
 const SkillDefinition = z.object({
   schemaVersion: z.literal(1),
-  id: z.string(),                                 // 'docs.extract', 'materials.match-line', 'custom:<slug>'
+  id: z.string(),                                 // 'docs.extract', 'materials.match-lines', 'custom:<slug>'
   name: z.string(), description: z.string(), category: z.string(),
   mode: z.enum(['tool', 'agent']),                // 'tool' = deterministic handler; 'agent' = reasoning loop
   handler: z.string().optional(),                 // tool id when mode = 'tool' (built-ins only)
   instructions: z.string().optional(),            // added to the agent's prompt when mode = 'agent'
   tools: z.array(z.string()),                     // tools the agent may use while running this skill
-  input: JsonSchema, output: JsonSchema,          // typed; the canvas builds forms from these
+  input: JsonSchema, output: JsonSchema,          // typed; the builder makes forms from these
   settings: z.array(z.object({                    // e.g. match_confidence_auto: 0.9, price_change_pct: 5
     key: z.string(), label: z.string(), type: z.enum(['number', 'boolean', 'string', 'enum']),
     default: z.unknown(), options: z.array(z.string()).optional(),
+    clientSpecific: z.boolean().default(false),   // e.g. a vendor list: never promoted into a template
   })).default([]),
   requiresConnectors: z.array(z.string()).default([]),
   requiresPacks: z.array(z.string()).default([]),
@@ -488,31 +664,83 @@ const SkillDefinition = z.object({
 
 - **Built-in skills** are code: platform skills (`docs.find-support`, `docs.extract`, `threads.summarize`,
   `inbox.ask`) and pack skills (`materials.*`). Their version is the package version.
-- **Custom skills** are written by advisors in the Skills library: name, description, instructions, a selection of
+- **Operator-written skills** are created in the back office's Skills library, shared or for one client: name, description, instructions, a selection of
   existing tools, input and output fields (a form that produces the JSON Schema), settings. Always mode
   `agent`. Saved as `skill_version` rows with the same draft → publish → rollback rules as agents.
-- A skill is available to a tenant only when its `requiresConnectors` are connected and its
-  `requiresPacks` are enabled. The library shows unavailable skills greyed with the reason.
+- A client agent can use a skill only when the client has the required connections bound and packs
+  enabled. Forking a template into a client shows what's missing there.
 
-### 9.3 Versioning
+### 9.3 Versioning, templates and client agents
 
-- Creating or editing an agent, skill or workflow always inserts a new version (status `draft`).
-  Publishing sets it `live`, retires the previous live version, and updates `live_version_id`, in one
-  transaction.
-- Rollback = publish an older version by copying it as a new version with `parent_version_id` pointing
-  at the original, so history stays linear.
-- `definition_hash` = sha256 of canonical JSON; no-op edits are rejected.
+The heart of the managed service. Agents are effectively built per client; templates are how work is
+reused.
+
+**Versions** (templates and client agents alike)
+- Every edit inserts a new `agent_version` (status `draft`) with `parent_version_id` = the version it was
+  edited from. Publishing sets it `live` and updates `live_version_id`, in one transaction.
+- Rollback = publish an older version by copying it as a new version, so history stays linear.
+- `bundle_hash` = sha256 of canonical JSON; no-op edits are rejected.
+- Version history shows, for each version: who, when, change note, and a diff against its parent
+  (fields as sentences; workflows as a step-by-step diff).
+
+**Templates**
+- `kind='template'`, `tenant_id` null. Created from scratch, by the Builder, or installed by a pack. Never
+  run for a client directly; test-run against the sandbox client or (in test mode) a client's data.
+- Each published template version carries a `release_note` that clients' update reviews show.
+
+**Forking**
+- Forking template version *T* into client *C* creates a client agent (`kind='client'`, `tenant_id = C`,
+  `template_id`) whose v1 is a copy of *T*'s bundle with `based_on_template_version_id = T`. Step and
+  path ids are copied, so later merges can line them up.
+- A client agent can also be created from scratch for one client (no template), or forked from another
+  client's agent (copied, re-bound to the new client's connections; memory and learned data never come).
+
+**Customizing**
+- The operator edits the client agent in the same editor and builder as templates: settings for this
+  client's data, instructions, skills, workflows added, removed or rewired. Each edit is a new version of
+  the client agent; `based_on_template_version_id` is unchanged.
+- **Customizations view:** the diff between the client agent's live version and its base template
+  version, so the operator always sees what was changed for this client.
+
+**Template updates (three-way merge)**
+- When template *T* publishes a newer version *T′*, each linked client agent based on an older version
+  shows "update available" with *T′*'s release note.
+- Applying it merges structurally: base = the client's base template version, theirs = *T′*, ours = the
+  client's live version. Agent fields merge by key; skills by `skill`; workflows by `slug`; steps and
+  fork paths by `id`, step config by field; the order of each step list merges as a sequence (inserts
+  kept next to their neighbours; two different reorders of the same list, or a step moved to different
+  places, conflict). A change on one side only is taken; the same change on both
+  is taken once; different changes to the same field, or a delete against an edit, are **conflicts**.
+- The result is a draft client version with `author_type='merge'`, `based_on_template_version_id = T′`
+  and `merged_from_version_ids`. Conflicts are resolved in the merge view (§10.5) before it can be saved
+  as valid; workflow validation (§10.2) runs on the merged result. Then test-run and publish as usual.
+- Updates are never applied automatically in v1. The template page shows every client agent: base
+  version, versions behind, number of customizations, open conflicts.
+
+**Promoting**
+- From a client agent, the operator can promote its customizations (all, or selected changes) into a new
+  **template draft**: a three-way merge the other way (base = the client's base template version, ours =
+  the template's live version, theirs = the client version). Client-specific values (bindings, ids of the
+  client's records) are left out; settings are offered, not assumed.
+
+**Detaching**
+- A client agent can be detached (`linked=false`): it keeps its history but no longer receives template
+  updates. Re-linking picks a template version as the new base.
+
+**Runs and evidence**
+- A run records the client agent, the exact version it ran and a snapshot of bindings and approver.
 - Every `step_run`, `message`, `doc_extraction`, `external_action` and pack decision made by an agent
   records `agent_version_id`.
-- A run pins the workflow version, the agent version and the skill versions it started with.
-- Workflows reference skills by id (live version) or `id@version` (pinned).
-- **The runtime never reads agent, skill or workflow settings from code.** Pack templates are inserted
-  as v1 rows when the pack is enabled.
+- Skills are referenced by id (live version) or `id@version` (pinned) inside a bundle.
+- **The runtime never reads agent, skill or workflow settings from code.** Pack templates are inserted as
+  template v1 rows when the pack is installed.
 
 ### 9.4 Tool registry
 
-Each tool: `{ id, description, input: Zod, output: Zod, sideEffect: 'none'|'internal'|'external', source:
-'platform'|'<connector>'|'<pack>', handler }`. Agents touch data only through tools.
+Each tool: `{ id, description, input: Zod, output: Zod, sideEffect: 'none'|'internal'|'external',
+verb: 'read'|'create'|'update'|'delete', source: 'platform'|'<connector>'|'<pack>', summary?: Template,
+handler }`. Agents touch data only through tools. In the builder, `external` tools are **actions**
+("change your tools").
 
 Platform tools:
 | id | sideEffect | does |
@@ -533,140 +761,191 @@ Connector tools come from manifests (§6); pack tools from packs (§12).
 ### 9.5 Runtime
 
 ```ts
-runAgent({ tenantId, agentRef, skill | task, input, threadId?, runContext }): Promise<AgentResult>
+runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext }): Promise<AgentResult>
 ```
-1. Resolve `agentRef` to an `agent_version` and the skill to its version. Validate input.
+1. Load the client agent's version (the run's pinned bundle) and resolve the skill to its version, with
+   the bundle's settings for it. `agents.ask` resolves other agents among the same client's agents.
+   Validate input.
 2. If the skill's mode is `tool`: call the handler directly, log, return.
 3. Else build the prompt: platform preamble (cite sources, use tools, never invent numbers) + agent
-   `instructions` + the skill's `instructions` + memory notes + task input. Expose only the skill's tools
+   `instructions` + the skill's `instructions` + the client agent's memory notes + task input. Expose only the skill's tools
    (and `extraTools`), `ask_agent` if `canCommand` is non-empty, and `finish(result)` typed to the skill
    output.
 4. Loop: model call → tool calls → results, until `finish` or budget hit. Enforce `maxSteps` and
    `maxCostUsd`. On budget hit: return `{status:'escalated'}` and create an inbox item.
-5. **Permission gate** per tool call: `none` → run. `internal` → run if in `auto` and mode is `act`;
-   otherwise inbox approval. `external` → **always** an `external_action` (status `proposed`) plus an
-   `inbox_item(kind='external_action')` in v1; the step waits for `inbox.resolved`; on approval the
-   action executes once by idempotency key. Test runs (§10.4) never execute external actions.
+5. **Permission gate** per tool call. Reads (`none`) run if the connection's `read` isn't `off`.
+   Internal writes (`internal`: the platform's own records, e.g. a price observation or an inbox item)
+   run and are logged; they don't touch the client's systems. **Writes to a client's tool**
+   (`external`) **need approval by default.** One runs without approval only when all three say so: the
+   connection's matrix has `auto` for the verb, the step is set to `approval: 'not_required'`, and the
+   agent's mode is `act`. Otherwise: matrix `off` → refused (and caught at publish); anything else → an
+   `external_action` (status `proposed`) plus an `inbox_item(kind='external_action')` for the step's
+   approver, showing now / after this change; the step waits for `inbox.resolved`, and on approval the
+   action executes once by idempotency key, with its before state. Automatic writes record the same
+   action and before state. Test runs (§10.4) never execute external actions.
 6. Log `step_run`, `tool_call`, tokens, cost. Outputs of skills with `producesAlerts` must include
    `sources`; outputs without them are rejected.
 
 ### 9.6 Builder
 
-- `draft-agent(input: { description, tenantContext })` → `{ definition: AgentDefinition, workflows:
-  WorkflowGraph[], summary, gaps: string[] }`.
-- The Builder receives the tool and skill registries available to the tenant (ids, descriptions, side
-  effects, input/output schemas), connected connectors, enabled packs, event types, and the JSON Schemas
-  of `AgentDefinition` and `WorkflowGraph`. It may only select existing skills and tools; anything that
-  needs a missing capability goes in `gaps` (e.g. "no card feed connector").
-- `revise-agent({ agentId, fromVersionId, instruction })` → new definition (and workflow changes) + a
-  human-readable diff (field-level JSON diff rendered as sentences).
-- Server guards: Zod validation, graph validation (§10.2), `permissions.mode='suggest_only'` for new
-  agents, `external` tools never in `auto`, saved as `draft`. The draft opens in the agent editor and the
-  canvas for the advisor to adjust, test and publish.
-- The Builder is an advisor tool. A client's change request can be handed to it as the description, with
-  the advisor reviewing the result.
+- `draft-agent(input: { description, clientId? })` → `{ bundle: AgentBundle, summary, gaps: string[] }`:
+  a new template, or (with `clientId`) a new client agent drafted for that client.
+- The Builder receives the tool and skill registries (ids, descriptions, side effects, input/output
+  schemas), the connectors and packs available (and, for a client, what that client has connected and
+  enabled), event types, the existing templates (so it can say "start from template X" instead of
+  drafting from nothing), and the JSON Schemas of `AgentBundle`. It may only select existing skills and
+  tools; anything that needs a missing capability goes in `gaps` (e.g. "no card feed connector").
+- `revise-agent({ agentId, fromVersionId, instruction })` → a new bundle draft + a human-readable diff.
+  Works the same on templates and client agents (e.g. "for this client, skip the approval for invoices
+  under $200").
+- Server guards: Zod validation, workflow validation (§10.2), `permissions.mode='suggest_only'` for new
+  agents, every write step left at `approval: 'required'`, saved as `draft`. The operator adjusts, tests
+  and publishes.
+- A client's request can be handed to the Builder as the instruction for that client's agent.
 
-### 9.7 Platform agents (seeded per tenant as v1 rows)
+### 9.7 Platform agents (templates kind `platform`, seeded as v1 rows)
 
 | slug | kind | skills |
 | --- | --- | --- |
-| `document-clerk` | platform | `docs.find-support`, `docs.extract` |
+| `document-clerk` | platform | `docs.find-support`, `docs.extract` (forked into each client automatically when a client agent needs it) |
 | `coordinator` | platform | `route-ask`, `review` (multi-agent review: collect views, write one summary with disagreements) |
-| `builder` | platform | `draft-agent`, `revise-agent` |
+| `builder` | platform | `draft-agent`, `revise-agent` (back office only; runs outside any client) |
 
 ---
 
 ## 10. Workflows
 
-### 10.1 Graph definition (stored in `workflow_version.definition`)
+### 10.1 Workflow definition (one per workflow in an agent bundle, §9.1)
+
+A workflow is a **structured list of steps** (owner's design): one trigger, then steps that run top to
+bottom. A **fork** has ordered paths; the first path whose rules match runs, else "otherwise"; then the
+workflow continues after the fork ("paths join here"). Steps can be nested inside fork paths and
+`for_each` blocks. There are no free-form edges.
 
 ```ts
-const WorkflowGraph = z.object({
-  schemaVersion: z.literal(2),
-  agent: z.string(),                              // owning agent slug; steps run as this agent
-  nodes: z.array(Node),
-  edges: z.array(z.object({
-    id: z.string(), from: z.string(), to: z.string(),
-    port: z.enum(['next', 'then', 'else', 'approved', 'rejected', 'timeout', 'each', 'done']).default('next'),
-  })),
+const Workflow = z.object({
+  schemaVersion: z.literal(3),
+  trigger: z.object({ id: z.string(), on:
+    z.object({ type: z.literal('event'), event: z.string(), filter: Rules.optional() })
+    .or(z.object({ type: z.literal('schedule'), cron: z.string(), tz: z.string().optional() /*client tz*/ }))
+    .or(z.object({ type: z.literal('manual'), input: JsonSchema }))
+    .or(z.object({ type: z.literal('command'), command: z.string() })) }),
+  steps: z.array(Step),
 });
 
-Node = { id, type, name, position: { x, y }, parent?: nodeId /*inside a loop*/, ...config } where type ∈
-  'trigger'     { on: { type: 'event', event, filter? } | { type: 'schedule', cron, tz }
-                       | { type: 'manual', input: JsonSchema } | { type: 'command', command } }
-  'skill'       { skill: 'id[@v]', agent?: 'slug[@v]' /*default: owner*/, input: Template, settings? }
-  'agent_task'  { task: Template, input: Template, agent?: 'slug[@v]', output?: JsonSchema }
-  'tool'        { tool: 'id', input: Template }          // direct action; external tools need approval
-  'condition'   { if: Expression }                        // ports: then, else
-  'approval'    { title: Template, assigneeRole, payload: Template, timeout: Duration }
-                                                          // ports: approved, rejected, timeout
-  'request'     { to: Template /*role or user*/, channel: 'inbox'|'email', message: Template,
-                  remindEvery: Duration, timeout: Duration }   // ports: next, timeout
-  'wait'        { for: Duration }
-  'loop'        { over: Template /*array*/, concurrency: number }   // ports: each (into children), done
-  'notify'      { channel: 'thread'|'email'|'digest', message: Template }
-  'end'         { status: 'succeeded'|'failed'|'cancelled' }
+Step = { id, kind, name, client?: { visible: boolean, label?: string }, ...config } where kind ∈
+  'skill'     { skill: 'id[@v]', agent?: 'slug' /*default: owner*/, input: Template, settings?,
+                approval?: Approval /*only if the skill's tools can write to a client tool*/ }
+  'action'    { tool: 'id', input: Template, approval: Approval }   // changes a client tool; §9.5
+
+Approval = { required: 'required' | 'not_required' = 'required', approver?: role | userId,
+             timeout?: Duration, onReject: 'stop' | 'continue' = 'stop' }
+  'person'    { mode: 'approve'|'ask', assignee: role | userId, title: Template, payload: Template,
+                timeout: Duration, remindEvery?: Duration, channel?: 'inbox'|'email',
+                onReject?: 'stop'|'continue', onTimeout: 'stop'|'continue'|'notify_operator' }
+  'fork'      { paths: [{ id, name, when: Rules, steps: Step[] }], otherwise: { id, steps: Step[] } }
+  'for_each'  { over: Template /*array*/, concurrency: number, steps: Step[] }
+  'wait'      { for: Duration }
+  'notify'    { channel: 'thread'|'email'|'digest', to?: Template, message: Template }
+  'stop'      { status: 'succeeded'|'failed'|'cancelled' }
+
+Rules = { match: 'all'|'any', rules: [{ field: Template, op: '>'|'>='|'<'|'<='|'='|'!='|'contains'|'in'|'is'|'exists',
+                                         value: unknown }] }
 ```
 
-Templates reference the trigger and upstream outputs as `{{trigger.<path>}}` and
-`{{nodes.<id>.output.<path>}}`; inside a loop, `{{item}}` and `{{index}}`. Expressions use JSONLogic,
-never `eval`. `position` is for the canvas only; the executor ignores it.
+Templates reference `{{trigger.<path>}}` and `{{steps.<id>.output.<path>}}`; inside a `for_each`,
+`{{item}}` and `{{index}}`. Rules are what the builder shows ("Price change > 15% or Monthly impact >
+$500"); they compile to JSONLogic, never `eval`. A `person` step's output carries `approved` and the
+answer, so a later fork can branch on it. **Approvals are per step:** every step that can change a
+client's tool carries an `approval` setting, `required` unless the operator changes it; the approver
+defaults to the step's, then the agent's, then the client's setting. A `person` step adds a human
+checkpoint anywhere else. `client` controls the portal's run timeline: by default
+skill, action, person and notify steps are shown (with `label`, or the step name), and forks, loops and
+waits are hidden.
 
-### 10.2 Validation (shared by canvas and server, in `packages/core`)
+### 10.2 Validation (shared by builder and server, in `packages/core`)
 
-A graph can be saved as a draft with errors, but only a valid graph can be test-run or published.
-- Exactly one trigger, and every node reachable from it.
-- No cycles except through a `loop` node's children; loop children form a sub-graph with one entry.
-- Ports: `condition` has `then` and `else`; `approval` has `approved`; every non-`end` node has an
-  outgoing edge or is a leaf (implicit success).
-- Every template path resolves to a field that exists on **every** path to the node (typed from the
-  upstream skill or tool output schema and the trigger payload schema).
-- Every `skill` node's input satisfies the skill's input schema; every skill and tool is available to
-  the tenant (§9.2) and allowed by the owning agent (its skills plus `extraTools`).
-- A `tool` node with an `external` tool is always gated (§9.5); the canvas shows the approval on the
-  node.
-Errors carry the node id and field, so the canvas can mark the node and the inspector field.
+A workflow can be saved as a draft with errors, but only a valid one can be test-run or published.
+- One trigger; step and path ids unique across the bundle; every fork has at least one path; a
+  `for_each` has at least one step.
+- A template may reference only the trigger and steps that run **before** it on its own path. Outputs of
+  steps inside a fork path or a `for_each` are not visible after it; a fork exposes which path ran.
+- Every `skill` step's input satisfies the skill's input schema (typed from upstream outputs and the
+  trigger payload); every skill and tool exists and is allowed by the owning agent (its skills plus
+  `extraTools`).
+- A step set to `approval: 'not_required'` must be one that writes to a client tool. For a client agent,
+  at publish: no action's verb is `off` on the bound connection, and a step set to `not_required` whose
+  connection only allows `approval` is an error ("this connection requires approval for updates"). The
+  builder marks which write steps will run automatically and which need approval.
+Errors carry the step id and field, so the builder can mark the step and the inspector field.
 
 ### 10.3 Executor
 
-- One Cloudflare Workflow class, `RunWorkflow`, executes any graph. Triggers start instances: the senses
-  router for `event` triggers, a Worker cron for `schedule` triggers (each `cron` + `tz`), the API for
+- One Cloudflare Workflow class, `RunWorkflow`, executes any workflow. Runs belong to a client agent:
+  triggers start instances for the enabled workflows in the **live version of active** client agents:
+  the senses router for `event` triggers (a client's event starts only that client's agents), a Worker
+  cron for `schedule` triggers (each `cron` in the client's timezone unless overridden), the API for
   `manual` and `command` triggers. The instance id is the `run` id, so starting the same run twice is
   refused.
-- The instance loads the pinned versions and walks the graph from the trigger, running each node with
-  `step.do(nodeId, ...)` so it is durable and retried. Branches that fan out run in parallel. Step
-  outputs stay small (record ids); large data lives in Postgres.
-- `approval`, `request` and gated tool calls create an inbox item, then `step.waitForEvent` with a type
-  unique to that item and the node's timeout. Resolving the item (`POST /api/inbox/:id/resolve`) sends
-  that event to the run's instance.
-- `loop` runs its children once per item, with bounded concurrency, step names `${nodeId}:${index}:${childId}`.
-- Every node writes a `step_run`. Run status and cost roll up to `run`.
+- The instance loads the client agent's pinned version and bindings and runs the steps in order, each
+  with `step.do(stepId, ...)` so it is durable and retried. A fork evaluates its paths in order and runs
+  the first match (or otherwise). Step outputs stay small (record ids); large data lives in Postgres.
+- `person` steps and actions that need approval create an inbox item, then `step.waitForEvent` with a
+  type unique to that item and the step's timeout. Resolving the item (`POST /api/inbox/:id/resolve`)
+  sends that event to the run's instance.
+- `for_each` runs its steps once per item, with bounded concurrency, step names `${stepId}:${index}:${childId}`.
+- Every step writes a `step_run`. Run status and cost roll up to `run`.
 
 ### 10.4 Test runs
 
-From the canvas, an advisor can test-run a draft with a chosen trigger payload (a sample event, a recent
-real record, or manual input). A test run is a normal run with `mode='test'`: it reads real data, writes
-its own steps and outputs, but **never executes external actions** (they are recorded as proposed and
-shown as "would have done") and does not emit events that start other workflows. Internal writes made
-by test runs are tagged with the run so the run view can show them.
+The operator test-runs any version, template or client agent, draft or live: a client agent against its
+own client's data, a template against the **sandbox client** or (in test mode) against a chosen client's
+data, choosing a trigger payload (a sample event, a recent real record, or manual input). A test run is
+a normal run with `mode='test'`: it reads real data, writes its own steps and outputs, but **never
+executes external actions** (they are recorded as proposed and shown as "would have done"), does not
+emit events that start other workflows, and is hidden from the client portal. Internal writes made by
+test runs are tagged with the run. A client agent can't be activated, and an update merge can't be
+published, without one passing test run on that client.
 
-### 10.5 The canvas
+### 10.5 The workflow builder, run view and merge view (back office)
 
-Route `/agents/[slug]/workflows/[workflow]`; the owner's designs give the look. Advisors edit; clients
-get the same canvas read-only (no palette, inspector fields disabled) with a "Request a change" action
-that opens a change request pinned to the workflow, or to a node.
-- **Palette** (left): Triggers (events, schedule, manual, command); Skills (the agent's skills first, then
-  the library, available ones only); Logic (condition, loop, wait); People (approval, request); Tools
-  (connector actions, grouped by connection); Notify; End. Drag onto the canvas to add.
-- **Canvas** (centre): React Flow; nodes show type, name, the skill or tool, and status badges (invalid,
-  needs approval, external write). Connect by dragging between ports. Auto-layout (ELK) on demand.
-  Undo/redo. Loops render as a group containing their children.
-- **Inspector** (right): the selected node's form, generated from the skill or tool input schema;
-  template fields offer a picker of upstream outputs that are valid at this node; settings with defaults.
-- **Top bar**: validation summary (click to jump to the node), Save draft, Test run, Publish, version
-  history with rollback and a visual diff (nodes added/removed/changed).
-- **Run view**: the same canvas read-only with each node coloured by its `step_run` status, cost per node,
-  and a side panel with input, output, tool calls and inbox items for the selected node. Live runs poll.
+Routes `/ops/templates/[slug]/workflows/[workflow]` and `/ops/clients/[id]/agents/[slug]/workflows/[workflow]` (one builder for
+templates and client agents), following the owner's design (`docs/design/screens/5-workflow-builder.png`).
+Operator only; clients never see it.
+- **Header**: agent name, version badge (`DRAFT · V1`, `LIVE · V4`), counts ("10 steps · 2 forks · 4
+  change your tools · 2 need approval"), Test run, Publish; tabs Overview / Workflow / Runs / Versions /
+  Settings.
+- **Add a step** (left): search; triggers; skills (the agent's skills first, then the library); actions
+  grouped by tool ("change your tools"); people (approve, ask); logic (fork, for each, wait, notify,
+  stop). Drag into the list or into a fork path, or press + to add at the end.
+- **Steps** (centre): numbered cards with kind tag, name and tools; drag by the handle to reorder or move
+  between fork paths; forks show their paths side by side with "Drop a step here" and "paths join here";
+  badges for invalid, needs approval, runs automatically, hidden from client, and **customized for this
+  client** (against the template).
+- **Inspector** (right): the selected step's form, generated from the skill or tool input schema;
+  template fields offer a picker of upstream outputs valid at this step; for steps that change a tool,
+  an **Approval** control (on by default; switching it off is only offered where the client's connection
+  allows it) with the approver; fork paths as ordered rule
+  rows ("+ Add condition", "+ Add path", remove fork); settings with defaults (and, on a client agent,
+  the template's value beside a customized one); the step's client timeline label and visibility.
+- **Versions**: history with change notes and a step-by-step diff; rollback; on templates "Used by"
+  (client agents, base versions, customizations); on client agents "Based on template vN" with "Update
+  available", "Compare with template" and "Promote to template".
+- **Merge view** (template update or promotion): the step list with each step marked added / removed /
+  changed / moved per side; conflicts listed and marked, each resolved as ours, theirs, or edit; agent
+  fields and settings side by side. Save produces the merge draft once every conflict is resolved and
+  the merged workflow validates.
+- **Run view** (`docs/design/screens/6-run.png`): "What it did" as a checklist of steps with status,
+  summary, cost and links; "Changes to your tools" as now / after this change for each action, with
+  approve, reject or edit where it waits; a link to the full log (inputs, outputs, tool calls). Live
+  runs poll.
+
+### 10.6 The client run timeline (portal)
+
+Clients see a run as a timeline of its client-visible steps: label, status, time, a one-line summary
+(`step_run.summary`, written by the skill or tool from its output; never model reasoning or prompts),
+links to the records and documents it touched (`sources`), approvals and who gave them, and actions taken
+in their systems. No costs, no instructions, no internal steps.
 
 ---
 
@@ -675,11 +954,15 @@ that opens a change request pinned to the workflow, or to a node.
 - Inbox kinds: `approval`, `review` (a pack's review, e.g. match review), `request` (ask a person for a
   document or answer), `extraction_review`, `external_action` (approve a write to a connected tool:
   shows the tool, the target record, the change, and the record's current state), `change_request`
-  (a client asks for a new agent or a change; assigned to the tenant's advisors; resolved by linking the
-  versions that were published for it).
+  (a client asks the operator for a change or a new service; it goes to the operator's request queue and
+  is resolved by linking the client agent or template versions made for it).
+- Who sees what: clients see their own items (client_users only those assigned to them); operators see
+  every item in the clients they serve, plus the operator inbox (delegated approvals, escalations,
+  budget hits, failed runs).
 - Resolving an item writes `resolution`, emits `inbox.resolved` and sends the event to the waiting run.
 - Every run creates or appends to a thread for its subject (transaction, catalog item, vendor, week).
-  Messages carry `sources` (record ids) rendered as links.
+  Messages carry `sources` (record ids) rendered as links, and an `audience`: operator-only notes never
+  appear in the portal.
 - People can post in a thread and invoke an agent's skills with `/skill args` (parsed server-side into a
   `skill` step on that agent). `agents.ask` goes through `coordinator.route-ask`, which enforces
   `canCommand` and the thread `step_budget`.
@@ -697,14 +980,15 @@ const PackManifest = z.object({
   events: z.array(EventTypeSpec),           // sense types it emits, with payload schemas
   tools: z.array(ToolSpec),
   skills: z.array(SkillDefinition),
-  templates: z.object({ agents: z.array(AgentDefinition), workflows: z.array(WorkflowGraph) }),
+  templates: z.object({ agents: z.array(AgentDefinition), workflows: z.array(Workflow) }),
   screens: z.array(z.object({ route: z.string(), title: z.string(), roles: z.array(z.string()) })),
 });
 ```
 A pack is a package exporting its manifest, tool handlers, Drizzle schema and API routes. `apps/api`
-registers it; `apps/web` has its screens under `src/packs/<id>/`, shown only when the pack is enabled.
-Enabling a pack for a tenant inserts `tenant_pack` and installs its template agents and workflows as v1
-rows the tenant's advisors can then edit like any other.
+registers it; `apps/web` has its screens under `src/packs/<id>/`: client reports in the portal, and
+operator views in the back office. Installing a pack adds its templates (agents with their workflows) once,
+as template v1 rows the operator edits like any other. Enabling it for a client inserts `tenant_pack`
+(its tables start holding that client's data) and allows forking its templates into that client.
 
 ### 12.2 Materials pack
 
@@ -730,7 +1014,7 @@ Tools: `materials.catalog.search` (none), `materials.catalog.create_item` (inter
 `materials.match_line` (internal), `materials.prices.record` (internal), `materials.prices.history`
 (none), `materials.prices.compare_vendors` (none).
 
-Skills: `materials.match-line` (tool mode; settings `match_confidence_auto` 0.90),
+Skills: `materials.match-lines` (tool mode, over a document's lines; settings `match_confidence_auto` 0.90),
 `materials.review-merge`, `materials.record-prices` (tool mode), `materials.price-check` (agent mode;
 settings `price_change_pct` 5, `vendor_spread_pct`, `creep_pct`; produces alerts),
 `materials.vendor-compare`, `materials.materials-list`, `materials.weekly-digest`.
@@ -738,34 +1022,35 @@ settings `price_change_pct` 5, `vendor_spread_pct`, `creep_pct`; produces alerts
 Events: `materials.line.matched`, `materials.line.needs_review`, `materials.match.decided`,
 `materials.price.observed`, `materials.price.changed`.
 
-Screens: Catalog (`/materials/catalog`, `/materials/catalog/[id]`), Price watch (`/materials/prices`),
-match review in the Inbox (`review` kind).
+Reports (portal): Price watch (`/reports/materials/prices`), Catalog (`/reports/materials/catalog`),
+with CSV export. Match review in the Inbox (`review` kind). Back office: the same views for any client,
+plus catalog merge.
 
-Template agent **Pia** (`purchasing`, functional): skills `docs.find-support`, `docs.extract`,
-`materials.match-line`, `materials.record-prices`, `materials.price-check`, `materials.vendor-compare`,
+Template **Pia** (`purchasing`, functional; default portal service name "Material cost monitoring"): skills `docs.find-support`, `docs.extract`,
+`materials.match-lines`, `materials.record-prices`, `materials.price-check`, `materials.vendor-compare`,
 `materials.weekly-digest`; extra tools `qbo.attachable.upload`, `gmail.draft.create`, `gmail.label.apply`
 (all approval).
 
-Template workflows (graphs, editable on the canvas):
+Template workflows (step lists in Pia's bundle; each client's fork can change them):
 
 **purchase-intake** (trigger: event `transaction.created`)
-1. skill `docs.find-support` (QBO attachments, then Gmail, then uploads)
-2. condition found? else → request (inbox doc request to the client admin, plus a `gmail.draft.create`
-   to the purchaser when Gmail is connected (approval); remind 2d; timeout 5d → notify advisor)
+1. skill `docs.find-support` (QBO attachments, then forwarded email and uploads; Gmail once connected)
+2. fork "No document": person ask (client admin: forward or upload the invoice; remind 2d; timeout 5d →
+   notify the operator) and action `gmail.draft.create` to the purchaser when Gmail is connected
 3. skill `docs.extract`
-4. condition totals_match? else → approval (extraction review)
-5. loop over lines → skill `materials.match-line` (auto-match ≥ threshold; else review in the inbox and
-   wait)
-6. skill `materials.record-prices`
-7. skill `materials.price-check` (raise alerts with evidence)
-8. tool `qbo.attachable.upload` when the document came from Gmail or upload and the transaction from
-   QBO (external: approval) // only if a QBO connection exists
-9. tool `gmail.label.apply` "Processed" when the document came from Gmail (external: approval)
+4. fork "Totals don't add up": person approve (extraction review)
+5. skill `materials.match-lines` (auto-match ≥ `match_confidence_auto`)
+6. fork "Any line below threshold": person ask (match review for those lines)
+7. skill `materials.record-prices`
+8. skill `materials.price-check` (raise alerts with evidence)
+9. action `qbo.bill.update_lines` / `qbo.purchase.update_lines` (itemize; approval on)
+10. fork "Document not yet attached in QBO": action `qbo.attachable.upload` (approval on)
+11. fork "Document from Gmail" (after the MVP): action `gmail.label.apply` "Processed"
 
-**weekly-price-review** (trigger: schedule Mondays 7:00 tenant tz)
+**weekly-price-review** (trigger: schedule Mondays 7:00 client timezone)
 1. skill `materials.weekly-digest` (changes, creep, vendor spread, new surcharges, dollar impact)
-2. approval (advisor reviews digest)
-3. notify digest to client
+2. person approve (the operator reviews the digest)
+3. notify digest to the client (email + portal report)
 
 ### 12.3 Item matching
 
@@ -819,78 +1104,116 @@ on "same" at the auto threshold.
 
 ---
 
-## 13. Cost and observability
+## 13. Usage, cost and observability
 
 - Every model call records tokens and cost on its `step_run` (cost computed at write time, including
-  failures and retries); runs roll up cost; the agent editor shows spend per agent, skill and workflow
-  over time.
+  failures and retries); runs roll up cost; `usage_daily` rolls up per client and client agent, and the
+  back office can also roll up per template (across its forks).
+- **Cost is operator-only.** The back office shows model cost and usage per client, per client agent and
+  per template over time, to price the service; the portal shows activity and outcomes, never cost.
 - Budgets: per agent version (`maxSteps`, `maxCostUsd` per skill invocation) and per thread
-  (`step_budget`). Hitting one escalates to the inbox rather than failing silently.
-- Every run, step, tool call and external action is queryable from the run view; nothing an agent did
-  is visible only in logs.
+  (`step_budget`). Hitting one escalates to the operator inbox rather than failing silently.
+- Every run, step, tool call and external action is queryable from the back office run view; nothing an
+  agent did is visible only in logs.
 
 ---
 
 ## 14. API (Hono routes under `/api`)
 
+Two route families. `/api/ops/*` is the back office (role `operator`, scoped to the clients they serve,
+`app.operator` on). `/api/*` is the portal (client roles, one client). The OAuth callbacks, the QBO
+webhook are shared.
+
 ```
-Connections   GET  /api/connectors                      (manifests + tenant status + tools)
-              POST /api/connections/:connector/connect-link (advisor: a link the client opens)
-              POST /api/connections/qbo/authorize       GET  /api/connections/qbo/callback
-              POST /api/connections/gmail/authorize     GET  /api/connections/gmail/callback
-              PATCH /api/connections/:id {scopeQuery}   (Gmail ingestion query; advisor)
-              POST /api/connections/:id/sync            POST /api/webhooks/qbo
-              DELETE /api/connections/:id
-Documents     POST /api/uploads (multipart)             GET  /api/documents/:id (signed URL + extraction)
-Records       GET  /api/transactions?status=&vendor=
-Skills        GET  /api/skills?available=               GET  /api/skills/:id (+ versions)
-              POST /api/skills  (custom, draft)         POST /api/skills/:id/versions (edit → draft)
-              POST /api/skills/:id/versions/:vid/publish
-Agents        GET  /api/agents                          POST /api/agents (from scratch, draft)
-              POST /api/agents/draft {description}      GET  /api/agents/:id/versions
-              POST /api/agents/:id/versions             POST /api/agents/:id/revise {instruction, fromVersionId}
-              POST /api/agents/:id/versions/:vid/publish POST /api/agents/:id/rollback {versionId}
-Workflows     GET  /api/agents/:id/workflows            POST /api/agents/:id/workflows
-              GET  /api/workflows/:id (+ versions)      POST /api/workflows/:id/versions (save draft)
-              POST /api/workflows/validate {graph}      POST /api/workflows/:id/versions/:vid/test-run {payload}
-              POST /api/workflows/:id/versions/:vid/publish POST /api/workflows/:id/rollback {versionId}
-              POST /api/workflows/:id/run {input}       (manual trigger)
-              GET  /api/catalog/events                  (event types + sample payloads for the trigger picker)
-Runs          GET  /api/workflows/:id/runs              GET  /api/runs/:id (steps, tool calls, inbox items)
-Inbox         GET  /api/inbox?kind=&status=             POST /api/inbox/:id/resolve
-Actions       GET  /api/external-actions?status=
-Alerts        GET  /api/alerts?status=                  PATCH /api/alerts/:id
-Threads       GET  /api/threads/:id                     POST /api/threads/:id/messages
-Packs         GET  /api/packs                           POST /api/packs/:id/enable (advisor)
-Clients       GET  /api/clients (advisor console)       POST /api/clients (create tenant; advisor)
-              POST /api/clients/:id/invites             PATCH /api/clients/:id/settings
-Requests      POST /api/change-requests {subject, text} (client)
-Materials     GET  /api/materials/catalog?category=&q=  POST /api/materials/catalog/:id/merge
-              GET  /api/materials/prices?item=&vendor=&from=&to=
+Back office (operator)
+  Clients      GET  /api/ops/overview                     (needs attention across clients)
+               GET  /api/ops/clients                      POST /api/ops/clients
+               GET  /api/ops/clients/:id                  PATCH /api/ops/clients/:id/settings
+               POST /api/ops/clients/:id/invites          PUT  /api/ops/clients/:id/connectors {offered: [...]}
+               POST /api/ops/clients/:id/connectors/:connector/remind   (email: "connect X" → portal page)
+               POST /api/ops/clients/:id/packs/:pack/enable
+  Connections  GET  /api/ops/clients/:id/connections      PATCH /api/ops/connections/:id {config, permissions}
+               POST /api/ops/connections/:id/sync
+  Skills       GET/POST /api/ops/skills                   POST /api/ops/skills/:id/versions
+               POST /api/ops/skills/:id/versions/:vid/publish
+  Agents       (templates: GET/POST /api/ops/templates; client agents: GET/POST /api/ops/clients/:id/agents;
+                both then addressed as /api/ops/agents/:id)
+               POST /api/ops/agents/draft {description, clientId?}
+               GET  /api/ops/agents/:id (+ versions, lineage)   POST /api/ops/agents/:id/versions (save draft)
+               POST /api/ops/agents/:id/versions/:vid/publish   POST /api/ops/agents/:id/rollback {versionId}
+               POST /api/ops/agents/:id/revise {instruction, fromVersionId}
+               POST /api/ops/workflows/validate {workflow}   GET  /api/ops/catalog/events
+               POST /api/ops/agents/:id/versions/:vid/test-run {workflow, payload, clientId?}
+  Lineage      POST /api/ops/templates/:id/fork {clientId, version?, slug?}
+               GET  /api/ops/templates/:id/used-by        (client agents, base versions, behind, customizations)
+               GET  /api/ops/agents/:id/customizations    (diff: live vs base template version)
+               GET  /api/ops/agents/:id/update-preview {toVersion}   (three-way merge result + conflicts)
+               POST /api/ops/agents/:id/update {toVersion, resolutions}  (creates the merge draft)
+               POST /api/ops/agents/:id/promote {changes?, resolutions}  (creates a template draft)
+               POST /api/ops/agents/:id/detach            POST /api/ops/agents/:id/relink {templateVersion}
+  Operation    PATCH /api/ops/agents/:id/operation {bindings?, approver?, serviceName?, serviceDescription?}
+               POST /api/ops/agents/:id/activate|pause|retire
+               POST /api/ops/agents/:id/run {workflow, input}   (manual trigger)
+  Runs         GET  /api/ops/runs?client=&status=&agent=  GET  /api/ops/runs/:id (steps, tool calls, cost)
+  Inbox        GET  /api/ops/inbox                        POST /api/ops/inbox/:id/resolve
+  Requests     GET  /api/ops/requests                     POST /api/ops/requests/:id/resolve {links}
+  Usage        GET  /api/ops/usage?client=&agent=&template=&from=&to=
+
+Portal (client)
+  Overview     GET  /api/overview                         GET  /api/services (active client agents as services)
+  Reports      GET  /api/reports/activity?from=&to=       GET  /api/reports/:pack/:report (+ .csv)
+  Runs         GET  /api/runs?service=&status=            GET  /api/runs/:id (client timeline)
+  Inbox        GET  /api/inbox?kind=&status=              POST /api/inbox/:id/resolve
+  Connections  GET  /api/connections (offered connectors, status, permissions, used by, forwarding address)
+               PUT  /api/connections/upload/senders {allowed: [...]}   (who may forward)
+               POST /api/connections/:connector/authorize (client admin signs in)   DELETE /api/connections/:id
+               PATCH /api/connections/:id/permissions (tighten only)
+  Documents    POST /api/uploads (multipart)              GET  /api/documents/:id (signed URL)
+  Requests     GET/POST /api/requests {subject?, text}
+  Settings     GET/POST /api/users (invite)               PATCH /api/settings/notifications
+
+Shared         GET  /api/connections/qbo/callback         GET  /api/connections/gmail/callback
+               POST /api/webhooks/qbo
 ```
-All bodies validated with Zod; all handlers resolve the tenant from the session and check the role
-(§4): every create/edit/publish route for agents, skills, workflows and packs is advisor-only.
+All bodies validated with Zod. The route contract declares each route's roles; middleware sets
+`app.tenant_ids` (and `app.operator` for operator sessions) from the session (§4). No portal route
+returns an agent bundle, instructions, prompts, model output outside `summary`, or cost; a contract test
+enforces both.
 
 ---
 
 ## 15. Screens → routes
 
+**Back office** (`/ops`, role `operator`)
+
+| Screen | Route |
+| --- | --- |
+| Overview: needs attention across clients (failed runs, operator inbox, requests, connections to fix, template updates waiting), usage this month | `/ops` |
+| Clients: list with health; new client (onboarding) | `/ops/clients`, `/ops/clients/new` |
+| Client: agents (status, based on, customizations, update available), connectors offered and their health, permissions and configuration (incl. Gmail query), users, packs, settings, runs, usage | `/ops/clients/[id]` |
+| Client agent: editor, versions, customizations vs template, update/merge, promote, bindings, approver, test runs, activate/pause | `/ops/clients/[id]/agents/[slug]` |
+| Client agent workflow builder | `/ops/clients/[id]/agents/[slug]/workflows/[workflow]` |
+| Templates: list; new (scratch or Builder); editor, versions with release notes, "Used by" | `/ops/templates`, `/ops/templates/new`, `/ops/templates/[slug]` |
+| Template workflow builder | `/ops/templates/[slug]/workflows/[workflow]` |
+| Merge view (update or promotion) | `/ops/agents/[id]/merge?from=&to=` |
+| Skills library | `/ops/skills`, `/ops/skills/[id]` |
+| Packs | `/ops/packs` |
+| Runs across clients; run view | `/ops/runs`, `/ops/runs/[id]` |
+| Requests queue; operator inbox | `/ops/requests`, `/ops/inbox` |
+| Usage and cost | `/ops/usage` |
+
+**Client portal** (`/`, client roles)
+
 | Screen | Route | Role |
 | --- | --- | --- |
-| Advisor console (my clients: open approvals, failed runs, change requests, spend) | `/clients` | advisor |
-| Client setup (users, connect links, packs, approval delegation) | `/clients/[id]/setup` | advisor |
-| Home (what agents did, what needs you) | `/` | all |
-| Connections (connect/disconnect, status, tools they give agents; Gmail ingestion query) | `/connections` | client_admin (connect), advisor (query, view) |
-| Skills library (built-in + custom; create/edit custom skill) | `/skills`, `/skills/[id]` | advisor |
-| Agents directory | `/agents` | advisor (edit), client_admin (view) |
-| New agent (from scratch, or describe → Builder draft) | `/agents/new` | advisor |
-| Agent editor (identity, instructions, skills + settings, permissions, budgets, versions) | `/agents/[slug]` | advisor (edit), client_admin (view) |
-| Workflow canvas (edit, validate, test run, publish, history) | `/agents/[slug]/workflows/[workflow]` | advisor (edit), client_admin (view) |
-| Runs + run view on the canvas | `/runs`, `/runs/[id]` | advisor, client_admin |
-| Change requests (raise; advisor queue) | `/requests` | all (raise), advisor (work) |
-| Inbox (approvals, external actions, reviews, requests) | `/inbox` | all (filtered) |
-| Thread | `/threads/[id]` | all |
-| Materials: Catalog, Price watch | `/materials/catalog`, `/materials/prices` | per pack screen roles |
+| Overview: your services, what they did this period, what needs you | `/` | all |
+| Service: what it does (plain language), recent runs, related reports | `/services/[id]` | all |
+| Reports: activity, plus pack reports (Materials: Price watch, Catalog), CSV export | `/reports`, `/reports/materials/prices`, `/reports/materials/catalog` | all |
+| Runs: timeline list and detail | `/runs`, `/runs/[id]` | all |
+| Inbox: approvals, reviews, requests | `/inbox` | all (filtered) |
+| Connections (owner's design, screen 2): offered tools, sign in, reconnect, disconnect; what agents may do in each tool (view; tighten only); used by | `/connections` | client_admin (sign in, change), client_user (view) |
+| Requests: ask the operator | `/requests` | all |
+| Settings: users, notifications | `/settings` | client_admin |
 
 Match review (Materials, in the Inbox): invoice line with page thumbnail, parsed attributes, top
 candidates side by side with attribute diffs highlighted; actions Match / New item / Skip.
@@ -900,19 +1223,29 @@ candidates side by side with attribute diffs highlighted; actions Match / New it
 ## 16. Security and audit
 
 - Secrets in env; connector tokens encrypted at rest; signed URLs for documents (5 min).
-- RLS on every tenant table. Workflows, cron and the senses dispatcher run with no request session and
-  set `app.tenant_id` explicitly.
-- **Writes to connected systems:** only through `external` tools; every one is an `external_action`
-  approved by a person in v1, executed once (idempotency key), with prior state and result recorded.
-  Agents, the Builder and custom skills cannot put an `external` tool in `auto`.
-- Immutable `agent_version`, `skill_version`, `workflow_version`, `raw_record`, `doc_extraction` (trigger
+- RLS on every tenant table, keyed on `app.tenant_ids` (§4). Workflows, cron and the senses dispatcher
+  run with no request session and set exactly one client id. Operator sessions get only the clients
+  they serve.
+- **Client isolation of what agents learn:** memory notes, aliases, catalogs and every other learned
+  record are per client; nothing a client agent learns is used for another client or a template.
+- **The operator's work stays the operator's:** agent bundles (templates and client agents),
+  instructions, prompts and costs are never returned to client roles (contract test, §14).
+- Forking or promoting never carries a client's memory, aliases, records or connection ids into a
+  template or another client.
+- **Writes to connected systems:** only through `external` tools; every one is an `external_action`,
+  executed once (idempotency key), with prior state and result recorded. **Approval is on by default for
+  every write step**; a step runs without approval only if the operator set it so and the client's
+  connection allows it; delete is off. Only the operator loosens a matrix or a step; the client can
+  tighten its matrix at any time, which overrides steps at once. Every change is logged. Agents, the
+  Builder and custom skills cannot change permissions or approvals.
+- Immutable `agent_version`, `skill_version`, `raw_record`, `doc_extraction` (trigger
   blocks UPDATE except status columns).
 - Email: only messages matching the connection's query are synced; bodies are fetched on demand, not
   stored in bulk; disconnecting revokes the token and stops sync. Gmail writes are drafts and labels
   only in v1, each approved.
 - Prompt-injection hygiene: email bodies, document text and vendor descriptions are passed as data in tool results,
-  never concatenated into instructions. Custom skill instructions are tenant-authored and run only
-  within that tenant, with only the tools the skill lists. Agents cannot change their own permissions.
+  never concatenated into instructions. Operator-written skill instructions run only with the tools the
+  skill lists. Agents cannot change their own permissions.
 
 ---
 
@@ -925,7 +1258,8 @@ RUN_WORKFLOW, QBO_SYNC (Workflow bindings), ARTIFACTS (R2 binding)
 STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY   # R2 S3 API, for signed URLs
 ENCRYPTION_KEY                         # 32 bytes base64
 QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI, QBO_ENV=sandbox|production, QBO_WEBHOOK_VERIFIER
-GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+EMAIL_FORWARDING_DOMAIN                # e.g. in.<domain>, routed to the Worker by Cloudflare Email Routing
+GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI   # after the MVP (Gmail)
 WORKOS_CLIENT_ID, WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD
 RESEND_API_KEY (optional)
 ```
@@ -934,37 +1268,48 @@ RESEND_API_KEY (optional)
 
 ## 18. Build plan (ordered; each milestone ends green)
 
-Platform first; the Materials agent proves it.
+Platform first; the Materials template, forked and customized for the millwork shop, proves it.
 
 | # | Milestone | Done when |
 | --- | --- | --- |
-| M0 | Monorepo, Vite app + Hono Worker, Drizzle, Postgres + pgvector, Cloudflare Workflows, WorkOS auth with one seeded tenant + advisor | `pnpm dev` runs the Worker (API + Workflows) and the app; login works |
-| M1 | Platform schema (§5.1–5.3), RLS, immutability triggers, core Zod schemas (agent, skill, graph, tool, connector, pack) and graph validation, seed | Migrations apply; seed inserts tenant and platform agents; validation unit tests pass |
-| M2 | Connector framework, upload connector, documents capability (store, extract, validate) | Upload 3 fixture invoices → extractions match expected JSON within tolerance |
-| M3 | Tool + skill registries, agent runtime, permission gate, external actions, run/step/tool logging | A test agent with `docs.extract` runs end to end and logs cost; an external tool call creates an approval and executes once when approved |
-| M4 | Graph executor, triggers (event, schedule, manual, command), senses outbox, test runs | A seeded graph with condition, loop and approval runs to the end; a test run proposes but never executes external actions |
-| M5 | Inbox, approvals and requests resume runs; change requests; threads basics; advisor console; client setup (invites, connect links); Connections screen | Resolving an approval in the UI continues the waiting run; an advisor creates a client, invites its admin, and sees the client's change request in the console |
-| M6 | Agents UI (advisor edit, client read-only): create from scratch, editor, skills picker with settings, versions, publish, rollback; Skills library with custom skills; Builder draft/revise | An advisor creates an agent from scratch with two skills and publishes it; describe "flag card charges over $500 missing receipts" → valid draft with gaps listed; revise creates v2 with a diff; rollback works; a client_admin can view but not edit or publish |
-| M7 | Workflow canvas: palette, drag and drop, connect, inspector forms, live validation, save draft, test run, publish, history; run view; client read-only view with "Request a change" | An advisor builds a 5-node workflow on the canvas (trigger → skill → condition → approval → notify), test-runs it, publishes it, and watches a live run's nodes change state; the client sees it read-only and raises a change request from a node |
-| M8 | Materials pack: tables, matching (golden tests), pricing and alert rules, Pia + both workflows installed on enable, Catalog, Price watch, match review | Golden tests ≥ 95% precision; Baltic birch matches across 3 vendors; uploading an invoice runs purchase-intake to priced lines with a `price_jump` alert; Pia's workflow opens and edits on the canvas |
-| M9 | QBO connector: OAuth, sync, CDC, attachables, webhooks, read tools, write tools behind approval | Sandbox company syncs; a Bill with an attachment flows through intake; an approved `qbo.attachable.upload` attaches the invoice in the sandbox |
-| M10 | Gmail connector: OAuth, scoped sync (query + history), attachments as documents, read tools, draft and label tools behind approval; Gmail step in `docs.find-support` | A test mailbox connects; an emailed invoice is found for its QBO transaction and flows through intake; an approved `gmail.draft.create` appears in the mailbox's drafts |
-| M11 | Home screen, thread view, polish, Playwright e2e | e2e: an advisor creates a client and an agent → builds its workflow on the canvas → publishes → the client uploads a document → approves in the inbox → both see the run complete |
+| M0 | Monorepo, Vite app + Hono Worker, Drizzle, Postgres + pgvector, Cloudflare Workflows, WorkOS auth with a seeded operator and one client | `pnpm dev` runs the Worker (API + Workflows) and the app; the operator and a client user can sign in |
+| M1 | Platform schema (§5): skills, templates and client agents with bundle versions and lineage, runs, inbox, usage; RLS on `app.tenant_ids` + `app.operator`; immutability triggers; core Zod schemas (bundle, workflow, …), workflow validation, **bundle diff and three-way merge**; seed (operator, sandbox client, platform templates) | Migrations apply; RLS holds for client and operator sessions; validation and merge unit tests pass |
+| M2 | Connector framework, upload connector with email forwarding, documents capability (store, extract, validate) | Upload 3 fixture invoices → extractions match expected JSON within tolerance |
+| M3 | Tool + skill registries, agent runtime on client agent versions, permission gate, external actions, run/step/tool logging, usage rollup | A client agent in the sandbox client runs `docs.extract` end to end and logs cost; an external tool call creates an approval and executes once when approved |
+| M4 | Workflow executor, triggers per client agent (event, schedule in client timezone, manual, command), senses outbox, test runs | A workflow with a fork, a for_each and an approval runs to the end for one client's agent and never starts for another client; a test run proposes but never executes external actions |
+| M5 | Back office shell (overview, clients, onboarding, offering connectors, operator inbox, requests queue); client portal shell (overview, inbox, **connections**, requests, settings); inbox resolution resumes runs | The operator creates a client, offers it the upload connector and invites its admin; the admin signs in to the portal, sees the offered connectors, approves an item that resumes a run, and raises a request the operator sees |
+| M6 | Templates and client agents: editor, skills, Builder; fork, customize, versions and rollback, customizations view, bindings and activation; template updates (preview, conflicts, merge draft) and promotion; "Used by" | The operator builds a template, forks it into two clients, customizes each differently, publishes template v2, and merges it into both (one clean, one with a resolved conflict) while keeping each client's customizations; promotes one client's change into template v3; rolls one client back |
+| M7 | Workflow builder (templates and client agents): steps, forks, drag and drop, inspector, validation; merge view; run view; client run timeline | The operator customizes a client's workflow in the builder (adds a step, adds a fork path), test-runs it on that client's data, resolves a conflict from a template update in the merge view, publishes; watches the live run in the run view while the client sees the timeline without internals or cost |
+| M8 | Materials pack: tables, matching (golden tests), pricing and alert rules, the Pia template forked and customized for the millwork client; client reports (activity, Price watch, Catalog, CSV) | Golden tests ≥ 95% precision; Baltic birch matches across 3 vendors; an uploaded invoice runs the millwork shop's purchase-intake to priced lines with a `price_jump` alert; the client sees it in Price watch |
+| M9 | QBO connector: OAuth, sync, CDC, attachables, webhooks, read tools, the MVP write tools (itemize lines, attach invoice) with per-step approval | Sandbox company syncs; a Bill flows through intake; approving in the portal itemizes its lines (total unchanged) and attaches the invoice in the sandbox; **MVP done** when the same works on the shop's production QuickBooks |
+| M10 | (after the MVP) Gmail connector: OAuth, scoped sync (query + history), attachments as documents, read tools, draft and label tools behind approval; Gmail step in `docs.find-support` | A test mailbox connects; an emailed invoice is found for its QBO transaction and flows through intake; an approved `gmail.draft.create` appears in the mailbox's drafts |
+| M11 | Usage and cost views (per client, agent, template), activity report, notification emails, polish, Playwright e2e | e2e: the operator forks Pia into a new client and customizes her, the client connects and uploads an invoice, approves in the portal, sees the report; the operator publishes a Pia template update and merges it into that client |
 
-If time is short, M0–M8 with the upload connector is the demo; M9 (QBO) and M10 (Gmail) follow.
+**MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
+promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
+in M2. Gmail (M10), the deferred parts and M11's extras follow (`docs/plan.md` §3).
 
 ---
 
 ## 19. Testing
 
-- Unit: graph validation (every rule, with node/field error locations), template typing, normalizer,
+- Unit: workflow validation (every rule, with step/field error locations), template typing, rule
+  compilation to JSONLogic, normalizer,
   attribute parsers, UOM conversion, alert rules, Zod schemas, version immutability, permission gate.
 - Layering: platform packages never import packs (`scripts/check-deps.mjs`).
 - Golden: extraction fixtures (`fixtures/invoices/*.pdf` + `*.expected.json`), matching pairs.
-- Executor: a fake `StepRunner` for every node type and port; one Workers-pool test drives the real
+- Executor: a fake `StepRunner` for every step kind, fork path order and for_each; one Workers-pool test drives the real
   Workflow class through a wait, a resume and a timeout.
 - LLM calls behind `packages/llm` with a record/replay mode so tests run offline.
-- Canvas: component tests for drag, connect, delete, undo, and validation markers; Playwright e2e (M10).
+- Builder: component tests for add, drag to reorder, move between fork paths, delete, undo, and
+  validation markers; Playwright e2e (M11).
+- Permissions: every verb × connection setting × agent setting gives the right outcome; `off` is caught
+  at publish; automatic writes still record before state; tightening by a client takes effect at once.
+- Isolation: RLS for single-client and operator sessions; portal routes never return agent bundles,
+  prompts or cost (contract test); a client agent's memory never reaches another client or a template.
+- Lineage: bundle diff and three-way merge golden cases (change on one side; same change both sides;
+  conflicting field; delete vs edit; workflow added on both sides; step moved within and between fork
+  paths; two different reorders); merges keep step ids; promotion strips client-specific values; fork → customize → update → rollback round trips.
 
 ---
 
@@ -972,18 +1317,36 @@ If time is short, M0–M8 with the upload connector is the demo; M9 (QBO) and M1
 
 Decided:
 - Auth: WorkOS (v0.2). Hosting: Cloudflare Workers + Neon + R2 (v0.2).
-- Document requests are inbox-only in v1, routed to a client admin (`docs/plan.md` §1.1).
+- Document requests are inbox-first, routed to a client admin (`docs/plan.md` §1.1).
 - Embeddings: optional; trigram + attributes is enough for v1.
-- Writes to connected tools: always approved by a person in v1 (v0.3); by default the client_admin,
-  or an advisor when the client delegates (v0.4).
-- Managed service: advisors build and publish; clients view, approve and request changes (v0.4).
+- Writes to client systems: governed by each connection's permission matrix, conservative by default
+  (v0.7, replacing "always approved" from v0.3); approvals go to the client admin by default, or the
+  operator when delegated (v0.4).
+- Workflows are structured step lists with forks, edited in a sortable list builder (v0.7).
+- Approvals are on by default and set per step; the connection matrix is the ceiling (v0.8).
+- MVP: Pia live for the millwork shop on its own QuickBooks, with upload and email forwarding (v0.8).
+- First QuickBooks writes: itemize a bill's or purchase's lines (total unchanged) and attach the
+  invoice (v0.8).
+- Slack later, not in v1 (owner, v0.8).
 - v1 connectors: QuickBooks Online, Gmail, upload (v0.4).
+- Managed-agents service: the operator builds and runs agents from a back office; clients get a portal
+  for reports, runs, approvals, connections and requests (v0.5).
+- Cost is operator-only; clients see activity and outcomes (v0.5).
+- Templates and client agents: reusable agents are templates; each client gets its own fork, customized
+  and versioned per client, linked to its template version; updates are reviewed three-way merges;
+  promotion moves client changes back (v0.6).
+- One version = the whole agent bundle (definition + workflows + settings) (v0.6).
 
 Open:
-- Which QBO writes ship first. Proposal: `qbo.attachable.upload` (attach the found invoice to its
-  transaction); `update_memo` and `update_purchase_cost` follow.
 - Gmail and Google's app verification: Gmail read scopes are restricted, so a public app needs Google's
   verification and a security assessment; an unverified app shows a warning and has a user cap, and in
   "testing" status its refresh tokens expire after 7 days. Check the current rules at M10 and choose:
   verify the app, or (for Google Workspace clients) domain-wide delegation granted by the client's admin.
 - Whether to add sending email (approved) after drafts, and Gmail push notifications instead of polling.
+- Billing: usage is metered per client from v1; how clients are charged (per agent, per month, usage)
+  decides what the back office invoices later.
+- From the owner's design, not yet in scope: Google Drive (appears connected in the screens), Ramp,
+  bank, Outlook, HubSpot (Slack: later, owner); a header command bar ("Ask an agent, or type / for a
+  command"); the Invoice intake, Collections follow-up and Card receipts agents.
+- Skills under lineage: v1 forks agents, not skills (a client-only skill is written for that client).
+  Whether skills also need template/fork lineage depends on how often skills get customized per client.
