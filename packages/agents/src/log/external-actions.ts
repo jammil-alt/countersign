@@ -53,7 +53,20 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       type,
       subjectType: "external_action",
       subjectId: row.id,
-      payload: { actionId: row.id, tool: row.tool, runId: row.runId, status: row.status },
+      // The shape packages/senses declares for these events (its event catalog is the contract).
+      payload: {
+        externalActionId: row.id,
+        tool: row.tool,
+        connectionId: row.connectionId,
+        runId: row.runId,
+        ...(type === "external_action.failed"
+          ? {
+              error: String(
+                (row.error as { message?: unknown } | null)?.message ?? "the change failed",
+              ),
+            }
+          : {}),
+      },
     });
   };
   return {
@@ -296,7 +309,13 @@ export async function resolveExternalActionTx(
     type: "inbox.resolved",
     subjectType: "inbox_item",
     subjectId: item.id,
-    payload: { inboxItemId: item.id, kind: item.kind, runId: action.runId, ...resolution },
+    payload: {
+      inboxItemId: item.id,
+      kind: item.kind,
+      runId: action.runId,
+      approved: input.decision === "approve",
+      resolvedBy: input.by.userId,
+    },
   });
   return result(true);
 }
