@@ -1,1 +1,7 @@
-{ "extends": "../../tsconfig.base.json", "include": ["src"] }
+{
+  "extends": "../../tsconfig.base.json",
+  // Node types only because the outbox tests use @countersign/db/testing (throwaway databases);
+  // the package's own code uses nothing Node-specific and runs in the Worker.
+  "compilerOptions": { "types": ["node"] },
+  "include": ["src"]
+}
