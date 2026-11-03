@@ -1,1 +1,5 @@
-{ "extends": "../../tsconfig.base.json", "include": ["src"] }
+{
+  // No Node, DOM or Workers types on purpose: core runs in the browser, the Worker and Node alike.
+  "extends": "../../tsconfig.base.json",
+  "include": ["src"]
+}

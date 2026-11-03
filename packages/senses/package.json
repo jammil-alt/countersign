@@ -12,7 +12,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@countersign/core": "workspace:*",
     "@countersign/db": "workspace:*",
-    "@countersign/core": "workspace:*"
+    "zod": "^4.6.2"
   }
 }

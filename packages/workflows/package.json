@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@countersign/agents": "workspace:*",
-    "@countersign/threads": "workspace:*",
-    "@countersign/senses": "workspace:*",
+    "@countersign/core": "workspace:*",
     "@countersign/db": "workspace:*",
-    "@countersign/core": "workspace:*"
+    "@countersign/senses": "workspace:*",
+    "@countersign/threads": "workspace:*",
+    "cron-parser": "^5.4.0",
+    "zod": "^4.6.2"
   }
 }

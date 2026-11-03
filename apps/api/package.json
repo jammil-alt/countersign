@@ -5,20 +5,33 @@
   "type": "module",
   "description": "Hono Worker: /api routes, auth, static assets, Workflow classes, cron; registers connectors and packs",
   "scripts": {
-    "typecheck": "tsc -p .",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "wrangler types && tsc -p .",
+    "test": "vitest run --passWithNoTests && vitest run --config vitest.workers.config.ts",
+    "dev": "wrangler dev",
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "@countersign/auth": "workspace:*",
-    "@countersign/workflows": "workspace:*",
     "@countersign/agents": "workspace:*",
-    "@countersign/documents": "workspace:*",
+    "@countersign/auth": "workspace:*",
     "@countersign/connectors": "workspace:*",
-    "@countersign/threads": "workspace:*",
-    "@countersign/senses": "workspace:*",
-    "@countersign/llm": "workspace:*",
-    "@countersign/db": "workspace:*",
     "@countersign/core": "workspace:*",
-    "@countersign/pack-materials": "workspace:*"
+    "@countersign/db": "workspace:*",
+    "@countersign/documents": "workspace:*",
+    "@countersign/llm": "workspace:*",
+    "@countersign/pack-materials": "workspace:*",
+    "@countersign/senses": "workspace:*",
+    "@countersign/threads": "workspace:*",
+    "@countersign/workflows": "workspace:*",
+    "@hono/zod-validator": "^0.9.1",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.7",
+    "postgres": "^3.4.9",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^22.20.2",
+    "vitest": "^4.1.11",
+    "wrangler": "4.131.0"
   }
 }

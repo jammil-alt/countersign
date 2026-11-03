@@ -5,3 +5,8 @@ packages:
 allowBuilds:
   esbuild: true
   workerd: true
+# As in Plenary Labs: the Workers test pool runs the same miniflare and wrangler as apps/api's own
+# wrangler, so the runtime under test is the one `wrangler dev` and `wrangler deploy` use.
+overrides:
+  "@cloudflare/vitest-pool-workers>miniflare": 5.20260910.0-alpha
+  "@cloudflare/vitest-pool-workers>wrangler": 4.131.0
