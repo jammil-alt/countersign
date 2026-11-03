@@ -3,8 +3,8 @@
 How Countersign is deployed and what a person has to create by hand. Same setup as Plenary Labs:
 Cloudflare Workers + Workflows, Neon through Hyperdrive, R2, WorkOS, GitHub Actions.
 
-Status: **nothing is provisioned yet.** The workflows in `.github/workflows/` are in place and stay
-inert (they skip deploy and Neon steps with a notice) until the items in §1 exist.
+Status: **nothing is provisioned yet.** Next: add the bootstrap keys (§1), run Actions → Bootstrap
+cloud, save `NEON_PROJECT_ID`. Until then CI and deploy skip their Neon and deploy steps with a notice.
 
 ## Environments
 
@@ -22,35 +22,42 @@ when the run ends.
 
 ## 1. What a person must create
 
-### Neon
+Most of Neon and Cloudflare is created by the **Bootstrap cloud** workflow (`.github/workflows/bootstrap.yml`,
+Actions → Bootstrap cloud → Run workflow). A person only provides the keys and does what needs a
+dashboard.
 
-1. A project named `countersign`, Postgres 16, in the same region as Plenary Labs. Record its id as
-   the GitHub **variable** `NEON_PROJECT_ID`.
-2. The database `countersign`, owned by a role `cs_owner` (created in the Neon console; it is the
-   owner, so being Neon-managed is fine for it).
-3. A branch `staging` from `main`.
-4. `cs_worker` is **not** created in the console: Neon-managed roles join `neon_superuser` and would
-   skip row-level security. It is created with SQL by `packages/db/scripts/provision-worker-role.mjs`
-   (M0), on each branch.
-5. An API key (Neon → Account → API keys) as the GitHub **secret** `NEON_API_KEY`.
+### Keys for the bootstrap (GitHub → Settings → Secrets and variables → Actions)
 
-### Cloudflare
+1. **Neon API key** (Neon → account menu → Account settings → API keys; an organization key if Plenary
+   Labs' project is in an organization) as the secret `NEON_API_KEY`.
+2. **Cloudflare API token** with Hyperdrive edit, Workers R2 Storage edit, Workers Scripts edit,
+   Workflows edit and account read, as the secret `CLOUDFLARE_API_TOKEN`; the account id as the secret
+   `CLOUDFLARE_ACCOUNT_ID`. The same token is used by `deploy.yml`.
 
-1. R2 buckets `countersign` and `countersign-staging`, plus an R2 API token (S3 access key and
-   secret) for signed URLs: Worker secrets `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`.
-2. Hyperdrive configs `countersign-db` and `countersign-db-staging`, each pointing at its Neon
-   branch as `cs_worker`. Their ids go in `apps/api/wrangler.jsonc` (ids are not secrets).
-3. A scoped API token (Workers Scripts edit, Workers R2 edit, Hyperdrive edit, Workflows edit,
-   account read) as the GitHub **secret** `CLOUDFLARE_API_TOKEN`, and the account id as the secret
-   `CLOUDFLARE_ACCOUNT_ID`.
-4. Custom domains for the two Workers. Names still to choose.
+### What the bootstrap creates (re-runnable; it looks before it creates)
 
-### WorkOS
+1. The Neon project `countersign`, Postgres 16, in **the same region and organization as Plenary Labs'**
+   project (read from it through the API), unless the `NEON_PROJECT_ID` variable already names one.
+2. Role `cs_owner` (Neon-managed is fine for the owner) and database `countersign` on `main`; branch
+   `staging` from `main`.
+3. On each branch, with SQL: `cs_runtime` (NOLOGIN) and `cs_worker` (LOGIN, member of `cs_runtime` only).
+   `cs_worker` is never created through Neon's console or API: Neon-managed roles join `neon_superuser`
+   and would skip row-level security. Each run gives it a new random password per branch, which exists
+   only inside the job and in Hyperdrive.
+4. Hyperdrive `countersign-db` (→ Neon `main` as `cs_worker`) and `countersign-db-staging` (→ `staging`).
+5. R2 buckets `countersign` and `countersign-staging`.
 
-1. Staging and production environments (or reuse Plenary Labs' account with a new application).
-2. Redirect URIs: `https://<staging domain>/api/auth/callback` and the production one.
-3. Worker secrets per environment: `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`
-   (at least 32 random characters).
+After the first run: save the project id from the run summary as the repository **variable**
+`NEON_PROJECT_ID`, and the Hyperdrive ids go in `apps/api/wrangler.jsonc` (M0; ids are not secrets).
+
+### By hand
+
+1. **R2 S3 credentials** for signed URLs (Cloudflare → R2 → Manage API tokens): Worker secrets
+   `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`.
+2. **Custom domains** for the two Workers. Names still to choose.
+3. **WorkOS**: staging and production environments (or Plenary Labs' account with a new application);
+   redirect URIs `https://<domain>/api/auth/callback`; Worker secrets `WORKOS_CLIENT_ID`,
+   `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
 
 ### Intuit (QuickBooks Online, from M9)
 
@@ -100,6 +107,8 @@ who approves writes (client admin by default, or the operator).
 - **`checks.yml`**: install, Biome lint, layering check, typecheck, then tests against a Postgres 16 +
   pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`). With the Neon settings present,
   it also copies `main` to a throwaway branch, applies the migrations to it, and deletes it.
+- **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
+  configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, builds `apps/web` and runs `wrangler deploy`.
 
