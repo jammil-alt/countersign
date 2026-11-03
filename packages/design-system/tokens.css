@@ -1,0 +1,155 @@
+/* Mezonas — design tokens. Generated from tokens.json. Light is the default; dark via [data-theme="dark"] or the OS setting. */
+@font-face { font-family: "Geist"; src: url("fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+:root {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  --paper: #F4F5F3;
+  --surface: #FFFFFF;
+  --surface-subtle: #ECEEF0;
+  --line: #DCDFE2;
+  --line-strong: #7D858F;
+  --ink: #151A21;
+  --ink-muted: #535B65;
+  --ink-faint: #8A929B;
+  --slate: #23415E;
+  --slate-hover: #1A3249;
+  --slate-tint: #E4EAF0;
+  --on-slate: #F4F5F3;
+  --copper: #9A4D27;
+  --copper-ink: #7A3D1F;
+  --copper-tint: #F5E6DD;
+  --signal: #E3A417;
+  --signal-ink: #6B4C05;
+  --signal-tint: #FBF0D2;
+  --risk: #A3302A;
+  --risk-ink: #8A2B26;
+  --risk-tint: #F9E5E3;
+  --risk-line: #EDB9B5;
+  --positive: #1F6B4A;
+  --positive-tint: #E2F0E8;
+  --focus-ring: var(--slate);
+  --link: var(--slate);
+  --data-bar: var(--slate);
+  --data-track: var(--surface-subtle);
+  --data-line: var(--slate);
+  --data-up: var(--slate);
+  --data-down: var(--copper);
+  --data-up-soft: var(--slate-tint);
+  --data-down-soft: var(--copper-tint);
+  --data-mid: var(--surface-subtle);
+  --data-seq-1: #E4EAF0;
+  --data-seq-2: #B7C6D6;
+  --data-seq-3: #829DB7;
+  --data-seq-4: #4F7092;
+  --data-seq-5: #23415E;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-4-5: 18px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --shadow-xs: 0 1px 2px rgba(21,26,33,0.08);
+  --shadow-pop: 0 8px 24px rgba(21,26,33,0.12);
+  --focus-halo: 0 0 0 4px rgba(35,65,94,0.18);
+  --icon-opacity: 0.6;
+  --scrim-opacity: 0.4;
+  --header-h: 52px;
+  --sidebar-w: 240px;
+  --sidebar-collapsed-w: 56px;
+  --row-h-dense: 28px;
+  --row-h-compact: 36px;
+  --row-h: 44px;
+  --row-h-comfortable: 52px;
+  --control-h: 40px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0F1318;
+    --surface: #171C23;
+    --surface-subtle: #1D232B;
+    --line: #2A313A;
+    --line-strong: #6B747E;
+    --ink: #E6E9EC;
+    --ink-muted: #9DA5AF;
+    --ink-faint: #6B737D;
+    --slate: #8FB0D2;
+    --slate-hover: #A9C3DE;
+    --slate-tint: #1C2A38;
+    --on-slate: #0F1318;
+    --copper: #D9895E;
+    --copper-ink: #E3A07C;
+    --copper-tint: #33231A;
+    --signal: #E3A417;
+    --signal-ink: #F0C766;
+    --signal-tint: #3A2E10;
+    --risk: #E8807A;
+    --risk-ink: #F2A39E;
+    --risk-tint: #3A1C1A;
+    --risk-line: #5A2A27;
+    --positive: #7CC4A0;
+    --positive-tint: #17301F;
+    --data-seq-1: #1C2A38;
+    --data-seq-2: #2E4560;
+    --data-seq-3: #4A6A8E;
+    --data-seq-4: #6E92B8;
+    --data-seq-5: #A9C3DE;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0F1318;
+  --surface: #171C23;
+  --surface-subtle: #1D232B;
+  --line: #2A313A;
+  --line-strong: #6B747E;
+  --ink: #E6E9EC;
+  --ink-muted: #9DA5AF;
+  --ink-faint: #6B737D;
+  --slate: #8FB0D2;
+  --slate-hover: #A9C3DE;
+  --slate-tint: #1C2A38;
+  --on-slate: #0F1318;
+  --copper: #D9895E;
+  --copper-ink: #E3A07C;
+  --copper-tint: #33231A;
+  --signal: #E3A417;
+  --signal-ink: #F0C766;
+  --signal-tint: #3A2E10;
+  --risk: #E8807A;
+  --risk-ink: #F2A39E;
+  --risk-tint: #3A1C1A;
+  --risk-line: #5A2A27;
+  --positive: #7CC4A0;
+  --positive-tint: #17301F;
+  --data-seq-1: #1C2A38;
+  --data-seq-2: #2E4560;
+  --data-seq-3: #4A6A8E;
+  --data-seq-4: #6E92B8;
+  --data-seq-5: #A9C3DE;
+}
+
+.type-wordmark { font: 500 28px/1 var(--font-sans); letter-spacing: 0.3em; text-transform: uppercase; }
+.type-display { font: 500 56px/60px var(--font-sans); letter-spacing: -0.025em; }
+.type-title { font: 500 36px/42px var(--font-sans); letter-spacing: -0.02em; }
+.type-heading { font: 500 22px/28px var(--font-sans); letter-spacing: -0.01em; }
+.type-subheading { font: 600 17px/24px var(--font-sans); }
+.type-body { font: 400 15px/24px var(--font-sans); }
+.type-small { font: 400 13px/20px var(--font-sans); }
+.type-label { font: 500 13px/16px var(--font-sans); }
+.type-eyebrow { font: 500 11px/14px var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.type-reference { font: 500 12px/16px var(--font-mono); }

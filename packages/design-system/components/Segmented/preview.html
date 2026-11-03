@@ -1,0 +1,11 @@
+<!-- @dsCard group="Selection" height=70 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><title>Segmented</title></head>
+<body>
+<div style="padding:16px"><div class="ds-seg" role="group"><button aria-pressed="false">All</button><button aria-pressed="true">Waiting on you</button><button aria-pressed="false">In progress</button><button aria-pressed="false">Done</button></div></div>
+<script>
+document.querySelectorAll('.ds-seg').forEach(function(g){g.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;g.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',x===b);});});});
+</script>
+</body>
+</html>

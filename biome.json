@@ -11,7 +11,8 @@
       "!**/migrations/meta",
       "!**/worker-configuration.d.ts",
       "!fixtures/llm",
-      "!docs/design"
+      "!docs/design",
+      "!packages/design-system"
     ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },

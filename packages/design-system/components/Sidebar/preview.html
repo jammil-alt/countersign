@@ -1,0 +1,11 @@
+<!-- @dsCard group="Navigation" height=260 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><title>Sidebar</title></head>
+<body>
+<div style="display:flex;height:250px"><aside class="ds-sidebar"><span class="ds-eyebrow" style="padding:6px 10px 10px">Hartley Millwork</span><button class="ds-navitem" aria-current="page">The Table</button><button class="ds-navitem">Your Desk<span class="ds-num">3</span></button><button class="ds-navitem">Worksheets</button><button class="ds-navitem">Receipts</button><button class="ds-navitem">The Weekly Table</button><button class="ds-navitem">Settings</button></aside></div>
+<script>
+document.querySelector('.ds-sidebar').addEventListener('click',function(e){var b=e.target.closest('.ds-navitem');if(!b)return;document.querySelectorAll('.ds-navitem').forEach(function(x){x.removeAttribute('aria-current');});b.setAttribute('aria-current','page');});
+</script>
+</body>
+</html>

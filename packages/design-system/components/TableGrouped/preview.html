@@ -1,0 +1,52 @@
+<!-- @dsCard group="Data tables" height=560 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><title>TableGrouped</title></head>
+<body>
+<div style="padding:16px">
+<div class="dt dt-grp" id="w" style="--dt-max-h:430px">
+ <div class="dt-bar"><span class="dt-title">Billing by segment</span><span class="ds-num">October 2026</span><span class="dt-grow"></span>
+  <span class="ds-help">Group by</span><div class="ds-seg" role="group" id="gb"><button aria-pressed="true" data-g="trade">Trade</button><button aria-pressed="false" data-g="region">Region</button></div>
+  <button class="ds-btn ds-btn--link" id="ex">Expand all</button></div>
+ <div class="dt-scroll"><table>
+  <thead><tr><th>Segment / account</th><th class="n">Jobs</th><th class="n">Billed</th><th>Share of total</th><th class="n">Outstanding</th><th class="n">Collected</th><th class="n">Days to pay</th></tr></thead>
+  <tbody id="bd"><tr class="g" data-g="HVAC" aria-expanded="true"><td><button class="dt-tog" aria-expanded="true">HVAC <span class="dt-count">3</span></button></td><td class="n">190</td><td class="n">$100,059</td><td><span class="dt-share"><span class="dt-track"><i style="width:100.0%"></i></span><span class="ds-num" style="color:var(--ink)">25.2%</span></span></td><td class="n">$20,998</td><td class="n">79%</td><td class="n">53d</td></tr><tr class="c"><td>Two Rivers Heating</td><td class="n">41</td><td class="n">$33,898</td><td><span class="dt-share"><span class="dt-track"><i style="width:33.9%"></i></span><span class="ds-num" style="color:var(--ink)">8.5%</span></span></td><td class="n">$7,001</td><td class="n">79%</td><td class="n">56d</td></tr><tr class="c"><td>Hollis Mechanical</td><td class="n">82</td><td class="n">$33,229</td><td><span class="dt-share"><span class="dt-track"><i style="width:33.2%"></i></span><span class="ds-num" style="color:var(--ink)">8.4%</span></span></td><td class="n">$8,306</td><td class="n">75%</td><td class="n">58d</td></tr><tr class="c"><td>Northfield HVAC</td><td class="n">67</td><td class="n">$32,932</td><td><span class="dt-share"><span class="dt-track"><i style="width:32.9%"></i></span><span class="ds-num" style="color:var(--ink)">8.3%</span></span></td><td class="n">$5,691</td><td class="n">83%</td><td class="n">45d</td></tr><tr class="g" data-g="Plumbing" aria-expanded="false"><td><button class="dt-tog" aria-expanded="false">Plumbing <span class="dt-count">2</span></button></td><td class="n">158</td><td class="n">$93,645</td><td><span class="dt-share"><span class="dt-track"><i style="width:93.6%"></i></span><span class="ds-num" style="color:var(--ink)">23.6%</span></span></td><td class="n">$19,019</td><td class="n">80%</td><td class="n">33d</td></tr><tr class="g" data-g="Electrical" aria-expanded="false"><td><button class="dt-tog" aria-expanded="false">Electrical <span class="dt-count">3</span></button></td><td class="n">86</td><td class="n">$83,408</td><td><span class="dt-share"><span class="dt-track"><i style="width:83.4%"></i></span><span class="ds-num" style="color:var(--ink)">21.0%</span></span></td><td class="n">$17,134</td><td class="n">79%</td><td class="n">22d</td></tr><tr class="g" data-g="Fire &amp; life safety" aria-expanded="false"><td><button class="dt-tog" aria-expanded="false">Fire &amp; life safety <span class="dt-count">2</span></button></td><td class="n">72</td><td class="n">$63,651</td><td><span class="dt-share"><span class="dt-track"><i style="width:63.6%"></i></span><span class="ds-num" style="color:var(--ink)">16.0%</span></span></td><td class="n">$13,736</td><td class="n">78%</td><td class="n">51d</td></tr><tr class="g" data-g="Roofing" aria-expanded="false"><td><button class="dt-tog" aria-expanded="false">Roofing <span class="dt-count">2</span></button></td><td class="n">61</td><td class="n">$56,472</td><td><span class="dt-share"><span class="dt-track"><i style="width:56.4%"></i></span><span class="ds-num" style="color:var(--ink)">14.2%</span></span></td><td class="n">$18,913</td><td class="n">67%</td><td class="n">25d</td></tr></tbody><tfoot id="ft"><tr><td>Total · 5 segments, 12 accounts</td><td class="n">567</td><td class="n">$397,235</td><td><span class="ds-num" style="color:var(--ink)">100.0%</span></td><td class="n">$89,800</td><td class="n">77%</td><td class="n">38d</td></tr></tfoot>
+ </table></div>
+</div>
+</div>
+<script>
+(function(){
+
+var ACC=[['Northfield HVAC','HVAC','North'],['Hollis Mechanical','HVAC','East'],['Kestrel Solar','Electrical','West'],['Arroyo Electric','Electrical','South'],['Cedar & Pine Plumbing','Plumbing','East'],['Two Rivers Heating','HVAC','North'],['Brightline Roofing','Roofing','South'],['Stonegate Roofing','Roofing','West'],['Mesa Fire Systems','Fire & life safety','West'],['Redbud Plumbing','Plumbing','South'],['Larkspur Electric','Electrical','North'],['Palo Duro Fire','Fire & life safety','East']];
+function rng(s){return function(){s|=0;s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+var R=rng(11),MONTHS=['May','Jun','Jul','Aug','Sep','Oct'];
+var DATA=ACC.map(function(a){var base=9000+R()*40000,tr=(R()-.42)*.12,months=[],v=base;for(var m=0;m<6;m++){v=v*(1+tr+(R()-.5)*.2);months.push(Math.round(v));}
+ var weeks=[],w=base/4.3;for(var k=0;k<12;k++){w=w*(1+tr/4+(R()-.5)*.24);weeks.push(Math.round(w));}
+ var billed=months[5],prior=months[4],cp=.6+R()*.39,collected=Math.round(billed*cp),jobs=Math.max(4,Math.round(billed/(380+R()*900)));
+ return {name:a[0],trade:a[1],region:a[2],months:months,weeks:weeks,billed:billed,prior:prior,delta:(billed-prior)/prior,collected:collected,outstanding:billed-collected,cpct:collected/billed,jobs:jobs,avg:billed/jobs,margin:R()*.42-.07,dso:Math.round(16+R()*50)};});
+function money(n){return '$'+Math.round(n).toLocaleString('en-US');}
+function kfmt(n){return '$'+(n/1000).toFixed(1)+'k';}
+function pct(n,d){return (n*100).toFixed(d==null?1:d)+'%';}
+function sum(a,f){return a.reduce(function(s,x){return s+f(x);},0);}
+function tipAt(tip,host,e,html){var r=host.getBoundingClientRect();tip.innerHTML=html;tip.hidden=false;var x=e.clientX-r.left+12,y=e.clientY-r.top+14;if(x+tip.offsetWidth>r.width-8)x=e.clientX-r.left-tip.offsetWidth-12;tip.style.left=x+'px';tip.style.top=y+'px';}
+
+
+var $=function(i){return document.getElementById(i);},by='trade',open={},TOT=sum(DATA,function(d){return d.billed;});
+function share(v,mx){return '<span class="dt-share"><span class="dt-track"><i style="width:'+(v/mx*100).toFixed(1)+'%"></i></span><span class="ds-num" style="color:var(--ink)">'+pct(v/TOT)+'</span></span>';}
+function agg(rs){var b=sum(rs,function(d){return d.billed;}),c=sum(rs,function(d){return d.collected;});return {jobs:sum(rs,function(d){return d.jobs;}),billed:b,out:b-c,cp:c/b,dso:Math.round(sum(rs,function(d){return d.dso*d.billed;})/b)};}
+function render(){var g={};DATA.forEach(function(d){(g[d[by]]=g[d[by]]||[]).push(d);});
+ var keys=Object.keys(g).sort(function(a,b){return agg(g[b]).billed-agg(g[a]).billed;}),gmax=Math.max.apply(0,keys.map(function(k){return agg(g[k]).billed;}));
+ $('bd').innerHTML=keys.map(function(k){var a=agg(g[k]),o=!!open[k];
+  var head='<tr class="g" data-g="'+k+'" aria-expanded="'+o+'"><td><button class="dt-tog" aria-expanded="'+o+'">'+k+' <span class="dt-count">'+g[k].length+'</span></button></td><td class="n">'+a.jobs+'</td><td class="n">'+money(a.billed)+'</td><td>'+share(a.billed,gmax)+'</td><td class="n">'+money(a.out)+'</td><td class="n">'+pct(a.cp,0)+'</td><td class="n">'+a.dso+'d</td></tr>';
+  var kids=o?g[k].sort(function(x,y){return y.billed-x.billed;}).map(function(d){return '<tr class="c"><td>'+d.name+'</td><td class="n">'+d.jobs+'</td><td class="n">'+money(d.billed)+'</td><td>'+share(d.billed,gmax)+'</td><td class="n">'+money(d.outstanding)+'</td><td class="n">'+pct(d.cpct,0)+'</td><td class="n">'+d.dso+'d</td></tr>';}).join(''):'';
+  return head+kids;}).join('');
+ var A=agg(DATA);$('ft').innerHTML='<tr><td>Total · '+keys.length+' segments, '+DATA.length+' accounts</td><td class="n">'+A.jobs+'</td><td class="n">'+money(A.billed)+'</td><td><span class="ds-num" style="color:var(--ink)">100.0%</span></td><td class="n">'+money(A.out)+'</td><td class="n">'+pct(A.cp,0)+'</td><td class="n">'+A.dso+'d</td></tr>';
+ $('ex').textContent=keys.every(function(k){return open[k];})?'Collapse all':'Expand all';}
+$('bd').addEventListener('click',function(e){var tr=e.target.closest('tr.g');if(!tr)return;var k=tr.dataset.g;open[k]=!open[k];render();});
+$('gb').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;this.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',x===b);});by=b.dataset.g;open={};render();});
+$('ex').addEventListener('click',function(){var g={};DATA.forEach(function(d){g[d[by]]=1;});var all=Object.keys(g).every(function(k){return open[k];});Object.keys(g).forEach(function(k){open[k]=!all;});render();});
+open['HVAC']=true;render();
+})();
+</script>
+</body>
+</html>

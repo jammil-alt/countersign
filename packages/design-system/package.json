@@ -1,0 +1,17 @@
+{
+  "name": "@countersign/design-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mezonas design system: tokens (light and dark), component CSS, logos, icons and Geist fonts. Plain CSS, no build step. Source of truth: tokens.json; brand book in README.md.",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tokens.json": "./tokens.json",
+    "./components.css": "./components/bundle.css",
+    "./assets/*": "./assets/*",
+    "./fonts/*": "./fonts/*"
+  },
+  "scripts": {
+    "typecheck": "true",
+    "test": "true"
+  }
+}

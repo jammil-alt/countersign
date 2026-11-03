@@ -1,0 +1,60 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css">
+<title>Mezonas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--paper); color:var(--ink); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .tint { fill:var(--slate-tint); rx:var(--radius-lg); }
+  .table { fill:var(--slate); rx:var(--radius-md); }
+  .seat { fill:var(--slate); }
+  .copper { fill:var(--copper); rx:var(--radius-md); }
+  .gold { fill:var(--signal); rx:var(--radius-md); }
+  .deep { fill:var(--ink); rx:var(--radius-md); }
+  .words { position:absolute; left:var(--space-6); bottom:var(--space-6); max-width:440px; }
+  .name { margin:0; font-family:var(--font-sans); font-size:100px; line-height:.92; font-weight:500; letter-spacing:-.035em; color:var(--ink); }
+  .tag { margin:var(--space-3) 0 0 4px; font-size:14px; line-height:20px; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      slate-tint 336×240 (the work area) · slate 256×144 (the table) · copper 120×128 bled off the top · signal 120×40 · ink 120×96 bled off the bottom — about 40% of 960×288
+  arrangement one wide work area holding the table, with a copper, a signal and an ink slab stacked at the right edge, space-4 gutters
+  pattern     a literal motif, from "people at the table": ten seats around the table, the same top-down table the mark uses, in slate because the mark is one color
+  scales      seats 40×16 at a 64px pitch (rx half the short side), space-2 off the table edge; table radius-md; work area radius-lg; slabs radius-md; gutters space-4
+-->
+<rect class="tint" x="16" y="24" width="336" height="240" rx="14"/>
+<rect class="table" x="56" y="72" width="256" height="144" rx="10"/>
+<rect class="seat" x="68" y="48" width="40" height="16" rx="8"/>
+<rect class="seat" x="132" y="48" width="40" height="16" rx="8"/>
+<rect class="seat" x="196" y="48" width="40" height="16" rx="8"/>
+<rect class="seat" x="260" y="48" width="40" height="16" rx="8"/>
+<rect class="seat" x="68" y="224" width="40" height="16" rx="8"/>
+<rect class="seat" x="132" y="224" width="40" height="16" rx="8"/>
+<rect class="seat" x="196" y="224" width="40" height="16" rx="8"/>
+<rect class="seat" x="260" y="224" width="40" height="16" rx="8"/>
+<rect class="seat" x="32" y="124" width="16" height="40" rx="8"/>
+<rect class="seat" x="320" y="124" width="16" height="40" rx="8"/>
+<rect class="copper" x="368" y="-8" width="120" height="136" rx="10"/>
+<rect class="gold" x="368" y="144" width="120" height="40" rx="10"/>
+<rect class="deep" x="368" y="200" width="120" height="96" rx="10"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Mezonas</h1>
+<p class="tag">Everything on the table.</p>
+</div>
+</div>
+</body>
+</html>

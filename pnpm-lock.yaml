@@ -94,6 +94,9 @@ importers:
       '@countersign/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@countersign/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -254,6 +257,8 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+
+  packages/design-system: {}
 
   packages/documents:
     dependencies:
