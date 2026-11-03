@@ -9,25 +9,26 @@ cost management for a millwork shop.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: folder skeleton and plan only. M0 not started. Hosting: Cloudflare Workers + Neon (Hyperdrive) + R2, sign-in with WorkOS, like Plenary Labs.
+Status: folder skeleton and plan only. M0 not started. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `apps/web` | Next.js app: screens, `/api` route handlers, auth, Inngest serve endpoint. The only place that wires packages together. |
-| `packages/core` | Domain types, Zod schemas (`AgentDefinition`, `WorkflowDefinition`), units of measure, money, raw → normalized mappers. |
+| `apps/api` | Hono Worker: `/api` routes, auth, static assets, Workflow classes, cron. The only place that wires packages together and the only place with Workers bindings. |
+| `apps/web` | React + Vite app: screens and typed API client. Imports only `@countersign/core`. |
+| `packages/core` | Domain types, Zod schemas (`AgentDefinition`, `WorkflowDefinition`), API route contract, units of measure, money, raw → normalized mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
 | `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
-| `packages/senses` | Event outbox and dispatch to Inngest. |
+| `packages/senses` | Event outbox (`emit`, `undispatched`, `markDispatched`); `apps/api` dispatches. |
 | `packages/connectors` | `Connector` interface, `upload/`, `qbo/`, object storage. |
 | `packages/documents` | Locate, store, extract, validate totals. |
 | `packages/catalog` | Normalize, parse attributes, candidates, match, alias learning. |
 | `packages/pricing` | Price observations, alert rules. |
 | `packages/threads` | Threads, messages, `/command` parsing. |
 | `packages/agents` | Definition versioning, runtime, tool registry, Builder. |
-| `packages/workflows` | Workflow executor and Inngest functions. |
+| `packages/workflows` | Workflow executor against a `StepRunner` interface, senses router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 
@@ -36,7 +37,8 @@ Status: folder skeleton and plan only. M0 not started. Hosting: Cloudflare Worke
 ```sh
 pnpm install
 pnpm db:up            # Postgres 16 + pgvector in Docker
-pnpm dev              # app (+ Inngest dev server from M0)
+pnpm dev              # build web, then wrangler dev on :8787 (Worker, Workflows, cron) from M0
+pnpm dev:web          # Vite with /api proxied, for UI work
 pnpm typecheck
 pnpm lint:deps
 pnpm test             # LLM calls replay from fixtures/llm by default

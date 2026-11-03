@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Typed events: outbox insert + dispatch to Inngest",
+  "description": "Typed events: outbox insert, undispatched lookup, mark dispatched",
   "exports": { ".": "./src/index.ts" },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",

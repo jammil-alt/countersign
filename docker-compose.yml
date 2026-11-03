@@ -1,5 +1,5 @@
 # Local stack. Postgres 16 with pgvector (pg_trgm ships with Postgres contrib).
-# Inngest dev server runs via `pnpm inngest:dev` (needs the web app on :3000).
+# The Worker, its Workflows and cron run under `pnpm dev` (wrangler dev on :8787).
 services:
   postgres:
     image: pgvector/pgvector:pg16

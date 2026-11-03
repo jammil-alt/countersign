@@ -1,7 +1,6 @@
 # apps/web
 
-Next.js (App Router) app: screens (ARCHITECTURE §15), route handlers under `/api` (§14), auth, and the
-Inngest serve endpoint at `/api/inngest`. Scaffolded in M0 (`docs/plan.md` §4, M0).
-
-This app is the only place that wires packages together. Business logic lives in `packages/*`;
-route handlers validate with Zod, resolve the tenant from the session, and call into packages.
+React + Vite + React Router single-page app: the screens in ARCHITECTURE §15, built from the owner's
+designs on the Groundwork design system (tokens in `tokens.css`, Tailwind + shadcn primitives). Served
+as static assets by `apps/api`. Depends only on `@countersign/core` (route contract and shared types);
+every read and write goes through `/api`. Scaffolded in M0 (`docs/plan.md` §4).

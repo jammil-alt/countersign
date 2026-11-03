@@ -10,7 +10,7 @@ they change.
 - Implementation plan (how, in what order): [`docs/plan.md`](docs/plan.md)
 - Working rules: [`CLAUDE.md`](CLAUDE.md)
 
-Status: skeleton and plan. M0 (app, DB, Inngest, auth) is next.
+Status: skeleton and plan. M0 (Worker, app, DB, Workflows, sign-in) is next. Stack matches Plenary Labs.
 
 ```sh
 pnpm install

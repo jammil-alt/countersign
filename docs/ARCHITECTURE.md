@@ -1,4 +1,8 @@
-# Back Office Agent Platform — Architecture v0.1
+# Back Office Agent Platform — Architecture v0.2
+
+> **v0.2 (2026-11-03, owner):** the stack matches Plenary Labs. Vite + React + Hono on Cloudflare Workers
+> replaces Next.js; Cloudflare Workflows replaces Inngest; Neon (through Hyperdrive), R2 and WorkOS settle
+> the database, storage and auth choices. Changed: §2, §3, §6.2, §8, §10.2, §14, §16, §17, §18 (M0), §20.
 
 > **For Claude Code:** this is the source of truth for the v1 build. Read it fully, then produce an implementation plan that follows the **Build plan** (section 18) in order. Where this doc says "decision", follow it. Where it says "open", choose the simplest option and leave a `// DECISION:` comment. Do not add features outside section 1's v1 scope.
 
@@ -37,17 +41,18 @@ Out (designed for, not built):
 | Concern | Choice | Notes |
 | --- | --- | --- |
 | Language | TypeScript everywhere | One language for app, agents, workflows |
-| App | Next.js (App Router), React, server actions + route handlers | |
+| App | React + Vite single-page app, served as static assets by the API Worker | Same shape as Plenary Labs |
+| API | Hono on Cloudflare Workers; one Zod route contract shared by API and client | |
 | UI | Tailwind + shadcn/ui, themed with the Groundwork tokens (warm, earthy palette; dense data tables) | Swap in Groundwork components if they exist as a package |
-| DB | Postgres 16 with `pgvector`, `pg_trgm` | Supabase or Neon; local via Docker |
+| DB | Postgres 16 with `pgvector`, `pg_trgm` | Neon, reached from Workers through Hyperdrive; local via Docker |
 | ORM / migrations | Drizzle | Schema in `packages/db` |
-| Durable jobs / workflows | Inngest | Steps, retries, `waitForEvent`, cron. Runs locally with the Inngest dev server |
+| Durable jobs / workflows | Cloudflare Workflows | Steps (`step.do`) with retries, `step.waitForEvent`, `step.sleep`; Worker cron triggers for schedules. Runs locally under `wrangler dev` |
 | LLM | Anthropic API via `@anthropic-ai/sdk`, tool use + JSON schema outputs | Models below |
-| Object storage | S3-compatible (Supabase Storage or Cloudflare R2) | Original documents, never mutated |
-| Auth | Supabase Auth or Clerk (open: pick one, keep behind `packages/auth`) | |
+| Object storage | Cloudflare R2 (Worker binding; S3 API for signed URLs) | Original documents, never mutated |
+| Auth | WorkOS (AuthKit), sealed session cookie; behind `packages/auth` | Same as Plenary Labs |
 | Validation | Zod for every definition, tool input/output, API body | |
 | Email (v1 only for purchaser requests, optional) | Resend | Behind an interface; SMS later |
-| Tests | Vitest; Playwright for one happy-path e2e | |
+| Tests | Vitest (`@cloudflare/vitest-pool-workers` for Worker, Durable Object and Workflow tests); Playwright for one happy-path e2e | |
 
 Models (configurable per agent version, defaults):
 - `claude-sonnet-5-5` — extraction, agent reasoning, Builder
@@ -62,7 +67,8 @@ pnpm monorepo.
 
 ```
 /apps
-  /web                 Next.js app: UI, API routes, auth, Inngest serve endpoint
+  /web                 React + Vite app: screens, typed API client
+  /api                 Hono Worker: /api routes, auth, static assets, Workflow classes, cron
 /packages
   /db                  Drizzle schema, migrations, seed, typed queries
   /core                Domain types, Zod schemas, units of measure, money
@@ -71,7 +77,7 @@ pnpm monorepo.
   /catalog             Normalizer, attribute parsers, matcher
   /pricing             Price observations, alert rules
   /agents              Agent definition schema, versioning, runtime, tool registry, Builder
-  /workflows           Workflow definition schema, step executors, Inngest functions
+  /workflows           Workflow definition schema, step executors, senses router (Workflow classes live in apps/api)
   /senses              Event emitters on data changes
   /threads             Threads + messages, command dispatch
   /llm                 Anthropic client wrapper, cost tracking, prompt utilities
@@ -83,7 +89,7 @@ pnpm monorepo.
   ARCHITECTURE.md
 ```
 
-Rule: packages depend downward only: `web → workflows → agents → (catalog, pricing, documents, threads) → connectors → db → core`. Agents never import `db` directly; they go through tools (section 9.4).
+Rule: packages depend downward only: `api → workflows → agents → (catalog, pricing, documents, threads) → connectors → db → core`. Agents never import `db` directly; they go through tools (section 9.4). `web` imports only `core` (the route contract and shared types) and talks to `api` over HTTP.
 
 ---
 
@@ -221,7 +227,7 @@ Connectors only produce raw records and files. Normalization happens in `package
 - Entities synced: `Purchase`, `Bill`, `VendorCredit`, `Vendor`, `Item`, `Attachable`. Optionally `PurchaseOrder`.
 - Initial sync: query each entity with paging (`STARTPOSITION`/`MAXRESULTS`), ordered by `MetaData.LastUpdatedTime`.
 - Incremental: Change Data Capture endpoint (`cdc?entities=...&changedSince=...`) on a schedule (every 15 min) plus webhooks as a trigger to run CDC early. Store cursor in `connection.sync_cursor`.
-- Webhooks: verify the HMAC-SHA256 signature header with the app's verifier token; enqueue `qbo/webhook.received`, never process inline.
+- Webhooks: verify the HMAC-SHA256 signature header with the app's verifier token; start a `qbo-sync` Workflow instance for the realm, never process inline.
 - Lines: map `AccountBasedExpenseLineDetail` and `ItemBasedExpenseLineDetail` to `transaction_line.detail_type`.
 - Attachables: query attachables referencing the transaction; download via the download endpoint (returns a temporary URL). Store bytes in object storage, dedupe by sha256.
 - Rate limits: central throttle per realm with retry/backoff on 429.
@@ -267,7 +273,7 @@ raw_record ──map──▶ vendor / transaction / transaction_line
 
 ## 8. Senses (events)
 
-A sense is a typed event emitted when the data layer changes meaningfully. Written to `event` and sent to Inngest in the same transaction boundary (outbox pattern: insert `event`, a poller or after-commit hook sends to Inngest).
+A sense is a typed event emitted when the data layer changes meaningfully. Written to `event` in the same transaction as the change (outbox pattern). After commit, a dispatcher hands the event to the workflow router, which starts a Workflow instance for each matching workflow; a cron sweep re-dispatches anything left behind.
 
 v1 event types:
 `transaction.created`, `transaction.updated`, `document.received`, `document.extracted`, `document.extraction_failed`, `line.matched`, `line.needs_review`, `match.decided` (human), `price.observed`, `price.changed`, `alert.raised`, `doc_request.timed_out`, `schedule.tick`.
@@ -400,9 +406,10 @@ Expressions: a small safe evaluator (JSONLogic or `filtrex`), no `eval`.
 
 ### 10.2 Executor
 
-- One Inngest function per trigger kind loads the live `workflow_version`, creates a `run`, and executes steps with `step.run(stepId, ...)` so each step is durable and retried.
-- `approval` and `request` use `step.waitForEvent('inbox/item.resolved', { match: 'data.inboxItemId', timeout })`.
-- `loop` fans out with per-item `step.run` keys (`${stepId}:${index}`).
+- One Cloudflare Workflow class, `RunWorkflow`, executes any definition. Triggers start instances: the senses router for `event` triggers, a Worker cron for `schedule` triggers (checks each `cron` + `tz`), and the API for `command` triggers. The instance id is the `run` id, so starting the same run twice is refused.
+- The instance loads the pinned `workflow_version`, and executes steps with `step.do(stepId, ...)` so each step is durable and retried. Step outputs stay small (record ids); large data lives in Postgres.
+- `approval` and `request` create the inbox item, then `step.waitForEvent` with a type unique to that item and the step's `timeout`. Resolving the item (`POST /api/inbox/:id/resolve`) sends that event to the run's instance.
+- `loop` fans out with per-item step names (`${stepId}:${index}`).
 - Every step writes a `step_run`. Run status and cost roll up to `run`.
 
 ### 10.3 Seeded workflows
@@ -487,7 +494,6 @@ GET  /api/agents/:id/versions              POST /api/agents/:id/revise {instruct
 POST /api/agents/:id/versions/:vid/publish POST /api/agents/:id/rollback {versionId}
 GET  /api/workflows                        GET  /api/workflows/:id/runs
 GET  /api/runs/:id (steps, tool calls)     GET  /api/threads/:id   POST /api/threads/:id/messages
-POST /api/inngest (Inngest serve)
 ```
 All bodies validated with Zod; all handlers resolve tenant from session.
 
@@ -515,7 +521,7 @@ Match review UI: invoice line (with page thumbnail), parsed attributes, top cand
 ## 16. Security and audit
 
 - Secrets in env; QBO tokens encrypted at rest; signed URLs for documents (5 min).
-- RLS on every tenant table. Service role only in Inngest functions, which set `app.tenant_id` explicitly.
+- RLS on every tenant table. Workflows, cron and the senses dispatcher run with no request session and set `app.tenant_id` explicitly.
 - Read-only toward client systems in v1. No QBO write scopes used.
 - Immutable `agent_version`, `workflow_version`, `raw_record`, `doc_extraction` (trigger blocks UPDATE except status columns).
 - Prompt-injection hygiene: document text and vendor descriptions are passed as data in tool results, never concatenated into instructions; agents cannot change their own permissions; external side effects always gated.
@@ -525,13 +531,13 @@ Match review UI: invoice line (with page thumbnail), parsed attributes, top cand
 ## 17. Configuration (env)
 
 ```
-DATABASE_URL, DIRECT_DATABASE_URL
+HYPERDRIVE (binding → Neon), DIRECT_DATABASE_URL (migrations)
 ANTHROPIC_API_KEY
-INNGEST_EVENT_KEY, INNGEST_SIGNING_KEY
-STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY
+RUN_WORKFLOW, QBO_SYNC (Workflow bindings), ARTIFACTS (R2 binding)
+STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY   # R2 S3 API, for signed URLs
 ENCRYPTION_KEY                         # 32 bytes base64
 QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI, QBO_ENV=sandbox|production, QBO_WEBHOOK_VERIFIER
-AUTH_* (provider-specific)
+WORKOS_CLIENT_ID, WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD
 RESEND_API_KEY (optional)
 ```
 
@@ -541,7 +547,7 @@ RESEND_API_KEY (optional)
 
 | # | Milestone | Done when |
 | --- | --- | --- |
-| M0 | Monorepo, Next.js app, Drizzle, Postgres + pgvector via Docker, Inngest dev server, auth with one seeded tenant + advisor | `pnpm dev` runs app + Inngest; login works |
+| M0 | Monorepo, Vite app + Hono Worker, Drizzle, Postgres + pgvector via Docker, Cloudflare Workflows, WorkOS auth with one seeded tenant + advisor | `pnpm dev` runs the Worker (API + Workflows) and the app; login works |
 | M1 | Schema for sections 5.1–5.3, RLS, immutability triggers, seed script | Migrations apply; seed inserts tenant, agents v1, workflows v1 |
 | M2 | Upload connector + document storage + extraction + validation | Upload 3 fixture invoices → extractions match expected JSON within tolerance |
 | M3 | Catalog: normalizer, sheet-goods + hardwood + hardware parsers, matcher, alias learning, golden tests | Golden tests ≥ 95% precision; Baltic birch example matches across 3 vendors |
@@ -568,7 +574,7 @@ If time is short today, M0–M8 with the upload connector is the demo; M9 follow
 
 ## 20. Open decisions
 
-- Auth provider (Supabase Auth vs Clerk).
-- Hosting (Vercel + managed Postgres vs single container on Fly/Render).
-- Whether purchaser requests go out by email in v1 or stay inbox-only.
+- ~~Auth provider~~ WorkOS (v0.2).
+- ~~Hosting~~ Cloudflare Workers + Neon + R2 (v0.2).
+- ~~Purchaser requests~~ inbox-only in v1, routed to a client admin (`docs/plan.md` §1.1).
 - Embedding model/provider for `catalog_item.embedding` (can ship without vectors; trigram + attributes is enough for v1).

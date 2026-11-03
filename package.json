@@ -6,12 +6,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @countersign/web dev",
+    "dev": "pnpm --filter @countersign/web build && pnpm --filter @countersign/api dev",
+    "dev:web": "pnpm --filter @countersign/web dev",
     "typecheck": "pnpm -r typecheck",
     "lint:deps": "node scripts/check-deps.mjs",
     "test": "pnpm -r test",
-    "db:up": "docker compose up -d postgres",
-    "inngest:dev": "pnpm dlx inngest-cli@latest dev -u http://localhost:3000/api/inngest"
+    "db:up": "docker compose up -d postgres"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

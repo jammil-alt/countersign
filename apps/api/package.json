@@ -1,0 +1,25 @@
+{
+  "name": "@countersign/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hono Worker: /api routes, auth, static assets, Workflow classes, cron",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@countersign/auth": "workspace:*",
+    "@countersign/workflows": "workspace:*",
+    "@countersign/agents": "workspace:*",
+    "@countersign/documents": "workspace:*",
+    "@countersign/connectors": "workspace:*",
+    "@countersign/catalog": "workspace:*",
+    "@countersign/pricing": "workspace:*",
+    "@countersign/threads": "workspace:*",
+    "@countersign/senses": "workspace:*",
+    "@countersign/llm": "workspace:*",
+    "@countersign/db": "workspace:*",
+    "@countersign/core": "workspace:*"
+  }
+}

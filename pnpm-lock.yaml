@@ -18,6 +18,51 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@22.20.5)
 
+  apps/api:
+    dependencies:
+      '@countersign/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
+      '@countersign/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@countersign/catalog':
+        specifier: workspace:*
+        version: link:../../packages/catalog
+      '@countersign/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
+      '@countersign/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@countersign/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@countersign/documents':
+        specifier: workspace:*
+        version: link:../../packages/documents
+      '@countersign/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+      '@countersign/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
+      '@countersign/senses':
+        specifier: workspace:*
+        version: link:../../packages/senses
+      '@countersign/threads':
+        specifier: workspace:*
+        version: link:../../packages/threads
+      '@countersign/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
+
+  apps/web:
+    dependencies:
+      '@countersign/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+
   packages/agents:
     dependencies:
       '@countersign/catalog':
