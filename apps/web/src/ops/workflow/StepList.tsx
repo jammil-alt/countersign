@@ -3,11 +3,31 @@
 // paths side by side with "otherwise" last, and the paths joining after the fork. The drag-and-drop
 // builder (ARCHITECTURE §10.5) replaces this view later and keeps its look.
 import type { ForEachStep, ForkStep, Step, Workflow } from "@countersign/core";
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { Badge, cx } from "../../ui/primitives";
-import { KIND_LABEL, rulesText, stepDetail, triggerDetail, triggerTitle } from "./describe";
+import {
+  KIND_LABEL,
+  rulesText,
+  type StepNames,
+  stepDetail,
+  stepNames,
+  triggerDetail,
+  triggerTitle,
+} from "./describe";
+
+/** The workflow's step names, for fork rules that cite an earlier step's output. */
+const Names = createContext<StepNames | undefined>(undefined);
 
 export function StepList({ workflow }: { workflow: Workflow }) {
+  const names = useMemo(() => stepNames(workflow), [workflow]);
+  return (
+    <Names.Provider value={names}>
+      <StepListItems workflow={workflow} />
+    </Names.Provider>
+  );
+}
+
+function StepListItems({ workflow }: { workflow: Workflow }) {
   return (
     <ol data-testid="step-list" className="flex flex-col items-center">
       <Item>
@@ -148,6 +168,7 @@ function NestedNode({ step }: { step: Step }) {
 }
 
 function Fork({ step }: { step: ForkStep }) {
+  const names = useContext(Names);
   const columns = step.paths.length + 1;
   return (
     <div data-testid={`fork-${step.id}`} className="flex w-full flex-col items-center">
@@ -164,7 +185,9 @@ function Fork({ step }: { step: ForkStep }) {
             className="rounded-md border border-edge bg-subtle p-3"
           >
             <h3 className="font-medium text-primary">{path.name}</h3>
-            <p className="mb-3 font-mono text-xs text-secondary">if {rulesText(path.when)}</p>
+            <p className="mb-3 font-mono text-xs break-words text-secondary">
+              if {rulesText(path.when, names)}
+            </p>
             <Branch steps={path.steps} />
           </section>
         ))}

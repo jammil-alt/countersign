@@ -37,6 +37,7 @@ import {
   type Tone,
 } from "../../ui/primitives";
 import { checklistRows } from "../run/checklist";
+import { type StepNames, stepNames } from "../workflow/describe";
 import { operatorMayResolve } from "./Inbox";
 
 type RunDetail = ResponseOf<typeof apiRoutes.opsRun>;
@@ -81,7 +82,8 @@ export function OpsRunScreen() {
   const personItems = data.inbox.filter((i) => i.kind !== "external_action" && i.status === "open");
   const clientName = session.tenants.find((t) => t.id === run.tenantId)?.name ?? "client";
   const name = agent?.name ?? "Agent";
-  const failure = run.error as { message?: unknown } | null;
+  const names: StepNames = workflow ? stepNames(workflow) : new Map();
+  const failure = failureText(run.error, names);
 
   return (
     <div>
@@ -133,7 +135,7 @@ export function OpsRunScreen() {
       />
       {run.status === "failed" && failure ? (
         <div className="mb-4">
-          <ErrorNotice error={new Error(String(failure.message ?? JSON.stringify(failure)))} />
+          <ErrorNotice error={new Error(failure)} />
         </div>
       ) : null}
 
@@ -223,7 +225,7 @@ export function OpsRunScreen() {
         </div>
       </div>
 
-      <RunLog data={data} />
+      <RunLog data={data} names={names} />
     </div>
   );
 }
@@ -355,7 +357,28 @@ function Json({ value }: { value: unknown }) {
   );
 }
 
-function RunLog({ data }: { data: RunDetail }) {
+/** A step's name for a run node id (`<step>` or `<loop>:<i>:<step>`), when the workflow has it. */
+function nodeName(names: StepNames, nodeId: string): string | undefined {
+  return names.get(nodeId) ?? names.get(nodeId.split(":").at(-1) ?? nodeId);
+}
+
+/** A run's error in words: "Review the record failed: …" rather than the stored JSON. */
+export function failureText(error: unknown, names: StepNames): string | null {
+  if (error === null || error === undefined) return null;
+  if (typeof error === "string") return error;
+  if (typeof error === "object") {
+    const e = error as { message?: unknown; reason?: unknown; nodeId?: unknown };
+    const why =
+      typeof e.reason === "string" ? e.reason : typeof e.message === "string" ? e.message : null;
+    if (why) {
+      const step = typeof e.nodeId === "string" ? nodeName(names, e.nodeId) : undefined;
+      return step ? `${step} failed: ${why}` : why;
+    }
+  }
+  return JSON.stringify(error);
+}
+
+function RunLog({ data, names }: { data: RunDetail; names: StepNames }) {
   return (
     <section id="run-log" className="mt-8" data-testid="ops-run-log">
       <SectionLabel>Full run log</SectionLabel>
@@ -371,7 +394,7 @@ function RunLog({ data }: { data: RunDetail }) {
           return (
             <details key={s.id} className="px-4 py-3" data-testid={`ops-run-log-${s.id}`}>
               <summary className="cursor-pointer">
-                <span className="font-mono text-sm text-primary">{s.nodeId}</span>
+                <span className="text-primary">{nodeName(names, s.nodeId) ?? s.nodeId}</span>
                 <span className="ml-2 text-sm text-secondary">
                   {[
                     s.nodeType,

@@ -14,7 +14,24 @@ import { useApiClient } from "../../api/useApi";
 import { cx } from "../../ui/primitives";
 
 const CONTROL =
-  "w-full rounded-md border border-control bg-card px-3 text-[15px] text-primary placeholder:text-faint focus:border-focus disabled:opacity-60";
+  "rounded-md border border-control bg-card px-3 text-primary placeholder:text-faint focus:border-focus disabled:opacity-60";
+
+/**
+ * Controls fill their container unless the caller gives a width (`w-28`): `cx` doesn't merge
+ * classes, and with both `w-full` and `w-28` present the stylesheet's order, not the caller, decides.
+ */
+function width(className: string | undefined): string | false {
+  return !/(^|\s)w-/.test(className ?? "") && "w-full";
+}
+
+/** The same for height and text size (`SmallSelect`'s `h-9 text-sm`). */
+function height(className: string | undefined, fallback: string): string | false {
+  return !/(^|\s)h-/.test(className ?? "") && fallback;
+}
+
+function textSize(className: string | undefined): string | false {
+  return !/(^|\s)text-(xs|sm|base|lg|xl|\[\d)/.test(className ?? "") && "text-[15px]";
+}
 
 export function Field({
   label,
@@ -59,7 +76,14 @@ export function TextInput({
     <input
       {...rest}
       aria-invalid={invalid || undefined}
-      className={cx(CONTROL, "h-10", invalid && "border-tone-warning-edge", className)}
+      className={cx(
+        CONTROL,
+        width(className),
+        height(className, "h-10"),
+        textSize(className),
+        invalid && "border-tone-warning-edge",
+        className,
+      )}
     />
   );
 }
@@ -75,6 +99,8 @@ export function TextArea({
       aria-invalid={invalid || undefined}
       className={cx(
         CONTROL,
+        width(className),
+        textSize(className),
         "py-2 leading-relaxed",
         invalid && "border-tone-warning-edge",
         className,
@@ -92,7 +118,15 @@ export function Select({
     <select
       {...rest}
       aria-invalid={invalid || undefined}
-      className={cx(CONTROL, "h-10 pr-8", invalid && "border-tone-warning-edge", className)}
+      className={cx(
+        CONTROL,
+        width(className),
+        height(className, "h-10"),
+        textSize(className),
+        "pr-8",
+        invalid && "border-tone-warning-edge",
+        className,
+      )}
     />
   );
 }

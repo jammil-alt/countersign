@@ -7,6 +7,7 @@ import {
   type Step,
   type StepKind,
   type Trigger,
+  type Workflow,
 } from "@countersign/core";
 
 export const KIND_LABEL: Record<StepKind | "trigger", string> = {
@@ -73,15 +74,37 @@ export function stepDetail(step: Step): string | null {
   }
 }
 
-export function ruleText(rule: Rule): string {
-  const field = rule.field.replace(/^\{\{\s*|\s*\}\}$/g, "");
+/** Step names by id, so a rule reads "Review the record · needsFix" rather than `steps.<uuid>…`. */
+export type StepNames = ReadonlyMap<string, string>;
+
+export function stepNames(workflow: Workflow): StepNames {
+  const names = new Map<string, string>();
+  for (const { step } of allSteps(workflow)) names.set(step.id, step.name || KIND_LABEL[step.kind]);
+  return names;
+}
+
+/** A rule's field as people read it: the step's name and the output field, or the trigger's. */
+export function fieldText(field: string, names?: StepNames): string {
+  const path = field.replace(/^\{\{\s*|\s*\}\}$/g, "");
+  const step = /^steps\.([^.]+)\.output(?:\.(.+))?$/.exec(path);
+  if (step && names) {
+    const name = names.get(step[1] as string);
+    if (name) return step[2] ? `${name} · ${step[2]}` : `${name} output`;
+  }
+  const trigger = /^trigger\.(.+)$/.exec(path);
+  if (trigger) return `trigger · ${trigger[1]}`;
+  return path;
+}
+
+export function ruleText(rule: Rule, names?: StepNames): string {
+  const field = fieldText(rule.field, names);
   if (rule.op === "exists") return `${field} exists`;
   return `${field} ${rule.op} ${valueText(rule.value)}`;
 }
 
-export function rulesText(rules: Rules): string {
+export function rulesText(rules: Rules, names?: StepNames): string {
   if (rules.rules.length === 0) return "always";
-  return rules.rules.map(ruleText).join(rules.match === "any" ? " or " : " and ");
+  return rules.rules.map((r) => ruleText(r, names)).join(rules.match === "any" ? " or " : " and ");
 }
 
 function valueText(v: unknown): string {

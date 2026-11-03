@@ -43,7 +43,7 @@ describe("StepList", () => {
 
     // Rules read as the builder writes them; template braces are dropped.
     const low = screen.getByTestId("fork-confidence-path-low");
-    expect(within(low).getByText("if steps.read.output.confidence < 0.9")).toBeInTheDocument();
+    expect(within(low).getByText("if Read a document · confidence < 0.9")).toBeInTheDocument();
     // A path's steps sit inside it, unnumbered.
     const ask = within(low).getByTestId("step-ask");
     expect(within(ask).getByText("Ask Jammil")).toBeInTheDocument();

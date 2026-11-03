@@ -327,7 +327,7 @@ function KindFields(
     case "person":
       return (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
             <Row label="Asks to" field="mode" errors={fieldErrors}>
               <SmallSelect
                 data-field="mode"
@@ -362,7 +362,7 @@ function KindFields(
               onChange={(title) => set("title", (s) => ({ ...s, title }) as Step)}
             />
           </Row>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
             <Row label="Waits up to" field="timeout" errors={fieldErrors}>
               <SmallInput
                 data-field="timeout"
@@ -623,7 +623,7 @@ function ApprovalSection(props: InspectorProps & { step: Step; set: SetStep }) {
         </p>
       ) : null}
       {option.required ? (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           <Row label="Approver" field="approval.approver" errors={fieldErrors}>
             <PersonPicker
               field="approval.approver"
@@ -928,7 +928,7 @@ function RulesEditor({
                 data-field={`${at}.op`}
                 data-testid={`${testPrefix}-rule-${i}-op`}
                 value={rule.op}
-                className="w-28"
+                className="w-28 shrink-0"
                 onChange={(e) => {
                   const op = e.target.value as RuleOp;
                   const { value: _v, ...rest } = rule;

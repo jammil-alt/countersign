@@ -2,7 +2,8 @@
 // does what"): which connectors the client is offered, the client's connections with their sync
 // state and who uses them, the permission matrix (the operator may loosen as well as tighten) and
 // each connection's configuration. The client signs in from the portal; the operator never
-// connects a tool on a client's behalf and never sees credentials.
+// connects a tool on a client's behalf and never sees credentials. The one exception is the Sandbox
+// client, the operator's own test client, whose no-sign-in tools the operator connects here.
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -43,7 +44,11 @@ export function OpsConnectionsScreen() {
     <div>
       <PageHeader
         title="Connections"
-        subtitle={`${clientName}: the tools offered, what is connected, and what agents may do in each. The client signs in from their portal; you never connect on their behalf.`}
+        subtitle={
+          data.sandbox
+            ? `${clientName}: your own test client, so you connect its tools here. Test runs never write to them.`
+            : `${clientName}: the tools offered, what is connected, and what agents may do in each. The client signs in from their portal; you never connect on their behalf.`
+        }
       />
       <div className="flex flex-col gap-6">
         <section>
@@ -52,8 +57,9 @@ export function OpsConnectionsScreen() {
           </SectionLabel>
           {data.connections.length === 0 ? (
             <EmptyState>
-              No connections yet. Offer a connector below; the client admin signs in from the
-              portal's Connections page.
+              {data.sandbox
+                ? "No connections yet. Connect a connector below."
+                : "No connections yet. Offer a connector below; the client admin signs in from the portal's Connections page."}
             </EmptyState>
           ) : (
             <div
@@ -101,6 +107,10 @@ export function OpsConnectionsScreen() {
         <Offering
           clientId={clientId}
           data={data}
+          onConnect={async (connector) => {
+            await api.call(apiRoutes.opsConnectSandbox, { params: { id: clientId, connector } });
+            reload();
+          }}
           onSave={async (offered) => {
             await api.call(apiRoutes.opsOfferConnectors, {
               params: { id: clientId },
@@ -223,10 +233,13 @@ function Offering({
   clientId,
   data,
   onSave,
+  onConnect,
 }: {
   clientId: string;
   data: Data;
   onSave: (offered: string[]) => Promise<void>;
+  /** The Sandbox only: the operator connects its tools (no-sign-in connectors today). */
+  onConnect: (connector: string) => Promise<void>;
 }) {
   const known = data.offered.filter((id) => data.connectors.some((c) => c.id === id));
   const unknown = data.offered.filter((id) => !known.includes(id));
@@ -237,6 +250,9 @@ function Offering({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the saved offering or client changes.
   useEffect(() => setOffered(savedKey ? savedKey.split(",") : []), [savedKey, clientId]);
   const dirty = [...offered].sort().join(",") !== [...known].sort().join(",");
+  const connected = new Set(
+    data.connections.filter((c) => c.status === "connected").map((c) => c.connector),
+  );
 
   return (
     <section>
@@ -269,6 +285,25 @@ function Offering({
                     {c.auth === "none" ? "no sign-in needed" : `signs in with ${c.auth}`}
                   </span>
                 </label>
+                {data.sandbox && c.auth === "none" ? (
+                  connected.has(c.id) ? (
+                    <Badge tone="positive">Connected</Badge>
+                  ) : (
+                    <Button
+                      data-testid={`ops-connections-connect-${c.id}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setBusy(true);
+                        setProblem(null);
+                        onConnect(c.id)
+                          .catch(setProblem)
+                          .finally(() => setBusy(false));
+                      }}
+                    >
+                      Connect
+                    </Button>
+                  )
+                ) : null}
               </li>
             );
           })}

@@ -30,6 +30,7 @@ import {
   KIND_LABEL,
   rulesText,
   stepDetail,
+  stepNames,
   triggerDetail,
   triggerTitle,
 } from "../workflow/describe";
@@ -247,6 +248,31 @@ function StepCard(
   const isOver = props.overId === step.id && props.activeId !== step.id;
   const selected = selectedId === step.id;
   const testId = `builder-step-${step.id}`;
+  const nested = number === undefined;
+  const kindTag = (
+    <Badge tone={step.kind === "fork" ? "accent" : "neutral"}>{KIND_LABEL[step.kind]}</Badge>
+  );
+  const hasBadges = invalid > 0 || approval !== null || hidden || Boolean(custom);
+  const badges = (
+    <>
+      {invalid > 0 ? (
+        <Badge tone="warning" testId={`${testId}-invalid`}>
+          Invalid
+        </Badge>
+      ) : null}
+      {approval ? (
+        <Badge tone={approval.automatic ? "accent" : "neutral"} testId={`${testId}-approval`}>
+          {approval.automatic ? "Runs automatically" : "Approval"}
+        </Badge>
+      ) : null}
+      {hidden ? <Badge testId={`${testId}-hidden`}>Hidden</Badge> : null}
+      {custom ? (
+        <Badge tone="accent" testId={`${testId}-customized`}>
+          {custom === "added" ? "Added here" : "Customized"}
+        </Badge>
+      ) : null}
+    </>
+  );
   return (
     <div
       ref={setNodeRef}
@@ -255,7 +281,7 @@ function StepCard(
       data-container={container}
       className={cx(
         "relative flex w-full items-center gap-3 rounded-md border bg-card elevation-xs",
-        number !== undefined ? "max-w-[480px] px-4 py-3" : "px-3 py-2.5",
+        nested ? "px-3 py-2.5" : "max-w-[480px] px-4 py-3",
         selected ? "border-action" : invalid ? "border-tone-warning-edge" : "border-edge",
         isDragging && "opacity-40",
       )}
@@ -282,36 +308,30 @@ function StepCard(
           {number}
         </span>
       ) : null}
-      <Badge tone={step.kind === "fork" ? "accent" : "neutral"}>{KIND_LABEL[step.kind]}</Badge>
+      {nested ? null : kindTag}
       <button
         type="button"
         data-testid={`${testId}-select`}
         onClick={() => props.onSelect(step.id)}
         className="min-w-0 flex-1 text-left"
       >
+        {nested ? (
+          // In a fork path or loop the card is narrow: the tag and badges go above the name, as
+          // in the design's "PERSON / Ask Jammil" card, so the name keeps the width.
+          <span className="mb-1 flex flex-wrap items-center gap-1">
+            {kindTag}
+            {badges}
+          </span>
+        ) : null}
         <span className="block truncate font-medium text-primary">
           {step.name || KIND_LABEL[step.kind]}
         </span>
         <span className="block truncate text-sm text-secondary">{stepDetail(step)}</span>
+        {!nested && hasBadges ? (
+          // Under the name, never beside it: three badges beside it left the name "Upd…".
+          <span className="mt-1.5 flex flex-wrap items-center gap-1">{badges}</span>
+        ) : null}
       </button>
-      <span className="flex shrink-0 flex-wrap justify-end gap-1">
-        {invalid > 0 ? (
-          <Badge tone="warning" testId={`${testId}-invalid`}>
-            Invalid
-          </Badge>
-        ) : null}
-        {approval ? (
-          <Badge tone={approval.automatic ? "accent" : "neutral"} testId={`${testId}-approval`}>
-            {approval.automatic ? "Runs automatically" : "Approval"}
-          </Badge>
-        ) : null}
-        {hidden ? <Badge testId={`${testId}-hidden`}>Hidden</Badge> : null}
-        {custom ? (
-          <Badge tone="accent" testId={`${testId}-customized`}>
-            {custom === "added" ? "Added here" : "Customized"}
-          </Badge>
-        ) : null}
-      </span>
       <button
         type="button"
         aria-label={`Delete ${step.name || KIND_LABEL[step.kind]}`}
@@ -365,6 +385,7 @@ function Branch(props: CanvasProps & { id: ContainerId; steps: Step[] }) {
 function Fork(props: CanvasProps & { step: ForkStep }) {
   const { step } = props;
   const columns = step.paths.length + 1;
+  const names = stepNames(props.workflow);
   return (
     <div data-testid={`builder-fork-${step.id}`} className="flex w-full flex-col items-center">
       <span aria-hidden className="h-4 border-l border-control" />
@@ -381,7 +402,9 @@ function Fork(props: CanvasProps & { step: ForkStep }) {
           >
             <div>
               <h3 className="font-medium text-primary">{path.name}</h3>
-              <p className="font-mono text-xs text-secondary">if {rulesText(path.when)}</p>
+              <p className="font-mono text-xs break-words text-secondary">
+                if {rulesText(path.when, names)}
+              </p>
             </div>
             <Branch {...props} id={`path:${path.id}`} steps={path.steps} />
           </section>

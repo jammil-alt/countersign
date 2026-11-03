@@ -673,7 +673,7 @@ describe("WorkflowBuilder", () => {
     await user.type(within(big).getByTestId("builder-path-big-rule-1-value"), "1000");
     expect(screen.queryByTestId("builder-step-confidence-invalid")).toBeNull();
     expect(screen.getByTestId("builder-fork-confidence-path-big")).toHaveTextContent(
-      "if steps.read.output.total > 500 and steps.read.output.total = 1000",
+      "if Read a document · total > 500 and Read a document · total = 1000",
     );
 
     await user.click(screen.getByTestId("builder-fork-add-path"));
