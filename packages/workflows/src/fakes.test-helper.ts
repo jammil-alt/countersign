@@ -52,7 +52,12 @@ export class Harness {
   });
   items = new Map<
     string,
-    { item: CreatePersonItem | null; resolution: InboxResolution | null; expired: boolean }
+    {
+      item: CreatePersonItem | null;
+      resolution: InboxResolution | null;
+      expired: boolean;
+      received: number;
+    }
   >();
   sent: Parameters<NotifyPort["send"]>[0][] = [];
   operatorNotices: Parameters<NotifyPort["notifyOperator"]>[0][] = [];
@@ -67,7 +72,7 @@ export class Harness {
   /** Registers an inbox item the agent port "created" for a write approval. */
   approvalItem(resolution: InboxResolution | null = null): string {
     const id = `0192f7a0-0000-7000-8000-${String(++this.#n).padStart(12, "0")}`;
-    this.items.set(id, { item: null, resolution, expired: false });
+    this.items.set(id, { item: null, resolution, expired: false, received: 0 });
     return id;
   }
 
@@ -115,6 +120,10 @@ export class Harness {
     expire: async (id) => {
       const entry = this.items.get(id);
       if (entry) entry.expired = true;
+    },
+    received: async (id) => {
+      const entry = this.items.get(id);
+      if (entry) entry.received += 1;
     },
   };
 

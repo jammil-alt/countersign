@@ -5,6 +5,7 @@ import { applyMatrixChange } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import {
   agent,
+  agentVersion,
   appUser,
   connection,
   connectionChange,
@@ -23,6 +24,7 @@ import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
 import { dispatchEvents } from "../runs/dispatch";
+import { connectNoAuth } from "./connections";
 import {
   agentSummary,
   matrixEdit,
@@ -33,6 +35,17 @@ import {
   opsStep,
   opsToolCall,
 } from "./mappers";
+
+/** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
+export function isSandbox(settings: Record<string, unknown>): boolean {
+  return settings.sandbox === true;
+}
+
+/** `tenant.settings.connectors_offered`, as connector ids. */
+export function offeredConnectors(settings: Record<string, unknown>): string[] {
+  const v = settings.connectors_offered;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
 
 function validTimezone(tz: string): boolean {
   try {
@@ -67,6 +80,23 @@ async function clientSummaries(tx: Tx, ids: readonly string[]) {
     createdAt: t.createdAt.toISOString(),
     agents: agents.find((a) => a.tenantId === t.id)?.n ?? 0,
     openInbox: open.find((o) => o.tenantId === t.id)?.n ?? 0,
+  }));
+}
+
+/** The agents runs and inbox items name, for the back office's lists. */
+async function agentRefs(tx: Tx, tenantIds: readonly string[], ids: (string | null)[]) {
+  const wanted = [...new Set(ids.filter((v): v is string => v !== null))];
+  if (wanted.length === 0) return [];
+  const rows = await tx
+    .select()
+    .from(agent)
+    .where(and(inArray(agent.id, wanted), inArray(agent.tenantId, [...tenantIds])));
+  return rows.map((a) => ({
+    id: a.id,
+    tenantId: a.tenantId,
+    slug: a.slug,
+    name: a.name,
+    serviceName: a.serviceName,
   }));
 }
 
@@ -154,12 +184,104 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsClientConnections, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    const rows = await ctx.tx
+    const { tx, params, services } = ctx;
+    const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
+    if (!t) throw notFound("client");
+    const rows = await tx
       .select()
       .from(connection)
-      .where(eq(connection.tenantId, ctx.params.id))
+      .where(eq(connection.tenantId, params.id))
       .orderBy(connection.connector);
-    return { connections: rows.map(opsConnection) };
+    const agents = await tx
+      .select()
+      .from(agent)
+      .where(and(eq(agent.tenantId, params.id), eq(agent.kind, "client")));
+    const usedBy: Record<string, { id: string; name: string }[]> = {};
+    for (const c of rows) {
+      usedBy[c.id] = agents
+        .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))
+        .map((a) => ({ id: a.id, name: a.serviceName ?? a.name }));
+    }
+    return {
+      connections: rows.map(opsConnection),
+      offered: offeredConnectors(t.settings),
+      connectors: services.platform.connectors.list().map((c) => ({
+        id: c.manifest.id,
+        name: c.manifest.name,
+        description: c.manifest.description,
+        icon: c.manifest.icon ?? null,
+        auth: c.manifest.auth,
+        tools: c.manifest.tools.map((tool) => ({
+          id: tool.id,
+          description: tool.description,
+          verb: tool.verb,
+          sideEffect: tool.sideEffect,
+        })),
+      })),
+      usedBy,
+      sandbox: isSandbox(t.settings),
+    };
+  });
+
+  mount(app, routes.opsConnectSandbox, async (ctx) => {
+    const { tx, params, services, session } = ctx;
+    ensureClient(ctx, params.id);
+    const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
+    if (!t) throw notFound("client");
+    // DECISION: the operator connects tools only in the Sandbox client, their own test client with
+    // no client users (docs/plan.md §1.5). In a real client the client signs in from the portal,
+    // and the operator never connects on their behalf (ARCHITECTURE §6.1).
+    if (!isSandbox(t.settings)) {
+      throw new HttpError(
+        403,
+        "not_sandbox",
+        "only the Sandbox client's tools are connected from the back office",
+      );
+    }
+    const id = await connectNoAuth(tx, {
+      tenantId: t.id,
+      connector: params.connector,
+      platform: services.platform,
+      actorId: session.user.id,
+      by: "operator",
+    });
+    if (!offeredConnectors(t.settings).includes(params.connector)) {
+      await tx
+        .update(tenant)
+        .set({
+          settings: {
+            ...t.settings,
+            connectors_offered: [...offeredConnectors(t.settings), params.connector],
+          },
+        })
+        .where(eq(tenant.id, t.id));
+    }
+    const [row] = await tx
+      .select()
+      .from(connection)
+      .where(and(eq(connection.id, id), eq(connection.tenantId, t.id)));
+    if (!row) throw notFound("connection");
+    return { connection: opsConnection(row) };
+  });
+
+  mount(app, routes.opsOfferConnectors, async (ctx) => {
+    const { tx, params, body, services } = ctx;
+    ensureClient(ctx, params.id);
+    const offered = [...new Set(body.offered)];
+    for (const id of offered) {
+      if (!services.platform.connectors.has(id)) {
+        throw new HttpError(422, "unknown_connector", `no connector ${id}`);
+      }
+    }
+    const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
+    if (!t) throw notFound("client");
+    // DECISION: withdrawing an offer leaves an existing connection as it is (the client still sees
+    // and can disconnect it); it only stops new sign-ins.
+    await tx
+      .update(tenant)
+      .set({ settings: { ...t.settings, connectors_offered: offered } })
+      .where(eq(tenant.id, t.id));
+    return { offered };
   });
 
   mount(app, routes.opsUpdateConnection, async ({ tx, params, body, tenantIds, session }) => {
@@ -216,7 +338,14 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .where(and(...where))
       .orderBy(desc(run.createdAt))
       .limit(query.limit);
-    return { runs: rows.map(opsRun) };
+    return {
+      runs: rows.map(opsRun),
+      agents: await agentRefs(
+        tx,
+        ctx.tenantIds,
+        rows.map((r) => r.agentId),
+      ),
+    };
   });
 
   mount(app, routes.opsRun, async ({ tx, params, tenantIds }) => {
@@ -255,12 +384,21 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .from(inboxItem)
       .where(and(eq(inboxItem.runId, r.id), eq(inboxItem.tenantId, r.tenantId)))
       .orderBy(inboxItem.createdAt);
+    const [version] = await tx
+      .select({ version: agentVersion.version, bundle: agentVersion.bundle })
+      .from(agentVersion)
+      .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
+    const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
+    const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
     return {
       run: opsRun(r),
       steps: steps.map(opsStep),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map(opsAction),
       inbox: items.map(opsInboxItem),
+      agent: ref ?? null,
+      version: version?.version ?? null,
+      workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
     };
   });
 
@@ -281,7 +419,14 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .where(and(...where))
       .orderBy(desc(inboxItem.createdAt))
       .limit(200);
-    return { items: rows.map(opsInboxItem) };
+    return {
+      items: rows.map(opsInboxItem),
+      agents: await agentRefs(
+        tx,
+        ctx.tenantIds,
+        rows.map((i) => i.agentId),
+      ),
+    };
   });
 
   mount(app, routes.opsResolveInbox, async (ctx) => {

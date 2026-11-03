@@ -205,7 +205,8 @@ export function AgentAvatar({
 export function Tabs({
   items,
 }: {
-  items: { to: string; label: string; count?: number; end?: boolean }[];
+  /** `active` overrides the URL match (a tab that owns several routes). */
+  items: { to: string; label: string; count?: number; end?: boolean; active?: boolean }[];
 }) {
   return (
     <nav className="flex gap-6 border-b border-edge" aria-label="Sections">
@@ -217,7 +218,7 @@ export function Tabs({
           className={({ isActive }) =>
             cx(
               "-mb-px border-b-2 pb-2.5 text-[15px]",
-              isActive
+              (t.active ?? isActive)
                 ? "border-action font-medium text-primary"
                 : "border-transparent text-body hover:text-primary",
             )

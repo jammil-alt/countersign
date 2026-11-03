@@ -25,6 +25,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -333,11 +334,21 @@ export const agent = pgTable(
     /** Null = the client's setting. */
     approver: text("approver").$type<(typeof AGENT_APPROVERS)[number]>(),
     runStatus: text("run_status").$type<(typeof AGENT_RUN_STATUSES)[number]>(),
+    /**
+     * A template's test copy in the Sandbox client: what a template test run runs (docs/plan.md
+     * §1.5). Never activated, never routed; one per template and client.
+     */
+    testCopy: boolean("test_copy").notNull().default(false),
   },
   (t) => [
     unique("agent_tenant_slug_key").on(t.tenantId, t.slug).nullsNotDistinct(),
     unique("agent_id_tenant_key").on(t.id, t.tenantId),
     index("agent_template_idx").on(t.templateId),
+    uniqueIndex("agent_test_copy_key").on(t.tenantId, t.templateId).where(sql`${t.testCopy}`),
+    check(
+      "agent_test_copy_check",
+      sql`not ${t.testCopy} or (${t.kind} = 'client' and ${t.templateId} is not null)`,
+    ),
     check("agent_kind_check", oneOf(t.kind, AGENT_KINDS)),
     check("agent_kind_tenant_check", sql`(${t.kind} = 'template') = (${t.tenantId} is null)`),
     check("agent_status_check", oneOf(t.status, AGENT_STATUSES)),
@@ -498,6 +509,8 @@ export const stepRun = pgTable(
       columns: [t.runId, t.tenantId],
       foreignColumns: [run.id, run.tenantId],
     }),
+    // One row per step of a run: the step log upserts on it, so a retried step never adds a row.
+    unique("step_run_run_node_key").on(t.runId, t.nodeId),
     index("step_run_run_idx").on(t.runId),
     index("step_run_tenant_idx").on(t.tenantId),
     check("step_run_status_check", oneOf(t.status, STEP_RUN_STATUSES)),
@@ -560,6 +573,11 @@ export const inboxItem = pgTable(
     dueAt: ts("due_at"),
     createdAt: createdAt(),
     resolvedAt: ts("resolved_at"),
+    /**
+     * When the item's run took its resolution. A resolved item with a run and no value is a
+     * pending delivery: the cron re-sends its event until the run takes it (docs/plan.md §1.5).
+     */
+    runReceivedAt: ts("run_received_at"),
   },
   (t) => [
     unique("inbox_item_id_tenant_key").on(t.id, t.tenantId),
@@ -575,6 +593,11 @@ export const inboxItem = pgTable(
     }),
     index("inbox_item_open_idx").on(t.tenantId, t.status, t.createdAt),
     index("inbox_item_run_idx").on(t.runId),
+    index("inbox_item_undelivered_idx")
+      .on(t.tenantId, t.resolvedAt)
+      .where(
+        sql`${t.status} = 'resolved' and ${t.runId} is not null and ${t.runReceivedAt} is null`,
+      ),
     check("inbox_item_kind_check", oneOf(t.kind, INBOX_KINDS)),
     check("inbox_item_status_check", oneOf(t.status, INBOX_STATUSES)),
     check(

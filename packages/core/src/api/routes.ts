@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
+import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
+import { SkillDefinition } from "../schemas/skill";
+import { ToolSpec } from "../schemas/tool";
 import { defineRoute } from "./contract";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -110,6 +113,8 @@ export const AgentSummary = z.object({
   serviceDescription: z.string().nullable(),
   bindings: z.record(z.string(), z.string()),
   approver: z.string().nullable(),
+  /** A template's test copy in the Sandbox client: it only test-runs. */
+  testCopy: z.boolean(),
   createdAt: Timestamp,
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
@@ -226,6 +231,33 @@ export const OpsInboxItem = z.object({
   resolvedAt: NullableTimestamp,
 });
 
+/** The client agent a run or inbox item belongs to, for the back office's lists (Track B). */
+export const OpsAgentRef = z.object({
+  id: z.string(),
+  tenantId: z.string().nullable(),
+  slug: z.string(),
+  name: z.string(),
+  serviceName: z.string().nullable(),
+});
+export type OpsAgentRef = z.infer<typeof OpsAgentRef>;
+
+/** A registered connector as the back office offers it (Track B). */
+export const OpsConnectorInfo = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  icon: z.string().nullable(),
+  auth: z.string(),
+  tools: z.array(
+    z.object({
+      id: z.string(),
+      description: z.string(),
+      verb: z.string(),
+      sideEffect: z.string(),
+    }),
+  ),
+});
+
 const AgentBody = z.strictObject({
   slug: SlugSchema,
   bundle: z.unknown(),
@@ -256,6 +288,8 @@ export const TimelineStep = z.object({
   label: z.string(),
   status: z.string(),
   summary: z.string().nullable(),
+  /** Record ids the step's output cites (`output.sources`), shown as links. */
+  sources: z.array(z.string()),
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
 });
@@ -286,17 +320,84 @@ export const PortalConnection = z.object({
   name: z.string(),
   description: z.string(),
   icon: z.string().nullable(),
+  /** Whether the client can sign in to it from the portal yet. */
+  available: z.boolean(),
   connection: z
     .object({
       id: z.string(),
       status: z.string(),
       externalAccountId: z.string().nullable(),
+      lastSyncAt: NullableTimestamp,
       permissions: ConnectionMatrix,
       access: z.array(ToolAccessSchema),
       usedBy: z.array(z.object({ id: z.string(), name: z.string() })),
     })
     .nullable(),
 });
+
+// ── Back office: agents, versions and lineage (Track B) ─────────────────────────────────────────
+
+/** One change between two bundles (core's `diffBundles`), as the versions views show it. */
+export const BundleChangeSchema = z.object({
+  kind: z.enum(["added", "removed", "changed", "moved", "reordered"]),
+  entity: z.string(),
+  path: z.string(),
+  before: z.unknown().optional(),
+  after: z.unknown().optional(),
+});
+export type BundleChangeView = z.infer<typeof BundleChangeSchema>;
+
+/**
+ * A readable diff: the changes, plus a label for every entity and list key either side names
+ * (`step:<id>` → its name, `workflow:<slug>` → its name), so the screens can write sentences.
+ */
+export const BundleDiff = z.object({
+  changes: z.array(BundleChangeSchema),
+  labels: z.record(z.string(), z.string()),
+});
+
+/** A skill an agent may use, with its settings schema (the editor builds its forms from it). */
+export const SkillOption = z.object({
+  /** The reference a bundle names it by (`docs.extract`, `custom:<slug>`). */
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  category: z.string(),
+  source: z.enum(["builtin", "client", "shared"]),
+  version: z.number().int().nullable(),
+  settings: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      type: z.enum(["number", "boolean", "string", "enum"]),
+      default: z.unknown(),
+      options: z.array(z.string()).optional(),
+      clientSpecific: z.boolean(),
+    }),
+  ),
+  requiresConnectors: z.array(z.string()),
+});
+export type SkillOption = z.infer<typeof SkillOption>;
+
+/**
+ * What the workflow builder places and types steps with (ARCHITECTURE §10.5): every skill the agent
+ * may use with its full definition (input and output schemas, tools, settings; instructions are
+ * left out), every registered tool, and the connectors their actions are grouped under.
+ */
+export const BuilderCatalog = z.object({
+  skills: z.array(
+    z.object({
+      /** The reference a bundle names it by: its id, or a pinned `id@version` the agent uses. */
+      ref: z.string(),
+      source: z.enum(["builtin", "client", "shared", "pinned"]),
+      version: z.number().int().nullable(),
+      definition: SkillDefinition,
+    }),
+  ),
+  tools: z.array(ToolSpec),
+  connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
+});
+export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -396,7 +497,37 @@ export const opsRoutes = {
     roles: OPS,
     summary: "A client's connections with their permission matrices (never credentials)",
     params: IdParams,
-    response: z.object({ connections: z.array(OpsConnection) }),
+    response: z.object({
+      connections: z.array(OpsConnection),
+      /** Connector ids offered to the client (`tenant.settings.connectors_offered`). */
+      offered: z.array(z.string()),
+      /** Every registered connector, for the offering. */
+      connectors: z.array(OpsConnectorInfo),
+      /** Client agents bound to each connection, by connection id. */
+      usedBy: z.record(z.string(), z.array(z.object({ id: z.string(), name: z.string() }))),
+      /** The Sandbox client (`tenant.settings.sandbox`): the operator connects its tools. */
+      sandbox: z.boolean(),
+    }),
+  }),
+  opsConnectSandbox: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/connections/:connector/connect",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Connect a tool in the Sandbox client (only there: in a real client, the client signs in)",
+    params: z.object({ id: ApiId, connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    response: z.object({ connection: OpsConnection }),
+  }),
+  opsOfferConnectors: defineRoute({
+    method: "PUT",
+    path: "/api/ops/clients/:id/connectors",
+    auth: "session",
+    roles: OPS,
+    summary: "Choose which connectors a client is offered (the client signs in to them)",
+    params: IdParams,
+    body: z.strictObject({ offered: z.array(z.string().min(1)).max(50) }),
+    response: z.object({ offered: z.array(z.string()) }),
   }),
   opsUpdateConnection: defineRoute({
     method: "PATCH",
@@ -576,6 +707,84 @@ export const opsRoutes = {
     params: IdParams,
     response: z.object({ agent: AgentSummary }),
   }),
+  opsRetire: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/retire",
+    auth: "session",
+    roles: OPS,
+    summary: "Retire a client agent: it never runs again; its history stays",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
+  opsActivation: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/activation",
+    auth: "session",
+    roles: OPS,
+    summary: "Whether a client agent can be activated, every reason it can't, what it must bind",
+    params: IdParams,
+    response: z.object({
+      ready: z.boolean(),
+      problems: z.array(z.string()),
+      /** Connectors its live (else latest) version needs bound. */
+      requiredConnectors: z.array(z.string()),
+    }),
+  }),
+  opsAgentSkills: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/skills",
+    auth: "session",
+    roles: OPS,
+    summary: "Skills this agent may use (built-in, shared, and its client's own) with settings",
+    params: IdParams,
+    response: z.object({ skills: z.array(SkillOption) }),
+  }),
+  opsVersionDiff: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/versions/:vid/diff",
+    auth: "session",
+    roles: OPS,
+    summary: "What a version changed against its parent (or another version of the agent)",
+    params: AgentVersionParams,
+    query: z.object({ against: ApiId.optional() }),
+    response: BundleDiff.extend({ from: VersionSummary.nullable(), to: VersionSummary }),
+  }),
+  opsCustomizations: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/customizations",
+    auth: "session",
+    roles: OPS,
+    summary: "A client agent's customizations: its live (else latest) version against its base",
+    params: IdParams,
+    response: BundleDiff.extend({
+      /** The base template version (null when the agent has no template). */
+      base: VersionSummary.nullable(),
+      version: VersionSummary.nullable(),
+    }),
+  }),
+  opsUsedBy: defineRoute({
+    method: "GET",
+    path: "/api/ops/templates/:id/used-by",
+    auth: "session",
+    roles: OPS,
+    summary: "The client agents forked from a template: base version, behind, customizations",
+    params: IdParams,
+    response: z.object({
+      templateLiveVersion: z.number().int().nullable(),
+      agents: z.array(
+        z.object({
+          agent: AgentSummary,
+          client: z.object({ id: z.string(), name: z.string() }),
+          version: z.number().int().nullable(),
+          baseVersion: z.number().int().nullable(),
+          behind: z.number().int(),
+          customizations: z.number().int(),
+          /** Open conflicts an update to the template's live version would raise. */
+          conflicts: z.number().int().nullable(),
+        }),
+      ),
+    }),
+  }),
   opsRunAgent: defineRoute({
     method: "POST",
     path: "/api/ops/agents/:id/run",
@@ -591,10 +800,12 @@ export const opsRoutes = {
     path: "/api/ops/agents/:id/versions/:vid/test-run",
     auth: "session",
     roles: OPS,
-    summary: "Test-run a client agent version on its client's data (never writes)",
+    summary:
+      "Test-run a version (never writes): a client agent on its client's data, a template as its test copy in the Sandbox client",
     params: AgentVersionParams,
     body: z.strictObject({ workflow: z.string().min(1), payload: z.unknown().optional() }),
-    response: z.object({ runId: z.string() }),
+    // For a template, the run belongs to its test copy: agentId and versionId name that copy.
+    response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
   }),
   opsValidateWorkflow: defineRoute({
     method: "POST",
@@ -617,10 +828,21 @@ export const opsRoutes = {
           type: z.string(),
           description: z.string(),
           subjectType: z.string().nullable(),
+          /** The payload's JSON Schema: what `{{trigger.…}}` can reference. */
+          payload: JsonSchema,
           sample: z.unknown(),
         }),
       ),
     }),
+  }),
+  opsBuilderCatalog: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/builder-catalog",
+    auth: "session",
+    roles: OPS,
+    summary: "What the workflow builder needs for an agent: skills with schemas, tools, connectors",
+    params: IdParams,
+    response: BuilderCatalog,
   }),
   opsRuns: defineRoute({
     method: "GET",
@@ -635,7 +857,7 @@ export const opsRoutes = {
       mode: z.enum(["live", "test"]).optional(),
       limit: z.coerce.number().int().min(1).max(200).default(50),
     }),
-    response: z.object({ runs: z.array(OpsRun) }),
+    response: z.object({ runs: z.array(OpsRun), agents: z.array(OpsAgentRef) }),
   }),
   opsRun: defineRoute({
     method: "GET",
@@ -650,6 +872,12 @@ export const opsRoutes = {
       toolCalls: z.array(OpsToolCall),
       actions: z.array(OpsAction),
       inbox: z.array(OpsInboxItem),
+      agent: OpsAgentRef.nullable(),
+      /** The version's number and the workflow that ran (its steps name the run's nodes). */
+      version: z.number().int().nullable(),
+      workflow: z
+        .object({ slug: z.string(), name: z.string(), definition: z.unknown() })
+        .nullable(),
     }),
   }),
   opsInbox: defineRoute({
@@ -663,7 +891,7 @@ export const opsRoutes = {
       status: InboxStatusSchema.default("open"),
       assigned: z.enum(["operator", "all"]).default("operator"),
     }),
-    response: z.object({ items: z.array(OpsInboxItem) }),
+    response: z.object({ items: z.array(OpsInboxItem), agents: z.array(OpsAgentRef) }),
   }),
   opsResolveInbox: defineRoute({
     method: "POST",
@@ -773,6 +1001,25 @@ export const portalRoutes = {
     summary: "Tighten what agents may do in a connected tool (never loosen)",
     params: IdParams,
     body: MatrixEdit,
+    response: z.object({ connection: PortalConnection }),
+  }),
+  portalAuthorize: defineRoute({
+    method: "POST",
+    path: "/api/connections/:connector/authorize",
+    auth: "session",
+    roles: ["client_admin"],
+    summary:
+      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
+    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
+  }),
+  portalDisconnect: defineRoute({
+    method: "DELETE",
+    path: "/api/connections/:id",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Disconnect a tool: agents can no longer use it; its permissions are kept",
+    params: IdParams,
     response: z.object({ connection: PortalConnection }),
   }),
 } as const;

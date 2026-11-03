@@ -21,29 +21,20 @@ import type {
   StepLog,
   StepOutcome,
 } from "@countersign/workflows";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { toRunResolution } from "../inbox";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
 
-/** `step_run` rows for one run. `start` returns the existing row for a node on a retry. */
+/**
+ * `step_run` rows for one run. `start` is an upsert on (run_id, node_id): a retried step (or a
+ * step's failure record) gets the row its first attempt wrote, never a second one.
+ */
 export function dbStepLog(db: Db, run: RunInfo): StepLog {
   return {
     start(entry) {
       return withTenant(db, run.tenantId, async (tx) => {
-        const [existing] = await tx
-          .select({ id: stepRun.id })
-          .from(stepRun)
-          .where(
-            and(
-              eq(stepRun.tenantId, run.tenantId),
-              eq(stepRun.runId, run.id),
-              eq(stepRun.nodeId, entry.nodeId),
-            ),
-          )
-          .limit(1);
-        if (existing) return existing.id;
         const [row] = await tx
           .insert(stepRun)
           .values({
@@ -58,8 +49,13 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
             attempts: 1,
             startedAt: new Date(),
           })
+          // A no-op update, so the existing row's id comes back (DO NOTHING returns no row).
+          .onConflictDoUpdate({
+            target: [stepRun.runId, stepRun.nodeId],
+            set: { nodeId: sql`excluded.node_id` },
+          })
           .returning({ id: stepRun.id });
-        if (!row) throw new Error("step_run insert returned nothing");
+        if (!row) throw new Error("step_run upsert returned nothing");
         return row.id;
       });
     },
@@ -263,6 +259,20 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
               eq(inboxItem.id, inboxItemId),
               eq(inboxItem.tenantId, run.tenantId),
               eq(inboxItem.status, "open"),
+            ),
+          ),
+      );
+    },
+    async received(inboxItemId) {
+      await withTenant(db, run.tenantId, (tx) =>
+        tx
+          .update(inboxItem)
+          .set({ runReceivedAt: new Date() })
+          .where(
+            and(
+              eq(inboxItem.id, inboxItemId),
+              eq(inboxItem.tenantId, run.tenantId),
+              isNull(inboxItem.runReceivedAt),
             ),
           ),
       );

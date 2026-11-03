@@ -7,6 +7,7 @@ import { useApi } from "../api/useApi";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink, SidebarSection } from "../shell/Shell";
 import { AgentAvatar } from "../ui/primitives";
+import { useAgentsChanged } from "./agents/ui";
 
 /** `/ops/clients/:clientId/...`, except the "new client" page. */
 export function useSelectedClientId(): string | null {
@@ -85,7 +86,9 @@ function ClientSwitcher({ selected }: { selected: string | null }) {
 }
 
 function AgentsSection({ clientId }: { clientId: string }) {
-  const { data, error } = useApi(apiRoutes.opsClient, { params: { id: clientId } });
+  const { data, error, reload } = useApi(apiRoutes.opsClient, { params: { id: clientId } });
+  // The agent screens say when they create or change an agent, so this list follows.
+  useAgentsChanged(reload);
   return (
     <SidebarSection
       label="Agents"

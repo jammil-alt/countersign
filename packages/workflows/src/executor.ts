@@ -308,16 +308,24 @@ class Executor {
     inboxItemId: string,
     timeout: Duration,
   ): Promise<InboxResolution | null> {
+    // Recorded once the run holds the resolution, so the cron stops re-sending its event.
+    const received = async (resolution: InboxResolution) => {
+      await this.runner.do(`${base}:received`, async () => {
+        await this.ctx.inbox.received(inboxItemId);
+        return null;
+      });
+      return resolution;
+    };
     const early = await this.runner.do(`${base}:check`, () =>
       this.ctx.inbox.resolution(inboxItemId),
     );
-    if (early) return InboxResolution.parse(early);
+    if (early) return received(InboxResolution.parse(early));
     try {
       const event = await this.runner.waitForEvent(`${base}:wait`, {
         type: inboxEventType(inboxItemId),
         timeout,
       });
-      return InboxResolution.parse(event.payload ?? {});
+      return received(InboxResolution.parse(event.payload ?? {}));
     } catch (error) {
       if (!isWaitTimeout(error)) throw error;
       await this.runner.do(`${base}:expire`, async () => {

@@ -45,6 +45,7 @@ export class ProbeWorkflow extends WorkflowEntrypoint<Bindings, ProbeParams> {
         createForPerson: async (item) => ({ id: probeItemId(item.nodeId) }),
         resolution: async (id) => resolutions.get(id) ?? null,
         expire: async () => {},
+        received: async () => {},
       },
       notify: { send: async () => {}, notifyOperator: async () => {} },
       log: { start: async (e) => `sr-${e.nodeId}`, update: async () => {} },

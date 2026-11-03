@@ -15,6 +15,7 @@ import {
   clientLabel,
   findStep,
   isClientVisible,
+  isPlainObject,
   type Role,
   routes,
   type Step,
@@ -113,7 +114,25 @@ function stepOfNode(steps: (id: string) => Step | undefined, nodeId: string): St
   return steps(nodeId) ?? steps(nodeId.split(":").at(-1) ?? nodeId);
 }
 
-async function portalConnections(
+/** Record ids a step's output cites (`output.sources`, invariant 10), for the client timeline. */
+// DECISION: the timeline's sources are only the string ids in `output.sources`; nothing else of a
+// step's output reaches the portal (model text stays out, ARCHITECTURE §10.6).
+export function sourcesOf(output: unknown): string[] {
+  const s = isPlainObject(output) ? output.sources : undefined;
+  return Array.isArray(s) ? s.filter((v): v is string => typeof v === "string") : [];
+}
+
+/**
+ * Whether the client can sign in to a connector from the portal now.
+ */
+// DECISION: only connectors that need no provider sign-in (`auth: 'none'`, e.g. the testkit) can
+// be connected from the portal today; OAuth connectors show "not available yet" until their
+// connector, callback route and state secret land with QuickBooks (phase 3, tools).
+export function canSignIn(manifest: { auth: string } | undefined): boolean {
+  return manifest?.auth === "none";
+}
+
+export async function portalConnections(
   tx: Tx,
   tenantId: string,
   platform: Platform,
@@ -124,10 +143,12 @@ async function portalConnections(
     name: string;
     description: string;
     icon: string | null;
+    available: boolean;
     connection: {
       id: string;
       status: string;
       externalAccountId: string | null;
+      lastSyncAt: string | null;
       permissions: ReturnType<typeof normalizeMatrix>;
       access: ReturnType<typeof describeAccess>;
       usedBy: { id: string; name: string }[];
@@ -163,10 +184,12 @@ async function portalConnections(
       name: manifest?.name ?? id,
       description: manifest?.description ?? "",
       icon: manifest?.icon ?? null,
+      available: canSignIn(manifest),
       connection: c && {
         id: c.id,
         status: c.status,
         externalAccountId: c.externalAccountId,
+        lastSyncAt: iso(c.lastSyncAt),
         permissions: normalizeMatrix(c.permissions),
         access: manifest ? describeAccess(manifest, c.permissions) : [],
         usedBy: usedBy(c),
@@ -312,6 +335,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
           label: clientLabel(step),
           status: s.status,
           summary: s.summary,
+          sources: sourcesOf(s.output),
           startedAt: iso(s.startedAt),
           finishedAt: iso(s.finishedAt),
         },

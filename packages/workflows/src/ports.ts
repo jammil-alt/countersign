@@ -130,6 +130,11 @@ export interface InboxPort {
   resolution(inboxItemId: string): Promise<InboxResolution | null>;
   /** The step gave up waiting: mark the item expired. */
   expire(inboxItemId: string): Promise<void>;
+  /**
+   * The run has taken the item's resolution (from its event or the check before waiting), so
+   * nothing needs to re-send it (docs/plan.md §1.5 "Approval resume"). Idempotent.
+   */
+  received(inboxItemId: string): Promise<void>;
 }
 
 export interface NotifyPort {
