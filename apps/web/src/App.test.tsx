@@ -1,8 +1,165 @@
-import { render, screen } from "@testing-library/react";
-import { expect, it } from "vitest";
-import { App } from "./App";
+// The wired path end to end against a fake API shaped like apps/api: dev sign-in → back office
+// clients → client → agent page with its versions, badges and workflow tab.
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { describe, expect, it } from "vitest";
+import { AppProviders, AppRoutes } from "./App";
+import {
+  AGENT_DETAIL,
+  CLIENT_SESSION,
+  type FakeApi,
+  fakeApi,
+  OPERATOR_SESSION,
+  Reply,
+  SANDBOX_DETAIL,
+} from "./test/fixtures";
 
-it("renders", () => {
-  render(<App />);
-  expect(screen.getByText("Countersign")).toBeInTheDocument();
+function backend(): FakeApi & { signedInAs: () => string | null } {
+  let signedIn: string | null = null;
+  const api = fakeApi({
+    "GET /api/session": () =>
+      signedIn === "operator@example.com"
+        ? OPERATOR_SESSION
+        : signedIn
+          ? CLIENT_SESSION
+          : new Reply(401, { error: { code: "unauthenticated", message: "not signed in" } }),
+    "POST /api/auth/dev/sign-in": ({ init }) => {
+      signedIn = (JSON.parse(String(init.body)) as { email: string }).email;
+      return { ok: true };
+    },
+    "GET /api/ops/clients": () => ({
+      clients: [
+        {
+          id: "00000000-0000-4000-8000-00000000a001",
+          name: "Sandbox",
+          timezone: "UTC",
+          createdAt: "2026-11-01T00:00:00.000Z",
+          agents: 1,
+          openInbox: 0,
+        },
+      ],
+    }),
+    "GET /api/ops/clients/00000000-0000-4000-8000-00000000a001": () => SANDBOX_DETAIL,
+    "GET /api/ops/agents/00000000-0000-4000-8000-00000000b001": () => AGENT_DETAIL,
+    "GET /api/overview": () => ({
+      client: { id: "00000000-0000-4000-8000-00000000a002", name: "Demo client" },
+      services: [],
+      needsYou: { inbox: 0 },
+      recentRuns: [],
+    }),
+  });
+  return { ...api, signedInAs: () => signedIn };
+}
+
+function renderApp(api: FakeApi, path = "/") {
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <AppProviders client={api.client}>
+        <AppRoutes />
+      </AppProviders>
+    </MemoryRouter>,
+  );
+}
+
+describe("app", () => {
+  it("signs in as the operator and walks to an agent's workflow", async () => {
+    const api = backend();
+    api.on("GET /api/auth/dev/users", () => ({
+      users: [
+        {
+          email: "operator@example.com",
+          name: "Operator",
+          operator: true,
+          tenants: OPERATOR_SESSION.tenants,
+        },
+        {
+          email: "admin@demo-client.example.com",
+          name: "Demo admin",
+          operator: false,
+          tenants: [
+            {
+              id: "00000000-0000-4000-8000-00000000a002",
+              name: "Demo client",
+              role: "client_admin",
+            },
+          ],
+        },
+      ],
+    }));
+    renderApp(api);
+    const user = userEvent.setup();
+
+    const operator = await screen.findByTestId("signin-user-operator@example.com");
+    expect(operator).toHaveTextContent("Operator · 2 clients");
+    expect(screen.getByTestId("signin-user-admin@demo-client.example.com")).toHaveTextContent(
+      "Client admin · Demo client",
+    );
+    await user.click(operator);
+    expect(api.signedInAs()).toBe("operator@example.com");
+
+    // Operators land in the back office.
+    await user.click(await screen.findByTestId("ops-client-00000000-0000-4000-8000-00000000a001"));
+    const card = await screen.findByTestId("ops-agent-card-material-costs");
+    expect(within(card).getByText("Live")).toBeInTheDocument();
+    await user.click(within(card).getByText("Material costs"));
+
+    const badges = await screen.findByTestId("agent-version-badges");
+    expect(badges).toHaveTextContent("Live · v1");
+    expect(badges).toHaveTextContent("Draft · v2");
+    const tabs = screen.getByRole("navigation", { name: "Sections" });
+    expect(
+      within(tabs)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["Overview", "Workflow", "Runs", "Versions2", "Settings"]);
+    expect(screen.getByText(/How it works · 5 steps, 1 fork$/)).toBeInTheDocument();
+
+    await user.click(within(tabs).getByRole("link", { name: /^Versions/ }));
+    const versions = await screen.findByTestId("agent-versions");
+    expect(within(versions).getByTestId("agent-version-1")).toHaveTextContent("live");
+    expect(within(versions).getByTestId("agent-version-2")).toHaveTextContent("draft");
+
+    // Opening the draft from the versions list shows its workflow.
+    await user.click(within(versions).getByRole("link", { name: "v2" }));
+    expect(await screen.findByTestId("agent-shown-version")).toHaveTextContent("v2 (draft)");
+    expect(screen.getByTestId("step-list")).toBeInTheDocument();
+    expect(screen.getByTestId("fork-confidence")).toBeInTheDocument();
+  });
+
+  it("signs a client admin in by email when the API lists no users, landing in the portal", async () => {
+    const api = backend();
+    renderApp(api, "/");
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByTestId("signin-email-input"),
+      "admin@demo-client.example.com",
+    );
+    await user.click(screen.getByTestId("signin-email-submit"));
+    expect(await screen.findByTestId("shell-portal")).toBeInTheDocument();
+    expect(api.signedInAs()).toBe("admin@demo-client.example.com");
+  });
+
+  it("returns to the page that asked for sign-in", async () => {
+    const api = backend();
+    renderApp(api, "/ops/clients/00000000-0000-4000-8000-00000000a001");
+    const user = userEvent.setup();
+    await user.type(await screen.findByTestId("signin-email-input"), "operator@example.com");
+    await user.click(screen.getByTestId("signin-email-submit"));
+    expect(await screen.findByRole("heading", { name: "Sandbox" })).toBeInTheDocument();
+  });
+
+  it("says when a version's bundle does not match the schema", async () => {
+    const api = backend();
+    api.on("GET /api/session", () => OPERATOR_SESSION);
+    api.on("GET /api/ops/agents/00000000-0000-4000-8000-00000000b001", () => ({
+      ...AGENT_DETAIL,
+      live: { ...AGENT_DETAIL.live, bundle: { schemaVersion: 9 } },
+    }));
+    renderApp(
+      api,
+      "/ops/clients/00000000-0000-4000-8000-00000000a001/agents/material-costs/workflow",
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/does not match the agent bundle/);
+  });
 });

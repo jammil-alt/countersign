@@ -1,0 +1,50 @@
+// The back office (`/ops/*`, operator only). App.tsx loads this module lazily, behind the operator
+// check, so client users never download it (plan §1.2 "Back office and portal in one app"). The
+// workflow builder joins this bundle when it lands.
+import { Route, Routes } from "react-router-dom";
+import { Placeholder } from "../ui/primitives";
+import { OpsLayout } from "./OpsLayout";
+import { AgentPage } from "./screens/AgentPage";
+import { ClientDetailScreen } from "./screens/ClientDetail";
+import { ClientsScreen } from "./screens/Clients";
+
+/** ARCHITECTURE §15's back-office screens not built yet, as placeholders. */
+const PLACEHOLDERS: [path: string, title: string][] = [
+  ["clients/new", "New client"],
+  ["clients/:clientId/connections", "Connections"],
+  ["clients/:clientId/settings", "Client settings"],
+  ["clients/:clientId/runs", "Runs"],
+  ["clients/:clientId/agents/new", "New agent"],
+  ["clients/:clientId/agents/:slug/workflows/:workflow", "Workflow builder"],
+  ["templates", "Templates"],
+  ["templates/new", "New template"],
+  ["templates/:slug", "Template"],
+  ["templates/:slug/workflows/:workflow", "Template workflow builder"],
+  ["agents/:id/merge", "Merge"],
+  ["skills", "Skills"],
+  ["skills/:id", "Skill"],
+  ["packs", "Packs"],
+  ["runs", "Runs"],
+  ["runs/:id", "Run"],
+  ["requests", "Requests"],
+  ["inbox", "Inbox"],
+  ["usage", "Usage and cost"],
+  ["settings", "Settings"],
+];
+
+export default function OpsApp() {
+  return (
+    <OpsLayout>
+      <Routes>
+        <Route index element={<ClientsScreen overview />} />
+        <Route path="clients" element={<ClientsScreen />} />
+        {PLACEHOLDERS.map(([path, title]) => (
+          <Route key={path} path={path} element={<Placeholder title={title} />} />
+        ))}
+        <Route path="clients/:clientId" element={<ClientDetailScreen />} />
+        <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
+        <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
+      </Routes>
+    </OpsLayout>
+  );
+}

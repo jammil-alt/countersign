@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   // `pnpm dev:web` runs beside `pnpm dev`, which serves the API on :8787.
   server: { proxy: { "/api": { target: "http://localhost:8787" } } },
+  // apps/api serves this folder as its static assets (wrangler.jsonc `assets.directory`).
+  build: { outDir: "dist", emptyOutDir: true },
   test: {
     environment: "jsdom",
     globals: true,

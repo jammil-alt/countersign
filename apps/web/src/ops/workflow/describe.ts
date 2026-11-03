@@ -1,0 +1,104 @@
+// Plain labels for workflow parts, shared by the step list and the agent overview's chips.
+import {
+  type AgentBundle,
+  allSteps,
+  type Rule,
+  type Rules,
+  type Step,
+  type StepKind,
+  type Trigger,
+} from "@countersign/core";
+
+export const KIND_LABEL: Record<StepKind | "trigger", string> = {
+  trigger: "Trigger",
+  skill: "Skill",
+  action: "Action",
+  person: "Person",
+  fork: "Fork",
+  for_each: "For each",
+  wait: "Wait",
+  notify: "Notify",
+  stop: "Stop",
+};
+
+export function triggerTitle(trigger: Trigger): string {
+  const on = trigger.on;
+  switch (on.type) {
+    case "event":
+      return `When ${on.event}`;
+    case "schedule":
+      return "On a schedule";
+    case "manual":
+      return "Started by hand";
+    case "command":
+      return `Command /${on.command.replace(/^\//, "")}`;
+  }
+}
+
+export function triggerDetail(trigger: Trigger): string | null {
+  const on = trigger.on;
+  switch (on.type) {
+    case "event":
+      return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : "Event";
+    case "schedule":
+      return on.tz ? `${on.cron} · ${on.tz}` : on.cron;
+    case "manual":
+      return "Manual";
+    case "command":
+      return "Thread command";
+  }
+}
+
+/** The second line under a step's name. */
+export function stepDetail(step: Step): string | null {
+  switch (step.kind) {
+    case "skill":
+      return step.agent ? `${step.skill} · by ${step.agent}` : step.skill;
+    case "action":
+      return `${step.tool} · ${
+        step.approval.required === "required" ? "needs approval" : "no approval"
+      }`;
+    case "person":
+      return `${step.mode === "approve" ? "Approve" : "Ask"} · ${step.assignee} · ${step.timeout}`;
+    case "fork":
+      return `${step.paths.length} ${step.paths.length === 1 ? "path" : "paths"}`;
+    case "for_each":
+      return `over ${step.over}`;
+    case "wait":
+      return `for ${step.for}`;
+    case "notify":
+      return step.to ? `${step.channel} · ${step.to}` : step.channel;
+    case "stop":
+      return step.status;
+  }
+}
+
+export function ruleText(rule: Rule): string {
+  const field = rule.field.replace(/^\{\{\s*|\s*\}\}$/g, "");
+  if (rule.op === "exists") return `${field} exists`;
+  return `${field} ${rule.op} ${valueText(rule.value)}`;
+}
+
+export function rulesText(rules: Rules): string {
+  if (rules.rules.length === 0) return "always";
+  return rules.rules.map(ruleText).join(rules.match === "any" ? " or " : " and ");
+}
+
+function valueText(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v === undefined) return "";
+  return JSON.stringify(v);
+}
+
+/** "6 steps, 2 forks": counted across nested paths and loops. */
+export function workflowStats(bundle: AgentBundle): { steps: number; forks: number } {
+  let steps = 0;
+  let forks = 0;
+  for (const w of bundle.workflows) {
+    for (const { step } of allSteps(w.workflow)) {
+      steps += 1;
+      if (step.kind === "fork") forks += 1;
+    }
+  }
+  return { steps, forks };
+}
