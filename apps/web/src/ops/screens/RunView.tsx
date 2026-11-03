@@ -1,0 +1,435 @@
+// `/ops/runs/:id`: the back-office run view (design screen 6; ARCHITECTURE §10.5). "What it did"
+// as a checklist of steps with status, summary, time and cost; "Changes to your tools" with now /
+// after this change for each action, approve or reject where one waits on the operator; the full
+// log (inputs, outputs, tool calls). Polls every 2 s while the run is going.
+import { Workflow } from "@countersign/core";
+import { useMemo } from "react";
+import { Link, useParams } from "react-router-dom";
+import type { ResponseOf } from "../../api/client";
+import { apiRoutes } from "../../api/routes";
+import { useApi, useApiClient } from "../../api/useApi";
+import { ChangeTables } from "../../inbox/ChangePanel";
+import { changeTarget, connectorName, connectorOf } from "../../inbox/change";
+import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
+import {
+  duration,
+  isRunGoing,
+  runStatusLabel,
+  runStatusTone,
+  shortTime,
+  stepStatusLabel,
+  usd,
+} from "../../runs/format";
+import { StepMark } from "../../runs/StepMark";
+import { usePoll } from "../../runs/usePoll";
+import { useSession } from "../../session/session";
+import {
+  AgentAvatar,
+  Badge,
+  Button,
+  Card,
+  cx,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+  PageHeader,
+  SectionLabel,
+  type Tone,
+} from "../../ui/primitives";
+import { checklistRows } from "../run/checklist";
+import { operatorMayResolve } from "./Inbox";
+
+type RunDetail = ResponseOf<typeof apiRoutes.opsRun>;
+type Action = RunDetail["actions"][number];
+type Item = RunDetail["inbox"][number];
+
+export function OpsRunScreen() {
+  const { id = "" } = useParams();
+  const api = useApiClient();
+  const session = useSession();
+  const { data, error, loading, reload } = useApi(apiRoutes.opsRun, { params: { id } });
+  const going = data ? isRunGoing(data.run.status) : false;
+  usePoll(reload, going, 2_000);
+
+  const workflow = useMemo(() => {
+    const parsed = data?.workflow ? Workflow.safeParse(data.workflow.definition) : null;
+    return parsed?.success ? parsed.data : null;
+  }, [data?.workflow]);
+
+  if (loading && !data) return <Loading />;
+  if (error) return <ErrorNotice error={error} onRetry={reload} />;
+  if (!data) return null;
+
+  const { run, agent } = data;
+  const resolve = async (itemId: string, body: ResolveInput) => {
+    await api.call(apiRoutes.opsResolveInbox, { params: { id: itemId }, body });
+    reload();
+  };
+  const rows = checklistRows({
+    workflow,
+    steps: data.steps,
+    runStartedAt: run.startedAt,
+    runCreatedAt: run.createdAt,
+    going,
+  });
+  const done = rows.filter((r) => r.status === "succeeded").length;
+  const items = new Map(data.inbox.map((i) => [i.id, i]));
+  const waitingOnYou = data.inbox.filter(
+    (i) => i.status === "open" && operatorMayResolve(i, session.user.id),
+  );
+  // Person steps' items (questions, approvals) are answered in place, beside the changes.
+  const personItems = data.inbox.filter((i) => i.kind !== "external_action" && i.status === "open");
+  const clientName = session.tenants.find((t) => t.id === run.tenantId)?.name ?? "client";
+  const name = agent?.name ?? "Agent";
+  const failure = run.error as { message?: unknown } | null;
+
+  return (
+    <div>
+      <p className="mb-3 text-sm">
+        <Link to="/ops/runs" className="text-link underline" data-testid="ops-run-back">
+          Runs
+        </Link>
+        {agent?.tenantId ? (
+          <>
+            {" · "}
+            <Link
+              to={`/ops/clients/${agent.tenantId}/agents/${agent.slug}`}
+              className="text-link underline"
+            >
+              {name}
+            </Link>
+          </>
+        ) : null}
+      </p>
+      <PageHeader
+        leading={<AgentAvatar name={name} seed={agent?.slug ?? run.agentId} size="lg" />}
+        title={name}
+        badge={
+          <span className="flex items-center gap-1.5">
+            <Badge tone={run.mode === "test" ? "neutral" : "positive"}>
+              {run.mode === "test" ? "Test" : "Live"}
+              {data.version ? ` · v${data.version}` : ""}
+            </Badge>
+            <Badge tone={runStatusTone(run.status)} testId="ops-run-status">
+              {runStatusLabel(run.status)}
+            </Badge>
+          </span>
+        }
+        subtitle={[
+          data.workflow?.name ?? run.workflowSlug,
+          `started ${shortTime(run.startedAt ?? run.createdAt)}`,
+          clientName,
+          run.finishedAt ? `took ${duration(run.startedAt, run.finishedAt)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        actions={
+          waitingOnYou.length > 0 ? (
+            <Badge tone="accent" testId="ops-run-waiting">
+              Waiting on you · {waitingOnYou.length}
+            </Badge>
+          ) : undefined
+        }
+      />
+      {run.status === "failed" && failure ? (
+        <div className="mb-4">
+          <ErrorNotice error={new Error(String(failure.message ?? JSON.stringify(failure)))} />
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <Card testId="ops-run-checklist" className="self-start overflow-hidden">
+          <div className="flex items-center justify-between border-b border-edge px-4 py-3">
+            <h2 className="label-caps text-secondary">What it did</h2>
+            <span className="font-mono text-xs text-secondary">
+              {done} of {rows.length} steps · {usd(run.costUsd)}
+            </span>
+          </div>
+          <ol>
+            {rows.map((r, i) => (
+              <li
+                key={r.key}
+                data-testid={`ops-run-step-${r.key}`}
+                className={cx(
+                  "flex gap-3 border-b border-divider px-4 py-3 last:border-b-0",
+                  r.status === "waiting" && "bg-tone-accent",
+                  r.status === "pending" && "opacity-60",
+                )}
+              >
+                <StepMark status={r.status} n={i + 1} />
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-2">
+                    <Badge>{r.kind}</Badge>
+                    <span className="text-primary">{r.title}</span>
+                  </p>
+                  {r.detail ? <p className="mt-1 text-sm text-body">{r.detail}</p> : null}
+                  <p className="mt-0.5 text-xs text-secondary">
+                    {[
+                      shortTime(r.at),
+                      stepStatusLabel(r.status),
+                      r.costUsd && !/^0*(\.0*)?$/.test(r.costUsd) ? usd(r.costUsd) : null,
+                      r.internal ? "hidden from client" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Card>
+
+        <div className="flex min-w-0 flex-col gap-4">
+          <SectionLabel>Changes to your tools</SectionLabel>
+          {data.actions.length === 0 ? (
+            <EmptyState>This run changed nothing in the client's tools.</EmptyState>
+          ) : (
+            data.actions.map((a) => (
+              <ActionPanel
+                key={a.id}
+                action={a}
+                item={a.inboxItemId ? (items.get(a.inboxItemId) ?? null) : null}
+                testRun={run.mode === "test"}
+                userId={session.user.id}
+                onResolve={resolve}
+              />
+            ))
+          )}
+          {personItems.length > 0 ? (
+            <>
+              <SectionLabel>Waiting on a person</SectionLabel>
+              {personItems.map((i) => (
+                <InboxCard
+                  key={i.id}
+                  item={i}
+                  testId={`ops-run-item-${i.id}`}
+                  onResolve={
+                    operatorMayResolve(i, session.user.id) ? (body) => resolve(i.id, body) : null
+                  }
+                  waitingOn="Waiting on the client. Only they can answer it."
+                />
+              ))}
+            </>
+          ) : null}
+          <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-secondary">
+            <span>
+              Every change records which agent, version and step made it, what it looked like
+              before, and who approved it.
+            </span>
+            <a href="#run-log" className="text-link underline" data-testid="ops-run-log-open">
+              Full run log
+            </a>
+          </Card>
+        </div>
+      </div>
+
+      <RunLog data={data} />
+    </div>
+  );
+}
+
+function actionBadge(a: Action, testRun: boolean): { label: string; tone: Tone } {
+  switch (a.status) {
+    case "proposed":
+      return testRun
+        ? { label: "Would have done", tone: "neutral" }
+        : { label: "Needs approval", tone: "accent" };
+    case "approved":
+    case "executing":
+      return { label: "Approved", tone: "accent" };
+    case "done":
+      return {
+        label: a.executedAt ? `Done · ${shortTime(a.executedAt)}` : "Done",
+        tone: "positive",
+      };
+    case "rejected":
+      return { label: "Rejected", tone: "neutral" };
+    case "failed":
+      return { label: "Failed", tone: "warning" };
+    default:
+      return { label: a.status, tone: "neutral" };
+  }
+}
+
+function ActionPanel({
+  action,
+  item,
+  testRun,
+  userId,
+  onResolve,
+}: {
+  action: Action;
+  item: Item | null;
+  testRun: boolean;
+  userId: string;
+  onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
+}) {
+  const badge = actionBadge(action, testRun);
+  const connector = connectorName(connectorOf(action.tool));
+  const target = changeTarget(action.before, action.input);
+  const waiting = action.status === "proposed" && item?.status === "open";
+  const mine = item ? operatorMayResolve(item, userId) : false;
+  return (
+    <Card testId={`ops-run-action-${action.id}`} className="overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
+        <h3 className="font-semibold text-primary">
+          {connector}
+          {target ? ` · ${target}` : ""}
+          <span className="ml-2 font-mono text-xs font-normal text-secondary">{action.tool}</span>
+        </h3>
+        <Badge tone={badge.tone} testId="ops-run-action-status">
+          {badge.label}
+        </Badge>
+      </div>
+      <ChangeTables before={action.before} input={action.input} />
+      <ActionFooter
+        action={action}
+        item={item}
+        testRun={testRun}
+        waiting={waiting}
+        mine={mine}
+        connector={connector}
+        onResolve={onResolve}
+      />
+    </Card>
+  );
+}
+
+function ActionFooter({
+  action,
+  item,
+  testRun,
+  waiting,
+  mine,
+  connector,
+  onResolve,
+}: {
+  action: Action;
+  item: Item | null;
+  testRun: boolean;
+  waiting: boolean;
+  mine: boolean;
+  connector: string;
+  onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
+}) {
+  const failure = action.error as { message?: unknown } | null;
+  let text: string;
+  if (testRun) text = "Test run: recorded as it would have been made, never written.";
+  else if (waiting && !mine) text = "Waiting on the client admin to approve.";
+  else if (waiting) text = "Nothing changes in the tool until you approve.";
+  else if (action.status === "failed")
+    text = `The change failed: ${String(failure?.message ?? "unknown error")}`;
+  else if (action.approvedAt)
+    text = `Approved ${shortTime(action.approvedAt)}${action.approvedBy ? "" : " automatically"}.`;
+  else text = "";
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge px-4 py-3">
+      <p className="text-sm text-secondary">{text}</p>
+      {waiting && mine && item ? (
+        <div className="flex gap-2">
+          <Button
+            data-testid="ops-run-action-reject"
+            variant="ghost"
+            onClick={() => void onResolve(item.id, { decision: "reject" })}
+          >
+            Reject
+          </Button>
+          <Button
+            data-testid="ops-run-action-approve"
+            variant="primary"
+            onClick={() => void onResolve(item.id, { decision: "approve" })}
+          >
+            Approve and update {connector}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Json({ value }: { value: unknown }) {
+  return (
+    <pre className="overflow-x-auto rounded-sm bg-subtle p-3 font-mono text-xs whitespace-pre-wrap break-words text-body">
+      {value === null || value === undefined ? "—" : JSON.stringify(value, null, 2)}
+    </pre>
+  );
+}
+
+function RunLog({ data }: { data: RunDetail }) {
+  return (
+    <section id="run-log" className="mt-8" data-testid="ops-run-log">
+      <SectionLabel>Full run log</SectionLabel>
+      <Card className="divide-y divide-divider">
+        <details className="px-4 py-3">
+          <summary className="cursor-pointer text-primary">Trigger</summary>
+          <div className="mt-3">
+            <Json value={data.run.trigger} />
+          </div>
+        </details>
+        {data.steps.map((s) => {
+          const calls = data.toolCalls.filter((c) => c.stepRunId === s.id);
+          return (
+            <details key={s.id} className="px-4 py-3" data-testid={`ops-run-log-${s.id}`}>
+              <summary className="cursor-pointer">
+                <span className="font-mono text-sm text-primary">{s.nodeId}</span>
+                <span className="ml-2 text-sm text-secondary">
+                  {[
+                    s.nodeType,
+                    s.skillRef,
+                    stepStatusLabel(s.status),
+                    duration(s.startedAt, s.finishedAt),
+                    usd(s.costUsd),
+                    s.tokensIn || s.tokensOut ? `${s.tokensIn} in / ${s.tokensOut} out` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </summary>
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div>
+                  <h4 className="label-caps mb-1 text-secondary">Input</h4>
+                  <Json value={s.input} />
+                </div>
+                <div>
+                  <h4 className="label-caps mb-1 text-secondary">Output</h4>
+                  <Json value={s.output} />
+                </div>
+              </div>
+              {calls.length > 0 ? (
+                <div className="mt-3">
+                  <h4 className="label-caps mb-1 text-secondary">Tool calls</h4>
+                  <ul className="flex flex-col gap-2">
+                    {calls.map((c) => (
+                      <li key={c.id} className="rounded-sm border border-edge p-3">
+                        <p className="text-sm">
+                          <span className="font-mono text-primary">{c.tool}</span>
+                          <span className="ml-2 text-secondary">
+                            {[c.status, c.durationMs === null ? null : `${c.durationMs} ms`]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </p>
+                        <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                          <Json value={c.input} />
+                          <Json value={c.output} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </details>
+          );
+        })}
+        {data.run.error ? (
+          <details className="px-4 py-3" open>
+            <summary className="cursor-pointer text-primary">Error</summary>
+            <div className="mt-3">
+              <Json value={data.run.error} />
+            </div>
+          </details>
+        ) : null}
+      </Card>
+    </section>
+  );
+}

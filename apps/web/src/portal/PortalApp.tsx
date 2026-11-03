@@ -1,5 +1,5 @@
 // The client portal (`/`, client roles): the client's own frame, with no switcher and no building
-// (ARCHITECTURE §15). Only Overview is wired so far; the rest are placeholders.
+// (ARCHITECTURE §15). Overview, Inbox, Runs and Connections are wired; the rest are placeholders.
 import type { ReactNode } from "react";
 import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
@@ -7,7 +7,11 @@ import { useApi } from "../api/useApi";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
+import { PortalConnectionsScreen } from "./screens/Connections";
+import { PortalInboxScreen } from "./screens/Inbox";
 import { OverviewScreen } from "./screens/Overview";
+import { PortalRunsScreen } from "./screens/Runs";
+import { PortalRunScreen } from "./screens/RunTimeline";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const session = useSession();
@@ -53,11 +57,11 @@ export function PortalApp() {
       <Routes>
         <Route index element={<OverviewScreen />} />
         <Route path="services/:id" element={<Placeholder title="Service" />} />
-        <Route path="inbox" element={<Placeholder title="Inbox" />} />
-        <Route path="runs" element={<Placeholder title="Runs" />} />
-        <Route path="runs/:id" element={<Placeholder title="Run" />} />
+        <Route path="inbox" element={<PortalInboxScreen />} />
+        <Route path="runs" element={<PortalRunsScreen />} />
+        <Route path="runs/:id" element={<PortalRunScreen />} />
         <Route path="reports/*" element={<Placeholder title="Reports" />} />
-        <Route path="connections" element={<Placeholder title="Connections" />} />
+        <Route path="connections" element={<PortalConnectionsScreen />} />
         <Route path="requests" element={<Placeholder title="Requests" />} />
         <Route path="settings" element={<Placeholder title="Settings" />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
