@@ -133,9 +133,10 @@ platform parts; the millwork shop gets its own fork of her, customized to its ve
 approvals. **Nothing in the platform core is material-specific;** a check enforces that platform packages
 never import a pack (§3).
 
-### MVP (build first)
+### First use case (built after the platform foundation)
 
-**Goal:** Pia running for the millwork shop on its own QuickBooks. A new bill or purchase arrives; Pia
+The platform is the product; this is the first thing it will be used for (`docs/plan.md` §3 sets the
+build order: foundation, cloud, then surfaces, tools and agents). **Goal:** Pia running for the millwork shop on its own QuickBooks. A new bill or purchase arrives; Pia
 finds the invoice (attached in QuickBooks, uploaded, or forwarded by email), reads it, matches the lines
 to the shop's item catalog, records prices and raises alerts, and proposes the QuickBooks update
 (itemized lines and the invoice attached). The shop approves it in the portal and QuickBooks is updated.

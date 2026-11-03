@@ -12,7 +12,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@countersign/core": "workspace:*",
     "@countersign/db": "workspace:*",
-    "@countersign/core": "workspace:*"
+    "drizzle-orm": "^0.45.4",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
   }
 }

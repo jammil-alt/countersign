@@ -11,5 +11,12 @@
     "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {}
+  "dependencies": {
+    "decimal.js": "^10.6.0",
+    "json-logic-js": "^2.0.5",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/json-logic-js": "^2.0.8"
+  }
 }

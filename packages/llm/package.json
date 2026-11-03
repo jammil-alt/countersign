@@ -5,13 +5,19 @@
   "type": "module",
   "description": "Anthropic client wrapper, cost tracking, record/replay, prompt utilities",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@countersign/core": "workspace:*"
+    "@anthropic-ai/sdk": "^0.125.0",
+    "@countersign/core": "workspace:*",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2"
   }
 }

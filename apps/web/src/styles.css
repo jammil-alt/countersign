@@ -1,0 +1,113 @@
+@import "tailwindcss";
+/* Unlayered, so where a token shares a name with a Tailwind theme variable (--font-mono,
+ * --radius-sm/md/lg) the Groundwork value wins over Tailwind's default. */
+@import "./styles/tokens.css";
+
+/* The Groundwork tokens as Tailwind theme names (docs/plan.md §1.2, UI). Tailwind's own palette is
+ * removed, so a raw colour class such as `bg-red-500` does not exist: screens can only say
+ * `bg-card`, `text-secondary`, `border-edge`, `bg-tone-accent`. Spacing needs no mapping: Tailwind's
+ * 4px step matches --space-N (p-4 = --space-4 = 16px). */
+@theme inline {
+  --color-*: initial;
+
+  --color-primary: var(--text-primary);
+  --color-body: var(--text-body);
+  --color-secondary: var(--text-secondary);
+  --color-faint: var(--text-faint);
+
+  --color-ground: var(--surface-ground);
+  --color-card: var(--surface-card);
+  --color-subtle: var(--surface-subtle);
+  --color-hover: var(--surface-hover);
+
+  --color-edge: var(--border-card);
+  --color-divider: var(--border-divider);
+  --color-control: var(--border-control);
+
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-action-pressed: var(--action-pressed);
+  --color-on-action: var(--on-action);
+  --color-link: var(--link);
+  --color-selected: var(--selected-bg);
+  --color-selected-ink: var(--selected-fg);
+  --color-focus: var(--focus);
+
+  --color-ai: var(--ai-bg);
+  --color-ai-edge: var(--ai-border);
+  --color-ai-dot: var(--ai-dot);
+  --color-ai-ink: var(--ai-text);
+
+  --color-tone-neutral: var(--tone-neutral-bg);
+  --color-tone-neutral-ink: var(--tone-neutral-fg);
+  --color-tone-neutral-edge: var(--tone-neutral-bd);
+  --color-tone-accent: var(--tone-accent-bg);
+  --color-tone-accent-ink: var(--tone-accent-fg);
+  --color-tone-accent-edge: var(--tone-accent-bd);
+  --color-tone-positive: var(--tone-positive-bg);
+  --color-tone-positive-ink: var(--tone-positive-fg);
+  --color-tone-positive-edge: var(--tone-positive-bd);
+  --color-tone-warning: var(--tone-warning-bg);
+  --color-tone-warning-ink: var(--tone-warning-fg);
+  --color-tone-warning-edge: var(--tone-warning-bd);
+
+  /* Agent avatars (docs/design/README.md: avatars use the persona colours). */
+  --color-persona-sienna: var(--persona-sienna);
+  --color-persona-pine: var(--persona-pine);
+  --color-persona-slate: var(--persona-slate);
+  --color-persona-plum: var(--persona-plum);
+  --color-persona-mustard: var(--persona-mustard);
+  --color-persona-brick: var(--persona-brick);
+  --color-persona-juniper: var(--persona-juniper);
+  --color-persona-umber: var(--persona-umber);
+  --color-persona-indigo: var(--persona-indigo);
+  --color-persona-rosewood: var(--persona-rosewood);
+  --color-persona-teal: var(--persona-teal);
+  --color-persona-flint: var(--persona-flint);
+
+  --color-data-up: var(--data-up);
+  --color-data-down: var(--data-down);
+
+  --font-sans: var(--font-ui);
+  --font-serif: var(--font-quote);
+
+  --spacing-header: var(--header-h);
+  --spacing-sidebar: var(--sidebar-w);
+  --spacing-row: var(--row-h);
+  --spacing-control: var(--control-h-sm);
+}
+
+/* Tailwind's shadow utilities rewrite their value to support coloured shadows, so the token
+ * shadows are applied as their own utilities instead. */
+@utility elevation-xs {
+  box-shadow: var(--shadow-xs);
+}
+@utility elevation-md {
+  box-shadow: var(--shadow-md);
+}
+@utility focus-ring {
+  box-shadow: var(--focus-ring);
+}
+
+/* The design's small-caps labels ("AGENTS LIVE", "SKILL", "LIVE · V4"). */
+@utility label-caps {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--surface-ground);
+    color: var(--text-body);
+    font-family: var(--font-ui);
+    font-size: 14px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}

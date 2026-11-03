@@ -1,0 +1,67 @@
+// The client portal (`/`, client roles): the client's own frame, with no switcher and no building
+// (ARCHITECTURE §15). Only Overview is wired so far; the rest are placeholders.
+import type { ReactNode } from "react";
+import { Route, Routes } from "react-router-dom";
+import { apiRoutes } from "../api/routes";
+import { useApi } from "../api/useApi";
+import { useSession } from "../session/session";
+import { AppShell, SidebarLink } from "../shell/Shell";
+import { Placeholder } from "../ui/primitives";
+import { OverviewScreen } from "./screens/Overview";
+
+export function PortalLayout({ children }: { children: ReactNode }) {
+  const session = useSession();
+  const client =
+    session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0] ?? null;
+  const isAdmin = client?.role === "client_admin";
+  // The header's count; the overview screen reads the same route for its own panel.
+  const overview = useApi(apiRoutes.portalOverview);
+
+  return (
+    <AppShell
+      surface="portal"
+      home="/"
+      context={
+        <span data-testid="portal-client-name" className="text-sm font-medium text-primary">
+          {client?.name ?? "No client"}
+        </span>
+      }
+      inboxTo="/inbox"
+      inboxCount={overview.data?.needsYou.inbox}
+      sidebar={
+        <nav className="flex flex-col gap-0.5">
+          <SidebarLink to="/" label="Overview" end testId="portal-nav-overview" />
+          <SidebarLink to="/inbox" label="Inbox" testId="portal-nav-inbox" />
+          <SidebarLink to="/runs" label="Runs" testId="portal-nav-runs" />
+          <SidebarLink to="/reports" label="Reports" testId="portal-nav-reports" />
+          <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
+          <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
+          {isAdmin ? (
+            <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
+          ) : null}
+        </nav>
+      }
+    >
+      {children}
+    </AppShell>
+  );
+}
+
+export function PortalApp() {
+  return (
+    <PortalLayout>
+      <Routes>
+        <Route index element={<OverviewScreen />} />
+        <Route path="services/:id" element={<Placeholder title="Service" />} />
+        <Route path="inbox" element={<Placeholder title="Inbox" />} />
+        <Route path="runs" element={<Placeholder title="Runs" />} />
+        <Route path="runs/:id" element={<Placeholder title="Run" />} />
+        <Route path="reports/*" element={<Placeholder title="Reports" />} />
+        <Route path="connections" element={<Placeholder title="Connections" />} />
+        <Route path="requests" element={<Placeholder title="Requests" />} />
+        <Route path="settings" element={<Placeholder title="Settings" />} />
+        <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
+      </Routes>
+    </PortalLayout>
+  );
+}

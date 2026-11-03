@@ -12,7 +12,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@countersign/core": "workspace:*",
     "@countersign/db": "workspace:*",
-    "@countersign/core": "workspace:*"
+    "aws4fetch": "^1.0.20",
+    "zod": "^4.6.2"
   }
 }

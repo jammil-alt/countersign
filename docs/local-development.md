@@ -30,7 +30,7 @@ Without Docker, any Postgres 16 with pgvector works: point the `PG*` variables a
 ## Every day
 
 ```bash
-pnpm dev          # builds apps/web, then wrangler dev on :8787: API, app, Workflows, cron
+pnpm dev          # builds apps/web, then wrangler dev on :8787: API, app, Workflows, cron (reads .env)
 pnpm dev:web      # Vite with /api proxied to :8787, for fast UI work (run beside pnpm dev)
 pnpm check        # lint, layering, typecheck, tests: what CI runs
 pnpm format       # Biome: format and organise imports
@@ -45,12 +45,38 @@ pnpm format       # Biome: format and organise imports
 | Workflows, cron | Real, under `wrangler dev` | always on |
 | File storage | Local R2 simulation in `wrangler dev` | always on |
 | Models | `LLM_MODE=replay` in tests; `live` calls Anthropic | `ANTHROPIC_API_KEY` |
-| QuickBooks | Off; use the upload connector | `QBO_*` (sandbox) |
+| QuickBooks | Not built yet (phase 3); the testkit connector stands in | `QBO_*` (sandbox) |
 | Email | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
 
 Tests never call a live model. To add a recorded response, run the test once with
 `LLM_MODE=record` and an API key, and commit the new file under `fixtures/llm/`.
 
+## Trying it
+
+With `pnpm dev` running, sign in as a seeded user and call the API (the dev adapter needs no password):
+
+```bash
+curl -s localhost:8787/api/health                         # {"ok":true}
+curl -s localhost:8787/api/auth/dev/users                 # the seeded users and their clients
+curl -s -c jar -H 'content-type: application/json' \
+  -d '{"email":"operator@example.com"}' localhost:8787/api/auth/dev/sign-in
+curl -s -b jar localhost:8787/api/session
+curl -s -b jar localhost:8787/api/ops/clients
+curl -s localhost:8787/cdn-cgi/local/scheduled            # fire the cron once
+```
+
+Or open http://localhost:8787 and pick a user on the sign-in screen. The seed has one operator
+(`operator@example.com`, serving Sandbox and Demo client), one client admin
+(`admin@demo-client.example.com`) and the platform templates. To start from an empty database, drop
+`countersign` and run `scripts/setup-postgres.sh` again.
+
+`wrangler dev` reads the root `.env` (`--env-file ../../.env`), which gives it
+`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`; without it the Worker cannot reach the
+database. Runs execute locally as real Workflows. Model calls need `ANTHROPIC_API_KEY`; without it,
+skills that call a model fail, while actions, person, fork and notify steps still run.
+
 ## Status
 
-Nothing above `pnpm check` runs yet: the app, Worker and migrations arrive in M0 (`docs/plan.md` §4).
+Phase 1 (`docs/plan.md` §3) runs locally end to end: migrations and seed, the Worker with its
+Workflows and cron, sign-in, the back office and portal routes, and the app shells. QuickBooks,
+email and document extraction are not built yet.

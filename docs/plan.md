@@ -7,7 +7,7 @@ ends green: `pnpm typecheck && pnpm test` pass and its "done when" check is show
 Nothing here adds to the v1 scope in ARCHITECTURE §1. When this plan fills a gap the architecture leaves
 open, it says **DECISION**, and the code carries a `// DECISION:` comment at the spot.
 
-Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1). Product shape: a managed-agents service suite: the operator keeps templates, forks them into each client as that client's own agent, customizes and versions it per client, and merges template updates in; clients get a portal for reports, runs, approvals, requests and **connections (they sign in to their own tools)**. Workflows are structured step lists with forks, per the owner's v1 screens (`docs/design/`). Materials (Pia) is the first template; QuickBooks + Gmail are the v1 connectors (ARCHITECTURE v0.8). **Building the MVP first** (§3): Pia live for the millwork shop on its own QuickBooks.
+Status: **Phase 1 (foundation, local only) built** (§3). Every platform package, `apps/api` and the `apps/web` shells are in, and `pnpm check` passes against local Postgres with `COUNTERSIGN_REQUIRE_DB=1`. The stack runs locally: migrations and seed, `wrangler dev` with the Worker, a real `RunWorkflow` and the cron on local Postgres (`docs/local-development.md`). Not started: cloud (phase 2) and the product screens, tools and use cases (phase 3; Pia and the Materials pack are not built, `packs/materials` is a stub). Stack: the same as Plenary Labs (§1.1). Product shape: ARCHITECTURE v0.8.
 
 ---
 
@@ -70,6 +70,41 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Page thumbnails (match review) | Render in the browser with pdf.js from the signed R2 URL. No server-side rendering, so no container is needed. |
 | Invoices for fixtures | Synthetic invoices that look like normal vendor invoices. Swap in real (redacted) ones later and re-record. |
 
+### 1.3 Decisions made while building `packages/core`
+
+| Topic | Decision |
+|---|---|
+| Durations | Cloudflare Workflows' own string form (`"30 seconds"`, `"5 days"`, units up to weeks), so the executor passes them to `step.sleep` / `waitForEvent` unchanged. `parseDuration()` gives milliseconds. |
+| Budgets | `budgets.maxCostUsd` is a decimal string (default `"0.50"`), not a JS number, because cost is money (invariant 6). |
+| External tools | A `ToolSpec` with `sideEffect: 'external'` must name its `connector`; the gate and the publish check find the connection matrix by it. A `none` tool's verb is `read`. |
+| Pack templates | `PackManifest.templates` is a list of `{ slug, bundle: AgentBundle }` (whole bundles, the unit v0.6 versions), not separate agent and workflow lists. |
+| Trigger payloads | Event triggers carry the event type's payload; manual triggers their declared input; schedule triggers `{ scheduledAt }`; command triggers `{ args }`. |
+| Built-in step outputs | `person` → `{ approved, answer, by }`; `fork` → `{ pathId, pathName }` (which path ran); `for_each` → `{ count }`; `wait`, `notify`, `stop` → nothing. |
+| Rule operators | `=` / `!=` compare loosely (JSONLogic `==`), so `"5"` from a form equals `5`; `is` is strict (for `true`, `false`, `null`); `contains` is substring or membership; a rule's value that is exactly one `{{ref}}` compares against that field. An empty `all` matches, an empty `any` doesn't; a fork path with no conditions is a validation error. |
+| Merge details | Entity keys `skill:<id>`, `workflow:<slug>`, `step:<id>`, `path:<id>`, `otherwise:<id>`; conflict paths `<key>#<JSON pointer>`, `<key>#@exists`, `<key>#@location`, `<list>#@order`. Two inserts at the same spot are both kept, ours first. Deleting an item conflicts with any edit, insert or move-out inside it on the other side, reported once at the topmost deleted item. A move between lists counts as an edit; a reorder within a list doesn't. Unresolved conflicts keep ours so the draft is always complete. |
+| Portal field check | The contract test refuses portal response fields named `bundle`, `definition`, `instructions`, `prompt(s)`, `systemPrompt`, `cost`, `costUsd`, `cost_usd`, `modelCost` and token counts; business figures such as `landedCost` are allowed. |
+| Workers tests | `apps/api` pins Vitest 4 for `@cloudflare/vitest-pool-workers` (as Plenary Labs does); the rest of the repo is on Vitest 5. |
+
+### 1.4 Decisions made while building `apps/api` and `apps/web`
+
+| Topic | Decision |
+|---|---|
+| Route contract | Every route the API serves is declared in `packages/core/src/api/routes.ts` (`routes`); `apps/api` mounts each entry and the contract test checks all of them are mounted; `apps/web`'s typed client calls the same specs. |
+| Active client | Sent with each request as `?client=` or the `x-countersign-client` header, never stored in the cookie. A portal user with one client needs neither. |
+| Creating a client | The operator who creates a client serves it; the new id (never one from the request) joins the transaction's `app.tenant_ids` so the first membership passes RLS. |
+| Invitations | An `app_user` row is the invitation. WorkOS sign-in finds the user by WorkOS id or lets a verified email claim an invited row; it never creates users. WorkOS organizations grant nothing in v1. |
+| Auth adapter | `AUTH_PROVIDER` picks it (default: `workos` when `WORKOS_CLIENT_ID` is set). A misconfigured WorkOS answers 503 and never falls back to `dev`; `dev` is refused in production. `GET /api/auth/dev/users` lists seeded users for the dev sign-in screen. |
+| Test connector | The testkit connector is registered everywhere except production, so the Sandbox client exercises connections and approvals before any real connector exists. |
+| Run rows | Whoever starts a run (API or dispatcher) writes the run row before `RUN_WORKFLOW.create`; `RunWorkflow` writes it again idempotently. Skill and action steps retry 3 times (10 s, exponential), giving up after 15 minutes. |
+| Test runs | A template is test-run by forking it into the Sandbox client; runs always belong to a client agent. A test run's person steps go to the operator. |
+| Notify | Notify steps post to the run's thread; only `thread` notices of live runs are visible to the client. Email and digest notices stay operator-only until an email provider exists. |
+| Model in the Worker | Live or nothing: record/replay is for tests. Without `ANTHROPIC_API_KEY` model calls fail with a clear error; tool-mode skills, actions and person steps still run. |
+| Portal inbox | Client users never see operator-assigned items; a `client_user` sees items assigned to them or to `client_user`; a `client_admin` sees the rest. Payloads are stripped of forbidden fields at any depth. |
+| Cron | Each client in its own `withTenant` transaction, over the window (previous minute, this minute]. |
+| Event payloads | `packages/senses`' event catalog is the contract for payloads; `packages/agents` emits `inbox.resolved` and `external_action.done/failed` in those shapes through its injected `Emit`. |
+| Web | React Router 7, Tailwind v4 mapped onto the Groundwork tokens with Tailwind's own palette removed; `/ops` is a separate lazy chunk loaded only after the operator check; a small `useApi` hook instead of a query library. |
+| Local Worker | `pnpm dev` runs `wrangler dev --env-file ../../.env`, so the root `.env` gives the local Hyperdrive connection string. |
+
 ---
 
 ## 2. Package layering
@@ -112,39 +147,53 @@ and each pack's manifest; nothing in `packages/*` names a pack.
 
 ---
 
-## 3. MVP
+## 3. Build order: the platform first
 
-**Goal** (ARCHITECTURE §1): Pia running for the millwork shop on its own QuickBooks. A new bill or
-purchase arrives; Pia finds the invoice (attached in QuickBooks, uploaded, or forwarded by email), reads
-it, matches the lines to the shop's catalog, records prices and raises alerts, and proposes the
-QuickBooks update (itemized lines, invoice attached). The shop approves in the portal and QuickBooks is
-updated. The shop sees the run and Price watch; the operator runs everything from the back office and
-can edit Pia's workflow, publish v2 and roll back.
+The **platform is the product** (owner, 2026-11-03). Use cases (Pia and the Materials pack, invoice
+intake, collections) and the tools they need (QuickBooks, email forwarding, Gmail, documents
+extraction, …) are built on it afterwards. Cloud setup (Neon, Cloudflare, WorkOS) comes after the
+foundation.
 
-| Milestone | In the MVP | After the MVP |
-|---|---|---|
-| M0 | All | |
-| M1 | All (lineage columns and the merge functions' types included; merge golden tests may land with the update work) | |
-| M2 | All, **plus email forwarding** (§1.2) | |
-| M3 | All, with step approvals | |
-| M4 | All | |
-| M5 | Back office and portal shells, onboarding, offering connectors, portal Connections (incl. the forwarding address), inbox and approvals | Client requests and the request queue |
-| M6 | Templates and client agents: create, fork, edit, versions, publish, rollback, bindings, test runs, activation; portal services | Builder (drafting agents and skills), operator-written skills, template updates and promotion, detach, copying between clients |
-| M7 | Builder (steps, forks, per-step approval control, inspector, validation), run view, portal run timeline | Merge view; the Builder-assisted new-agent flow |
-| M8 | All | |
-| M9 | All, with the two MVP writes (itemize lines, attach invoice) | Other QBO writes |
-| M10 | | Gmail |
-| M11 | Per-run cost in the run view | Usage and cost views, activity report, CSV export, notification emails |
+**Phase 1: Foundation (now, local only).** Everything that every agent, tool and client will rely on,
+tied together and tested against local Postgres and `wrangler dev`, with no cloud accounts and no
+domain tools:
+- toolchain, app and Worker scaffolds, the two UI shells with Groundwork tokens (M0 without the deploy
+  spike)
+- `packages/core`: every schema (bundle, agent, skill, workflow steps and rules, approvals, tools,
+  connectors, packs, events), workflow validation and template typing, rules → JSONLogic, bundle diff
+  and three-way merge, canonical hashing, the route contract and roles (M1 core)
+- `packages/db`: the platform schema, roles, RLS on `app.tenant_ids` / `app.operator`, immutability
+  triggers, migrations, `withTenant(s)`, seed (operator, Sandbox client, platform templates) (M1 db)
+- `packages/llm`, `packages/auth` (dev + WorkOS adapters), `packages/senses`
+- `packages/connectors`: the connector framework, permission matrix, credential encryption, object
+  storage, and a test connector with a read and a write tool (M2 framework; no real connectors)
+- `packages/agents`: registries, bundle versions, fork, publish, rollback, the runtime, the permission
+  gate with per-step approvals, external actions, logging and usage (M3)
+- `packages/workflows`: the step-list executor, trigger router and test runs (M4)
+- `apps/api`: Hono routes for the foundation, middleware, `RunWorkflow`, cron; `apps/web`: back office
+  and portal shells wired to the API (M5 shells)
 
-**MVP exit:** on the shop's production QuickBooks, a new bill from a real vendor runs Pia end to end, the
-client admin approves the update in the portal, and QuickBooks shows the itemized lines and the
-attached invoice; Price watch shows the observation; the operator changes a threshold, publishes v2, and
-rolls back to v1, and runs record which version they ran.
+Phase 1 progress (2026-11-03):
 
-**After the MVP**, in this order unless the owner reorders: template updates and promotion (merge view);
-Gmail; the Builder; operator-written skills; client requests; usage and cost views; notification emails
-and CSV export; threads and `/skill` commands; agents asking other agents. Later: Slack, Google Drive and
-the other connectors in the design; the header command bar.
+| Item | State |
+|---|---|
+| Toolchain, Worker and app scaffolds, UI shells on Groundwork tokens | Done (deploy spike is phase 2) |
+| `packages/core` | Done |
+| `packages/db` | Done: schema, roles, RLS, immutability triggers, migrations, seed (operator, Sandbox and Demo clients, Builder/Coordinator/Document clerk templates) |
+| `packages/llm`, `packages/auth`, `packages/senses` | Done |
+| `packages/connectors` | Done: framework, matrix, credential encryption, object storage, OAuth helpers, testkit connector |
+| `packages/agents` | Done: registries, versions, fork, publish, rollback, runtime, gate, external actions, logging, usage. The Builder (draft/revise) is not built: its template is seeded, its routes and flows are not |
+| `packages/workflows` | Done: executor, trigger router, schedules, test runs |
+| `packages/threads`, `packages/documents` | Not started (empty packages; not in phase 1). Notify steps write thread messages through `packages/agents` for now; `/command` parsing and the documents capability come in phase 3 |
+| `apps/api` | Done for the foundation routes (session, sign-in, clients, connections, templates, fork, client agents, versions, publish, rollback, operation, activate, pause, runs, test runs, validation, event catalog, inbox; portal overview, inbox, runs, connections, tighten). Not yet: the other ARCHITECTURE §14 routes (skills, Builder, update/promote, detach, retire, requests, usage, reports, uploads, documents, connector authorize, users, settings) |
+| `apps/web` | Shells done: sign-in, both layouts, clients, client page, agent page (overview, read-only workflow, versions). Other screens are placeholders (phase 3) |
+| Local stack | Done: `setup-postgres.sh`, `wrangler dev`, health, session, ops and portal routes, and a test run through `RunWorkflow` checked by hand |
+
+**Phase 2: Cloud.** Bootstrap workflow, deploy spike, staging (M0's deploy spike, `docs/operations.md`).
+
+**Phase 3: Product surfaces and tools, as needed.** The remaining M5–M7 screens (inbox, portal
+connections, templates and client agents, the builder, run views), then tools and connectors (upload and
+email forwarding, documents, QuickBooks, Gmail) and agents (the Materials pack and Pia, M8–M10).
 
 ---
 

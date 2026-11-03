@@ -13,9 +13,10 @@
   },
   "dependencies": {
     "@countersign/connectors": "workspace:*",
+    "@countersign/core": "workspace:*",
+    "@countersign/db": "workspace:*",
     "@countersign/llm": "workspace:*",
     "@countersign/senses": "workspace:*",
-    "@countersign/db": "workspace:*",
-    "@countersign/core": "workspace:*"
+    "zod": "^4.6.2"
   }
 }
