@@ -1,10 +1,11 @@
 # Countersign
 
-An agent platform for back-office work. A business connects its tools in one place (QuickBooks Online
-first, plus file upload) and picks from a library of skills. People create agents from scratch, or
-describe one and let the Builder draft it, then lay out the agent's work on a drag-and-drop canvas:
-triggers, skill steps, conditions, approvals, requests and tool actions. Agents run that work, ask people
-when they must, and update the connected tools, with every write approved by a person.
+An agent platform for back-office work, run as a managed service. A business connects its tools in one
+place (QuickBooks Online and Gmail, plus file upload). Our advisors create its agents from a library of
+skills, or describe one and let the Builder draft it, then lay out the agent's work on a drag-and-drop
+canvas: triggers, skill steps, conditions, approvals, requests and tool actions. Agents run that work,
+ask people when they must, and update the connected tools, with every write approved by a person. The
+client sees everything their agents do and asks their advisor for changes.
 
 The first agent is **Pia**, who manages material costs for a millwork shop: she finds and extracts
 invoices, matches line items to a shared catalog across vendors, tracks unit prices and raises alerts.

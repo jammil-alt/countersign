@@ -1,13 +1,13 @@
 # Countersign: v1 implementation plan
 
-Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.3). This file says *how* and
+Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.4). This file says *how* and
 *in what order*. It follows the Build plan (ARCHITECTURE §18) milestone by milestone. Each milestone
 ends green: `pnpm typecheck && pnpm test` pass and its "done when" check is shown working.
 
 Nothing here adds to the v1 scope in ARCHITECTURE §1. When this plan fills a gap the architecture leaves
 open, it says **DECISION**, and the code carries a `// DECISION:` comment at the spot.
 
-Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1). Product shape: an agent platform, with Materials as the first agent (ARCHITECTURE v0.3).
+Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1). Product shape: an agent platform run as a managed service (advisors build and publish, clients connect, approve and request changes), with Materials as the first agent and QuickBooks + Gmail as the v1 connectors (ARCHITECTURE v0.4).
 
 ---
 
@@ -20,7 +20,9 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Stack and hosting | **Same as Plenary Labs** (ARCHITECTURE v0.2). `apps/api`: one Hono Worker serving `/api/*`, the built `apps/web` as static assets (`run_worker_first: ["/api/*"]`), the Cloudflare Workflow classes and the cron handler. `apps/web`: React + Vite + React Router. Postgres 16 with pgvector on **Neon** (branches `main` = production, `staging`, plus throwaway `ci-run*` branches per CI run, as in Plenary Labs; environments in `docs/operations.md`). Files in **R2** (Worker binding; S3 API only for signed URLs). Toolchain copied from Plenary Labs: pnpm, TypeScript, Biome, Vitest with `@cloudflare/vitest-pool-workers`. | One stack across projects: same accounts, deploy workflows, runbooks and habits. No Next.js-on-Workers adapter and no second job vendor. Supabase's extras (auth, realtime, storage) are covered by WorkOS, Durable Objects and R2. |
 | DB driver from Workers | **Hyperdrive → Neon, with `postgres-js` + Drizzle.** Locally, Hyperdrive's `localConnectionString` points at Docker Postgres. Fallback: Neon's serverless driver in WebSocket `Pool` mode. | `withTenant()` needs interactive transactions (`set_config(..., true)` then queries). Hyperdrive supports them, and Neon's HTTP mode doesn't. Plenary Labs already reaches Neon through Hyperdrive with Drizzle; check `set_config` inside a transaction in the M0 deploy spike. |
 | Auth provider | **WorkOS (AuthKit), as in Plenary Labs.** Port its `apps/api/src/identity/` (WorkOS client, AES-GCM sealed session cookie with a 5-minute refresh, provisioning on callback). Identity is the WorkOS user, mapped to `app_user`. A WorkOS organization maps to a `tenant` (`tenant.workos_organization_id`). Roles stay in our `membership` table, so an advisor can belong to many tenants. Behind `packages/auth` with two adapters: `workos` (deployed) and `dev` (local + e2e: seeded users, refused when `NODE_ENV=production`). | Already proven in your stack. Covers what Supabase Auth would add (invites, magic links, client self-serve) plus B2B extras for later (SSO, directory sync, an admin portal per client). |
-| Document requests | **Inbox only in v1, routed to an admin.** `docs.request_from_person` creates an `inbox_item(kind='request', assignee_role='client_admin')`. Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. A `Mailer` interface with a Resend adapter is wired up but used only when `RESEND_API_KEY` is set. | Email is off by default. The demo doesn't need it. |
+| Document requests | **Inbox first, routed to an admin; Gmail draft when connected.** `docs.request_from_person` creates an `inbox_item(kind='request', assignee_role='client_admin')`; with Gmail connected, the workflow also proposes a `gmail.draft.create` to the purchaser (approval), which a person sends from Gmail. Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. | No email leaves without a person. |
+| Operating model | **Managed service** (owner, 2026-11-03). Advisors create tenants, invite client users, send connect links, enable packs, and are the only role that creates, edits, tests, publishes or rolls back agents, skills and workflows. Clients connect tools, approve, answer requests, view their agents and runs read-only, and raise change requests. | The owner wants advisor review before anything goes live. Self-serve later is a per-tenant switch on the same model. |
+| v1 connectors | **QuickBooks Online and Gmail**, plus upload (owner, 2026-11-03). Gmail: one mailbox per connection (usually a shared `ap@`/`invoices@`), scopes `gmail.readonly`, `gmail.labels`, `gmail.compose`; only messages matching the connection's query are synced (headers, snippet, attachments); bodies fetched on demand; write tools are drafts and labels, each approved. | Email is where most invoices arrive; narrow ingestion keeps the privacy surface small. |
 | Embeddings | **Ship without vectors.** `catalog_item.embedding` stays nullable. Candidates come from key attributes plus `pg_trgm`. | §20 says trigram + attributes is enough for v1. Adding a provider later is one tool change. |
 
 ### 1.2 Gaps filled while planning
@@ -51,6 +53,10 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Packs | A pack is a workspace package under `packs/` exporting a `PackManifest` (ARCHITECTURE §12.1), tool handlers, a Drizzle schema and Hono routes. Its tables go in the one migration sequence (drizzle config lists every pack schema). `apps/api` registers packs in one list; enabling a pack per tenant is a row in `tenant_pack` plus template installation. |
 | External actions | A gated tool call writes `external_action(status='proposed')` and an inbox item in the same transaction; approval flips it to `approved`; execution runs in its own `step.do` keyed by the idempotency key (`<run id>:<node id>:<index>`), so a retried step can't write twice. Connectors implement `before` capture where the API allows (QBO: read the record with its `SyncToken` first). |
 | Custom skills | Authored as a form (name, description, instructions, tool picker limited to tools available to the tenant, input/output field editors that produce JSON Schema, settings). Always `agent` mode. No code. |
+| Role checks | The route contract in `packages/core` declares the roles allowed on each route; Hono middleware enforces it from the session. A contract test walks every route and fails if any create/edit/publish/rollback route for agents, skills, workflows or packs allows a client role. |
+| Connect links | An advisor generates a link per connector and tenant: signed, single use, 7-day expiry, bound to the tenant. The client admin signs in, opens it and goes through the provider's OAuth; `connection.connected_by` records who granted access. |
+| Change requests | `inbox_item(kind='change_request')`, assigned to the tenant's advisors, with the subject (agent, workflow, node, or none for a new agent) and the client's text. Resolution links the published versions. The Builder can take the request text as its description. |
+| Gmail sync | Cron every 5 minutes per connection: `users.history.list` from the stored `historyId`, filtered by the connection's query; if the history id has expired, a bounded `messages.list` with the query replaces it. Attachments are stored once per sha256 as `document(source='email')` and linked like uploads, with the sender domain as a vendor signal. // DECISION: poll, not Pub/Sub push, in v1. |
 | Page thumbnails (match review) | Render in the browser with pdf.js from the signed R2 URL. No server-side rendering, so no container is needed. |
 | Invoices for fixtures | Synthetic invoices that look like normal vendor invoices. Swap in real (redacted) ones later and re-record. |
 
@@ -98,8 +104,9 @@ and each pack's manifest; nothing in `packages/*` names a pack.
 
 ## 3. Demo cutline
 
-ARCHITECTURE §18: if time is short, **M0–M8 with the upload connector is the demo**: create an agent
-on the canvas, and show Pia running purchase-intake on uploaded invoices. M9 (QBO) follows.
+ARCHITECTURE §18: if time is short, **M0–M8 with the upload connector is the demo**: an advisor creates
+an agent on the canvas, and Pia runs purchase-intake on uploaded invoices while the client approves.
+M9 (QBO) and M10 (Gmail) follow.
 Fallback stops that still demo the platform:
 - after **M7**: build an agent from scratch on the canvas with platform skills (extract a document,
   ask for approval, post to a thread), test-run and publish it, watch it run;
@@ -182,24 +189,30 @@ Tests: template resolution; JSONLogic conditions; executor with a fake `StepRunn
 
 **Done when** a seeded graph with a condition, a loop and an approval runs to the end, and a test run proposes but never executes external actions.
 
-### M5: Inbox, approvals, threads, Connections screen
+### M5: Inbox, approvals, change requests, advisor console, Connections
 
-Work: `/inbox` filtered by role and assignee; cards for approval, external action (tool, target record, change, current state), request, extraction review; `POST /api/inbox/:id/resolve` → resolution + `inbox.resolved` + `sendEvent` to the waiting run. `/threads/[id]` basics (messages with source links, post, `/skill` commands → `skill` node on that agent). `/connections`: connectors, status, connect/disconnect, the tools each gives agents, upload.
+Work
+- `/inbox` filtered by role and assignee; cards for approval, external action (tool, target record, change, current state), request, extraction review, change request. `POST /api/inbox/:id/resolve` → resolution + `inbox.resolved` + `sendEvent` to the waiting run. Approver for external actions from the tenant setting (`client_admin` default, `advisor` when delegated); every approval records who.
+- Advisor console `/clients`: the advisor's tenants with open approvals, failed runs, change requests and spend; tenant switcher. Client setup `/clients/[id]/setup`: create tenant, invite users (WorkOS invitations), connect links (§1.2), approval delegation, packs.
+- Change requests: "Request a change" from Home, an agent, a workflow or a node; `/requests` (client: mine; advisor: queue).
+- Role checks on every route (§1.2) and the contract test.
+- `/threads/[id]` basics (messages with source links, post, `/skill` commands → `skill` node on that agent). `/connections`: connectors, status, connect (client_admin, via connect link or directly), disconnect, the tools each gives agents, upload.
 
-Tests: resolving an approval resumes the waiting run (Workers pool); client_user sees only items assigned to them; `/skill` parsing.
+Tests: resolving an approval resumes the waiting run (Workers pool); client_user sees only items assigned to them; a connect link is single use, expires, and can't be used for another tenant; the route-role contract test; `/skill` parsing.
 
-**Done when** resolving an approval in the UI continues the waiting run.
+**Done when** resolving an approval in the UI continues the waiting run, and an advisor creates a client, invites its admin, and sees that admin's change request in the console.
 
 ### M6: Agents UI, Skills library, Builder
 
 Work
-- `/agents`, `/agents/new` (from scratch: name, role, mission, instructions, model; or describe → Builder), `/agents/[slug]` editor: identity, instructions, skills picker with per-skill settings, extra tools, permissions (with the external-never-auto rule shown), budgets, version history with change notes and diffs, publish, rollback, spend.
+- Advisor-only editing; client_admins get the same screens read-only with "Request a change".
+- `/agents`, `/agents/new` (from scratch: name, role, mission, instructions, model; or describe → Builder, optionally from a change request), `/agents/[slug]` editor: identity, instructions, skills picker with per-skill settings, extra tools, permissions (with the external-never-auto rule shown), budgets, version history with change notes and diffs, publish, rollback, spend.
 - `/skills` library: built-in and custom, availability with reasons; custom skill editor (§1.2) with draft/publish.
 - Builder: `draft-agent` and `revise-agent` (ARCHITECTURE §9.6) producing an agent definition **and** workflow graphs; server guards; drafts open in the editor and the canvas.
 
-Tests: guards hold even when the model output violates them (external tool in `auto`, unknown skill, invalid graph); diff sentences; skill availability rules; the Builder script below in replay mode.
+Tests: guards hold even when the model output violates them (external tool in `auto`, unknown skill, invalid graph); diff sentences; skill availability rules; a client_admin gets 403 on every edit/publish route; the Builder script below in replay mode.
 
-**Done when** an agent created from scratch with two skills publishes; "flag card charges over $500 missing receipts" produces a valid draft with gaps listed (no card connector); revise creates v2 with a diff; rollback works.
+**Done when** an advisor's agent created from scratch with two skills publishes; a client_admin can view it but not edit or publish; "flag card charges over $500 missing receipts" produces a valid draft with gaps listed (no card connector); revise creates v2 with a diff; rollback works.
 
 ### M7: Workflow canvas and run view
 
@@ -208,10 +221,11 @@ Work (`apps/web`, ARCHITECTURE §10.5)
 - Inspector: forms generated from skill/tool input schemas; template picker of upstream outputs valid at the node; settings with defaults.
 - Live validation (shared `packages/core` code) with node badges and a clickable summary; save draft; test run with a chosen payload (sample event, recent record, manual input); publish; version history with rollback and a visual diff.
 - Run view: the canvas read-only, nodes coloured by `step_run` status, cost per node, side panel with input, output, tool calls and inbox items; polls while running.
+- Client view: the canvas read-only (no palette, disabled inspector) with "Request a change" on the workflow or a selected node.
 
 Tests: component tests for add, connect, delete, undo, invalid markers; a round trip (canvas → graph JSON → canvas) keeps every node, edge and position; the done-when script as a Playwright test against `pnpm dev`.
 
-**Done when** a 5-node workflow (trigger → skill → condition → approval → notify) is built on the canvas, test-run, published, and a live run's nodes change state on the run view.
+**Done when** an advisor builds a 5-node workflow (trigger → skill → condition → approval → notify) on the canvas, test-runs and publishes it, a live run's nodes change state on the run view, and the client raises a change request from a node.
 
 ### M8: Materials pack and Pia
 
@@ -237,11 +251,21 @@ Tests: mappers on `fixtures/qbo/*`; webhook signature; token refresh rotation; s
 
 **Done when** a sandbox company syncs, a Bill with an attachment flows through intake, and an approved `qbo.attachable.upload` attaches the invoice in the sandbox.
 
-### M10: Home, polish, end-to-end
+### M10: Gmail
 
-Work: Home (what agents did, what needs you, spend); thread view polish; every alert and external action links to its thread and run; empty states and first-run guidance (connect a tool → enable a pack or create an agent).
+First, check Google's current documentation: scope classifications for `gmail.readonly`, `gmail.labels` and `gmail.compose`; OAuth app verification and the security assessment for restricted scopes; the user cap and warning for unverified apps; refresh-token expiry for apps in "testing" status; `history.list` retention; quotas. Record the findings and the chosen route (verified app, or domain-wide delegation for Workspace clients) in `packages/connectors/src/gmail/NOTES.md`.
 
-Tests: Playwright e2e: create an agent from scratch → build its workflow on the canvas → publish → upload a document → approve in the inbox → see the run complete (ARCHITECTURE §19).
+Work: OAuth (authorize, callback, encrypted tokens, refresh); the connection's ingestion query (advisor-set, default per ARCHITECTURE §6.4) and its editor on `/connections`; sync per §1.2 (history polling, expiry fallback, attachments as documents, dedupe by sha256, link to transactions with the sender domain as a signal); read tools `gmail.message.search`, `gmail.message.get`, `gmail.attachment.get`; write tools `gmail.draft.create`, `gmail.label.apply` behind approval; the Gmail step in `docs.find-support`; disconnect revokes the token and stops sync. Pia's template gains the Gmail draft and label steps (a new template version; tenants that enabled the pack get it as a draft for their advisor to publish).
+
+Tests: sync against recorded Gmail API fixtures (`fixtures/gmail/`): only query matches are stored, bodies are not; history expiry falls back to search; attachments dedupe; draft and label tools only run after approval and run once; email body text reaches agents only inside tool results.
+
+**Done when** a test mailbox connects, an emailed invoice is found for its QBO transaction and flows through intake, and an approved `gmail.draft.create` appears in the mailbox's drafts.
+
+### M11: Home, polish, end-to-end
+
+Work: Home (what agents did, what needs you, spend); thread view polish; every alert and external action links to its thread and run; empty states and first-run guidance for advisors (create client → invite → connect links → enable a pack or create an agent) and for clients (connect your tools → your inbox).
+
+Tests: Playwright e2e: an advisor creates a client and an agent → builds its workflow on the canvas → publishes → the client uploads a document → approves in the inbox → both see the run complete (ARCHITECTURE §19).
 
 **Done when** the e2e passes against `pnpm dev`.
 
@@ -249,7 +273,7 @@ Tests: Playwright e2e: create an agent from scratch → build its workflow on th
 
 ## 5. Things to verify, not assume
 
-- Intuit API details (M9, see above).
+- Intuit API details (M9) and Google's Gmail and verification rules (M10), see those milestones.
 - Anthropic: PDF input limits, the tool-use output format with `tool_choice`, and current model prices (M2/M4). Model ids come from agent definitions, with defaults in §2 of the architecture.
 - Cloudflare Workflows (the deploy spike): `waitForEvent` event-type naming rules and maximum timeout (the 5-day doc request must fit); whether an event sent just before the wait starts is kept or lost (the check-before-wait in §1.2 covers the common case); `create` refusing a used instance id; step result size and step count limits; testing waits in `@cloudflare/vitest-pool-workers`. Plenary Labs uses `step.do` and `step.sleep` but not `waitForEvent`, so this part is new.
 - Neon + Hyperdrive: `cs_worker` created with SQL on Neon, `force row level security`, and that Hyperdrive's transaction pooling keeps `set_config(..., true)` inside the transaction (session-level settings would leak between requests).
@@ -267,6 +291,9 @@ Tests: Playwright e2e: create an agent from scratch → build its workflow on th
 | RLS bypassed by connecting as owner | The Worker only has `cs_worker`; a test asserts `current_user` isn't the owner in the request path. |
 | Workflows' wait semantics differ from this plan | Checked in the M0 deploy spike, before the executor is built on them. The executor only sees `StepRunner`, so a change stays in `apps/api`. |
 | QBO app approval delays | Upload connector is the demo path; M9 runs only against the sandbox. |
+| Google verification for Gmail's restricted scopes takes weeks, or testing-mode tokens expire after 7 days | Start the Google app verification as soon as M10 begins, in parallel with the build; for Workspace clients, domain-wide delegation granted by their admin avoids it; upload and QBO attachments cover the demo meanwhile. |
+| A malicious email steers an agent | Email text only ever reaches a model inside tool results; Gmail writes are drafts and labels, each approved; ingestion is limited to the connection's query. |
+| Advisors become the bottleneck | The advisor console ranks what needs attention across clients; the Builder drafts from change requests; self-serve can be switched on per tenant later on the same model. |
 
 ## 7. Owner answers and open questions
 
@@ -278,9 +305,12 @@ Answered (2026-11-03)
 - Stack: match Plenary Labs fully: Vite + React + Hono instead of Next.js, Cloudflare Workflows instead of Inngest (ARCHITECTURE v0.2).
 
 - Product shape: an agent platform (connections, skills, agents, drag-and-drop workflows, write-back); material cost management is the first agent, as a pack (ARCHITECTURE v0.3).
+- Managed service: advisors review, build and publish; clients connect, approve and request changes (ARCHITECTURE v0.4).
+- Connectors: QuickBooks Online and Gmail first, plus upload (ARCHITECTURE v0.4).
+- `main` created from the setup branch (2026-11-03).
 
 Open
 1. Groundwork: is there a package or token file to import, or should M0 copy the tokens in by hand? (Probably answered by the design upload.)
 2. First QBO writes: proposal is `qbo.attachable.upload` first, then `update_memo` and `update_purchase_cost` (ARCHITECTURE §20).
-3. Connectors after QBO and upload: email inbox, Google Drive, card/bank feeds, Slack? This orders post-v1 work.
-4. Publishing: can client_admins publish agents themselves, or does an advisor review first?
+3. Gmail: which mailbox the millwork shop uses for invoices (shared `ap@` box or a person's), and whether they're on Google Workspace (decides verified app vs domain-wide delegation, ARCHITECTURE §20).
+4. Approvals: should external actions default to the client approving, or do some clients want their advisor to approve on their behalf? (Both are supported; this sets the default.)

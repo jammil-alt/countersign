@@ -1,5 +1,11 @@
-# Back Office Agent Platform — Architecture v0.3
+# Back Office Agent Platform — Architecture v0.4
 
+> **v0.4 (2026-11-03, owner):** a **managed service**, not self-serve. Advisors (our team) build, review and
+> publish every agent, skill and workflow; clients connect their tools, approve what agents want to do,
+> answer requests, see their agents' work read-only, and ask for changes. Connectors for v1:
+> **QuickBooks Online and Gmail**, plus upload. Changed: §1, §4, §6.4 (new), §7, §9.2, §9.6, §10.5, §11,
+> §12.2, §14, §15, §16, §17, §18, §20.
+>
 > **v0.3 (2026-11-03, owner):** the product is the **agent platform**. A business connects its tools in
 > one place; people create agents from scratch, give them skills, and lay out their work as a
 > drag-and-drop workflow; agents run that work, ask people when they must, and update the connected
@@ -22,21 +28,27 @@ design system. This file covers how to build it.
 
 ## 1. What we are building
 
-A multi-tenant **agent platform for back-office work**. For each business (a tenant):
+A multi-tenant **agent platform for back-office work, run as a managed service.** Our advisors set up and
+run agents for each client business (a tenant); the client connects its tools, approves what agents want
+to do, and sees the work. For each tenant:
 
-1. **Connect your tools in one place.** QuickBooks Online first, plus file upload. Each connection brings
-   its data in and exposes **tools**: actions an agent can take against that system, reads and writes.
+1. **Connect your tools in one place.** QuickBooks Online and Gmail, plus file upload. The client grants
+   access (OAuth) from a link the advisor sends. Each connection brings its data in and exposes **tools**:
+   actions an agent can take against that system, reads and writes.
 2. **A library of skills.** A skill is a reusable capability ("extract an invoice", "find the receipt for
    a transaction", "match line items to the catalog", "write a weekly summary"): instructions plus the
    tools it needs, with typed input and output. Skills come built in (from the platform and from packs)
-   or are written by the customer.
-3. **Create an agent from scratch,** or describe it in plain language and let the Builder draft it. An
-   agent has an identity, instructions, a set of skills, permissions and budgets. Every change is a new,
-   immutable version.
-4. **Lay out the agent's work on a canvas.** Drag in a trigger, skill steps, conditions, approvals,
-   requests to people, tool actions and notifications; connect them; test; publish.
+   or are written by advisors for a client.
+3. **An advisor creates an agent from scratch,** or describes it in plain language and lets the Builder
+   draft it. An agent has an identity, instructions, a set of skills, permissions and budgets. Every
+   change is a new, immutable version, and only an advisor publishes one.
+4. **The advisor lays out the agent's work on a canvas.** Drag in a trigger, skill steps, conditions,
+   approvals, requests to people, tool actions and notifications; connect them; test; publish. The client
+   sees the same canvas read-only, so they can follow what their agent does.
 5. **Agents do the work and update the tools.** Runs are durable, logged step by step with cost, and
-   every write to a connected system goes through a person's approval in v1.
+   every write to a connected system goes through a person's approval in v1, by default the client's.
+6. **Clients ask, advisors change.** A client asks for a new agent or a change from the app; it lands in
+   the advisor's queue as a change request, and the advisor builds, tests and publishes it.
 
 ### Concepts
 
@@ -65,15 +77,19 @@ packages never import a pack (§3).
 ### v1 scope (build today)
 
 In:
-- Tenancy, auth, roles (advisor, client_admin, client_user)
+- Tenancy, auth, roles (advisor, client_admin, client_user); **advisor console** across clients;
+  advisor-led onboarding (create tenant, invite client users, send connect links)
 - Connector framework (manifest: auth, synced entities, tools). Connectors: **QuickBooks Online**
-  (sandbox + production; read sync plus write tools) and **upload** (PDF/image documents, CSV)
+  (sandbox + production; read sync plus write tools), **Gmail** (find invoices and receipts in a
+  mailbox; drafts and labels as write tools), and **upload** (PDF/image documents, CSV)
 - Documents capability: store originals, extract with Claude, validate, link to records
-- **Skills library:** built-in skills from the platform and packs; **custom skills** authored in the UI
-  (instructions + a selection of existing tools + input/output fields). No custom code
-- **Agents:** create from scratch or with the Builder, edit, immutable versions, publish, rollback
-- **Workflow canvas:** drag-and-drop editing of workflow graphs with live validation, drafts, versions,
-  publish, rollback, and **test runs**
+- **Skills library:** built-in skills from the platform and packs; **custom skills** authored by advisors
+  in the UI (instructions + a selection of existing tools + input/output fields). No custom code
+- **Agents:** advisors create from scratch or with the Builder, edit, immutable versions, publish,
+  rollback; clients see them read-only
+- **Workflow canvas:** advisors edit workflow graphs by drag and drop with live validation, drafts,
+  versions, publish, rollback and **test runs**; clients see the canvas and run view read-only
+- **Change requests:** clients ask for new agents or changes; advisors work them from a queue
 - Workflow engine executing stored graphs; triggers by event, schedule, manual and command
 - **Write-back:** external tools act on connected systems, always behind an approval in v1, with an
   audit record per action
@@ -81,7 +97,10 @@ In:
 - **Materials pack:** catalog, matching, prices, alerts, Price watch; Pia and her two workflows
 
 Out (designed for, not built):
-- Connectors beyond QBO and upload (email inboxes, Google Drive, bank and card feeds, Slack); code steps
+- **Client self-serve building** (clients creating or publishing agents, skills or workflows): the roles
+  and screens are designed so it can be switched on per tenant later
+- Connectors beyond QBO, Gmail and upload (Outlook, Google Drive, bank and card feeds, Slack); Gmail
+  push notifications (v1 polls); sending email without a person's approval; code steps
   in workflows; per-tool auto-approval of external writes; sharing agents, skills or packs across
   tenants (marketplace); A/B versions; outbound SMS; custom collections and custom fields UI
 - Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials
@@ -162,10 +181,20 @@ Dependency rules (enforced by `scripts/check-deps.mjs`):
 
 - Every tenant table has `tenant_id uuid not null`, with Postgres Row Level Security keyed on the
   `app.tenant_id` setting, set per transaction; queries also filter by tenant.
-- Roles: `advisor` (works across the tenants they're assigned to; builds and publishes agents),
-  `client_admin` (connects tools, builds and publishes agents for their own business, approves),
-  `client_user` (inbox items assigned to them, threads, pack screens).
-- Tables: `tenant`, `app_user`, `membership(tenant_id, user_id, role)`.
+Managed service: advisors build, clients use and approve.
+
+| Role | Who | Can |
+|---|---|---|
+| `advisor` | Our team, across the tenants they're assigned to | Create tenants, invite client users, send connect links, enable packs; create, edit, test, **publish** and roll back agents, skills and workflows; use the Builder; work change requests; see everything in their tenants; approve on a client's behalf when the client has delegated it |
+| `client_admin` | The client's owner or manager | Connect and disconnect tools (OAuth); approve external actions and reviews (default approver); answer requests; invite client users; see agents, workflows and runs read-only; raise change requests |
+| `client_user` | Client staff | Inbox items assigned to them, threads, pack screens; raise change requests |
+
+- Tables: `tenant(id, name, settings jsonb, workos_organization_id, created_at)`, `app_user`,
+  `membership(tenant_id, user_id, role)` (an advisor's membership in a tenant is their assignment to it;
+  the advisor console lists the tenants where they are `advisor`).
+- Tenant setting `approvals.external_actions`: `client_admin` (default) or `advisor` (the client has
+  delegated approvals). Every approval records who approved.
+- Publishing is advisor-only in v1. Self-serve is a later per-tenant switch, not a different data model.
 
 ---
 
@@ -177,8 +206,9 @@ stated). Three groups: platform, shared business records, pack tables.
 ### 5.1 Connections and raw data
 
 ```
-connection(id, tenant_id, connector /*'qbo'|'upload'*/, status, external_account_id /*QBO realmId*/,
-           credentials_encrypted jsonb, last_sync_at, sync_cursor jsonb, created_at)
+connection(id, tenant_id, connector /*'qbo'|'gmail'|'upload'*/, status, external_account_id
+           /*QBO realmId, Gmail address*/, credentials_encrypted jsonb, config jsonb /*e.g. Gmail query*/,
+           last_sync_at, sync_cursor jsonb /*QBO CDC time, Gmail historyId*/, connected_by, created_at)
 
 raw_record(id, tenant_id, connection_id, connector, entity_type, external_id,
            external_version /*QBO SyncToken*/, payload jsonb, synced_at, is_deleted bool)
@@ -260,7 +290,7 @@ thread(id, tenant_id, subject_type, subject_id, title, status, step_budget int, 
 message(id, tenant_id, thread_id, sender_type /*agent|user|system*/, sender_id, agent_version_id null,
         kind /*text|command|result*/, command text null, body jsonb, sources jsonb, created_at)
 
-inbox_item(id, tenant_id, kind /*approval|review|request|extraction_review|external_action*/, pack null,
+inbox_item(id, tenant_id, kind /*approval|review|request|extraction_review|external_action|change_request*/, pack null,
            subject_type, subject_id, run_id null, assignee_user_id null, assignee_role, title,
            payload jsonb, status /*open|resolved|expired*/, resolution jsonb, due_at, created_at,
            resolved_at)
@@ -346,6 +376,29 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 - Upload CSV of purchases (date, vendor, amount, memo) → `raw_record(connector='upload')` → transactions.
 - The demo path when QBO is not connected.
 
+### 6.4 Gmail
+
+- OAuth 2.0 with Google, granted by the client for one mailbox (a shared `invoices@` / `ap@` box is the
+  usual case; a person's mailbox works too). Scopes: `gmail.readonly` (search and read),
+  `gmail.labels` (create and apply labels), `gmail.compose` (create drafts). Tokens encrypted like QBO's.
+  Verify current scope classifications and Google's app verification rules before launch (§20).
+- **What is ingested is narrow:** each connection has a Gmail search query set by the advisor (default:
+  messages with PDF or image attachments from the last 90 days, from vendor addresses/domains known in
+  `vendor` plus any added by the advisor, or carrying a chosen label). Only matching messages are
+  synced: headers and snippet to `raw_record(entity_type='Message')`, attachments to `document(source=
+  'email')`. Bodies are fetched on demand through a tool, never bulk-stored.
+- Incremental sync: `users.history.list` from the stored `historyId` every 5 minutes (cron), falling back
+  to a bounded search when the history id has expired. Push notifications (Pub/Sub `watch`) later.
+- Matching: email attachments are linked to transactions like uploads (vendor + total + date), with the
+  sender domain as an extra vendor signal.
+- **Tools, read** (`none`): `gmail.message.search` (query within the connection's scope),
+  `gmail.message.get` (headers, body text, attachment list), `gmail.attachment.get` (stores the file as a
+  document).
+- **Tools, write** (`external`, approval required): `gmail.draft.create` (e.g. ask a purchaser or vendor
+  for a missing invoice; a person sends it from Gmail), `gmail.label.apply` (e.g. label processed
+  invoices). Sending is out of v1 scope.
+- Email content is untrusted input (§16): bodies and attachments reach agents only as tool results.
+
 ---
 
 ## 7. Documents capability
@@ -353,8 +406,9 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 A platform capability any pack or custom skill can use; exposed as tools (`docs.*`, §9.4).
 
 - Store: originals in R2 keyed by sha256, never mutated.
-- Locate support for a transaction: connector attachments first, then uploaded documents (vendor + total
-  + date match), then a request to a person (inbox).
+- Locate support for a transaction: connector attachments first (QBO Attachables), then email (Gmail
+  documents already synced, then a scoped Gmail search), then uploaded documents (vendor + total + date
+  match), then a request to a person (inbox, or a Gmail draft to the purchaser for approval).
 - Extract: send the document to Claude as a PDF or image content block with a forced tool whose input
   schema is `InvoiceExtraction` (Zod → JSON Schema): header fields, lines[], subtotal, freight,
   surcharges[], tax, total, per-field confidence, page refs.
@@ -434,7 +488,7 @@ const SkillDefinition = z.object({
 
 - **Built-in skills** are code: platform skills (`docs.find-support`, `docs.extract`, `threads.summarize`,
   `inbox.ask`) and pack skills (`materials.*`). Their version is the package version.
-- **Custom skills** are written in the Skills library: name, description, instructions, a selection of
+- **Custom skills** are written by advisors in the Skills library: name, description, instructions, a selection of
   existing tools, input and output fields (a form that produces the JSON Schema), settings. Always mode
   `agent`. Saved as `skill_version` rows with the same draft → publish → rollback rules as agents.
 - A skill is available to a tenant only when its `requiresConnectors` are connected and its
@@ -508,7 +562,9 @@ runAgent({ tenantId, agentRef, skill | task, input, threadId?, runContext }): Pr
   human-readable diff (field-level JSON diff rendered as sentences).
 - Server guards: Zod validation, graph validation (§10.2), `permissions.mode='suggest_only'` for new
   agents, `external` tools never in `auto`, saved as `draft`. The draft opens in the agent editor and the
-  canvas for the person to adjust before publishing.
+  canvas for the advisor to adjust, test and publish.
+- The Builder is an advisor tool. A client's change request can be handed to it as the description, with
+  the advisor reviewing the result.
 
 ### 9.7 Platform agents (seeded per tenant as v1 rows)
 
@@ -596,7 +652,9 @@ by test runs are tagged with the run so the run view can show them.
 
 ### 10.5 The canvas
 
-Route `/agents/[slug]/workflows/[workflow]`; the owner's designs give the look.
+Route `/agents/[slug]/workflows/[workflow]`; the owner's designs give the look. Advisors edit; clients
+get the same canvas read-only (no palette, inspector fields disabled) with a "Request a change" action
+that opens a change request pinned to the workflow, or to a node.
 - **Palette** (left): Triggers (events, schedule, manual, command); Skills (the agent's skills first, then
   the library, available ones only); Logic (condition, loop, wait); People (approval, request); Tools
   (connector actions, grouped by connection); Notify; End. Drag onto the canvas to add.
@@ -616,7 +674,9 @@ Route `/agents/[slug]/workflows/[workflow]`; the owner's designs give the look.
 
 - Inbox kinds: `approval`, `review` (a pack's review, e.g. match review), `request` (ask a person for a
   document or answer), `extraction_review`, `external_action` (approve a write to a connected tool:
-  shows the tool, the target record, the change, and the record's current state).
+  shows the tool, the target record, the change, and the record's current state), `change_request`
+  (a client asks for a new agent or a change; assigned to the tenant's advisors; resolved by linking the
+  versions that were published for it).
 - Resolving an item writes `resolution`, emits `inbox.resolved` and sends the event to the waiting run.
 - Every run creates or appends to a thread for its subject (transaction, catalog item, vendor, week).
   Messages carry `sources` (record ids) rendered as links.
@@ -683,22 +743,24 @@ match review in the Inbox (`review` kind).
 
 Template agent **Pia** (`purchasing`, functional): skills `docs.find-support`, `docs.extract`,
 `materials.match-line`, `materials.record-prices`, `materials.price-check`, `materials.vendor-compare`,
-`materials.weekly-digest`; extra tool `qbo.attachable.upload` (approval).
+`materials.weekly-digest`; extra tools `qbo.attachable.upload`, `gmail.draft.create`, `gmail.label.apply`
+(all approval).
 
 Template workflows (graphs, editable on the canvas):
 
 **purchase-intake** (trigger: event `transaction.created`)
-1. skill `docs.find-support`
-2. condition found? else → request (inbox doc request to the client admin; email if configured;
-   remind 2d; timeout 5d → notify advisor)
+1. skill `docs.find-support` (QBO attachments, then Gmail, then uploads)
+2. condition found? else → request (inbox doc request to the client admin, plus a `gmail.draft.create`
+   to the purchaser when Gmail is connected (approval); remind 2d; timeout 5d → notify advisor)
 3. skill `docs.extract`
 4. condition totals_match? else → approval (extraction review)
 5. loop over lines → skill `materials.match-line` (auto-match ≥ threshold; else review in the inbox and
    wait)
 6. skill `materials.record-prices`
 7. skill `materials.price-check` (raise alerts with evidence)
-8. tool `qbo.attachable.upload` when the document came from upload and the transaction from QBO
-   (external: approval) // only if a QBO connection exists
+8. tool `qbo.attachable.upload` when the document came from Gmail or upload and the transaction from
+   QBO (external: approval) // only if a QBO connection exists
+9. tool `gmail.label.apply` "Processed" when the document came from Gmail (external: approval)
 
 **weekly-price-review** (trigger: schedule Mondays 7:00 tenant tz)
 1. skill `materials.weekly-digest` (changes, creep, vendor spread, new surcharges, dollar impact)
@@ -773,7 +835,10 @@ on "same" at the auto threshold.
 
 ```
 Connections   GET  /api/connectors                      (manifests + tenant status + tools)
+              POST /api/connections/:connector/connect-link (advisor: a link the client opens)
               POST /api/connections/qbo/authorize       GET  /api/connections/qbo/callback
+              POST /api/connections/gmail/authorize     GET  /api/connections/gmail/callback
+              PATCH /api/connections/:id {scopeQuery}   (Gmail ingestion query; advisor)
               POST /api/connections/:id/sync            POST /api/webhooks/qbo
               DELETE /api/connections/:id
 Documents     POST /api/uploads (multipart)             GET  /api/documents/:id (signed URL + extraction)
@@ -796,11 +861,15 @@ Inbox         GET  /api/inbox?kind=&status=             POST /api/inbox/:id/reso
 Actions       GET  /api/external-actions?status=
 Alerts        GET  /api/alerts?status=                  PATCH /api/alerts/:id
 Threads       GET  /api/threads/:id                     POST /api/threads/:id/messages
-Packs         GET  /api/packs                           POST /api/packs/:id/enable
+Packs         GET  /api/packs                           POST /api/packs/:id/enable (advisor)
+Clients       GET  /api/clients (advisor console)       POST /api/clients (create tenant; advisor)
+              POST /api/clients/:id/invites             PATCH /api/clients/:id/settings
+Requests      POST /api/change-requests {subject, text} (client)
 Materials     GET  /api/materials/catalog?category=&q=  POST /api/materials/catalog/:id/merge
               GET  /api/materials/prices?item=&vendor=&from=&to=
 ```
-All bodies validated with Zod; all handlers resolve the tenant from the session.
+All bodies validated with Zod; all handlers resolve the tenant from the session and check the role
+(§4): every create/edit/publish route for agents, skills, workflows and packs is advisor-only.
 
 ---
 
@@ -808,14 +877,17 @@ All bodies validated with Zod; all handlers resolve the tenant from the session.
 
 | Screen | Route | Role |
 | --- | --- | --- |
+| Advisor console (my clients: open approvals, failed runs, change requests, spend) | `/clients` | advisor |
+| Client setup (users, connect links, packs, approval delegation) | `/clients/[id]/setup` | advisor |
 | Home (what agents did, what needs you) | `/` | all |
-| Connections (connectors, status, tools they give agents) | `/connections` | client_admin, advisor |
-| Skills library (built-in + custom; create/edit custom skill) | `/skills`, `/skills/[id]` | client_admin, advisor |
-| Agents directory | `/agents` | client_admin, advisor |
-| New agent (from scratch, or describe → Builder draft) | `/agents/new` | client_admin, advisor |
-| Agent editor (identity, instructions, skills + settings, permissions, budgets, versions) | `/agents/[slug]` | client_admin, advisor |
-| Workflow canvas (edit, validate, test run, publish, history) | `/agents/[slug]/workflows/[workflow]` | client_admin, advisor |
-| Runs + run view on the canvas | `/runs`, `/runs/[id]` | client_admin, advisor |
+| Connections (connect/disconnect, status, tools they give agents; Gmail ingestion query) | `/connections` | client_admin (connect), advisor (query, view) |
+| Skills library (built-in + custom; create/edit custom skill) | `/skills`, `/skills/[id]` | advisor |
+| Agents directory | `/agents` | advisor (edit), client_admin (view) |
+| New agent (from scratch, or describe → Builder draft) | `/agents/new` | advisor |
+| Agent editor (identity, instructions, skills + settings, permissions, budgets, versions) | `/agents/[slug]` | advisor (edit), client_admin (view) |
+| Workflow canvas (edit, validate, test run, publish, history) | `/agents/[slug]/workflows/[workflow]` | advisor (edit), client_admin (view) |
+| Runs + run view on the canvas | `/runs`, `/runs/[id]` | advisor, client_admin |
+| Change requests (raise; advisor queue) | `/requests` | all (raise), advisor (work) |
 | Inbox (approvals, external actions, reviews, requests) | `/inbox` | all (filtered) |
 | Thread | `/threads/[id]` | all |
 | Materials: Catalog, Price watch | `/materials/catalog`, `/materials/prices` | per pack screen roles |
@@ -835,7 +907,10 @@ candidates side by side with attribute diffs highlighted; actions Match / New it
   Agents, the Builder and custom skills cannot put an `external` tool in `auto`.
 - Immutable `agent_version`, `skill_version`, `workflow_version`, `raw_record`, `doc_extraction` (trigger
   blocks UPDATE except status columns).
-- Prompt-injection hygiene: document text and vendor descriptions are passed as data in tool results,
+- Email: only messages matching the connection's query are synced; bodies are fetched on demand, not
+  stored in bulk; disconnecting revokes the token and stops sync. Gmail writes are drafts and labels
+  only in v1, each approved.
+- Prompt-injection hygiene: email bodies, document text and vendor descriptions are passed as data in tool results,
   never concatenated into instructions. Custom skill instructions are tenant-authored and run only
   within that tenant, with only the tools the skill lists. Agents cannot change their own permissions.
 
@@ -850,6 +925,7 @@ RUN_WORKFLOW, QBO_SYNC (Workflow bindings), ARTIFACTS (R2 binding)
 STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY   # R2 S3 API, for signed URLs
 ENCRYPTION_KEY                         # 32 bytes base64
 QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI, QBO_ENV=sandbox|production, QBO_WEBHOOK_VERIFIER
+GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
 WORKOS_CLIENT_ID, WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD
 RESEND_API_KEY (optional)
 ```
@@ -867,14 +943,15 @@ Platform first; the Materials agent proves it.
 | M2 | Connector framework, upload connector, documents capability (store, extract, validate) | Upload 3 fixture invoices → extractions match expected JSON within tolerance |
 | M3 | Tool + skill registries, agent runtime, permission gate, external actions, run/step/tool logging | A test agent with `docs.extract` runs end to end and logs cost; an external tool call creates an approval and executes once when approved |
 | M4 | Graph executor, triggers (event, schedule, manual, command), senses outbox, test runs | A seeded graph with condition, loop and approval runs to the end; a test run proposes but never executes external actions |
-| M5 | Inbox, approvals and requests resume runs; threads basics; Connections screen | Resolving an approval in the UI continues the waiting run |
-| M6 | Agents UI: create from scratch, editor, skills picker with settings, versions, publish, rollback; Skills library with custom skills; Builder draft/revise | Create an agent from scratch with two skills and publish it; describe "flag card charges over $500 missing receipts" → valid draft with gaps listed; revise creates v2 with a diff; rollback works |
-| M7 | Workflow canvas: palette, drag and drop, connect, inspector forms, live validation, save draft, test run, publish, history; run view on the canvas | Build a 5-node workflow on the canvas (trigger → skill → condition → approval → notify), test-run it, publish it, and watch a live run's nodes change state |
+| M5 | Inbox, approvals and requests resume runs; change requests; threads basics; advisor console; client setup (invites, connect links); Connections screen | Resolving an approval in the UI continues the waiting run; an advisor creates a client, invites its admin, and sees the client's change request in the console |
+| M6 | Agents UI (advisor edit, client read-only): create from scratch, editor, skills picker with settings, versions, publish, rollback; Skills library with custom skills; Builder draft/revise | An advisor creates an agent from scratch with two skills and publishes it; describe "flag card charges over $500 missing receipts" → valid draft with gaps listed; revise creates v2 with a diff; rollback works; a client_admin can view but not edit or publish |
+| M7 | Workflow canvas: palette, drag and drop, connect, inspector forms, live validation, save draft, test run, publish, history; run view; client read-only view with "Request a change" | An advisor builds a 5-node workflow on the canvas (trigger → skill → condition → approval → notify), test-runs it, publishes it, and watches a live run's nodes change state; the client sees it read-only and raises a change request from a node |
 | M8 | Materials pack: tables, matching (golden tests), pricing and alert rules, Pia + both workflows installed on enable, Catalog, Price watch, match review | Golden tests ≥ 95% precision; Baltic birch matches across 3 vendors; uploading an invoice runs purchase-intake to priced lines with a `price_jump` alert; Pia's workflow opens and edits on the canvas |
 | M9 | QBO connector: OAuth, sync, CDC, attachables, webhooks, read tools, write tools behind approval | Sandbox company syncs; a Bill with an attachment flows through intake; an approved `qbo.attachable.upload` attaches the invoice in the sandbox |
-| M10 | Home screen, thread view, polish, Playwright e2e | e2e: create an agent from scratch → build its workflow on the canvas → publish → upload a document → approve in the inbox → see the run complete |
+| M10 | Gmail connector: OAuth, scoped sync (query + history), attachments as documents, read tools, draft and label tools behind approval; Gmail step in `docs.find-support` | A test mailbox connects; an emailed invoice is found for its QBO transaction and flows through intake; an approved `gmail.draft.create` appears in the mailbox's drafts |
+| M11 | Home screen, thread view, polish, Playwright e2e | e2e: an advisor creates a client and an agent → builds its workflow on the canvas → publishes → the client uploads a document → approves in the inbox → both see the run complete |
 
-If time is short, M0–M8 with the upload connector is the demo; M9 follows.
+If time is short, M0–M8 with the upload connector is the demo; M9 (QBO) and M10 (Gmail) follow.
 
 ---
 
@@ -897,11 +974,16 @@ Decided:
 - Auth: WorkOS (v0.2). Hosting: Cloudflare Workers + Neon + R2 (v0.2).
 - Document requests are inbox-only in v1, routed to a client admin (`docs/plan.md` §1.1).
 - Embeddings: optional; trigram + attributes is enough for v1.
-- Writes to connected tools: always approved by a person in v1 (v0.3).
+- Writes to connected tools: always approved by a person in v1 (v0.3); by default the client_admin,
+  or an advisor when the client delegates (v0.4).
+- Managed service: advisors build and publish; clients view, approve and request changes (v0.4).
+- v1 connectors: QuickBooks Online, Gmail, upload (v0.4).
 
 Open:
 - Which QBO writes ship first. Proposal: `qbo.attachable.upload` (attach the found invoice to its
   transaction); `update_memo` and `update_purchase_cost` follow.
-- Which connectors come after QBO and upload (email inbox for invoices, Google Drive, card/bank feeds,
-  Slack?).
-- Whether client_admins publish agents themselves or an advisor reviews first.
+- Gmail and Google's app verification: Gmail read scopes are restricted, so a public app needs Google's
+  verification and a security assessment; an unverified app shows a warning and has a user cap, and in
+  "testing" status its refresh tokens expire after 7 days. Check the current rules at M10 and choose:
+  verify the app, or (for Google Workspace clients) domain-wide delegation granted by the client's admin.
+- Whether to add sending email (approved) after drafts, and Gmail push notifications instead of polling.
