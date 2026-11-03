@@ -5,8 +5,10 @@ import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type AppDeps, type AppEnv, defaultDeps, requestState } from "./http";
+import { connectionRoutes } from "./routes/connections";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsClientRoutes } from "./routes/ops-clients";
+import { opsLineageRoutes } from "./routes/ops-lineage";
 import { portalRouteHandlers } from "./routes/portal";
 import { sessionRoutes } from "./routes/session";
 import { cronTick } from "./runs/dispatch";
@@ -19,7 +21,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   sessionRoutes(app);
   opsClientRoutes(app);
   opsAgentRoutes(app);
+  opsLineageRoutes(app);
   portalRouteHandlers(app);
+  connectionRoutes(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   return app;
 }
