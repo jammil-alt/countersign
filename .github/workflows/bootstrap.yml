@@ -69,13 +69,28 @@ jobs:
       - name: Neon project
         run: |
           set -euo pipefail
-          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          neon() { curl -sS --fail-with-body -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
           if [ -n "$NEON_PROJECT_ID" ]; then
             project="$NEON_PROJECT_ID"
             echo "Using NEON_PROJECT_ID=$project"
           else
             region="$REGION"
             org="$ORG_ID"
+            if [ -z "$org" ]; then
+              # Neon accounts live in organizations, and listing projects needs one. Use the key's
+              # only organization; with several, stop and list them so the owner picks one (Mezonas
+              # must not land in another project's organization by accident).
+              orgs=$(neon "$NEON/users/me/organizations" | jq -c '[.organizations[]? | {id, name}]')
+              count=$(jq 'length' <<<"$orgs")
+              if [ "$count" = 1 ]; then
+                org=$(jq -r '.[0].id' <<<"$orgs")
+                echo "Using the key's only Neon organization: $(jq -r '.[0].name' <<<"$orgs") ($org)"
+              elif [ "$count" -gt 1 ]; then
+                echo "::error::This Neon key belongs to $count organizations. Re-run with org_id set to one of them:"
+                jq -r '.[] | "  \(.name): \(.id)"' <<<"$orgs"
+                exit 1
+              fi
+            fi
             echo "Region $region${org:+, organization $org}"
             existing=$(neon "$NEON/projects?search=mezonas${org:+&org_id=$org}" \
               | jq -r '[.projects[] | select(.name == "mezonas")][0].id // empty')
@@ -96,7 +111,7 @@ jobs:
       - name: Owner role, database and staging branch
         run: |
           set -euo pipefail
-          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          neon() { curl -sS --fail-with-body -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
           wait_ops() { # Neon applies changes asynchronously; wait until nothing is running
             for _ in $(seq 1 60); do
               running=$(neon "$NEON/projects/$PROJECT/operations?limit=20" \
@@ -134,8 +149,8 @@ jobs:
       - name: Worker role, Hyperdrive and R2
         run: |
           set -euo pipefail
-          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
-          cf() { curl -fsS -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
+          neon() { curl -sS --fail-with-body -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          cf() { curl -sS --fail-with-body -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
 
           provision() { # branch_id, hyperdrive name
             local branch=$1 name=$2 owner_uri worker_password host existing body id
