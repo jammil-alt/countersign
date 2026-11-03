@@ -1,4 +1,7 @@
-# Countersign
+# Mezonas
+
+`countersign` is the code name: the repo and its packages keep it. The product, its domains
+(`app.mezonas.com`) and its cloud resources are Mezonas.
 
 A managed-agents service suite for back-office work. The operator builds and runs agents for client
 businesses from a back office that reaches into every client. Agents are built per client: proven ones
@@ -20,7 +23,7 @@ A Hono API on Cloudflare Workers serving a React + Vite app, Cloudflare Workflow
 Postgres 16 (pgvector, pg_trgm) on Neon through Hyperdrive, R2 for files, WorkOS for sign-in, Anthropic
 models. TypeScript throughout, pnpm workspace, Biome, Vitest.
 
-This is the same stack and set of conventions as Plenary Labs, chosen for consistency. Countersign is a
+This is the same stack and set of conventions as Plenary Labs, chosen for consistency. Mezonas is a
 separate product: it shares no runtime dependency, data, infrastructure, keys or secrets with it.
 
 ## Documents

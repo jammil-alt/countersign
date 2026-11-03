@@ -1,5 +1,10 @@
 # Design: v1 screens (starting point)
 
+> **The design system is now Mezonas** (`packages/design-system`, owner, 2026-11-03): its tokens,
+> components, logos, icons, Geist fonts and brand book replace Groundwork. These v1 screens stay the
+> **layout** reference (what goes where); their colours, type and shapes are superseded. `tokens.css`
+> below is kept for history only.
+
 The owner's first design pass, built on the Groundwork design system. It is the starting point for the
 UI, not a final spec: screens will be reworked as each page is built (owner, 2026-11-03).
 
@@ -7,7 +12,7 @@ UI, not a final spec: screens will be reworked as each page is built (owner, 202
 |---|---|
 | [`v1-screens.html`](v1-screens.html) | The design itself: a self-unpacking page with seven screens (open it in a browser). |
 | [`screens/`](screens/) | A 1440×1000 capture of each screen, for reading without a browser. |
-| [`tokens.css`](tokens.css) | The 137 Groundwork tokens the screens use (colour, type, spacing, radii, shadows, sizes). M0 copies them into `apps/web/src/styles/tokens.css`. |
+| [`tokens.css`](tokens.css) | The 137 Groundwork tokens the screens used. Superseded by `packages/design-system/tokens.css`; kept for history. |
 
 ## What the screens show
 

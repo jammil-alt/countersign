@@ -1,4 +1,8 @@
-# Back Office Agent Platform — Architecture v0.8
+# Mezonas — Architecture v0.8
+
+> **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
+> code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
+> Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
 
 > **v0.8 (2026-11-03, owner):** **approvals are on by default and set step by step.** Every step that
 > changes a client's tool waits for a person unless that step is explicitly set to run without approval,
@@ -207,7 +211,7 @@ Out (designed for, not built):
 | Language | TypeScript everywhere | One language for app, agents, workflows |
 | App | React + Vite single-page app, served as static assets by the API Worker | Same shape as Plenary Labs |
 | API | Hono on Cloudflare Workers; one Zod route contract shared by API and client | |
-| UI | Tailwind + shadcn/ui primitives, themed with Groundwork tokens | Owner's designs; Groundwork components replace shadcn ones where they exist |
+| UI | The Mezonas design system (`packages/design-system`: tokens, component CSS, logos, icons, Geist fonts) with Tailwind mapped to its tokens | Plain CSS from the owner; light and dark themes; brand book in its README |
 | Workflow builder | A nested sortable list (`@dnd-kit/core` + `@dnd-kit/sortable`) | Structured steps and forks (owner's design); no node canvas |
 | DB | Postgres 16 with `pgvector`, `pg_trgm` | Neon, reached from Workers through Hyperdrive; local via Docker |
 | ORM / migrations | Drizzle | Platform schema in `packages/db`, pack schemas in their packs, one migration sequence |

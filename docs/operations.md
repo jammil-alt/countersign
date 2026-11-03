@@ -1,6 +1,6 @@
 # Operations
 
-How Countersign is deployed and what a person has to create by hand. It follows the same setup
+How Mezonas is deployed and what a person has to create by hand. It follows the same setup
 patterns as Plenary Labs (Cloudflare Workers + Workflows, Neon through Hyperdrive, R2, WorkOS, GitHub
 Actions) but shares nothing with it: its own Neon project, Workers, buckets, WorkOS application, keys
 and secrets.
@@ -10,14 +10,25 @@ cloud, save `NEON_PROJECT_ID`. Until then CI and deploy skip their Neon and depl
 
 ## Environments
 
+Mezonas is the product name and the name of every public resource; `countersign` stays the code name
+(repo, packages, database, roles). The domains are on the **mezonas.com** zone, already in Cloudflare.
+
 | | Staging | Production |
 |---|---|---|
 | Deployed by | every push to `main` (`deploy.yml`) | a `v*` tag, or Actions → Deploy → production |
-| Worker | `countersign-staging` (`wrangler deploy --env=staging`) | `countersign` |
-| Neon branch | `staging` | `main` |
-| Hyperdrive | `countersign-db-staging` → Neon `staging` as `cs_worker` | `countersign-db` → Neon `main` as `cs_worker` |
-| R2 bucket | `countersign-staging` | `countersign` |
+| Address | `https://staging.mezonas.com` | `https://app.mezonas.com` |
+| Worker | `mezonas-staging` (`wrangler deploy --env=staging`) | `mezonas` (`--env=production`) |
+| Neon project / branch | `mezonas` / `staging` | `mezonas` / `main` |
+| Hyperdrive | `mezonas-db-staging` → `staging` as `cs_worker` | `mezonas-db` → `main` as `cs_worker` |
+| R2 bucket | `mezonas-staging` | `mezonas` |
+| Email forwarding | `in.staging.mezonas.com` | `in.mezonas.com` |
 | WorkOS | staging environment | production environment |
+
+`apps/api/wrangler.jsonc`'s top level is local development only (dev sign-in) and is never deployed:
+`deploy.yml` always passes `--env=staging` or `--env=production`. The custom domains are created by
+`wrangler deploy` (`custom_domain: true`); the apex `mezonas.com` stays free for a marketing site, and
+other records on the zone (e.g. `datum.mezonas.com`) are untouched.
+// DECISION: app on `app.mezonas.com`, staging on `staging.mezonas.com` (owner to confirm).
 
 CI's own throwaway Neon branches are named `ci-run<id>-<attempt>`, copied from `main` and deleted
 when the run ends.
@@ -31,14 +42,15 @@ dashboard.
 ### Keys for the bootstrap (GitHub → Settings → Secrets and variables → Actions)
 
 1. **Neon API key** (Neon → account menu → Account settings → API keys, or an organization's API key
-   if Countersign should live in a Neon organization) as the secret `NEON_API_KEY`.
+   if Mezonas should live in a Neon organization) as the secret `NEON_API_KEY`.
 2. **Cloudflare API token** with Hyperdrive edit, Workers R2 Storage edit, Workers Scripts edit,
-   Workflows edit and account read, as the secret `CLOUDFLARE_API_TOKEN`; the account id as the secret
+   Workflows edit and account read, plus Zone · Workers Routes edit and Zone · DNS edit on
+   `mezonas.com` (for the custom domains), as the secret `CLOUDFLARE_API_TOKEN`; the account id as the secret
    `CLOUDFLARE_ACCOUNT_ID`. The same token is used by `deploy.yml`.
 
 ### What the bootstrap creates (re-runnable; it looks before it creates)
 
-1. The Neon project `countersign`, Postgres 16, in the region given when running the workflow (the owner
+1. The Neon project `mezonas`, Postgres 16, in the region given when running the workflow (the owner
    chose the same region Plenary Labs uses; it's shown in that project's settings in the Neon console),
    unless the `NEON_PROJECT_ID` variable already names one.
 2. Role `cs_owner` (Neon-managed is fine for the owner) and database `countersign` on `main`; branch
@@ -47,8 +59,8 @@ dashboard.
    `cs_worker` is never created through Neon's console or API: Neon-managed roles join `neon_superuser`
    and would skip row-level security. Each run gives it a new random password per branch, which exists
    only inside the job and in Hyperdrive.
-4. Hyperdrive `countersign-db` (→ Neon `main` as `cs_worker`) and `countersign-db-staging` (→ `staging`).
-5. R2 buckets `countersign` and `countersign-staging`.
+4. Hyperdrive `mezonas-db` (→ Neon `main` as `cs_worker`) and `mezonas-db-staging` (→ `staging`).
+5. R2 buckets `mezonas` and `mezonas-staging`.
 
 After the first run: save the project id from the run summary as the repository **variable**
 `NEON_PROJECT_ID`, and the Hyperdrive ids go in `apps/api/wrangler.jsonc` (M0; ids are not secrets).
@@ -57,12 +69,15 @@ After the first run: save the project id from the run summary as the repository 
 
 1. **R2 S3 credentials** for signed URLs (Cloudflare → R2 → Manage API tokens): Worker secrets
    `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`.
-2. **Custom domains** for the two Workers. Names still to choose.
-3. **Email forwarding** (MVP): a subdomain for inbound mail (e.g. `in.<domain>`) on Cloudflare, with
-   Email Routing enabled and a catch-all rule sending to the Worker (`countersign` / `countersign-staging`
-   use separate subdomains). Worker var `EMAIL_FORWARDING_DOMAIN`.
-4. **WorkOS**: Countersign's own staging and production environments;
-   redirect URIs `https://<domain>/api/auth/callback`; Worker secrets `WORKOS_CLIENT_ID`,
+2. **Custom domains**: nothing by hand. `wrangler deploy` creates `staging.mezonas.com` and
+   `app.mezonas.com` on the `mezonas.com` zone; make sure no existing DNS record uses those names.
+3. **Email forwarding** (when the forwarding connector is built): Cloudflare Email Routing on the
+   `in.mezonas.com` and `in.staging.mezonas.com` subdomains of the `mezonas.com` zone, each with a
+   catch-all rule sending to its Worker (`mezonas` / `mezonas-staging`). Worker var
+   `EMAIL_FORWARDING_DOMAIN`.
+4. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
+   `https://staging.mezonas.com/api/auth/callback` and `https://app.mezonas.com/api/auth/callback`;
+   Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
 
 ### Intuit (QuickBooks Online, from M9)
@@ -74,7 +89,7 @@ After the first run: save the project id from the run summary as the repository 
 
 ### Google (Gmail, from M10)
 
-1. A Google Cloud project for Countersign with the Gmail API enabled.
+1. A Google Cloud project for Mezonas with the Gmail API enabled.
 2. An OAuth consent screen (external) and a web OAuth client with redirect URIs
    `https://<domain>/api/connections/gmail/callback` per environment (and `http://localhost:8787/...` for
    local development).
