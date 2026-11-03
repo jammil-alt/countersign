@@ -1,13 +1,13 @@
 # Countersign: v1 implementation plan
 
-Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.7). This file says *how* and
+Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.8). This file says *how* and
 *in what order*. It follows the Build plan (ARCHITECTURE §18) milestone by milestone. Each milestone
 ends green: `pnpm typecheck && pnpm test` pass and its "done when" check is shown working.
 
 Nothing here adds to the v1 scope in ARCHITECTURE §1. When this plan fills a gap the architecture leaves
 open, it says **DECISION**, and the code carries a `// DECISION:` comment at the spot.
 
-Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1). Product shape: a managed-agents service suite: the operator keeps templates, forks them into each client as that client's own agent, customizes and versions it per client, and merges template updates in; clients get a portal for reports, runs, approvals, requests and **connections (they sign in to their own tools)**. Workflows are structured step lists with forks, per the owner's v1 screens (`docs/design/`). Materials (Pia) is the first template; QuickBooks + Gmail are the v1 connectors (ARCHITECTURE v0.7).
+Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1). Product shape: a managed-agents service suite: the operator keeps templates, forks them into each client as that client's own agent, customizes and versions it per client, and merges template updates in; clients get a portal for reports, runs, approvals, requests and **connections (they sign in to their own tools)**. Workflows are structured step lists with forks, per the owner's v1 screens (`docs/design/`). Materials (Pia) is the first template; QuickBooks + Gmail are the v1 connectors (ARCHITECTURE v0.8). **Building the MVP first** (§3): Pia live for the millwork shop on its own QuickBooks.
 
 ---
 
@@ -20,7 +20,7 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Stack and hosting | **Same as Plenary Labs** (ARCHITECTURE v0.2). `apps/api`: one Hono Worker serving `/api/*`, the built `apps/web` as static assets (`run_worker_first: ["/api/*"]`), the Cloudflare Workflow classes and the cron handler. `apps/web`: React + Vite + React Router. Postgres 16 with pgvector on **Neon** (branches `main` = production, `staging`, plus throwaway `ci-run*` branches per CI run, as in Plenary Labs; environments in `docs/operations.md`). Files in **R2** (Worker binding; S3 API only for signed URLs). Toolchain copied from Plenary Labs: pnpm, TypeScript, Biome, Vitest with `@cloudflare/vitest-pool-workers`. | One stack across projects: same accounts, deploy workflows, runbooks and habits. No Next.js-on-Workers adapter and no second job vendor. Supabase's extras (auth, realtime, storage) are covered by WorkOS, Durable Objects and R2. |
 | DB driver from Workers | **Hyperdrive → Neon, with `postgres-js` + Drizzle.** Locally, Hyperdrive's `localConnectionString` points at Docker Postgres. Fallback: Neon's serverless driver in WebSocket `Pool` mode. | `withTenant()` needs interactive transactions (`set_config(..., true)` then queries). Hyperdrive supports them, and Neon's HTTP mode doesn't. Plenary Labs already reaches Neon through Hyperdrive with Drizzle; check `set_config` inside a transaction in the M0 deploy spike. |
 | Auth provider | **WorkOS (AuthKit), as in Plenary Labs.** Port its `apps/api/src/identity/` (WorkOS client, AES-GCM sealed session cookie with a 5-minute refresh, provisioning on callback). Identity is the WorkOS user, mapped to `app_user`. A WorkOS organization maps to a `tenant` (`tenant.workos_organization_id`). Roles stay in our `membership` table, so an operator can serve many clients. Behind `packages/auth` with two adapters: `workos` (deployed) and `dev` (local + e2e: seeded users, refused when `NODE_ENV=production`). | Already proven in your stack. Covers what Supabase Auth would add (invites, magic links, client self-serve) plus B2B extras for later (SSO, directory sync, an admin portal per client). |
-| Document requests | **Inbox first, routed to an admin; Gmail draft when connected.** `docs.request_from_person` creates an `inbox_item(kind='request', assignee_role='client_admin')`; with Gmail connected, the workflow also proposes a `gmail.draft.create` to the purchaser (approval), which a person sends from Gmail. Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. | No email leaves without a person. |
+| Document requests | **Inbox first, routed to an admin.** A `person` step (ask) goes to the client admin's inbox: forward or upload the missing invoice. With Gmail connected (after the MVP) the workflow can also draft an email to the purchaser (approval on). Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. | No email leaves without a person. |
 | Operating model | **Managed-agents service** (owner, 2026-11-03). One operator (the owner and their team) builds and runs agents for clients from the back office. Agents are built **per client**: reusable ones are **templates**, forked into a client as its own agent, customized for its data and flows, and versioned per client with lineage to the template (ARCHITECTURE v0.6). Clients get a portal and never edit agents. | Every client's data and flows differ, so agents are effectively custom; templates keep that from becoming copy-paste, and lineage lets improvements flow both ways. |
 | v1 connectors | **QuickBooks Online and Gmail**, plus upload (owner, 2026-11-03). Gmail: one mailbox per connection (usually a shared `ap@`/`invoices@`), scopes `gmail.readonly`, `gmail.labels`, `gmail.compose`; only messages matching the connection's query are synced (headers, snippet, attachments); bodies fetched on demand; write tools are drafts and labels, each approved. | Email is where most invoices arrive; narrow ingestion keeps the privacy surface small. |
 | Embeddings | **Ship without vectors.** `catalog_item.embedding` stays nullable. Candidates come from key attributes plus `pg_trgm`. | §20 says trigram + attributes is enough for v1. Adding a provider later is one tool change. |
@@ -51,11 +51,13 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Workflow model | A **structured step list** (owner's design): trigger, then steps run top to bottom; forks hold ordered paths with rules plus otherwise and join afterwards; `for_each` holds nested steps (ARCHITECTURE §10.1). No free-form edges, so validation, execution and merging all walk one tree. // DECISION: an editor session keeps one rolling draft version of the bundle, saved after 2 s of idle editing, so history isn't flooded; publish is what people see in history. |
 | Builder | A nested sortable list with `@dnd-kit/core` + `@dnd-kit/sortable`: drag by handle to reorder, into and out of fork paths and `for_each` blocks; keyboard reordering for accessibility. The add-a-step palette and the inspector's forms are generated from skill and tool schemas, so a new skill appears without UI code. Validation runs in the browser on every change (same code as the server). |
 | Packs | A pack is a workspace package under `packs/` exporting a `PackManifest` (ARCHITECTURE §12.1), tool handlers, a Drizzle schema and Hono routes. Its tables go in the one migration sequence (drizzle config lists every pack schema). `apps/api` registers packs in one list; installing a pack adds its templates once; enabling it for a client is a row in `tenant_pack` and allows forking its templates there. |
-| External actions | A tool call whose gate (connection matrix × agent, ARCHITECTURE §9.5) says `approval` writes `external_action(status='proposed')` and an inbox item in the same transaction; approval flips it to `approved`; `auto` writes it as `approved` by the system. Execution runs in its own `step.do` keyed by the idempotency key (`<run id>:<step id>:<index>`), so a retried step can't write twice. Connectors capture `before` where the API allows (QBO: read the record with its `SyncToken` first), automatic or not. |
+| External actions | Every write to a client's tool is an `external_action`. **Approval is on by default** (§ Step approvals): the action is written `proposed` with an inbox item in the same transaction; approval flips it to `approved`. When a step runs without approval (step `not_required` + connection `auto` + agent mode `act`), it's written `approved` by the system. Execution runs in its own `step.do` keyed by the idempotency key (`<run id>:<step id>:<index>`), so a retried step can't write twice. Connectors capture `before` where the API allows (QBO: read the record with its `SyncToken` first), automatic or not. |
 | Operator skills | Written in the back office as a form (name, description, instructions, a tool picker over every registered tool, input/output field editors that produce JSON Schema, settings with an optional `clientSpecific` flag, an optional summary template). Always `agent` mode. No code. Shared by every agent, or written for one client (`tenant_id` set). |
 | Role checks | The route contract in `packages/core` declares each route's roles; Hono middleware enforces them and sets `app.tenant_ids` (and `app.operator` for operators). Two contract tests: every `/api/ops` route is operator-only; no portal route's response schema includes an agent bundle, instructions, prompts or cost fields. |
 | Connectors in the portal | The operator offers connectors per client (`tenant.settings.connectors_offered`); the client admin signs in to each from the portal's Connections page (provider OAuth; `connection.connected_by` records who). The operator never connects on a client's behalf and never sees credentials. "Remind" emails the client admin a link to the portal page for that connector; it carries no credentials or authority of its own. |
-| Permission matrix | `connection.permissions` per verb (`auto` / `approval` / `off`) plus a connector-specific scope; defaults read auto, create and update approval, delete off. The operator sets it in the back office; the client admin can tighten it in the portal (the API refuses loosening from a client role); each change is a `connection_change` row and applies to the next tool call. |
+| Permission matrix | `connection.permissions` per verb (`auto` / `approval` / `off`) plus a connector-specific scope; for writes it's a **ceiling** (`auto` = steps may skip approval, not that they do). Defaults: read auto, create and update approval, delete off. The operator sets it in the back office; the client admin can tighten it in the portal (the API refuses loosening from a client role); each change is a `connection_change` row and applies to the next tool call, overriding any step set to skip approval. |
+| Step approvals | (owner, 2026-11-03) Every `action` step, and every `skill` step whose tools can write to a client tool, carries `approval: { required: 'required' | 'not_required', approver?, timeout?, onReject }`, **`required` by default**: new steps, forks, Builder drafts and pack templates all start that way. The builder offers switching it off only where the client's connection allows `auto` for that verb; validation refuses `not_required` elsewhere. Approver: the step's, else the agent's, else the client's setting. Steps that only read or only write the platform's own records have no approval setting; a `person` step is the checkpoint for anything else. |
+| Email forwarding (MVP) | Cloudflare Email Routing for `EMAIL_FORWARDING_DOMAIN` → the Worker's `email()` handler; one private address per client on its upload connection (`config.forwarding`), plus allowed senders; MIME parsed with `postal-mime`; PDF and image attachments become `document(source='email')`; headers kept, bodies not. Unknown senders are dropped and counted. // DECISION: forwarding is the MVP's email path; the Gmail connector comes after. |
 | Requests | `inbox_item(kind='change_request')` in the operator's request queue, with the subject (a service, a run, or none for a new service) and the client's text. Resolution links the client agent or template versions made for it. The Builder can take the request text as an instruction for that client's agent. |
 | Bundles and lineage | One `agent_version` holds the whole `AgentBundle` (definition + workflows + settings). Templates and client agents share the `agent` table (`kind`), so versioning, the editor, the builder, test runs and rollback are one code path. Client versions record `based_on_template_version_id`; merges and promotions record `merged_from_version_ids`. Operational fields (bindings, approver, service name, run status) live on the client `agent` row with an append-only `agent_change` log, so rebinding a connection isn't a new version. |
 | Diff and three-way merge | Pure functions in `packages/core` (`diffBundles`, `mergeBundles(base, ours, theirs)`), shared by the server and the merge view. Keys: workflows by `slug`, steps and fork paths by `id` (wherever they sit in the tree), skills by `skill`; objects merge field by field; the order of each step list merges as a sequence (an insert keeps its neighbours; two different reorders, or the same step moved to different places, conflict); other arrays and scalars as whole values. Only-one-side changes are taken; identical changes once; otherwise a conflict `{ path, base, ours, theirs }`. The merged bundle must pass workflow validation before it can be saved. Step and path ids are uuids generated once, copied on fork, never regenerated. |
@@ -110,17 +112,39 @@ and each pack's manifest; nothing in `packages/*` names a pack.
 
 ---
 
-## 3. Demo cutline
+## 3. MVP
 
-ARCHITECTURE §18: if time is short, **M0–M8 with the upload connector is the demo**: the operator builds
-templates and forks them into clients from the back office, and the millwork shop's own Pia runs
-purchase-intake on uploaded invoices while the shop approves in its portal.
-M9 (QBO) and M10 (Gmail) follow.
-Fallback stops that still demo the platform:
-- after **M7**: build an agent from scratch in the builder with platform skills (extract a document,
-  ask for approval, post to a thread), fork it into the sandbox client, watch it run in the back office
-  and on the client timeline;
-- after **M8**: the same, plus Pia end to end on uploaded invoices with Price watch.
+**Goal** (ARCHITECTURE §1): Pia running for the millwork shop on its own QuickBooks. A new bill or
+purchase arrives; Pia finds the invoice (attached in QuickBooks, uploaded, or forwarded by email), reads
+it, matches the lines to the shop's catalog, records prices and raises alerts, and proposes the
+QuickBooks update (itemized lines, invoice attached). The shop approves in the portal and QuickBooks is
+updated. The shop sees the run and Price watch; the operator runs everything from the back office and
+can edit Pia's workflow, publish v2 and roll back.
+
+| Milestone | In the MVP | After the MVP |
+|---|---|---|
+| M0 | All | |
+| M1 | All (lineage columns and the merge functions' types included; merge golden tests may land with the update work) | |
+| M2 | All, **plus email forwarding** (§1.2) | |
+| M3 | All, with step approvals | |
+| M4 | All | |
+| M5 | Back office and portal shells, onboarding, offering connectors, portal Connections (incl. the forwarding address), inbox and approvals | Client requests and the request queue |
+| M6 | Templates and client agents: create, fork, edit, versions, publish, rollback, bindings, test runs, activation; portal services | Builder (drafting agents and skills), operator-written skills, template updates and promotion, detach, copying between clients |
+| M7 | Builder (steps, forks, per-step approval control, inspector, validation), run view, portal run timeline | Merge view; the Builder-assisted new-agent flow |
+| M8 | All | |
+| M9 | All, with the two MVP writes (itemize lines, attach invoice) | Other QBO writes |
+| M10 | | Gmail |
+| M11 | Per-run cost in the run view | Usage and cost views, activity report, CSV export, notification emails |
+
+**MVP exit:** on the shop's production QuickBooks, a new bill from a real vendor runs Pia end to end, the
+client admin approves the update in the portal, and QuickBooks shows the itemized lines and the
+attached invoice; Price watch shows the observation; the operator changes a threshold, publishes v2, and
+rolls back to v1, and runs record which version they ran.
+
+**After the MVP**, in this order unless the owner reorders: template updates and promotion (merge view);
+Gmail; the Builder; operator-written skills; client requests; usage and cost views; notification emails
+and CSV export; threads and `/skill` commands; agents asking other agents. Later: Slack, Google Drive and
+the other connectors in the design; the header command bar.
 
 ---
 
@@ -156,7 +180,7 @@ Tests
 - Migrations apply on an empty DB, roll back, re-apply; the seed runs twice without duplicates.
 - RLS: as `cs_worker`, a session for client A sees nothing of client B on every tenant table (one test loops over the table list); an operator session for {A, B} sees both and nothing of C; no ids set → no rows. Privileges: `cs_worker` is not a member of `neon_superuser` and can't bypass RLS.
 - Immutability: `UPDATE agent_version SET bundle…` fails; `UPDATE … SET status` works; `DELETE` fails. Same for the other version tables, `raw_record` and `doc_extraction`.
-- Merge: golden cases (ARCHITECTURE §19) including a conflict per kind; merge never regenerates ids; fork → edit → merge → rollback round trip.
+- Merge (may land with the update work after the MVP): golden cases (ARCHITECTURE §19) including a conflict per kind; merge never regenerates ids; fork → edit → merge → rollback round trip.
 - Workflow validation: one failing fixture per rule, plus valid fixtures for every step kind; template typing across fork paths (a field produced inside a path is unavailable after the join); rules compile to the expected JSONLogic.
 
 **Done when** migrations apply, RLS holds for client and operator sessions (templates invisible to client sessions), the seed inserts the operator, clients and platform templates, and the validation and merge suites pass.
@@ -164,14 +188,14 @@ Tests
 ### M2: Connector framework, upload, documents
 
 Work
-- `packages/connectors`: `Connector` interface and manifest (ARCHITECTURE §6.1), connector registry, `ObjectStore` (R2 binding; local adapter for tests). `upload/`: files go to `document(source='upload')`, stored once per sha256; CSV of purchases goes to `raw_record(connector='upload')`, then `mapUploadPurchase` produces transactions.
+- `packages/connectors`: `Connector` interface and manifest (ARCHITECTURE §6.1), connector registry, `ObjectStore` (R2 binding; local adapter for tests). `upload/`: files go to `document(source='upload')`, stored once per sha256; **email forwarding** (§1.2): the `email()` handler, per-client addresses, allowed senders, attachments to `document(source='email')`; CSV of purchases goes to `raw_record(connector='upload')`, then `mapUploadPurchase` produces transactions.
 - `packages/core/mappers`: raw → `TransactionInput` (upload now, QBO in M9).
 - `packages/llm`: client wrapper, record/replay, cost accounting, `callTool<T>(schema)`.
 - `packages/documents`: store, `findSupport(transactionId)`, `extract(documentId)` → `doc_extraction` + `doc_line` (always a new row), `validateTotals()` (ARCHITECTURE §7), `linkToTransaction()` by vendor + total + date ±7 days. Platform tools `docs.*` and skills `docs.find-support`, `docs.extract`.
 - `POST /api/uploads`, `GET /api/documents/:id` (5-minute signed URL + latest extraction), `GET /api/connectors`.
 - Fixtures: 3 synthetic millwork invoices (sheet goods, hardwood, hardware/finishes; one with freight + fuel surcharge; one multi-page) plus `*.expected.json`. Recorded LLM responses.
 
-Tests: totals validation (tolerance edges); golden extraction in replay mode (header exact; each line: qty and prices within $0.01, description fuzzy ≥ 0.9); dedupe by sha256; linking window; manifests validate.
+Tests: forwarding accepts only allowed senders, stores attachments once, keeps no bodies (fixture `.eml` files); totals validation (tolerance edges); golden extraction in replay mode (header exact; each line: qty and prices within $0.01, description fuzzy ≥ 0.9); dedupe by sha256; linking window; manifests validate.
 
 **Done when** uploading the 3 fixture invoices produces extractions that match the expected JSON within tolerance.
 
@@ -180,11 +204,11 @@ Tests: totals validation (tolerance edges); golden extraction in replay mode (he
 Work in `packages/agents`.
 - `registry/`: tool registry (platform + connector + pack sources), skill registry (built-ins from code, operator-written skills from `skill_version` rows, shared or per client), agent registry (resolve a client agent's live or given version; availability per client; `createVersion` rejecting a no-op by hash; `publish` in one transaction; `rollback` as a copy), fork (template version → client agent v1, ids kept), and the operational fields with `agent_change`.
 - `runtime/`: `runAgent()` per ARCHITECTURE §9.5: tool-mode skills call their handler; agent-mode skills run the loop with the skill's tools and a `finish` tool typed to the skill output; budgets → `escalated` + inbox item; `sources` required for skills that produce alerts. Document text only ever in tool results (§16).
-- Permission gate and **external actions** (§1.2): `none` runs; `internal` runs if allowed, else approval; `external` follows the strictest of the connection's matrix and the agent: `off` refused, `auto` executes once with before state, `approval` proposes and waits.
+- Permission gate and **external actions** (§1.2): `none` runs; `internal` runs if allowed, else approval; `external` needs approval unless the step says `not_required`, the connection allows `auto` and the agent's mode is `act` (§1.2 Step approvals); `off` is refused.
 - `log/`: `step_run` (with `summary` from the skill's template), `tool_call`, `external_action` rows with tokens and cost; `usage_daily` rollup.
 - A test-only connector (`testkit`) with one read tool and one external write tool, so external actions are tested without QBO.
 
-Tests: version publish/rollback/no-op for agents and skills; the gate gives each verb × connection setting × agent permission × mode the right outcome; an approved external action executes exactly once across a retried step; a rejected one never executes; budget hit escalates; a test agent with `docs.extract` in replay mode.
+Tests: version publish/rollback/no-op for agents and skills; the gate gives each verb × connection setting × step approval × agent mode the right outcome (approval whenever any of them says so); a client tightening the matrix overrides a step at once; an approved external action executes exactly once across a retried step; a rejected one never executes; budget hit escalates; a test agent with `docs.extract` in replay mode.
 
 **Done when** a test template forked into the Sandbox client runs `docs.extract` end to end and logs cost, and its external tool call creates an approval and executes once when approved.
 
@@ -229,7 +253,7 @@ Tests: guards hold even when the model output violates them (external tool in `a
 
 Work (`apps/web`, ARCHITECTURE §10.5, owner's design screens 4–7)
 - Builder: header (name, version badge, counts of steps, forks, actions and approvals; Test run; Publish; tabs); add-a-step palette (triggers from the event catalogue, the agent's skills then the library, actions grouped by tool, people, logic); numbered step list with drag handles, forks as side-by-side paths with "Drop a step here" and "paths join here", `for_each` blocks; delete, undo/redo, keyboard reordering.
-- Inspector: forms generated from skill/tool input schemas; template field picker of upstream outputs valid at the step; fork path rule rows (+ Add condition, + Add path, remove fork); settings with defaults, and on a client agent the template's value beside a customized one; client timeline label and visibility; badges for automatic vs approval actions from the client's permission matrix.
+- Inspector: forms generated from skill/tool input schemas; template field picker of upstream outputs valid at the step; fork path rule rows (+ Add condition, + Add path, remove fork); settings with defaults, and on a client agent the template's value beside a customized one; client timeline label and visibility; for steps that change a tool, the **Approval** control (on by default; "run without approval" offered only where the client's connection allows it) with the approver, and badges for which steps will wait and which run automatically.
 - Live validation (shared `packages/core` code) with step badges and a clickable summary; save draft; test run with a chosen payload (sample event, recent record, manual input); publish; versions with a step-by-step diff and rollback; "Based on template vN" / "Used by"; updates and promotion.
 - **Merge view**: the step list with each step marked added, removed, changed or moved per side; conflicts resolved per step or field; validation on the merged workflow.
 - **Run view** (screen 6): what it did as a checklist with summaries, cost and links; changes to your tools as now / after this change with approve, reject, edit lines; full log.
@@ -258,13 +282,13 @@ Tests: parser tables (`3/4"`, `.75`, `18MM`, `23/32` → `3/4in`; `4X8`, `48X96`
 
 First, check against Intuit's current developer docs: base URLs, minor version, CDC limits, webhook signature header and payload format, Attachable download and upload, sparse updates and `SyncToken` rules, throttling limits and the current API terms. Record the findings in `packages/connectors/src/qbo/NOTES.md`.
 
-Work: OAuth (authorize, callback, encrypted tokens with AES-256-GCM, refresh and persist the new refresh token every time); initial sync with paging; CDC every 15 min plus a webhook nudge (`POST /api/webhooks/qbo` verifies the HMAC and starts a `QboSyncWorkflow` instance for the realm); attachables fetched, stored once per sha256 and linked; per-realm throttle with backoff on 429; QBO mappers including both line detail types; read tools; write tools behind approval with `before` capture and stale-`SyncToken` handling (first write: `qbo.attachable.upload`, ARCHITECTURE §20).
+Work: OAuth from the portal's Connections page (authorize, callback, encrypted tokens with AES-256-GCM, refresh and persist the new refresh token every time); initial sync with paging; CDC every 15 min plus a webhook nudge (`POST /api/webhooks/qbo` verifies the HMAC and starts a `QboSyncWorkflow` instance for the realm); attachables fetched, stored once per sha256 and linked; per-realm throttle with backoff on 429; QBO mappers including both line detail types; read tools; the MVP write tools `qbo.bill.update_lines` / `qbo.purchase.update_lines` (refused if the total would change) and `qbo.attachable.upload`, approval on by default, with `before` capture and stale-`SyncToken` handling.
 
 Tests: mappers on `fixtures/qbo/*`; webhook signature; token refresh rotation; sync is idempotent per `(connection, entity, id, SyncToken)`; a write with a stale token fails cleanly and leaves the action `failed` with the reason.
 
-**Done when** a sandbox company syncs, a Bill with an attachment flows through intake, and an approved `qbo.attachable.upload` attaches the invoice in the sandbox.
+**Done when** a sandbox company syncs, a Bill flows through intake, and approving in the portal itemizes its lines (total unchanged) and attaches the invoice in the sandbox. **MVP exit** (§3) follows on the shop's production QuickBooks.
 
-### M10: Gmail
+### M10: Gmail (after the MVP)
 
 First, check Google's current documentation: scope classifications for `gmail.readonly`, `gmail.labels` and `gmail.compose`; OAuth app verification and the security assessment for restricted scopes; the user cap and warning for unverified apps; refresh-token expiry for apps in "testing" status; `history.list` retention; quotas. Record the findings and the chosen route (verified app, or domain-wide delegation for Workspace clients) in `packages/connectors/src/gmail/NOTES.md`.
 
@@ -319,6 +343,8 @@ Answered (2026-11-03)
 - Hosting: keep Cloudflare + Neon for consistency with Plenary Labs (§1.1). Sign-in: WorkOS, as in Plenary Labs.
 - UI: the owner's v1 screens are in `docs/design/`, a starting point to rework page by page (2026-11-03).
 - Connectors work at the client portal level: the operator builds and offers them, clients sign in to their own tools (2026-11-03).
+- Approvals are on by default and set per step where a step changes a client's tool (2026-11-03).
+- No Slack yet; build an MVP first (2026-11-03).
 - Invoices: build on synthetic invoices; real ones can be added later.
 - Purchaser routing: undecided. Send all doc requests to an admin for now (§1.1).
 - Stack: match Plenary Labs fully: Vite + React + Hono instead of Next.js, Cloudflare Workflows instead of Inngest (ARCHITECTURE v0.2).
@@ -333,7 +359,7 @@ Answered (2026-11-03)
 - `main` created from the setup branch (2026-11-03).
 
 Open
-1. Permission matrix: the design shows some writes as automatic (Gmail drafts and labels, Slack posts, Drive files). The plan defaults every write to approval and lets the operator loosen it per client. Confirm that default.
+1. Email for the MVP: forwarding to a private address (built in, no Google review) instead of Gmail, with the Gmail connector right after. Confirm, or move Gmail into the MVP.
 2. First QBO writes: proposal is `qbo.attachable.upload` first, then `update_memo` and `update_purchase_cost` (ARCHITECTURE §20).
 3. Gmail: which mailbox the millwork shop uses for invoices (shared `ap@` box or a person's), and whether they're on Google Workspace (decides verified app vs domain-wide delegation, ARCHITECTURE §20).
 4. Approvals: should external actions default to the client approving, or do some clients want the operator to approve on their behalf? (Both are supported; this sets the default.)

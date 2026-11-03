@@ -1,5 +1,11 @@
-# Back Office Agent Platform — Architecture v0.7
+# Back Office Agent Platform — Architecture v0.8
 
+> **v0.8 (2026-11-03, owner):** **approvals are on by default and set step by step.** Every step that
+> changes a client's tool waits for a person unless that step is explicitly set to run without approval,
+> which is only possible where the client's connection allows it. A **MVP** is defined (§1): Pia live
+> for the millwork shop on its own QuickBooks; everything else follows. Slack stays out until later.
+> Changed: §1, §6.1, §6.2, §6.5 (new), §9.1, §9.5, §9.6, §10.1, §10.2, §10.5, §16, §18, §20.
+>
 > **v0.7 (2026-11-03, owner's v1 screens, `docs/design/`):** workflows are **structured step lists**
 > (numbered steps, drag to reorder, forks with ordered paths that join again), not free-form graphs, and
 > the builder is a sortable list rather than a node canvas. Each connection has a **permission matrix**
@@ -127,7 +133,33 @@ platform parts; the millwork shop gets its own fork of her, customized to its ve
 approvals. **Nothing in the platform core is material-specific;** a check enforces that platform packages
 never import a pack (§3).
 
-### v1 scope (build today)
+### MVP (build first)
+
+**Goal:** Pia running for the millwork shop on its own QuickBooks. A new bill or purchase arrives; Pia
+finds the invoice (attached in QuickBooks, uploaded, or forwarded by email), reads it, matches the lines
+to the shop's item catalog, records prices and raises alerts, and proposes the QuickBooks update
+(itemized lines and the invoice attached). The shop approves it in the portal and QuickBooks is updated.
+The shop sees the run and Price watch in the portal; the operator runs it all from the back office and
+can change Pia's workflow, publish a new version and roll it back.
+
+In the MVP:
+- Sign-in (WorkOS), one operator, clients (the millwork shop and the sandbox), back office and portal
+  shells, inbox and approvals, the portal's Connections page
+- Connectors: **QuickBooks Online** (sync, read tools, the two write tools in §6.2) and **upload, with
+  email forwarding** (§6.5); documents capability
+- Templates and client agents: create, fork, edit, versions, publish, rollback, bindings, activation
+  (lineage is recorded from the start so updates can come later without a migration)
+- Workflow engine and the step-list builder with forks, person steps and **per-step approvals**; test
+  runs; back-office run view and portal run timeline
+- Materials pack: catalog, matching, prices, alerts, Price watch; Pia forked and customized for the shop
+
+After the MVP, in this order unless the owner reorders: template updates and promotion (three-way merge
+and merge view); Gmail connector; the Builder (drafting agents and skills from a description);
+operator-written skills; requests from clients; usage and cost views beyond per-run cost; notification
+emails and CSV export; threads and `/skill` commands; agents asking other agents. Later still: Slack,
+Google Drive and the other connectors in the design, and the header command bar.
+
+### v1 scope (the full target)
 
 In:
 - Tenancy for many clients, one operator; roles `operator`, `client_admin`, `client_user`; operator-led
@@ -135,7 +167,8 @@ In:
   for building and demos
 - Connector framework (manifest: auth, synced entities, tools). Connectors: **QuickBooks Online**
   (sandbox + production; read sync plus write tools), **Gmail** (find invoices and receipts in a
-  mailbox; drafts and labels as write tools), and **upload** (PDF/image documents, CSV)
+  mailbox; drafts and labels as write tools), and **upload with email forwarding** (PDF/image
+  documents, CSV, forwarded emails)
 - Documents capability: store originals, extract with Claude, validate, link to records
 - **Skills** (operator): built-in plus operator-written (no code), shared or for one client; versioned
 - **Templates** (operator): from scratch or the Builder; workflows in the **drag-and-drop builder**;
@@ -145,9 +178,8 @@ In:
   **diff against the template**; **template updates** by three-way merge with conflict resolution;
   **promote** a client change into a template draft; detach
 - Workflow engine executing client agents' workflows; triggers by event, schedule, manual and command
-- **Write-back:** external tools act on client systems within each connection's **permission matrix**
-  (auto / approval / off per read, create, update, delete, plus scope), with an audit record and the
-  before state for every write
+- **Write-back:** external tools act on client systems with **approval on by default, set per step**,
+  within each connection's permission matrix, with an audit record and the before state for every write
 - **Back office:** clients overview and health, client detail, template lineage ("used by", versions
   behind, customizations), runs and failures across clients, request queue, operator inbox, usage and
   model cost per client and agent
@@ -160,9 +192,9 @@ Out (designed for, not built):
 - Billing and invoicing clients (usage is metered so it can be added); client self-serve building;
   showing workflows or instructions to clients; other operators on the platform (one operator in v1);
   automatic template updates (every update is reviewed per client)
-- Connectors beyond QBO, Gmail and upload (Outlook, Google Drive, bank and card feeds, Slack); Gmail
-  push notifications (v1 polls); sending email without a person's approval; code steps in workflows;
-  per-tool auto-approval of external writes; A/B versions; outbound SMS; custom collections and fields UI
+- Connectors beyond QBO, Gmail and upload (Slack, Google Drive, Outlook, bank and card feeds, Ramp,
+  HubSpot); Gmail push notifications (v1 polls); sending email without a person's approval; code steps
+  in workflows; A/B versions; outbound SMS; custom collections and fields UI
 - Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials
 
 ---
@@ -440,11 +472,13 @@ Connections page at the right connector.
 
 **Permissions per connection** (owner's design, Connections screen). Each tool declares a `verb`
 (`read`, `create`, `update`, `delete`). Each client connection stores a matrix: for each verb `auto`,
-`approval` or `off`, plus a scope the connector understands (e.g. "AP folder only", "#purchasing,
-#ap", "bills, purchases, vendors, items, attachments"). Defaults when a tool is connected: read `auto`,
-create and update `approval`, delete `off` (v1 has no delete tools). The operator sets the matrix; the
-client admin sees it in the portal and can tighten it, never loosen it; every change is a
-`connection_change` row. An agent can only be stricter than its connection (§9.5).
+`approval` or `off`, plus a scope the connector understands (e.g. "AP folder only", "bills, purchases,
+vendors, items, attachments"). For writes, the matrix is a **ceiling**: `approval` means every write
+waits for a person; `auto` means a step **may** be set to run without approval (each step still
+defaults to approval, §9.5); `off` means agents can't do it at all. Defaults when a tool is connected:
+read `auto`, create and update `approval`, delete `off` (v1 has no delete tools). The operator sets the
+matrix; the client admin sees it in the portal and can tighten it, never loosen it; every change is a
+`connection_change` row.
 
 Connectors produce raw records, files and tool results. Normalization happens in `packages/core` mappers
 per connector (`mapQboPurchase(raw) → TransactionInput`). The Connections screen lists every connector,
@@ -470,10 +504,12 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
   bytes in R2, dedupe by sha256.
 - **Tools, read** (`none`): `qbo.purchase.query`, `qbo.bill.query`, `qbo.vendor.query`, `qbo.item.query`,
   `qbo.attachable.list`.
-- **Tools, write** (`external`, approval required in v1): `qbo.attachable.upload` (attach a document to
-  a transaction), `qbo.purchase.update_memo`, `qbo.item.update_purchase_cost`. Each write sends the
-  current `SyncToken`, stores the prior state in `external_action.before`, and fails cleanly on a stale
-  token (the record changed since the agent read it). // open: which writes ship first (§20).
+- **Tools, write** (`external`; approval per step, §9.5). MVP, as in the design's run screen:
+  `qbo.bill.update_lines` / `qbo.purchase.update_lines` (replace an account line with the invoice's item
+  lines; the total must stay unchanged or the write is refused) and `qbo.attachable.upload` (attach the
+  invoice). Later: `qbo.bill.create` (draft bills from invoices), `qbo.item.update_purchase_cost`, memo
+  updates. Each write sends the current `SyncToken`, stores the prior state in `external_action.before`,
+  and fails cleanly on a stale token (the record changed since the agent read it).
 - Rate limits: central throttle per realm with retry/backoff on 429.
 - Verify endpoint shapes, minor version, and current Intuit API terms against Intuit's developer docs
   before coding.
@@ -485,7 +521,7 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 - Upload CSV of purchases (date, vendor, amount, memo) → `raw_record(connector='upload')` → transactions.
 - The demo path when QBO is not connected.
 
-### 6.4 Gmail
+### 6.4 Gmail (after the MVP)
 
 - OAuth 2.0 with Google, granted by the client for one mailbox (a shared `invoices@` / `ap@` box is the
   usual case; a person's mailbox works too). Scopes: `gmail.readonly` (search and read),
@@ -510,13 +546,28 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 
 ---
 
+### 6.5 Email forwarding (built in, with upload)
+
+The MVP's email path, and a fallback for clients who don't connect a mailbox (the design's "Upload and
+forwarding · built in"). Each client gets a private forwarding address (e.g.
+`<client>-<random>@in.<domain>`, kept with the allowed senders on the client's upload connection), shown
+on the portal's Connections page; the client adds a forwarding
+rule in their own mail (e.g. from `ap@`).
+- Received by **Cloudflare Email Routing** into the Worker's `email()` handler. Only mail from the
+  sender addresses or domains the client lists is accepted; everything else is dropped and counted.
+- Each message's PDF and image attachments become `document(source='email')`, deduplicated by sha256
+  and linked like uploads (vendor + total + date, with the sender domain as a vendor signal). Headers and
+  subject are kept on the document; bodies are not stored. Email text is untrusted (§16).
+- Verify Email Workers' message size limits and MIME parsing (e.g. `postal-mime`) at the start of M2.
+
 ## 7. Documents capability
 
 A platform capability any pack or custom skill can use; exposed as tools (`docs.*`, §9.4).
 
 - Store: originals in R2 keyed by sha256, never mutated.
-- Locate support for a transaction: connector attachments first (QBO Attachables), then email (Gmail
-  documents already synced, then a scoped Gmail search), then uploaded documents (vendor + total + date
+- Locate support for a transaction: connector attachments first (QBO Attachables), then email
+  (forwarded documents; with Gmail connected, documents already synced, then a scoped Gmail search), then
+  uploaded documents (vendor + total + date
   match), then a request to a person (inbox, or a Gmail draft to the purchaser for approval).
 - Extract: send the document to Claude as a PDF or image content block with a forced tool whose input
   schema is `InvoiceExtraction` (Zod → JSON Schema): header fields, lines[], subtotal, freight,
@@ -574,9 +625,8 @@ const AgentDefinition = z.object({
   extraTools: z.array(z.string()).default([]),    // tools beyond those its skills bring
   canCommand: z.array(z.string()).default([]),    // agent slugs it may ask (same client)
   permissions: z.object({
-    auto: z.array(z.string()),                    // tool ids allowed without approval
-    approval: z.array(z.string()),                // tool ids that create an inbox approval
-    mode: z.enum(['suggest_only', 'act']).default('suggest_only'),
+    mode: z.enum(['suggest_only', 'act']).default('suggest_only'),   // suggest_only: every write waits
+    approver: z.string().optional(),              // default approver for this agent's steps (role or user)
   }),
   budgets: z.object({ maxSteps: z.number().default(12), maxCostUsd: z.number().default(0.5) }),
   memory: z.object({ enabled: z.boolean().default(true) }),
@@ -723,14 +773,16 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
    output.
 4. Loop: model call → tool calls → results, until `finish` or budget hit. Enforce `maxSteps` and
    `maxCostUsd`. On budget hit: return `{status:'escalated'}` and create an inbox item.
-5. **Permission gate** per tool call: `none` → run (if the connection's `read` isn't `off`). `internal`
-   → run if in the agent's `auto` and mode is `act`; otherwise inbox approval. `external` → the
-   **strictest** of (a) the connection's matrix for the tool's verb and (b) the agent (`approval` list,
-   or mode `suggest_only` → approval): `off` → refused (and caught at publish); `auto` → an
-   `external_action` executes at once, once, by idempotency key, with its before state; `approval` → an
-   `external_action` (status `proposed`) plus an `inbox_item(kind='external_action')` showing now /
-   after this change; the step waits for `inbox.resolved`, and on approval the action executes once.
-   Test runs (§10.4) never execute external actions.
+5. **Permission gate** per tool call. Reads (`none`) run if the connection's `read` isn't `off`.
+   Internal writes (`internal`: the platform's own records, e.g. a price observation or an inbox item)
+   run and are logged; they don't touch the client's systems. **Writes to a client's tool**
+   (`external`) **need approval by default.** One runs without approval only when all three say so: the
+   connection's matrix has `auto` for the verb, the step is set to `approval: 'not_required'`, and the
+   agent's mode is `act`. Otherwise: matrix `off` → refused (and caught at publish); anything else → an
+   `external_action` (status `proposed`) plus an `inbox_item(kind='external_action')` for the step's
+   approver, showing now / after this change; the step waits for `inbox.resolved`, and on approval the
+   action executes once by idempotency key, with its before state. Automatic writes record the same
+   action and before state. Test runs (§10.4) never execute external actions.
 6. Log `step_run`, `tool_call`, tokens, cost. Outputs of skills with `producesAlerts` must include
    `sources`; outputs without them are rejected.
 
@@ -747,7 +799,8 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
   Works the same on templates and client agents (e.g. "for this client, skip the approval for invoices
   under $200").
 - Server guards: Zod validation, workflow validation (§10.2), `permissions.mode='suggest_only'` for new
-  agents, `external` tools never in `auto`, saved as `draft`. The operator adjusts, tests and publishes.
+  agents, every write step left at `approval: 'required'`, saved as `draft`. The operator adjusts, tests
+  and publishes.
 - A client's request can be handed to the Builder as the instruction for that client's agent.
 
 ### 9.7 Platform agents (templates kind `platform`, seeded as v1 rows)
@@ -781,8 +834,12 @@ const Workflow = z.object({
 });
 
 Step = { id, kind, name, client?: { visible: boolean, label?: string }, ...config } where kind ∈
-  'skill'     { skill: 'id[@v]', agent?: 'slug' /*default: owner*/, input: Template, settings? }
-  'action'    { tool: 'id', input: Template }           // changes a client tool; gated by §9.5
+  'skill'     { skill: 'id[@v]', agent?: 'slug' /*default: owner*/, input: Template, settings?,
+                approval?: Approval /*only if the skill's tools can write to a client tool*/ }
+  'action'    { tool: 'id', input: Template, approval: Approval }   // changes a client tool; §9.5
+
+Approval = { required: 'required' | 'not_required' = 'required', approver?: role | userId,
+             timeout?: Duration, onReject: 'stop' | 'continue' = 'stop' }
   'person'    { mode: 'approve'|'ask', assignee: role | userId, title: Template, payload: Template,
                 timeout: Duration, remindEvery?: Duration, channel?: 'inbox'|'email',
                 onReject?: 'stop'|'continue', onTimeout: 'stop'|'continue'|'notify_operator' }
@@ -799,7 +856,10 @@ Rules = { match: 'all'|'any', rules: [{ field: Template, op: '>'|'>='|'<'|'<='|'
 Templates reference `{{trigger.<path>}}` and `{{steps.<id>.output.<path>}}`; inside a `for_each`,
 `{{item}}` and `{{index}}`. Rules are what the builder shows ("Price change > 15% or Monthly impact >
 $500"); they compile to JSONLogic, never `eval`. A `person` step's output carries `approved` and the
-answer, so a later fork can branch on it. `client` controls the portal's run timeline: by default
+answer, so a later fork can branch on it. **Approvals are per step:** every step that can change a
+client's tool carries an `approval` setting, `required` unless the operator changes it; the approver
+defaults to the step's, then the agent's, then the client's setting. A `person` step adds a human
+checkpoint anywhere else. `client` controls the portal's run timeline: by default
 skill, action, person and notify steps are shown (with `label`, or the step name), and forks, loops and
 waits are hidden.
 
@@ -813,8 +873,10 @@ A workflow can be saved as a draft with errors, but only a valid one can be test
 - Every `skill` step's input satisfies the skill's input schema (typed from upstream outputs and the
   trigger payload); every skill and tool exists and is allowed by the owning agent (its skills plus
   `extraTools`).
-- For a client agent, at publish: every action's verb is not `off` on the bound connection; the builder
-  marks which actions will run automatically and which need approval.
+- A step set to `approval: 'not_required'` must be one that writes to a client tool. For a client agent,
+  at publish: no action's verb is `off` on the bound connection, and a step set to `not_required` whose
+  connection only allows `approval` is an error ("this connection requires approval for updates"). The
+  builder marks which write steps will run automatically and which need approval.
 Errors carry the step id and field, so the builder can mark the step and the inspector field.
 
 ### 10.3 Executor
@@ -861,7 +923,9 @@ Operator only; clients never see it.
   badges for invalid, needs approval, runs automatically, hidden from client, and **customized for this
   client** (against the template).
 - **Inspector** (right): the selected step's form, generated from the skill or tool input schema;
-  template fields offer a picker of upstream outputs valid at this step; fork paths as ordered rule
+  template fields offer a picker of upstream outputs valid at this step; for steps that change a tool,
+  an **Approval** control (on by default; switching it off is only offered where the client's connection
+  allows it) with the approver; fork paths as ordered rule
   rows ("+ Add condition", "+ Add path", remove fork); settings with defaults (and, on a client agent,
   the template's value beside a customized one); the step's client timeline label and visibility.
 - **Versions**: history with change notes and a step-by-step diff; rollback; on templates "Used by"
@@ -970,7 +1034,7 @@ Template **Pia** (`purchasing`, functional; default portal service name "Materia
 Template workflows (step lists in Pia's bundle; each client's fork can change them):
 
 **purchase-intake** (trigger: event `transaction.created`)
-1. skill `docs.find-support` (QBO attachments, then Gmail, then uploads)
+1. skill `docs.find-support` (QBO attachments, then forwarded email and uploads; Gmail once connected)
 2. fork "No document": person ask (client admin: forward or upload the invoice; remind 2d; timeout 5d →
    notify the operator) and action `gmail.draft.create` to the purchaser when Gmail is connected
 3. skill `docs.extract`
@@ -979,8 +1043,9 @@ Template workflows (step lists in Pia's bundle; each client's fork can change th
 6. fork "Any line below threshold": person ask (match review for those lines)
 7. skill `materials.record-prices`
 8. skill `materials.price-check` (raise alerts with evidence)
-9. fork "Document from Gmail or upload, transaction from QBO": action `qbo.attachable.upload`
-10. fork "Document from Gmail": action `gmail.label.apply` "Processed"
+9. action `qbo.bill.update_lines` / `qbo.purchase.update_lines` (itemize; approval on)
+10. fork "Document not yet attached in QBO": action `qbo.attachable.upload` (approval on)
+11. fork "Document from Gmail" (after the MVP): action `gmail.label.apply` "Processed"
 
 **weekly-price-review** (trigger: schedule Mondays 7:00 client timezone)
 1. skill `materials.weekly-digest` (changes, creep, vendor spread, new surcharges, dollar impact)
@@ -1099,7 +1164,8 @@ Portal (client)
   Reports      GET  /api/reports/activity?from=&to=       GET  /api/reports/:pack/:report (+ .csv)
   Runs         GET  /api/runs?service=&status=            GET  /api/runs/:id (client timeline)
   Inbox        GET  /api/inbox?kind=&status=              POST /api/inbox/:id/resolve
-  Connections  GET  /api/connections (offered connectors, status, permissions, used by)
+  Connections  GET  /api/connections (offered connectors, status, permissions, used by, forwarding address)
+               PUT  /api/connections/upload/senders {allowed: [...]}   (who may forward)
                POST /api/connections/:connector/authorize (client admin signs in)   DELETE /api/connections/:id
                PATCH /api/connections/:id/permissions (tighten only)
   Documents    POST /api/uploads (multipart)              GET  /api/documents/:id (signed URL)
@@ -1167,10 +1233,11 @@ candidates side by side with attribute diffs highlighted; actions Match / New it
 - Forking or promoting never carries a client's memory, aliases, records or connection ids into a
   template or another client.
 - **Writes to connected systems:** only through `external` tools; every one is an `external_action`,
-  executed once (idempotency key), with prior state and result recorded, and allowed only as far as the
-  connection's permission matrix and the agent both allow. Defaults are conservative (writes need
-  approval, delete off); only the operator loosens a matrix, the client can tighten it, and every change
-  is logged. Agents, the Builder and custom skills cannot change permissions.
+  executed once (idempotency key), with prior state and result recorded. **Approval is on by default for
+  every write step**; a step runs without approval only if the operator set it so and the client's
+  connection allows it; delete is off. Only the operator loosens a matrix or a step; the client can
+  tighten its matrix at any time, which overrides steps at once. Every change is logged. Agents, the
+  Builder and custom skills cannot change permissions or approvals.
 - Immutable `agent_version`, `skill_version`, `raw_record`, `doc_extraction` (trigger
   blocks UPDATE except status columns).
 - Email: only messages matching the connection's query are synced; bodies are fetched on demand, not
@@ -1191,7 +1258,8 @@ RUN_WORKFLOW, QBO_SYNC (Workflow bindings), ARTIFACTS (R2 binding)
 STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY   # R2 S3 API, for signed URLs
 ENCRYPTION_KEY                         # 32 bytes base64
 QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI, QBO_ENV=sandbox|production, QBO_WEBHOOK_VERIFIER
-GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+EMAIL_FORWARDING_DOMAIN                # e.g. in.<domain>, routed to the Worker by Cloudflare Email Routing
+GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI   # after the MVP (Gmail)
 WORKOS_CLIENT_ID, WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD
 RESEND_API_KEY (optional)
 ```
@@ -1206,18 +1274,20 @@ Platform first; the Materials template, forked and customized for the millwork s
 | --- | --- | --- |
 | M0 | Monorepo, Vite app + Hono Worker, Drizzle, Postgres + pgvector, Cloudflare Workflows, WorkOS auth with a seeded operator and one client | `pnpm dev` runs the Worker (API + Workflows) and the app; the operator and a client user can sign in |
 | M1 | Platform schema (§5): skills, templates and client agents with bundle versions and lineage, runs, inbox, usage; RLS on `app.tenant_ids` + `app.operator`; immutability triggers; core Zod schemas (bundle, workflow, …), workflow validation, **bundle diff and three-way merge**; seed (operator, sandbox client, platform templates) | Migrations apply; RLS holds for client and operator sessions; validation and merge unit tests pass |
-| M2 | Connector framework, upload connector, documents capability (store, extract, validate) | Upload 3 fixture invoices → extractions match expected JSON within tolerance |
+| M2 | Connector framework, upload connector with email forwarding, documents capability (store, extract, validate) | Upload 3 fixture invoices → extractions match expected JSON within tolerance |
 | M3 | Tool + skill registries, agent runtime on client agent versions, permission gate, external actions, run/step/tool logging, usage rollup | A client agent in the sandbox client runs `docs.extract` end to end and logs cost; an external tool call creates an approval and executes once when approved |
 | M4 | Workflow executor, triggers per client agent (event, schedule in client timezone, manual, command), senses outbox, test runs | A workflow with a fork, a for_each and an approval runs to the end for one client's agent and never starts for another client; a test run proposes but never executes external actions |
 | M5 | Back office shell (overview, clients, onboarding, offering connectors, operator inbox, requests queue); client portal shell (overview, inbox, **connections**, requests, settings); inbox resolution resumes runs | The operator creates a client, offers it the upload connector and invites its admin; the admin signs in to the portal, sees the offered connectors, approves an item that resumes a run, and raises a request the operator sees |
 | M6 | Templates and client agents: editor, skills, Builder; fork, customize, versions and rollback, customizations view, bindings and activation; template updates (preview, conflicts, merge draft) and promotion; "Used by" | The operator builds a template, forks it into two clients, customizes each differently, publishes template v2, and merges it into both (one clean, one with a resolved conflict) while keeping each client's customizations; promotes one client's change into template v3; rolls one client back |
 | M7 | Workflow builder (templates and client agents): steps, forks, drag and drop, inspector, validation; merge view; run view; client run timeline | The operator customizes a client's workflow in the builder (adds a step, adds a fork path), test-runs it on that client's data, resolves a conflict from a template update in the merge view, publishes; watches the live run in the run view while the client sees the timeline without internals or cost |
 | M8 | Materials pack: tables, matching (golden tests), pricing and alert rules, the Pia template forked and customized for the millwork client; client reports (activity, Price watch, Catalog, CSV) | Golden tests ≥ 95% precision; Baltic birch matches across 3 vendors; an uploaded invoice runs the millwork shop's purchase-intake to priced lines with a `price_jump` alert; the client sees it in Price watch |
-| M9 | QBO connector: OAuth, sync, CDC, attachables, webhooks, read tools, write tools behind approval | Sandbox company syncs; a Bill with an attachment flows through intake; an approved `qbo.attachable.upload` attaches the invoice in the sandbox |
-| M10 | Gmail connector: OAuth, scoped sync (query + history), attachments as documents, read tools, draft and label tools behind approval; Gmail step in `docs.find-support` | A test mailbox connects; an emailed invoice is found for its QBO transaction and flows through intake; an approved `gmail.draft.create` appears in the mailbox's drafts |
+| M9 | QBO connector: OAuth, sync, CDC, attachables, webhooks, read tools, the MVP write tools (itemize lines, attach invoice) with per-step approval | Sandbox company syncs; a Bill flows through intake; approving in the portal itemizes its lines (total unchanged) and attaches the invoice in the sandbox; **MVP done** when the same works on the shop's production QuickBooks |
+| M10 | (after the MVP) Gmail connector: OAuth, scoped sync (query + history), attachments as documents, read tools, draft and label tools behind approval; Gmail step in `docs.find-support` | A test mailbox connects; an emailed invoice is found for its QBO transaction and flows through intake; an approved `gmail.draft.create` appears in the mailbox's drafts |
 | M11 | Usage and cost views (per client, agent, template), activity report, notification emails, polish, Playwright e2e | e2e: the operator forks Pia into a new client and customizes her, the client connects and uploads an invoice, approves in the portal, sees the report; the operator publishes a Pia template update and merges it into that client |
 
-If time is short, M0–M8 with the upload connector is the demo; M9 (QBO) and M10 (Gmail) follow.
+**MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
+promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
+in M2. Gmail (M10), the deferred parts and M11's extras follow (`docs/plan.md` §3).
 
 ---
 
@@ -1253,6 +1323,11 @@ Decided:
   (v0.7, replacing "always approved" from v0.3); approvals go to the client admin by default, or the
   operator when delegated (v0.4).
 - Workflows are structured step lists with forks, edited in a sortable list builder (v0.7).
+- Approvals are on by default and set per step; the connection matrix is the ceiling (v0.8).
+- MVP: Pia live for the millwork shop on its own QuickBooks, with upload and email forwarding (v0.8).
+- First QuickBooks writes: itemize a bill's or purchase's lines (total unchanged) and attach the
+  invoice (v0.8).
+- Slack later, not in v1 (owner, v0.8).
 - v1 connectors: QuickBooks Online, Gmail, upload (v0.4).
 - Managed-agents service: the operator builds and runs agents from a back office; clients get a portal
   for reports, runs, approvals, connections and requests (v0.5).
@@ -1263,8 +1338,6 @@ Decided:
 - One version = the whole agent bundle (definition + workflows + settings) (v0.6).
 
 Open:
-- Which QBO writes ship first. Proposal: `qbo.attachable.upload` (attach the found invoice to its
-  transaction); `update_memo` and `update_purchase_cost` follow.
 - Gmail and Google's app verification: Gmail read scopes are restricted, so a public app needs Google's
   verification and a security assessment; an unverified app shows a warning and has a user cap, and in
   "testing" status its refresh tokens expire after 7 days. Check the current rules at M10 and choose:
@@ -1272,8 +1345,8 @@ Open:
 - Whether to add sending email (approved) after drafts, and Gmail push notifications instead of polling.
 - Billing: usage is metered per client from v1; how clients are charged (per agent, per month, usage)
   decides what the back office invoices later.
-- From the owner's design, not yet in scope: Slack and Google Drive connectors (both appear connected in
-  the screens), Ramp, bank, Outlook, HubSpot; a header command bar ("Ask an agent, or type / for a
+- From the owner's design, not yet in scope: Google Drive (appears connected in the screens), Ramp,
+  bank, Outlook, HubSpot (Slack: later, owner); a header command bar ("Ask an agent, or type / for a
   command"); the Invoice intake, Collections follow-up and Card receipts agents.
 - Skills under lineage: v1 forks agents, not skills (a client-only skill is written for that client).
   Whether skills also need template/fork lineage depends on how often skills get customized per client.

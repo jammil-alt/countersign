@@ -58,7 +58,10 @@ After the first run: save the project id from the run summary as the repository 
 1. **R2 S3 credentials** for signed URLs (Cloudflare → R2 → Manage API tokens): Worker secrets
    `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`.
 2. **Custom domains** for the two Workers. Names still to choose.
-3. **WorkOS**: Countersign's own staging and production environments;
+3. **Email forwarding** (MVP): a subdomain for inbound mail (e.g. `in.<domain>`) on Cloudflare, with
+   Email Routing enabled and a catch-all rule sending to the Worker (`countersign` / `countersign-staging`
+   use separate subdomains). Worker var `EMAIL_FORWARDING_DOMAIN`.
+4. **WorkOS**: Countersign's own staging and production environments;
    redirect URIs `https://<domain>/api/auth/callback`; Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
 

@@ -24,7 +24,7 @@ header). The client portal is not designed yet.
 | 6 | Run: what it did (checked steps by type: trigger, skill, person, action), **changes to your tools with now / after this change**, approve and update, run cost | [6-run](screens/6-run.png) | Back-office run view; §10.3, §11 |
 | 7 | Agent overview: live version, how it works (step chips), KPIs, what it found (Materials price alerts), works in, skills it uses, latest changes it made; tabs Overview / Workflow / Runs / Versions / Settings | [7-agent-overview](screens/7-agent-overview.png) | Client agent page; §9.3, §12 |
 
-## Where the design changed the architecture (v0.7)
+## Where the design and owner changed the architecture (v0.7–v0.8)
 
 1. **Workflows are structured step lists, not free-form graphs.** Steps run top to bottom; a **fork** has
    ordered paths, each with rules (`field op value`, joined by and/or), plus "otherwise"; paths join after
@@ -32,15 +32,21 @@ header). The client portal is not designed yet.
    notify. The builder is a nested, sortable list (drag and drop), so React Flow is no longer needed.
    Merging client customizations is simpler too: steps are matched by id, with no positions to reconcile.
 2. **Each connection has a permission matrix** set per client: for each of read, create, update and
-   delete, `auto`, `approval` or `off`, plus a scope (e.g. "AP folder only"). An agent can only be
-   stricter than its connection. Defaults: read auto, create and update approval, delete off. Every write
-   is still recorded with its before state, whether automatic or approved.
-3. Agent avatars use the Groundwork persona colours; AI suggestions (the Builder) use the `--ai-*` tokens.
+   delete, `auto`, `approval` or `off`, plus a scope (e.g. "AP folder only"). For writes it is a ceiling.
+   **Approval is on by default and set per step** (owner, v0.8): a step that changes a tool waits for a
+   person unless the operator switches its approval off, which is only offered where the connection
+   allows `auto`. So the design's "automatic" counts only appear once the operator has chosen them.
+   Every write is recorded with its before state, whether automatic or approved.
+3. **Connections live in the client portal** (owner, v0.7): the screen-2 layout becomes a portal page
+   where the client signs in to its own tools; the back office shows it with offering, permissions and
+   configuration.
+4. Agent avatars use the Groundwork persona colours; AI suggestions (the Builder) use the `--ai-*` tokens.
 
 ## In the design, not yet in v1 scope (decide when we get there)
 
-- Connectors: Slack (post alerts), Google Drive (file PDFs), Ramp, bank accounts, Outlook, HubSpot. v1
-  is QuickBooks, Gmail and upload.
+- Connectors: Slack (later, owner), Google Drive (file PDFs), Ramp, bank accounts, Outlook, HubSpot. The
+  MVP is QuickBooks plus upload with email forwarding (the design's "Upload and forwarding"); Gmail
+  follows.
 - Command bar "Ask an agent, or type / for a command" in the header (v1 has `/skill` commands in threads).
 - Agents beyond Materials: Invoice intake, Collections follow-up, Card receipts.
 - Platform name: still `[Platform name]`.

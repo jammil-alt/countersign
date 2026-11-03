@@ -10,12 +10,12 @@ client's tools (QuickBooks Online and Gmail) within each connection's permission
 Pia, does material cost management; the millwork shop runs its own fork of her. She ships as the
 Materials pack and is built only from platform parts.
 
-- What to build: `docs/ARCHITECTURE.md` (v0.7). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.8). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.7. UI starting point: `docs/design/` (owner's v1 screens and Groundwork tokens). Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: repo set up, M0 not started. **Building the MVP first** (`docs/plan.md` §3): Pia live for the millwork shop on its own QuickBooks. Product shape: ARCHITECTURE v0.8. UI starting point: `docs/design/` (owner's v1 screens and Groundwork tokens). Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 **Separate from Plenary Labs.** Countersign follows Plenary Labs' stack, conventions and patterns for
 consistency, and code may be copied from it, but nothing is shared: no runtime dependency, package,
@@ -35,7 +35,7 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
 | `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
 | `packages/senses` | Event outbox (`emit`, `undispatched`, `markDispatched`); `apps/api` dispatches. |
-| `packages/connectors` | Connector framework (manifest with tools), `qbo/`, `gmail/`, `upload/`, object storage. |
+| `packages/connectors` | Connector framework (manifest with tools), `qbo/`, `upload/` (with email forwarding), `gmail/` (after the MVP), object storage. |
 | `packages/documents` | Documents capability: store, locate, extract, validate, link. |
 | `packages/threads` | Threads, messages, `/command` parsing. |
 | `packages/agents` | Tool, skill and agent registries; bundle versions, fork, update and promote; runtime; permission gate; external actions; Builder. |
@@ -88,12 +88,13 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 6. **Money is decimal.** `numeric(14,4)` + currency; `decimal.js` in code; never JS floats.
 7. **Deterministic first, model second, human last.** Hard matching rules veto the model. Never compare prices
    across different `standard_uom` without a conversion rule.
-8. **Side effects are gated.** Writes to connected tools happen only through `external` tools, each an
-   `external_action` executed once (idempotency key) with its before state, and only as far as both the
-   connection's permission matrix (auto / approval / off per verb; defaults: writes need approval, delete
-   off) and the agent allow. Only the operator loosens a matrix; clients can tighten it. Clients sign in to
-   their own tools; the operator never holds their credentials. New agents start `suggest_only`; test runs
-   never write.
+8. **Approval is on by default.** Writes to a client's tools happen only through `external` tools, each an
+   `external_action` executed once (idempotency key) with its before state. Every step that can write
+   defaults to `approval: 'required'`; it runs without approval only if the operator set that step to
+   `not_required`, the client's connection matrix allows `auto` for the verb, and the agent's mode is
+   `act`. New steps, Builder drafts and pack templates always start with approval on. Only the operator
+   loosens; clients can tighten their matrix, which overrides steps at once. Delete is off. Clients sign in
+   to their own tools; the operator never holds their credentials. Test runs never write.
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
    instructions. Agents cannot change their own permissions.
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
