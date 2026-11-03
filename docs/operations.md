@@ -98,8 +98,9 @@ After the first run: save the project id from the run summary as the repository 
 ## 1.1 Onboarding a client (managed service)
 
 Done by the operator in the back office once M5–M6 ship: create the client → invite the client admin
-(WorkOS invitation) → send connect links for QuickBooks and Gmail; the client admin opens each and grants
-access → set the Gmail ingestion query → enable packs → fork templates into the client (e.g. Pia) and customize them for the client's data and
+(WorkOS invitation) → offer the QuickBooks and Gmail connectors and set their permission matrices; the
+client admin signs in to each from the portal's Connections page (we never handle their credentials) →
+set the Gmail ingestion query → enable packs → fork templates into the client (e.g. Pia) and customize them for the client's data and
 flows, bind the client's connections → test-run on the client's data → publish and activate → choose who
 approves writes (client admin by default, or the operator).
 
