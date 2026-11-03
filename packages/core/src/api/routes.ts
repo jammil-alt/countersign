@@ -110,6 +110,8 @@ export const AgentSummary = z.object({
   serviceDescription: z.string().nullable(),
   bindings: z.record(z.string(), z.string()),
   approver: z.string().nullable(),
+  /** A template's test copy in the Sandbox client: it only test-runs. */
+  testCopy: z.boolean(),
   createdAt: Timestamp,
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
@@ -591,10 +593,12 @@ export const opsRoutes = {
     path: "/api/ops/agents/:id/versions/:vid/test-run",
     auth: "session",
     roles: OPS,
-    summary: "Test-run a client agent version on its client's data (never writes)",
+    summary:
+      "Test-run a version (never writes): a client agent on its client's data, a template as its test copy in the Sandbox client",
     params: AgentVersionParams,
     body: z.strictObject({ workflow: z.string().min(1), payload: z.unknown().optional() }),
-    response: z.object({ runId: z.string() }),
+    // For a template, the run belongs to its test copy: agentId and versionId name that copy.
+    response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
   }),
   opsValidateWorkflow: defineRoute({
     method: "POST",

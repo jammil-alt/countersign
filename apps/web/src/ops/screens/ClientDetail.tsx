@@ -50,9 +50,12 @@ function AgentCard({ clientId, agent }: { clientId: string; agent: AgentSummary 
   const isDraftOnly = agent.liveVersionId === null;
   const badge = summaryBadge(agent);
   const connectors = Object.keys(agent.bindings);
-  const meta = [agent.role, agent.templateId ? "from a template" : null, agent.runStatus].filter(
-    Boolean,
-  );
+  const origin = agent.testCopy
+    ? "template test copy"
+    : agent.templateId
+      ? "from a template"
+      : null;
+  const meta = [agent.role, origin, agent.runStatus].filter(Boolean);
 
   return (
     <Card dashed={isDraftOnly} testId={`ops-agent-card-${agent.slug}`} className="p-4">

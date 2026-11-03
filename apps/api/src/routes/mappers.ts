@@ -37,6 +37,7 @@ export function agentSummary(a: AgentRow) {
     serviceDescription: a.serviceDescription,
     bindings: a.bindings,
     approver: a.approver,
+    testCopy: a.testCopy,
     createdAt: a.createdAt.toISOString(),
   };
 }

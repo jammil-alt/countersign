@@ -22,6 +22,7 @@ import {
 } from "@countersign/workflows";
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { RunInstances } from "./instances";
+import { redeliverResolutions } from "./resume";
 
 export interface DispatchDeps {
   db: Db;
@@ -125,8 +126,8 @@ async function allClients(db: Db): Promise<{ id: string; timezone: string }[]> {
 }
 
 /**
- * The cron (every minute): re-dispatch events left undispatched for 30 s, and start the schedule
- * triggers due in (previous tick, this tick].
+ * The cron (every minute): re-dispatch events left undispatched for 30 s, start the schedule
+ * triggers due in (previous tick, this tick], and re-send resolutions waiting runs have not taken.
  */
 export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise<void> {
   const clients = await allClients(deps.db);
@@ -145,6 +146,7 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       });
       for (const p of problems) console.warn("schedule could not be evaluated", p);
       for (const request of runs) await startRun(deps, request);
+      await redeliverResolutions(deps, client.id, scheduledTime);
     } catch (error) {
       console.error(`cron for client ${client.id} failed`, error);
     }

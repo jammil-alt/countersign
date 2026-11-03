@@ -128,6 +128,7 @@ export const AGENT_SUMMARY = {
   serviceDescription: "Reads vendor invoices and keeps bills itemized.",
   bindings: { qbo: "00000000-0000-4000-8000-00000000c001" },
   approver: null,
+  testCopy: false,
   createdAt: "2026-11-01T00:00:00.000Z",
 };
 

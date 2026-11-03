@@ -17,9 +17,15 @@ export interface RunInstances {
    * engine; that answers `exists` (a re-dispatched event or a repeated cron tick).
    */
   start(params: RunParams): Promise<"started" | "exists">;
-  /** Sends an event to a waiting run (e.g. its inbox item was resolved). */
+  /**
+   * Sends an event to a run (e.g. its inbox item was resolved). Safe to repeat: an event nobody
+   * waits for is never read, and an instance that has ended takes nothing.
+   */
   sendEvent(runId: string, event: RunEvent): Promise<void>;
 }
+
+/** Instance states that will never wait for an event again. */
+const ENDED = new Set<string>(["complete", "errored", "terminated"]);
 
 /** Over the RUN_WORKFLOW binding. */
 export function workflowInstances(binding: Workflow): RunInstances {
@@ -36,7 +42,10 @@ export function workflowInstances(binding: Workflow): RunInstances {
       }
     },
     async sendEvent(runId, event) {
+      // Throws while the instance does not exist yet; the cron sends again (./resume.ts).
       const instance = await binding.get(runId);
+      const { status } = await instance.status();
+      if (ENDED.has(status)) return;
       await instance.sendEvent({ type: event.type, payload: event.payload });
     },
   };
@@ -46,6 +55,8 @@ export function workflowInstances(binding: Workflow): RunInstances {
 export class MemoryInstances implements RunInstances {
   readonly started = new Map<string, RunParams>();
   readonly events: { runId: string; event: RunEvent }[] = [];
+  /** The next this-many sends throw, as an unreachable engine would. */
+  failSends = 0;
 
   async start(params: RunParams): Promise<"started" | "exists"> {
     if (this.started.has(params.runId)) return "exists";
@@ -54,6 +65,10 @@ export class MemoryInstances implements RunInstances {
   }
 
   async sendEvent(runId: string, event: RunEvent): Promise<void> {
+    if (this.failSends > 0) {
+      this.failSends--;
+      throw new Error("the Workflows engine is unreachable");
+    }
     this.events.push({ runId, event });
   }
 }

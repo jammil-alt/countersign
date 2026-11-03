@@ -5,7 +5,19 @@
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { AgentBundle, FORBIDDEN_PORTAL_FIELD } from "@countersign/core";
-import { agent, event, externalAction, inboxItem, run, stepRun, usageDaily } from "@countersign/db";
+import {
+  agent,
+  agentVersion,
+  connection,
+  event,
+  externalAction,
+  inboxItem,
+  membership,
+  run,
+  stepRun,
+  tenant,
+  usageDaily,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { isWaitTimeout } from "@countersign/workflows";
 import { and, eq, isNull } from "drizzle-orm";
@@ -21,6 +33,8 @@ import {
 } from "./api.test-helper";
 import { cronTick } from "./runs/dispatch";
 import { executeRun } from "./runs/execute";
+import { dbStepLog } from "./runs/ports";
+import { REDELIVER_AFTER_MS } from "./runs/resume";
 import { cloudflareStepRunner, isEngineTimeout } from "./runs/step-runner";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -88,6 +102,8 @@ describe.skipIf(!h)("runs", () => {
   const H = h as ApiHarness;
   let agentId = "";
   let v1 = "";
+  let templateId = "";
+  let templateV1 = "";
   const deps = () => ({
     db: H.db,
     platform: H.platform,
@@ -129,6 +145,8 @@ describe.skipIf(!h)("runs", () => {
       bundle: testBundle(),
     });
     const tid = j(tpl.json).agent.id;
+    templateId = tid;
+    templateV1 = j(tpl.json).version.id;
     await H.call(
       OPERATOR,
       "POST",
@@ -333,6 +351,199 @@ describe.skipIf(!h)("runs", () => {
       }
     }
     expect(H.backend.writes).toHaveLength(1);
+  });
+
+  it("delivers a resolution whose event failed to send: the cron re-sends until the run takes it", async () => {
+    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/run`, {
+      workflow: "fix-record",
+    });
+    const runId = j(res.json).runId;
+    const params = H.instances.started.get(runId);
+    if (!params) throw new Error("not started");
+    const cron = (at: Date) => cronTick({ db: H.db, instances: H.instances }, at);
+    const sentFor = (type: string) => H.instances.events.filter((e) => e.event.type === type);
+
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, runId));
+      const item = items.find((i) => `inbox-${i.id.replace(/-/g, "")}` === type);
+      if (!item) throw new Error(`no item for ${type}`);
+      // The engine is unreachable when the item is resolved: the person still gets their answer.
+      H.instances.failSends = 1;
+      const resolved = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+        decision: "approve",
+      });
+      expect(resolved.status, JSON.stringify(resolved.json)).toBe(200);
+      expect(sentFor(type)).toEqual([]);
+      const [stored] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
+      if (!stored?.resolvedAt) throw new Error("not resolved");
+      // Within the first minute the cron leaves the after-commit send alone.
+      await cron(new Date(stored.resolvedAt.getTime() + 1_000));
+      expect(sentFor(type)).toEqual([]);
+      // Then it re-sends; a failed re-send stays pending for the next tick.
+      const later = new Date(stored.resolvedAt.getTime() + REDELIVER_AFTER_MS + 1_000);
+      H.instances.failSends = 1;
+      await cron(later);
+      expect(sentFor(type)).toEqual([]);
+      await cron(later);
+      expect(sentFor(type)).toHaveLength(1);
+      return sentFor(type)[0]?.event.payload;
+    });
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(result).toEqual({ status: "succeeded" });
+    expect(step.waits).toHaveLength(2);
+
+    // The run took both resolutions, so nothing is re-sent any more.
+    const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, runId));
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.status === "resolved" && i.runReceivedAt !== null)).toBe(true);
+    const count = H.instances.events.length;
+    await cron(new Date(Date.now() + 5 * 60_000));
+    expect(H.instances.events.length).toBe(count);
+    // Nor for a run that has ended, even if it never recorded taking one.
+    await H.t.db.update(inboxItem).set({ runReceivedAt: null }).where(eq(inboxItem.runId, runId));
+    await cron(new Date(Date.now() + 5 * 60_000));
+    expect(H.instances.events.length).toBe(count);
+  });
+
+  it("keeps one step_run per step of a run: the step log upserts", async () => {
+    const [r] = await H.t.db.select().from(run).where(eq(run.id, liveRunId));
+    if (!r) throw new Error("no live run");
+    const log = dbStepLog(H.db, {
+      id: r.id,
+      tenantId: r.tenantId,
+      agentId: r.agentId,
+      agentVersionId: r.agentVersionId,
+      workflowSlug: r.workflowSlug,
+      mode: "live",
+    });
+    const rowsOf = (nodeId: string) =>
+      H.t.db
+        .select()
+        .from(stepRun)
+        .where(and(eq(stepRun.runId, liveRunId), eq(stepRun.nodeId, nodeId)));
+    const [update] = await rowsOf("update");
+    // A retried step gets the row its first attempt wrote, unchanged.
+    expect(await log.start({ runId: liveRunId, nodeId: "update", nodeType: "action" })).toBe(
+      update?.id,
+    );
+    expect(await rowsOf("update")).toEqual([update]);
+    // Attempts racing each other still write one row.
+    const ids = await Promise.all(
+      [1, 2, 3].map(() => log.start({ runId: liveRunId, nodeId: "again", nodeType: "skill" })),
+    );
+    expect(new Set(ids).size).toBe(1);
+    expect(await rowsOf("again")).toHaveLength(1);
+    // The database refuses a second row whoever writes it.
+    await expect(
+      H.t.db.insert(stepRun).values({
+        tenantId: r.tenantId,
+        runId: liveRunId,
+        nodeId: "again",
+        nodeType: "skill",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("test-runs a template as its test copy in the Sandbox client, never as the template", async () => {
+    const path = (vid: string) => `/api/ops/agents/${templateId}/versions/${vid}/test-run`;
+    const noSandbox = await H.call(OPERATOR, "POST", path(templateV1), { workflow: "fix-record" });
+    expect(noSandbox.status).toBe(409);
+    expect(j(noSandbox.json).error.code).toBe("no_sandbox");
+
+    const [sandbox] = await H.t.db
+      .insert(tenant)
+      .values({ name: "Sandbox", settings: { sandbox: true, connectors_offered: ["testkit"] } })
+      .returning();
+    if (!sandbox) throw new Error("no sandbox");
+    await H.t.db
+      .insert(membership)
+      .values({ tenantId: sandbox.id, userId: H.operator, role: "operator" });
+    const [conn] = await H.t.db
+      .insert(connection)
+      .values({ tenantId: sandbox.id, connector: "testkit", status: "pending" })
+      .returning();
+    if (!conn) throw new Error("no connection");
+    // An operator who doesn't serve the Sandbox client can't test-run there.
+    const other = await H.call("other-operator@example.com", "POST", path(templateV1), {
+      workflow: "fix-record",
+    });
+    expect(other.status).toBe(409);
+
+    const first = await H.call(OPERATOR, "POST", path(templateV1), { workflow: "fix-record" });
+    expect(first.status, JSON.stringify(first.json)).toBe(200);
+    const copyId = j(first.json).agentId;
+    expect(copyId).not.toBe(templateId);
+    const [copy] = await H.t.db.select().from(agent).where(eq(agent.id, copyId));
+    expect(copy).toMatchObject({
+      tenantId: sandbox.id,
+      kind: "client",
+      templateId,
+      testCopy: true,
+      runStatus: "draft",
+      slug: "records-clerk-test-copy",
+    });
+    const [tv1] = await H.t.db.select().from(agentVersion).where(eq(agentVersion.id, templateV1));
+    const [cv1] = await H.t.db
+      .select()
+      .from(agentVersion)
+      .where(eq(agentVersion.id, j(first.json).versionId));
+    expect(cv1).toMatchObject({ agentId: copyId, basedOnTemplateVersionId: templateV1 });
+    expect(cv1?.bundleHash).toBe(tv1?.bundleHash);
+    const params = H.instances.started.get(j(first.json).runId);
+    expect(params).toMatchObject({ tenantId: sandbox.id, agentId: copyId, mode: "test" });
+
+    // Bound once to the Sandbox connection, it runs like any test run: nothing is written.
+    const bind = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${copyId}/operation`, {
+      bindings: { testkit: conn.id },
+    });
+    expect(bind.status, JSON.stringify(bind.json)).toBe(200);
+    const writes = H.backend.writes.length;
+    const step = new FakeWorkflowStep(resolver(OPERATOR, () => "approve"));
+    if (!params) throw new Error("not started");
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    expect(H.backend.writes).toHaveLength(writes);
+
+    // The same version again reuses the copy and its version.
+    const again = await H.call(OPERATOR, "POST", path(templateV1), { workflow: "fix-record" });
+    expect(j(again.json)).toMatchObject({ agentId: copyId, versionId: j(first.json).versionId });
+
+    // A new template version updates the copy (same step ids, bindings kept).
+    const changed = testBundle("Records clerk v2");
+    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${templateId}/versions`, {
+      bundle: changed,
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    const templateV2 = j(saved.json).version.id;
+    const second = await H.call(OPERATOR, "POST", path(templateV2), { workflow: "fix-record" });
+    expect(second.status, JSON.stringify(second.json)).toBe(200);
+    expect(j(second.json).agentId).toBe(copyId);
+    expect(j(second.json).versionId).not.toBe(j(first.json).versionId);
+    const [cv2] = await H.t.db
+      .select()
+      .from(agentVersion)
+      .where(eq(agentVersion.id, j(second.json).versionId));
+    expect(cv2).toMatchObject({ basedOnTemplateVersionId: templateV2, version: 2 });
+    const stepIds = (b: unknown) =>
+      AgentBundle.parse(b).workflows[0]?.workflow.steps.map((s) => s.id);
+    expect(stepIds(cv2?.bundle)).toEqual(stepIds(changed));
+    const copies = await H.t.db
+      .select()
+      .from(agent)
+      .where(and(eq(agent.tenantId, sandbox.id), eq(agent.testCopy, true)));
+    expect(copies).toHaveLength(1);
+    expect(copies[0]?.bindings).toEqual({ testkit: conn.id });
+
+    // A test copy only test-runs, and the template itself never has a run.
+    const act = await H.call(OPERATOR, "POST", `/api/ops/agents/${copyId}/activate`);
+    expect(act.status).toBe(409);
+    expect(JSON.stringify(act.json)).toContain("test copy");
+    expect(await H.t.db.select().from(run).where(eq(run.agentId, templateId))).toEqual([]);
+    const listed = await H.call(OPERATOR, "GET", `/api/ops/clients/${sandbox.id}/agents`);
+    expect(j(listed.json).agents).toEqual([
+      expect.objectContaining({ id: copyId, testCopy: true }),
+    ]);
   });
 
   it("routes events and schedules to the event's own client only, once", async () => {

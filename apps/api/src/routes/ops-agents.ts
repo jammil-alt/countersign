@@ -20,6 +20,7 @@ import {
   publish,
   rollback,
   skillContext,
+  templateTestCopy,
   updateInfo,
   updateOperational,
   validateForPublish,
@@ -31,7 +32,9 @@ import {
   type SkillDefinition,
   validateWorkflow,
 } from "@countersign/core";
+import { tenant } from "@countersign/db";
 import { type RoutableAgent, type RunRequest, requestRun } from "@countersign/workflows";
+import { and, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { createRunRow } from "../runs/dispatch";
@@ -54,6 +57,23 @@ function routable(row: AgentRow, liveBundle: AgentBundle | null): RoutableAgent 
     liveVersionId: row.liveVersionId,
     liveBundle,
   };
+}
+
+/** The Sandbox client (settings.sandbox) this operator serves: where templates are test-run. */
+async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): Promise<string> {
+  const ids = [...ctx.tenantIds];
+  const [row] = ids.length
+    ? await ctx.tx
+        .select({ id: tenant.id })
+        .from(tenant)
+        .where(and(inArray(tenant.id, ids), sql`(${tenant.settings}->>'sandbox')::boolean`))
+        .orderBy(tenant.createdAt)
+        .limit(1)
+    : [];
+  if (!row) {
+    throw new HttpError(409, "no_sandbox", "a template is test-run in a Sandbox client you serve");
+  }
+  return row.id;
 }
 
 /** requestRun's refusals are plain errors: they are the caller's to fix. */
@@ -261,26 +281,32 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsTestRun, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    // DECISION: a template is test-run by forking it into the Sandbox client and test-running
-    // that copy; runs always belong to a client agent (ARCHITECTURE §10.3).
-    if (row.kind !== "client") {
-      throw new HttpError(422, "not_a_client_agent", "fork the template into Sandbox to test it");
-    }
     const v = await getVersion(ctx.tx, ctx.params.vid);
     if (v.agentId !== row.id) throw notFound("version");
+    // DECISION: a template never runs for a client. Test-running a template version runs it as the
+    // template's test copy in the Sandbox client: forked on the first test run, given a new
+    // version holding this one's bundle on later ones (docs/plan.md §1.5 "Template test runs").
+    const target =
+      row.kind === "client"
+        ? { agent: row, version: v }
+        : await templateTestCopy(ctx.tx, {
+            tenantId: await sandboxClient(ctx),
+            templateVersionId: v.id,
+            actorId: ctx.session.user.id,
+          });
     const req = request(() =>
       requestRun({
-        agent: routable(row, null),
+        agent: routable(target.agent, null),
         workflowSlug: ctx.body.workflow,
         payload: ctx.body.payload ?? {},
         mode: "test",
-        versionId: v.id,
-        bundle: v.bundle,
+        versionId: target.version.id,
+        bundle: target.version.bundle,
       }),
     );
     await createRunRow(ctx.tx, req);
     ctx.afterCommit(() => ctx.services.instances.start(req));
-    return { runId: req.runId };
+    return { runId: req.runId, agentId: target.agent.id, versionId: target.version.id };
   });
 
   mount(app, routes.opsValidateWorkflow, async (ctx) => {

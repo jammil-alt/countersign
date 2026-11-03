@@ -354,7 +354,11 @@ export interface ClientAgentFields {
 
 async function insertClientAgent(
   tx: Tx,
-  fields: ClientAgentFields & { role: string | null; templateId: string | null },
+  fields: ClientAgentFields & {
+    role: string | null;
+    templateId: string | null;
+    testCopy?: boolean;
+  },
   bundle: AgentBundle,
 ): Promise<AgentRow> {
   const [row] = await tx
@@ -370,6 +374,7 @@ async function insertClientAgent(
       serviceName: fields.serviceName ?? null,
       serviceDescription: fields.serviceDescription ?? null,
       runStatus: "draft",
+      testCopy: fields.testCopy ?? false,
     })
     .returning();
   if (!row) throw new Error("agent insert returned nothing");
@@ -405,7 +410,12 @@ export async function createClientAgent(
  */
 export async function fork(
   tx: Tx,
-  input: ClientAgentFields & { templateVersionId: string; actorId?: string | null },
+  input: ClientAgentFields & {
+    templateVersionId: string;
+    actorId?: string | null;
+    /** A template's test copy (see `templateTestCopy`). */
+    testCopy?: boolean;
+  },
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
   const tv = await getVersion(tx, input.templateVersionId);
   const template = await getAgent(tx, tv.agentId);
@@ -431,6 +441,72 @@ export async function fork(
     templateVersionId: tv.id,
   });
   return { agent: row, version };
+}
+
+/** The slug of a template's test copy. */
+export const testCopySlug = (templateSlug: string): string => `${templateSlug}-test-copy`;
+
+/**
+ * The client agent a template version is test-run as, in the Sandbox client (docs/plan.md §1.5
+ * "Template test runs"). The first test run forks the template into `tenantId` as its test copy
+ * (`test_copy`, never activated); later ones reuse that copy, with its bindings, and give it a new
+ * version holding the template version's bundle unless it already has one. Step ids are copied as
+ * they are, never regenerated. The template itself never runs for a client.
+ */
+// DECISION: one test copy per template and client, kept and updated rather than forked afresh, so
+// the Sandbox connections bound to it once stay bound for every later test run.
+export async function templateTestCopy(
+  tx: Tx,
+  input: { tenantId: string; templateVersionId: string; actorId?: string | null },
+): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
+  const tv = await getVersion(tx, input.templateVersionId);
+  const template = await getAgent(tx, tv.agentId);
+  if (template.kind !== "template") {
+    throw new AgentsError("not_a_template", `${template.slug} is not a template`);
+  }
+  const [existing] = await tx
+    .select()
+    .from(agent)
+    .where(
+      and(
+        eq(agent.tenantId, input.tenantId),
+        eq(agent.templateId, template.id),
+        eq(agent.testCopy, true),
+      ),
+    )
+    .for("update");
+  if (!existing) {
+    return fork(tx, {
+      tenantId: input.tenantId,
+      slug: testCopySlug(template.slug),
+      name: `${template.name} (test copy)`,
+      templateVersionId: tv.id,
+      actorId: input.actorId ?? null,
+      testCopy: true,
+    });
+  }
+  const [same] = await tx
+    .select()
+    .from(agentVersion)
+    .where(
+      and(
+        eq(agentVersion.agentId, existing.id),
+        eq(agentVersion.basedOnTemplateVersionId, tv.id),
+        eq(agentVersion.bundleHash, tv.bundleHash),
+      ),
+    )
+    .orderBy(desc(agentVersion.version))
+    .limit(1);
+  if (same) return { agent: existing, version: same };
+  const version = await createVersion(tx, {
+    agentId: existing.id,
+    bundle: tv.bundle,
+    authorType: "operator",
+    authorId: input.actorId ?? null,
+    changeNote: `Test copy of ${template.slug} v${tv.version}`,
+    basedOnTemplateVersionId: tv.id,
+  });
+  return { agent: existing, version };
 }
 
 /**
@@ -631,6 +707,7 @@ export async function activationProblems(
 ): Promise<string[]> {
   const row = await getAgent(tx, input.agentId);
   if (row.kind !== "client" || !row.tenantId) return ["only client agents run"];
+  if (row.testCopy) return ["a template's test copy only test-runs: fork the template to run it"];
   if (row.runStatus === "retired") return ["the agent is retired"];
   if (!row.liveVersionId) return ["it has no live version: publish one first"];
   const live = await getVersion(tx, row.liveVersionId);

@@ -138,6 +138,9 @@ describe("skill and action steps", () => {
     });
     expect(h.row("write")?.status).toBe("succeeded");
     expect(h.agentCalls.at(-1)?.input).toEqual({ w: true });
+    // The run records that it took the resolution, so nothing re-sends its event.
+    expect(h.items.get(item)?.received).toBe(1);
+    expect(runner.names()).toContain("write:approval:1:received");
   });
 
   it("checks the item before waiting, so an early resolution isn't missed", async () => {
@@ -150,6 +153,7 @@ describe("skill and action steps", () => {
     expect(runner.names("wait")).toEqual([]);
     expect(runner.names()).toContain("write:approval:1:check");
     expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "u-2" });
+    expect(h.items.get(item)?.received).toBe(1);
   });
 
   it("stops the run on a rejected write unless the step continues", async () => {
@@ -194,6 +198,7 @@ describe("skill and action steps", () => {
     expect(result).toMatchObject({ status: "cancelled", reason: "rejected" });
     expect(runner.calls.find((c) => c.kind === "wait")).toMatchObject({ timeout: "1 hour" });
     expect(h.items.get(item)?.expired).toBe(true);
+    expect(h.items.get(item)?.received).toBe(0);
     expect(h.resumeCalls[0]?.resolution.approved).toBe(false);
   });
 
@@ -328,6 +333,7 @@ describe("person steps", () => {
       summary: "Approve the order: approved",
     });
     expect(h.row("f")?.output).toEqual({ pathId: "p-yes", pathName: "Yes" });
+    expect(h.items.get(h.itemFor("ok"))?.received).toBe(1);
   });
 
   it("skips the wait when the item was already resolved", async () => {

@@ -97,8 +97,13 @@ export function dbRunLog(db: Db): RunLog {
             attempts: 1,
             startedAt: new Date(),
           })
+          // One row per (run, node): a retry gets the row its first attempt wrote.
+          .onConflictDoUpdate({
+            target: [stepRun.runId, stepRun.nodeId],
+            set: { nodeId: sql`excluded.node_id` },
+          })
           .returning({ id: stepRun.id });
-        if (!row) throw new Error("step_run insert returned nothing");
+        if (!row) throw new Error("step_run upsert returned nothing");
         return row.id;
       });
     },
