@@ -1,19 +1,21 @@
 # Countersign: working rules
 
-A **managed-agents service suite** for back-office work. The operator (the owner and their team) builds a
-catalogue of agents, skills and drag-and-drop workflows once, in a **back office** that reaches into every
-client, and **deploys** them into client businesses with per-client settings and connections (QuickBooks
-Online and Gmail). Agents do the work and update the client's tools (writes approved by a person). Each
-client gets a **portal** for reports, runs, approvals, connections and requests; clients never edit
-agents. The first agent, Pia, does material cost management for a millwork shop; she ships as the
+A **managed-agents service suite** for back-office work. The operator (the owner and their team) builds and
+runs agents for client businesses from a **back office** that reaches into every client. Agents are built
+**per client**: reusable ones are **templates**, forked into a client as that client's own agent,
+customized (data, settings, drag-and-drop workflows) and versioned per client, with lineage so template
+updates can be merged in and client improvements promoted back. Agents do the work and update the
+client's tools (QuickBooks Online and Gmail; writes approved by a person). Each client gets a **portal**
+for reports, runs, approvals, connections and requests; clients never edit agents. The first template,
+Pia, does material cost management; the millwork shop runs its own fork of her. She ships as the
 Materials pack and is built only from platform parts.
 
-- What to build: `docs/ARCHITECTURE.md` (v0.5). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.6). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.5. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.6. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 **Separate from Plenary Labs.** Countersign follows Plenary Labs' stack, conventions and patterns for
 consistency, and code may be copied from it, but nothing is shared: no runtime dependency, package,
@@ -28,7 +30,7 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 |---|---|
 | `apps/api` | Hono Worker: `/api` routes, auth, static assets, Workflow classes, cron. The only place that wires packages together and the only place with Workers bindings. |
 | `apps/web` | React + Vite app: back office (`/ops`, incl. the workflow canvas) and client portal; pack reports under `src/packs/<id>/`; typed API client. Imports only `@countersign/core`. |
-| `packages/core` | Domain types and Zod schemas (agent, skill, workflow graph, tool, connector, pack), graph validation and template typing (shared with the canvas), API route contract, units, money, mappers. |
+| `packages/core` | Domain types and Zod schemas (agent, skill, workflow graph, tool, connector, pack), graph validation and template typing, bundle diff and three-way merge (shared with the canvas and merge view), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
 | `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
@@ -36,9 +38,9 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | `packages/connectors` | Connector framework (manifest with tools), `qbo/`, `gmail/`, `upload/`, object storage. |
 | `packages/documents` | Documents capability: store, locate, extract, validate, link. |
 | `packages/threads` | Threads, messages, `/command` parsing. |
-| `packages/agents` | Tool, skill and agent registries; versioning (agents, skills, workflows); runtime; permission gate; external actions; Builder. |
+| `packages/agents` | Tool, skill and agent registries; bundle versions, fork, update and promote; runtime; permission gate; external actions; Builder. |
 | `packages/workflows` | Workflow graph executor against a `StepRunner` interface, trigger router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
-| `packs/materials` | Materials pack: catalog, matching, pricing, alerts; its tools, skills, tables, routes; the Pia template agent and her two workflows. |
+| `packs/materials` | Materials pack: catalog, matching, pricing, alerts; its tools, skills, tables, routes; the Pia template and her two workflows. |
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
@@ -75,8 +77,10 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    packs never import `agents` or `workflows`; nothing in `packages/*` special-cases a pack. Agent reasoning
    reaches business data only through registered tools; in `packages/agents`, only `src/registry/` and
    `src/log/` import `db`.
-3. **Immutable history.** `agent_version`, `skill_version`, `workflow_version`, `raw_record` and `doc_extraction` are never
-   updated (status columns excepted) or deleted. Edits insert new versions; re-extraction inserts new rows.
+3. **Immutable history.** `agent_version` (whole bundles, templates and client agents), `skill_version`, `raw_record`
+   and `doc_extraction` are never updated (status columns excepted) or deleted. Edits, merges, promotions
+   and rollbacks insert new versions; re-extraction inserts new rows. Node and edge ids are never
+   regenerated: merges depend on them.
 4. **No settings in code.** The runtime reads agent, skill and workflow definitions only from version rows.
    Platform agents are seeded from `packages/db/seed/`; pack templates are installed when a pack is enabled.
    The canvas and the executor share one graph schema and one validator (`packages/core`).
@@ -91,10 +95,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    instructions. Agents cannot change their own permissions.
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
-11. **The operator builds; clients use.** Only `operator` reaches `/api/ops` (catalogue, deployments, runs
-    across clients, usage). Publishing changes the catalogue, never a pinned deployment; deployments change
-    only by an explicit upgrade. No portal route returns catalogue definitions, instructions, prompts or
-    cost. Contract tests enforce both.
+11. **The operator builds; clients use.** Only `operator` reaches `/api/ops` (templates, client agents, runs
+    across clients, usage). Publishing a template changes no client agent; a client agent changes only by
+    its own new version, including a reviewed update merge. Forks and promotions never carry one client's
+    memory, records or connections anywhere else. No portal route returns agent bundles, instructions,
+    prompts or cost. Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 

@@ -99,9 +99,9 @@ After the first run: save the project id from the run summary as the repository 
 
 Done by the operator in the back office once M5–M6 ship: create the client → invite the client admin
 (WorkOS invitation) → send connect links for QuickBooks and Gmail; the client admin opens each and grants
-access → set the Gmail ingestion query → enable packs → deploy agents from the catalogue (e.g. Pia), bind
-the client's connections, set per-client settings → test-run on the client's data → activate → choose
-who approves writes (client admin by default, or the operator).
+access → set the Gmail ingestion query → enable packs → fork templates into the client (e.g. Pia) and customize them for the client's data and
+flows, bind the client's connections → test-run on the client's data → publish and activate → choose who
+approves writes (client admin by default, or the operator).
 
 ## 2. What CI does
 
