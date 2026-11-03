@@ -423,7 +423,7 @@ Tests: Playwright e2e: the operator creates a client, forks Pia into it and cust
 ## 7. Owner answers and open questions
 
 Answered (2026-11-03)
-- Name and design: the product is **Mezonas**, on `mezonas.com` (already in Cloudflare), with the Mezonas design system; `countersign` stays the code name. Public cloud resources are named Mezonas; app on `app.mezonas.com`, staging on `staging.mezonas.com` (to confirm).
+- Name and design: the product is **Mezonas**, on `mezonas.com` (already in Cloudflare), with the Mezonas design system; `countersign` stays the code name. Public cloud resources are named Mezonas; app on `app.mezonas.com`, staging on `staging.mezonas.com` (confirmed).
 - Hosting: keep Cloudflare + Neon for consistency with Plenary Labs (§1.1). Sign-in: WorkOS, as in Plenary Labs.
 - UI: the owner's v1 screens are in `docs/design/`, a starting point to rework page by page (2026-11-03).
 - Connectors work at the client portal level: the operator builds and offers them, clients sign in to their own tools (2026-11-03).

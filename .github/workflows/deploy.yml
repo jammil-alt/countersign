@@ -36,8 +36,13 @@ jobs:
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # GitHub environments "staging" and "production" hold the Worker's per-environment secrets
+    # (WORKOS_API_KEY, ANTHROPIC_API_KEY); repository secrets stay available too.
+    environment: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
     env:
       TARGET: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
+      WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -91,3 +96,24 @@ jobs:
           # sign-in) and must never be deployed.
           env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
           pnpm --filter @countersign/api exec wrangler deploy "$env_flag"
+
+      - name: Worker secrets
+        if: steps.ready.outputs.ready == 'true'
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          env_name=$([ "$TARGET" = production ] && echo production || echo staging)
+          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; echo "set $1"; }
+          # Copied from the GitHub environment's secrets on every deploy, so a rotated key takes effect.
+          if [ -n "${WORKOS_API_KEY:-}" ]; then put WORKOS_API_KEY "$WORKOS_API_KEY"; fi
+          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; fi
+          # Generated once inside Cloudflare and never shown or stored anywhere else. If the list of
+          # existing secrets can't be read, this step fails (set -e) rather than risk replacing
+          # ENCRYPTION_KEY, which would make stored connection credentials unreadable.
+          existing=$(pnpm exec wrangler secret list --env "$env_name" --format json | jq -r '.[].name')
+          for name in ENCRYPTION_KEY WORKOS_COOKIE_PASSWORD; do
+            if grep -qx "$name" <<<"$existing"; then echo "$name already set"; continue; fi
+            if [ "$name" = ENCRYPTION_KEY ]; then value=$(openssl rand -base64 32); else value=$(openssl rand -hex 32); fi
+            echo "::add-mask::$value"
+            put "$name" "$value"
+          done

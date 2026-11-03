@@ -28,7 +28,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 `deploy.yml` always passes `--env=staging` or `--env=production`. The custom domains are created by
 `wrangler deploy` (`custom_domain: true`); the apex `mezonas.com` stays free for a marketing site, and
 other records on the zone (e.g. `datum.mezonas.com`) are untouched.
-// DECISION: app on `app.mezonas.com`, staging on `staging.mezonas.com` (owner to confirm).
+App on `app.mezonas.com`, staging on `staging.mezonas.com` (owner, 2026-11-03).
 
 CI's own throwaway Neon branches are named `ci-run<id>-<attempt>`, copied from `main` and deleted
 when the run ends.
@@ -101,17 +101,25 @@ After the first run: save the project id from the run summary as the repository 
    alternative.
 4. Worker secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; var `GOOGLE_REDIRECT_URI`.
 
-### Other Worker secrets (`wrangler secret put <NAME> --env=staging`, from `apps/api`)
+### Worker secrets (set by `deploy.yml`, never by hand)
 
-`ANTHROPIC_API_KEY`, `ENCRYPTION_KEY` (32 bytes, base64).
-`RESEND_API_KEY` only if email is turned on.
+The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
+- `WORKOS_API_KEY` and `ANTHROPIC_API_KEY`: copied from the GitHub **environment** (`staging` or
+  `production`) on every deploy, so rotating a key is "update the GitHub secret, redeploy".
+- `ENCRYPTION_KEY` (32 random bytes, base64) and `WORKOS_COOKIE_PASSWORD`: generated once inside the job
+  when the Worker doesn't have them yet, and never shown or stored anywhere else. If the job can't read
+  the Worker's existing secrets it stops instead of generating, so `ENCRYPTION_KEY` is never replaced by
+  accident (replacing it would make stored connection credentials unreadable; rotation is described in
+  `packages/connectors/src/credentials.ts`).
+- Later: `QBO_*` and `GOOGLE_*` when those connectors are built, the same way.
 
 ### GitHub summary
 
-| Kind | Name |
-|---|---|
-| Secret | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
-| Variable | `NEON_PROJECT_ID` |
+| Kind | Where | Name |
+|---|---|---|
+| Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
+| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY` (one per environment) |
 
 ## 1.1 Onboarding a client (managed service)
 
