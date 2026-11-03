@@ -65,11 +65,45 @@ jobs:
             echo "::error::Missing secrets (NEON_API_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID): ${missing[*]}"
             exit 1
           fi
+          # Check the Cloudflare token and account id up front, with Cloudflare's own messages. Values
+          # are never printed; only their length and whether they have stray whitespace.
+          acct_len=${#CF_ACCOUNT}
+          if [[ "$CF_ACCOUNT" =~ [[:space:]] ]]; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID contains a space or line break; re-save it without one."
+            exit 1
+          fi
+          if ! [[ "$CF_ACCOUNT" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID should be 32 lowercase hex characters (it has $acct_len characters). Copy the Account ID from Workers & Pages → right sidebar, not the Zone ID."
+            exit 1
+          fi
+          verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/tokens/verify")
+          if [ "$(jq -r '.success' <<<"$verify")" != true ]; then
+            verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/user/tokens/verify")
+          fi
+          if [ "$(jq -r '.success' <<<"$verify")" != true ]; then
+            echo "::error::Cloudflare rejected CLOUDFLARE_API_TOKEN: $(jq -c '.errors' <<<"$verify")"
+            exit 1
+          fi
+          account=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT")
+          if [ "$(jq -r '.success' <<<"$account")" != true ]; then
+            echo "::error::The token can't read account CLOUDFLARE_ACCOUNT_ID: $(jq -c '.errors' <<<"$account"). Check the Account ID, and that the token includes this account."
+            exit 1
+          fi
+          echo "Cloudflare account: $(jq -r '.result.name' <<<"$account")"
 
       - name: Neon project
         run: |
           set -euo pipefail
-          neon() { curl -sS --fail-with-body -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          # A failed call prints the provider's own error message to the log and stops; the body is
+          # never piped into jq (where it would be swallowed).
+          api() {
+            local out code
+            out=$(mktemp)
+            code=$(curl -sS -o "$out" -w '%{http_code}' "$@") || { cat "$out" >&2; return 1; }
+            if [ "$code" -ge 400 ]; then echo "::error::HTTP $code: $(head -c 800 "$out")"; return 22; fi
+            cat "$out"
+          }
+          neon() { api -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
           if [ -n "$NEON_PROJECT_ID" ]; then
             project="$NEON_PROJECT_ID"
             echo "Using NEON_PROJECT_ID=$project"
@@ -111,7 +145,16 @@ jobs:
       - name: Owner role, database and staging branch
         run: |
           set -euo pipefail
-          neon() { curl -sS --fail-with-body -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          # A failed call prints the provider's own error message to the log and stops; the body is
+          # never piped into jq (where it would be swallowed).
+          api() {
+            local out code
+            out=$(mktemp)
+            code=$(curl -sS -o "$out" -w '%{http_code}' "$@") || { cat "$out" >&2; return 1; }
+            if [ "$code" -ge 400 ]; then echo "::error::HTTP $code: $(head -c 800 "$out")"; return 22; fi
+            cat "$out"
+          }
+          neon() { api -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
           wait_ops() { # Neon applies changes asynchronously; wait until nothing is running
             for _ in $(seq 1 60); do
               running=$(neon "$NEON/projects/$PROJECT/operations?limit=20" \
@@ -149,8 +192,17 @@ jobs:
       - name: Worker role, Hyperdrive and R2
         run: |
           set -euo pipefail
-          neon() { curl -sS --fail-with-body -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
-          cf() { curl -sS --fail-with-body -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
+          # A failed call prints the provider's own error message to the log and stops; the body is
+          # never piped into jq (where it would be swallowed).
+          api() {
+            local out code
+            out=$(mktemp)
+            code=$(curl -sS -o "$out" -w '%{http_code}' "$@") || { cat "$out" >&2; return 1; }
+            if [ "$code" -ge 400 ]; then echo "::error::HTTP $code: $(head -c 800 "$out")"; return 22; fi
+            cat "$out"
+          }
+          neon() { api -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          cf() { api -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
 
           provision() { # branch_id, hyperdrive name
             local branch=$1 name=$2 owner_uri worker_password host existing body id
