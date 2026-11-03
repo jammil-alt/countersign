@@ -1,1 +1,7 @@
-{ "extends": "../../tsconfig.base.json", "include": ["src"] }
+{
+  "extends": "../../tsconfig.base.json",
+  // DOM for the Web platform APIs auth uses (Request, fetch, Web Crypto), which Workers,
+  // browsers and Node 22 all provide. No Node or Workers types: auth stays runtime-neutral.
+  "compilerOptions": { "lib": ["ES2022", "DOM"] },
+  "include": ["src"]
+}
