@@ -316,6 +316,7 @@ Answered (2026-11-03)
 - Managed service: advisors review, build and publish; clients connect, approve and request changes (ARCHITECTURE v0.4).
 - Managed-agents service suite: the operator's catalogue deployed into clients from a back office; clients get a portal for reports, runs, approvals, connections and requests (ARCHITECTURE v0.5).
 - Provisioning: GitHub Actions bootstrap (option 1), Neon in the same region as Plenary Labs.
+- Separation: Countersign is fully separate from Plenary Labs (no runtime dependency, data, infrastructure, keys or secrets in common); it follows Plenary Labs' stack, rules and patterns for consistency (owner, 2026-11-03).
 - Connectors: QuickBooks Online and Gmail first, plus upload (ARCHITECTURE v0.4).
 - `main` created from the setup branch (2026-11-03).
 

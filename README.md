@@ -15,9 +15,12 @@ Status: **repo set up, M0 next** (Worker, app, database, Workflows, sign-in). No
 
 ## Stack
 
-Same as Plenary Labs: a Hono API on Cloudflare Workers serving a React + Vite app, Cloudflare Workflows
-for durable jobs, Postgres 16 (pgvector, pg_trgm) on Neon through Hyperdrive, R2 for files, WorkOS for
-sign-in, Anthropic models. TypeScript throughout, pnpm workspace, Biome, Vitest.
+A Hono API on Cloudflare Workers serving a React + Vite app, Cloudflare Workflows for durable jobs,
+Postgres 16 (pgvector, pg_trgm) on Neon through Hyperdrive, R2 for files, WorkOS for sign-in, Anthropic
+models. TypeScript throughout, pnpm workspace, Biome, Vitest.
+
+This is the same stack and set of conventions as Plenary Labs, chosen for consistency. Countersign is a
+separate product: it shares no runtime dependency, data, infrastructure, keys or secrets with it.
 
 ## Documents
 

@@ -15,6 +15,11 @@ Materials pack and is built only from platform parts.
 
 Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.5. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
+**Separate from Plenary Labs.** Countersign follows Plenary Labs' stack, conventions and patterns for
+consistency, and code may be copied from it, but nothing is shared: no runtime dependency, package,
+database, Worker, bucket, WorkOS application, key or secret. Never point anything here at Plenary Labs'
+resources.
+
 Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys).
 
 ## Layout

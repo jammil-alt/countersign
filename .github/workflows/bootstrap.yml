@@ -5,8 +5,9 @@ name: Bootstrap cloud
 # repository's secrets and never in a developer's shell or an agent session (docs/operations.md §1).
 #
 # What it does, each step idempotent (it looks before it creates):
-#   1. Neon project: uses the NEON_PROJECT_ID variable if set; otherwise reads the reference project
-#      (Plenary Labs) for its region and organization and creates "countersign" there, Postgres 16.
+#   1. Neon project: uses the NEON_PROJECT_ID variable if set; otherwise finds or creates "countersign"
+#      (Postgres 16) in the region given as input, in the key's own account or the given organization.
+#      Countersign shares no resources with any other project.
 #   2. On branch main: role cs_owner (Neon-managed is fine for the owner) and database countersign.
 #   3. Branch staging from main (it inherits the role and database).
 #   4. On each branch, with SQL as cs_owner: role cs_runtime (NOLOGIN; the first migration also creates
@@ -24,10 +25,14 @@ name: Bootstrap cloud
 on:
   workflow_dispatch:
     inputs:
-      reference_project:
-        description: Neon project whose region and organization to match (Plenary Labs)
+      region:
+        description: Neon region id for a new project (e.g. aws-us-east-2), as chosen by the owner
         type: string
-        default: orange-smoke-26995263
+        required: true
+      org_id:
+        description: Neon organization id for a new project (leave empty for the API key's own account)
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -45,7 +50,8 @@ jobs:
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      REFERENCE_PROJECT: ${{ inputs.reference_project }}
+      REGION: ${{ inputs.region }}
+      ORG_ID: ${{ inputs.org_id }}
       NEON: https://console.neon.tech/api/v2
       CF: https://api.cloudflare.com/client/v4
     steps:
@@ -66,10 +72,9 @@ jobs:
             project="$NEON_PROJECT_ID"
             echo "Using NEON_PROJECT_ID=$project"
           else
-            ref=$(neon "$NEON/projects/$REFERENCE_PROJECT")
-            region=$(jq -r '.project.region_id' <<<"$ref")
-            org=$(jq -r '.project.org_id // empty' <<<"$ref")
-            echo "Reference project $REFERENCE_PROJECT: region $region${org:+, org $org}"
+            region="$REGION"
+            org="$ORG_ID"
+            echo "Region $region${org:+, organization $org}"
             existing=$(neon "$NEON/projects?search=countersign${org:+&org_id=$org}" \
               | jq -r '[.projects[] | select(.name == "countersign")][0].id // empty')
             if [ -n "$existing" ]; then

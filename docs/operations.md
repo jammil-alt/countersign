@@ -1,7 +1,9 @@
 # Operations
 
-How Countersign is deployed and what a person has to create by hand. Same setup as Plenary Labs:
-Cloudflare Workers + Workflows, Neon through Hyperdrive, R2, WorkOS, GitHub Actions.
+How Countersign is deployed and what a person has to create by hand. It follows the same setup
+patterns as Plenary Labs (Cloudflare Workers + Workflows, Neon through Hyperdrive, R2, WorkOS, GitHub
+Actions) but shares nothing with it: its own Neon project, Workers, buckets, WorkOS application, keys
+and secrets.
 
 Status: **nothing is provisioned yet.** Next: add the bootstrap keys (§1), run Actions → Bootstrap
 cloud, save `NEON_PROJECT_ID`. Until then CI and deploy skip their Neon and deploy steps with a notice.
@@ -28,16 +30,17 @@ dashboard.
 
 ### Keys for the bootstrap (GitHub → Settings → Secrets and variables → Actions)
 
-1. **Neon API key** (Neon → account menu → Account settings → API keys; an organization key if Plenary
-   Labs' project is in an organization) as the secret `NEON_API_KEY`.
+1. **Neon API key** (Neon → account menu → Account settings → API keys, or an organization's API key
+   if Countersign should live in a Neon organization) as the secret `NEON_API_KEY`.
 2. **Cloudflare API token** with Hyperdrive edit, Workers R2 Storage edit, Workers Scripts edit,
    Workflows edit and account read, as the secret `CLOUDFLARE_API_TOKEN`; the account id as the secret
    `CLOUDFLARE_ACCOUNT_ID`. The same token is used by `deploy.yml`.
 
 ### What the bootstrap creates (re-runnable; it looks before it creates)
 
-1. The Neon project `countersign`, Postgres 16, in **the same region and organization as Plenary Labs'**
-   project (read from it through the API), unless the `NEON_PROJECT_ID` variable already names one.
+1. The Neon project `countersign`, Postgres 16, in the region given when running the workflow (the owner
+   chose the same region Plenary Labs uses; it's shown in that project's settings in the Neon console),
+   unless the `NEON_PROJECT_ID` variable already names one.
 2. Role `cs_owner` (Neon-managed is fine for the owner) and database `countersign` on `main`; branch
    `staging` from `main`.
 3. On each branch, with SQL: `cs_runtime` (NOLOGIN) and `cs_worker` (LOGIN, member of `cs_runtime` only).
@@ -55,7 +58,7 @@ After the first run: save the project id from the run summary as the repository 
 1. **R2 S3 credentials** for signed URLs (Cloudflare → R2 → Manage API tokens): Worker secrets
    `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`.
 2. **Custom domains** for the two Workers. Names still to choose.
-3. **WorkOS**: staging and production environments (or Plenary Labs' account with a new application);
+3. **WorkOS**: Countersign's own staging and production environments;
    redirect URIs `https://<domain>/api/auth/callback`; Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
 
