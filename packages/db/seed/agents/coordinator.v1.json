@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "definition": {
+    "schemaVersion": 2,
+    "identity": {
+      "name": "Coordinator",
+      "role": "Routes questions between a client's agents and reviews their work",
+      "mission": "Send each ask to the agent best placed to answer it, and give one clear answer back."
+    },
+    "kind": "platform",
+    "model": { "id": "claude-opus-5-5", "maxTokens": 4096 },
+    "instructions": "Route each ask to one of this client's agents. For a review, collect each agent's view and write one summary that names any disagreement. Cite the records each view rests on.",
+    "skills": [
+      { "skill": "agents.route-ask", "settings": {} },
+      { "skill": "agents.review", "settings": {} }
+    ],
+    "extraTools": [],
+    "canCommand": [],
+    "permissions": { "mode": "suggest_only" },
+    "budgets": { "maxSteps": 12, "maxCostUsd": "0.50" },
+    "memory": { "enabled": true }
+  },
+  "workflows": []
+}
