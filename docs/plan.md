@@ -7,7 +7,7 @@ ends green: `pnpm typecheck && pnpm test` pass and its "done when" check is show
 Nothing here adds to the v1 scope in ARCHITECTURE §1. When this plan fills a gap the architecture leaves
 open, it says **DECISION**, and the code carries a `// DECISION:` comment at the spot.
 
-Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenary Labs' toolchain (pnpm 11, TypeScript 7, Biome, Vitest), layering check, CI and deploy workflows (inert until provisioned, `docs/operations.md`), local Postgres with Neon's roles (`docs/local-development.md`). Stack decided: the same as Plenary Labs (§1.1). Product shape: a managed-agents service suite: the operator keeps templates, forks them into each client as that client's own agent, customizes and versions it per client, and merges template updates in; clients get a portal for reports, runs, approvals, requests and **connections (they sign in to their own tools)**. Workflows are structured step lists with forks, per the owner's v1 screens (`docs/design/`). Materials (Pia) is the first template; QuickBooks + Gmail are the v1 connectors (ARCHITECTURE v0.8). **Building the MVP first** (§3): Pia live for the millwork shop on its own QuickBooks.
+Status: **Phase 1 (foundation, local only) built** (§3). Every platform package, `apps/api` and the `apps/web` shells are in, and `pnpm check` passes against local Postgres with `COUNTERSIGN_REQUIRE_DB=1`. The stack runs locally: migrations and seed, `wrangler dev` with the Worker, a real `RunWorkflow` and the cron on local Postgres (`docs/local-development.md`). Not started: cloud (phase 2) and the product screens, tools and use cases (phase 3; Pia and the Materials pack are not built, `packs/materials` is a stub). Stack: the same as Plenary Labs (§1.1). Product shape: ARCHITECTURE v0.8.
 
 ---
 
@@ -85,6 +85,26 @@ Status: **M0 not started.** Repo set up: workspace and package skeletons, Plenar
 | Portal field check | The contract test refuses portal response fields named `bundle`, `definition`, `instructions`, `prompt(s)`, `systemPrompt`, `cost`, `costUsd`, `cost_usd`, `modelCost` and token counts; business figures such as `landedCost` are allowed. |
 | Workers tests | `apps/api` pins Vitest 4 for `@cloudflare/vitest-pool-workers` (as Plenary Labs does); the rest of the repo is on Vitest 5. |
 
+### 1.4 Decisions made while building `apps/api` and `apps/web`
+
+| Topic | Decision |
+|---|---|
+| Route contract | Every route the API serves is declared in `packages/core/src/api/routes.ts` (`routes`); `apps/api` mounts each entry and the contract test checks all of them are mounted; `apps/web`'s typed client calls the same specs. |
+| Active client | Sent with each request as `?client=` or the `x-countersign-client` header, never stored in the cookie. A portal user with one client needs neither. |
+| Creating a client | The operator who creates a client serves it; the new id (never one from the request) joins the transaction's `app.tenant_ids` so the first membership passes RLS. |
+| Invitations | An `app_user` row is the invitation. WorkOS sign-in finds the user by WorkOS id or lets a verified email claim an invited row; it never creates users. WorkOS organizations grant nothing in v1. |
+| Auth adapter | `AUTH_PROVIDER` picks it (default: `workos` when `WORKOS_CLIENT_ID` is set). A misconfigured WorkOS answers 503 and never falls back to `dev`; `dev` is refused in production. `GET /api/auth/dev/users` lists seeded users for the dev sign-in screen. |
+| Test connector | The testkit connector is registered everywhere except production, so the Sandbox client exercises connections and approvals before any real connector exists. |
+| Run rows | Whoever starts a run (API or dispatcher) writes the run row before `RUN_WORKFLOW.create`; `RunWorkflow` writes it again idempotently. Skill and action steps retry 3 times (10 s, exponential), giving up after 15 minutes. |
+| Test runs | A template is test-run by forking it into the Sandbox client; runs always belong to a client agent. A test run's person steps go to the operator. |
+| Notify | Notify steps post to the run's thread; only `thread` notices of live runs are visible to the client. Email and digest notices stay operator-only until an email provider exists. |
+| Model in the Worker | Live or nothing: record/replay is for tests. Without `ANTHROPIC_API_KEY` model calls fail with a clear error; tool-mode skills, actions and person steps still run. |
+| Portal inbox | Client users never see operator-assigned items; a `client_user` sees items assigned to them or to `client_user`; a `client_admin` sees the rest. Payloads are stripped of forbidden fields at any depth. |
+| Cron | Each client in its own `withTenant` transaction, over the window (previous minute, this minute]. |
+| Event payloads | `packages/senses`' event catalog is the contract for payloads; `packages/agents` emits `inbox.resolved` and `external_action.done/failed` in those shapes through its injected `Emit`. |
+| Web | React Router 7, Tailwind v4 mapped onto the Groundwork tokens with Tailwind's own palette removed; `/ops` is a separate lazy chunk loaded only after the operator check; a small `useApi` hook instead of a query library. |
+| Local Worker | `pnpm dev` runs `wrangler dev --env-file ../../.env`, so the root `.env` gives the local Hyperdrive connection string. |
+
 ---
 
 ## 2. Package layering
@@ -152,6 +172,22 @@ domain tools:
 - `packages/workflows`: the step-list executor, trigger router and test runs (M4)
 - `apps/api`: Hono routes for the foundation, middleware, `RunWorkflow`, cron; `apps/web`: back office
   and portal shells wired to the API (M5 shells)
+
+Phase 1 progress (2026-11-03):
+
+| Item | State |
+|---|---|
+| Toolchain, Worker and app scaffolds, UI shells on Groundwork tokens | Done (deploy spike is phase 2) |
+| `packages/core` | Done |
+| `packages/db` | Done: schema, roles, RLS, immutability triggers, migrations, seed (operator, Sandbox and Demo clients, Builder/Coordinator/Document clerk templates) |
+| `packages/llm`, `packages/auth`, `packages/senses` | Done |
+| `packages/connectors` | Done: framework, matrix, credential encryption, object storage, OAuth helpers, testkit connector |
+| `packages/agents` | Done: registries, versions, fork, publish, rollback, runtime, gate, external actions, logging, usage. The Builder (draft/revise) is not built: its template is seeded, its routes and flows are not |
+| `packages/workflows` | Done: executor, trigger router, schedules, test runs |
+| `packages/threads`, `packages/documents` | Not started (empty packages; not in phase 1). Notify steps write thread messages through `packages/agents` for now; `/command` parsing and the documents capability come in phase 3 |
+| `apps/api` | Done for the foundation routes (session, sign-in, clients, connections, templates, fork, client agents, versions, publish, rollback, operation, activate, pause, runs, test runs, validation, event catalog, inbox; portal overview, inbox, runs, connections, tighten). Not yet: the other ARCHITECTURE §14 routes (skills, Builder, update/promote, detach, retire, requests, usage, reports, uploads, documents, connector authorize, users, settings) |
+| `apps/web` | Shells done: sign-in, both layouts, clients, client page, agent page (overview, read-only workflow, versions). Other screens are placeholders (phase 3) |
+| Local stack | Done: `setup-postgres.sh`, `wrangler dev`, health, session, ops and portal routes, and a test run through `RunWorkflow` checked by hand |
 
 **Phase 2: Cloud.** Bootstrap workflow, deploy spike, staging (M0's deploy spike, `docs/operations.md`).
 
