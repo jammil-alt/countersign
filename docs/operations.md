@@ -87,10 +87,11 @@ when the run ends.
 
 ## 1.1 Onboarding a client (managed service)
 
-Done by an advisor in the app once M5 ships: create the client (tenant) → invite the client admin
+Done by the operator in the back office once M5–M6 ship: create the client → invite the client admin
 (WorkOS invitation) → send connect links for QuickBooks and Gmail; the client admin opens each and grants
-access → set the Gmail ingestion query → enable packs (Materials installs Pia) → review and publish the
-agents → choose who approves writes (client admin by default, or the advisor).
+access → set the Gmail ingestion query → enable packs → deploy agents from the catalogue (e.g. Pia), bind
+the client's connections, set per-client settings → test-run on the client's data → activate → choose
+who approves writes (client admin by default, or the operator).
 
 ## 2. What CI does
 

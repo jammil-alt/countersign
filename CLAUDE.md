@@ -1,18 +1,19 @@
 # Countersign: working rules
 
-Back-office **agent platform, run as a managed service**: a business connects its tools in one place
-(QuickBooks Online and Gmail); our advisors give it agents built from a library of skills and laid out as
-drag-and-drop workflows; the agents do the work and update the tools (writes approved by a person); the
-client approves, sees the work read-only, and asks for changes. The first agent, Pia, does
-material cost management for a millwork shop; she ships as the Materials pack and is built only from
-platform parts.
+A **managed-agents service suite** for back-office work. The operator (the owner and their team) builds a
+catalogue of agents, skills and drag-and-drop workflows once, in a **back office** that reaches into every
+client, and **deploys** them into client businesses with per-client settings and connections (QuickBooks
+Online and Gmail). Agents do the work and update the client's tools (writes approved by a person). Each
+client gets a **portal** for reports, runs, approvals, connections and requests; clients never edit
+agents. The first agent, Pia, does material cost management for a millwork shop; she ships as the
+Materials pack and is built only from platform parts.
 
-- What to build: `docs/ARCHITECTURE.md` (v0.4). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.5). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.4. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.5. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys).
 
@@ -21,7 +22,7 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | Path | What |
 |---|---|
 | `apps/api` | Hono Worker: `/api` routes, auth, static assets, Workflow classes, cron. The only place that wires packages together and the only place with Workers bindings. |
-| `apps/web` | React + Vite app: screens, the workflow canvas (React Flow), pack screens under `src/packs/<id>/`, typed API client. Imports only `@countersign/core`. |
+| `apps/web` | React + Vite app: back office (`/ops`, incl. the workflow canvas) and client portal; pack reports under `src/packs/<id>/`; typed API client. Imports only `@countersign/core`. |
 | `packages/core` | Domain types and Zod schemas (agent, skill, workflow graph, tool, connector, pack), graph validation and template typing (shared with the canvas), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
@@ -60,8 +61,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 
 ## Invariants: do not break these
 
-1. **Tenant isolation.** Every tenant table has `tenant_id` and RLS (`force`d). The Worker connects as `cs_worker`
-   (member of `cs_runtime` only, created with SQL, never a Neon-managed role) and touches tenant data only inside `withTenant()`. Queries also filter by `tenant_id`.
+1. **Client isolation.** Every tenant (client) table has `tenant_id` and RLS (`force`d) on `app.tenant_ids`. The
+   Worker connects as `cs_worker` (member of `cs_runtime` only, created with SQL, never a Neon-managed role)
+   and touches client data only inside `withTenant()` / `withTenants()`. Runs and portal sessions set exactly
+   one client; operator sessions only the clients they serve. Queries also filter by `tenant_id`. What an
+   agent learns (memory, aliases, catalogs) is per client and never used for another client.
 2. **Layering.** Packages depend downward only (`docs/plan.md` §2). **The platform never imports a pack**;
    packs never import `agents` or `workflows`; nothing in `packages/*` special-cases a pack. Agent reasoning
    reaches business data only through registered tools; in `packages/agents`, only `src/registry/` and
@@ -82,9 +86,10 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    instructions. Agents cannot change their own permissions.
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
-11. **Advisors publish.** Only the `advisor` role creates, edits, tests, publishes or rolls back agents,
-    skills, workflows and packs. The route contract declares each route's roles; a contract test fails if
-    any such route admits a client role.
+11. **The operator builds; clients use.** Only `operator` reaches `/api/ops` (catalogue, deployments, runs
+    across clients, usage). Publishing changes the catalogue, never a pinned deployment; deployments change
+    only by an explicit upgrade. No portal route returns catalogue definitions, instructions, prompts or
+    cost. Contract tests enforce both.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 
