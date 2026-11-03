@@ -70,8 +70,8 @@ First client: a ~$2M millwork shop. First agent: **Pia, the Materials agent** (M
 She pulls purchases, finds the supporting invoice, extracts line items, matches each line to a shared
 item catalog (e.g. "BB PLY 3/4 4X8" from vendor A and "Baltic Birch 18mm 48x96" from vendor B are the
 same item), records unit prices, and alerts when prices change. Pia is built entirely from platform
-parts: she is seeded as an agent definition plus two workflow graphs that open in the same canvas a
-customer uses. **Nothing in the platform core is material-specific;** a test enforces that platform
+parts: she is seeded as an agent definition plus two workflow graphs that open in the same canvas
+advisors use for every client. **Nothing in the platform core is material-specific;** a test enforces that platform
 packages never import a pack (§3).
 
 ### v1 scope (build today)
@@ -644,7 +644,7 @@ Errors carry the node id and field, so the canvas can mark the node and the insp
 
 ### 10.4 Test runs
 
-From the canvas, a person can test-run a draft with a chosen trigger payload (a sample event, a recent
+From the canvas, an advisor can test-run a draft with a chosen trigger payload (a sample event, a recent
 real record, or manual input). A test run is a normal run with `mode='test'`: it reads real data, writes
 its own steps and outputs, but **never executes external actions** (they are recorded as proposed and
 shown as "would have done") and does not emit events that start other workflows. Internal writes made
@@ -704,7 +704,7 @@ const PackManifest = z.object({
 A pack is a package exporting its manifest, tool handlers, Drizzle schema and API routes. `apps/api`
 registers it; `apps/web` has its screens under `src/packs/<id>/`, shown only when the pack is enabled.
 Enabling a pack for a tenant inserts `tenant_pack` and installs its template agents and workflows as v1
-rows the tenant can then edit like any other.
+rows the tenant's advisors can then edit like any other.
 
 ### 12.2 Materials pack
 
