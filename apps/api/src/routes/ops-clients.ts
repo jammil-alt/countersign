@@ -24,6 +24,7 @@ import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
 import { dispatchEvents } from "../runs/dispatch";
+import { connectNoAuth } from "./connections";
 import {
   agentSummary,
   matrixEdit,
@@ -34,6 +35,11 @@ import {
   opsStep,
   opsToolCall,
 } from "./mappers";
+
+/** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
+export function isSandbox(settings: Record<string, unknown>): boolean {
+  return settings.sandbox === true;
+}
 
 /** `tenant.settings.connectors_offered`, as connector ids. */
 export function offeredConnectors(settings: Record<string, unknown>): string[] {
@@ -213,7 +219,49 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         })),
       })),
       usedBy,
+      sandbox: isSandbox(t.settings),
     };
+  });
+
+  mount(app, routes.opsConnectSandbox, async (ctx) => {
+    const { tx, params, services, session } = ctx;
+    ensureClient(ctx, params.id);
+    const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
+    if (!t) throw notFound("client");
+    // DECISION: the operator connects tools only in the Sandbox client, their own test client with
+    // no client users (docs/plan.md §1.5). In a real client the client signs in from the portal,
+    // and the operator never connects on their behalf (ARCHITECTURE §6.1).
+    if (!isSandbox(t.settings)) {
+      throw new HttpError(
+        403,
+        "not_sandbox",
+        "only the Sandbox client's tools are connected from the back office",
+      );
+    }
+    const id = await connectNoAuth(tx, {
+      tenantId: t.id,
+      connector: params.connector,
+      platform: services.platform,
+      actorId: session.user.id,
+      by: "operator",
+    });
+    if (!offeredConnectors(t.settings).includes(params.connector)) {
+      await tx
+        .update(tenant)
+        .set({
+          settings: {
+            ...t.settings,
+            connectors_offered: [...offeredConnectors(t.settings), params.connector],
+          },
+        })
+        .where(eq(tenant.id, t.id));
+    }
+    const [row] = await tx
+      .select()
+      .from(connection)
+      .where(and(eq(connection.id, id), eq(connection.tenantId, t.id)));
+    if (!row) throw notFound("connection");
+    return { connection: opsConnection(row) };
   });
 
   mount(app, routes.opsOfferConnectors, async (ctx) => {

@@ -5,7 +5,7 @@
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { FORBIDDEN_PORTAL_FIELD } from "@countersign/core";
-import { connectionChange, inboxItem, stepRun, tenant } from "@countersign/db";
+import { connectionChange, inboxItem, membership, stepRun, tenant } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -166,6 +166,58 @@ describe.skipIf(!h)("back office connections", () => {
     expect(
       (await H.call(OTHER_OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/connections`)).status,
     ).toBe(404);
+  });
+
+  it("connects tools from the back office in the Sandbox client only", async () => {
+    // A real client: the client signs in; the operator never connects for them.
+    const real = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/clients/${H.A.tenantId}/connections/testkit/connect`,
+    );
+    expect(real.status).toBe(403);
+    expect(j(real.json).error.code).toBe("not_sandbox");
+    expect(
+      j((await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/connections`)).json)
+        .sandbox,
+    ).toBe(false);
+
+    const [sandbox] = await H.t.db
+      .insert(tenant)
+      .values({ name: "Sandbox", settings: { sandbox: true } })
+      .returning();
+    if (!sandbox) throw new Error("no sandbox");
+    await H.t.db
+      .insert(membership)
+      .values({ tenantId: sandbox.id, userId: H.operator, role: "operator" });
+    const path = `/api/ops/clients/${sandbox.id}/connections/testkit/connect`;
+    // Only an operator who serves it, and only connectors that need no provider sign-in.
+    expect((await H.call(OTHER_OPERATOR, "POST", path)).status).toBe(404);
+    expect((await H.call(admin("a"), "POST", path)).status).toBe(403);
+    expect(
+      (await H.call(OPERATOR, "POST", `/api/ops/clients/${sandbox.id}/connections/nope/connect`))
+        .status,
+    ).toBe(409);
+
+    const first = await H.call(OPERATOR, "POST", path);
+    expect(first.status, JSON.stringify(first.json)).toBe(200);
+    const conn = j(first.json).connection;
+    expect(conn).toMatchObject({ tenantId: sandbox.id, connector: "testkit", status: "connected" });
+    expect(conn.permissions).toMatchObject({ update: "approval", delete: "off" });
+    // Again: the same connection, and one status change recorded, by the operator.
+    const again = await H.call(OPERATOR, "POST", path);
+    expect(j(again.json).connection.id).toBe(conn.id);
+    const changes = await H.t.db
+      .select()
+      .from(connectionChange)
+      .where(eq(connectionChange.connectionId, conn.id));
+    expect(changes.map((c) => c.change)).toEqual([
+      { kind: "status", by: "operator", before: null, after: "connected" },
+    ]);
+    const view = j(
+      (await H.call(OPERATOR, "GET", `/api/ops/clients/${sandbox.id}/connections`)).json,
+    );
+    expect(view).toMatchObject({ sandbox: true, offered: ["testkit"] });
   });
 });
 

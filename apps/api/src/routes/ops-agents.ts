@@ -20,6 +20,7 @@ import {
   publish,
   rollback,
   skillContext,
+  snapshotSharedSkills,
   templateTestCopy,
   updateInfo,
   updateOperational,
@@ -283,6 +284,14 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     const row = await agentInScope(ctx, ctx.params.id);
     const v = await getVersion(ctx.tx, ctx.params.vid);
     if (v.agentId !== row.id) throw notFound("version");
+    // Only a valid version can be test-run (ARCHITECTURE §10.2).
+    // DECISION: a test run is checked exactly as a publish is, against the agent asked for: a
+    // template as a template, a client agent with its bound connections, as the builder checks it
+    // before it offers Test run (docs/plan.md §1.5).
+    const errors = await validateForPublish(ctx.tx, row, v.bundle, ctx.services.platform.ctx);
+    if (errors.length > 0) {
+      throw new HttpError(422, "invalid_bundle", `v${v.version} does not validate`, errors);
+    }
     // DECISION: a template never runs for a client. Test-running a template version runs it as the
     // template's test copy in the Sandbox client: forked on the first test run, given a new
     // version holding this one's bundle on later ones (docs/plan.md §1.5 "Template test runs").
@@ -294,6 +303,13 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
             templateVersionId: v.id,
             actorId: ctx.session.user.id,
           });
+    // A run sees only its client's rows, so the shared skills the version uses are copied into the
+    // client first, as a publish copies them (a draft or a test copy was never published).
+    await snapshotSharedSkills(ctx.tx, {
+      tenantId: target.agent.tenantId as string,
+      bundle: target.version.bundle,
+      catalog: ctx.services.platform.catalog,
+    });
     const req = request(() =>
       requestRun({
         agent: routable(target.agent, null),

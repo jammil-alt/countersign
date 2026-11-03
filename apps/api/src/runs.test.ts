@@ -3,6 +3,7 @@
 // inbox resolution resuming the run through the API, test runs that never write, the client
 // timeline without internal steps or cost, and the senses dispatcher and cron.
 
+import { createSkill, publishSkill } from "@countersign/agents";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { AgentBundle, FORBIDDEN_PORTAL_FIELD } from "@countersign/core";
 import {
@@ -14,6 +15,7 @@ import {
   inboxItem,
   membership,
   run,
+  skill,
   stepRun,
   tenant,
   usageDaily,
@@ -212,6 +214,67 @@ describe.skipIf(!h)("runs", () => {
     await H.settle();
     const events = await H.t.db.select().from(event).where(eq(event.tenantId, H.A.tenantId));
     expect(events).toEqual([]);
+  });
+
+  it("refuses to test-run a version that doesn't validate", async () => {
+    const bad = testBundle();
+    bad.definition.skills = [{ skill: "custom:no-such-skill", settings: {} }];
+    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions`, {
+      bundle: bad,
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    expect(j(saved.json).errors.length).toBeGreaterThan(0);
+    const started = H.instances.started.size;
+    const res = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${agentId}/versions/${j(saved.json).version.id}/test-run`,
+      { workflow: "fix-record" },
+    );
+    expect(res.status).toBe(422);
+    expect(j(res.json).error.code).toBe("invalid_bundle");
+    expect(H.instances.started.size).toBe(started);
+  });
+
+  it("copies the shared skills a draft uses into the client before test-running it", async () => {
+    await H.t.db.transaction(async (tx) => {
+      const shared = await createSkill(tx, {
+        tenantId: null,
+        definition: {
+          schemaVersion: 1,
+          id: "custom:check-record",
+          name: "Check record",
+          description: "Checks a record",
+          category: "custom",
+          mode: "agent",
+          instructions: "Check it.",
+          tools: [],
+          input: { type: "object" },
+          output: { type: "object" },
+          settings: [],
+        },
+      });
+      await publishSkill(tx, { skillId: shared.skill.id, versionId: shared.version.id });
+    });
+    const withSkill = testBundle();
+    withSkill.definition.skills = [{ skill: "custom:check-record", settings: {} }];
+    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions`, {
+      bundle: withSkill,
+    });
+    expect(j(saved.json).errors, JSON.stringify(saved.json)).toEqual([]);
+    const res = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${agentId}/versions/${j(saved.json).version.id}/test-run`,
+      { workflow: "fix-record" },
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    // The run reads skills as the client: the client's copy is what it finds.
+    const copies = await H.t.db
+      .select()
+      .from(skill)
+      .where(and(eq(skill.tenantId, H.A.tenantId), eq(skill.slug, "shared:check-record")));
+    expect(copies).toHaveLength(1);
   });
 
   let liveRunId = "";

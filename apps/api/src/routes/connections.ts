@@ -19,6 +19,71 @@ async function connectionOut(tx: Tx, tenantId: string, platform: Platform, id: s
   return out;
 }
 
+/**
+ * Connects a connector that needs no provider sign-in in one client, reusing its existing row so
+ * the matrix the client tightened and the agents' bindings stay as they were. Returns the id.
+ */
+export async function connectNoAuth(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    connector: string;
+    platform: Platform;
+    actorId: string;
+    by: "client" | "operator";
+  },
+): Promise<string> {
+  const { tenantId } = input;
+  const connector = input.platform.connectors.get(input.connector);
+  if (!connector || !canSignIn(connector.manifest)) {
+    throw new HttpError(
+      409,
+      "not_available",
+      `signing in to ${connector?.manifest.name ?? input.connector} is not available yet`,
+    );
+  }
+  // DECISION: a client has at most one connection per connector in v1 (the newest row is used).
+  const [existing] = await tx
+    .select()
+    .from(connection)
+    .where(and(eq(connection.tenantId, tenantId), eq(connection.connector, input.connector)))
+    .orderBy(desc(connection.createdAt))
+    .limit(1);
+  if (existing) {
+    if (existing.status !== "connected") {
+      await tx
+        .update(connection)
+        .set({ status: "connected", connectedBy: input.actorId })
+        .where(and(eq(connection.id, existing.id), eq(connection.tenantId, tenantId)));
+      await tx.insert(connectionChange).values({
+        tenantId,
+        connectionId: existing.id,
+        actorId: input.actorId,
+        change: { kind: "status", by: input.by, before: existing.status, after: "connected" },
+      });
+    }
+    return existing.id;
+  }
+  const [row] = await tx
+    .insert(connection)
+    .values({
+      tenantId,
+      connector: input.connector,
+      status: "connected",
+      permissions: connectionDefaults(connector.manifest),
+      connectedBy: input.actorId,
+    })
+    .returning();
+  if (!row) throw new Error("connection insert returned nothing");
+  await tx.insert(connectionChange).values({
+    tenantId,
+    connectionId: row.id,
+    actorId: input.actorId,
+    change: { kind: "status", by: input.by, before: null, after: "connected" },
+  });
+  return row.id;
+}
+
 export function connectionRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalAuthorize, async ({ tx, tenantIds, params, session, services }) => {
     const tenantId = tenantIds[0] as string;
@@ -27,58 +92,13 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     if (!offeredConnectors(t.settings).includes(params.connector)) {
       throw notFound("connector");
     }
-    const connector = services.platform.connectors.get(params.connector);
-    if (!connector || !canSignIn(connector.manifest)) {
-      throw new HttpError(
-        409,
-        "not_available",
-        `signing in to ${connector?.manifest.name ?? params.connector} is not available yet`,
-      );
-    }
-    // One connection per connector and client: reconnecting reuses the row, so the matrix the
-    // client tightened and the agents' bindings stay as they were.
-    // DECISION: a client has at most one connection per connector in v1 (the newest row is used).
-    const [existing] = await tx
-      .select()
-      .from(connection)
-      .where(and(eq(connection.tenantId, tenantId), eq(connection.connector, params.connector)))
-      .orderBy(desc(connection.createdAt))
-      .limit(1);
-    let id: string;
-    if (existing) {
-      id = existing.id;
-      if (existing.status !== "connected") {
-        await tx
-          .update(connection)
-          .set({ status: "connected", connectedBy: session.user.id })
-          .where(and(eq(connection.id, existing.id), eq(connection.tenantId, tenantId)));
-        await tx.insert(connectionChange).values({
-          tenantId,
-          connectionId: existing.id,
-          actorId: session.user.id,
-          change: { kind: "status", by: "client", before: existing.status, after: "connected" },
-        });
-      }
-    } else {
-      const [row] = await tx
-        .insert(connection)
-        .values({
-          tenantId,
-          connector: params.connector,
-          status: "connected",
-          permissions: connectionDefaults(connector.manifest),
-          connectedBy: session.user.id,
-        })
-        .returning();
-      if (!row) throw new Error("connection insert returned nothing");
-      id = row.id;
-      await tx.insert(connectionChange).values({
-        tenantId,
-        connectionId: row.id,
-        actorId: session.user.id,
-        change: { kind: "status", by: "client", before: null, after: "connected" },
-      });
-    }
+    const id = await connectNoAuth(tx, {
+      tenantId,
+      connector: params.connector,
+      platform: services.platform,
+      actorId: session.user.id,
+      by: "client",
+    });
     return {
       connection: await connectionOut(tx, tenantId, services.platform, id),
       redirectUrl: null,

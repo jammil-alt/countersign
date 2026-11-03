@@ -505,7 +505,19 @@ export const opsRoutes = {
       connectors: z.array(OpsConnectorInfo),
       /** Client agents bound to each connection, by connection id. */
       usedBy: z.record(z.string(), z.array(z.object({ id: z.string(), name: z.string() }))),
+      /** The Sandbox client (`tenant.settings.sandbox`): the operator connects its tools. */
+      sandbox: z.boolean(),
     }),
+  }),
+  opsConnectSandbox: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/connections/:connector/connect",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Connect a tool in the Sandbox client (only there: in a real client, the client signs in)",
+    params: z.object({ id: ApiId, connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    response: z.object({ connection: OpsConnection }),
   }),
   opsOfferConnectors: defineRoute({
     method: "PUT",
