@@ -1,17 +1,18 @@
 # Countersign: working rules
 
-Back-office **agent platform**: a business connects its tools in one place (QuickBooks Online first), picks
-from a library of skills, creates agents from scratch, lays out their work as a drag-and-drop workflow,
-and the agents do the work and update the tools (writes approved by a person). The first agent, Pia, does
+Back-office **agent platform, run as a managed service**: a business connects its tools in one place
+(QuickBooks Online and Gmail); our advisors give it agents built from a library of skills and laid out as
+drag-and-drop workflows; the agents do the work and update the tools (writes approved by a person); the
+client approves, sees the work read-only, and asks for changes. The first agent, Pia, does
 material cost management for a millwork shop; she ships as the Materials pack and is built only from
 platform parts.
 
-- What to build: `docs/ARCHITECTURE.md` (v0.3). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.4). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.3. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: repo set up, M0 not started. Product shape: ARCHITECTURE v0.4. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys).
 
@@ -26,7 +27,7 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
 | `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
 | `packages/senses` | Event outbox (`emit`, `undispatched`, `markDispatched`); `apps/api` dispatches. |
-| `packages/connectors` | Connector framework (manifest with tools), `upload/`, `qbo/`, object storage. |
+| `packages/connectors` | Connector framework (manifest with tools), `qbo/`, `gmail/`, `upload/`, object storage. |
 | `packages/documents` | Documents capability: store, locate, extract, validate, link. |
 | `packages/threads` | Threads, messages, `/command` parsing. |
 | `packages/agents` | Tool, skill and agent registries; versioning (agents, skills, workflows); runtime; permission gate; external actions; Builder. |
@@ -81,6 +82,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    instructions. Agents cannot change their own permissions.
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
+11. **Advisors publish.** Only the `advisor` role creates, edits, tests, publishes or rolls back agents,
+    skills, workflows and packs. The route contract declares each route's roles; a contract test fails if
+    any such route admits a client role.
+12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
+    snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 
 ## Testing
 

@@ -52,9 +52,30 @@ when the run ends.
 3. Worker secrets per environment: `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD`
    (at least 32 random characters).
 
+### Intuit (QuickBooks Online, from M9)
+
+1. An Intuit developer app with the `com.intuit.quickbooks.accounting` scope, a sandbox company, and
+   redirect URIs `https://<domain>/api/connections/qbo/callback` per environment.
+2. Worker secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`; vars `QBO_ENV`,
+   `QBO_REDIRECT_URI`. Production keys need Intuit's app review.
+
+### Google (Gmail, from M10)
+
+1. A Google Cloud project for Countersign with the Gmail API enabled.
+2. An OAuth consent screen (external) and a web OAuth client with redirect URIs
+   `https://<domain>/api/connections/gmail/callback` per environment (and `http://localhost:8787/...` for
+   local development).
+3. Scopes `gmail.readonly`, `gmail.labels`, `gmail.compose`. Gmail read scopes are restricted: a public
+   app needs Google's verification and a security assessment, which can take weeks, so start it early.
+   Until then the app works for a limited set of users with a warning screen, and in "testing" status
+   refresh tokens expire after 7 days (clients would have to reconnect weekly). Check the current rules
+   (plan M10). For clients on Google Workspace, domain-wide delegation granted by their admin is the
+   alternative.
+4. Worker secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; var `GOOGLE_REDIRECT_URI`.
+
 ### Other Worker secrets (`wrangler secret put <NAME> --env=staging`, from `apps/api`)
 
-`ANTHROPIC_API_KEY`, `ENCRYPTION_KEY` (32 bytes, base64), and from M9 the `QBO_*` values.
+`ANTHROPIC_API_KEY`, `ENCRYPTION_KEY` (32 bytes, base64).
 `RESEND_API_KEY` only if email is turned on.
 
 ### GitHub summary
@@ -64,12 +85,19 @@ when the run ends.
 | Secret | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Variable | `NEON_PROJECT_ID` |
 
+## 1.1 Onboarding a client (managed service)
+
+Done by an advisor in the app once M5 ships: create the client (tenant) → invite the client admin
+(WorkOS invitation) → send connect links for QuickBooks and Gmail; the client admin opens each and grants
+access → set the Gmail ingestion query → enable packs (Materials installs Pia) → review and publish the
+agents → choose who approves writes (client admin by default, or the advisor).
+
 ## 2. What CI does
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;
   marking a PR ready runs the check.
-- **`checks.yml`**: install, Biome lint, layering check, typecheck, then tests against the runner's
-  Postgres 16 set up with Neon's roles (`scripts/setup-postgres.sh`). With the Neon settings present,
+- **`checks.yml`**: install, Biome lint, layering check, typecheck, then tests against a Postgres 16 +
+  pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`). With the Neon settings present,
   it also copies `main` to a throwaway branch, applies the migrations to it, and deletes it.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, builds `apps/web` and runs `wrangler deploy`.
