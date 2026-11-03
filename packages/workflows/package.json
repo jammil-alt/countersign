@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/workflows",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Workflow definition schema, step executors, Inngest functions",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/agents": "workspace:*", "@countersign/threads": "workspace:*", "@countersign/senses": "workspace:*", "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+}

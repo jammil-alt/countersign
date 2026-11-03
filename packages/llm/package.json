@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/llm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Anthropic client wrapper, cost tracking, record/replay, prompt utilities",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/core": "workspace:*" }
+}

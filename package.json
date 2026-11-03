@@ -1,0 +1,21 @@
+{
+  "name": "countersign",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @countersign/web dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint:deps": "node scripts/check-deps.mjs",
+    "test": "pnpm -r test",
+    "db:up": "docker compose up -d postgres",
+    "inngest:dev": "pnpm dlx inngest-cli@latest dev -u http://localhost:3000/api/inngest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}

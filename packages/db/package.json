@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Drizzle schema, migrations, seed, typed queries, tenant-scoped transactions",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/core": "workspace:*" }
+}

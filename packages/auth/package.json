@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Session, tenant and role helpers (provider kept behind this package)",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+}

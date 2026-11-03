@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/connectors",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Connector interface, qbo/ and upload/ connectors, object storage",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+}

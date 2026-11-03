@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/threads",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Threads, messages, slash-command parsing and dispatch",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/senses": "workspace:*", "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/documents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Document locate, store, extract (Claude), validate totals",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/connectors": "workspace:*", "@countersign/llm": "workspace:*", "@countersign/senses": "workspace:*", "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+}

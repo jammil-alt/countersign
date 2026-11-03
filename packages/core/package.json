@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain types, Zod schemas, units of measure, money, QBO mappers",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {  }
+}

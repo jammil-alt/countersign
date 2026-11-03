@@ -1,0 +1,13 @@
+{
+  "name": "@countersign/agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent definition schema, versioning, runtime, tool registry, Builder",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@countersign/documents": "workspace:*", "@countersign/catalog": "workspace:*", "@countersign/pricing": "workspace:*", "@countersign/threads": "workspace:*", "@countersign/llm": "workspace:*", "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+}
