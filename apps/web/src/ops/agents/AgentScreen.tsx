@@ -4,8 +4,8 @@
 // Versions; templates show "Used by". `?version=N` shows an older version on the bundle tabs.
 import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
-import { useState } from "react";
-import { Link, Route, Routes, useSearchParams } from "react-router-dom";
+import { lazy, Suspense, useState } from "react";
+import { Link, Navigate, Route, Routes, useMatch, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
@@ -21,6 +21,7 @@ import {
   SectionLabel,
   Tabs,
 } from "../../ui/primitives";
+import type { Member } from "../builder/Inspector";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
 import { StepList } from "../workflow/StepList";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
@@ -31,18 +32,26 @@ import { VersionsTab } from "./VersionsTab";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
+// The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
+const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
+
 export function AgentScreen({
   agentId,
   base,
   connections = [],
+  members = [],
 }: {
   agentId: string;
   /** The page's URL: `/ops/clients/<id>/agents/<slug>` or `/ops/templates/<slug>`. */
   base: string;
   /** A client agent's client's connections, for its bindings. */
   connections?: readonly Connection[];
+  /** A client agent's client's people, for approvers and assignees. */
+  members?: readonly Member[];
 }) {
   const [search] = useSearchParams();
+  const builder = useMatch(`${base}/workflows/:workflow`);
+  const workflowTab = useMatch(`${base}/workflow`);
   const agent = useApi(apiRoutes.opsAgent, { params: { id: agentId } });
   const skills = useApi(apiRoutes.opsAgentSkills, { params: { id: agentId } });
 
@@ -90,6 +99,64 @@ export function AgentScreen({
   ) : null;
 
   const firstWorkflow = bundle?.workflows[0]?.slug;
+  // The builder edits the latest version (draft or live), like the definition editor.
+  const latestParsed = agent.data.latest ? parseBundle(agent.data.latest) : null;
+  const latestBundle = latestParsed?.ok ? latestParsed.bundle : null;
+  const builderStart = latestBundle?.workflows[0]?.slug ?? "main";
+  const tabs = (
+    <Tabs
+      items={[
+        { to: `${base}${keep}`, label: "Overview", end: true },
+        {
+          to: `${base}/workflows/${builderStart}`,
+          label: "Workflow",
+          active: builder !== null || workflowTab !== null,
+        },
+        { to: `${base}/runs${keep}`, label: "Runs" },
+        { to: `${base}/versions${keep}`, label: "Versions", count: versions.length },
+        { to: `${base}/settings${keep}`, label: "Settings" },
+      ]}
+    />
+  );
+
+  if (builder) {
+    const latest = agent.data.latest;
+    if (!latest || !latestBundle) {
+      return (
+        <div>
+          <PageHeader
+            leading={<AgentAvatar name={view.name} seed={view.slug} size="lg" />}
+            title={view.serviceName ?? view.name}
+          />
+          {tabs}
+          <div className="pt-6">
+            {latestParsed && !latestParsed.ok ? (
+              <ErrorNotice error={new Error(latestParsed.message)} />
+            ) : (
+              <EmptyState>This agent has no versions yet.</EmptyState>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <Suspense fallback={<Loading label="Opening the workflow builder…" />}>
+        <WorkflowBuilder
+          key={view.id}
+          agent={view}
+          from={latest}
+          bundle={latestBundle}
+          workflow={builder.params.workflow ?? builderStart}
+          base={base}
+          tabs={tabs}
+          connections={connections}
+          members={members}
+          onChanged={reload}
+        />
+      </Suspense>
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -110,7 +177,7 @@ export function AgentScreen({
         actions={
           firstWorkflow ? (
             <Link
-              to={`${base}/workflows/${firstWorkflow}`}
+              to={`${base}/workflows/${latestBundle?.workflows.some((w) => w.slug === firstWorkflow) ? firstWorkflow : builderStart}`}
               className={buttonClass("secondary")}
               data-testid="agent-edit-workflow"
             >
@@ -119,15 +186,7 @@ export function AgentScreen({
           ) : null
         }
       />
-      <Tabs
-        items={[
-          { to: `${base}${keep}`, label: "Overview", end: true },
-          { to: `${base}/workflow${keep}`, label: "Workflow" },
-          { to: `${base}/runs${keep}`, label: "Runs" },
-          { to: `${base}/versions${keep}`, label: "Versions", count: versions.length },
-          { to: `${base}/settings${keep}`, label: "Settings" },
-        ]}
-      />
+      {tabs}
       <div className="pt-6">
         {shown && shown.id !== live?.id ? (
           <p className="mb-4 text-sm text-secondary" data-testid="agent-shown-version">
@@ -152,7 +211,13 @@ export function AgentScreen({
           <Route
             path="workflow"
             element={
-              blocked ?? (bundle && shown ? <WorkflowTab bundle={bundle} version={shown} /> : null)
+              blocked ??
+              (requested && bundle && shown ? (
+                // An older version is read, not edited: the builder always opens the latest.
+                <WorkflowTab bundle={bundle} version={shown} />
+              ) : (
+                <Navigate to={`${base}/workflows/${builderStart}`} replace />
+              ))
             }
           />
           <Route
@@ -208,7 +273,8 @@ function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: Versio
     <div className="flex flex-col gap-8">
       <p className="text-sm text-secondary">
         Steps run top to bottom; a fork takes the first path whose rules match, then continues after
-        the fork. Edit them in the workflow builder.
+        the fork. This is v{version.version} as it was saved; the workflow builder edits the latest
+        version.
       </p>
       {bundle.workflows.map((w) => (
         <section key={w.slug} data-testid={`workflow-${w.slug}`}>

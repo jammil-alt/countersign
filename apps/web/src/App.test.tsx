@@ -1,5 +1,5 @@
 // The wired path end to end against a fake API shaped like apps/api: dev sign-in → back office
-// clients → client → agent page with its versions, badges and workflow tab.
+// clients → client → agent page with its versions, badges, workflow tab and the workflow builder.
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -42,6 +42,12 @@ function backend(): FakeApi & { signedInAs: () => string | null } {
     }),
     "GET /api/ops/clients/00000000-0000-4000-8000-00000000a001": () => SANDBOX_DETAIL,
     "GET /api/ops/agents/00000000-0000-4000-8000-00000000b001": () => AGENT_DETAIL,
+    "GET /api/ops/agents/00000000-0000-4000-8000-00000000b001/builder-catalog": () => ({
+      skills: [],
+      tools: [],
+      connectors: [],
+    }),
+    "GET /api/ops/catalog/events": () => ({ events: [] }),
     "GET /api/overview": () => ({
       client: { id: "00000000-0000-4000-8000-00000000a002", name: "Demo client" },
       services: [],
@@ -125,6 +131,16 @@ describe("app", () => {
     expect(await screen.findByTestId("agent-shown-version")).toHaveTextContent("v2 (draft)");
     expect(screen.getByTestId("step-list")).toBeInTheDocument();
     expect(screen.getByTestId("fork-confidence")).toBeInTheDocument();
+
+    // The Workflow tab opens the builder on the latest version's first workflow.
+    await user.click(within(tabs).getByRole("link", { name: "Workflow" }));
+    const canvas = await screen.findByTestId("builder-canvas");
+    expect(within(canvas).getByTestId("builder-step-confidence")).toBeInTheDocument();
+    expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v2");
+    expect(screen.getByTestId("builder-workflow-new-bill-select")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("signs a client admin in by email when the API lists no users, landing in the portal", async () => {

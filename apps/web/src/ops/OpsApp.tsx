@@ -1,6 +1,6 @@
 // The back office (`/ops/*`, operator only). App.tsx loads this module lazily, behind the operator
 // check, so client users never download it (plan §1.2 "Back office and portal in one app"). The
-// workflow builder joins this bundle when it lands.
+// workflow builder is a further lazy chunk inside it, loaded when an operator opens a workflow.
 import { Route, Routes } from "react-router-dom";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
@@ -18,8 +18,6 @@ import { OpsRunScreen } from "./screens/RunView";
 const PLACEHOLDERS: [path: string, title: string][] = [
   ["clients/new", "New client"],
   ["clients/:clientId/settings", "Client settings"],
-  ["clients/:clientId/agents/:slug/workflows/:workflow", "Workflow builder"],
-  ["templates/:slug/workflows/:workflow", "Template workflow builder"],
   ["agents/:id/merge", "Merge"],
   ["skills", "Skills"],
   ["skills/:id", "Skill"],

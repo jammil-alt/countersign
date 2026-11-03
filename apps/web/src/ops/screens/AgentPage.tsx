@@ -22,6 +22,7 @@ export function AgentPage() {
       agentId={summary.id}
       base={`/ops/clients/${clientId}/agents/${slug}`}
       connections={client.data.connections}
+      members={client.data.members}
     />
   );
 }
