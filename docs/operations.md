@@ -51,7 +51,7 @@ dashboard.
 ### What the bootstrap creates (re-runnable; it looks before it creates)
 
 1. The Neon project `mezonas`, Postgres 16, in the region given when running the workflow (the owner
-   chose the same region Plenary Labs uses; it's shown in that project's settings in the Neon console),
+   chose the same region Plenary Labs uses, `aws-us-east-2`, which is the workflow's default),
    unless the `NEON_PROJECT_ID` variable already names one.
 2. Role `cs_owner` (Neon-managed is fine for the owner) and database `countersign` on `main`; branch
    `staging` from `main`.

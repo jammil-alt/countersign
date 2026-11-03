@@ -27,9 +27,10 @@ on:
   workflow_dispatch:
     inputs:
       region:
-        description: Neon region id for a new project (e.g. aws-us-east-2), as chosen by the owner
+        description: Neon region id for a new project (owner's choice, the same as Plenary Labs)
         type: string
         required: true
+        default: aws-us-east-2
       org_id:
         description: Neon organization id for a new project (leave empty for the API key's own account)
         type: string
