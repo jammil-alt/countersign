@@ -76,12 +76,31 @@ jobs:
             echo "::error::CLOUDFLARE_ACCOUNT_ID should be 32 lowercase hex characters (it has $acct_len characters). Copy the Account ID from Workers & Pages → right sidebar, not the Zone ID."
             exit 1
           fi
+          # The token's shape, described without printing it. An API token is one word of letters,
+          # digits, - and _ (40 characters when this was written).
+          tok_len=${#CF_TOKEN}
+          if [[ "$CF_TOKEN" =~ [[:space:]] ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN ($tok_len characters) contains a space or line break. Paste only the token itself, not the 'curl' test command or 'Bearer'."
+            exit 1
+          fi
+          if [[ "$CF_TOKEN" =~ ^[0-9a-f]{37}$ ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN looks like the Global API Key (37 hex characters). Use the API token created for mezonas-github (My Profile → API Tokens → Create Token); it is shown once, after 'Create Token'."
+            exit 1
+          fi
+          if [[ "$CF_TOKEN" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN looks like an id (32 hex characters), such as the token's or the account's id, not the token value. Roll the token to get a new value and save that."
+            exit 1
+          fi
+          if ! [[ "$CF_TOKEN" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN ($tok_len characters) has characters a token never has (quotes, colons, slashes…). Paste only the token value."
+            exit 1
+          fi
           verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/tokens/verify")
           if [ "$(jq -r '.success' <<<"$verify")" != true ]; then
             verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/user/tokens/verify")
           fi
           if [ "$(jq -r '.success' <<<"$verify")" != true ]; then
-            echo "::error::Cloudflare rejected CLOUDFLARE_API_TOKEN: $(jq -c '.errors' <<<"$verify")"
+            echo "::error::Cloudflare rejected CLOUDFLARE_API_TOKEN ($tok_len characters): $(jq -c '.errors' <<<"$verify")"
             exit 1
           fi
           account=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT")
