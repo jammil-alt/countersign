@@ -9,7 +9,7 @@ cost management for a millwork shop.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: folder skeleton and plan only. M0 not started. Hosting: Cloudflare Workers + Neon + R2 + Access, like Datum.
+Status: folder skeleton and plan only. M0 not started. Hosting: Cloudflare Workers + Neon (Hyperdrive) + R2, sign-in with WorkOS, like Plenary Labs.
 
 ## Layout
 
@@ -19,7 +19,7 @@ Status: folder skeleton and plan only. M0 not started. Hosting: Cloudflare Worke
 | `packages/core` | Domain types, Zod schemas (`AgentDefinition`, `WorkflowDefinition`), units of measure, money, raw → normalized mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
-| `packages/auth` | Session, active tenant, roles; `access` (Cloudflare Access) and `dev` adapters. |
+| `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
 | `packages/senses` | Event outbox and dispatch to Inngest. |
 | `packages/connectors` | `Connector` interface, `upload/`, `qbo/`, object storage. |
 | `packages/documents` | Locate, store, extract, validate totals. |

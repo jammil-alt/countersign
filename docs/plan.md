@@ -17,9 +17,9 @@ Status: **M0 not started.** Folder skeleton, workspace config, local Postgres an
 
 | Item | Decision | Why |
 |---|---|---|
-| Hosting | **Cloudflare + Neon, same as Datum.** Next.js runs on Workers through the OpenNext adapter (`@opennextjs/cloudflare`); config lives in `apps/web/wrangler.jsonc`. Postgres 16 with pgvector on **Neon** (`main` = prod, `dev`, `pr-<n>` preview branches, reusing Datum's `neon-preview.yml` / `ops/neon.sh` pattern). Files in **R2** through its S3 API. Jobs on **Inngest Cloud**, calling the Worker's `/api/inngest`. | Same stack as your other two projects: one set of accounts, deploy workflows, runbooks and branch-per-PR habits. Supabase's main extra is built-in auth, and v1 doesn't need it (see the Auth row). |
-| DB driver from Workers | **Hyperdrive → Neon, with `postgres-js` + Drizzle.** Locally, Hyperdrive's `localConnectionString` points at Docker Postgres. Fallback: Neon's serverless driver in WebSocket `Pool` mode. | `withTenant()` needs interactive transactions (`set_config(..., true)` then queries). Hyperdrive supports them, and Neon's HTTP mode doesn't. Datum reaches Neon from containers, so this is new; prove it in the M0 deploy spike. |
-| Auth provider | **Cloudflare Access**, as in Datum (verify the `Cf-Access-Jwt-Assertion` JWT on every request; reuse Datum's `access.ts`). Identity is the Access email, mapped to `app_user`. Roles and tenants stay in our `membership` table. Behind `packages/auth` with two adapters: `access` (deployed) and `dev` (local + e2e: seeded users, refused when `NODE_ENV=production`). | Zero new vendors and already proven in your stack. Inviting a user means adding their email to the Access policy, which is fine for the first client and a few advisors. When clients need self-serve sign-up, password reset or many seats, switch the adapter to Better Auth (users stored in our Neon DB). No migration of roles is needed. |
+| Hosting | **Cloudflare + Neon, same as Plenary Labs.** Next.js runs on Workers through the OpenNext adapter (`@opennextjs/cloudflare`); config lives in `apps/web/wrangler.jsonc`. Postgres 16 with pgvector on **Neon** (`main` = prod, `dev`, `pr-<n>` preview branches, reusing the Neon branch and migration setup from Plenary Labs). Files in **R2** through its S3 API. Jobs on **Inngest Cloud**, calling the Worker's `/api/inngest`. | Same stack as Plenary Labs: one set of accounts, deploy workflows, runbooks and branch-per-PR habits. Supabase's extras (auth, realtime, storage) are covered by WorkOS, Durable Objects and R2. |
+| DB driver from Workers | **Hyperdrive → Neon, with `postgres-js` + Drizzle.** Locally, Hyperdrive's `localConnectionString` points at Docker Postgres. Fallback: Neon's serverless driver in WebSocket `Pool` mode. | `withTenant()` needs interactive transactions (`set_config(..., true)` then queries). Hyperdrive supports them, and Neon's HTTP mode doesn't. Plenary Labs already reaches Neon through Hyperdrive with Drizzle; check `set_config` inside a transaction in the M0 deploy spike. |
+| Auth provider | **WorkOS (AuthKit), as in Plenary Labs.** Port its `apps/api/src/identity/` (WorkOS client, AES-GCM sealed session cookie with a 5-minute refresh, provisioning on callback). Identity is the WorkOS user, mapped to `app_user`. A WorkOS organization maps to a `tenant` (`tenant.workos_organization_id`). Roles stay in our `membership` table, so an advisor can belong to many tenants. Behind `packages/auth` with two adapters: `workos` (deployed) and `dev` (local + e2e: seeded users, refused when `NODE_ENV=production`). | Already proven in your stack. Covers what Supabase Auth would add (invites, magic links, client self-serve) plus B2B extras for later (SSO, directory sync, an admin portal per client). |
 | Purchaser doc requests | **Inbox only in v1, routed to an admin.** `docs.request_from_purchaser` creates an `inbox_item(kind='doc_request', assignee_role='client_admin')`. Owner: purchases come from several places (card spend, purchase orders, …), so per-purchaser routing waits until that's designed. A `Mailer` interface with a Resend adapter is wired up but used only when `RESEND_API_KEY` is set. | External side effects stay off by default (§16). The demo doesn't need email. |
 | Embeddings | **Ship without vectors.** `catalog_item.embedding` stays nullable. Candidates come from key attributes plus `pg_trgm`. | §20 says trigram + attributes is enough for v1. Adding a provider later is one tool change. |
 
@@ -28,7 +28,7 @@ Status: **M0 not started.** Folder skeleton, workspace config, local Postgres an
 | Topic | Decision |
 |---|---|
 | IDs (uuid v7) | SQL function `uuid_generate_v7()` (plpgsql) as the column default, so seed scripts, raw SQL and Drizzle all get v7. Postgres 16 has no built-in v7. |
-| DB roles and RLS | Two roles. The **owner** (`DIRECT_DATABASE_URL`) runs migrations and seed. **`app_user`** has no `BYPASSRLS` and owns no tables; the app and Inngest connect as it. Every tenant table: `enable` + `force row level security`, policy `tenant_id = current_setting('app.tenant_id', true)::uuid`. All tenant reads and writes go through `withTenant(tenantId, tx => …)`, which opens a transaction and runs `set_config('app.tenant_id', $1, true)`. Queries also filter by `tenant_id` (§4). |
+| DB roles and RLS | Two roles. The **owner** (`DIRECT_DATABASE_URL`) runs migrations and seed. **`app_user`** has no `BYPASSRLS` and owns no tables; the app and Inngest connect as it. Create `app_user` (and a NOLOGIN `app_runtime` role holding all grants) **with SQL**, never through the Neon console/CLI/API: Neon-managed roles join `neon_superuser` and would skip RLS (Plenary Labs ADR 0002 §15). A test checks effective privileges. Every tenant table: `enable` + `force row level security`, policy `tenant_id = current_setting('app.tenant_id', true)::uuid`. All tenant reads and writes go through `withTenant(tenantId, tx => …)`, which opens a transaction and runs `set_config('app.tenant_id', $1, true)`. Queries also filter by `tenant_id` (§4). |
 | Global tables | `tenant` and `app_user` have no `tenant_id`. They are read only by `packages/auth` through a narrow owner-side query module. `membership` is tenant-scoped like every other table. |
 | Advisor across tenants | The session holds an *active tenant*. Every request checks it against `membership`. A tenant switcher sits in the header. |
 | Migrations | `drizzle-kit generate` for tables. Hand-written custom SQL migrations (`drizzle-kit generate --custom`) for extensions, roles, `uuid_generate_v7`, the RLS loop, immutability triggers, and the `item_alias` expression unique index (`coalesce(...)`), which Drizzle can't express. |
@@ -44,6 +44,7 @@ Status: **M0 not started.** Folder skeleton, workspace config, local Postgres an
 | Cost | Per-model token price table in `packages/llm/pricing.ts`. Check the numbers against current Anthropic pricing when M4 starts; nothing is hard-coded from memory. |
 | Extraction input | Send a PDF as a `document` content block (base64) and images as `image` blocks, with `tool_choice` forcing the `record_invoice` tool, whose schema is `InvoiceExtraction` (Zod → JSON Schema). Check page and size limits at M2 and split long PDFs by page if needed. |
 | UI | Built from the owner's screen designs (coming), on the **Groundwork** design system. Tailwind + shadcn/ui primitives, themed by Groundwork tokens as CSS variables (one `tokens.css`, mapped into the Tailwind theme), so screens use token names, never raw colours. If Groundwork ships components, they replace the matching shadcn ones. Until the designs land, M0 builds only the shell and token plumbing; screen work (M6+) follows the designs. |
+| Live updates | **v1 polls.** The run page polls every 2 s while a run is going; the inbox badge and thread view every 15–30 s. Every long job exposes a status the UI can poll. Later upgrade: push over WebSockets from a Durable Object, the way Plenary Labs' `GroupLog` streams sessions. |
 | Page thumbnails (match review) | Render in the browser with pdf.js from the signed R2 URL. No server-side rendering, so no container is needed. |
 | Invoices for fixtures | Synthetic invoices that look like normal vendor invoices. Swap in real (redacted) ones later and re-record. |
 
@@ -101,15 +102,15 @@ Each milestone lists the work, the tests it adds, and the check that closes it.
 Work
 - `apps/web`: `create-next-app` (App Router, TS, Tailwind, ESLint) and `shadcn init`. Theme tokens in `globals.css`. App shell: sidebar with the §15 screens (placeholders), header with tenant switcher.
 - `packages/db`: Drizzle client (`postgres-js`), `drizzle.config.ts`, migration runner script, `withTenant()`. Migration `0000_platform`: extensions (`vector`, `pg_trgm`, `pgcrypto`), `uuid_generate_v7()`, `app_user` role, plus the `tenant`, `app_user` and `membership` tables (M1 adds the rest).
-- `packages/auth`: `getSession()`, `requireRole()`, `activeTenant()`. `dev` and `access` adapters.
-- Deploy spike (do this first): OpenNext build of the empty app → Worker `countersign-dev` on a custom domain behind Access, Hyperdrive → Neon `dev`, R2 bucket, Inngest Cloud syncing `/api/inngest`, and one `withTenant()` round trip. GitHub workflows modelled on Datum's `deploy.yml`, `neon-preview.yml` and `ci.yml`.
+- `packages/auth`: `getSession()`, `requireRole()`, `activeTenant()`. `dev` and `workos` adapters (ported from Plenary Labs).
+- Deploy spike (do this first): OpenNext build of the empty app → Worker `countersign-dev` on a custom domain with WorkOS sign-in, Hyperdrive → Neon `dev`, R2 bucket, Inngest Cloud syncing `/api/inngest`, and one `withTenant()` round trip. GitHub workflows modelled on Plenary Labs' CI, deploy and Neon branch setup.
 - Inngest: client in `packages/workflows`, `/api/inngest` serve route, one `hello` function.
 - Seed: one tenant ("Millwork demo"), one advisor (`advisor@example.com`), one client_admin.
 - Tooling: `scripts/check-deps.mjs`, Vitest workspace config, `pnpm dev` runs Next and the Inngest dev server together (`concurrently`). CI workflow: install, typecheck, check-deps, test against a `pgvector/pgvector:pg16` service.
 
 Tests: `withTenant` sets and clears the setting; check-deps fails on a bad import (fixture).
 
-**Done when** `pnpm dev` serves the app and Inngest dashboard shows the `hello` function; signing in as the seeded advisor lands on the shell; the deploy spike's Worker answers behind Access and reads a tenant row from Neon.
+**Done when** `pnpm dev` serves the app and Inngest dashboard shows the `hello` function; signing in as the seeded advisor lands on the shell; the deploy spike's Worker signs in through WorkOS and reads a tenant row from Neon.
 
 ### M1: Full schema, RLS, immutability, seed
 
@@ -246,15 +247,16 @@ Tests: command parser; Playwright e2e: upload invoice → match review → Price
 | RLS bypassed by connecting as owner | App env only has `app_user`; a test asserts `current_user` isn't the owner in the request path. |
 | Inngest semantics differ from this plan | Checked at the start of M0 (hello function) and M5 before the executor is built on them. |
 | QBO app approval delays | Upload connector is the demo path; M9 runs only against the sandbox. |
-| Next.js on Workers fights back (bundle size, Node APIs) | Found in the M0 deploy spike, before any screens exist. Fallback is Datum's shape: Vite + React SPA as Worker assets with a Hono API in the same Worker. Packages are unaffected; only `apps/web` changes. |
+| Next.js on Workers fights back (bundle size, Node APIs) | Found in the M0 deploy spike, before any screens exist. Fallback is Plenary Labs' shape: Vite + React SPA as Worker assets with a Hono API in the same Worker. Packages are unaffected; only `apps/web` changes. |
 
 ## 7. Owner answers and open questions
 
 Answered (2026-11-03)
-- Hosting: keep Cloudflare + Neon for consistency with the other projects (§1.1).
+- Hosting: keep Cloudflare + Neon for consistency with Plenary Labs (§1.1). Sign-in: WorkOS, as in Plenary Labs.
 - UI: the owner is designing the screens on Groundwork; designs to be uploaded.
 - Invoices: build on synthetic invoices; real ones can be added later.
 - Purchaser routing: undecided. Send all doc requests to an admin for now (§1.1).
 
 Open
 1. Groundwork: is there a package or token file to import, or should M0 copy the tokens in by hand? (Probably answered by the design upload.)
+2. Match Plenary Labs further? It runs Vite + React + Hono (not Next.js) and Cloudflare Workflows (not Inngest). ARCHITECTURE §2 picks Next.js and Inngest. Switching both would give one stack across projects and remove the OpenNext and Inngest-on-Workers risks; it needs an amendment to ARCHITECTURE §2 and §10.2.
