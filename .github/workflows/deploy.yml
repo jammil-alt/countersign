@@ -1,0 +1,91 @@
+name: Deploy
+
+# main → staging on every push (docs-only pushes ride along with the next deploy). Production by a
+# `v*` tag or a manual run. Each deploy runs the full check, migrates the target's Neon branch as
+# cs_owner, then `wrangler deploy` from apps/api. Inert until the secrets in docs/operations.md §1
+# exist, and until apps/api has a wrangler.jsonc (M0).
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+    secrets: inherit
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ready to deploy?
+        id: ready
+        run: |
+          missing=()
+          for name in NEON_API_KEY NEON_PROJECT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          [ -f apps/api/wrangler.jsonc ] || missing+=("apps/api/wrangler.jsonc")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy skipped, missing: ${missing[*]}. See docs/operations.md."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.ready.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - if: steps.ready.outputs.ready == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate the target's Neon branch
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          branch=$([ "$TARGET" = production ] && echo main || echo staging)
+          url=$(npx --yes neonctl@4 connection-string "$branch" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db run --if-present db:migrate
+
+      - name: Build and deploy the Worker
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          pnpm --filter @countersign/web run --if-present build
+          env_flag=$([ "$TARGET" = production ] && echo '--env=' || echo '--env=staging')
+          pnpm --filter @countersign/api exec wrangler deploy "$env_flag"

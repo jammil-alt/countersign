@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "description": "Drizzle schema, migrations, seed, typed queries, tenant-scoped transactions",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit -p .",
+    "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@countersign/core": "workspace:*" }
+  "dependencies": {
+    "@countersign/core": "workspace:*"
+  }
 }

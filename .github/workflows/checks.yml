@@ -1,0 +1,86 @@
+name: Checks
+
+# The whole gate in one place, so a pull request and a merge to main run exactly the same thing.
+# Called by ci.yml and deploy.yml (callers pass `secrets: inherit`).
+#
+# Two databases, as in Plenary Labs:
+#  - The runner's own PostgreSQL 16, set up with Neon's roles by scripts/setup-postgres.sh, is what
+#    the tests run against (fast: no network round trips).
+#  - A throwaway Neon branch copied from `main` checks that migrations apply to production's real
+#    schema and data. Skipped until the NEON_API_KEY secret and NEON_PROJECT_ID variable exist.
+
+on:
+  workflow_call:
+    inputs:
+      neon-parent:
+        description: Neon branch the throwaway branch is copied from.
+        type: string
+        default: main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      NEON_BRANCH: ci-run${{ github.run_id }}-${{ github.run_attempt }}
+      NEONCTL: neonctl@4
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm lint:deps
+
+      - run: pnpm typecheck
+
+      - name: A local Postgres with Neon's roles
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci
+        run: |
+          set -euo pipefail
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql -q -c "ALTER USER postgres PASSWORD 'ci';"
+          sudo apt-get install -y -q postgresql-16-pgvector > /dev/null
+          url=$(scripts/setup-postgres.sh)
+          echo "::add-mask::$url"
+          echo "DIRECT_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "TEST_ADMIN_DATABASE_URL=postgres://postgres:ci@localhost:5432/postgres" >> "$GITHUB_ENV"
+
+      - run: pnpm test
+        env:
+          LLM_MODE: replay
+
+      - name: Create a Neon branch for this run
+        id: neon
+        if: env.NEON_API_KEY != '' && env.NEON_PROJECT_ID != ''
+        run: |
+          set -euo pipefail
+          npx --yes "$NEONCTL" branches create --project-id "$NEON_PROJECT_ID" \
+            --name "$NEON_BRANCH" --parent '${{ inputs.neon-parent }}' --output json > /dev/null
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          url=$(npx --yes "$NEONCTL" connection-string "$NEON_BRANCH" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          echo "NEON_DATABASE_URL=$url" >> "$GITHUB_ENV"
+
+      - name: Migrations apply to a copy of production
+        if: env.NEON_DATABASE_URL != ''
+        run: DIRECT_DATABASE_URL="$NEON_DATABASE_URL" pnpm --filter @countersign/db run --if-present db:migrate
+
+      - name: Delete the Neon branch
+        if: always() && steps.neon.outputs.created == 'true'
+        run: npx --yes "$NEONCTL" branches delete "$NEON_BRANCH" --project-id "$NEON_PROJECT_ID"

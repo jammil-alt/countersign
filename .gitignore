@@ -10,4 +10,8 @@ coverage/
 .DS_Store
 playwright-report/
 test-results/
-/fixtures/**/*.recording.local.json
+
+.wrangler/
+.dev.vars
+.dev.vars.*
+worker-configuration.d.ts

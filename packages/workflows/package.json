@@ -4,10 +4,18 @@
   "private": true,
   "type": "module",
   "description": "Workflow definition schema, step executors (StepRunner interface), senses router",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit -p .",
+    "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@countersign/agents": "workspace:*", "@countersign/threads": "workspace:*", "@countersign/senses": "workspace:*", "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+  "dependencies": {
+    "@countersign/agents": "workspace:*",
+    "@countersign/threads": "workspace:*",
+    "@countersign/senses": "workspace:*",
+    "@countersign/db": "workspace:*",
+    "@countersign/core": "workspace:*"
+  }
 }

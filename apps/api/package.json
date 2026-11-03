@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Hono Worker: /api routes, auth, static assets, Workflow classes, cron",
   "scripts": {
-    "typecheck": "tsc --noEmit -p .",
+    "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

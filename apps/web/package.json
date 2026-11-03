@@ -5,7 +5,7 @@
   "type": "module",
   "description": "React + Vite app: screens and the typed API client. Imports only @countersign/core.",
   "scripts": {
-    "typecheck": "tsc --noEmit -p .",
+    "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

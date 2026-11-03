@@ -4,12 +4,14 @@ Back-office agent platform: connects to a small business's systems (QuickBooks O
 copy of their data, and runs versioned agents that each own one back-office job. First job: material
 cost management for a millwork shop.
 
-- What to build: `docs/ARCHITECTURE.md` (v0.1). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.2). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: folder skeleton and plan only. M0 not started. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: repo set up, M0 not started. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+
+Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys).
 
 ## Layout
 
@@ -31,23 +33,33 @@ Status: folder skeleton and plan only. M0 not started. Stack matches Plenary Lab
 | `packages/workflows` | Workflow executor against a `StepRunner` interface, senses router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
+| `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
+| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `deploy.yml` (main → staging, `v*` tag → production). |
 
 ## Commands
 
 ```sh
 pnpm install
-pnpm db:up            # Postgres 16 + pgvector in Docker
-pnpm dev              # build web, then wrangler dev on :8787 (Worker, Workflows, cron) from M0
+pnpm db:up            # Postgres 16 + pgvector in Docker; then scripts/setup-postgres.sh (docs/local-development.md)
+pnpm dev              # build web, then wrangler dev on :8787 (Worker, Workflows, cron), from M0
 pnpm dev:web          # Vite with /api proxied, for UI work
-pnpm typecheck
-pnpm lint:deps
-pnpm test             # LLM calls replay from fixtures/llm by default
+pnpm check            # lint + lint:deps + typecheck + test: what CI runs
+pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdown alone)
 ```
+
+## Branches, PRs and deploys
+
+- `main` deploys to staging on every push; production deploys from a `v*` tag or by hand.
+- Work happens on a branch with its PR open as a **draft** (CI skips drafts). Mark it ready when it should
+  be checked and merged; push fixes together after that, since each push to a ready PR runs CI.
+- Migrations, CI/deploy workflows and sign-in changes get their own PR so they can be reverted alone.
+- Never edit a migration that has reached `staging` or `main`; add a new one. Migrations must keep the
+  previous Worker working, because they apply before the new Worker deploys.
 
 ## Invariants: do not break these
 
-1. **Tenant isolation.** Every tenant table has `tenant_id` and RLS (`force`d). App code connects as `app_user`
-   and touches tenant data only inside `withTenant()`. Queries also filter by `tenant_id`.
+1. **Tenant isolation.** Every tenant table has `tenant_id` and RLS (`force`d). The Worker connects as `cs_worker`
+   (member of `cs_runtime` only, created with SQL, never a Neon-managed role) and touches tenant data only inside `withTenant()`. Queries also filter by `tenant_id`.
 2. **Layering.** Packages depend downward only (`docs/plan.md` §2). Agent reasoning reaches business data
    only through registered tools; in `packages/agents`, only `src/registry/` and `src/log/` import `db`.
 3. **Immutable history.** `agent_version`, `workflow_version`, `raw_record` and `doc_extraction` are never

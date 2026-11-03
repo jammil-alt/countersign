@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Typed events: outbox insert, undispatched lookup, mark dispatched",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit -p .",
+    "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@countersign/db": "workspace:*", "@countersign/core": "workspace:*" }
+  "dependencies": {
+    "@countersign/db": "workspace:*",
+    "@countersign/core": "workspace:*"
+  }
 }

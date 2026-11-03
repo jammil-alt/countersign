@@ -1,0 +1,20 @@
+name: CI
+
+# Every pull request that is not a draft, and a manual run for any branch. Pushes to main are
+# checked by deploy.yml. Same arrangement as Plenary Labs: work-in-progress PRs are drafts and
+# cost no Actions minutes; marking one ready runs the whole check, and every push after that.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    uses: ./.github/workflows/checks.yml
+    secrets: inherit
