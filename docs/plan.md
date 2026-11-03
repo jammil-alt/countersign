@@ -112,39 +112,37 @@ and each pack's manifest; nothing in `packages/*` names a pack.
 
 ---
 
-## 3. MVP
+## 3. Build order: the platform first
 
-**Goal** (ARCHITECTURE §1): Pia running for the millwork shop on its own QuickBooks. A new bill or
-purchase arrives; Pia finds the invoice (attached in QuickBooks, uploaded, or forwarded by email), reads
-it, matches the lines to the shop's catalog, records prices and raises alerts, and proposes the
-QuickBooks update (itemized lines, invoice attached). The shop approves in the portal and QuickBooks is
-updated. The shop sees the run and Price watch; the operator runs everything from the back office and
-can edit Pia's workflow, publish v2 and roll back.
+The **platform is the product** (owner, 2026-11-03). Use cases (Pia and the Materials pack, invoice
+intake, collections) and the tools they need (QuickBooks, email forwarding, Gmail, documents
+extraction, …) are built on it afterwards. Cloud setup (Neon, Cloudflare, WorkOS) comes after the
+foundation.
 
-| Milestone | In the MVP | After the MVP |
-|---|---|---|
-| M0 | All | |
-| M1 | All (lineage columns and the merge functions' types included; merge golden tests may land with the update work) | |
-| M2 | All, **plus email forwarding** (§1.2) | |
-| M3 | All, with step approvals | |
-| M4 | All | |
-| M5 | Back office and portal shells, onboarding, offering connectors, portal Connections (incl. the forwarding address), inbox and approvals | Client requests and the request queue |
-| M6 | Templates and client agents: create, fork, edit, versions, publish, rollback, bindings, test runs, activation; portal services | Builder (drafting agents and skills), operator-written skills, template updates and promotion, detach, copying between clients |
-| M7 | Builder (steps, forks, per-step approval control, inspector, validation), run view, portal run timeline | Merge view; the Builder-assisted new-agent flow |
-| M8 | All | |
-| M9 | All, with the two MVP writes (itemize lines, attach invoice) | Other QBO writes |
-| M10 | | Gmail |
-| M11 | Per-run cost in the run view | Usage and cost views, activity report, CSV export, notification emails |
+**Phase 1: Foundation (now, local only).** Everything that every agent, tool and client will rely on,
+tied together and tested against local Postgres and `wrangler dev`, with no cloud accounts and no
+domain tools:
+- toolchain, app and Worker scaffolds, the two UI shells with Groundwork tokens (M0 without the deploy
+  spike)
+- `packages/core`: every schema (bundle, agent, skill, workflow steps and rules, approvals, tools,
+  connectors, packs, events), workflow validation and template typing, rules → JSONLogic, bundle diff
+  and three-way merge, canonical hashing, the route contract and roles (M1 core)
+- `packages/db`: the platform schema, roles, RLS on `app.tenant_ids` / `app.operator`, immutability
+  triggers, migrations, `withTenant(s)`, seed (operator, Sandbox client, platform templates) (M1 db)
+- `packages/llm`, `packages/auth` (dev + WorkOS adapters), `packages/senses`
+- `packages/connectors`: the connector framework, permission matrix, credential encryption, object
+  storage, and a test connector with a read and a write tool (M2 framework; no real connectors)
+- `packages/agents`: registries, bundle versions, fork, publish, rollback, the runtime, the permission
+  gate with per-step approvals, external actions, logging and usage (M3)
+- `packages/workflows`: the step-list executor, trigger router and test runs (M4)
+- `apps/api`: Hono routes for the foundation, middleware, `RunWorkflow`, cron; `apps/web`: back office
+  and portal shells wired to the API (M5 shells)
 
-**MVP exit:** on the shop's production QuickBooks, a new bill from a real vendor runs Pia end to end, the
-client admin approves the update in the portal, and QuickBooks shows the itemized lines and the
-attached invoice; Price watch shows the observation; the operator changes a threshold, publishes v2, and
-rolls back to v1, and runs record which version they ran.
+**Phase 2: Cloud.** Bootstrap workflow, deploy spike, staging (M0's deploy spike, `docs/operations.md`).
 
-**After the MVP**, in this order unless the owner reorders: template updates and promotion (merge view);
-Gmail; the Builder; operator-written skills; client requests; usage and cost views; notification emails
-and CSV export; threads and `/skill` commands; agents asking other agents. Later: Slack, Google Drive and
-the other connectors in the design; the header command bar.
+**Phase 3: Product surfaces and tools, as needed.** The remaining M5–M7 screens (inbox, portal
+connections, templates and client agents, the builder, run views), then tools and connectors (upload and
+email forwarding, documents, QuickBooks, Gmail) and agents (the Materials pack and Pia, M8–M10).
 
 ---
 
