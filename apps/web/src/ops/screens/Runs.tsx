@@ -20,12 +20,12 @@ import { useSession } from "../../session/session";
 import {
   AgentAvatar,
   Badge,
-  Card,
   EmptyState,
   ErrorNotice,
   Loading,
   PageHeader,
 } from "../../ui/primitives";
+import { Select } from "../agents/ui";
 
 const STATUSES = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"] as const;
 type RunStatus = (typeof STATUSES)[number];
@@ -71,13 +71,14 @@ export function OpsRunsScreen() {
             ["test", "Test"],
           ]}
         />
-        <label className="flex items-center gap-2 text-sm text-secondary">
+        {/* biome-ignore lint/a11y/noLabelWithoutControl: the Select is the label's control. */}
+        <label className="flex items-center gap-2 text-sm text-ink-muted">
           Status
-          <select
+          <Select
             data-testid="ops-runs-status-select"
             value={status}
             onChange={(e) => setStatus(e.target.value as RunStatus | "")}
-            className="h-8 rounded-sm border border-control bg-card px-2 text-sm text-primary"
+            className="h-8 w-36 text-sm"
           >
             <option value="">Any</option>
             {STATUSES.map((s) => (
@@ -85,16 +86,17 @@ export function OpsRunsScreen() {
                 {runStatusLabel(s)}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {clientId ? null : (
-          <label className="flex items-center gap-2 text-sm text-secondary">
+          // biome-ignore lint/a11y/noLabelWithoutControl: the Select is the label's control.
+          <label className="flex items-center gap-2 text-sm text-ink-muted">
             Client
-            <select
+            <Select
               data-testid="ops-runs-client-select"
               value={picked}
               onChange={(e) => setPicked(e.target.value)}
-              className="h-8 rounded-sm border border-control bg-card px-2 text-sm text-primary"
+              className="h-8 w-44 text-sm"
             >
               <option value="">All clients</option>
               {[...clients].map(([id, name]) => (
@@ -102,7 +104,7 @@ export function OpsRunsScreen() {
                   {name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
       </div>
@@ -110,15 +112,12 @@ export function OpsRunsScreen() {
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.runs.length === 0 ? <EmptyState>No runs match.</EmptyState> : null}
       {data && data.runs.length > 0 ? (
-        <Card className="overflow-x-auto">
-          <table data-testid="ops-runs" className="w-full text-sm">
+        <div className="dt dt-ana overflow-x-auto">
+          <table data-testid="ops-runs">
             <thead>
-              <tr className="bg-subtle text-left">
+              <tr className="dt-cols">
                 {["Agent", "Client", "Workflow", "Status", "Started", "Took", "Cost"].map((h) => (
-                  <th
-                    key={h}
-                    className={`label-caps px-4 py-2 font-medium text-secondary ${h === "Cost" ? "text-right" : ""}`}
-                  >
+                  <th key={h} className={h === "Cost" ? "n" : undefined}>
                     {h}
                   </th>
                 ))}
@@ -129,38 +128,34 @@ export function OpsRunsScreen() {
                 const a = agents.get(r.agentId);
                 const name = a?.name ?? "Agent";
                 return (
-                  <tr key={r.id} className="border-t border-divider hover:bg-subtle">
-                    <td className="px-4 py-2.5">
+                  <tr key={r.id}>
+                    <td>
                       <Link
                         to={`/ops/runs/${r.id}`}
                         data-testid={`ops-run-${r.id}-open`}
-                        className="flex items-center gap-3 font-medium text-primary hover:underline"
+                        className="flex items-center gap-3 font-medium text-ink hover:underline"
                       >
                         <AgentAvatar name={name} seed={a?.slug ?? r.agentId} />
                         {name}
                       </Link>
                     </td>
-                    <td className="px-4 py-2.5 text-body">{clients.get(r.tenantId) ?? "—"}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-body">{r.workflowSlug}</td>
-                    <td className="px-4 py-2.5">
+                    <td className="text-ink">{clients.get(r.tenantId) ?? "—"}</td>
+                    <td className="reference text-ink">{r.workflowSlug}</td>
+                    <td>
                       <span className="flex items-center gap-1.5">
                         <Badge tone={runStatusTone(r.status)}>{runStatusLabel(r.status)}</Badge>
                         {r.mode === "test" ? <Badge>Test</Badge> : null}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-body">
-                      {shortTime(r.startedAt ?? r.createdAt)}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-body">
-                      {duration(r.startedAt, r.finishedAt)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-body">{usd(r.costUsd)}</td>
+                    <td className="text-ink figures">{shortTime(r.startedAt ?? r.createdAt)}</td>
+                    <td className="text-ink figures">{duration(r.startedAt, r.finishedAt)}</td>
+                    <td className="n">{usd(r.costUsd)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </Card>
+        </div>
       ) : null}
     </div>
   );

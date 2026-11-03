@@ -4,6 +4,7 @@
 import type { PermissionLevel, Verb } from "@countersign/core";
 import { useState } from "react";
 import { formatValue } from "../inbox/change";
+import { Select } from "../ui/forms";
 import { Badge, Button, Card, cx, ErrorNotice } from "../ui/primitives";
 import { allowedLevels, LEVEL_LABEL, levelTone, type MatrixEditor, VERBS } from "./matrix";
 
@@ -69,39 +70,34 @@ export function MatrixTable({
 
   return (
     <Card testId="matrix" className="overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-4 py-3">
-        <h3 className="label-caps text-secondary">What agents may do in each tool</h3>
-        {note ? <p className="text-sm text-secondary">{note}</p> : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <h3 className="eyebrow text-ink-muted">What agents may do in each tool</h3>
+        {note ? <p className="text-sm text-ink-muted">{note}</p> : null}
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      {/* The Mezonas TableAnalytical layout (dt-ana), inside the card. */}
+      <div className="dt dt-ana overflow-x-auto rounded-none border-0">
+        <table>
           <thead>
-            <tr className="bg-subtle text-left">
-              <th className="label-caps px-4 py-2 font-medium text-secondary">Tool</th>
+            <tr className="dt-cols">
+              <th>Tool</th>
               {VERBS.map((v) => (
-                <th key={v} className="label-caps px-3 py-2 font-medium text-secondary">
-                  {v}
-                </th>
+                <th key={v}>{v}</th>
               ))}
-              <th className="label-caps px-4 py-2 font-medium text-secondary">Scope</th>
+              <th>Scope</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
               const edit = draft[row.id] ?? {};
               return (
-                <tr
-                  key={row.id}
-                  data-testid={`matrix-row-${row.id}`}
-                  className="border-t border-divider"
-                >
-                  <td className="px-4 py-2.5 font-medium text-primary">{row.name}</td>
+                <tr key={row.id} data-testid={`matrix-row-${row.id}`}>
+                  <td className="font-medium text-ink">{row.name}</td>
                   {VERBS.map((verb) => {
                     const saved = row.permissions[verb];
                     const current = edit[verb] ?? saved;
                     const options = editable ? allowedLevels(verb, saved, editor) : [];
                     return (
-                      <td key={verb} className="px-3 py-2.5">
+                      <td key={verb}>
                         {options.length > 1 ? (
                           <LevelSelect
                             verb={verb}
@@ -118,7 +114,7 @@ export function MatrixTable({
                       </td>
                     );
                   })}
-                  <td className="px-4 py-2.5 text-body">
+                  <td className="text-ink">
                     {editable && editor === "operator" && isTextScope(row.permissions.scope) ? (
                       <input
                         aria-label={`Scope for ${row.name}`}
@@ -128,10 +124,10 @@ export function MatrixTable({
                         )}
                         placeholder="Everything the connection reaches"
                         onChange={(e) => set(row, "scope", e.target.value || undefined)}
-                        className="h-8 w-full min-w-48 rounded-sm border border-control bg-card px-2 text-sm"
+                        className="ds-input h-8 min-w-48 text-sm"
                       />
                     ) : row.permissions.scope === undefined ? (
-                      <span className="text-secondary">Everything the connection reaches</span>
+                      <span className="text-ink-muted">Everything the connection reaches</span>
                     ) : (
                       formatValue(row.permissions.scope)
                     )}
@@ -148,10 +144,10 @@ export function MatrixTable({
         </div>
       ) : null}
       {editable && dirty ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge px-4 py-3">
-          <p className="text-sm text-secondary">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
+          <p className="text-sm text-ink-muted">
             {editor === "client_admin"
-              ? "You can tighten these yourself. Only your operator can loosen them again."
+              ? "You can tighten these yourself. Only we can loosen them again."
               : "Changes apply to the next tool call, and are logged."}
           </p>
           <div className="flex gap-2">
@@ -196,21 +192,18 @@ function LevelSelect({
   onChange: (level: PermissionLevel) => void;
 }) {
   return (
-    <select
+    <Select
       aria-label={verb}
       data-testid={`matrix-${verb}-select`}
       value={value}
       onChange={(e) => onChange(e.target.value as PermissionLevel)}
-      className={cx(
-        "label-caps h-7 rounded-sm border bg-card px-1.5",
-        changed ? "border-action text-primary" : "border-control text-body",
-      )}
+      className={cx("h-8 w-32 text-sm", changed && "border-slate")}
     >
       {options.map((l) => (
         <option key={l} value={l}>
           {LEVEL_LABEL[l]}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }

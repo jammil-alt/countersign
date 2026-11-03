@@ -3,7 +3,7 @@
 // stepper, and the starting workflow on the right.
 import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
-import { Badge, Card, cx, SectionLabel } from "../../ui/primitives";
+import { Badge, Card, cx, SectionLabel, StepKindTag } from "../../ui/primitives";
 import { KIND_LABEL, triggerTitle } from "../workflow/describe";
 import { MODEL_OPTIONS, type NewAgentFields } from "./definition-form";
 import { Field, Select, TextArea, TextInput } from "./ui";
@@ -109,27 +109,27 @@ export function StartOption({
       className={cx(
         "flex items-start gap-3 rounded-md border px-4 py-3",
         disabled
-          ? "cursor-not-allowed border-dashed border-control opacity-70"
+          ? "cursor-not-allowed border-dashed border-line-strong opacity-70"
           : selected
-            ? "cursor-pointer border-tone-accent-edge bg-tone-accent"
-            : "cursor-pointer border-edge bg-card hover:bg-hover",
+            ? "cursor-pointer border-slate bg-slate-tint"
+            : "cursor-pointer border-line bg-surface hover:bg-surface-subtle",
       )}
     >
       <input
         type="radio"
         name="start-from"
-        className="mt-1"
+        className="mt-1 size-4 accent-slate"
         data-testid={testId}
         checked={selected}
         disabled={disabled}
         onChange={onSelect}
       />
       <span className="min-w-0">
-        <span className="flex items-center gap-2 font-medium text-primary">
+        <span className="flex items-center gap-2 font-medium text-ink">
           {title}
           {badge}
         </span>
-        <span className="block text-sm text-secondary">{text}</span>
+        <span className="block text-sm text-ink-muted">{text}</span>
       </span>
     </label>
   );
@@ -143,7 +143,7 @@ export function BuilderOption() {
       disabled
       title="My description"
       text="The Builder drafts the steps from what you wrote."
-      badge={<Badge tone="neutral">coming soon</Badge>}
+      badge={<Badge tone="neutral">Coming soon</Badge>}
       onSelect={() => {}}
       testId="new-agent-start-builder"
     />
@@ -153,21 +153,19 @@ export function BuilderOption() {
 export function Stepper() {
   const steps = ["Describe", "Build the workflow", "Test and publish"];
   return (
-    <ol className="flex items-center gap-5 text-[15px]" aria-label="Steps">
+    // The Mezonas Stepper (ds-step), laid out in a row.
+    <ol className="flex items-center gap-2" aria-label="Steps">
       {steps.map((s, i) => (
         <li
           key={s}
-          className={cx("flex items-center gap-2", i === 0 ? "text-primary" : "text-secondary")}
+          aria-current={i === 0 ? "step" : undefined}
+          className={cx(
+            "ds-step rounded-sm",
+            i === 0 ? "ds-step--current font-medium" : "ds-step--todo",
+          )}
         >
-          <span
-            className={cx(
-              "inline-flex size-5 items-center justify-center rounded-sm border font-mono text-[11px]",
-              i === 0 ? "border-primary" : "border-control",
-            )}
-          >
-            {i + 1}
-          </span>
-          <span className={i === 0 ? "font-medium" : undefined}>{s}</span>
+          <span className="ds-step__mark font-sans figures">{i + 1}</span>
+          {s}
         </li>
       ))}
     </ol>
@@ -189,12 +187,14 @@ export function WorkflowPreview({
       {
         key: `${w.slug}:trigger`,
         kind: KIND_LABEL.trigger,
+        kindId: "trigger",
         name: triggerTitle(w.workflow.trigger),
         approval: false,
       },
       ...w.workflow.steps.map((s) => ({
         key: `${w.slug}:${s.id}`,
         kind: KIND_LABEL[s.kind],
+        kindId: s.kind as string,
         name: s.name,
         approval: s.kind === "action" ? s.approval.required === "required" : false,
       })),
@@ -205,19 +205,19 @@ export function WorkflowPreview({
         {title}
         {bundle ? ` · ${steps.length} ${steps.length === 1 ? "step" : "steps"}` : ""}
       </SectionLabel>
-      {!bundle ? <p className="text-sm text-secondary">Choose where to start.</p> : null}
+      {!bundle ? <p className="text-sm text-ink-muted">Choose where to start.</p> : null}
       {bundle && steps.length === 0 ? (
-        <p className="text-sm text-secondary">No workflows: it answers asks and commands.</p>
+        <p className="text-sm text-ink-muted">No workflows: it answers asks and commands.</p>
       ) : null}
       <ol className="flex flex-col">
         {steps.map((s, i) => (
           <li key={s.key} className="flex items-center gap-3 py-1.5">
-            <span className="w-5 text-right font-mono text-xs text-secondary">{i + 1}</span>
-            <Badge tone="neutral" className="min-w-16 justify-center">
-              {s.kind}
-            </Badge>
-            <span className="min-w-0 truncate text-primary">{s.name}</span>
-            {s.approval ? <Badge tone="accent">approval</Badge> : null}
+            <span className="w-5 text-right text-sm text-ink-muted figures">{i + 1}</span>
+            <span className="flex w-20 shrink-0">
+              <StepKindTag kind={s.kindId} label={s.kind} />
+            </span>
+            <span className="min-w-0 truncate text-ink">{s.name}</span>
+            {s.approval ? <Badge tone="person">Approval</Badge> : null}
           </li>
         ))}
       </ol>

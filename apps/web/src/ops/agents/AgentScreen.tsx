@@ -189,7 +189,7 @@ export function AgentScreen({
       {tabs}
       <div className="pt-6">
         {shown && shown.id !== live?.id ? (
-          <p className="mb-4 text-sm text-secondary" data-testid="agent-shown-version">
+          <p className="mb-4 text-sm text-ink-muted" data-testid="agent-shown-version">
             Showing v{shown.version} ({shown.status}).
           </p>
         ) : null}
@@ -271,7 +271,7 @@ function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: Versio
   }
   return (
     <div className="flex flex-col gap-8">
-      <p className="text-sm text-secondary">
+      <p className="text-sm text-ink-muted">
         Steps run top to bottom; a fork takes the first path whose rules match, then continues after
         the fork. This is v{version.version} as it was saved; the workflow builder edits the latest
         version.
@@ -282,7 +282,7 @@ function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: Versio
             {w.name}
             {w.enabled ? "" : " · off"}
           </SectionLabel>
-          <div className="rounded-lg border border-edge bg-subtle px-6 py-6">
+          <div className="rounded-lg border border-line bg-surface-subtle px-6 py-6">
             <StepList workflow={w.workflow} />
           </div>
         </section>
@@ -326,8 +326,8 @@ function SettingsTab({
       ) : null}
 
       <div>
-        <h2 className="mb-1 text-lg font-semibold text-primary">Definition</h2>
-        <p className="mb-4 text-sm text-secondary">
+        <h2 className="mb-1 type-subheading text-ink">Definition</h2>
+        <p className="mb-4 text-sm text-ink-muted">
           {agent.kind === "template"
             ? "Editing a template changes no client agent: they take its new versions as reviewed updates."
             : "Changes to this client's agent only. Its template is not touched."}

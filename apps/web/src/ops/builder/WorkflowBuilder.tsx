@@ -31,6 +31,7 @@ import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { Icon } from "../../ui/icons";
 import {
   AgentAvatar,
   Badge,
@@ -522,7 +523,7 @@ function BuilderBody(
               {versionBadge}
             </Badge>
             {dirty ? (
-              <Badge tone="warning" testId="builder-unsaved">
+              <Badge tone="neutral" testId="builder-unsaved">
                 Unsaved
               </Badge>
             ) : null}
@@ -637,10 +638,10 @@ function BuilderBody(
         onDragEnd={onDragEnd}
         onDragCancel={endDrag}
       >
-        <div className="-mx-8 -mb-7 grid grid-cols-[260px_minmax(0,1fr)_340px]">
+        <div className="-mx-10 -mb-8 grid grid-cols-[260px_minmax(0,1fr)_340px]">
           <aside
             aria-label="Add a step"
-            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-r border-edge bg-card px-4 py-5"
+            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-r border-line bg-surface px-4 py-5"
           >
             <Palette
               sections={filterSections(paletteSections(bundle, data), search)}
@@ -653,7 +654,7 @@ function BuilderBody(
           <div
             className="min-w-0 px-6 py-5"
             style={{
-              backgroundImage: "radial-gradient(var(--border-card) 1px, transparent 1px)",
+              backgroundImage: "radial-gradient(var(--line) 1px, transparent 1px)",
               backgroundSize: "16px 16px",
             }}
           >
@@ -679,13 +680,13 @@ function BuilderBody(
             ) : null}
 
             <div className="my-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-secondary">
+              <p className="text-sm text-ink-muted">
                 Drag steps by their handle to reorder or move them between fork paths. Click a step
                 or fork to edit it.
               </p>
               <span className="flex items-center gap-2">
                 {dirty ? (
-                  <span className="text-xs text-secondary" data-testid="builder-draft-status">
+                  <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
                     {draftAt ? `Draft kept on this device · ${clock(draftAt)}` : "Unsaved changes"}
                   </span>
                 ) : null}
@@ -725,7 +726,7 @@ function BuilderBody(
                 onDelete={remove}
               />
             ) : bundle.workflows.length > 0 ? (
-              <p className="text-secondary" data-testid="builder-no-workflow">
+              <p className="text-ink-muted" data-testid="builder-no-workflow">
                 This agent has no workflow “{slug}”. Pick one above.
               </p>
             ) : null}
@@ -733,7 +734,7 @@ function BuilderBody(
 
           <aside
             aria-label="Inspector"
-            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-l border-edge bg-card px-5 py-5"
+            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-l border-line bg-surface px-5 py-5"
           >
             {workflow ? (
               <Inspector
@@ -780,7 +781,7 @@ function Problems({
   const [open, setOpen] = useState(true);
   if (errors.length === 0) {
     return (
-      <p className="mb-4 text-sm text-secondary" data-testid="builder-valid">
+      <p className="mb-4 text-sm text-ink-muted" data-testid="builder-valid">
         Valid: ready to test-run and publish.
       </p>
     );
@@ -796,10 +797,7 @@ function Problems({
     return owner ? `${w.name} · ${owner.name}` : w.name;
   };
   return (
-    <div
-      data-testid="builder-problems"
-      className="mb-4 rounded-md border border-tone-warning-edge bg-tone-warning px-4 py-3 text-tone-warning-ink"
-    >
+    <div data-testid="builder-problems" className="ds-banner mb-4 block">
       <button
         type="button"
         aria-expanded={open}
@@ -847,7 +845,7 @@ function WorkflowSwitcher({
 }) {
   return (
     <nav aria-label="Workflows" className="flex flex-wrap items-center gap-2">
-      <span className="label-caps mr-1 text-secondary">Workflows</span>
+      <span className="eyebrow mr-1 text-ink-muted">Workflows</span>
       {bundle.workflows.map((w) => (
         <Link
           key={w.slug}
@@ -857,8 +855,8 @@ function WorkflowSwitcher({
           className={cx(
             "rounded-sm border px-2.5 py-1 text-sm",
             w.slug === current
-              ? "border-action bg-selected font-medium text-selected-ink"
-              : "border-edge bg-card text-body hover:bg-hover",
+              ? "border-slate bg-slate-tint font-medium text-slate"
+              : "border-line bg-surface text-ink hover:bg-surface-subtle",
           )}
         >
           {w.name}
@@ -870,9 +868,10 @@ function WorkflowSwitcher({
         data-testid="builder-workflow-add"
         aria-expanded={adding}
         onClick={onAdd}
-        className="text-sm font-medium text-link"
+        className="ds-btn ds-btn--link text-sm"
       >
-        + Add workflow
+        <Icon name="add" />
+        Add workflow
       </button>
     </nav>
   );
@@ -933,7 +932,7 @@ function AddWorkflowForm({
   return (
     <form
       data-testid="builder-workflow-form"
-      className="mt-3 flex flex-col gap-3 rounded-md border border-edge bg-card p-4"
+      className="mt-3 flex flex-col gap-3 rounded-md border border-line bg-surface p-4"
       onSubmit={(e) => {
         e.preventDefault();
         setTouched(true);
@@ -941,7 +940,7 @@ function AddWorkflowForm({
         onCreate({ slug: effectiveSlug, name: name.trim(), on: on() });
       }}
     >
-      <p className="font-medium text-primary">
+      <p className="font-medium text-ink">
         {bundle.workflows.length === 0
           ? "This agent has no workflows yet. Add one."
           : "New workflow"}
@@ -1013,7 +1012,7 @@ function AddWorkflowForm({
         </Field>
       ) : null}
       {touched && problem ? (
-        <p className="text-sm text-tone-warning-ink" data-testid="builder-workflow-form-error">
+        <p className="text-sm text-risk" data-testid="builder-workflow-form-error">
           {problem}
         </p>
       ) : null}
@@ -1062,15 +1061,15 @@ function TestRunPanel({
   return (
     <div
       data-testid="builder-test-panel"
-      className="mt-4 flex flex-col gap-3 rounded-md border border-edge bg-card p-4"
+      className="mt-4 flex flex-col gap-3 rounded-md border border-line bg-surface p-4"
     >
       <div className="flex items-center justify-between">
-        <p className="font-medium text-primary">Test run · {workflowName}</p>
+        <p className="font-medium text-ink">Test run · {workflowName}</p>
         <Button variant="ghost" onClick={onClose}>
           Close
         </Button>
       </div>
-      <p className="text-sm text-secondary">
+      <p className="text-sm text-ink-muted">
         A test run reads real data and never changes the client's tools: changes are recorded as
         “would have done”.{" "}
         {agent.kind === "template"
@@ -1101,7 +1100,7 @@ function TestRunPanel({
         className="font-mono text-xs"
         onChange={(e) => setText(e.target.value)}
       />
-      {problem ? <p className="text-sm text-tone-warning-ink">{problem}</p> : null}
+      {problem ? <p className="text-sm text-risk">{problem}</p> : null}
       <div className="flex items-center justify-between gap-3">
         {runId ? (
           <Link

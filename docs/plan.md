@@ -1,4 +1,4 @@
-# Countersign: v1 implementation plan
+# Mezonas: v1 implementation plan
 
 Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.8). This file says *how* and
 *in what order*. It follows the Build plan (ARCHITECTURE §18) milestone by milestone. Each milestone
@@ -46,7 +46,7 @@ Status: **Phase 1 (foundation, local only) built** (§3). Every platform package
 | LLM record/replay | `packages/llm` hashes (model, system, messages, tools, tool_choice) into `fixtures/llm/<hash>.json`. `LLM_MODE=replay` is the test default and fails loudly on a miss. `record` calls the API and writes the file. `live` doesn't touch fixtures. |
 | Cost | Per-model token price table in `packages/llm/pricing.ts`. Check the numbers against current Anthropic pricing when M4 starts; nothing is hard-coded from memory. |
 | Extraction input | Send a PDF as a `document` content block (base64) and images as `image` blocks, with `tool_choice` forcing the `record_invoice` tool, whose schema is `InvoiceExtraction` (Zod → JSON Schema). Check page and size limits at M2 and split long PDFs by page if needed. |
-| UI | The owner's v1 screens are in `docs/design/` (design file, captures, and `tokens.css` with the 137 Groundwork tokens); they are a starting point and will be reworked page by page. Tailwind + shadcn/ui primitives themed by those tokens (`tokens.css` mapped into the Tailwind theme), so screens use token names, never raw colours. Fonts: Archivo (UI), JetBrains Mono (figures, tags), Source Serif 4 (quotes), from Google Fonts. Agent avatars use the persona colours; Builder suggestions use the `--ai-*` tokens. |
+| UI | (owner, 2026-11-03) The **Mezonas design system** in `packages/design-system`: `tokens.json` (source of truth, light and dark) and `tokens.css`, component CSS (`ds-*`, `dt-*`, `mz-*`), logos, icons, Geist and Geist Mono (served locally), and the brand book in its README (voice, colour meanings, type, layout). `apps/web` imports its CSS and maps the tokens into the Tailwind theme; screens use token names and component classes, never raw colours. The owner's v1 screens in `docs/design/` remain the layout reference; their Groundwork look is retired. The product is named Mezonas everywhere a person sees it; `countersign` stays the code name. |
 | Live updates | **v1 polls.** The run page polls every 2 s while a run is going; the inbox badge and thread view every 15–30 s. Every long job exposes a status the UI can poll. Later upgrade: push over WebSockets from a Durable Object, the way Plenary Labs' `GroupLog` streams sessions. |
 | Workflow model | A **structured step list** (owner's design): trigger, then steps run top to bottom; forks hold ordered paths with rules plus otherwise and join afterwards; `for_each` holds nested steps (ARCHITECTURE §10.1). No free-form edges, so validation, execution and merging all walk one tree. // DECISION: an editor session keeps one rolling draft version of the bundle, saved after 2 s of idle editing, so history isn't flooded; publish is what people see in history. |
 | Builder | A nested sortable list with `@dnd-kit/core` + `@dnd-kit/sortable`: drag by handle to reorder, into and out of fork paths and `for_each` blocks; keyboard reordering for accessibility. The add-a-step palette and the inspector's forms are generated from skill and tool schemas, so a new skill appears without UI code. Validation runs in the browser on every change (same code as the server). |
@@ -423,6 +423,7 @@ Tests: Playwright e2e: the operator creates a client, forks Pia into it and cust
 ## 7. Owner answers and open questions
 
 Answered (2026-11-03)
+- Name and design: the product is **Mezonas**, on `mezonas.com` (already in Cloudflare), with the Mezonas design system; `countersign` stays the code name. Public cloud resources are named Mezonas; app on `app.mezonas.com`, staging on `staging.mezonas.com` (confirmed).
 - Hosting: keep Cloudflare + Neon for consistency with Plenary Labs (§1.1). Sign-in: WorkOS, as in Plenary Labs.
 - UI: the owner's v1 screens are in `docs/design/`, a starting point to rework page by page (2026-11-03).
 - Connectors work at the client portal level: the operator builds and offers them, clients sign in to their own tools (2026-11-03).
@@ -437,7 +438,7 @@ Answered (2026-11-03)
 - Managed-agents service suite: the operator builds and runs agents from a back office; clients get a portal for reports, runs, approvals, connections and requests (ARCHITECTURE v0.5).
 - Templates and client agents: agents are built per client from reusable templates, versioned per client with lineage, template updates merged per client, client changes promotable to templates (ARCHITECTURE v0.6).
 - Provisioning: GitHub Actions bootstrap (option 1), Neon in the same region as Plenary Labs.
-- Separation: Countersign is fully separate from Plenary Labs (no runtime dependency, data, infrastructure, keys or secrets in common); it follows Plenary Labs' stack, rules and patterns for consistency (owner, 2026-11-03).
+- Separation: Mezonas is fully separate from Plenary Labs (no runtime dependency, data, infrastructure, keys or secrets in common); it follows Plenary Labs' stack, rules and patterns for consistency (owner, 2026-11-03).
 - Connectors: QuickBooks Online and Gmail first, plus upload (ARCHITECTURE v0.4).
 - `main` created from the setup branch (2026-11-03).
 

@@ -1,135 +1,12 @@
-// Form controls and small helpers for the agent screens, on the Groundwork tokens (no raw colours).
+// Small helpers for the agent screens: notices, API actions, the agents-changed event. The form
+// controls live in ui/forms and are re-exported here for the agent screens.
 import type { RouteSpec } from "@countersign/core";
-import {
-  type InputHTMLAttributes,
-  type ReactNode,
-  type SelectHTMLAttributes,
-  type TextareaHTMLAttributes,
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { type ApiError, type CallOptions, isApiError, type ResponseOf } from "../../api/client";
 import { useApiClient } from "../../api/useApi";
 import { cx } from "../../ui/primitives";
 
-const CONTROL =
-  "rounded-md border border-control bg-card px-3 text-primary placeholder:text-faint focus:border-focus disabled:opacity-60";
-
-/**
- * Controls fill their container unless the caller gives a width (`w-28`): `cx` doesn't merge
- * classes, and with both `w-full` and `w-28` present the stylesheet's order, not the caller, decides.
- */
-function width(className: string | undefined): string | false {
-  return !/(^|\s)w-/.test(className ?? "") && "w-full";
-}
-
-/** The same for height and text size (`SmallSelect`'s `h-9 text-sm`). */
-function height(className: string | undefined, fallback: string): string | false {
-  return !/(^|\s)h-/.test(className ?? "") && fallback;
-}
-
-function textSize(className: string | undefined): string | false {
-  return !/(^|\s)text-(xs|sm|base|lg|xl|\[\d)/.test(className ?? "") && "text-[15px]";
-}
-
-export function Field({
-  label,
-  hint,
-  error,
-  children,
-  testId,
-  className,
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-  error?: string | undefined;
-  children: ReactNode;
-  testId?: string;
-  className?: string;
-}) {
-  return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: the control is the label's child.
-    <label className={cx("flex flex-col gap-1.5", className)}>
-      <span className="text-sm font-medium text-primary">{label}</span>
-      {children}
-      {error ? (
-        <span
-          className="text-sm text-tone-warning-ink"
-          data-testid={testId ? `${testId}-error` : undefined}
-        >
-          {error}
-        </span>
-      ) : hint ? (
-        <span className="text-sm text-secondary">{hint}</span>
-      ) : null}
-    </label>
-  );
-}
-
-export function TextInput({
-  invalid,
-  className,
-  ...rest
-}: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
-  return (
-    <input
-      {...rest}
-      aria-invalid={invalid || undefined}
-      className={cx(
-        CONTROL,
-        width(className),
-        height(className, "h-10"),
-        textSize(className),
-        invalid && "border-tone-warning-edge",
-        className,
-      )}
-    />
-  );
-}
-
-export function TextArea({
-  invalid,
-  className,
-  ...rest
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { invalid?: boolean }) {
-  return (
-    <textarea
-      {...rest}
-      aria-invalid={invalid || undefined}
-      className={cx(
-        CONTROL,
-        width(className),
-        textSize(className),
-        "py-2 leading-relaxed",
-        invalid && "border-tone-warning-edge",
-        className,
-      )}
-    />
-  );
-}
-
-export function Select({
-  invalid,
-  className,
-  ...rest
-}: SelectHTMLAttributes<HTMLSelectElement> & { invalid?: boolean }) {
-  return (
-    <select
-      {...rest}
-      aria-invalid={invalid || undefined}
-      className={cx(
-        CONTROL,
-        width(className),
-        height(className, "h-10"),
-        textSize(className),
-        "pr-8",
-        invalid && "border-tone-warning-edge",
-        className,
-      )}
-    />
-  );
-}
+export { Field, Select, TextArea, TextInput } from "../../ui/forms";
 
 /** A notice in one of the tones, for results of an action. */
 export function Notice({
@@ -137,6 +14,7 @@ export function Notice({
   children,
   testId,
 }: {
+  /** warning = something stops the action (risk); ai = the team's suggestion (TeamMarker). */
   tone: "positive" | "warning" | "neutral" | "ai";
   children: ReactNode;
   testId?: string;
@@ -146,11 +24,10 @@ export function Notice({
       role={tone === "warning" ? "alert" : "status"}
       data-testid={testId}
       className={cx(
-        "rounded-md border px-4 py-3 text-[15px]",
-        tone === "positive" && "border-tone-positive-edge bg-tone-positive text-tone-positive-ink",
-        tone === "warning" && "border-tone-warning-edge bg-tone-warning text-tone-warning-ink",
-        tone === "neutral" && "border-tone-neutral-edge bg-tone-neutral text-tone-neutral-ink",
-        tone === "ai" && "border-ai-edge bg-ai text-ai-ink",
+        tone === "warning" ? "ds-banner block text-sm" : "rounded-sm border px-3.5 py-3 text-sm",
+        tone === "positive" && "border-positive-tint bg-positive-tint text-positive",
+        tone === "neutral" && "border-line bg-surface-subtle text-ink",
+        tone === "ai" && "border-line bg-surface-subtle text-slate",
       )}
     >
       {children}

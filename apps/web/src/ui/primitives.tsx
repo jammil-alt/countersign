@@ -1,23 +1,35 @@
-// Groundwork primitives used by both shells. Colours come only from the token theme in
-// styles.css (bg-card, text-secondary, border-edge, …), never raw values.
+// Mezonas primitives used by both shells: thin wrappers over the design system's component classes
+// (ds-btn, ds-pill, ds-tag, ds-card, ds-avatar, ds-banner, ds-empty), so screens say `<Badge>` and
+// `<Button>` and get the brand. Colours come only from the token theme in styles.css (bg-surface,
+// text-ink-muted, border-line, …), never raw values.
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { isApiError } from "../api/client";
+import { cx } from "./cx";
+import { Icon } from "./icons";
 
-export type Tone = "neutral" | "accent" | "positive" | "warning";
+export { cx } from "./cx";
 
-const TONE: Record<Tone, string> = {
-  neutral: "bg-tone-neutral text-tone-neutral-ink border-tone-neutral-edge",
-  accent: "bg-tone-accent text-tone-accent-ink border-tone-accent-edge",
-  positive: "bg-tone-positive text-tone-positive-ink border-tone-positive-edge",
-  warning: "bg-tone-warning text-tone-warning-ink border-tone-warning-edge",
+/**
+ * What a status means (brand book): neutral = nothing happened yet; accent (slate) = the team is on
+ * it; positive = done, signed, approved; warning (signal gold) = waiting on you; risk = failed;
+ * person (copper) = a person's touch. Every pill is a word, never colour alone.
+ */
+export type Tone = "neutral" | "accent" | "positive" | "warning" | "risk" | "person";
+
+const PILL: Record<Tone, string> = {
+  neutral: "ds-pill--neutral",
+  accent: "ds-pill--accent",
+  positive: "ds-pill--positive",
+  warning: "ds-pill--warning",
+  // DECISION: the design system's StatusPill has no risk or copper tone; these two compose the
+  // pill from the risk and copper tokens (Banner's risk-ink/risk-tint/risk-line, the lead's
+  // copper-ink on copper-tint) rather than adding colours.
+  risk: "border-risk-line bg-risk-tint text-risk-ink",
+  person: "border-copper-tint bg-copper-tint text-copper-ink",
 };
 
-export function cx(...parts: (string | false | null | undefined)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
-
-/** The design's boxed small-caps badge: LIVE, DRAFT · V1, SKILL, FORK. */
+/** A status pill (StatusPill): "Live · v4", "Draft", "Needs approval", "Failed". */
 export function Badge({
   tone = "neutral",
   children,
@@ -30,11 +42,33 @@ export function Badge({
   testId?: string;
 }) {
   return (
+    <span data-testid={testId} className={cx("ds-pill", PILL[tone], className)}>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A descriptive label for a kind of work (Tag): "Trigger", "Action", "QuickBooks". Not a status.
+ * `person` marks work a person does (a person step): copper, the brand's colour for people.
+ */
+export function Tag({
+  children,
+  tone = "neutral",
+  className,
+  testId,
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "person";
+  className?: string;
+  testId?: string;
+}) {
+  return (
     <span
       data-testid={testId}
       className={cx(
-        "label-caps inline-flex items-center rounded-sm border px-1.5 py-0.5 leading-none whitespace-nowrap",
-        TONE[tone],
+        "ds-tag whitespace-nowrap",
+        tone === "person" && "border-copper-tint bg-copper-tint text-copper-ink",
         className,
       )}
     >
@@ -43,13 +77,21 @@ export function Badge({
   );
 }
 
-/** A small count next to a nav item (Inbox 5). */
-export function Count({ n, tone = "accent" }: { n: number; tone?: Tone }) {
+/** A step's kind as a Tag: person steps in copper, every other kind (the agents' work) in ink. */
+export function StepKindTag({ kind, label }: { kind: string; label: string }) {
+  return <Tag tone={kind === "person" ? "person" : "neutral"}>{label}</Tag>;
+}
+
+/**
+ * A count badge (Inbox 5). Waiting-on-you counts use the signal tone; a zero count stays neutral,
+ * since nothing waits.
+ */
+export function Count({ n, tone = "neutral" }: { n: number; tone?: Tone }) {
   return (
     <span
       className={cx(
-        "inline-flex min-w-5 justify-center rounded-sm border px-1 font-mono text-[11px]",
-        TONE[tone],
+        "ds-pill min-w-6 justify-center px-1.5 py-[3px] text-xs figures",
+        PILL[n === 0 ? "neutral" : tone],
       )}
     >
       {n}
@@ -57,28 +99,27 @@ export function Count({ n, tone = "accent" }: { n: number; tone?: Tone }) {
   );
 }
 
-type ButtonVariant = "primary" | "secondary" | "ghost";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "link";
 
 /** For links that look like buttons (a <button> inside an <a> is invalid). */
-export function buttonClass(variant: ButtonVariant = "secondary", className?: string): string {
-  return cx(
-    "inline-flex h-control items-center gap-2 rounded-md px-4 text-sm font-medium transition-colors disabled:opacity-50",
-    variant === "primary" &&
-      "bg-action text-on-action hover:bg-action-hover active:bg-action-pressed",
-    variant === "secondary" && "border border-control bg-card text-primary hover:bg-hover",
-    variant === "ghost" && "text-body hover:bg-subtle",
-    className,
-  );
+export function buttonClass(
+  variant: ButtonVariant = "secondary",
+  className?: string,
+  size?: "sm",
+): string {
+  return cx("ds-btn", `ds-btn--${variant}`, size === "sm" && "ds-btn--sm", className);
 }
 
 export function Button({
   variant = "secondary",
+  size,
   className,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
-  return <button type="button" {...rest} className={buttonClass(variant, className)} />;
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: "sm" }) {
+  return <button type="button" {...rest} className={buttonClass(variant, className, size)} />;
 }
 
+/** A sheet on the table: `surface` with a `line` hairline, `radius-md`, no shadow. */
 export function Card({
   children,
   className,
@@ -93,22 +134,18 @@ export function Card({
   return (
     <div
       data-testid={testId}
-      className={cx(
-        "rounded-lg border bg-card",
-        dashed ? "border-dashed border-control" : "border-edge",
-        className,
-      )}
+      className={cx("ds-card", dashed && "border-dashed border-line-strong", className)}
     >
       {children}
     </div>
   );
 }
 
-/** "YOUR AGENTS", "NEEDS YOU": the section label above a block. */
+/** "YOUR AGENTS", "NEEDS YOU": the eyebrow above a block. */
 export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mb-2 flex items-center justify-between">
-      <h2 className="label-caps text-secondary">{children}</h2>
+    <div className="mb-2 flex items-center justify-between gap-3">
+      <h2 className="eyebrow text-ink-muted">{children}</h2>
       {action}
     </div>
   );
@@ -133,31 +170,16 @@ export function PageHeader({
         {leading}
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[28px] leading-tight font-semibold text-primary">{title}</h1>
+            <h1 className="type-title text-ink">{title}</h1>
             {badge}
           </div>
-          {subtitle ? <p className="mt-1 text-secondary">{subtitle}</p> : null}
+          {subtitle ? <p className="mt-1 text-ink-muted">{subtitle}</p> : null}
         </div>
       </div>
-      {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
     </header>
   );
 }
-
-const PERSONA_BG = [
-  "bg-persona-sienna",
-  "bg-persona-slate",
-  "bg-persona-pine",
-  "bg-persona-mustard",
-  "bg-persona-plum",
-  "bg-persona-brick",
-  "bg-persona-juniper",
-  "bg-persona-umber",
-  "bg-persona-indigo",
-  "bg-persona-rosewood",
-  "bg-persona-teal",
-  "bg-persona-flint",
-] as const;
 
 /** "MC" for Material costs; one word gives its first two letters. */
 export function agentInitials(name: string): string {
@@ -169,31 +191,26 @@ export function agentInitials(name: string): string {
   return letters.toUpperCase();
 }
 
-/** A stable persona colour per agent, so an agent keeps its colour on every screen. */
-export function personaClass(seed: string): string {
-  let h = 0;
-  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return PERSONA_BG[h % PERSONA_BG.length] ?? PERSONA_BG[0];
-}
-
+/**
+ * An agent's avatar: round initials on a slate fill, as the brand's team roles are (Avatar). Every
+ * agent looks the same; its name, not a colour, tells them apart.
+ */
 export function AgentAvatar({
   name,
-  seed,
   size = "sm",
 }: {
   name: string;
-  seed: string;
+  /** Kept for callers; agents no longer get a colour per seed. */
+  seed?: string;
   size?: "sm" | "md" | "lg";
 }) {
   return (
     <span
       aria-hidden
       className={cx(
-        "inline-flex shrink-0 items-center justify-center rounded-sm font-semibold text-on-action",
-        personaClass(seed),
-        size === "sm" && "size-6 text-[10px]",
-        size === "md" && "size-8 text-xs",
-        size === "lg" && "size-11 text-base",
+        "ds-avatar bg-slate font-medium text-on-slate",
+        size === "sm" && "ds-avatar--sm",
+        size === "lg" && "ds-avatar--lg",
       )}
     >
       {agentInitials(name)}
@@ -201,7 +218,7 @@ export function AgentAvatar({
   );
 }
 
-/** Underlined tabs as on the agent page; each tab is a route. */
+/** Underlined tabs (Tabs) as on the agent page; each tab is a route. */
 export function Tabs({
   items,
 }: {
@@ -209,7 +226,7 @@ export function Tabs({
   items: { to: string; label: string; count?: number; end?: boolean; active?: boolean }[];
 }) {
   return (
-    <nav className="flex gap-6 border-b border-edge" aria-label="Sections">
+    <nav className="flex gap-5 border-b border-line" aria-label="Sections">
       {items.map((t) => (
         <NavLink
           key={t.to}
@@ -217,16 +234,16 @@ export function Tabs({
           end={t.end ?? false}
           className={({ isActive }) =>
             cx(
-              "-mb-px border-b-2 pb-2.5 text-[15px]",
+              "-mb-px inline-flex items-center gap-1.5 border-b-2 py-3 text-sm leading-none font-medium",
               (t.active ?? isActive)
-                ? "border-action font-medium text-primary"
-                : "border-transparent text-body hover:text-primary",
+                ? "border-slate text-ink"
+                : "border-transparent text-ink-muted hover:text-ink",
             )
           }
         >
           {t.label}
           {t.count !== undefined ? (
-            <span className="ml-1.5 font-mono text-xs text-secondary">{t.count}</span>
+            <span className="text-xs text-ink-muted figures">{t.count}</span>
           ) : null}
         </NavLink>
       ))}
@@ -236,13 +253,13 @@ export function Tabs({
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
-    <p role="status" className="py-6 text-secondary">
+    <p role="status" className="py-6 text-ink-muted">
       {label}
     </p>
   );
 }
 
-/** What a failed load says. Server codes are shown so a contract break is recognisable. */
+/** What a failed load says, as a risk Banner. Server codes are shown so a contract break is recognisable. */
 export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const message = isApiError(error)
     ? error.status === 404
@@ -254,18 +271,14 @@ export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () =
       ? error.message
       : String(error);
   return (
-    <div
-      role="alert"
-      className="flex items-center justify-between gap-4 rounded-md border border-tone-warning-edge bg-tone-warning px-4 py-3 text-tone-warning-ink"
-    >
-      <span>
+    <div role="alert" className="ds-banner items-center">
+      <Icon name="alert" className="mt-px" />
+      <span className="min-w-0 flex-1">
         {message}
-        {isApiError(error) ? (
-          <span className="ml-2 font-mono text-xs opacity-70">{error.code}</span>
-        ) : null}
+        {isApiError(error) ? <span className="ml-2 reference opacity-80">{error.code}</span> : null}
       </span>
       {onRetry ? (
-        <Button variant="ghost" onClick={onRetry}>
+        <Button variant="ghost" size="sm" onClick={onRetry} className="text-risk">
           Try again
         </Button>
       ) : null}
@@ -278,13 +291,21 @@ export function Placeholder({ title, children }: { title: string; children?: Rea
   return (
     <div data-testid="placeholder">
       <PageHeader title={title} />
-      <Card dashed className="p-8 text-secondary">
-        {children ?? "This screen comes in a later milestone."}
-      </Card>
+      <div className="ds-empty">
+        <span className="eyebrow text-ink-muted">Not built yet</span>
+        <span className="text-ink-muted">
+          {children ?? "This screen comes in a later milestone."}
+        </span>
+      </div>
     </div>
   );
 }
 
+/** Says what will appear here and how it fills (EmptyState). */
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <Card className="p-6 text-secondary">{children}</Card>;
+  return (
+    <div className="ds-empty">
+      <div className="text-ink-muted">{children}</div>
+    </div>
+  );
 }

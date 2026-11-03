@@ -6,8 +6,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
-import { Mark, PLATFORM_NAME } from "../shell/Shell";
-import { Button, Card, ErrorNotice, Loading } from "../ui/primitives";
+import { Logo, PRODUCT_NAME } from "../ui/brand";
+import { Icon } from "../ui/icons";
+import { Button, Card, cx, ErrorNotice, Loading } from "../ui/primitives";
 import { homeFor, useSessionState } from "./session";
 
 const ROLE_LABEL = {
@@ -58,30 +59,47 @@ export function SignInScreen() {
   const noList = isApiError(users.error) && users.error.status === 404;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-ground px-4">
-      <Card className="w-full max-w-md p-6 elevation-md">
-        <div className="mb-5 flex items-center gap-3">
-          <Mark />
-          <h1 className="text-xl font-semibold text-primary">Sign in to {PLATFORM_NAME}</h1>
-        </div>
-        <p className="mb-4 text-secondary">Development sign-in as a seeded user.</p>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-paper px-4 py-10">
+      <Logo height={26} />
+      <Card className="w-full max-w-lg p-6">
+        <h1 className="type-heading text-ink">Sign in to {PRODUCT_NAME}</h1>
+        <p className="mt-1 mb-5 text-ink-muted">Development sign-in: pick a seeded user.</p>
         {users.loading ? <Loading /> : null}
         {users.error && !noList ? <ErrorNotice error={users.error} /> : null}
         {users.data ? (
-          <ul className="mb-5 flex flex-col gap-2" data-testid="signin-users">
+          <ul
+            className="mb-5 overflow-hidden rounded-md border border-line"
+            data-testid="signin-users"
+          >
             {users.data.users.map((u) => (
-              <li key={u.email}>
+              <li key={u.email} className="border-b border-line last:border-b-0">
                 <button
                   type="button"
                   data-testid={`signin-user-${u.email}`}
                   disabled={busy}
                   onClick={() => void signIn(u.email)}
-                  className="w-full rounded-md border border-edge bg-card px-4 py-3 text-left hover:bg-hover disabled:opacity-60"
+                  className="ds-listrow border-b-0 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="block font-medium text-primary">{u.name ?? u.email}</span>
-                  <span className="block text-sm text-secondary">
-                    {u.email} · {describe(u)}
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span
+                      aria-hidden
+                      className={cx(
+                        "ds-avatar ds-avatar--sm font-medium",
+                        u.operator ? "mz-lead" : "ds-avatar--self",
+                      )}
+                    >
+                      {(u.name ?? u.email).slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="ds-listrow__title font-medium text-ink">
+                        {u.name ?? u.email}
+                      </span>
+                      <span className="ds-listrow__meta truncate">
+                        {u.email} · {describe(u)}
+                      </span>
+                    </span>
                   </span>
+                  <Icon name="chevron-right" className="text-ink-muted" />
                 </button>
               </li>
             ))}
@@ -99,7 +117,7 @@ export function SignInScreen() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="operator@example.com"
-              className="h-control min-w-0 flex-1 rounded-sm border border-control bg-card px-3"
+              className="ds-input min-w-0 flex-1"
             />
             <Button
               type="submit"

@@ -1,0 +1,12 @@
+<!-- @dsCard group="Forms" height=110 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><title>Radio</title></head>
+<body>
+<div class="ds-stack" style="padding:16px" role="radiogroup"><button class="ds-choice" role="radio" aria-checked="true"><span class="ds-radio"></span>Send reminders after 30 days</button><button class="ds-choice" role="radio" aria-checked="false"><span class="ds-radio"></span>After 45 days</button><button class="ds-choice" role="radio" aria-checked="false"><span class="ds-radio"></span>Only when I ask</button></div>
+<script>
+document.querySelectorAll('[role=checkbox],[role=switch]').forEach(function(b){b.addEventListener('click',function(){b.setAttribute('aria-checked',b.getAttribute('aria-checked')==='true'?'false':'true');var m=b.querySelector('.ds-check');if(m)m.textContent=b.getAttribute('aria-checked')==='true'?'✓':'';});});
+document.querySelectorAll('[role=radio]').forEach(function(b){b.addEventListener('click',function(){document.querySelectorAll('[role=radio]').forEach(function(o){o.setAttribute('aria-checked',o===b?'true':'false');});});});
+</script>
+</body>
+</html>

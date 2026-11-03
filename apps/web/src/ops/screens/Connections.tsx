@@ -167,24 +167,24 @@ function ConnectionCard({
       <div className="flex items-start gap-3">
         <ConnectorMark name={name} />
         <div className="min-w-0">
-          <p className="font-semibold text-primary">{name}</p>
-          <p className="text-sm text-secondary">{c.externalAccountId ?? c.connector}</p>
+          <p className="font-medium text-ink">{name}</p>
+          <p className="text-sm text-ink-muted">{c.externalAccountId ?? c.connector}</p>
         </div>
       </div>
-      <p className="mt-3 flex items-center gap-2 text-sm text-secondary">
+      <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
         <Badge tone={c.status === "connected" ? "positive" : "warning"}>
           {connectionStatusLabel(c.status)}
         </Badge>
         {c.lastSyncAt ? `synced ${shortTime(c.lastSyncAt)}` : "never synced"}
       </p>
-      <p className="mt-2 text-sm text-secondary">
+      <p className="mt-2 text-sm text-ink-muted">
         {usedBy.length === 0
           ? "No agent uses it yet."
           : `Used by ${usedBy.map((u) => u.name).join(", ")}`}
       </p>
       {editing ? (
         <div className="mt-3">
-          <label className="label-caps text-secondary" htmlFor={`config-${c.id}`}>
+          <label className="eyebrow text-ink-muted" htmlFor={`config-${c.id}`}>
             Configuration
           </label>
           <textarea
@@ -194,7 +194,7 @@ function ConnectionCard({
             onChange={(e) => setText(e.target.value)}
             rows={6}
             spellCheck={false}
-            className="mt-1 w-full rounded-sm border border-control bg-card px-3 py-2 font-mono text-xs text-primary"
+            className="ds-textarea mt-1 font-mono text-xs"
           />
           {problem ? <ErrorNotice error={problem} /> : null}
           <div className="mt-2 flex gap-2">
@@ -264,7 +264,7 @@ function Offering({
             return (
               <li
                 key={c.id}
-                className="flex items-start gap-3 border-b border-divider px-4 py-3 last:border-b-0"
+                className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-b-0"
               >
                 <input
                   id={`offer-${c.id}`}
@@ -274,13 +274,13 @@ function Offering({
                   onChange={() =>
                     setOffered((o) => (on ? o.filter((x) => x !== c.id) : [...o, c.id]))
                   }
-                  className="mt-1"
+                  className="mt-1 size-4 accent-slate"
                 />
                 <label htmlFor={`offer-${c.id}`} className="min-w-0 flex-1">
-                  <span className="font-medium text-primary">{c.name}</span>
-                  <span className="ml-2 font-mono text-xs text-secondary">{c.id}</span>
-                  <span className="block text-sm text-body">{c.description}</span>
-                  <span className="block text-xs text-secondary">
+                  <span className="font-medium text-ink">{c.name}</span>
+                  <span className="ml-2 reference text-ink-muted">{c.id}</span>
+                  <span className="block text-sm text-ink">{c.description}</span>
+                  <span className="block text-xs text-ink-muted">
                     {c.tools.length} tools ·{" "}
                     {c.auth === "none" ? "no sign-in needed" : `signs in with ${c.auth}`}
                   </span>
@@ -308,8 +308,8 @@ function Offering({
             );
           })}
           {unknown.map((id) => (
-            <li key={id} className="px-4 py-3 text-sm text-secondary">
-              <span className="font-mono">{id}</span>: offered, but this deployment does not have
+            <li key={id} className="px-4 py-3 text-sm text-ink-muted">
+              <span className="reference">{id}</span>: offered, but this deployment does not have
               it; saving the offering drops it.
             </li>
           ))}
@@ -320,8 +320,8 @@ function Offering({
           </div>
         ) : null}
         {dirty ? (
-          <div className="flex items-center justify-between gap-3 border-t border-edge px-4 py-3">
-            <p className="text-sm text-secondary">
+          <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+            <p className="text-sm text-ink-muted">
               Withdrawing an offer leaves an existing connection as it is.
             </p>
             <Button

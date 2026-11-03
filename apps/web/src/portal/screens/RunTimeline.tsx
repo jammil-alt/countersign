@@ -16,15 +16,18 @@ import {
 } from "../../runs/format";
 import { StepMark } from "../../runs/StepMark";
 import { usePoll } from "../../runs/usePoll";
+import { Icon } from "../../ui/icons";
 import {
   AgentAvatar,
   Badge,
   Card,
+  cx,
   EmptyState,
   ErrorNotice,
   Loading,
   PageHeader,
   SectionLabel,
+  type Tone,
 } from "../../ui/primitives";
 
 const ACTION_WORDS: Record<string, string> = {
@@ -34,6 +37,14 @@ const ACTION_WORDS: Record<string, string> = {
   done: "Made",
   rejected: "Rejected",
   failed: "Failed",
+};
+
+/** Made = done; waiting = on a person (signal); approved = a person signed (copper); failed = risk. */
+const ACTION_TONE: Record<string, Tone> = {
+  proposed: "warning",
+  approved: "person",
+  done: "positive",
+  failed: "risk",
 };
 
 export function PortalRunScreen() {
@@ -71,28 +82,28 @@ export function PortalRunScreen() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section>
           <Card testId="portal-run-timeline" className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-edge px-4 py-3">
-              <h2 className="label-caps text-secondary">What happened</h2>
-              <span className="font-mono text-xs text-secondary">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h2 className="eyebrow text-ink-muted">What happened</h2>
+              <span className="text-sm text-ink-muted figures">
                 {data.steps.filter((s) => s.status === "succeeded").length} of {data.steps.length}{" "}
                 steps
               </span>
             </div>
             {data.steps.length === 0 ? (
-              <p className="px-4 py-4 text-secondary">Nothing to show yet.</p>
+              <p className="px-4 py-4 text-ink-muted">Nothing to show yet.</p>
             ) : (
               <ol>
                 {data.steps.map((s, i) => (
                   <li
                     key={s.id}
                     data-testid={`portal-run-step-${s.id}`}
-                    className="flex gap-3 border-b border-divider px-4 py-3 last:border-b-0"
+                    className="flex gap-3 border-b border-line px-4 py-3 last:border-b-0"
                   >
                     <StepMark status={s.status} n={i + 1} />
                     <div className="min-w-0">
-                      <p className="font-medium text-primary">{s.label}</p>
-                      <p className="text-sm text-body">{s.summary ?? stepStatusLabel(s.status)}</p>
-                      <p className="mt-0.5 text-xs text-secondary">
+                      <p className="font-medium text-ink">{s.label}</p>
+                      <p className="text-sm text-ink">{s.summary ?? stepStatusLabel(s.status)}</p>
+                      <p className="mt-0.5 text-xs text-ink-muted">
                         {[shortTime(s.finishedAt ?? s.startedAt), stepStatusLabel(s.status)]
                           .filter(Boolean)
                           .join(" · ")}
@@ -103,10 +114,9 @@ export function PortalRunScreen() {
                           className="mt-1 flex flex-wrap gap-1.5"
                         >
                           {s.sources.map((src) => (
-                            <span
-                              key={src}
-                              className="rounded-sm border border-edge bg-subtle px-1.5 py-0.5 font-mono text-xs text-body"
-                            >
+                            // A Receipt: the record behind the step (not openable yet).
+                            <span key={src} className="mz-receipt cursor-default">
+                              <Icon name="receipt" size={14} className="ds-icon" />
                               {src}
                             </span>
                           ))}
@@ -130,20 +140,18 @@ export function PortalRunScreen() {
                   {data.actions.map((a) => (
                     <li
                       key={a.id}
-                      className="flex items-start justify-between gap-4 border-b border-divider px-4 py-3 last:border-b-0"
+                      className="flex items-start justify-between gap-4 border-b border-line px-4 py-3 last:border-b-0"
                     >
                       <div className="min-w-0">
-                        <p className="font-medium text-primary">
-                          {connectorName(connectorOf(a.tool))}
-                        </p>
-                        <p className="text-sm text-body">{a.description}</p>
+                        <p className="font-medium text-ink">{connectorName(connectorOf(a.tool))}</p>
+                        <p className="text-sm text-ink">{a.description}</p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <Badge tone={a.status === "done" ? "positive" : "neutral"}>
+                        <Badge tone={ACTION_TONE[a.status] ?? "neutral"}>
                           {ACTION_WORDS[a.status] ?? a.status}
                         </Badge>
                         {a.executedAt ? (
-                          <p className="mt-1 font-mono text-xs text-secondary">
+                          <p className="mt-1 text-sm text-ink-muted figures">
                             {shortTime(a.executedAt)}
                           </p>
                         ) : null}
@@ -164,22 +172,36 @@ export function PortalRunScreen() {
                   {data.approvals.map((a) => (
                     <li
                       key={a.id}
-                      className="flex items-start justify-between gap-4 border-b border-divider px-4 py-3 last:border-b-0"
+                      className="flex items-start justify-between gap-4 border-b border-line px-4 py-3 last:border-b-0"
                     >
-                      <p className="min-w-0 text-primary">{a.title}</p>
-                      <p className="shrink-0 text-right text-sm text-secondary">
-                        {a.status === "open"
-                          ? "Waiting"
-                          : a.status === "expired"
+                      <p className="min-w-0 text-ink">{a.title}</p>
+                      {a.status === "open" ? (
+                        <Badge tone="warning">Waiting</Badge>
+                      ) : (
+                        // A person's sign-off is copper; a rejection or expiry stays muted.
+                        <p
+                          className={cx(
+                            "shrink-0 text-right text-sm",
+                            a.status !== "expired" && a.approved !== false
+                              ? "font-medium text-copper"
+                              : "text-ink-muted",
+                          )}
+                        >
+                          {a.status === "expired"
                             ? "Expired"
                             : `${a.approved === false ? "Rejected" : "Approved"}${a.by?.name ? ` by ${a.by.name}` : ""}`}
-                        {a.resolvedAt ? ` · ${shortTime(a.resolvedAt)}` : ""}
-                      </p>
+                          {a.resolvedAt ? (
+                            <span className="font-normal text-ink-muted figures">
+                              {` · ${shortTime(a.resolvedAt)}`}
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
                     </li>
                   ))}
                 </ul>
                 {data.approvals.some((a) => a.status === "open") ? (
-                  <p className="border-t border-edge px-4 py-3 text-sm">
+                  <p className="border-t border-line px-4 py-3 text-sm">
                     <Link to="/inbox" className="text-link underline">
                       Open your inbox
                     </Link>

@@ -5,7 +5,7 @@ export function ConnectorMark({ name }: { name: string }) {
   return (
     <span
       aria-hidden
-      className="inline-flex size-10 shrink-0 items-center justify-center rounded-sm border border-edge bg-subtle text-[13px] font-semibold text-primary"
+      className="inline-flex size-10 shrink-0 items-center justify-center rounded-sm border border-line bg-surface-subtle text-sm font-medium text-ink"
     >
       {agentInitials(name)}
     </span>

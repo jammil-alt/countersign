@@ -21,10 +21,15 @@ import { detailMessages, errorText, Notice, plural, useAction } from "./ui";
 
 export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
+/** "retired" → "Retired": statuses read in sentence case. */
+function sentence(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
 function statusBadge(v: VersionSummary, liveId: string | null) {
-  if (v.id === liveId) return <Badge tone="positive">live</Badge>;
-  if (v.status === "draft") return <Badge tone="neutral">draft</Badge>;
-  return <Badge tone="warning">{v.status}</Badge>;
+  if (v.id === liveId) return <Badge tone="positive">Live</Badge>;
+  if (v.status === "draft") return <Badge tone="neutral">Draft</Badge>;
+  return <Badge tone="neutral">{sentence(v.status)}</Badge>;
 }
 
 export function VersionsTab({
@@ -118,18 +123,16 @@ export function VersionsTab({
       {failure}
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Card className="overflow-hidden">
-          <table data-testid="agent-versions" className="w-full text-left">
-            <thead className="border-b border-edge bg-subtle">
-              <tr className="label-caps text-secondary">
-                <th className="px-4 py-2.5 font-medium">Version</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Change</th>
-                <th className="px-4 py-2.5 font-medium">
-                  {agent.kind === "client" ? "Template" : "By"}
-                </th>
-                <th className="px-4 py-2.5 font-medium">Created</th>
-                <th className="px-4 py-2.5 font-medium" aria-label="Actions" />
+        <div className="dt dt-ana self-start">
+          <table data-testid="agent-versions">
+            <thead>
+              <tr className="dt-cols">
+                <th>Version</th>
+                <th>Status</th>
+                <th>Change</th>
+                <th>{agent.kind === "client" ? "Template" : "By"}</th>
+                <th>Created</th>
+                <th aria-label="Actions" />
               </tr>
             </thead>
             <tbody>
@@ -140,9 +143,9 @@ export function VersionsTab({
                   <tr
                     key={v.id}
                     data-testid={`agent-version-${v.version}`}
-                    className={`border-b border-divider align-top last:border-0 ${isSelected ? "bg-selected" : ""}`}
+                    className={isSelected ? "[&>td]:bg-slate-tint" : undefined}
                   >
-                    <td className="px-4 py-3 font-mono">
+                    <td className="figures">
                       <Link
                         to={`${base}/workflow?version=${v.version}`}
                         className="text-link hover:underline"
@@ -150,8 +153,8 @@ export function VersionsTab({
                         v{v.version}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">{statusBadge(v, liveId)}</td>
-                    <td className="px-4 py-3 text-body">
+                    <td>{statusBadge(v, liveId)}</td>
+                    <td className="text-ink">
                       <button
                         type="button"
                         className="text-left hover:underline"
@@ -161,15 +164,15 @@ export function VersionsTab({
                         {v.changeNote ?? "No change note"}
                       </button>
                       {v.releaseNote ? (
-                        <span className="block text-sm text-secondary">
+                        <span className="block text-sm text-ink-muted">
                           Release note: {v.releaseNote}
                         </span>
                       ) : null}
                       {v.authorType !== "operator" ? (
-                        <span className="block text-sm text-secondary">by {v.authorType}</span>
+                        <span className="block text-sm text-ink-muted">by {v.authorType}</span>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-secondary">
+                    <td>
                       {agent.kind === "client"
                         ? v.basedOnTemplateVersionId
                           ? tv
@@ -178,10 +181,10 @@ export function VersionsTab({
                           : "—"
                         : v.authorType}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs whitespace-nowrap text-secondary">
+                    <td className="text-sm whitespace-nowrap figures">
                       {v.createdAt.slice(0, 10)}
                     </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <td className="text-right whitespace-nowrap">
                       {v.status === "draft" ? (
                         <Button
                           variant="primary"
@@ -216,7 +219,7 @@ export function VersionsTab({
               })}
             </tbody>
           </table>
-        </Card>
+        </div>
         {selected ? (
           <VersionDiff agentId={agent.id} versionId={selected} versions={versions} />
         ) : null}
@@ -279,7 +282,7 @@ function LineageCard({
     return (
       <Card className="p-5" testId="agent-lineage">
         <SectionLabel>Lineage</SectionLabel>
-        <p className="text-body">Written for this client from scratch: no template.</p>
+        <p className="text-ink">Written for this client from scratch: no template.</p>
       </Card>
     );
   }
@@ -287,7 +290,7 @@ function LineageCard({
     <Card className="p-5" testId="agent-lineage">
       <SectionLabel>Lineage</SectionLabel>
       <div className="flex flex-wrap items-center gap-3">
-        <p className="text-body" data-testid="agent-lineage-base">
+        <p className="text-ink" data-testid="agent-lineage-base">
           Based on {templateName ? `template “${templateName}”` : "a template"}
           {baseVersion ? ` v${baseVersion}` : ""}
           {agent.linked ? "" : " · detached: it takes no template updates"}
@@ -301,10 +304,10 @@ function LineageCard({
         ) : null}
       </div>
       {update?.available && update.releaseNote ? (
-        <p className="mt-2 text-sm text-secondary">Release note: {update.releaseNote}</p>
+        <p className="mt-2 text-sm text-ink-muted">Release note: {update.releaseNote}</p>
       ) : null}
       {update?.available ? (
-        <p className="mt-2 text-sm text-secondary">
+        <p className="mt-2 text-sm text-ink-muted">
           Applying an update merges the template's changes with this client's customizations in the
           merge view.
         </p>
@@ -358,63 +361,61 @@ function UsedByCard({ templateId }: { templateId: string }) {
         </div>
       ) : null}
       {res.data && res.data.agents.length === 0 ? (
-        <p className="px-5 pb-4 text-sm text-secondary">
+        <p className="px-5 pb-4 text-sm text-ink-muted">
           Not forked into any client yet. Fork it from a client's “New agent” page.
         </p>
       ) : null}
       {res.data && res.data.agents.length > 0 ? (
-        <table className="w-full text-left" data-testid="template-used-by-table">
-          <thead className="border-y border-edge bg-subtle">
-            <tr className="label-caps text-secondary">
-              <th className="px-5 py-2.5 font-medium">Client agent</th>
-              <th className="px-4 py-2.5 font-medium">Base</th>
-              <th className="px-4 py-2.5 font-medium">Behind</th>
-              <th className="px-4 py-2.5 font-medium">Customizations</th>
-              <th className="px-4 py-2.5 font-medium">Conflicts</th>
-            </tr>
-          </thead>
-          <tbody>
-            {res.data.agents.map((u) => (
-              <tr
-                key={u.agent.id}
-                className="border-b border-divider last:border-0"
-                data-testid={`template-used-by-${u.agent.slug}`}
-              >
-                <td className="px-5 py-3">
-                  <Link
-                    to={`/ops/clients/${u.client.id}/agents/${u.agent.slug}`}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {u.agent.serviceName ?? u.agent.name}
-                  </Link>
-                  <span className="block text-sm text-secondary">
-                    {u.client.name}
-                    {u.agent.linked ? "" : " · detached"}
-                    {u.agent.runStatus ? ` · ${u.agent.runStatus}` : ""}
-                  </span>
-                </td>
-                <td className="px-4 py-3 font-mono">{u.baseVersion ? `v${u.baseVersion}` : "—"}</td>
-                <td className="px-4 py-3">
-                  {u.behind > 0 ? (
-                    <Badge tone="accent">{u.behind} behind</Badge>
-                  ) : (
-                    <span className="text-secondary">up to date</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 font-mono">{u.customizations}</td>
-                <td className="px-4 py-3">
-                  {u.conflicts === null ? (
-                    <span className="text-secondary">—</span>
-                  ) : u.conflicts > 0 ? (
-                    <Badge tone="warning">{u.conflicts}</Badge>
-                  ) : (
-                    <span className="font-mono">0</span>
-                  )}
-                </td>
+        <div className="dt dt-ana rounded-none border-x-0 border-b-0">
+          <table data-testid="template-used-by-table">
+            <thead>
+              <tr className="dt-cols">
+                <th>Client agent</th>
+                <th>Base</th>
+                <th>Behind</th>
+                <th className="n">Customizations</th>
+                <th>Conflicts</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {res.data.agents.map((u) => (
+                <tr key={u.agent.id} data-testid={`template-used-by-${u.agent.slug}`}>
+                  <td>
+                    <Link
+                      to={`/ops/clients/${u.client.id}/agents/${u.agent.slug}`}
+                      className="font-medium text-ink hover:underline"
+                    >
+                      {u.agent.serviceName ?? u.agent.name}
+                    </Link>
+                    <span className="block text-sm text-ink-muted">
+                      {u.client.name}
+                      {u.agent.linked ? "" : " · detached"}
+                      {u.agent.runStatus ? ` · ${u.agent.runStatus}` : ""}
+                    </span>
+                  </td>
+                  <td className="figures">{u.baseVersion ? `v${u.baseVersion}` : "—"}</td>
+                  <td>
+                    {u.behind > 0 ? (
+                      <Badge tone="accent">{u.behind} behind</Badge>
+                    ) : (
+                      <span className="text-ink-muted">Up to date</span>
+                    )}
+                  </td>
+                  <td className="figures">{u.customizations}</td>
+                  <td>
+                    {u.conflicts === null ? (
+                      <span className="text-ink-muted">—</span>
+                    ) : u.conflicts > 0 ? (
+                      <Badge tone="warning">{plural(u.conflicts, "conflict")}</Badge>
+                    ) : (
+                      <span className="figures">0</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
     </Card>
   );

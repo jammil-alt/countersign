@@ -25,8 +25,10 @@ export function runStatusTone(status: string): Tone {
     case "succeeded":
       return "positive";
     case "failed":
-      return "warning";
+      return "risk";
     case "waiting":
+      // Waiting on a person: an approval or an answer.
+      return "warning";
     case "running":
     case "queued":
       return "accent";

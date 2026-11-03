@@ -6,6 +6,7 @@ import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink, SidebarSection } from "../shell/Shell";
+import { Icon } from "../ui/icons";
 import { AgentAvatar } from "../ui/primitives";
 import { useAgentsChanged } from "./agents/ui";
 
@@ -66,13 +67,13 @@ function ClientSwitcher({ selected }: { selected: string | null }) {
   const clients = [...new Map(session.tenants.map((t) => [t.id, t])).values()];
 
   return (
-    <label className="flex items-center gap-2 text-sm text-primary">
+    <label className="ds-selectwrap flex items-center">
       <span className="sr-only">Client</span>
       <select
         data-testid="ops-client-switcher"
         value={selected ?? ""}
         onChange={(e) => navigate(e.target.value ? `/ops/clients/${e.target.value}` : "/ops")}
-        className="h-8 max-w-56 rounded-sm border border-transparent bg-card pr-6 text-sm font-medium text-primary hover:border-control"
+        className="ds-select h-8 max-w-56 border-transparent bg-transparent pr-8 pl-2 text-sm font-medium hover:border-line-strong"
       >
         <option value="">All clients</option>
         {clients.map((c) => (
@@ -81,6 +82,10 @@ function ClientSwitcher({ selected }: { selected: string | null }) {
           </option>
         ))}
       </select>
+      <Icon
+        name="chevron-down"
+        className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-ink-muted"
+      />
     </label>
   );
 }
@@ -93,14 +98,18 @@ function AgentsSection({ clientId }: { clientId: string }) {
     <SidebarSection
       label="Agents"
       action={
-        <Link to={`/ops/clients/${clientId}/agents/new`} className="text-sm text-link underline">
-          + New
+        <Link
+          to={`/ops/clients/${clientId}/agents/new`}
+          className="ds-btn ds-btn--link gap-1 text-xs"
+        >
+          <Icon name="add" size={14} />
+          New
         </Link>
       }
     >
-      {error ? <p className="px-2.5 text-sm text-secondary">Couldn't load agents.</p> : null}
+      {error ? <p className="px-2.5 text-sm text-ink-muted">Couldn't load agents.</p> : null}
       {data?.agents.length === 0 ? (
-        <p className="px-2.5 text-sm text-secondary">No agents yet.</p>
+        <p className="px-2.5 text-sm text-ink-muted">No agents yet.</p>
       ) : null}
       {data?.agents.map((a) => (
         <SidebarLink
@@ -113,13 +122,11 @@ function AgentsSection({ clientId }: { clientId: string }) {
             <span className="min-w-0">
               <span className="block truncate">{a.name}</span>
               {a.role ? (
-                <span className="block truncate text-xs font-normal text-secondary">{a.role}</span>
+                <span className="block truncate text-xs font-normal text-ink-muted">{a.role}</span>
               ) : null}
             </span>
           </span>
-          {a.liveVersionId === null ? (
-            <span className="label-caps text-secondary">Draft</span>
-          ) : null}
+          {a.liveVersionId === null ? <span className="eyebrow text-ink-muted">Draft</span> : null}
         </SidebarLink>
       ))}
     </SidebarSection>

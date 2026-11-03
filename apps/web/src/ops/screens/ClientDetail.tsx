@@ -12,6 +12,7 @@ import {
   Loading,
   PageHeader,
   SectionLabel,
+  Tag,
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
 
@@ -58,7 +59,7 @@ function AgentCard({ clientId, agent }: { clientId: string; agent: AgentSummary 
   const meta = [agent.role, origin, agent.runStatus].filter(Boolean);
 
   return (
-    <Card dashed={isDraftOnly} testId={`ops-agent-card-${agent.slug}`} className="p-4">
+    <Card dashed={isDraftOnly} testId={`ops-agent-card-${agent.slug}`} className="p-5">
       <div className="flex items-start justify-between gap-3">
         <Link
           to={`/ops/clients/${clientId}/agents/${agent.slug}`}
@@ -66,10 +67,10 @@ function AgentCard({ clientId, agent }: { clientId: string; agent: AgentSummary 
         >
           <AgentAvatar name={agent.name} seed={agent.slug} size="md" />
           <span className="min-w-0">
-            <span className="block font-semibold text-primary hover:underline">
+            <span className="block font-medium text-ink hover:underline">
               {agent.serviceName ?? agent.name}
             </span>
-            <span className="block truncate text-sm text-secondary">{meta.join(" · ")}</span>
+            <span className="block truncate text-sm text-ink-muted">{meta.join(" · ")}</span>
           </span>
         </Link>
         <div className="flex shrink-0 gap-1.5">
@@ -77,17 +78,12 @@ function AgentCard({ clientId, agent }: { clientId: string; agent: AgentSummary 
         </div>
       </div>
       {agent.serviceDescription ? (
-        <p className="mt-3 text-body">{agent.serviceDescription}</p>
+        <p className="mt-3 text-ink">{agent.serviceDescription}</p>
       ) : null}
       {connectors.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {connectors.map((c) => (
-            <span
-              key={c}
-              className="rounded-sm border border-edge bg-subtle px-1.5 py-0.5 text-xs text-body"
-            >
-              {c}
-            </span>
+            <Tag key={c}>{c}</Tag>
           ))}
         </div>
       ) : null}

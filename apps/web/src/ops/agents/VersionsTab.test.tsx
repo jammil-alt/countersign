@@ -108,9 +108,9 @@ describe("VersionsTab", () => {
       "agent-version-2",
       "agent-version-1",
     ]);
-    expect(rows[0]).toHaveTextContent("draft");
-    expect(rows[1]).toHaveTextContent("live");
-    expect(rows[2]).toHaveTextContent("retired");
+    expect(rows[0]).toHaveTextContent("Draft");
+    expect(rows[1]).toHaveTextContent("Live");
+    expect(rows[2]).toHaveTextContent("Retired");
     expect(rows[0]).toHaveTextContent("Change 3");
     // A draft publishes; an older version rolls back; the live one has neither.
     expect(
@@ -129,8 +129,8 @@ describe("VersionsTab", () => {
         .getAllByTestId("change-line")
         .map((l) => l.textContent),
     ).toEqual([
-      "changedInstructions changedItemize bills. → Itemize every bill.",
-      "addedAdded notify step “Tell purchasing”",
+      "ChangedInstructions changedItemize bills. to Itemize every bill.",
+      "AddedAdded notify step “Tell purchasing”",
     ]);
     expect(screen.getByTestId("agent-version-diff")).toHaveTextContent(
       "What v3 changed · against v2",
@@ -278,7 +278,7 @@ describe("VersionsTab", () => {
     expect(within(screen.getByTestId("agent-version-2")).getByText("v1")).toBeInTheDocument();
     const custom = await screen.findByTestId("agent-customizations-changes");
     expect(custom).toHaveTextContent("Skill docs.extract: setting min_confidence changed");
-    expect(custom).toHaveTextContent("0.8 → 0.95");
+    expect(custom).toHaveTextContent("0.8 to 0.95");
     expect(screen.getByTestId("agent-customizations")).toHaveTextContent("v2 against template v1");
   });
 
@@ -322,7 +322,7 @@ describe("VersionsTab", () => {
       within(row)
         .getAllByRole("cell")
         .map((c) => c.textContent),
-    ).toEqual(["CostsMillwork · active", "v1", "1 behind", "4", "2"]);
+    ).toEqual(["CostsMillwork · active", "v1", "1 behind", "4", "2 conflicts"]);
     expect(screen.getByTestId("template-used-by")).toHaveTextContent("Used by · 1 client agent");
     expect(screen.queryByTestId("agent-customizations")).not.toBeInTheDocument();
   });

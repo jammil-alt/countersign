@@ -4,7 +4,17 @@ import type { AgentBundle, SkillOption } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
-import { Badge, Card, ErrorNotice, Loading, SectionLabel, type Tone } from "../../ui/primitives";
+import { runStatusLabel, runStatusTone, shortTime } from "../../runs/format";
+import { Icon } from "../../ui/icons";
+import {
+  Badge,
+  Card,
+  ErrorNotice,
+  Loading,
+  SectionLabel,
+  StepKindTag,
+  Tag,
+} from "../../ui/primitives";
 import { KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { plural } from "./ui";
@@ -39,14 +49,14 @@ export function OverviewTab({
             How it works · {plural(stats.steps, "step")}, {plural(stats.forks, "fork")}
           </SectionLabel>
           {bundle.workflows.length === 0 ? (
-            <p className="text-secondary">No workflows: this agent answers asks and commands.</p>
+            <p className="text-ink-muted">No workflows: this agent answers asks and commands.</p>
           ) : (
             bundle.workflows.map((w) => <StepChips key={w.slug} workflow={w} />)
           )}
         </Card>
         <Card className="p-5">
           <SectionLabel>Mission</SectionLabel>
-          <p className="font-serif text-[17px] text-body">
+          <p className="text-lg text-ink">
             {bundle.definition.identity.mission || "No mission written yet."}
           </p>
         </Card>
@@ -61,7 +71,7 @@ export function OverviewTab({
             empty="No connections bound yet."
           />
         ) : (
-          <p className="text-sm text-secondary">
+          <p className="text-sm text-ink-muted">
             Each client agent forked from it is bound to that client's own connections.
           </p>
         )}
@@ -88,25 +98,28 @@ function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] })
   const w = workflow.workflow;
   return (
     <div className="mb-3 last:mb-0" data-testid={`agent-chips-${workflow.slug}`}>
-      <p className="mb-2 text-sm font-medium text-primary">
+      <p className="mb-2 text-sm font-medium text-ink">
         {workflow.name}
-        {workflow.enabled ? "" : <span className="ml-2 text-secondary">off</span>}
+        {workflow.enabled ? "" : <span className="ml-2 text-ink-muted">off</span>}
       </p>
       <ol className="flex flex-wrap items-center gap-2">
-        <Chip kind={KIND_LABEL.trigger} label={triggerTitle(w.trigger)} />
+        <Chip kindId="trigger" kind={KIND_LABEL.trigger} label={triggerTitle(w.trigger)} />
         {w.steps.map((s) => (
-          <Chip key={s.id} kind={KIND_LABEL[s.kind]} label={s.name} />
+          <Chip key={s.id} kindId={s.kind} kind={KIND_LABEL[s.kind]} label={s.name} />
         ))}
       </ol>
     </div>
   );
 }
 
-function Chip({ kind, label }: { kind: string; label: string }) {
+function Chip({ kindId, kind, label }: { kindId: string; kind: string; label: string }) {
   return (
-    <li className="flex items-center gap-2 rounded-sm border border-edge px-2 py-1 text-sm text-primary after:ml-1 after:text-secondary after:content-['→'] last:after:content-none">
-      <span className="label-caps text-[10px] text-secondary">{kind}</span>
-      {label}
+    <li className="group flex items-center gap-2 text-sm text-ink">
+      <span className="flex items-center gap-2 rounded-sm border border-line px-2 py-1">
+        <StepKindTag kind={kindId} label={kind} />
+        {label}
+      </span>
+      <Icon name="arrow" className="text-ink-muted group-last:hidden" />
     </li>
   );
 }
@@ -114,7 +127,7 @@ function Chip({ kind, label }: { kind: string; label: string }) {
 function Chips({ items, empty, testId }: { items: string[]; empty: string; testId?: string }) {
   if (items.length === 0) {
     return (
-      <p className="text-sm text-secondary" data-testid={testId}>
+      <p className="text-sm text-ink-muted" data-testid={testId}>
         {empty}
       </p>
     );
@@ -122,25 +135,11 @@ function Chips({ items, empty, testId }: { items: string[]; empty: string; testI
   return (
     <div className="flex flex-wrap gap-1.5" data-testid={testId}>
       {items.map((i) => (
-        <span
-          key={i}
-          className="rounded-sm border border-edge bg-subtle px-1.5 py-0.5 text-xs text-body"
-        >
-          {i}
-        </span>
+        <Tag key={i}>{i}</Tag>
       ))}
     </div>
   );
 }
-
-const STATUS_TONE: Record<string, Tone> = {
-  succeeded: "positive",
-  failed: "warning",
-  cancelled: "neutral",
-  waiting: "accent",
-  running: "accent",
-  queued: "neutral",
-};
 
 /** The agent's runs, newest first (live and test). */
 export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: number }) {
@@ -151,22 +150,22 @@ export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: nu
       {runs.error ? <ErrorNotice error={runs.error} onRetry={runs.reload} /> : null}
       {!runs.data && !runs.error ? <Loading /> : null}
       {runs.data && runs.data.runs.length === 0 ? (
-        <p className="text-sm text-secondary">No runs yet.</p>
+        <p className="text-sm text-ink-muted">No runs yet.</p>
       ) : null}
       {runs.data && runs.data.runs.length > 0 ? (
-        <ul className="flex flex-col divide-y divide-divider">
+        <ul className="flex flex-col divide-y divide-line">
           {runs.data.runs.map((r) => (
             <li key={r.id} className="flex items-center justify-between gap-3 py-2.5">
               <span className="flex min-w-0 items-center gap-3">
-                <span className="font-mono text-xs text-secondary">
-                  {(r.startedAt ?? r.createdAt).slice(5, 16).replace("T", " ")}
+                <span className="w-28 shrink-0 text-sm text-ink-muted figures">
+                  {shortTime(r.startedAt ?? r.createdAt)}
                 </span>
-                <Link to={`/ops/runs/${r.id}`} className="truncate text-primary hover:underline">
+                <Link to={`/ops/runs/${r.id}`} className="truncate text-ink hover:underline">
                   {r.workflowSlug}
                 </Link>
-                {r.mode === "test" ? <Badge tone="neutral">test</Badge> : null}
+                {r.mode === "test" ? <Tag>Test</Tag> : null}
               </span>
-              <Badge tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</Badge>
+              <Badge tone={runStatusTone(r.status)}>{runStatusLabel(r.status)}</Badge>
             </li>
           ))}
         </ul>
@@ -179,7 +178,7 @@ function TemplateRunsNote() {
   return (
     <Card className="p-5">
       <SectionLabel>Runs</SectionLabel>
-      <p className="text-sm text-secondary">
+      <p className="text-sm text-ink-muted">
         A template never runs for a client. Its test runs run as its test copy in the Sandbox
         client; its client agents run in their own clients.
       </p>

@@ -1,113 +1,190 @@
 @import "tailwindcss";
-/* Unlayered, so where a token shares a name with a Tailwind theme variable (--font-mono,
- * --radius-sm/md/lg) the Groundwork value wins over Tailwind's default. */
-@import "./styles/tokens.css";
+/* The Mezonas design system (packages/design-system): tokens, then the component classes. Tokens go
+ * in the base layer, so where a token shares a name with a Tailwind theme variable (--font-sans,
+ * --font-mono, --radius-sm/md/lg) the Mezonas value wins; the components go in the components layer,
+ * so a utility on a ds-* element (a margin, a width) still applies. Geist and Geist Mono are served
+ * from the package's own woff2 files (tokens.css's @font-face), not from Google Fonts. */
+@import "@countersign/design-system/tokens.css" layer(base);
+@import "@countersign/design-system/components.css" layer(components);
 
-/* The Groundwork tokens as Tailwind theme names (docs/plan.md §1.2, UI). Tailwind's own palette is
- * removed, so a raw colour class such as `bg-red-500` does not exist: screens can only say
- * `bg-card`, `text-secondary`, `border-edge`, `bg-tone-accent`. Spacing needs no mapping: Tailwind's
- * 4px step matches --space-N (p-4 = --space-4 = 16px). */
+/* The Mezonas tokens as Tailwind theme names, one-to-one (`bg-surface`, `text-ink-muted`,
+ * `border-line`, `bg-signal-tint`). Tailwind's own palette is removed, so a raw colour class such as
+ * `bg-red-500` does not exist. Spacing needs no mapping: Tailwind's 4px step matches --space-N
+ * (p-4 = --space-4 = 16px). */
 @theme inline {
   --color-*: initial;
 
-  --color-primary: var(--text-primary);
-  --color-body: var(--text-body);
-  --color-secondary: var(--text-secondary);
-  --color-faint: var(--text-faint);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
 
-  --color-ground: var(--surface-ground);
-  --color-card: var(--surface-card);
-  --color-subtle: var(--surface-subtle);
-  --color-hover: var(--surface-hover);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  /* Placeholders only (brand book). */
+  --color-ink-faint: var(--ink-faint);
 
-  --color-edge: var(--border-card);
-  --color-divider: var(--border-divider);
-  --color-control: var(--border-control);
-
-  --color-action: var(--action);
-  --color-action-hover: var(--action-hover);
-  --color-action-pressed: var(--action-pressed);
-  --color-on-action: var(--on-action);
+  /* Brand: primary actions, links, selection, the active nav item. */
+  --color-slate: var(--slate);
+  --color-slate-hover: var(--slate-hover);
+  --color-slate-tint: var(--slate-tint);
+  --color-on-slate: var(--on-slate);
   --color-link: var(--link);
-  --color-selected: var(--selected-bg);
-  --color-selected-ink: var(--selected-fg);
-  --color-focus: var(--focus);
+  --color-focus-ring: var(--focus-ring);
 
-  --color-ai: var(--ai-bg);
-  --color-ai-edge: var(--ai-border);
-  --color-ai-dot: var(--ai-dot);
-  --color-ai-ink: var(--ai-text);
+  /* People: the Mezonas lead, human sign-offs, person steps, notes from a person. */
+  --color-copper: var(--copper);
+  --color-copper-ink: var(--copper-ink);
+  --color-copper-tint: var(--copper-tint);
 
-  --color-tone-neutral: var(--tone-neutral-bg);
-  --color-tone-neutral-ink: var(--tone-neutral-fg);
-  --color-tone-neutral-edge: var(--tone-neutral-bd);
-  --color-tone-accent: var(--tone-accent-bg);
-  --color-tone-accent-ink: var(--tone-accent-fg);
-  --color-tone-accent-edge: var(--tone-accent-bd);
-  --color-tone-positive: var(--tone-positive-bg);
-  --color-tone-positive-ink: var(--tone-positive-fg);
-  --color-tone-positive-edge: var(--tone-positive-bd);
-  --color-tone-warning: var(--tone-warning-bg);
-  --color-tone-warning-ink: var(--tone-warning-fg);
-  --color-tone-warning-edge: var(--tone-warning-bd);
+  /* Waiting on you: a fill with ink text, or signal-ink on signal-tint; always with a word. */
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-signal-tint: var(--signal-tint);
 
-  /* Agent avatars (docs/design/README.md: avatars use the persona colours). */
-  --color-persona-sienna: var(--persona-sienna);
-  --color-persona-pine: var(--persona-pine);
-  --color-persona-slate: var(--persona-slate);
-  --color-persona-plum: var(--persona-plum);
-  --color-persona-mustard: var(--persona-mustard);
-  --color-persona-brick: var(--persona-brick);
-  --color-persona-juniper: var(--persona-juniper);
-  --color-persona-umber: var(--persona-umber);
-  --color-persona-indigo: var(--persona-indigo);
-  --color-persona-rosewood: var(--persona-rosewood);
-  --color-persona-teal: var(--persona-teal);
-  --color-persona-flint: var(--persona-flint);
+  /* Errors and real risk; done, paid and signed. Both always carry a word. */
+  --color-risk: var(--risk);
+  --color-risk-ink: var(--risk-ink);
+  --color-risk-tint: var(--risk-tint);
+  --color-risk-line: var(--risk-line);
+  --color-positive: var(--positive);
+  --color-positive-tint: var(--positive-tint);
 
+  /* Marks in charts and tables only. */
+  --color-data-bar: var(--data-bar);
+  --color-data-track: var(--data-track);
+  --color-data-line: var(--data-line);
   --color-data-up: var(--data-up);
   --color-data-down: var(--data-down);
 
-  --font-sans: var(--font-ui);
-  --font-serif: var(--font-quote);
+  /* The Mezonas type scale on Tailwind's size names: xs = reference and help (12), sm = small and
+   * label (13), base = body (15), lg = subheading (17), xl = heading (22), 2xl = title (36). */
+  --text-*: initial;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 15px;
+  --text-base--line-height: 24px;
+  --text-lg: 17px;
+  --text-lg--line-height: 24px;
+  --text-xl: 22px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 36px;
+  --text-2xl--line-height: 42px;
+
+  /* Two weights in the app; 600 only for subheadings and the Sign button. */
+  --font-weight-*: initial;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Borders, not shadows: shadow-pop (elevation-pop) lifts only menus, popovers, dialogs, toasts. */
+  --shadow-*: initial;
 
   --spacing-header: var(--header-h);
   --spacing-sidebar: var(--sidebar-w);
   --spacing-row: var(--row-h);
-  --spacing-control: var(--control-h-sm);
+  --spacing-control: var(--control-h);
 }
 
-/* Tailwind's shadow utilities rewrite their value to support coloured shadows, so the token
- * shadows are applied as their own utilities instead. */
-@utility elevation-xs {
-  box-shadow: var(--shadow-xs);
-}
-@utility elevation-md {
-  box-shadow: var(--shadow-md);
-}
-@utility focus-ring {
-  box-shadow: var(--focus-ring);
+@utility elevation-pop {
+  box-shadow: var(--shadow-pop);
 }
 
-/* The design's small-caps labels ("AGENTS LIVE", "SKILL", "LIVE · V4"). */
-@utility label-caps {
+/* The eyebrow kicker ("YOUR AGENTS", "STEP 3 · FORK"): Geist Mono, the brand's `eyebrow` type. */
+@utility eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 14px;
   font-weight: 500;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
+/* Reference text: record ids, tool ids, run ids (the brand's `reference` type). */
+@utility reference {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+/* Every amount and count uses tabular figures. */
+@utility figures {
+  font-variant-numeric: tabular-nums;
+}
+
 @layer base {
-  html,
-  body {
-    background: var(--surface-ground);
-    color: var(--text-body);
-    font-family: var(--font-ui);
-    font-size: 14px;
+  /* Native controls (scrollbars, checkboxes, select menus) follow the theme. */
+  :root {
+    color-scheme: light;
   }
-  :focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+}
+
+/* Keyboard focus is the brand's focus ring: a solid 2px slate ring with a 2px paper gap. The
+ * component CSS clears outlines and draws its own on buttons, choices and fields; everything else
+ * (links, nav items, tabs, cards that open something) gets the ring here. Unlayered, so it wins. */
+:focus-visible:where(
+  :not(.ds-btn, .ds-choice, .mz-receipt, .ds-input, .ds-select, .ds-textarea, .dt-sort)
+) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Logo files per ground (brand book: the -paper files on dark grounds), following the theme the
+ * same way tokens.css does: the OS setting, overridden by <html data-theme>. */
+.theme-dark-only {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-light-only {
+    display: none;
+  }
+  :root:not([data-theme="light"]) .theme-dark-only {
+    display: revert;
+  }
+}
+:root[data-theme="dark"] .theme-light-only {
+  display: none;
+}
+:root[data-theme="dark"] .theme-dark-only {
+  display: revert;
+}
+
+/* App-level adjustments to the component CSS, in its layer so utilities still win:
+ * - the brand book keeps Geist Mono for eyebrows and reference text, so numbers in data tables are
+ *   Geist with tabular figures (the table pattern sets them in mono);
+ * - text cells in the app's tables wrap (the pattern keeps every cell on one line), with room
+ *   above and below when they do;
+ * - two weights in the app: the components' 600 labels are set at 500. */
+@layer components {
+  .dt .n {
+    font-family: var(--font-sans);
+    font-size: 13px;
+  }
+  .dt td {
+    white-space: normal;
+  }
+  .dt-ana td {
+    padding-top: var(--space-2-5);
+    padding-bottom: var(--space-2-5);
+  }
+  .ds-navitem[aria-current="page"],
+  .ds-listrow__title,
+  .ds-label,
+  .ds-turn__who,
+  .ds-avatar,
+  .dt-title {
+    font-weight: 500;
   }
 }

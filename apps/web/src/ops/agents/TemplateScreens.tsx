@@ -59,22 +59,22 @@ export function TemplatesScreen() {
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.templates.length === 0 ? <EmptyState>No templates yet.</EmptyState> : null}
       {data && data.templates.length > 0 ? (
-        <Card className="overflow-hidden">
-          <table data-testid="templates-table" className="w-full text-left">
-            <thead className="border-b border-edge bg-subtle">
-              <tr className="label-caps text-secondary">
-                <th className="px-4 py-2.5 font-medium">Template</th>
-                <th className="px-4 py-2.5 font-medium">Area</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Created</th>
+        <div className="dt dt-ana">
+          <table data-testid="templates-table">
+            <thead>
+              <tr className="dt-cols">
+                <th>Template</th>
+                <th>Area</th>
+                <th>Status</th>
+                <th>Created</th>
               </tr>
             </thead>
             <tbody>
               {data.templates.map((t) => {
                 const badge = summaryBadge(t);
                 return (
-                  <tr key={t.id} className="border-b border-divider last:border-0 hover:bg-hover">
-                    <td className="px-4 py-3">
+                  <tr key={t.id}>
+                    <td>
                       <Link
                         to={`/ops/templates/${t.slug}`}
                         data-testid={`templates-row-${t.slug}`}
@@ -82,26 +82,24 @@ export function TemplatesScreen() {
                       >
                         <AgentAvatar name={t.name} seed={t.slug} size="md" />
                         <span>
-                          <span className="block font-medium text-primary hover:underline">
+                          <span className="block font-medium text-ink hover:underline">
                             {t.name}
                           </span>
-                          <span className="block font-mono text-xs text-secondary">{t.slug}</span>
+                          <span className="block reference text-ink-muted">{t.slug}</span>
                         </span>
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-body">{t.role ?? "—"}</td>
-                    <td className="px-4 py-3">
+                    <td className="text-ink">{t.role ?? "—"}</td>
+                    <td>
                       <Badge tone={badge.tone}>{badge.label}</Badge>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-secondary">
-                      {t.createdAt.slice(0, 10)}
-                    </td>
+                    <td className="text-sm figures">{t.createdAt.slice(0, 10)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </Card>
+        </div>
       ) : null}
     </div>
   );
@@ -212,7 +210,7 @@ export function NewTemplateScreen() {
               () => "preview",
             )}
             note={
-              <p className="text-sm text-secondary">
+              <p className="text-sm text-ink-muted">
                 It starts by hand. Add steps in the workflow builder, then test-run it in the
                 Sandbox client and publish.
               </p>

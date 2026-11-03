@@ -31,10 +31,14 @@ describe("back office layout", () => {
     renderAt("/ops/clients/00000000-0000-4000-8000-00000000a001", api);
 
     const shell = await screen.findByTestId("shell-ops");
-    expect(within(shell).getByText("Countersign")).toBeInTheDocument();
+    // The product is Mezonas: its logo names it; the code name never shows.
+    expect(within(shell).getByRole("img", { name: "Mezonas" })).toBeInTheDocument();
+    expect(within(shell).queryByText(/Countersign|Platform name/)).toBeNull();
     expect(screen.getByTestId("shell-command-bar")).toBeDisabled();
     expect(screen.getByTestId("shell-inbox")).toHaveAttribute("href", "/ops/inbox");
+    // The operator is a Mezonas person: their avatar is the lead's copper one.
     expect(screen.getByTestId("shell-avatar")).toHaveTextContent("O");
+    expect(screen.getByTestId("shell-avatar")).toHaveClass("mz-lead");
 
     const switcher = screen.getByTestId("ops-client-switcher") as HTMLSelectElement;
     expect(switcher.value).toBe("00000000-0000-4000-8000-00000000a001");
@@ -49,6 +53,8 @@ describe("back office layout", () => {
       "href",
       "/ops/clients/00000000-0000-4000-8000-00000000a001",
     );
+    // The current page is the selected nav item (Sidebar: aria-current, slate-tint).
+    expect(within(nav).getByTestId("ops-nav-home")).toHaveAttribute("aria-current", "page");
     for (const label of ["Inbox", "Templates", "Skills", "Connections", "Runs", "Settings"]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
     }
@@ -119,6 +125,8 @@ describe("portal layout", () => {
     const inbox = screen.getByTestId("shell-inbox");
     expect(inbox).toHaveAttribute("href", "/inbox");
     await waitFor(() => expect(inbox).toHaveTextContent("Inbox3"));
+    // The signed-in client is the self avatar (ink), not the lead's copper.
+    expect(screen.getByTestId("shell-avatar")).toHaveClass("ds-avatar--self");
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     expect(
       within(nav)
@@ -169,7 +177,7 @@ describe("portal layout", () => {
     await userEvent.click(await screen.findByTestId("shell-avatar"));
     api.on("GET /api/session", () => new Reply(401, { error: { code: "unauthenticated" } }));
     await userEvent.click(screen.getByTestId("shell-sign-out"));
-    await waitFor(() => expect(screen.getByText(/Sign in to/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Sign in to Mezonas")).toBeInTheDocument());
     expect(api.calls).toContain("POST /api/auth/sign-out");
   });
 });

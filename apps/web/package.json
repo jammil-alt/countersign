@@ -18,7 +18,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.9.3",
-    "zod": "^4.6.2"
+    "zod": "^4.6.2",
+    "@countersign/design-system": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

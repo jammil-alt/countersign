@@ -1,4 +1,8 @@
-# Countersign: working rules
+# Mezonas: working rules
+
+The product is **Mezonas** (mezonas.com; a Twelve Thirty-Four company). `countersign` is the code name: the repo,
+the `@countersign/*` packages, the database and its roles keep it. Everything a person sees, and every public
+cloud resource, is named Mezonas.
 
 A **managed-agents service suite** for back-office work. The operator (the owner and their team) builds and
 runs agents for client businesses from a **back office** that reaches into every client. Agents are built
@@ -15,9 +19,9 @@ Materials pack and is built only from platform parts.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: phase 1 (the platform foundation) and most of Track B (templates, client agents, the workflow builder, inbox, runs, connections) are built and run locally; phase 2 (cloud) and the merge view are next (`docs/plan.md` §3). **The platform is the product**: no domain tools yet. Use cases like Pia come after. Product shape: ARCHITECTURE v0.8. UI starting point: `docs/design/` (owner's v1 screens and Groundwork tokens). Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: phase 1 (the platform foundation) and most of Track B (templates, client agents, the workflow builder, inbox, runs, connections) are built and run locally; phase 2 (cloud) and the merge view are next (`docs/plan.md` §3). **The platform is the product**: no domain tools yet. Use cases like Pia come after. Product shape: ARCHITECTURE v0.8. UI: the **Mezonas design system** in `packages/design-system` (tokens, component classes, logos, icons, Geist fonts; brand book in its README) on the layouts of the owner's v1 screens in `docs/design/`. Groundwork is retired. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
-**Separate from Plenary Labs.** Countersign follows Plenary Labs' stack, conventions and patterns for
+**Separate from Plenary Labs.** Mezonas follows Plenary Labs' stack, conventions and patterns for
 consistency, and code may be copied from it, but nothing is shared: no runtime dependency, package,
 database, Worker, bucket, WorkOS application, key or secret. Never point anything here at Plenary Labs'
 resources.
@@ -29,7 +33,8 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | Path | What |
 |---|---|
 | `apps/api` | Hono Worker: `/api` routes, auth, static assets, Workflow classes, cron. The only place that wires packages together and the only place with Workers bindings. |
-| `apps/web` | React + Vite app: back office (`/ops`, incl. the workflow builder) and client portal; pack reports under `src/packs/<id>/`; typed API client. Imports only `@countersign/core`. |
+| `apps/web` | React + Vite app: back office (`/ops`, incl. the workflow builder) and client portal; pack reports under `src/packs/<id>/`; typed API client. Imports `@countersign/core` and the design system's CSS and assets. |
+| `packages/design-system` | The Mezonas design system as delivered: `tokens.json` (source of truth) and `tokens.css`, component CSS (`ds-*`, `dt-*`, `mz-*`), logos, icons, Geist fonts, brand book. Plain CSS; don't edit it here, replace it with the owner's next delivery. |
 | `packages/core` | Domain types and Zod schemas (agent bundle, skill, workflow steps and rules, tool, connector, pack), workflow validation and template typing, bundle diff and three-way merge (shared with the builder and merge view), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
 | `packages/llm` | Anthropic wrapper, record/replay, cost tracking. |
@@ -106,6 +111,16 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     prompts or cost. Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
+
+## UI and copy
+
+- Build screens with the design system's tokens and component classes; no new colours, fonts, radii or
+  shadows. Light and dark themes both work.
+- Colour meanings (brand book): slate = brand, actions, selection; copper = people (the Mezonas lead,
+  human sign-offs, person steps); signal (gold) = waiting on you, always with a word; risk = errors;
+  positive = done. Agents' work stays ink. Borders, not shadows.
+- Voice: plain words, short sentences, sentence case, "we" for Mezonas and "you" for the client; lead with
+  the result and its number; no exclamation marks, emoji, hype or "AI-powered".
 
 ## Testing
 

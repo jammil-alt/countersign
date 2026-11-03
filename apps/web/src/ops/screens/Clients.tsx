@@ -3,7 +3,6 @@ import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import {
   buttonClass,
-  Card,
   EmptyState,
   ErrorNotice,
   Loading,
@@ -35,36 +34,36 @@ export function ClientsScreen({ overview }: { overview?: boolean }) {
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.clients.length === 0 ? <EmptyState>No clients yet.</EmptyState> : null}
       {data && data.clients.length > 0 ? (
-        <Card className="overflow-hidden">
-          <table data-testid="ops-clients-table" className="w-full text-left">
-            <thead className="border-b border-edge bg-subtle">
-              <tr className="label-caps text-secondary">
-                <th className="px-4 py-2.5 font-medium">Client</th>
-                <th className="px-4 py-2.5 font-medium">Agents</th>
-                <th className="px-4 py-2.5 font-medium">Open inbox</th>
-                <th className="px-4 py-2.5 font-medium">Timezone</th>
+        <div className="dt dt-ana">
+          <table data-testid="ops-clients-table">
+            <thead>
+              <tr className="dt-cols">
+                <th>Client</th>
+                <th className="n">Agents</th>
+                <th className="n">Open inbox</th>
+                <th>Timezone</th>
               </tr>
             </thead>
             <tbody>
               {data.clients.map((c) => (
-                <tr key={c.id} className="border-b border-divider last:border-0 hover:bg-hover">
-                  <td className="px-4 py-3">
+                <tr key={c.id}>
+                  <td>
                     <Link
                       to={`/ops/clients/${c.id}`}
                       data-testid={`ops-client-${c.id}`}
-                      className="font-medium text-primary hover:underline"
+                      className="font-medium text-ink hover:underline"
                     >
                       {c.name}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 font-mono">{c.agents}</td>
-                  <td className="px-4 py-3 font-mono">{c.openInbox}</td>
-                  <td className="px-4 py-3 text-secondary">{c.timezone}</td>
+                  <td className="n">{c.agents}</td>
+                  <td className="n">{c.openInbox}</td>
+                  <td>{c.timezone}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </Card>
+        </div>
       ) : null}
     </div>
   );

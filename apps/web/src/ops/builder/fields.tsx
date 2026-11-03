@@ -36,17 +36,17 @@ export function Row({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium text-primary">{label}</span>
+        <span className="text-sm font-medium text-ink">{label}</span>
         {aside}
       </div>
       {children}
       {messages.map((m) => (
-        <span key={m} className="text-xs text-tone-warning-ink" data-testid="builder-field-error">
+        <span key={m} className="text-xs text-risk" data-testid="builder-field-error">
           {m}
         </span>
       ))}
       {messages.length === 0 && hint ? (
-        <span className="text-xs text-secondary">{hint}</span>
+        <span className="text-xs text-ink-muted">{hint}</span>
       ) : null}
     </div>
   );
@@ -114,7 +114,7 @@ export function TemplateInput({
           aria-controls={listId}
           data-testid={`${testId}-pick`}
           onClick={() => setOpen((o) => !o)}
-          className="h-9 shrink-0 rounded-md border border-control bg-card px-2 font-mono text-xs text-secondary hover:bg-hover"
+          className="h-9 shrink-0 rounded-md border border-line-strong bg-surface px-2 font-mono text-xs text-ink-muted hover:bg-surface-subtle"
         >
           {"{ }"}
         </button>
@@ -122,7 +122,7 @@ export function TemplateInput({
       {open ? (
         <div
           id={listId}
-          className="absolute right-0 left-0 z-30 mt-1 rounded-md border border-edge bg-card p-2 elevation-md"
+          className="absolute right-0 left-0 z-30 mt-1 rounded-md border border-line bg-surface p-2"
         >
           <TextInput
             autoFocus
@@ -133,7 +133,7 @@ export function TemplateInput({
             className="h-8 text-sm"
           />
           {shown.length === 0 ? (
-            <p className="px-1 pt-2 text-xs text-secondary">
+            <p className="px-1 pt-2 text-xs text-ink-muted">
               Nothing earlier on this path to reference.
             </p>
           ) : (
@@ -144,12 +144,10 @@ export function TemplateInput({
                     type="button"
                     data-testid={`${testId}-path-${p.path}`}
                     onClick={() => insert(p.path)}
-                    className="flex w-full items-baseline justify-between gap-2 rounded-sm px-1.5 py-1 text-left hover:bg-subtle"
+                    className="flex w-full items-baseline justify-between gap-2 rounded-sm px-1.5 py-1 text-left hover:bg-surface-subtle"
                   >
-                    <span className="truncate font-mono text-xs text-primary">{p.path}</span>
-                    <span className="shrink-0 font-mono text-[11px] text-faint">
-                      {typeLabel(p.schema)}
-                    </span>
+                    <span className="truncate reference text-ink">{p.path}</span>
+                    <span className="shrink-0 text-xs text-ink-muted">{typeLabel(p.schema)}</span>
                   </button>
                 </li>
               ))}
@@ -243,7 +241,7 @@ export function JsonInput({
         className="font-mono text-xs"
       />
       {error ? (
-        <span className="text-xs text-tone-warning-ink" data-testid={`${testId}-json-error`}>
+        <span className="text-xs text-risk" data-testid={`${testId}-json-error`}>
           {error}
         </span>
       ) : null}
@@ -302,7 +300,10 @@ export function SchemaForm({
         const label = (
           <>
             {typeof prop.title === "string" ? prop.title : key}
-            {required.has(key) ? <span className="text-tone-warning-ink"> *</span> : null}
+            {/* TextField: mark optional fields; never asterisk required ones. */}
+            {required.has(key) ? null : (
+              <span className="font-normal text-ink-muted"> optional</span>
+            )}
           </>
         );
         return (
@@ -326,7 +327,7 @@ export function SchemaForm({
         );
       })}
       {extra.length > 0 ? (
-        <p className="text-xs text-secondary">
+        <p className="text-xs text-ink-muted">
           Also set, not in this input's schema: {extra.join(", ")}.
         </p>
       ) : null}
@@ -409,7 +410,7 @@ function PropertyControl({
   }
   if (type === "object" && isPlainObject(schema.properties)) {
     return (
-      <div className={cx("rounded-md border border-edge bg-subtle p-3")}>
+      <div className={cx("rounded-md border border-line bg-surface-subtle p-3")}>
         <SchemaForm
           schema={schema}
           value={isPlainObject(value) ? value : {}}
