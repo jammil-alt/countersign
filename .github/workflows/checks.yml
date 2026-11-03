@@ -4,8 +4,9 @@ name: Checks
 # Called by ci.yml and deploy.yml (callers pass `secrets: inherit`).
 #
 # Two databases, as in Plenary Labs:
-#  - The runner's own PostgreSQL 16, set up with Neon's roles by scripts/setup-postgres.sh, is what
-#    the tests run against (fast: no network round trips).
+#  - A Postgres 16 + pgvector service container (the same image as docker-compose.yml), set up with
+#    Neon's roles by scripts/setup-postgres.sh, is what the tests run against (fast: no network round
+#    trips). The runner's own Postgres has no pgvector package, so it isn't used.
 #  - A throwaway Neon branch copied from `main` checks that migrations apply to production's real
 #    schema and data. Skipped until the NEON_API_KEY secret and NEON_PROJECT_ID variable exist.
 
@@ -21,6 +22,17 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
@@ -52,10 +64,6 @@ jobs:
           PGPASSWORD: ci
         run: |
           set -euo pipefail
-          sudo systemctl start postgresql.service
-          sudo -u postgres psql -q -c "ALTER USER postgres PASSWORD 'ci';"
-          sudo apt-get update -q > /dev/null
-          sudo apt-get install -y -q postgresql-16-pgvector > /dev/null
           url=$(scripts/setup-postgres.sh)
           echo "::add-mask::$url"
           echo "DIRECT_DATABASE_URL=$url" >> "$GITHUB_ENV"
