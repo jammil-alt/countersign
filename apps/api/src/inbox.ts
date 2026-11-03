@@ -1,0 +1,160 @@
+// Resolving an inbox item (ARCHITECTURE §11; docs/plan.md §1.2 "Waiting on inbox items"), shared by
+// `POST /api/inbox/:id/resolve` and its /ops twin: write the resolution (an external action's
+// approval goes through packages/agents), emit `inbox.resolved` in the same transaction, and tell
+// the caller which run to resume, with what, once the transaction has committed.
+
+import { type Approver, mayResolve, resolveExternalActionTx } from "@countersign/agents";
+import type { ResolveBody } from "@countersign/core";
+import { FORBIDDEN_PORTAL_FIELD, isPlainObject } from "@countersign/core";
+import { inboxItem, run, type Tx } from "@countersign/db";
+import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
+import { type InboxResolution, inboxEventType } from "@countersign/workflows";
+import { and, eq } from "drizzle-orm";
+import type { z } from "zod";
+import { HttpError, notFound } from "./http";
+import { senseEmitter } from "./runs/dispatch";
+
+export type InboxRow = typeof inboxItem.$inferSelect;
+
+export interface ResolveInput {
+  tenantId: string;
+  itemId: string;
+  by: Approver;
+  body: z.output<typeof ResolveBody>;
+  registry: EventTypeRegistry;
+  /** Emitted events land here for dispatch after the commit. */
+  collect: EventRow[];
+}
+
+export interface ResolveOutcome {
+  item: InboxRow;
+  /** The run to resume and the event to send it, or null (no run, or nothing changed). */
+  resume: { runId: string; type: string; payload: InboxResolution } | null;
+}
+
+async function lockItem(tx: Tx, tenantId: string, itemId: string): Promise<InboxRow> {
+  const [item] = await tx
+    .select()
+    .from(inboxItem)
+    .where(and(eq(inboxItem.id, itemId), eq(inboxItem.tenantId, tenantId)))
+    .for("update");
+  if (!item) throw notFound("inbox item");
+  return item;
+}
+
+/** What a stored resolution means to a waiting run (also read by the run's check-before-wait). */
+export function toRunResolution(item: Pick<InboxRow, "resolution" | "resolvedBy">) {
+  const r = (isPlainObject(item.resolution) ? item.resolution : {}) as Record<string, unknown>;
+  const approved =
+    typeof r.approved === "boolean"
+      ? r.approved
+      : r.decision === undefined
+        ? null
+        : r.decision === "approve";
+  const by = typeof r.by === "string" ? r.by : (item.resolvedBy ?? null);
+  return { approved, answer: r.answer ?? null, by } satisfies InboxResolution;
+}
+
+export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<ResolveOutcome> {
+  const item = await lockItem(tx, input.tenantId, input.itemId);
+  const { decision, answer, note } = input.body;
+  if (item.status === "expired") {
+    throw new HttpError(409, "expired", "this item expired: the run stopped waiting for it");
+  }
+  if (item.status === "resolved") {
+    // A repeated click is fine; a different answer is not.
+    const stored = toRunResolution(item);
+    if (decision === undefined || stored.approved === (decision === "approve")) {
+      return { item, resume: null };
+    }
+    throw new HttpError(409, "already_resolved", "this item was already resolved");
+  }
+
+  let testRun = false;
+  if (item.runId) {
+    const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
+    testRun = r?.mode === "test";
+  }
+  const emitter = senseEmitter(input.registry, { collect: input.collect, testRun });
+
+  let resolution: InboxResolution;
+  if (item.kind === "external_action") {
+    if (!decision) throw new HttpError(400, "invalid_request", "approve or reject this change");
+    await resolveExternalActionTx(tx, {
+      tenantId: input.tenantId,
+      inboxItemId: item.id,
+      decision,
+      by: input.by,
+      ...(note === undefined ? {} : { note }),
+      emit: emitter,
+    });
+    resolution = { approved: decision === "approve", answer: null, by: input.by.userId };
+  } else {
+    if (!mayResolve(item, input.by)) {
+      throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+    }
+    let approved: boolean;
+    if (item.kind === "request") {
+      // An answer counts as yes unless the person declined.
+      approved = decision !== "reject";
+    } else {
+      if (!decision) throw new HttpError(400, "invalid_request", "approve or reject this item");
+      approved = decision === "approve";
+    }
+    const stored = {
+      ...(decision === undefined ? {} : { decision }),
+      approved,
+      answer: answer ?? null,
+      by: input.by.userId,
+      ...(note === undefined ? {} : { note }),
+    };
+    await tx
+      .update(inboxItem)
+      .set({
+        status: "resolved",
+        resolution: stored,
+        resolvedBy: input.by.userId,
+        resolvedAt: new Date(),
+      })
+      .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, input.tenantId)));
+    const row = await emit(
+      tx,
+      {
+        tenantId: input.tenantId,
+        type: "inbox.resolved",
+        subjectType: "inbox_item",
+        subjectId: item.id,
+        payload: {
+          inboxItemId: item.id,
+          kind: item.kind,
+          runId: item.runId,
+          approved,
+          resolvedBy: input.by.userId,
+        },
+      },
+      { registry: input.registry, testRun },
+    );
+    if (row) input.collect.push(row);
+    resolution = { approved, answer: answer ?? null, by: input.by.userId };
+  }
+
+  const updated = await lockItem(tx, input.tenantId, item.id);
+  return {
+    item: updated,
+    resume: item.runId
+      ? { runId: item.runId, type: inboxEventType(item.id), payload: resolution }
+      : null,
+  };
+}
+
+/** Drops every field a portal response may never carry, at any depth (invariant 11). */
+export function scrubForPortal(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(scrubForPortal);
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (FORBIDDEN_PORTAL_FIELD.test(k)) continue;
+    out[k] = scrubForPortal(v);
+  }
+  return out;
+}

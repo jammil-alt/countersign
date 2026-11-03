@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "wrangler types && tsc -p .",
     "test": "vitest run --passWithNoTests && vitest run --config vitest.workers.config.ts",
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --env-file ../../.env",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
