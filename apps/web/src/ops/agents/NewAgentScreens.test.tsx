@@ -66,8 +66,7 @@ describe("new template", () => {
         return { agent: { ...TEMPLATE, slug: body.slug }, version: AGENT_DETAIL.versions[1] };
       },
     });
-    expect(await screen.findByTestId("new-agent-start-builder")).toBeDisabled();
-    await user.click(screen.getByTestId("new-template-create"));
+    await user.click(await screen.findByTestId("new-template-create"));
     expect(screen.getByTestId("new-template-name-error")).toBeInTheDocument();
     expect(sent).toEqual([]);
 
@@ -78,6 +77,73 @@ describe("new template", () => {
     expect(sent[0]?.slug).toBe("purchasing-clerk");
     expect(sent[0]?.bundle.definition.identity.name).toBe("Purchasing clerk");
     expect(sent[0]?.bundle.workflows).toHaveLength(1);
+  });
+});
+
+/** What POST /api/ops/agents/draft answers: a saved v1 draft with gaps and the guards' notes. */
+function draftResponse(agent: typeof AGENT_SUMMARY) {
+  return {
+    agent,
+    version: { ...AGENT_DETAIL.versions[1], version: 1, status: "draft", authorType: "builder" },
+    bundle: AGENT_DETAIL.live.bundle,
+    summary: "It lists card charges over $500 without a receipt and asks you about each.",
+    gaps: ["There is no card feed connector, so it can't read card charges."],
+    notes: ["Approval stays on for 1 step that changes a client's tool."],
+    errors: [],
+    costUsd: "0.012000",
+    startFromTemplate: null,
+  };
+}
+
+describe("new template from a description", () => {
+  it("needs a description, drafts with the Builder, shows gaps and opens the builder", async () => {
+    const sent: unknown[] = [];
+    const { user } = renderAt("/ops/templates/new", {
+      "POST /api/ops/agents/draft": ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return draftResponse({ ...TEMPLATE, slug: "card-receipts", name: "Card receipts" });
+      },
+    });
+    await user.click(await screen.findByTestId("new-agent-start-builder"));
+    await user.click(screen.getByTestId("builder-draft"));
+    expect(sent).toEqual([]);
+    await user.type(
+      screen.getByTestId("builder-description-input"),
+      "Flag card charges over $500 missing receipts",
+    );
+    await user.click(screen.getByTestId("builder-draft"));
+    expect(await screen.findByTestId("builder-result")).toBeInTheDocument();
+    expect(sent).toEqual([{ description: "Flag card charges over $500 missing receipts" }]);
+    expect(screen.getByTestId("builder-gaps")).toHaveTextContent(/no card feed connector/);
+    expect(screen.getByTestId("builder-notes")).toHaveTextContent(/Approval stays on/);
+    expect(screen.getByTestId("builder-open-builder")).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/ops\/templates\/card-receipts\/workflows\//),
+    );
+  });
+
+  it("drafts a client agent for that client", async () => {
+    const sent: unknown[] = [];
+    const { user } = renderAt(`/ops/clients/${CLIENT}/agents/new`, {
+      [`GET /api/ops/clients/${CLIENT}`]: () => SANDBOX_DETAIL,
+      "GET /api/ops/templates": () => ({ templates: [] }),
+      "POST /api/ops/agents/draft": ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return draftResponse({ ...AGENT_SUMMARY, tenantId: CLIENT, slug: "card-receipts" });
+      },
+    });
+    await user.click(await screen.findByTestId("new-agent-start-builder"));
+    await user.type(screen.getByTestId("builder-name-input"), "Card receipts");
+    await user.type(screen.getByTestId("builder-description-input"), "Chase receipts");
+    await user.click(screen.getByTestId("builder-draft"));
+    expect(await screen.findByTestId("builder-result")).toBeInTheDocument();
+    expect(sent).toEqual([
+      { description: "Chase receipts", clientId: CLIENT, name: "Card receipts" },
+    ]);
+    expect(screen.getByTestId("builder-open-agent")).toHaveAttribute(
+      "href",
+      `/ops/clients/${CLIENT}/agents/card-receipts`,
+    );
   });
 });
 

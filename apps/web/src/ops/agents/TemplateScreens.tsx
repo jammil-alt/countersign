@@ -1,8 +1,9 @@
 // Templates (ARCHITECTURE §9.3, §15): `/ops/templates` lists them, `/ops/templates/new` makes one
-// from scratch (the Builder's "describe" option is shown, not built yet), and
+// from scratch or from a description (the Builder), and
 // `/ops/templates/:slug` is the agent screen shared with client agents.
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import {
@@ -19,6 +20,7 @@ import {
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
 import { AgentScreen } from "./AgentScreen";
+import { BuilderDescribe, BuilderDraftResult } from "./BuilderParts";
 import {
   blankBundle,
   DEFAULT_MODEL,
@@ -105,6 +107,8 @@ export function TemplatesScreen() {
   );
 }
 
+type Draft = ResponseOf<typeof apiRoutes.opsDraftAgent>;
+
 const EMPTY_JOB: NewAgentFields = {
   name: "",
   role: "",
@@ -120,7 +124,44 @@ export function NewTemplateScreen() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [releaseNote, setReleaseNote] = useState("");
   const [touched, setTouched] = useState(false);
+  const [useBuilder, setUseBuilder] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const action = useAction();
+
+  const startCard = (
+    <Card className="p-5">
+      <SectionLabel>Start from</SectionLabel>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <BuilderOption selected={useBuilder} onSelect={() => setUseBuilder(true)} />
+        <StartOption
+          selected={!useBuilder}
+          title="Blank workflow"
+          text="Start empty and add skills, actions and people yourself."
+          onSelect={() => setUseBuilder(false)}
+          testId="new-template-start-blank"
+        />
+      </div>
+    </Card>
+  );
+
+  if (useBuilder) {
+    return (
+      <div>
+        <PageHeader
+          title="New template"
+          subtitle="Say what the job is. The Builder drafts a starting workflow you can rearrange step by step."
+          actions={<Stepper />}
+        />
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="flex flex-col gap-5">
+            {startCard}
+            <BuilderDescribe onDrafted={setDraft} />
+          </div>
+          <BuilderDraftResult draft={draft} />
+        </div>
+      </div>
+    );
+  }
 
   const effectiveSlug = slugEdited ? slug : slugify(fields.name);
   const errors: JobErrors = validateJob(fields);
@@ -189,19 +230,7 @@ export function NewTemplateScreen() {
               </Field>
             </div>
           </Card>
-          <Card className="p-5">
-            <SectionLabel>Start from</SectionLabel>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <BuilderOption />
-              <StartOption
-                selected
-                title="Blank workflow"
-                text="Start empty and add skills, actions and people yourself."
-                onSelect={() => {}}
-                testId="new-template-start-blank"
-              />
-            </div>
-          </Card>
+          {startCard}
         </div>
         <div className="flex flex-col gap-4">
           <WorkflowPreview

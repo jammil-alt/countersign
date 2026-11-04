@@ -1,7 +1,7 @@
 // One agent page for templates and client agents (design screen 7; ARCHITECTURE §15): header with
 // the live/draft badges, tabs Overview, Workflow, Runs, Versions and Settings. Client agents add
 // their operation (bindings, approver, service, activate/pause/retire) to Settings and lineage to
-// Versions; templates show "Used by". `?version=N` shows an older version on the bundle tabs.
+// Versions; templates show "Used by". `/revise` asks the Builder for a new draft. `?version=N` shows an older version on the bundle tabs.
 import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useState } from "react";
@@ -24,6 +24,7 @@ import {
 import type { Member } from "../builder/Inspector";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
 import { StepList } from "../workflow/StepList";
+import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { OperationPanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
@@ -175,15 +176,26 @@ export function AgentScreen({
         }
         subtitle={[view.role, bundle?.definition.identity.mission].filter(Boolean).join(" · ")}
         actions={
-          firstWorkflow ? (
-            <Link
-              to={`${base}/workflows/${latestBundle?.workflows.some((w) => w.slug === firstWorkflow) ? firstWorkflow : builderStart}`}
-              className={buttonClass("secondary")}
-              data-testid="agent-edit-workflow"
-            >
-              Edit workflow
-            </Link>
-          ) : null
+          <span className="flex gap-2">
+            {latestBundle && !view.testCopy ? (
+              <Link
+                to={`${base}/revise`}
+                className={buttonClass("secondary")}
+                data-testid="agent-revise"
+              >
+                Revise with the Builder
+              </Link>
+            ) : null}
+            {firstWorkflow ? (
+              <Link
+                to={`${base}/workflows/${latestBundle?.workflows.some((w) => w.slug === firstWorkflow) ? firstWorkflow : builderStart}`}
+                className={buttonClass("secondary")}
+                data-testid="agent-edit-workflow"
+              >
+                Edit workflow
+              </Link>
+            ) : null}
+          </span>
         }
       />
       {tabs}
@@ -218,6 +230,17 @@ export function AgentScreen({
               ) : (
                 <Navigate to={`${base}/workflows/${builderStart}`} replace />
               ))
+            }
+          />
+          <Route
+            path="revise"
+            element={
+              <ReviseTab
+                agent={view}
+                base={base}
+                latestVersion={agent.data.latest?.version ?? null}
+                onChanged={reload}
+              />
             }
           />
           <Route
