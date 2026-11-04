@@ -20,6 +20,7 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
+import { UploadSection } from "./Upload";
 
 type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][number];
 
@@ -44,9 +45,11 @@ export function PortalConnectionsScreen() {
     }
   }
 
-  const connected = data?.connections.filter((c) => c.connection?.status === "connected") ?? [];
-  const others = data?.connections.filter((c) => c.connection?.status !== "connected") ?? [];
-  const withRows = data?.connections.filter((c) => c.connection !== null) ?? [];
+  // Upload and forwarding is built in and has its own section; the cards are the tools to sign in to.
+  const tools = data?.connections.filter((c) => c.connector !== "upload") ?? [];
+  const connected = tools.filter((c) => c.connection?.status === "connected");
+  const others = tools.filter((c) => c.connection?.status !== "connected");
+  const withRows = tools.filter((c) => c.connection !== null);
 
   return (
     <div>
@@ -63,6 +66,7 @@ export function PortalConnectionsScreen() {
       ) : null}
       {data ? (
         <div className="flex flex-col gap-6">
+          <UploadSection isAdmin={isAdmin} />
           <section>
             <SectionLabel>Connected · {connected.length}</SectionLabel>
             {connected.length === 0 ? (

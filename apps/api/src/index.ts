@@ -3,6 +3,7 @@
 
 import { captureException } from "@sentry/cloudflare";
 import { app, runCron } from "./app";
+import { handleEmail } from "./email";
 import type { Bindings } from "./env";
 
 export { app } from "./app";
@@ -18,5 +19,9 @@ export default {
         throw error;
       }),
     );
+  },
+  // Email forwarding (ARCHITECTURE §6.5): Email Routing on EMAIL_FORWARDING_DOMAIN → here.
+  async email(message, env, ctx) {
+    await handleEmail(message, env, (p) => ctx.waitUntil(p));
   },
 } satisfies ExportedHandler<Bindings>;

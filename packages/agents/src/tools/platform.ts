@@ -2,6 +2,7 @@
 // Each writes the platform's own records (`internal`), through the PlatformStore port.
 
 import { z } from "zod";
+import { DOCS_TOOLS } from "./docs";
 import { defineInternalTool, type InternalTool } from "./types";
 
 export const MEMORY_TEST_SCOPE_PREFIX = "test-run:";
@@ -111,5 +112,10 @@ export const memoryWrite = defineInternalTool({
   },
 });
 
-/** The platform's own tools, for the tool registry. */
-export const PLATFORM_TOOLS: readonly InternalTool[] = [inboxCreate, threadsPost, memoryWrite];
+/** The platform's own tools, for the tool registry: inbox, threads, memory and documents. */
+export const PLATFORM_TOOLS: readonly InternalTool[] = [
+  inboxCreate,
+  threadsPost,
+  memoryWrite,
+  ...DOCS_TOOLS,
+];

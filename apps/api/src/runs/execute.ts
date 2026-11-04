@@ -4,11 +4,14 @@
 
 import { createDbPorts, finishRun, type RuntimeDeps, rollupUsageDaily } from "@countersign/agents";
 import {
+  ContentStore,
   CredentialCipher,
   type CredentialKeys,
   type CredentialsAccessor,
   credentialKeysFromEnv,
   encryptedCredentials,
+  R2ObjectStore,
+  type UrlSigner,
 } from "@countersign/connectors";
 import type { Workflow } from "@countersign/core";
 import { agentVersion, connection, type Db, run, withTenant } from "@countersign/db";
@@ -29,6 +32,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import type { Bindings } from "../env";
 import type { Platform } from "../platform";
+import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, senseEmitter } from "./dispatch";
 import type { RunInstances, RunParams } from "./instances";
 import { agentPort, dbInboxPort, dbStepLog, threadNotifyPort } from "./ports";
@@ -39,6 +43,8 @@ export interface RunDeps {
   transport: LlmTransport;
   instances?: RunInstances;
   credentials?: RuntimeDeps["credentials"];
+  /** Object storage and links for the `docs.*` tools; extraction uses `transport`. */
+  documents?: { content: ContentStore; signer?: UrlSigner | null };
 }
 
 /**
@@ -104,6 +110,10 @@ export function runDepsFromEnv(
   return {
     ...base,
     transport: workerTransport(env),
+    documents: {
+      content: new ContentStore(new R2ObjectStore(env.ARTIFACTS)),
+      signer: signerFor(env, env.APP_ORIGIN ?? ""),
+    },
     ...(env.ENCRYPTION_KEY
       ? { credentials: credentialsFor(base.db, credentialKeysFromEnv(env)) }
       : {}),
@@ -192,6 +202,7 @@ export async function executeRun(
         collect: emitted,
         testRun: info.mode === "test",
       }),
+      ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
     }),
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,

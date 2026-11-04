@@ -1,0 +1,92 @@
+{
+  "header": {
+    "vendorName": "Northline Panel Supply",
+    "vendorAddress": "4410 Industrial Pkwy, Dayton, OH 45414",
+    "invoiceNumber": "20418",
+    "invoiceDate": "2026-10-28",
+    "dueDate": "2026-11-27",
+    "poNumber": "J-1182",
+    "currency": "USD",
+    "pageCount": 1,
+    "confidence": {
+      "vendorName": 0.99,
+      "invoiceNumber": 0.99,
+      "invoiceDate": 0.98,
+      "total": 0.99
+    }
+  },
+  "lines": [
+    {
+      "lineNo": 1,
+      "vendorSku": "BB34-55",
+      "description": "Baltic Birch Plywood 3/4\" 5x5 BB/BB",
+      "qty": "40",
+      "uom": "SHT",
+      "unitPrice": "68.50",
+      "extPrice": "2740.00",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 2,
+      "vendorSku": "BB12-55",
+      "description": "Baltic Birch Plywood 1/2\" 5x5 BB/BB",
+      "qty": "25",
+      "uom": "SHT",
+      "unitPrice": "52.75",
+      "extPrice": "1318.75",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 3,
+      "vendorSku": "MPF34-48",
+      "description": "Maple Plywood 3/4\" 4x8 Prefinished UV 2S",
+      "qty": "30",
+      "uom": "SHT",
+      "unitPrice": "94.20",
+      "extPrice": "2826.00",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 4,
+      "vendorSku": "MDF34-49",
+      "description": "MDF 3/4\" 49x97 Industrial",
+      "qty": "20",
+      "uom": "SHT",
+      "unitPrice": "41.90",
+      "extPrice": "838.00",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 5,
+      "vendorSku": "MEL34-WH",
+      "description": "Melamine Panel 3/4\" 4x8 White 2S",
+      "qty": "36",
+      "uom": "SHT",
+      "unitPrice": "48.35",
+      "extPrice": "1740.60",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 6,
+      "vendorSku": "HB14-48",
+      "description": "Hardboard 1/4\" 4x8 Tempered",
+      "qty": "15",
+      "uom": "SHT",
+      "unitPrice": "18.60",
+      "extPrice": "279.00",
+      "discount": null,
+      "page": 1
+    }
+  ],
+  "subtotal": "9742.35",
+  "freight": "0.00",
+  "surcharges": [],
+  "tax": "0.00",
+  "total": "9742.35",
+  "confidence": 0.97
+}

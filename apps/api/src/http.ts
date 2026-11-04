@@ -11,6 +11,7 @@ import {
   type Session,
   tenantScope,
 } from "@countersign/auth";
+import { type ObjectStore, R2ObjectStore } from "@countersign/connectors";
 import { type Role, type RouteSpec, routeFamily } from "@countersign/core";
 import {
   closeDb,
@@ -29,6 +30,7 @@ import { z } from "zod";
 import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
 import type { Bindings } from "./env";
 import { type Platform, platformFor } from "./platform";
+import { workerTransport } from "./runs/execute";
 import { type RunInstances, workflowInstances } from "./runs/instances";
 
 // ── Dependencies and per-request state ───────────────────────────────────────────────────────────
@@ -41,6 +43,13 @@ export interface AppDeps {
   instances(env: Bindings): RunInstances;
   /** The Builder's model transport; default the Worker's live one (tests pass a FakeModel). */
   llm?(env: Bindings): LlmTransport;
+  /** Object storage for originals: the R2 binding; memory in tests. */
+  objects(env: Bindings): ObjectStore;
+  /**
+   * The model transport that reads uploaded and forwarded documents in the background; null when
+   * no model key is configured (documents then wait for an agent's `docs.extract`).
+   */
+  extractionTransport(env: Bindings): LlmTransport | null;
 }
 
 export const defaultDeps: AppDeps = {
@@ -51,6 +60,8 @@ export const defaultDeps: AppDeps = {
     return { db, close: () => closeDb(db) };
   },
   instances: (env) => workflowInstances(env.RUN_WORKFLOW),
+  objects: (env) => new R2ObjectStore(env.ARTIFACTS),
+  extractionTransport: (env) => (env.ANTHROPIC_API_KEY?.trim() ? workerTransport(env) : null),
 };
 
 export interface Services {

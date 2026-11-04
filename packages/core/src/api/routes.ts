@@ -337,6 +337,103 @@ export const PortalConnection = z.object({
     .nullable(),
 });
 
+// ── Documents, uploads and forwarding (stream D, docs/plan.md §1.6) ─────────────────────────────
+
+export const DocumentSummary = z.object({
+  id: z.string(),
+  source: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number(),
+  status: z.string(),
+  pageCount: z.number().nullable(),
+  transactionId: z.string().nullable(),
+  receivedAt: Timestamp,
+  /** From the latest extraction, when there is one. */
+  vendorName: z.string().nullable(),
+  invoiceNumber: z.string().nullable(),
+  total: z.string().nullable(),
+});
+
+export const DocumentExtractionView = z.object({
+  id: z.string(),
+  createdAt: Timestamp,
+  vendorName: z.string(),
+  invoiceNumber: z.string(),
+  invoiceDate: z.string(),
+  dueDate: z.string().nullable(),
+  poNumber: z.string().nullable(),
+  currency: z.string(),
+  subtotal: z.string(),
+  freight: z.string(),
+  surcharges: z.array(z.object({ label: z.string(), amount: z.string() })),
+  tax: z.string(),
+  total: z.string(),
+  linesSum: z.string(),
+  totalsMatch: z.boolean(),
+  problems: z.array(z.string()),
+  lines: z.array(
+    z.object({
+      lineNo: z.number(),
+      vendorSku: z.string().nullable(),
+      description: z.string(),
+      qty: z.string(),
+      uom: z.string().nullable(),
+      unitPrice: z.string(),
+      extPrice: z.string(),
+      page: z.number().nullable(),
+    }),
+  ),
+});
+
+export const UploadResult = z.object({
+  filename: z.string(),
+  kind: z.enum(["document", "purchases", "refused"]),
+  /** For a document: the stored one (a repeat gives the first back, `created` false). */
+  document: DocumentSummary.nullable(),
+  created: z.boolean(),
+  /** For a purchases CSV. */
+  purchases: z
+    .object({
+      rows: z.number(),
+      created: z.number(),
+      duplicates: z.number(),
+      errors: z.array(z.object({ row: z.number(), message: z.string() })),
+    })
+    .nullable(),
+  /** Why a file was refused. */
+  error: z.string().nullable(),
+});
+
+export const ForwardingView = z.object({
+  /** False until the deployment has a forwarding domain (EMAIL_FORWARDING_DOMAIN). */
+  available: z.boolean(),
+  address: z.string().nullable(),
+  allowedSenders: z.array(z.string()),
+  accepted: z.number(),
+  dropped: z.number(),
+  lastReceivedAt: NullableTimestamp,
+  lastDroppedAt: NullableTimestamp,
+  lastDropReason: z.string().nullable(),
+});
+
+export const ConnectorInfo = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  icon: z.string(),
+  auth: z.enum(["oauth2", "api_key", "none"]),
+  entities: z.array(z.string()),
+  tools: z.array(
+    z.object({
+      id: z.string(),
+      description: z.string(),
+      verb: z.enum(["read", "create", "update", "delete"]),
+      sideEffect: z.enum(["none", "internal", "external"]),
+    }),
+  ),
+});
+
 // ── Back office: agents, versions and lineage (Track B) ─────────────────────────────────────────
 
 /** One change between two bundles (core's `diffBundles`), as the versions views show it. */
@@ -355,6 +452,36 @@ export type BundleChangeView = z.infer<typeof BundleChangeSchema>;
  */
 export const BundleDiff = z.object({
   changes: z.array(BundleChangeSchema),
+  labels: z.record(z.string(), z.string()),
+});
+
+/** One merge conflict (core's `MergeConflict`): settled by a resolution with the same path. */
+export const MergeConflictSchema = z.object({
+  path: z.string(),
+  kind: z.enum(["field", "exists", "location", "order"]),
+  entity: z.string(),
+  base: z.unknown(),
+  ours: z.unknown(),
+  theirs: z.unknown(),
+});
+
+/** How the merge view settles one conflict (core's `Resolution`). */
+export const ResolutionSchema = z.union([
+  z.strictObject({ path: z.string().max(2000), choice: z.enum(["ours", "theirs", "base"]) }),
+  z.strictObject({ path: z.string().max(2000), choice: z.literal("value"), value: z.unknown() }),
+]);
+
+/**
+ * A three-way merge's inputs and its unresolved result, for the merge view (ARCHITECTURE §10.5).
+ * The view re-runs core's `mergeBundles` and `validateBundle` with its resolutions as they change;
+ * the server runs them again on save.
+ */
+export const MergeInputs = z.object({
+  base: VersionDetail,
+  ours: VersionDetail,
+  /** For a promotion, the client version with client-specific values stripped. */
+  theirs: VersionDetail,
+  conflicts: z.array(MergeConflictSchema),
   labels: z.record(z.string(), z.string()),
 });
 
@@ -868,6 +995,86 @@ export const opsRoutes = {
       ),
     }),
   }),
+  opsUpdatePreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/update-preview",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A template update for a client agent: base, client and template bundles and the merge's conflicts",
+    params: IdParams,
+    response: MergeInputs.extend({
+      /** The template the update comes from. */
+      template: AgentSummary,
+    }),
+  }),
+  opsUpdate: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/update",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Apply a template update: the merge with every conflict resolved, saved as the client agent's draft",
+    params: IdParams,
+    body: z.strictObject({
+      resolutions: z.array(ResolutionSchema).max(500),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ version: VersionSummary }),
+  }),
+  opsPromotePreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/promote-preview",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Promote a client agent's changes: base, template and stripped client bundles, what stays with the client",
+    params: IdParams,
+    query: z.object({ version: ApiId.optional() }),
+    response: MergeInputs.extend({
+      template: AgentSummary,
+      /** The client version promoted (its bundle, stripped, is `theirs.bundle`). */
+      client: VersionSummary,
+      /** Client-specific values left out: the stripped bundle against the client version. */
+      leftOut: z.array(BundleChangeSchema),
+    }),
+  }),
+  opsPromote: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/promote",
+    auth: "session",
+    roles: OPS,
+    summary: "Promote a client agent's changes (all or selected) into a new template draft",
+    params: IdParams,
+    body: z.strictObject({
+      versionId: ApiId.optional(),
+      /** Ids from core's `selectableBetween(base, stripped)`; omitted: every change. */
+      changes: z.array(z.string().max(2000)).max(1000).optional(),
+      resolutions: z.array(ResolutionSchema).max(500),
+      changeNote: Note.optional(),
+      releaseNote: Note.optional(),
+    }),
+    response: z.object({ template: AgentSummary, version: VersionSummary }),
+  }),
+  opsDetach: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/detach",
+    auth: "session",
+    roles: OPS,
+    summary: "Detach a client agent from its template: it keeps its history, takes no updates",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
+  opsRelink: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/relink",
+    auth: "session",
+    roles: OPS,
+    summary: "Re-link a client agent to a published template version as its new base",
+    params: IdParams,
+    body: z.strictObject({ templateVersionId: ApiId }),
+    response: z.object({ agent: AgentSummary, version: VersionSummary }),
+  }),
   opsRunAgent: defineRoute({
     method: "POST",
     path: "/api/ops/agents/:id/run",
@@ -1231,6 +1438,55 @@ export const portalRoutes = {
     params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
     response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
   }),
+  portalUploads: defineRoute({
+    method: "POST",
+    path: "/api/uploads",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "Upload files (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions",
+    response: z.object({ results: z.array(UploadResult) }),
+  }),
+  portalDocuments: defineRoute({
+    method: "GET",
+    path: "/api/documents",
+    auth: "session",
+    roles: CLIENT,
+    summary: "Recent documents: uploaded and forwarded",
+    query: z.object({ limit: z.coerce.number().int().min(1).max(200).optional() }),
+    response: z.object({ documents: z.array(DocumentSummary) }),
+  }),
+  portalDocument: defineRoute({
+    method: "GET",
+    path: "/api/documents/:id",
+    auth: "session",
+    roles: CLIENT,
+    summary: "A document: a 5-minute link to the file and its latest extraction",
+    params: IdParams,
+    response: z.object({
+      document: DocumentSummary.extend({ meta: z.record(z.string(), z.unknown()) }),
+      url: z.string(),
+      urlExpiresAt: Timestamp,
+      extraction: DocumentExtractionView.nullable(),
+    }),
+  }),
+  portalForwarding: defineRoute({
+    method: "GET",
+    path: "/api/connections/upload/forwarding",
+    auth: "session",
+    roles: CLIENT,
+    summary: "Your private forwarding address, who may forward to it, and what arrived",
+    response: z.object({ forwarding: ForwardingView }),
+  }),
+  portalForwardingSenders: defineRoute({
+    method: "PUT",
+    path: "/api/connections/upload/senders",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Set who may forward to your address: email addresses or domains",
+    body: z.strictObject({ allowed: z.array(z.string().min(1).max(254)).max(100) }),
+    response: z.object({ forwarding: ForwardingView }),
+  }),
   portalDisconnect: defineRoute({
     method: "DELETE",
     path: "/api/connections/:id",
@@ -1259,6 +1515,24 @@ export const routes = {
     roles: ROLES,
     summary: "The signed-in user, their clients and the active one",
     response: SessionResponse,
+  }),
+  connectors: defineRoute({
+    method: "GET",
+    path: "/api/connectors",
+    auth: "session",
+    roles: ROLES,
+    summary: "The connectors this deployment offers, with the tools each gives agents",
+    response: z.object({ connectors: z.array(ConnectorInfo) }),
+  }),
+  documentFile: defineRoute({
+    method: "GET",
+    path: "/api/files/:token",
+    auth: "public",
+    roles: [],
+    summary:
+      "A document's bytes through a signed, 5-minute link (where object storage can't sign its own); not JSON",
+    params: z.object({ token: z.string().min(10).max(2000) }),
+    response: z.unknown(),
   }),
   ...authRoutes,
   ...opsRoutes,

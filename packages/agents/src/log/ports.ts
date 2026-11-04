@@ -3,6 +3,7 @@
 import type { Db } from "@countersign/db";
 import { dbRuntimeStore } from "../registry/runtime-store";
 import type { RuntimePorts } from "../runtime/ports";
+import { type DbDocumentsOptions, dbDocumentsPort } from "./documents-port";
 import { dbExternalActions, type Emit } from "./external-actions";
 import { dbPlatformStore } from "./platform-store";
 import { dbRunLog } from "./run-log";
@@ -10,6 +11,8 @@ import { dbRunLog } from "./run-log";
 export interface DbPortsOptions {
   /** Emits `external_action.done` / `.failed` in the action's transaction (packages/senses). */
   emit?: Emit;
+  /** The documents capability for `docs.*` tools (object storage, the model transport, a signer). */
+  documents?: DbDocumentsOptions;
 }
 
 export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePorts {
@@ -18,5 +21,6 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     log: dbRunLog(db),
     actions: dbExternalActions(db, options.emit ? { emit: options.emit } : {}),
     platform: dbPlatformStore(db),
+    ...(options.documents ? { documents: dbDocumentsPort(db, options.documents) } : {}),
   };
 }
