@@ -224,7 +224,7 @@ importers:
         version: 1.0.20
       drizzle-orm:
         specifier: ^0.45.4
-        version: 0.45.4(postgres@3.4.9)
+        version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
       postal-mime:
         specifier: ^4.2.0
         version: 4.2.0
@@ -294,7 +294,7 @@ importers:
         version: link:../senses
       drizzle-orm:
         specifier: ^0.45.4
-        version: 0.45.4(postgres@3.4.9)
+        version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@3.4.9)
       zod:
         specifier: ^4.6.2
         version: 4.6.7
