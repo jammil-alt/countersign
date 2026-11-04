@@ -1027,6 +1027,8 @@ export const docLine = pgTable(
       foreignColumns: [docExtraction.id, docExtraction.tenantId],
     }),
     unique("doc_line_no_key").on(t.extractionId, t.lineNo),
+    // For pack tables' composite foreign keys (migration 0006), as raw_record's in 0004.
+    unique("doc_line_id_tenant_key").on(t.id, t.tenantId),
   ],
 );
 
