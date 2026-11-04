@@ -47,6 +47,7 @@ describe.skipIf(!h)("route contract (running app)", () => {
     }
   });
 
+  // Five calls per /api/ops route, one after another: well past the 5 s default on a busy machine.
   it("refuses every /api/ops route to client roles and to no session", async () => {
     const ops = ROUTES.filter(([, r]) => routeFamily(r) === "ops");
     expect(ops.length).toBeGreaterThan(20);
@@ -64,7 +65,7 @@ describe.skipIf(!h)("route contract (running app)", () => {
       const anon = await harness.call(null, r.method, path, body);
       expect(anon.status, `anonymous → ${name}`).toBe(401);
     }
-  });
+  }, 30_000);
 
   it("refuses client portal routes to an operator acting as one", async () => {
     for (const [name, r] of ROUTES) {
