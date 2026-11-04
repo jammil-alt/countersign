@@ -8,7 +8,13 @@ import {
   SkillCatalog,
   ToolRegistry,
 } from "@countersign/agents";
-import { type Connector, ConnectorRegistry, createTestkitConnector } from "@countersign/connectors";
+import {
+  type Connector,
+  ConnectorRegistry,
+  createTestkitConnector,
+  TESTKIT_SAMPLE_RECORDS,
+  TestkitBackend,
+} from "@countersign/connectors";
 import type { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 import type { Bindings } from "./env";
@@ -48,11 +54,16 @@ let cached: { key: string; platform: Platform } | undefined;
 // DECISION: the testkit connector (an in-memory system with one read and one write tool) is
 // registered everywhere except production, so the Sandbox client and local work can exercise
 // connections, approvals and external actions before any real connector exists. Its records live
-// in the isolate's memory and are lost when the isolate goes.
+// in the isolate's memory and are lost when the isolate goes. Each connection starts with the same
+// three sample records (TESTKIT_SAMPLE_RECORDS), so a Sandbox workflow on staging has something
+// to find and change.
 export function platformFor(env: Pick<Bindings, "ENVIRONMENT">): Platform {
   const key = isProductionEnv(env) ? "production" : "other";
   if (cached?.key !== key) {
-    const connectors = key === "production" ? [] : [createTestkitConnector()];
+    const connectors =
+      key === "production"
+        ? []
+        : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))];
     cached = { key, platform: createPlatform({ connectors }) };
   }
   return cached.platform;

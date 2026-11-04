@@ -11,6 +11,7 @@ import {
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
+import { identifyForErrors } from "../observability";
 
 export type SessionState =
   | { status: "loading" }
@@ -45,6 +46,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             };
     }
     setState(next);
+    if (next.status === "signed_in") {
+      identifyForErrors({ id: next.session.user.id, operator: next.session.operator });
+    } else if (next.status === "signed_out") {
+      identifyForErrors(null);
+    }
     return next;
   }, [client]);
 

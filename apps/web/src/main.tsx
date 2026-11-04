@@ -4,11 +4,19 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { reportScreenCrash, startErrorTracking } from "./observability";
 import "./styles.css";
+
+startErrorTracking();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root");
-createRoot(root).render(
+// A screen that throws while rendering reaches Sentry with its component stack (a no-op where
+// error tracking is off).
+createRoot(root, {
+  onUncaughtError: (error, info) => reportScreenCrash(error, info.componentStack),
+  onCaughtError: (error, info) => reportScreenCrash(error, info.componentStack),
+}).render(
   <StrictMode>
     <App />
   </StrictMode>,

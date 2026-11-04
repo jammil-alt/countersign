@@ -88,15 +88,70 @@ jobs:
           echo "::add-mask::$url"
           DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db run --if-present db:migrate
 
-      - name: Build and deploy the Worker
+      # Error tracking (apps/web/src/observability.ts): the browser's Sentry DSN and the commit as
+      # its release. The DSN is not a secret (it ships in the page); a repository variable or a
+      # secret both work. Unset leaves Sentry off in the browser.
+      - name: Build the web app
         if: steps.ready.outputs.ready == 'true'
+        env:
+          VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN_WEB || secrets.SENTRY_DSN_WEB }}
+          VITE_SENTRY_RELEASE: ${{ github.sha }}
+          SENTRY_SOURCEMAPS: ${{ secrets.SENTRY_AUTH_TOKEN != '' && '1' || '' }}
+        run: pnpm --filter @countersign/web run --if-present build
+
+      # Readable browser stack traces in Sentry: upload the web build's source maps for this
+      # release, then delete them so they are never served. A notice or a warning, never a failure.
+      - name: Web source maps to Sentry
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || 'twelve-thirty-four-consulting' }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_WEB || 'mezonas-web' }}
         run: |
           set -euo pipefail
-          pnpm --filter @countersign/web run --if-present build
-          # Always an explicit environment: the top level of wrangler.jsonc is local development (dev
-          # sign-in) and must never be deployed.
+          if [ -n "$SENTRY_AUTH_TOKEN" ] && ls apps/web/dist/assets/*.map > /dev/null 2>&1; then
+            npx --yes @sentry/cli@3.6.2 sourcemaps inject apps/web/dist/assets
+            npx --yes @sentry/cli@3.6.2 sourcemaps upload --release "$GITHUB_SHA" apps/web/dist/assets \
+              || echo "::warning::Web source maps were not uploaded to Sentry; browser errors will show minified stack traces"
+          else
+            echo "::notice::No SENTRY_AUTH_TOKEN or no source maps: web source maps not uploaded"
+          fi
+          find apps/web/dist -name '*.map' -delete
+
+      # Always an explicit environment: the top level of wrangler.jsonc is local development (dev
+      # sign-in) and must never be deployed.
+      #
+      # `--var` adds plain-text vars to the ones in wrangler.jsonc: the Worker's Sentry DSN (unset
+      # leaves Sentry off; apps/api/src/observability/sentry.ts) and the commit, Sentry's release.
+      # `--outdir dist --upload-source-maps` keeps the deployed bundle and its map in apps/api/dist
+      # for the next step, and gives Cloudflare the map.
+      - name: Deploy the Worker
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          SENTRY_DSN_API: ${{ vars.SENTRY_DSN_API || secrets.SENTRY_DSN_API }}
+        run: |
+          set -euo pipefail
           env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
-          pnpm --filter @countersign/api exec wrangler deploy "$env_flag"
+          args=("$env_flag" --var "DEPLOYED_SHA:$GITHUB_SHA" --outdir dist --upload-source-maps)
+          [ -z "$SENTRY_DSN_API" ] || args+=(--var "SENTRY_DSN:$SENTRY_DSN_API")
+          pnpm --filter @countersign/api exec wrangler deploy "${args[@]}"
+
+      # Readable Worker stack traces in Sentry: the deployed bundle's map, for this release.
+      - name: Worker source maps to Sentry
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || 'twelve-thirty-four-consulting' }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_API || 'mezonas-api' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SENTRY_AUTH_TOKEN" ] && [ -f apps/api/dist/worker.js.map ]; then
+            npx --yes @sentry/cli@3.6.2 sourcemaps upload --release "$GITHUB_SHA" \
+              --strip-prefix 'apps/api/dist/..' apps/api/dist \
+              || echo "::warning::Worker source maps were not uploaded to Sentry; API errors will show bundled stack traces"
+          else
+            echo "::notice::No SENTRY_AUTH_TOKEN or no Worker source map: Worker source maps not uploaded"
+          fi
 
       - name: Worker secrets
         if: steps.ready.outputs.ready == 'true'

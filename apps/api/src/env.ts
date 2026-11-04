@@ -5,7 +5,7 @@ export interface Secrets {
   WORKOS_API_KEY?: string;
   WORKOS_COOKIE_PASSWORD?: string;
   ANTHROPIC_API_KEY?: string;
-  /** Loaded by deploy.yml; used once packages/llm has its OpenAI adapter. */
+  /** Loaded by deploy.yml; OpenAI models (`openai:` ids) in packages/llm. */
   OPENAI_API_KEY?: string;
   /** 32 bytes, base64: connection credentials at rest (ARCHITECTURE §17). */
   ENCRYPTION_KEY?: string;
@@ -19,6 +19,10 @@ export interface Vars {
   WORKOS_CLIENT_ID?: string;
   APP_ORIGIN?: string;
   LLM_MODE?: string;
+  /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
+  SENTRY_DSN?: string;
+  /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */
+  DEPLOYED_SHA?: string;
 }
 
 export type Bindings = Omit<Env, keyof Vars> & Vars & Secrets;

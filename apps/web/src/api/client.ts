@@ -1,5 +1,6 @@
 import { buildPath, type RouteSpec } from "@countersign/core";
 import type { z } from "zod";
+import { reportApiFailure } from "../observability";
 
 /**
  * The typed API client. Paths, methods and shapes come from the route contract (packages/core,
@@ -86,6 +87,8 @@ export interface ClientOptions {
   baseUrl?: string;
   /** Injected in tests. */
   fetch?: typeof fetch;
+  /** Told about every failed call (the app's error tracking decides which are worth reporting). */
+  onFailure?: (error: ApiError) => void;
 }
 
 export function createApiClient(options: ClientOptions = {}): ApiClient {
@@ -95,8 +98,11 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
   return {
     async call(route, opts = {}) {
       const name = `${route.method} ${route.path}`;
-      const fail = (init: Omit<ConstructorParameters<typeof ApiError>[0], "route">) =>
-        new ApiError({ ...init, route: name });
+      const fail = (init: Omit<ConstructorParameters<typeof ApiError>[0], "route">) => {
+        const error = new ApiError({ ...init, route: name });
+        options.onFailure?.(error);
+        return error;
+      };
 
       let params = opts.params as Record<string, string | number> | undefined;
       if (route.params) {
@@ -189,8 +195,8 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
   };
 }
 
-/** The app's client, same-origin. */
-export const api = createApiClient();
+/** The app's client, same-origin; failures go to error tracking (a no-op where it is off). */
+export const api = createApiClient({ onFailure: reportApiFailure });
 
 function queryString(query: Record<string, unknown> | undefined): string {
   if (!query) return "";
