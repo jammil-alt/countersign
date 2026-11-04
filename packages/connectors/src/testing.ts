@@ -289,5 +289,11 @@ export {
   type FakeRegisteredCall,
   fakeElevenLabs,
 } from "./elevenlabs/fake";
+export {
+  FAKE_RESEND_MAIN,
+  type FakeResend,
+  type FakeResendEmail,
+  fakeResend,
+} from "./resend/fake";
 export * from "./stripe/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";

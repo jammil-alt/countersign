@@ -32,6 +32,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { VoiceDeps } from "../calls/answer";
 import { dbVoiceServices } from "../calls/services";
 import type { Platform } from "../platform";
+import { dbEmailServices } from "../reach/email";
 import {
   contactThread,
   findContactByNumber,
@@ -301,6 +302,7 @@ export function connectorServicesFor(
 ): (connection: ConnectionRef) => ConnectorServices {
   return (connection) => ({
     messaging: dbMessagingServices(db, connection),
+    email: dbEmailServices(db, connection),
     ...(calls ? { voice: dbVoiceServices(db, connection, calls) } : {}),
   });
 }

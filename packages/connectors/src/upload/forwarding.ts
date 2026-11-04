@@ -235,6 +235,57 @@ function addressOf(a: { address?: string | undefined } | undefined): string | nu
   return a?.address ? a.address.toLowerCase() : null;
 }
 
+/** A reply to an email an agent sent (docs/plan.md §1.25): headers and the new text only. */
+export interface ReplyEmail {
+  from: string | null;
+  dmarcPassFrom: string | null;
+  to: string[];
+  subject: string | null;
+  messageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
+  /** The reply's own words (quoted history cut), at most REPLY_TEXT_MAX: untrusted data. */
+  text: string;
+}
+
+export const REPLY_TEXT_MAX = 4000;
+
+/** The new part of a plain-text reply: up to the quoted history ("On … wrote:", "> " lines). */
+export function replyText(body: string): string {
+  const out: string[] = [];
+  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
+    if (/^>/.test(line.trim())) break;
+    if (/^On .+wrote:\s*$/i.test(line.trim())) break;
+    if (/^-{2,}\s*Original Message\s*-{2,}$/i.test(line.trim())) break;
+    out.push(line);
+  }
+  return out.join("\n").trim().slice(0, REPLY_TEXT_MAX);
+}
+
+/**
+ * Parses a reply to a reach-out email: the headers that match it to what it answers, and its text,
+ * which is kept as untrusted data (never instructions, invariants 9 and 12). Attachments and HTML
+ * are dropped here.
+ */
+export async function parseReplyEmail(raw: Uint8Array): Promise<ReplyEmail> {
+  const email = await PostalMime.parse(raw);
+  const header = (k: string) => email.headers.find((h) => h.key === k)?.value ?? null;
+  const to = (email.to ?? []).flatMap((a) =>
+    a.address ? [a.address.toLowerCase()] : (a.group ?? []).map((m) => m.address.toLowerCase()),
+  );
+  const refs = (header("references") ?? "").split(/\s+/).filter((r) => r.startsWith("<"));
+  return {
+    from: email.from && "address" in email.from ? addressOf(email.from) : null,
+    dmarcPassFrom: dmarcPassDomain(header("authentication-results")),
+    to,
+    subject: email.subject ?? null,
+    messageId: email.messageId ?? null,
+    inReplyTo: email.inReplyTo ?? header("in-reply-to"),
+    references: refs,
+    text: replyText(email.text ?? ""),
+  };
+}
+
 /**
  * Parses a raw message and keeps only what may be stored: a few headers and the PDF and image
  * attachments. The text and HTML bodies are dropped here, before anything is written.

@@ -12,7 +12,7 @@ import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
 import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConnectionsScreen } from "./screens/Connections";
-import { PortalContactsScreen } from "./screens/Contacts";
+import { PortalContactsScreen, PortalPeopleScreen } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
 import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
@@ -63,6 +63,9 @@ export function PortalLayout({ children }: { children: ReactNode }) {
               </>
             ) : null}
             {isAdmin ? (
+              <SidebarLink to="/people" label="People" testId="portal-nav-people" />
+            ) : null}
+            {isAdmin ? (
               <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
             ) : null}
           </nav>
@@ -92,6 +95,7 @@ export function PortalApp() {
         <Route path="requests" element={<PortalRequestsScreen />} />
         <Route path="knowledge" element={<PortalKnowledgeScreen />} />
         <Route path="contacts" element={<PortalContactsScreen />} />
+        <Route path="people" element={<PortalPeopleScreen />} />
         <Route path="billing" element={<PortalBillingScreen />} />
         <Route path="settings" element={<PortalSettingsScreen />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />

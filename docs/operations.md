@@ -156,6 +156,13 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   the webhook endpoint `https://<domain>/api/billing/stripe/webhook`). Without the key billing is off;
   without the webhook secret Stripe's events are refused. Allow `api.stripe.com` in the network if it is
   restricted. Stripe set-up steps: `packages/connectors/src/stripe/NOTES.md`.
+- Needed for email reach-outs (plan §1.25; wiring into `deploy.yml` is the coordinator's):
+  `RESEND_API_KEY` (Mezonas' Resend account: it only makes each client's domain and a sending key
+  restricted to it, which is encrypted in the client's `resend` connection),
+  `RESEND_FALLBACK_DOMAIN` (our own verified sending domain, e.g. `mail.mezonas.com`, used until a
+  client's domain is verified) and `RESEND_FALLBACK_DOMAIN_ID` (Resend's id for it, so fallback keys
+  can send only from it). Replies come back through `EMAIL_FORWARDING_DOMAIN` to each client's
+  forwarding address. What to check first: `packages/connectors/src/resend/NOTES.md`.
 
 ### GitHub summary
 

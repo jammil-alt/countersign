@@ -13,6 +13,7 @@ import {
   requestState,
   stripeFor,
 } from "./http";
+import { reachOutTick } from "./reach/service";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { billingRouteHandlers } from "./routes/billing";
 import { callsSetupRoutes } from "./routes/calls-setup";
@@ -31,6 +32,7 @@ import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
+import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
@@ -40,6 +42,7 @@ import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
+import { reachDepsFor, runDepsFromEnv } from "./runs/execute";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -65,6 +68,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   recordRouteHandlers(app);
   approverRuleRoutes(app);
   contactRoutes(app);
+  reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
   knowledgeRouteHandlers(app);
@@ -90,6 +94,21 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
     }
+    const instances = deps.instances(env);
+    const platform = deps.platform(env);
+    await cronTick(
+      {
+        db,
+        instances,
+        reachTick: (tenantId, at) =>
+          reachOutTick(
+            reachDepsFor(runDepsFromEnv(env, { db, platform, instances })),
+            tenantId,
+            at,
+          ),
+      },
+      scheduledTime,
+    );
   } finally {
     await close();
   }

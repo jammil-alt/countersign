@@ -5,6 +5,7 @@ import { z } from "zod";
 import { DOCS_TOOLS } from "./docs";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { memoryScope } from "./memory-scope";
+import { reachOutTool } from "./reach";
 import { defineInternalTool, type InternalTool } from "./types";
 
 export { MEMORY_TEST_SCOPE_PREFIX, memoryScope } from "./memory-scope";
@@ -116,4 +117,5 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   memoryWrite,
   ...DOCS_TOOLS,
   ...KNOWLEDGE_TOOLS,
+  reachOutTool,
 ];

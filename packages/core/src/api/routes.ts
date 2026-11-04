@@ -14,6 +14,7 @@ import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { usageRoutes } from "./usage";
@@ -1609,5 +1610,6 @@ export const routes = {
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,
+  ...reachRoutes,
 } as const;
 export type Routes = typeof routes;

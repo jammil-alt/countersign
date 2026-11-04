@@ -142,6 +142,7 @@ describe("portal layout", () => {
       "Knowledge",
       "Contacts",
       "Billing",
+      "People",
       "Settings",
     ]);
 
