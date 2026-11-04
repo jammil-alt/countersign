@@ -333,6 +333,13 @@ export const agent = pgTable(
     serviceDescription: text("service_description"),
     /** connector id → connection id. */
     bindings: json<Record<string, string>>("bindings").notNull().default({}),
+    /**
+     * The people this agent reaches (docs/plan.md §1.25): role (from the bundle's `people`) → the
+     * contacts bound to it and the conditions for reaching them. Operational, never in a version.
+     */
+    people: json<Record<string, AgentPeopleBinding>>("people").notNull().default({}),
+    /** The agent's own channels: `email` | `sms` | `whatsapp` | `voice` → connection id. */
+    channels: json<Record<string, string>>("channels").notNull().default({}),
     /** Null = the client's setting. */
     approver: text("approver").$type<(typeof AGENT_APPROVERS)[number]>(),
     runStatus: text("run_status").$type<(typeof AGENT_RUN_STATUSES)[number]>(),
@@ -364,6 +371,13 @@ export const agent = pgTable(
     ),
   ],
 );
+
+/** One role's binding on a client agent: who fills it, and when and how they may be reached. */
+export interface AgentPeopleBinding {
+  contactIds: string[];
+  /** Validated by core's ReachConditions; the defaults apply to anything missing. */
+  conditions?: Record<string, unknown>;
+}
 
 /** One whole bundle. Immutable except `status` (trigger). */
 export const agentVersion = pgTable(
@@ -1124,8 +1138,13 @@ export interface ContactChannelConsent {
   grantedAt: string;
   source: string;
 }
-/** Consent per channel; `voice` is calls from an agent to the contact's phone (docs/plan.md §1.23). */
-export type ContactConsent = Partial<Record<MessagingChannel | "voice", ContactChannelConsent>>;
+/**
+ * Consent per channel; `voice` is calls from an agent to the contact's phone (docs/plan.md §1.23),
+ * `email` is email from an agent (§1.25).
+ */
+export type ContactConsent = Partial<
+  Record<MessagingChannel | "voice" | "email", ContactChannelConsent>
+>;
 
 /**
  * A person a client's agents may text or message: a phone in E.164 (SMS), a WhatsApp number, a
@@ -1142,8 +1161,19 @@ export const contact = pgTable(
     phone: text("phone"),
     /** The WhatsApp number, E.164 (often the same as `phone`). */
     whatsapp: text("whatsapp"),
+    /** Lower case; email-only contacts are allowed (migration 0017). */
+    email: text("email"),
     /** e.g. `es`; null: the client's language. */
     language: text("language"),
+    /** Channels in the order the contact prefers (`whatsapp`, `voice`, `sms`, `email`). */
+    preferredChannels: json<string[]>("preferred_channels").notNull().default([]),
+    /** IANA zone; null: the client's timezone. */
+    timezone: text("timezone"),
+    /** `{start, end}` as `HH:MM`; null: the client's quiet hours. */
+    quietHours: json<{ start: string; end: string }>("quiet_hours"),
+    /** Labels such as `purchaser`, `owner`, `vendor rep`. */
+    roles: json<string[]>("roles").notNull().default([]),
+    notes: text("notes"),
     consent: json<ContactConsent>("consent").notNull().default({}),
     optedOutAt: ts("opted_out_at"),
     /** `keyword:STOP`, `operator`, `client`. */
@@ -1159,8 +1189,12 @@ export const contact = pgTable(
     unique("contact_id_tenant_key").on(t.id, t.tenantId),
     uniqueIndex("contact_phone_key").on(t.tenantId, t.phone),
     uniqueIndex("contact_whatsapp_key").on(t.tenantId, t.whatsapp),
+    uniqueIndex("contact_email_key").on(t.tenantId, t.email),
     index("contact_tenant_idx").on(t.tenantId, t.name),
-    check("contact_reachable_check", sql`${t.phone} is not null or ${t.whatsapp} is not null`),
+    check(
+      "contact_reachable_check",
+      sql`${t.phone} is not null or ${t.whatsapp} is not null or ${t.email} is not null`,
+    ),
     check("contact_opt_out_check", sql`(${t.optedOutAt} is null) = (${t.optOutSource} is null)`),
   ],
 );
@@ -1185,6 +1219,94 @@ export const contactChange = pgTable(
     }),
     index("contact_change_contact_idx").on(t.contactId, t.createdAt),
     index("contact_change_tenant_idx").on(t.tenantId),
+  ],
+);
+
+// ── Reach out (migration 0017, docs/plan.md §1.25) ───────────────────────────────────────────────
+
+export const REACH_OUT_STATUSES = ["awaiting_approval", "open", "ended"] as const;
+export const REACH_OUT_OUTCOMES = [
+  "replied",
+  "no_reply",
+  "declined",
+  "opted_out",
+  "not_allowed",
+] as const;
+
+/**
+ * One agent reaching one contact from one workflow step: the approved plan (channels, attempts,
+ * escalation), each attempt (an external action with its own key), the reply as untrusted data, and
+ * how it ended. At most one open per contact and subject. The run waits on it like an inbox item:
+ * once it ends, the cron re-sends its event until the run takes it (`run_received_at`).
+ */
+export const reachOut = pgTable(
+  "reach_out",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").notNull(),
+    agentVersionId: uuid("agent_version_id").notNull(),
+    runId: uuid("run_id").notNull(),
+    stepRunId: uuid("step_run_id"),
+    /** The step's durable name in the run. */
+    nodeId: text("node_id").notNull(),
+    contactId: uuid("contact_id").notNull(),
+    /** The role it was addressed to, if any. */
+    role: text("role"),
+    /** What it is about (its sources, else its purpose): one open reach-out per contact and subject. */
+    subject: text("subject").notNull(),
+    purpose: text("purpose").notNull(),
+    urgency: text("urgency").notNull(),
+    /** Channels in order, attempts, escalation, language and the message. */
+    plan: json("plan").notNull(),
+    status: text("status").$type<(typeof REACH_OUT_STATUSES)[number]>().notNull(),
+    outcome: text("outcome").$type<(typeof REACH_OUT_OUTCOMES)[number]>(),
+    reason: text("reason"),
+    /** Each attempt: channel, its external action and when. */
+    attempts: json<Record<string, unknown>[]>("attempts").notNull().default([]),
+    /** The reply, as untrusted data (never instructions). */
+    reply: json("reply"),
+    sources: json<string[]>("sources").notNull().default([]),
+    inboxItemId: uuid("inbox_item_id"),
+    nextAttemptAt: ts("next_attempt_at"),
+    dueAt: ts("due_at"),
+    endedAt: ts("ended_at"),
+    runReceivedAt: ts("run_received_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("reach_out_id_tenant_key").on(t.id, t.tenantId),
+    uniqueIndex("reach_out_step_key").on(t.tenantId, t.runId, t.nodeId),
+    uniqueIndex("reach_out_open_key")
+      .on(t.tenantId, t.contactId, t.subject)
+      .where(sql`${t.status} <> 'ended'`),
+    index("reach_out_due_idx").on(t.tenantId, t.status, t.nextAttemptAt),
+    index("reach_out_contact_idx").on(t.tenantId, t.contactId, t.createdAt),
+    foreignKey({
+      name: "reach_out_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    foreignKey({
+      name: "reach_out_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "reach_out_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    check("reach_out_status_check", oneOf(t.status, REACH_OUT_STATUSES)),
+    check(
+      "reach_out_outcome_check",
+      sql`${t.outcome} is null or ${oneOf(t.outcome, REACH_OUT_OUTCOMES)}`,
+    ),
+    check("reach_out_ended_check", sql`(${t.status} = 'ended') = (${t.outcome} is not null)`),
   ],
 );
 
@@ -1223,6 +1345,7 @@ export const TENANT_TABLES = [
   "feedback",
   "contact",
   "contact_change",
+  "reach_out",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

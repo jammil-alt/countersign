@@ -24,6 +24,7 @@ import {
   memoryNote,
   message,
   rawRecord,
+  reachOut,
   run,
   skill,
   skillVersion,
@@ -206,6 +207,19 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .returning();
   if (!ct) throw new Error("no contact");
   await db.insert(contactChange).values({ tenantId, contactId: ct.id, change: { created: true } });
+  await db.insert(reachOut).values({
+    tenantId,
+    agentId: a.id,
+    agentVersionId: av.id,
+    runId: r.id,
+    nodeId: "s1",
+    contactId: ct.id,
+    subject: "s",
+    purpose: "Confirm the delivery date",
+    urgency: "normal",
+    plan: {},
+    status: "open",
+  });
 
   const [v] = await db
     .insert(vendor)
