@@ -214,6 +214,10 @@ In:
   **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
   agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
   sending a text or placing a call is an external action behind approval (`docs/plan.md` §1.19)
+- **Reach out** (v0.9): agents know the people they work with and contact them by email, text,
+  WhatsApp or call, in their language, under conditions, through channels each agent is given (a
+  mailbox of its own, Mezonas' sending service or a person's Gmail; the client's numbers). Sending
+  email from Gmail comes into v1, behind approval (`docs/plan.md` §1.25)
 - **Languages** (v0.9): the portal and agents' client-facing text in English, Spanish, French,
   Portuguese (Brazil), Italian and German, per client with a per-user choice; the back office stays in
   English. Next: agents translating incoming and outgoing messages (`docs/plan.md` §1.18)
