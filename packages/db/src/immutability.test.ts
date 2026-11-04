@@ -19,6 +19,7 @@ import {
   docExtraction,
   docLine,
   document,
+  knowledgeEntryVersion,
   rawRecord,
   skillVersion,
 } from "./schema";
@@ -152,6 +153,13 @@ describe.skipIf(!online)("immutability", () => {
       );
       expect(await errorCode(t.db.delete(table))).toBe(RESTRICT_VIOLATION);
     }
+  });
+
+  it("knowledge_entry_version is append-only: an edit is a new version", async () => {
+    expect(await errorCode(t.db.update(knowledgeEntryVersion).set({ body: "edited" }))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    expect(await errorCode(t.db.delete(knowledgeEntryVersion))).toBe(RESTRICT_VIOLATION);
   });
 
   it("doc_extraction and doc_line never change and are never deleted; the document's status can", async () => {
