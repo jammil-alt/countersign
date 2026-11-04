@@ -220,9 +220,13 @@ describe.skipIf(!h)("agent pages API", () => {
       const builtin = (skills: { source: string; id: string }[]) =>
         skills.filter((s) => s.source === "builtin").map((s) => s.id);
       const own = (skills: { source: string }[]) => skills.filter((s) => s.source !== "builtin");
+      // ...and so is every connector read tool, as a tool-mode skill (platform.ts).
       expect(builtin(j(forTemplate.json).skills)).toEqual(
-        expect.arrayContaining(["docs.extract", "docs.find-support"]),
+        expect.arrayContaining(["docs.extract", "docs.find-support", "testkit.record.query"]),
       );
+      expect(
+        j(forTemplate.json).skills.find((s: { id: string }) => s.id === "testkit.record.query"),
+      ).toMatchObject({ source: "builtin", category: "Testkit" });
       expect(own(j(forTemplate.json).skills)).toEqual([
         expect.objectContaining({
           id: "custom:price-watch",
@@ -265,6 +269,12 @@ describe.skipIf(!h)("agent pages API", () => {
           }),
         }),
       ]);
+      expect(
+        catalog.skills.find((s: { ref: string }) => s.ref === "testkit.record.query"),
+      ).toMatchObject({
+        source: "builtin",
+        definition: expect.objectContaining({ mode: "tool", handler: "testkit.record.query" }),
+      });
       // Prompts stay with the skill: the builder never needs them.
       expect(custom[0].definition.instructions).toBeUndefined();
       const update = catalog.tools.find((t: { id: string }) => t.id === "testkit.record.update");

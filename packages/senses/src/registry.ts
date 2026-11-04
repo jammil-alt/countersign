@@ -25,7 +25,7 @@ export class EventPayloadError extends Error {
 
 interface Entry {
   spec: EventTypeSpec;
-  /** `platform` or the pack id that declared it. */
+  /** `platform`, the pack id, or `connector:<id>` for a connector's types. */
   source: string;
   payload: z.ZodType;
 }
@@ -65,6 +65,31 @@ export class EventTypeRegistry {
     return this;
   }
 
+  /**
+   * Adds a connector's event types (its manifest's `events`, e.g. `webhook.received`). Like a
+   * pack's, they start with the connector's id; unlike a pack's, they are in every client's
+   * catalogue (whether a client can receive them depends on its connections, not on enabling).
+   */
+  registerConnector(connectorId: string, specs: readonly EventTypeSpec[]): this {
+    for (const raw of specs) {
+      const spec = EventTypeSpec.parse(raw);
+      if (PLATFORM.has(spec.type)) {
+        throw new Error(`connector ${connectorId} may not redefine platform event ${spec.type}`);
+      }
+      if (!spec.type.startsWith(`${connectorId}.`)) {
+        throw new Error(
+          `connector ${connectorId} event ${spec.type} must start with "${connectorId}."`,
+        );
+      }
+      const existing = this.#entries.get(spec.type);
+      if (existing)
+        throw new Error(`event ${spec.type} is already registered by ${existing.source}`);
+      const payload = z.fromJSONSchema(spec.payload as Parameters<typeof z.fromJSONSchema>[0]);
+      this.#entries.set(spec.type, { spec, source: `connector:${connectorId}`, payload });
+    }
+    return this;
+  }
+
   has(type: string): boolean {
     return this.#entries.has(type);
   }
@@ -84,7 +109,13 @@ export class EventTypeRegistry {
   list(enabledPacks?: readonly string[]): EventTypeSpec[] {
     const packs = enabledPacks ? new Set(enabledPacks) : undefined;
     return [...this.#entries.values()]
-      .filter((e) => e.source === "platform" || !packs || packs.has(e.source))
+      .filter(
+        (e) =>
+          e.source === "platform" ||
+          e.source.startsWith("connector:") ||
+          !packs ||
+          packs.has(e.source),
+      )
       .map((e) => e.spec);
   }
 

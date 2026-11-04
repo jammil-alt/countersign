@@ -46,6 +46,9 @@ pnpm format       # Biome: format and organise imports
 | File storage | Local R2 simulation in `wrangler dev` | always on |
 | Models | `LLM_MODE=replay` in tests; `live` calls Anthropic | `ANTHROPIC_API_KEY` |
 | QuickBooks | Not built yet (phase 3); the testkit connector stands in | `QBO_*` (sandbox) |
+| Webhooks (Zapier) | Real: make a hook in the portal and `curl` its URL; outbound sends need a public https URL | `ENCRYPTION_KEY` |
+| Zoho CRM | Sign-in starts but needs a real Zoho client to finish; tests use a fake Zoho | `ZOHO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Podio | Sign-in starts but needs a real Podio API key to finish; tests use a fake Podio | `PODIO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Email (sending) | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
 | Email forwarding (receiving) | Post a `.eml` to `wrangler dev` (below) | `EMAIL_FORWARDING_DOMAIN` (e.g. `in.mezonas.test`) |
 | Document links | The Worker signs its own 5-minute links | `STORAGE_*` (R2 presigned URLs) |

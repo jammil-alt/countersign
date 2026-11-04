@@ -337,6 +337,29 @@ export const PortalConnection = z.object({
     .nullable(),
 });
 
+/** A webhook connection as its client admin sees it: hook URLs carry their secret tokens. */
+export const PortalWebhookSetup = z.object({
+  hooks: z.array(
+    z.object({ id: z.string(), name: z.string(), url: z.string(), createdAt: Timestamp }),
+  ),
+  outbound: z
+    .object({
+      /** The URL as saved, shown back to the client who pasted it. */
+      url: z.string(),
+      host: z.string(),
+      /** Receivers may check `x-mezonas-signature` with it. */
+      signingSecret: z.string(),
+      setAt: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+/** What a delivery to an inbound hook gets back. */
+export const InboundHookResponse = z.object({
+  status: z.enum(["accepted", "duplicate"]),
+  id: z.string(),
+});
+
 // ── Documents, uploads and forwarding (stream D, docs/plan.md §1.6) ─────────────────────────────
 
 export const DocumentSummary = z.object({
@@ -1438,6 +1461,55 @@ export const portalRoutes = {
     params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
     response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
   }),
+  portalAuthorizeCallback: defineRoute({
+    method: "POST",
+    path: "/api/connections/:connector/callback",
+    auth: "session",
+    roles: ["client_admin"],
+    summary:
+      "Finish signing in to a tool: the provider's callback parameters, checked against the state",
+    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    body: z.strictObject({ params: z.record(z.string(), z.string().max(4096)) }),
+    response: z.object({ connection: PortalConnection }),
+  }),
+  portalWebhook: defineRoute({
+    method: "GET",
+    path: "/api/connections/:id/webhook",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "A webhook connection's hooks with their URLs, and where outbound events go",
+    params: IdParams,
+    response: PortalWebhookSetup,
+  }),
+  portalWebhookAddHook: defineRoute({
+    method: "POST",
+    path: "/api/connections/:id/webhook/hooks",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Make an inbound hook: a URL with its own secret to paste into a Zap",
+    params: IdParams,
+    body: z.strictObject({ name: z.string().trim().min(1).max(80) }),
+    response: PortalWebhookSetup,
+  }),
+  portalWebhookRemoveHook: defineRoute({
+    method: "DELETE",
+    path: "/api/connections/:id/webhook/hooks/:hookId",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Remove an inbound hook: deliveries to it are refused from now on",
+    params: z.object({ id: ApiId, hookId: ApiId }),
+    response: PortalWebhookSetup,
+  }),
+  portalWebhookOutbound: defineRoute({
+    method: "PUT",
+    path: "/api/connections/:id/webhook/outbound",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Set (or clear) the https URL outbound events are sent to, e.g. a Zap's catch hook",
+    params: IdParams,
+    body: z.strictObject({ url: z.string().max(2048).nullable() }),
+    response: PortalWebhookSetup,
+  }),
   portalUploads: defineRoute({
     method: "POST",
     path: "/api/uploads",
@@ -1515,6 +1587,16 @@ export const routes = {
     roles: ROLES,
     summary: "The signed-in user, their clients and the active one",
     response: SessionResponse,
+  }),
+  inboundHook: defineRoute({
+    method: "POST",
+    path: "/api/hooks/:tenantId/:hookId",
+    auth: "public",
+    roles: [],
+    summary:
+      "A delivery to a client's inbound hook (Zapier, Make, n8n): JSON or a form, with the hook's token or signature",
+    params: z.object({ tenantId: ApiId, hookId: ApiId }),
+    response: InboundHookResponse,
   }),
   connectors: defineRoute({
     method: "GET",

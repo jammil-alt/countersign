@@ -205,6 +205,11 @@ export interface Connector {
   tools: Readonly<Record<string, ToolHandler>>;
   authorize?(req: AuthorizeRequest): Promise<{ redirectUrl: string }>;
   handleCallback?(params: Record<string, string>, req: CallbackRequest): Promise<ConnectionGrant>;
+  /**
+   * Whether this deployment has what signing in needs (e.g. the OAuth client id and secret).
+   * Absent means ready. The portal shows "not available yet" for a connector that isn't.
+   */
+  isConfigured?(): boolean;
   /** OAuth connectors: how to refresh tokens (see oauth/tokens.ts). */
   tokens?: TokenRefresher;
   /** Revoke the grant at the provider when the client disconnects. */
@@ -242,7 +247,18 @@ type ConnectorHooks = Omit<Connector, "manifest" | "tools">;
 export function defineConnector(
   def: Omit<ConnectorManifest, "tools"> & { tools: ToolDefinition[] } & ConnectorHooks,
 ): Connector {
-  const { id, name, description, icon, auth, entities, defaultPermissions, tools, ...hooks } = def;
+  const {
+    id,
+    name,
+    description,
+    icon,
+    auth,
+    entities,
+    defaultPermissions,
+    events,
+    tools,
+    ...hooks
+  } = def;
   const problems: string[] = [];
   const specs: ToolSpec[] = tools.map((t) => ({
     ...t.spec,
@@ -258,6 +274,7 @@ export function defineConnector(
     entities,
     tools: specs,
     ...(defaultPermissions === undefined ? {} : { defaultPermissions }),
+    ...(events === undefined ? {} : { events }),
   });
   if (!parsed.success) {
     problems.push(

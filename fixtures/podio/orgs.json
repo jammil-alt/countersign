@@ -1,0 +1,11 @@
+[
+  {
+    "org_id": 310045,
+    "name": "Harbor Millwork",
+    "url": "https://podio.com/harbormillwork",
+    "spaces": [
+      { "space_id": 7721001, "name": "Jobs", "url_label": "jobs", "role": "admin" },
+      { "space_id": 7721002, "name": "Purchasing", "url_label": "purchasing", "role": "regular" }
+    ]
+  }
+]
