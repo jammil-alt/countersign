@@ -153,7 +153,8 @@ describe.skipIf(!h)("billing", () => {
           baseFee: null,
         },
       });
-      // Every usage_daily column is a measure; the seeded unit costs include measures to come.
+      // Every usage_daily column is a measure. Texts (messages) and calls (call_seconds) are
+      // columns now, so their seeded unit costs count as soon as they're priced.
       const measures = j(before.json).measures as { measure: string; available: boolean }[];
       expect(measures.find((m) => m.measure === "cost_usd")).toEqual({
         measure: "cost_usd",
@@ -161,9 +162,10 @@ describe.skipIf(!h)("billing", () => {
         priced: true,
       });
       expect(measures.find((m) => m.measure === "call_seconds")).toMatchObject({
-        available: false,
+        available: true,
         priced: true,
       });
+      expect(measures.find((m) => m.measure === "messages")).toMatchObject({ available: true });
 
       const saved = await call(OPERATOR, "PUT", "/api/ops/billing/settings", SETTINGS);
       expect(saved.status, JSON.stringify(saved.json)).toBe(200);

@@ -5,13 +5,14 @@ import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import { billingTick } from "./billing/jobs";
 import type { Bindings } from "./env";
-import { type AppDeps, 
-  type AppDeps,type AppEnv, 
-  type AppEnv,defaultDeps, 
-  defaultDeps,errorResponse, 
-  errorResponse,requestState, 
+import {
+  type AppDeps,
+  type AppEnv,
+  defaultDeps,
+  errorResponse,
   requestState,
-  stripeFor,} from "./http";
+  stripeFor,
+} from "./http";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { billingRouteHandlers } from "./routes/billing";
 import { callsSetupRoutes } from "./routes/calls-setup";
