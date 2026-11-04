@@ -176,6 +176,7 @@ describe("ops billing", () => {
 
     const allowance = screen.getByTestId("ops-billing-allowance");
     await userEvent.clear(allowance);
+    expect(allowance).toHaveDisplayValue("");
     await userEvent.type(allowance, "2500");
     await userEvent.click(screen.getByRole("button", { name: "Price this measure" }));
     const added = await screen.findByTestId("ops-billing-cost-runs");
@@ -229,6 +230,7 @@ describe("ops billing", () => {
     renderAt("/ops/billing", api);
     const allowance = await screen.findByTestId("ops-billing-allowance");
     await userEvent.clear(allowance);
+    expect(allowance).toHaveDisplayValue("");
     await userEvent.type(allowance, "2500");
     // Setting a client up reloads the page's data; wait until the reloaded data is on screen.
     await userEvent.click(screen.getByTestId(`ops-billing-setup-${SANDBOX}`));

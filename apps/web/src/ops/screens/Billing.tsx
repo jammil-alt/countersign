@@ -207,12 +207,16 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const action = useAction();
-  // Re-fill the form only when the saved settings change, not on every reload: a refresh after
-  // another client's set-up or sync returns equal settings and must keep unsaved edits.
+  // Re-fill the form only when the saved settings change by value, not on every reload: a refresh
+  // after another client's set-up or sync returns equal settings and must keep unsaved edits. This
+  // is done while rendering, not in an effect: an effect also ran after the first render, and when
+  // the operator's first keystroke came before React ran it, the re-fill landed on top of the edit.
   const savedSettings = JSON.stringify(data.settings);
-  useEffect(() => {
-    setDraft(draftOf(JSON.parse(savedSettings) as OpsBilling["settings"]));
-  }, [savedSettings]);
+  const [filledFrom, setFilledFrom] = useState(savedSettings);
+  if (filledFrom !== savedSettings) {
+    setFilledFrom(savedSettings);
+    setDraft(draftOf(data.settings));
+  }
   const set = (patch: Partial<Draft>) => {
     setSaved(false);
     setDraft((d) => ({ ...d, ...patch }));
