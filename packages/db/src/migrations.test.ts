@@ -78,12 +78,26 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     for (const r of rows) expect(r.tableowner, r.tablename).toBe("cs_owner");
   });
 
+  // Pack tables carry the comment `pack:<id>` (docs/plan.md §1.12): the platform's schema doesn't
+  // know them (it never imports a pack), so their columns are the pack's own test's business;
+  // their row-level security is checked here like every other table's.
+  const packTables = async () =>
+    new Set(
+      (
+        await t.db.$client<{ relname: string }[]>`
+          select c.relname from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+          where c.relkind = 'r' and obj_description(c.oid, 'pg_class') like 'pack:%'`
+      ).map((r) => r.relname),
+    );
+
   it("match the Drizzle schema: every table and column, with its nullability", async () => {
-    const cols = await t.db.$client<
-      { table_name: string; column_name: string; is_nullable: string }[]
-    >`
-      select table_name, column_name, is_nullable from information_schema.columns
-      where table_schema = 'public'`;
+    const packs = await packTables();
+    const cols = (
+      await t.db.$client<{ table_name: string; column_name: string; is_nullable: string }[]>`
+        select table_name, column_name, is_nullable from information_schema.columns
+        where table_schema = 'public'`
+    ).filter((c) => !packs.has(c.table_name));
     const actual = new Map(cols.map((c) => [`${c.table_name}.${c.column_name}`, c.is_nullable]));
     const expected = new Set<string>();
     for (const table of tables) {
@@ -109,7 +123,13 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         and exists (select 1 from pg_attribute a
                     where a.attrelid = c.oid and a.attname = 'tenant_id' and not a.attisdropped)
       order by c.relname`;
-    expect(rows.map((r) => r.relname).sort()).toEqual([...TENANT_TABLES].sort());
+    const packs = await packTables();
+    expect(
+      rows
+        .map((r) => r.relname)
+        .filter((n) => !packs.has(n))
+        .sort(),
+    ).toEqual([...TENANT_TABLES].sort());
     for (const r of rows) {
       expect(r.rls && r.forced, `${r.relname} forces RLS`).toBe(true);
       expect(r.policies, `${r.relname} has a policy`).toBeGreaterThan(0);

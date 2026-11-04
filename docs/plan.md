@@ -222,6 +222,19 @@ The owner asked for "the same thing as Plenary Labs' feedback" (2026-11-04). Ple
 | Composer | Press Feedback, the page dims ("Tap where the problem is"); a tap pins (copper: a person's mark), "No particular spot" skips the pin, Escape or Cancel sends nothing. The sheet shows the picture with the pin, the pinned element, a required comment, "Leave the picture off" and Send. On phones the button is round and the composer is full screen. The app has no modals yet; when one arrives it should leave room at its foot for the button (z-index 40, bottom right). |
 | Resolve and reopen | `POST /api/ops/feedback/:id/resolve {note?}` records who, when and the note (a URL shows as a link); `POST …/reopen` clears all three. Resolving a resolved item or reopening an open one answers 409. Open shows in signal ("Open"), resolved in positive. |
 
+### 1.12 Decisions made in stream M8a (Materials catalog and matching)
+
+| Topic | Decision |
+|---|---|
+| Pack tables | Migration 0006 adds `catalog_item`, `item_alias`, `item_match` and `price_observation` (ARCHITECTURE §12.2; the last for M8b's pricing) from the pack's own Drizzle schema (`packs/materials/src/schema.ts`), which the db package's drizzle config lists by path. Each has `tenant_id`, forced RLS on `app.tenant_ids`, and composite foreign keys `(id, tenant_id)` so a row points only at its own client's rows (`doc_line` gains the unique key for them, as `raw_record` did in 0004). Money and quantities are `numeric(14,4)` with a currency. |
+| Pack ownership | Each pack table carries the comment `pack:<id>`. The platform's migration test checks every tenant table's RLS, pack tables included, and leaves their columns to the pack's own test (the platform never imports a pack, so it can't know them). |
+| Grants | No DELETE on any pack table (a merge marks the merged item and repoints its aliases and prices). `item_match` is insert-only by grant: a person's decision is a new row after the agent's. The architecture asks for no immutability trigger on these tables, so there is none. |
+| Deciders | `created_by` and `decided_by` (agent version or user) are two typed columns with foreign keys (`created_by_agent_version_id` / `created_by_user_id`, `agent_version_id` / `decided_by_user_id`); a match has exactly one (invariant 10). |
+| Categories | `sheet_goods`, `hardwood`, `mouldings` (with edgebanding, told apart by `kind`), `hardware`, `finishes` (with adhesives, by `kind`), `other`; standard units `sheet`, `board_foot`, `linear_foot`, `each`, `gallon`, `quart`. Check constraints, as the platform's statuses. |
+| Key signature | `catalog_item.key_signature`: the category and every key attribute in a fixed order, when all are known. Unique per client among items not merged away, so two runs creating the same item at once end with one row. |
+| Aliases | The expression unique index `(tenant_id, vendor_id, coalesce(vendor_sku,''), coalesce(description_hash,''))` from the architecture, hand-written. `description_hash` is the sha256 of the normalized description, kept beside it (`normalized_description`). |
+| Prices | One `price_observation` per document line (unique), so recording twice adds nothing; `ext` for what M8b needs beside the columns. |
+
 ---
 
 ## 2. Package layering
