@@ -278,6 +278,24 @@ Agents send and receive text messages and make and take phone calls, as tools th
 | Languages | Texts and calls in the contact's language; translation of incoming messages comes with §1.18's next step. |
 | Order | After the MVP connectors (QuickBooks, Gmail), approver rules and Stripe: contacts and consent, the knowledge base, then Twilio numbers, SMS and WhatsApp, then calls, then WhatsApp through Meta. |
 
+
+### 1.25 Reach out: agents contacting people (owner, 2026-11-04; design)
+
+An agent knows the people it works with and reaches out to them by email, text, WhatsApp or call, in their language, under conditions the operator sets. Builds on contacts (§1.22), calls (§1.23), approver rules (§1.20) and languages (§1.18).
+
+| Topic | Design |
+|---|---|
+| Contacts | §1.22's contact gains: **email**, **preferred channels in order** (e.g. WhatsApp, then call), **language** (already there), **timezone** and quiet hours (default: the client's), **roles** (labels such as `purchaser`, `owner`, `vendor rep`), consent **per channel** (email added beside texts, WhatsApp and calls), and notes. Client data: per client only (invariant 1); the operator and the client admin edit them. |
+| An agent's people | A template declares the **roles** it reaches (`people: [{role, description, required, channels}]` in the bundle, no contact data). A client agent **binds each role to one or more contacts**, like connection bindings: operational data on the client agent, never in a version, so forks and promotions never carry anyone's details (invariant 11). Activation refuses a required role with nobody bound. This is how "add people to an agent's memory" works: who they are, how to reach them and when. |
+| Conditions | Per binding, checked in code before anything is sent: **urgency → channels** (default: urgent: call, then text; normal: the contact's preferred order; FYI: email only), **hours** (the contact's timezone and quiet hours; urgent may be allowed outside them only if the operator says so), **how often** (at most N per day and one open reach-out per contact and subject), **only if** (an optional rule over the step's facts, the same rules as forks, e.g. amount over $500), and **escalation** (no reply after a set time → the next channel; stop at the first reply, an opt-out or the last channel). |
+| The skill | `comms.reach-out`, built in. Input: `to` (a role or a contact), `about` (the record it concerns, as sources), `purpose` (fixed text, §1.23's fixed-input rule), `message` (a fixed template per language, or "compose": the model writes it from the fixed purpose and the record's data, in the contact's language), `urgency`, `expectReply`, `timeout`. Output: `outcome` (`replied`, `no_reply`, `declined`, `opted_out`, `not_allowed`), the channel used, the reply as untrusted data, the contact, and sources. |
+| Waiting for a reply | The step waits like a person step: the run waits for the reply event (`message.received`, `call.completed`, an email reply) or the timeout, using the same wait the inbox uses; escalation steps happen inside the wait. The workflow then forks on `outcome`. |
+| Channel choice | The contact's preferred order, filtered by the binding's allowed channels, consent, what the client has connected and the hours; the first that passes is used; none passes → `not_allowed`, recorded with the reason, nothing sent. |
+| Language | The contact's language, else the client's, else English. Fixed templates carry one text per language (as summaries do, §1.18); composed messages are written in that language. Replies in another language are translated when §1.18's message translation lands. |
+| Approval | On by default (invariant 8). One approval covers **the reach-out plan**: who, why, which channels and how many attempts; each attempt inside the plan then runs. Approver rules (§1.20) route these approvals like any other change. A step runs without approval only under the usual three conditions. |
+| Evidence and safety | Every attempt and reply goes in the contact's thread with the run, the agent version and the sources (invariant 10). Replies and transcripts are data, never instructions (invariant 9). Consent, opt-out, hours and caps are code, not model judgement. Test runs never send. |
+| Email | **Open (§7):** how agents send email. |
+
 ---
 
 ## 2. Package layering
@@ -603,4 +621,5 @@ Open
 1. Stripe: the base fee is per active agent, with a credit allowance and overage (owner, 2026-11-04). One credit is one cent of our cost (owner, 2026-11-04). Open: the allowance per agent, whether a client's allowances are pooled across its agents, the prices, and the Stripe account and its keys (saved as network secrets, never in the repo).
 2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
 3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first (owner: tomorrow).
+5. Reach out (§1.25): how agents send email (Mezonas' sending service from a client-specific address; the client's own Gmail, which needs Google's send scope; or a Gmail draft a person sends); who may bind people to agents (operator only, or the client admin too).
 4. Texts and calls (§1.19): WhatsApp through Twilio first, then Meta directly so clients can use their own number (owner, 2026-11-04); register Mezonas as a Meta Tech Provider ahead of the Meta step. Open: Mezonas-owned Twilio subaccounts per client (default) or each client's own Twilio; which countries first (US texting needs A2P 10DLC registration); Twilio and ElevenLabs accounts and keys; `api.twilio.com`, `graph.facebook.com` and `api.elevenlabs.io` allowed in the network. Legal review of consent, calling hours, recording consent and AI disclosure for each country before any live client calls.
