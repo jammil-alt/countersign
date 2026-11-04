@@ -1,15 +1,17 @@
 // `seed:demo-prices` (docs/plan.md M8): six months of prices for the demo client, about ten items
 // from three vendors, so Price watch and Catalog have something to show before real invoices
-// arrive. Enables the pack for the client, adds the vendors and catalog items, a price every two
-// weeks per item and vendor (with steady creep, one jump and one cheaper vendor), and the alerts
-// the rules raise on each pair's latest price. Idempotent: a second run adds nothing.
+// arrive. Adds the vendors and catalog items, a price every two weeks per item and vendor (with
+// steady creep, one jump and one cheaper vendor), and the alerts the rules raise on each pair's
+// latest price. Idempotent: a second run adds nothing.
+// DECISION: it doesn't switch the pack on: the operator does that in the back office, which also
+// installs the Pia template, as for any client.
 //
 // Demo data only: observations carry no document line (no invoice behind them), and the items
 // and alerts no agent version. Never run it against a real client.
 
 import { findOrCreateVendor } from "@countersign/connectors";
 import { dec, toNumeric } from "@countersign/core";
-import { alert, type Db, tenantPack, withTenant } from "@countersign/db";
+import { alert, type Db, withTenant } from "@countersign/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { canonicalName, keySignature, parseLine } from "./catalog/keys";
 import { PACK_ID } from "./ids";
@@ -54,10 +56,6 @@ export async function seedDemoPrices(
 ): Promise<DemoPricesResult> {
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   return withTenant(db, tenantId, async (tx) => {
-    await tx
-      .insert(tenantPack)
-      .values({ tenantId, pack: PACK_ID, version: "0.1.0" })
-      .onConflictDoNothing();
     const vendors: { id: string; name: string }[] = [];
     for (const name of DEMO_VENDORS) {
       const v = await findOrCreateVendor(tx, tenantId, name);
