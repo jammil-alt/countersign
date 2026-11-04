@@ -362,7 +362,7 @@ describe.skipIf(!h)("inbox and run views", () => {
     // A step whose output cites records (as skills that produce alerts must).
     await H.t.db
       .update(stepRun)
-      .set({ output: { sources: ["r1", "r2"], costUsd: "1.00" } })
+      .set({ output: { sources: ["r1", "r2"], costUsd: "987.6543" } })
       .where(and(eq(stepRun.runId, runId), eq(stepRun.nodeId, "update")));
     const res = await H.call(user("a"), "GET", `/api/runs/${runId}`);
     expect(res.status).toBe(200);
@@ -375,6 +375,8 @@ describe.skipIf(!h)("inbox and run views", () => {
       ["Confirm", []],
     ]);
     expect(JSON.stringify(body)).not.toContain("Operator note");
-    expect(JSON.stringify(body)).not.toContain("1.00");
+    // A distinctive amount: "1.00" also matched timestamps such as 16:22:21.004Z.
+    expect(JSON.stringify(body)).not.toContain("987.6543");
+    expect(JSON.stringify(body)).not.toContain("costUsd");
   });
 });
