@@ -142,6 +142,14 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   clients' connections. `APP_ORIGIN` must be set, since Twilio is pointed at
   `<APP_ORIGIN>/api/twilio/<client>/messages` and `/status` and signs requests over those URLs.
   What to check in Twilio before a client goes live: `packages/connectors/src/twilio/NOTES.md`.
+- Needed for calls (plan §1.23; wiring into `deploy.yml` is the coordinator's): `ELEVENLABS_API_KEY`
+  (Mezonas' ElevenLabs workspace, Conversational AI) and `ELEVENLABS_WEBHOOK_SECRET` (the signing
+  secret of ElevenLabs' post-call webhook, pointed at `<APP_ORIGIN>/api/elevenlabs/post-call`; it
+  also keys each call's tool token). Calls use the Twilio secrets above and `APP_ORIGIN` (Twilio is
+  pointed at `<APP_ORIGIN>/api/twilio/<client>/voice`, `/voice/answer` and `/voice/status`; the voice
+  agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
+  ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
+  `packages/connectors/src/elevenlabs/NOTES.md`.
 
 ### GitHub summary
 

@@ -4,12 +4,14 @@
 // consent, which was given for the old number.
 
 import {
+  type ConsentChannel,
   type Contact,
   type ContactConsent,
   type ContactConsentChangeInput,
   type ContactCreateInput,
   type ContactMessage,
   type ContactPatchInput,
+  callBlock,
   consentBlock,
   DEFAULT_QUIET_HOURS,
   type Keyword,
@@ -29,6 +31,7 @@ function stored(c: ContactConsent): StoredConsent {
   const out: StoredConsent = {};
   if (c.sms) out.sms = c.sms;
   if (c.whatsapp) out.whatsapp = c.whatsapp;
+  if (c.voice) out.voice = c.voice;
   return out;
 }
 
@@ -52,6 +55,7 @@ export function contactView(row: ContactRow): Contact {
       sms: consentBlock(state, "sms") === null,
       whatsapp: consentBlock(state, "whatsapp") === null,
     },
+    canCall: callBlock(state) === null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -185,10 +189,15 @@ export async function updateContact(
   }
   // DECISION: consent is for a number; a new number for a channel needs consent again.
   const consent = { ...((row.consent ?? {}) as ContactConsent) };
-  const withdrawn: MessagingChannel[] = [];
+  const withdrawn: ConsentChannel[] = [];
   if (next.phone !== row.phone && consent.sms) {
     delete consent.sms;
     withdrawn.push("sms");
+  }
+  // Calls go to the phone too.
+  if (next.phone !== row.phone && consent.voice) {
+    delete consent.voice;
+    withdrawn.push("voice");
   }
   if (next.whatsapp !== row.whatsapp && consent.whatsapp) {
     delete consent.whatsapp;
@@ -225,7 +234,7 @@ export async function changeConsent(
       if (row.optedOutAt) {
         throw new HttpError(409, "opted_out", "this contact opted out: lift the opt-out first");
       }
-      const number = change.channel === "sms" ? row.phone : row.whatsapp;
+      const number = change.channel === "whatsapp" ? row.whatsapp : row.phone;
       if (!number) {
         throw new HttpError(422, "no_number", "add the contact's number for that channel first");
       }
@@ -346,7 +355,8 @@ export async function contactThread(tx: Tx, row: ContactRow): Promise<string> {
 /** What a contact-thread message keeps in `message.body`. */
 export interface ThreadMessageBody {
   direction: "in" | "out";
-  channel: MessagingChannel;
+  /** `voice`: a call (calls/store.ts threadCallLine). */
+  channel: MessagingChannel | "voice";
   /** The sender's words (or the template id): shown to people, never handed to a model. */
   text: string;
   sid: string;
@@ -377,7 +387,7 @@ export async function contactMessages(
     return {
       id: r.id,
       direction: b.direction === "in" ? "in" : "out",
-      channel: b.channel === "whatsapp" ? "whatsapp" : "sms",
+      channel: b.channel === "whatsapp" ? "whatsapp" : b.channel === "voice" ? "voice" : "sms",
       text: typeof b.text === "string" ? b.text : "",
       sid: typeof b.sid === "string" ? b.sid : null,
       status: typeof b.status === "string" ? b.status : null,

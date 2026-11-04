@@ -18,6 +18,10 @@ export interface Secrets {
   /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
+  /** Mezonas' own ElevenLabs account: the voice agents on calls (docs/plan.md §1.23). */
+  ELEVENLABS_API_KEY?: string;
+  /** Signs ElevenLabs' post-call webhook; also keys each call's tool token. */
+  ELEVENLABS_WEBHOOK_SECRET?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;

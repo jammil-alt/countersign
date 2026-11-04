@@ -8,6 +8,7 @@
 export * from "./connector";
 export * from "./credentials";
 export * from "./credentials-accessor";
+export * from "./elevenlabs/index";
 export * from "./http";
 export * from "./invoke";
 export * from "./logger";
@@ -28,5 +29,7 @@ export * from "./storage/signed-url";
 export * from "./testkit/index";
 export * from "./twilio/index";
 export * from "./upload/index";
+export * from "./voice/services";
+export * from "./voice/spec";
 export * from "./webhook/index";
 export * from "./zoho_crm/index";

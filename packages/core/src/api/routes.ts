@@ -6,6 +6,7 @@ import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { approverRuleRoutes } from "./approver-rules";
+import { callRoutes } from "./calls";
 import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
@@ -1605,5 +1606,6 @@ export const routes = {
   ...approverRuleRoutes,
   ...messagingRoutes,
   ...knowledgeRoutes,
+  ...callRoutes,
 } as const;
 export type Routes = typeof routes;

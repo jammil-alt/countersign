@@ -5,6 +5,7 @@
 // Allowed workspace dependencies: none. See docs/plan.md §2.
 
 export * from "./api/approver-rules";
+export * from "./api/calls";
 export * from "./api/contract";
 export * from "./api/documents";
 export * from "./api/feedback";
@@ -28,6 +29,7 @@ export {
 } from "./bundle/flatten";
 export * from "./bundle/merge";
 export * from "./bundle/select";
+export * from "./calls/rules";
 export * from "./canonical";
 export * from "./documents/extraction";
 export * from "./duration";

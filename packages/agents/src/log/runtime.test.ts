@@ -327,6 +327,52 @@ describe.skipIf(!harness)("runtime", () => {
     await h.setPermissions(h.A, {});
   });
 
+  it("refuses a fixed input filled from a template or written by a model, before any card or write", async () => {
+    // The testkit update as if its `amount` became instructions (like call.place's purpose).
+    const base = h.deps();
+    const tools = Object.create(base.tools) as typeof base.tools;
+    tools.get = (id) => {
+      const t = base.tools.get(id);
+      return t && id === TESTKIT_UPDATE_TOOL
+        ? { ...t, spec: { ...t.spec, fixedInputs: ["amount"] } }
+        : t;
+    };
+    const deps = { ...base, tools };
+    await h.setPermissions(h.A, { update: "auto" });
+    const writes = h.backend.writes.length;
+    const actionsOf = (runId: string) =>
+      h.client(h.A, (tx) =>
+        tx.select().from(externalAction).where(eq(externalAction.runId, runId)),
+      );
+
+    // From the trigger, or from an earlier step's output: refused, nothing proposed or written.
+    for (const amount of ["{{trigger.amount}}", "{{steps.read.output.amount}} USD"]) {
+      const s = await step(h.A, { mode: "act", approval: "not_required" });
+      s.literalInput = { id: "r1", amount };
+      const out = await callTool(deps, s, update("6.66"));
+      expect(out).toMatchObject({ status: "refused" });
+      expect(JSON.stringify(out)).toContain("not filled from a template");
+      expect(await actionsOf(s.runId)).toEqual([]);
+      const calls = await h.client(h.A, (tx) =>
+        tx.select().from(toolCall).where(eq(toolCall.stepRunId, s.stepRunId)),
+      );
+      expect(calls.map((c) => c.status)).toEqual(["refused"]);
+    }
+    // A model's words (a skill, agent mode: no step input): refused.
+    const bySkill = await step(h.A, { mode: "act", approval: "not_required" });
+    const out = await callTool(deps, bySkill, update("6.66"));
+    expect(JSON.stringify(out)).toContain("not by a model");
+    expect(await actionsOf(bySkill.runId)).toEqual([]);
+    expect(h.backend.writes.length).toBe(writes);
+
+    // Written in the step (other fields may still be templates): runs as the gate allows.
+    const literal = await step(h.A, { mode: "act", approval: "not_required" });
+    literal.literalInput = { id: "{{trigger.id}}", amount: "6.66" };
+    expect((await callTool(deps, literal, update("6.66"))).status).toBe("done");
+    expect(h.backend.writes.length).toBe(writes + 1);
+    await h.setPermissions(h.A, {});
+  });
+
   /**
    * Deps whose `testkit.update` is replaced: `before` and `run` as given, writing to the harness's
    * backend once per key.

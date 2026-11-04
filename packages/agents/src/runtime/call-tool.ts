@@ -3,7 +3,13 @@
 // same way.
 
 import { captureBefore, runReadTool } from "@countersign/connectors";
-import { changeFacts, decideToolCall, type JsonObject, routeApproval } from "@countersign/core";
+import {
+  changeFacts,
+  decideToolCall,
+  fixedInputProblem,
+  type JsonObject,
+  routeApproval,
+} from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
 import {
@@ -92,6 +98,18 @@ async function dispatch(
   input: unknown,
 ): Promise<ToolOutcome> {
   const mode = step.agent.bundle.definition.permissions.mode;
+  // A retry finds its first try's action before any check, the fixed-input check included.
+  if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
+    const resumed = await resumeProposed(deps, step, tool);
+    if (resumed) return resumed;
+  }
+  // Inputs that become instructions are the step's own fixed text, before any approval card or
+  // write: never a template's value or a model's words (invariant 9).
+  const fixed = tool.spec.fixedInputs;
+  if (fixed?.length) {
+    const problem = fixedInputProblem(fixed, step.literalInput, input);
+    if (problem) return { status: "refused", reason: `${tool.spec.id}: ${problem}` };
+  }
   if (tool.kind === "internal") {
     // Platform and pack tools write only the platform's own records: `none` and `internal` run.
     const parsed = tool.tool.input.safeParse(input);
@@ -119,11 +137,6 @@ async function dispatch(
     const out = tool.tool.output.safeParse(raw);
     if (!out.success) return { status: "failed", error: `invalid output: ${out.error.message}` };
     return { status: "done", output: out.data };
-  }
-
-  if (tool.spec.sideEffect === "external") {
-    const resumed = await resumeProposed(deps, step, tool);
-    if (resumed) return resumed;
   }
 
   const connectorId = tool.connector.manifest.id;
@@ -212,8 +225,8 @@ async function dispatch(
 
 /**
  * A retried step (a crash, a Workflow retry) finds the action its first try proposed under the
- * same key and resumes or returns it, before any proposal check: the matrix, the before state and
- * the connector's consent checks only apply to a new action. Otherwise an opt-out since the first
+ * same key and resumes or returns it, before any proposal check: fixed inputs, the matrix, the
+ * before state and the connector's consent checks only apply to a new action. Otherwise an opt-out since the first
  * try would fail the step and leave the action `executing`, though its write may have gone out.
  * The connector's `run` still checks every write it hasn't made yet.
  */
