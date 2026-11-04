@@ -9,13 +9,18 @@ import type { Step } from "../schemas/workflow";
  * steps, fork paths and otherwise branches by id, wherever they sit in the tree, so a step moved
  * between fork paths is the same entity in a different list.
  *
- * Entity keys: `skill:<id>`, `workflow:<slug>`, `step:<id>`, `path:<id>`, `otherwise:<id>`.
- * List keys: `<owner key>><field>`: `bundle>skills`, `bundle>workflows`, `workflow:<slug>>steps`,
+ * Entity keys: `skill:<id>`, `workflow:<slug>`, `step:<id>`, `path:<id>`, `otherwise:<id>`,
+ * `person:<role>` (the bundle's `people`, by role).
+ * List keys: `<owner key>><field>`: `bundle>skills`, `bundle>workflows`, `bundle>people` (only
+ * when the bundle has `people`, so bundles without it rebuild unchanged), `workflow:<slug>>steps`,
  * `step:<fork>>paths`, `step:<fork>>otherwise`, `step:<for_each>>steps`, `path:<id>>steps`,
  * `otherwise:<id>>steps`.
  */
 
-export type EntityKind = "skill" | "workflow" | "step" | "path" | "otherwise";
+export type EntityKind = "skill" | "workflow" | "step" | "path" | "otherwise" | "person";
+
+/** The list of the bundle's people; present only when the bundle declares `people`. */
+export const PEOPLE_LIST = "bundle>people";
 
 export interface Entity {
   key: string;
@@ -110,7 +115,12 @@ export function flattenBundle(bundle: AgentBundle): FlatBundle {
     steps(inner, `${key}>steps`);
   }
 
-  const { workflows: _w, definition, ...rest } = b;
+  if (b.people !== undefined) {
+    ensure(PEOPLE_LIST);
+    for (const p of b.people) add(`person:${p.role}`, "person", { ...p }, PEOPLE_LIST);
+  }
+
+  const { workflows: _w, definition, people: _p, ...rest } = b;
   const { skills: _s, ...def } = definition;
   return { root: { ...rest, definition: def }, entities, lists };
 }
@@ -149,10 +159,12 @@ export function unflattenBundle(flat: FlatBundle): AgentBundle {
   >;
   const skills = (flat.lists.get(`${ROOT}>skills`) ?? []).map((k) => buildEntity(flat, k));
   const workflows = (flat.lists.get(`${ROOT}>workflows`) ?? []).map((k) => buildEntity(flat, k));
+  const people = flat.lists.get(PEOPLE_LIST)?.map((k) => buildEntity(flat, k));
   return {
     ...root,
     definition: { ...root.definition, skills },
     workflows,
+    ...(people ? { people } : {}),
   } as unknown as AgentBundle;
 }
 

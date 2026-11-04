@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { DOCS_TOOLS } from "./docs";
+import { reachOutTool } from "./reach";
 import { defineInternalTool, type InternalTool } from "./types";
 
 export const MEMORY_TEST_SCOPE_PREFIX = "test-run:";
@@ -118,4 +119,5 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   threadsPost,
   memoryWrite,
   ...DOCS_TOOLS,
+  reachOutTool,
 ];

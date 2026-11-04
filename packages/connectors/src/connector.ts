@@ -12,6 +12,7 @@ import type { Logger } from "./logger";
 import type { MessagingServices } from "./messaging/services";
 import type { TokenRefresher } from "./oauth/tokens";
 import { manifestDefaultProblems } from "./permissions";
+import type { EmailServices } from "./resend/index";
 import type { VoiceServices } from "./voice/services";
 
 /** Mirrors `connection.status` in packages/db. */
@@ -44,6 +45,8 @@ export interface ConnectorServices {
   messaging?: MessagingServices;
   /** Contacts, consent and calls, for connectors that place or answer calls (voice/services.ts). */
   voice?: VoiceServices;
+  /** Contacts and consent for email sends (resend/index.ts). */
+  email?: EmailServices;
 }
 
 /** Everything a connector call runs with: one client, one connection. */

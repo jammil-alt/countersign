@@ -5,6 +5,7 @@ import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type AppDeps, type AppEnv, defaultDeps, errorResponse, requestState } from "./http";
+import { reachOutTick } from "./reach/service";
 import { callsSetupRoutes } from "./routes/calls-setup";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
@@ -19,6 +20,7 @@ import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
+import { reachRoutes } from "./routes/reach";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
@@ -26,6 +28,7 @@ import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick } from "./runs/dispatch";
+import { reachDepsFor, runDepsFromEnv } from "./runs/execute";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -47,6 +50,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   feedbackRouteHandlers(app);
   requestRouteHandlers(app);
   contactRoutes(app);
+  reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
   callsSetupRoutes(app);
@@ -63,7 +67,21 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
 export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps = defaultDeps) {
   const { db, close } = deps.openDb(env);
   try {
-    await cronTick({ db, instances: deps.instances(env) }, scheduledTime);
+    const instances = deps.instances(env);
+    const platform = deps.platform(env);
+    await cronTick(
+      {
+        db,
+        instances,
+        reachTick: (tenantId, at) =>
+          reachOutTick(
+            reachDepsFor(runDepsFromEnv(env, { db, platform, instances })),
+            tenantId,
+            at,
+          ),
+      },
+      scheduledTime,
+    );
   } finally {
     await close();
   }

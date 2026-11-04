@@ -21,12 +21,18 @@ import {
   routeEvent,
 } from "@countersign/workflows";
 import { and, eq, isNotNull } from "drizzle-orm";
+import { matchReplies, wakeAll } from "../reach/replies";
 import type { RunInstances } from "./instances";
 import { redeliverResolutions } from "./resume";
 
 export interface DispatchDeps {
   db: Db;
   instances: RunInstances;
+  /**
+   * Reach-outs' escalation and timeouts for one client, each cron tick (it needs the runtime to
+   * send); without it, replies still end reach-outs but nothing escalates.
+   */
+  reachTick?: (tenantId: string, at: Date) => Promise<unknown>;
 }
 
 /** A client's agents with their live bundles: what the router chooses from. */
@@ -88,6 +94,9 @@ async function dispatchTenant(
   tenantId: string,
   events: readonly EventRow[],
 ): Promise<void> {
+  // Replies and opt-outs end the reach-outs they answer first, so a run woken by one sees it.
+  const woken = await matchReplies(deps.db, tenantId, events, new Date());
+  await wakeAll(deps.instances, woken);
   const agents = await withTenant(deps.db, tenantId, (tx) => routableAgents(tx, tenantId));
   for (const event of events) {
     if (event.tenantId !== tenantId) continue;
@@ -147,6 +156,7 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       for (const p of problems) console.warn("schedule could not be evaluated", p);
       for (const request of runs) await startRun(deps, request);
       await redeliverResolutions(deps, client.id, scheduledTime);
+      if (deps.reachTick) await deps.reachTick(client.id, scheduledTime);
     } catch (error) {
       console.error(`cron for client ${client.id} failed`, error);
     }

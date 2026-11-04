@@ -34,6 +34,7 @@ import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
+import { type ReachDeps, reachPort } from "../reach/service";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, senseEmitter } from "./dispatch";
 import type { RunInstances, RunParams } from "./instances";
@@ -134,6 +135,41 @@ const STEP_CONFIG = {
 
 type Loaded = { ok: true; workflow: Workflow } | { ok: false; reason: string };
 
+/** The agents runtime over the database, as a run (or the cron, for reach-outs) uses it. */
+export function runtimeFor(
+  deps: RunDeps,
+  options: { collect?: EventRow[]; testRun?: boolean } = {},
+): RuntimeDeps {
+  const { db } = deps;
+  return {
+    ports: createDbPorts(db, {
+      emit: senseEmitter(deps.platform.events, {
+        ...(options.collect ? { collect: options.collect } : {}),
+        testRun: options.testRun === true,
+      }),
+      ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
+    }),
+    tools: deps.platform.tools,
+    catalog: deps.platform.catalog,
+    transport: deps.transport,
+    ...(deps.credentials ? { credentials: deps.credentials } : {}),
+    // Contacts and consent for messaging connectors, scoped to the connection's client.
+    services: connectorServicesFor(
+      db,
+      deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+    ),
+  };
+}
+
+/** The reach-out service outside a run (the cron's escalation). */
+export function reachDepsFor(deps: RunDeps): ReachDeps {
+  return {
+    db: deps.db,
+    runtime: runtimeFor(deps),
+    ...(deps.instances ? { instances: deps.instances } : {}),
+  };
+}
+
 export async function executeRun(
   deps: RunDeps,
   params: RunParams,
@@ -201,27 +237,13 @@ export async function executeRun(
     return result;
   }
 
-  const runtime: RuntimeDeps = {
-    ports: createDbPorts(db, {
-      emit: senseEmitter(deps.platform.events, {
-        collect: emitted,
-        testRun: info.mode === "test",
-      }),
-      ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
-    }),
-    tools: deps.platform.tools,
-    catalog: deps.platform.catalog,
-    transport: deps.transport,
-    ...(deps.credentials ? { credentials: deps.credentials } : {}),
-    // Contacts and consent for messaging connectors, scoped to the connection's client.
-    services: connectorServicesFor(
-      db,
-      deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
-    ),
-  };
+  const runtime = runtimeFor(deps, { collect: emitted, testRun: info.mode === "test" });
   const ctx: ExecutorContext = {
     run: info,
-    agent: agentPort(runtime),
+    agent: agentPort(
+      runtime,
+      reachPort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
+    ),
     inbox: dbInboxPort(db, info),
     notify: threadNotifyPort(runtime),
     log: dbStepLog(db, info),

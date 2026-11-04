@@ -9,6 +9,7 @@ import { callRoutes } from "./calls";
 import { defineRoute } from "./contract";
 import { feedbackRoutes } from "./feedback";
 import { messagingRoutes } from "./messaging";
+import { reachRoutes } from "./reach";
 import { requestRoutes } from "./requests";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -1627,5 +1628,6 @@ export const routes = {
   ...requestRoutes,
   ...messagingRoutes,
   ...callRoutes,
+  ...reachRoutes,
 } as const;
 export type Routes = typeof routes;

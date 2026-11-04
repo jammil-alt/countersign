@@ -22,6 +22,12 @@ export interface Secrets {
   ELEVENLABS_API_KEY?: string;
   /** Signs ElevenLabs' post-call webhook; also keys each call's tool token. */
   ELEVENLABS_WEBHOOK_SECRET?: string;
+  /** Mezonas' own Resend account: makes each client's sending domain and key (docs/plan.md §1.25). */
+  RESEND_API_KEY?: string;
+  /** Our own sending domain, used until a client's domain is verified (e.g. mail.mezonas.com). */
+  RESEND_FALLBACK_DOMAIN?: string;
+  /** Resend's id for that domain, so fallback keys can send only from it. */
+  RESEND_FALLBACK_DOMAIN_ID?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;

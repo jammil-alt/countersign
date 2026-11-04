@@ -21,6 +21,7 @@ export * from "./permissions";
 export * from "./podio/index";
 export * from "./records/vendors";
 export * from "./registry";
+export * from "./resend/index";
 export * from "./storage/content";
 export * from "./storage/memory";
 export * from "./storage/object-store";
