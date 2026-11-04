@@ -1323,6 +1323,132 @@ export const knowledgeChunk = pgTable(
   ],
 );
 
+// ── Billing (docs/plan.md §1.17, §1.24) ──────────────────────────────────────────────────────────
+// Mezonas bills each client through Stripe: a base fee per active client agent that includes an
+// allowance of credits, then usage beyond it. One credit is one cent of what the work cost us,
+// priced from `usage_daily` with the unit costs below. A client's Stripe ids live in
+// `tenant.settings.billing` (the webhook finds the client by customer id in that global table);
+// what was reported, and the Stripe events received, are tenant tables here.
+
+export const BILLING_REPORT_STATUSES = ["pending", "sent", "failed", "none"] as const;
+
+/**
+ * Mezonas' own billing settings: one row (`id` = 1), global, written only from `/api/ops/billing`.
+ * The base fee and overage price are snapshots of the Stripe prices, taken when the ids are saved.
+ */
+export const billingSetting = pgTable(
+  "billing_setting",
+  {
+    id: integer("id").primaryKey().default(1),
+    /** Credits each active client agent includes per month; a client's agents pool theirs. */
+    allowanceCreditsPerAgent: integer("allowance_credits_per_agent").notNull(),
+    /** Stripe price of the monthly base fee (licensed, quantity = active client agents). */
+    basePriceId: text("base_price_id"),
+    /** Stripe price per overage credit (metered, on the meter below). */
+    overagePriceId: text("overage_price_id"),
+    /** The Stripe billing meter's event name the overage is reported to. */
+    meterEventName: text("meter_event_name").notNull(),
+    /** Invoices are sent (not charged to a card on file) and due this many days after. */
+    daysUntilDue: integer("days_until_due").notNull().default(30),
+    baseFee: money("base_fee"),
+    overagePrice: money("overage_price"),
+    currency: currency(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+  },
+  (t) => [
+    check("billing_setting_singleton_check", sql`${t.id} = 1`),
+    check("billing_setting_allowance_check", sql`${t.allowanceCreditsPerAgent} >= 0`),
+    check("billing_setting_days_until_due_check", sql`${t.daysUntilDue} between 1 and 365`),
+  ],
+);
+
+/**
+ * What one unit of a usage measure costs us (a measure is a `usage_daily` column, by its SQL
+ * name): `unit_cost` per `per_units` units, e.g. `cost_usd` 1.0000 per 1, `call_seconds` 0.1000 per
+ * 60. Global, operator-written. A measure with no row is not billed.
+ */
+export const billingUnitCost = pgTable(
+  "billing_unit_cost",
+  {
+    measure: text("measure").primaryKey(),
+    unitCost: numeric("unit_cost", { precision: 14, scale: 4 }).notNull(),
+    perUnits: integer("per_units").notNull().default(1),
+    currency: currency(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+  },
+  (t) => [
+    check("billing_unit_cost_per_units_check", sql`${t.perUnits} > 0`),
+    check("billing_unit_cost_nonnegative_check", sql`${t.unitCost} >= 0`),
+  ],
+);
+
+/**
+ * One day's usage report for a client and billing period: the period's credits through `day`, the
+ * allowance, the overage, and the increment sent to Stripe (`quantity`) under `identifier`, so a
+ * repeat of the day sends nothing. Immutable except status, error and sent_at; never deleted.
+ */
+export const billingUsageReport = pgTable(
+  "billing_usage_report",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** The billing period's first day (calendar months, UTC). */
+    period: date("period").notNull(),
+    day: date("day").notNull(),
+    /** Active client agents when reported; the allowance is theirs, pooled. */
+    agents: integer("agents").notNull(),
+    allowance: integer("allowance").notNull(),
+    /** Credits used in the period through `day` (each day rounded up). */
+    credits: integer("credits").notNull(),
+    overage: integer("overage").notNull(),
+    /** Overage credits sent with this report (the increment over earlier reports). */
+    quantity: integer("quantity").notNull(),
+    /** What the period's work cost us through `day`, as priced (operator only). */
+    costUsd: usd("cost_usd"),
+    currency: currency(),
+    /** The meter event's identifier and idempotency key: `<tenant>:<period>:<day>`. */
+    identifier: text("identifier").notNull(),
+    status: text("status").$type<(typeof BILLING_REPORT_STATUSES)[number]>().notNull(),
+    error: text("error"),
+    sentAt: ts("sent_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("billing_usage_report_day_key").on(t.tenantId, t.period, t.day),
+    index("billing_usage_report_tenant_idx").on(t.tenantId, t.period),
+    check("billing_usage_report_status_check", oneOf(t.status, BILLING_REPORT_STATUSES)),
+    check(
+      "billing_usage_report_counts_check",
+      sql`${t.quantity} >= 0 and ${t.overage} >= 0 and ${t.credits} >= 0 and ${t.allowance} >= 0`,
+    ),
+  ],
+);
+
+/** A Stripe webhook event, stored once per event id: invoice paid or failed, subscription changes. */
+export const billingEvent = pgTable(
+  "billing_event",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    stripeEventId: text("stripe_event_id").notNull().unique(),
+    type: text("type").notNull(),
+    /** The invoice or subscription id. */
+    objectId: text("object_id"),
+    /** What we read from it (status, amounts as decimal strings, links), not the whole event. */
+    summary: json("summary").notNull().default({}),
+    stripeCreatedAt: ts("stripe_created_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("billing_event_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+/**
+ * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
+ * forces row-level security on each; migrations.test.ts checks this list against the database.
+ */
+
 export const TENANT_TABLES = [
   "membership",
   "connection",
@@ -1357,6 +1483,8 @@ export const TENANT_TABLES = [
   "knowledge_entry",
   "knowledge_entry_version",
   "knowledge_chunk",
+  "billing_usage_report",
+  "billing_event",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

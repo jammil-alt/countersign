@@ -64,6 +64,13 @@
       "when": 1793770800000,
       "tag": "0008_voice_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793784485632,
+      "tag": "0009_billing",
+      "breakpoints": true
     }
   ]
 }
