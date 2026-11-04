@@ -133,7 +133,7 @@ export function hookRoutes(app: Hono<AppEnv>): void {
 
         const parsed = parseDelivery(headers["content-type"], text.text);
         if (!parsed.ok) throw refused(parsed);
-        const key = await deliveryKey(headers, bytes);
+        const key = await deliveryKey(headers, bytes, { signed: verified.signed });
         const externalId = `${hookId}:${key}`;
         const [stored] = await tx
           .insert(rawRecord)

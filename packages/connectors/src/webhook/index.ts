@@ -297,10 +297,17 @@ export function deliveryText(bytes: Uint8Array): { ok: true; text: string } | De
 // DECISION: without a key, two identical bodies to the same hook count as one delivery sent twice
 // (Zapier retries resend the same body). Senders that mean two events send two bodies, which in
 // practice differ (ids, timestamps), or an Idempotency-Key.
+// DECISION: a signed delivery's key is its signature, never the unsigned Idempotency-Key header:
+// otherwise a captured delivery could be replayed inside the signature's window with a new key and
+// start its workflows again (security review, 2026-11-04). The signature covers the timestamp and
+// the body, so a real retry carries the same one.
 export async function deliveryKey(
   headers: Record<string, string | undefined>,
   body: Uint8Array,
+  options: { signed?: boolean } = {},
 ): Promise<string> {
+  const signature = headers[SIGNATURE_HEADER]?.trim().toLowerCase();
+  if (options.signed && signature) return `sig:${signature.replace(/^sha256=/, "")}`;
   const given = (headers["idempotency-key"] ?? headers["x-idempotency-key"])?.trim();
   if (given && given.length <= 200 && /^[\x21-\x7e]+$/.test(given)) return `key:${given}`;
   return `sha256:${toHex(await sha256Bytes(body))}`;

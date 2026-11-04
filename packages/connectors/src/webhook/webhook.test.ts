@@ -191,6 +191,16 @@ describe("webhook connector", () => {
     expect(await deliveryKey({ "idempotency-key": "bad key with spaces" }, body)).toBe(h);
   });
 
+  it("keys a signed delivery by its signature, so a replay with a new Idempotency-Key is the same delivery", async () => {
+    const body = utf8('{"a":1}');
+    const signed = { "x-mezonas-signature": "sha256=ABCDEF0123", "idempotency-key": "first" };
+    const replay = { "x-mezonas-signature": "sha256=abcdef0123", "idempotency-key": "second" };
+    const key = await deliveryKey(signed, body, { signed: true });
+    expect(key).toBe("sig:abcdef0123");
+    expect(await deliveryKey(replay, body, { signed: true })).toBe(key);
+    expect(await deliveryKey({ "idempotency-key": "first" }, body, { signed: true })).not.toBe(key);
+  });
+
   it("sends an approved event once: JSON, Idempotency-Key, a signature the receiver can check", async () => {
     const receiver = fakeReceiver({ status: 200, body: { status: "success", id: "zap-1" } });
     const connector = createWebhookConnector({ fetch: receiver.fetch });
@@ -260,5 +270,16 @@ describe("webhook connector", () => {
     expect(checkPublicHttpsUrl("https://[2606:4700::1111]/x").ok).toBe(true);
     expect(checkPublicHttpsUrl("https://100.64.0.1/x").ok).toBe(false);
     expect(checkPublicHttpsUrl("https://[::ffff:10.0.0.1]/x").ok).toBe(false);
+    // IPv4 hidden inside IPv6: IPv4-compatible, NAT64, 6to4; and site-local and multicast.
+    for (const host of [
+      "[::127.0.0.1]",
+      "[::7f00:1]",
+      "[64:ff9b::a00:1]",
+      "[2002:a00:1::]",
+      "[fec0::1]",
+      "[ff02::1]",
+    ]) {
+      expect(checkPublicHttpsUrl(`https://${host}/x`).ok, host).toBe(false);
+    }
   });
 });

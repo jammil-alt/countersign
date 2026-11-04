@@ -157,9 +157,17 @@ function isPrivateIpv6(addr: string): boolean {
   if (a === "::" || a === "::1") return true;
   if (a.startsWith("fc") || a.startsWith("fd")) return true; // unique local
   if (/^fe[89ab]/.test(a)) return true; // link-local
+  if (/^fe[c-f]/.test(a)) return true; // site-local (deprecated)
+  if (a.startsWith("ff")) return true; // multicast
   if (a.startsWith("::ffff:")) {
     const v4 = a.slice(7);
     return v4.includes(".") ? isPrivateIpv4(v4) : true;
   }
+  // IPv4 hidden inside IPv6 (security review, 2026-11-04): IPv4-compatible (`[::127.0.0.1]`
+  // normalises to `::7f00:1`), NAT64 (64:ff9b::/96 and the local-use 64:ff9b:1::/48) and 6to4
+  // (2002::/16) can all point at a private IPv4 address, so none of them is called.
+  if (a.startsWith("::")) return true;
+  if (a.startsWith("64:ff9b:")) return true;
+  if (a.startsWith("2002:")) return true;
   return false;
 }
