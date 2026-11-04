@@ -136,6 +136,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
+- Needed by billing (stream J, 2026-11-04; wiring them into `deploy.yml` is the coordinator's), copied
+  like the API keys: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a restricted or secret key; test
+  mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the `whsec_…` signing secret of
+  the webhook endpoint `https://<domain>/api/billing/stripe/webhook`). Without the key billing is off;
+  without the webhook secret Stripe's events are refused. Allow `api.stripe.com` in the network if it is
+  restricted. Stripe set-up steps: `packages/connectors/src/stripe/NOTES.md`.
 
 ### GitHub summary
 

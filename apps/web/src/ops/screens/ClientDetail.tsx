@@ -15,6 +15,7 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
+import { ClientBillingSection } from "./ClientBilling";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 
 export function ClientDetailScreen() {
@@ -44,6 +45,7 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientBillingSection clientId={data.client.id} />
       <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );
