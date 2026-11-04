@@ -1,0 +1,7 @@
+{
+  "access_token": "1000.access.fixture-eu-2",
+  "scope": "ZohoCRM.modules.leads.READ ZohoCRM.modules.leads.CREATE ZohoCRM.org.READ",
+  "api_domain": "https://www.zohoapis.eu",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}

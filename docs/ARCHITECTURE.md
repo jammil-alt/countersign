@@ -173,7 +173,9 @@ In:
 - Connector framework (manifest: auth, synced entities, tools). Connectors: **QuickBooks Online**
   (sandbox + production; read sync plus write tools), **Gmail** (find invoices and receipts in a
   mailbox; drafts and labels as write tools), and **upload with email forwarding** (PDF/image
-  documents, CSV, forwarded emails)
+  documents, CSV, forwarded emails). Added by the owner, 2026-11-04: **webhooks** (in and out; works
+  with Zapier, Make and n8n; a published Zapier app later) and **Zoho CRM** (OAuth; read and write
+  tools; sync later) (§6.6, §6.7)
 - Documents capability: store originals, extract with Claude, validate, link to records
 - **Skills** (operator): built-in plus operator-written (no code), shared or for one client; versioned
 - **Templates** (operator): from scratch or the Builder; workflows in the **drag-and-drop builder**;
@@ -565,6 +567,55 @@ rule in their own mail (e.g. from `ap@`).
   and linked like uploads (vendor + total + date, with the sender domain as a vendor signal). Headers and
   subject are kept on the document; bodies are not stored. Email text is untrusted (§16).
 - Verify Email Workers' message size limits and MIME parsing (e.g. `postal-mime`) at the start of M2.
+
+### 6.6 Webhooks (owner, 2026-11-04)
+
+A generic connector (`webhook`, `auth: 'none'`) for Zapier, Make, n8n and anything else that can send
+or receive an HTTP POST. A published Zapier app (triggers and actions over the same endpoints) comes
+later; its plan is in `packages/connectors/src/webhook/NOTES.md`.
+
+- **In.** The client creates inbound hooks on its webhook connection in the portal (a name each). A hook's
+  URL is `POST /api/hooks/:clientId/:hookId` with a secret token (`?token=` or the `x-mezonas-token`
+  header), or an HMAC-SHA256 signature over `timestamp.body` (`x-mezonas-signature`,
+  `x-mezonas-timestamp`, five-minute window) for senders that can sign. Tokens are kept in the
+  connection's encrypted credentials and shown only in the client's portal; hook ids and names are in
+  `connection.config` so the operator can filter triggers on them. Tokens are compared in constant time.
+  A delivery is JSON or a form, at most 64 KB, at most 60 a minute per hook; it is stored once as
+  `raw_record(entity_type='Delivery')` keyed by the sender's `Idempotency-Key` (else the body's sha256),
+  so a resend is acknowledged and stored nothing, and emits **`webhook.received`** (connector event type,
+  §8) with the body as `data`. The body is untrusted data (invariant 9): it reaches steps only through
+  the trigger payload and tool inputs, never instructions.
+- **Out.** `webhook.event.send` (`external`, verb `create`, approval on by default) POSTs
+  `{ event, data, id, sentAt }` as JSON to the outbound URL the client pasted (its Zap's catch hook),
+  with `Idempotency-Key` (the external action's key) and an `x-mezonas-signature` HMAC under a signing
+  secret shown in the portal. Only `https` URLs to public hosts (no IP literals in private ranges, no
+  `localhost`/internal names), no redirects, 10-second timeout; the response status and the first 2 KB
+  of its body are the action's result. The outbound URL is in the encrypted credentials.
+- How-to for clients: `docs/connect-zapier.md`.
+
+### 6.7 Zoho CRM (owner, 2026-11-04)
+
+Connector `zoho_crm`, OAuth 2.0 (Zoho Accounts, multi data center). Facts checked and unchecked are in
+`packages/connectors/src/zoho_crm/NOTES.md`.
+
+- The client signs in from the portal. The authorization request goes to `accounts.zoho.com`
+  (`access_type=offline`, `prompt=consent`); the callback returns `location` and `accounts-server`. The
+  code is exchanged at that accounts server, only if it is a known Zoho accounts host; the token
+  response's `api_domain` is where every API call goes. Tokens, the accounts server and the API domain
+  are encrypted on the connection; the data center and API domain are also in `config`, the org id is
+  `external_account_id`. Access tokens last an hour and are refreshed (and persisted) before expiry or
+  on a 401; a refused refresh asks the client to reconnect. Disconnect revokes the refresh token.
+- Scopes: read, create and update for Leads, Contacts, Accounts, Deals, Notes and Tasks, plus org read.
+  No delete scope.
+- **Tools, read** (`none`): `zoho_crm.record.search` (criteria, email, phone or word, paged),
+  `zoho_crm.record.get`.
+- **Tools, write** (`external`, approval on by default): `zoho_crm.record.create`,
+  `zoho_crm.record.update` (before state: the record's current values of the fields it changes; refused
+  if the record changed since the agent read it, by `Modified_Time`), `zoho_crm.note.create`,
+  `zoho_crm.task.create`. Delete is off.
+- Sync of modules into `raw_record` and Zoho notifications are follow-ups; v1 is tools only.
+- Rate limits: credits per rolling 24 hours and concurrent-request caps by edition; a 429 fails the call
+  so the step retries with backoff.
 
 ## 7. Documents capability
 

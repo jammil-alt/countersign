@@ -70,4 +70,22 @@ describe("EventTypeRegistry", () => {
     r.registerPack("materials", [PACK_EVENT]);
     expect(() => r.registerPack("materials", [PACK_EVENT])).toThrow(/already registered/);
   });
+
+  it("adds connector types for every client, refusing ones outside the connector's name", () => {
+    const hook = { ...PACK_EVENT, type: "webhook.received", subjectType: "raw_record" };
+    const r = new EventTypeRegistry().registerConnector("webhook", [hook]);
+    expect(r.sourceOf("webhook.received")).toBe("connector:webhook");
+    expect(r.list([]).some((s) => s.type === "webhook.received")).toBe(true);
+    expect(r.parsePayload("webhook.received", { itemId: "a", pct: 1 })).toEqual({
+      itemId: "a",
+      pct: 1,
+    });
+    expect(() => r.registerConnector("webhook", [hook])).toThrow(/already registered/);
+    expect(() =>
+      new EventTypeRegistry().registerConnector("zoho_crm", [{ ...hook, type: "webhook.x" }]),
+    ).toThrow(/must start with/);
+    expect(() =>
+      new EventTypeRegistry().registerConnector("inbox", [{ ...hook, type: "inbox.resolved" }]),
+    ).toThrow(/platform event/);
+  });
 });

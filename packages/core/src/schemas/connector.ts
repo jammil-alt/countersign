@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EventTypeSpec } from "./event";
 import { PermissionMatrix } from "./permissions";
 import { ToolSpec } from "./tool";
 
@@ -15,6 +16,11 @@ export const ConnectorManifest = z
     tools: z.array(ToolSpec),
     /** The matrix a new connection starts with; the platform defaults otherwise. */
     defaultPermissions: PermissionMatrix.optional(),
+    /**
+     * Event types the connector emits (e.g. `webhook.received`), named `<connector id>.<...>`.
+     * They join the event catalogue for every client, like the platform's.
+     */
+    events: z.array(EventTypeSpec).optional(),
   })
   .superRefine((m, ctx) => {
     m.tools.forEach((t, i) => {
@@ -30,6 +36,15 @@ export const ConnectorManifest = z
           code: "custom",
           message: `tool ${t.id} names connector ${t.connector}, not ${m.id}`,
           path: ["tools", i, "connector"],
+        });
+      }
+    });
+    m.events?.forEach((e, i) => {
+      if (!e.type.startsWith(`${m.id}.`)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `event ${e.type} must start with "${m.id}."`,
+          path: ["events", i, "type"],
         });
       }
     });
