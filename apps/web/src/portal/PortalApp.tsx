@@ -51,8 +51,10 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
             <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
             {isAdmin ? (
-              <SidebarLink to="/knowledge" label="Knowledge" testId="portal-nav-knowledge" />
-              <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
+              <>
+                <SidebarLink to="/knowledge" label="Knowledge" testId="portal-nav-knowledge" />
+                <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
+              </>
             ) : null}
             {isAdmin ? (
               <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
