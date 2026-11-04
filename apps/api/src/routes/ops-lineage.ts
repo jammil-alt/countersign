@@ -99,7 +99,7 @@ function labels(...bundles: AgentBundle[]): Record<string, string> {
  * resolves them). Clients' snapshot copies of shared skills (`shared:<slug>`) are not offered:
  * the shared skill itself is. Only skills with a live version.
  */
-async function operatorSkills(
+export async function operatorSkills(
   ctx: Scope,
   tenantId: string | null,
 ): Promise<{ def: SkillDefinition; source: "client" | "shared"; version: number }[]> {

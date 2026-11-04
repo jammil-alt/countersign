@@ -21,6 +21,7 @@ import {
   withOperator,
   withTenant,
 } from "@countersign/db";
+import type { LlmTransport } from "@countersign/llm";
 import type { Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
@@ -37,6 +38,8 @@ export interface AppDeps {
   /** A database client for one request (or one job), and how to close it. */
   openDb(env: Bindings): { db: Db; close(): Promise<void> };
   instances(env: Bindings): RunInstances;
+  /** The Builder's model transport; default the Worker's live one (tests pass a FakeModel). */
+  llm?(env: Bindings): LlmTransport;
 }
 
 export const defaultDeps: AppDeps = {

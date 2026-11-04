@@ -399,6 +399,73 @@ export const BuilderCatalog = z.object({
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
+// ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
+
+/** A row of the skills library: built-in (code) or operator-written (rows, shared or one client's). */
+export const SkillListItem = z.object({
+  /** The `skill` row id; built-ins (no row) carry their skill id. */
+  id: z.string(),
+  /** The reference a bundle names it by (`docs.extract`, `custom:<slug>`). */
+  ref: z.string(),
+  name: z.string(),
+  description: z.string(),
+  category: z.string(),
+  source: z.enum(["builtin", "shared", "client"]),
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
+  status: z.string(),
+  liveVersion: z.number().int().nullable(),
+  latestVersion: z.number().int().nullable(),
+  latestStatus: z.string().nullable(),
+  /** Top-level fields of its input and output schemas: "in → out". */
+  inputs: z.array(z.string()),
+  outputs: z.array(z.string()),
+  tools: z.array(z.string()),
+  connectors: z.array(z.string()),
+  /** Agents (templates and client agents) whose live, else latest, version uses it. */
+  usedBy: z.number().int(),
+});
+export type SkillListItem = z.infer<typeof SkillListItem>;
+
+export const SkillVersionView = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  status: z.string(),
+  definition: SkillDefinition,
+  changeNote: z.string().nullable(),
+  authorId: z.string().nullable(),
+  parentVersionId: z.string().nullable(),
+  createdAt: Timestamp,
+});
+export type SkillVersionView = z.infer<typeof SkillVersionView>;
+
+export const SkillUse = z.object({
+  agentId: z.string(),
+  kind: z.enum(["template", "client"]),
+  slug: z.string(),
+  name: z.string(),
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
+  /** The reference as the agent names it (maybe pinned `@N`). */
+  ref: z.string(),
+  version: z.number().int(),
+});
+export type SkillUse = z.infer<typeof SkillUse>;
+
+const BuilderOutcome = z.object({
+  bundle: z.unknown(),
+  /** The Builder's own account of the draft, in plain words. */
+  summary: z.string(),
+  /** What it needs that doesn't exist (no skill, tool, connector or connection). */
+  gaps: z.array(z.string()),
+  /** Rules the server enforced on the model's answer. */
+  notes: z.array(z.string()),
+  /** What would still stop a publish. */
+  errors: z.array(ValidationErrorSchema),
+  /** USD, the model calls' cost (operator only). */
+  costUsd: z.string().nullable(),
+});
+
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
 const OPS = ["operator"] as const;
@@ -892,6 +959,118 @@ export const opsRoutes = {
       assigned: z.enum(["operator", "all"]).default("operator"),
     }),
     response: z.object({ items: z.array(OpsInboxItem), agents: z.array(OpsAgentRef) }),
+  }),
+  opsSkills: defineRoute({
+    method: "GET",
+    path: "/api/ops/skills",
+    auth: "session",
+    roles: OPS,
+    summary: "The skills library: built-in, shared and the clients' own skills, with used-by",
+    query: z.object({ client: ApiId.optional() }),
+    response: z.object({ skills: z.array(SkillListItem) }),
+  }),
+  opsCreateSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills",
+    auth: "session",
+    roles: OPS,
+    summary: "A new operator skill (shared, or for one client) with its v1 draft",
+    body: z.strictObject({
+      clientId: ApiId.optional(),
+      definition: z.unknown(),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ skill: SkillListItem, version: SkillVersionView }),
+  }),
+  opsSkill: defineRoute({
+    method: "GET",
+    path: "/api/ops/skills/:id",
+    auth: "session",
+    roles: OPS,
+    summary: "An operator skill with its versions and the agents that use it",
+    params: IdParams,
+    response: z.object({
+      skill: SkillListItem,
+      versions: z.array(SkillVersionView),
+      usedBy: z.array(SkillUse),
+    }),
+  }),
+  opsSaveSkillVersion: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/versions",
+    auth: "session",
+    roles: OPS,
+    summary: "Save a new draft version of an operator skill",
+    params: IdParams,
+    body: z.strictObject({
+      definition: z.unknown(),
+      parentVersionId: ApiId.optional(),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsPublishSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/versions/:vid/publish",
+    auth: "session",
+    roles: OPS,
+    summary: "Publish a skill version: agents that name the skill without a version use it",
+    params: z.object({ id: ApiId, vid: ApiId }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsRollbackSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/rollback",
+    auth: "session",
+    roles: OPS,
+    summary: "Roll a skill back: an older version copied as a new one and published",
+    params: IdParams,
+    body: z.strictObject({ versionId: ApiId }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsDraftAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/draft",
+    auth: "session",
+    roles: OPS,
+    summary: "The Builder drafts a new template (or a client agent) from a description",
+    body: z.strictObject({
+      description: z.string().trim().min(1).max(4000),
+      clientId: ApiId.optional(),
+      name: z.string().max(200).optional(),
+      role: z.string().max(200).optional(),
+    }),
+    response: BuilderOutcome.extend({
+      agent: AgentSummary,
+      version: VersionSummary,
+      /** A template that already does most of the job, when the Builder found one. */
+      startFromTemplate: z
+        .object({ id: z.string(), slug: z.string(), name: z.string() })
+        .nullable(),
+    }),
+  }),
+  opsReviseAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/revise",
+    auth: "session",
+    roles: OPS,
+    summary: "The Builder revises an agent from an instruction or a client's request",
+    params: IdParams,
+    body: z
+      .strictObject({
+        instruction: z.string().trim().min(1).max(4000).optional(),
+        /** Default: the agent's latest version. */
+        fromVersionId: ApiId.optional(),
+        /** A client's change request handed to the Builder. */
+        requestId: ApiId.optional(),
+      })
+      .refine((b) => b.instruction !== undefined || b.requestId !== undefined, {
+        message: "give an instruction or a request",
+      }),
+    response: BuilderOutcome.extend({
+      version: VersionSummary,
+      diff: BundleDiff,
+    }),
   }),
   opsResolveInbox: defineRoute({
     method: "POST",

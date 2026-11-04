@@ -12,6 +12,7 @@ import {
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import { appUser, connection, createDb, type Db, membership, tenant } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
+import type { LlmTransport } from "@countersign/llm";
 import type { Hono } from "hono";
 import { createApp } from "./app";
 import type { Bindings } from "./env";
@@ -94,7 +95,9 @@ async function addClient(
 }
 
 /** null when no database is reachable (the tests then skip). */
-export async function createApiHarness(): Promise<ApiHarness | null> {
+export async function createApiHarness(
+  options: { llm?: LlmTransport } = {},
+): Promise<ApiHarness | null> {
   const t = await createTestDatabase();
   if (!t) return null;
   const db = createDb(workerUrl(t.url), { max: 4 });
@@ -112,6 +115,7 @@ export async function createApiHarness(): Promise<ApiHarness | null> {
     platform: () => platform,
     openDb: () => ({ db, close: async () => {} }),
     instances: () => instances,
+    ...(options.llm ? { llm: () => options.llm as LlmTransport } : {}),
   });
   const env = { ENVIRONMENT: "development", AUTH_PROVIDER: "dev" } as unknown as Bindings;
   const pending: Promise<unknown>[] = [];

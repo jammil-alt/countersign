@@ -201,7 +201,7 @@ export async function boundMatrices(
 /** Validates a version's bundle as it would be published (client agents: against their bindings). */
 export async function validateForPublish(
   tx: Tx,
-  row: AgentRow,
+  row: Pick<AgentRow, "tenantId" | "kind" | "bindings">,
   bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<ValidationError[]> {
