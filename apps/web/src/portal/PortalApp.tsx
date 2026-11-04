@@ -9,6 +9,7 @@ import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
 import { PortalConnectionsScreen } from "./screens/Connections";
 import { PortalInboxScreen } from "./screens/Inbox";
+import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
@@ -62,6 +63,7 @@ export function PortalApp() {
         <Route path="runs/:id" element={<PortalRunScreen />} />
         <Route path="reports/*" element={<Placeholder title="Reports" />} />
         <Route path="connections" element={<PortalConnectionsScreen />} />
+        <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="requests" element={<Placeholder title="Requests" />} />
         <Route path="settings" element={<Placeholder title="Settings" />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />

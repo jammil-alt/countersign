@@ -646,8 +646,9 @@ behind.
 Platform event types: `transaction.created`, `transaction.updated`, `document.received`,
 `document.extracted`, `document.extraction_failed`, `inbox.resolved`, `external_action.done`,
 `external_action.failed`, `alert.raised`, `schedule.tick`. Packs declare their own
-(`materials.line.matched`, `materials.price.changed`, ...). The builder's trigger picker lists the event
-types available to the tenant (platform + enabled packs), each with a sample payload.
+(`materials.line.matched`, `materials.price.changed`, ...). Connectors may declare their own too
+(`webhook.received`, §6.6), listed for every client. The builder's trigger picker lists the event
+types available to the tenant (platform + connectors + enabled packs), each with a sample payload.
 
 ---
 

@@ -217,12 +217,6 @@ describe.skipIf(!h)("agent pages API", () => {
       const forTemplate = await H.call(OPERATOR, "GET", `/api/ops/agents/${templateId}/skills`);
       expect(forTemplate.status, JSON.stringify(forTemplate.json)).toBe(200);
       expect(j(forTemplate.json).skills).toEqual([
-        // Every connector read tool is a built-in tool-mode skill (platform.ts).
-        expect.objectContaining({
-          id: "testkit.record.query",
-          source: "builtin",
-          category: "Testkit",
-        }),
         expect.objectContaining({
           id: "custom:price-watch",
           name: "Price watch",
@@ -233,20 +227,26 @@ describe.skipIf(!h)("agent pages API", () => {
             expect.objectContaining({ key: "vendors", clientSpecific: true }),
           ],
         }),
-      ]);
-      // Client A's own skill of the same slug wins for A's agents.
-      const forA = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/skills`);
-      expect(j(forA.json).skills).toEqual([
         // Every connector read tool is a built-in tool-mode skill (platform.ts).
         expect.objectContaining({
           id: "testkit.record.query",
           source: "builtin",
           category: "Testkit",
         }),
+      ]);
+      // Client A's own skill of the same slug wins for A's agents.
+      const forA = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/skills`);
+      expect(j(forA.json).skills).toEqual([
         expect.objectContaining({
           id: "custom:price-watch",
           name: "Price watch for A",
           source: "client",
+        }),
+        // Every connector read tool is a built-in tool-mode skill (platform.ts).
+        expect.objectContaining({
+          id: "testkit.record.query",
+          source: "builtin",
+          category: "Testkit",
         }),
       ]);
     });
@@ -256,11 +256,6 @@ describe.skipIf(!h)("agent pages API", () => {
       expect(res.status, JSON.stringify(res.json)).toBe(200);
       const catalog = j(res.json);
       expect(catalog.skills).toEqual([
-        expect.objectContaining({
-          ref: "testkit.record.query",
-          source: "builtin",
-          definition: expect.objectContaining({ mode: "tool", handler: "testkit.record.query" }),
-        }),
         expect.objectContaining({
           ref: "custom:price-watch",
           source: "client",
@@ -273,9 +268,14 @@ describe.skipIf(!h)("agent pages API", () => {
             output: { type: "object" },
           }),
         }),
+        expect.objectContaining({
+          ref: "testkit.record.query",
+          source: "builtin",
+          definition: expect.objectContaining({ mode: "tool", handler: "testkit.record.query" }),
+        }),
       ]);
       // Prompts stay with the skill: the builder never needs them.
-      expect(catalog.skills[1].definition.instructions).toBeUndefined();
+      expect(catalog.skills[0].definition.instructions).toBeUndefined();
       const update = catalog.tools.find((t: { id: string }) => t.id === "testkit.record.update");
       expect(update).toMatchObject({
         sideEffect: "external",

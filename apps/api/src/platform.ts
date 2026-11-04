@@ -40,6 +40,13 @@ export interface PlatformOptions {
  */
 // DECISION: read tools become skills here, generated from their specs (same id, input and output),
 // rather than each connector shipping skill definitions; writes stay action steps behind approval.
+/** `zoho_crm.record.search` → "Search record", like the builder names actions. */
+function readSkillName(toolId: string): string {
+  const [entity = "", verb = ""] = toolId.split(".").slice(-2);
+  const words = `${verb} ${entity}`.replace(/[_-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinition[] {
   return connectors.list().flatMap((c) =>
     c.manifest.tools
@@ -48,7 +55,7 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
         SkillDefinition.parse({
           schemaVersion: 1,
           id: t.id,
-          name: t.description.split(/[.(]/)[0]?.trim() || t.id,
+          name: readSkillName(t.id),
           description: t.description,
           category: c.manifest.name,
           mode: "tool",

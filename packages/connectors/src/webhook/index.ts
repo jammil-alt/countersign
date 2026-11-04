@@ -359,8 +359,7 @@ export function createWebhookConnector(options: WebhookConnectorOptions = {}): C
   return defineConnector({
     id: WEBHOOK_CONNECTOR_ID,
     name: "Webhooks",
-    description:
-      "Send events to Zapier, Make or n8n, and start work from them. You make the hooks here and paste their URLs into your Zap.",
+    description: "Send events to Zapier, Make or n8n, and start work from the events they send.",
     icon: "webhook",
     auth: "none",
     entities: [WEBHOOK_DELIVERY_ENTITY],

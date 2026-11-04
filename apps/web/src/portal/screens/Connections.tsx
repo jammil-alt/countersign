@@ -8,6 +8,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
+import { WebhookSetup } from "../../connections/WebhookSetup";
 import { shortTime } from "../../runs/format";
 import { useSession } from "../../session/session";
 import {
@@ -88,6 +89,16 @@ export function PortalConnectionsScreen() {
               </div>
             )}
           </section>
+
+          {/* DECISION: the webhook connector's setup (hooks, outbound URL) is its own panel here,
+              named by connector id; a generic per-connector setup schema waits for a second case. */}
+          {isAdmin
+            ? connected
+                .filter((c) => c.connector === "webhook" && c.connection)
+                .map((c) => (
+                  <WebhookSetup key={c.connector} connectionId={c.connection?.id ?? ""} />
+                ))
+            : null}
 
           {withRows.length > 0 ? (
             <MatrixTable
