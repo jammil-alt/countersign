@@ -1,0 +1,191 @@
+{
+  "description": "Cabinet hardware by brand and model. Pack size converts the unit and is not part of the item.",
+  "pairs": [
+    {
+      "a": "BLUM 71B3550 CLIP TOP HINGE 110 DEG",
+      "b": "Blum Clip Top 110 deg Hinge 71B3550 BX/50",
+      "label": "same",
+      "note": "pack size differs only"
+    },
+    {
+      "a": "BLUM 71B3550 CLIP TOP HINGE",
+      "b": "BLUM 71B-3550 HINGE",
+      "label": "same",
+      "note": "dashed model"
+    },
+    {
+      "a": "BLUM 71B3550 CLIP TOP HINGE",
+      "b": "BLUM 71B3590 CLIP TOP HINGE",
+      "label": "different",
+      "note": "3550 vs 3590"
+    },
+    {
+      "a": "BLUM 71B3550 CLIP TOP HINGE",
+      "b": "BLUM 71T3550 CLIP TOP HINGE",
+      "label": "different",
+      "note": "71B vs 71T"
+    },
+    {
+      "a": "BLUM 173L6100 MOUNTING PLATE",
+      "b": "BLUM 173L6100 PLATE 0MM",
+      "label": "same",
+      "note": "plate"
+    },
+    {
+      "a": "BLUM 173L6100 MOUNTING PLATE",
+      "b": "BLUM 173L6130 MOUNTING PLATE",
+      "label": "different",
+      "note": "0mm vs 3mm plate"
+    },
+    {
+      "a": "BLUM TANDEM 563H5330B 21IN SLIDE",
+      "b": "BLUM 563H5330B TANDEM 21\" SLIDE SET",
+      "label": "same",
+      "note": "inch mark"
+    },
+    {
+      "a": "BLUM TANDEM 563H5330B 21IN SLIDE",
+      "b": "BLUM TANDEM 563H4570B 18IN SLIDE",
+      "label": "different",
+      "note": "21 vs 18 inch"
+    },
+    {
+      "a": "BLUM TANDEM 563H5330B 21IN SLIDE",
+      "b": "BLUM TANDEM 569H5330B 21IN SLIDE",
+      "label": "different",
+      "note": "563 vs 569 series"
+    },
+    {
+      "a": "ACCURIDE 3832 22IN FULL EXT SLIDE",
+      "b": "ACCURIDE 3832 FULL EXTENSION SLIDE 22\"",
+      "label": "same",
+      "note": "full ext"
+    },
+    {
+      "a": "ACCURIDE 3832 22IN FULL EXT SLIDE",
+      "b": "ACCURIDE 3832 20IN FULL EXT SLIDE",
+      "label": "different",
+      "note": "22 vs 20 inch"
+    },
+    {
+      "a": "ACCURIDE 3832 22IN FULL EXT SLIDE",
+      "b": "ACCURIDE 3832EC 22IN FULL EXT SLIDE",
+      "label": "different",
+      "note": "3832 vs 3832EC easy close"
+    },
+    {
+      "a": "KV 8800 22\" SLIDE",
+      "b": "KNAPE & VOGT 8800 22IN SLIDE",
+      "label": "same",
+      "note": "KV"
+    },
+    {
+      "a": "KV 8800 22\" SLIDE",
+      "b": "KV 8400 22\" SLIDE",
+      "label": "different",
+      "note": "8800 vs 8400"
+    },
+    {
+      "a": "AMEROCK BP53010SN PULL 3IN SATIN NICKEL",
+      "b": "AMEROCK BP53010SN 3\" PULL SN",
+      "label": "same",
+      "note": "SN"
+    },
+    {
+      "a": "AMEROCK BP53010SN PULL 3IN SATIN NICKEL",
+      "b": "AMEROCK BP53010ORB PULL 3IN OIL RUBBED BRONZE",
+      "label": "different",
+      "note": "satin nickel vs ORB"
+    },
+    {
+      "a": "AMEROCK BP53010SN PULL 3IN SATIN NICKEL",
+      "b": "AMEROCK BP53011SN PULL 96MM SATIN NICKEL",
+      "label": "different",
+      "note": "model and size"
+    },
+    {
+      "a": "TOP KNOBS M1234 PULL 128MM ORB",
+      "b": "TOP KNOBS M1234 128MM PULL OIL RUBBED BRONZE",
+      "label": "same",
+      "note": "ORB"
+    },
+    {
+      "a": "TOP KNOBS M1234 PULL 128MM ORB",
+      "b": "TOP KNOBS M1234 PULL 128MM POLISHED CHROME",
+      "label": "different",
+      "note": "ORB vs chrome"
+    },
+    {
+      "a": "TOP KNOBS M1234 PULL 128MM ORB",
+      "b": "TOP KNOBS M1234 PULL 160MM ORB",
+      "label": "different",
+      "note": "128 vs 160 mm"
+    },
+    {
+      "a": "SALICE C2A7A99 HINGE",
+      "b": "SALICE C2A7A99 110 DEG HINGE BX/100",
+      "label": "same",
+      "note": "pack size"
+    },
+    {
+      "a": "SALICE C2A7A99 HINGE",
+      "b": "SALICE C2A6A99 HINGE",
+      "label": "different",
+      "note": "C2A7 vs C2A6"
+    },
+    {
+      "a": "HETTICH 9071205 SENSYS HINGE",
+      "b": "HETTICH SENSYS 9071205 HINGE PR",
+      "label": "same",
+      "note": "pair"
+    },
+    {
+      "a": "HETTICH 9071205 SENSYS HINGE",
+      "b": "HETTICH 9071206 SENSYS HINGE",
+      "label": "different",
+      "note": "1205 vs 1206"
+    },
+    {
+      "a": "GRASS TIOMOS M9 F028138141228 HINGE",
+      "b": "GRASS F028138141228 TIOMOS HINGE",
+      "label": "same",
+      "note": "same part; the parser reads M9 as the model on one side"
+    },
+    {
+      "a": "BLUM 71B3550 CLIP TOP HINGE",
+      "b": "SALICE 71B3550 HINGE",
+      "label": "different",
+      "note": "brand differs"
+    },
+    {
+      "a": "RICHELIEU BP8812896195 PULL 128MM BLACK",
+      "b": "RICHELIEU BP8812896195 128MM PULL MATTE BLACK",
+      "label": "same",
+      "note": "same part; black vs matte black is spelling"
+    },
+    {
+      "a": "RICHELIEU BP8812896195 PULL 128MM BLACK",
+      "b": "RICHELIEU BP8812896195 PULL 128MM BLACK 10PK",
+      "label": "same",
+      "note": "pack"
+    },
+    {
+      "a": "KREG SML-C125 POCKET SCREW 1-1/4 COARSE 500PK",
+      "b": "KREG SML-C125-500 POCKET SCREWS",
+      "label": "same",
+      "note": "same screw; the SKU carries the pack size"
+    },
+    {
+      "a": "KREG SML-C125 POCKET SCREW 1-1/4 COARSE",
+      "b": "KREG SMLC125 POCKET SCREW 100PK",
+      "label": "same",
+      "note": "model without dash"
+    },
+    {
+      "a": "BLUM 71B3550 CLIP TOP HINGE",
+      "b": "71B3550 CLIP TOP HINGE",
+      "label": "same",
+      "note": "brand unstated"
+    }
+  ]
+}
