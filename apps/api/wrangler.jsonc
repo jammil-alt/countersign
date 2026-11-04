@@ -65,8 +65,8 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "AUTH_PROVIDER": "workos",
-        // PLACEHOLDER: the staging WorkOS client id, set when WorkOS is provisioned.
-        "WORKOS_CLIENT_ID": "",
+        // WorkOS "Mezonas Staging" app, Staging environment. Client ids are not secrets.
+        "WORKOS_CLIENT_ID": "client_01M6HNS5BGAXTK0TK2A1RRGWGP",
         "APP_ORIGIN": "https://staging.mezonas.com",
         "LLM_MODE": "live"
       }
