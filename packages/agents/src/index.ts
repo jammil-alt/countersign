@@ -4,6 +4,9 @@
 // Only src/registry/ and src/log/ import @countersign/db (CLAUDE.md invariant 2): the runtime reaches
 // storage through the ports in src/runtime/ports.ts, and agent reasoning reaches data only through tools.
 
+export * from "./builder/builder";
+export * from "./builder/context";
+export * from "./builder/guards";
 export * from "./errors";
 export * from "./log/documents-port";
 export * from "./log/external-actions";

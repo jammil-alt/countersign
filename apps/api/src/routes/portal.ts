@@ -169,7 +169,7 @@ export async function portalConnections(
   const agents = await tx
     .select()
     .from(agent)
-    .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client")));
+    .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.status, "active")));
   const usedBy = (c: ConnectionRow) =>
     agents
       .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))

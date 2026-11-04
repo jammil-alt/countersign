@@ -9,6 +9,7 @@ import {
   createClientAgent,
   createTemplate,
   createVersion,
+  discardDraft,
   fork,
   getAgent,
   getVersion,
@@ -18,6 +19,7 @@ import {
   type OperationalPatch,
   pause,
   publish,
+  restoreAgent,
   rollback,
   skillContext,
   snapshotSharedSkills,
@@ -92,8 +94,10 @@ const defined = <T extends object>(o: T): Defined<T> =>
   Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Defined<T>;
 
 export function opsAgentRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.opsTemplates, async ({ tx }) => ({
-    templates: (await listTemplates(tx)).map(agentSummary),
+  mount(app, routes.opsTemplates, async ({ tx, query }) => ({
+    templates: (await listTemplates(tx, { discarded: query.include === "discarded" })).map(
+      agentSummary,
+    ),
   }));
 
   mount(app, routes.opsCreateTemplate, async ({ tx, body, session }) => {
@@ -129,7 +133,10 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsClientAgents, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return { agents: (await listClientAgents(ctx.tx, ctx.params.id)).map(agentSummary) };
+    const agents = await listClientAgents(ctx.tx, ctx.params.id, {
+      discarded: ctx.query.include === "discarded",
+    });
+    return { agents: agents.map(agentSummary) };
   });
 
   mount(app, routes.opsCreateClientAgent, async (ctx) => {
@@ -256,6 +263,18 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       ctx: ctx.services.platform.ctx,
     });
     return { agent: agentSummary(updated) };
+  });
+
+  mount(app, routes.opsDiscardAgent, async (ctx) => {
+    const row = await agentInScope(ctx, ctx.params.id);
+    const actorId = ctx.session.user.id;
+    return { agent: agentSummary(await discardDraft(ctx.tx, { agentId: row.id, actorId })) };
+  });
+
+  mount(app, routes.opsRestoreAgent, async (ctx) => {
+    const row = await agentInScope(ctx, ctx.params.id);
+    const actorId = ctx.session.user.id;
+    return { agent: agentSummary(await restoreAgent(ctx.tx, { agentId: row.id, actorId })) };
   });
 
   mount(app, routes.opsPause, async (ctx) => {

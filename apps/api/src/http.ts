@@ -41,6 +41,8 @@ export interface AppDeps {
   /** A database client for one request (or one job), and how to close it. */
   openDb(env: Bindings): { db: Db; close(): Promise<void> };
   instances(env: Bindings): RunInstances;
+  /** The Builder's model transport; default the Worker's live one (tests pass a FakeModel). */
+  llm?(env: Bindings): LlmTransport;
   /** Object storage for originals: the R2 binding; memory in tests. */
   objects(env: Bindings): ObjectStore;
   /**

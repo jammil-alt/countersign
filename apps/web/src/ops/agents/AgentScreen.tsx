@@ -1,11 +1,19 @@
 // One agent page for templates and client agents (design screen 7; ARCHITECTURE §15): header with
 // the live/draft badges, tabs Overview, Workflow, Runs, Versions and Settings. Client agents add
 // their operation (bindings, approver, service, activate/pause/retire) to Settings and lineage to
-// Versions; templates show "Used by". `?version=N` shows an older version on the bundle tabs.
+// Versions; templates show "Used by". `/revise` asks the Builder for a new draft. `?version=N` shows an older version on the bundle tabs.
 import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useState } from "react";
-import { Link, Navigate, Route, Routes, useMatch, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useMatch,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
@@ -24,7 +32,9 @@ import {
 import type { Member } from "../builder/Inspector";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
 import { StepList } from "../workflow/StepList";
+import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
+import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
 import { OperationPanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
 import { Notice, notifyAgentsChanged } from "./ui";
@@ -50,6 +60,7 @@ export function AgentScreen({
   members?: readonly Member[];
 }) {
   const [search] = useSearchParams();
+  const navigate = useNavigate();
   const builder = useMatch(`${base}/workflows/:workflow`);
   const workflowTab = useMatch(`${base}/workflow`);
   const agent = useApi(apiRoutes.opsAgent, { params: { id: agentId } });
@@ -171,21 +182,48 @@ export function AgentScreen({
             ))}
             {view.kind === "template" ? <Badge tone="accent">Template</Badge> : null}
             {view.testCopy ? <Badge tone="neutral">Test copy</Badge> : null}
+            {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
           </span>
         }
         subtitle={[view.role, bundle?.definition.identity.mission].filter(Boolean).join(" · ")}
         actions={
-          firstWorkflow ? (
-            <Link
-              to={`${base}/workflows/${latestBundle?.workflows.some((w) => w.slug === firstWorkflow) ? firstWorkflow : builderStart}`}
-              className={buttonClass("secondary")}
-              data-testid="agent-edit-workflow"
-            >
-              Edit workflow
-            </Link>
-          ) : null
+          <span className="flex flex-wrap items-center justify-end gap-2">
+            {canDiscard(view) ? (
+              <DiscardButton
+                agent={view}
+                onDiscarded={() =>
+                  navigate(
+                    view.kind === "template" ? "/ops/templates" : `/ops/clients/${view.tenantId}`,
+                  )
+                }
+              />
+            ) : null}
+            {latestBundle && !view.testCopy && view.status === "active" ? (
+              <Link
+                to={`${base}/revise`}
+                className={buttonClass("secondary")}
+                data-testid="agent-revise"
+              >
+                Revise with the Builder
+              </Link>
+            ) : null}
+            {firstWorkflow ? (
+              <Link
+                to={`${base}/workflows/${latestBundle?.workflows.some((w) => w.slug === firstWorkflow) ? firstWorkflow : builderStart}`}
+                className={buttonClass("secondary")}
+                data-testid="agent-edit-workflow"
+              >
+                Edit workflow
+              </Link>
+            ) : null}
+          </span>
         }
       />
+      {view.status === "disabled" ? (
+        <div className="mb-4">
+          <DiscardedNotice agent={view} onRestored={reload} />
+        </div>
+      ) : null}
       {tabs}
       <div className="pt-6">
         {shown && shown.id !== live?.id ? (
@@ -218,6 +256,17 @@ export function AgentScreen({
               ) : (
                 <Navigate to={`${base}/workflows/${builderStart}`} replace />
               ))
+            }
+          />
+          <Route
+            path="revise"
+            element={
+              <ReviseTab
+                agent={view}
+                base={base}
+                latestVersion={agent.data.latest?.version ?? null}
+                onChanged={reload}
+              />
             }
           />
           <Route

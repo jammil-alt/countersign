@@ -102,7 +102,9 @@ async function addClient(
 }
 
 /** null when no database is reachable (the tests then skip). */
-export async function createApiHarness(): Promise<ApiHarness | null> {
+export async function createApiHarness(
+  options: { llm?: LlmTransport } = {},
+): Promise<ApiHarness | null> {
   const t = await createTestDatabase();
   if (!t) return null;
   const db = createDb(workerUrl(t.url), { max: 4 });
@@ -126,6 +128,7 @@ export async function createApiHarness(): Promise<ApiHarness | null> {
     platform: () => platform,
     openDb: () => ({ db, close: async () => {} }),
     instances: () => instances,
+    ...(options.llm ? { llm: () => options.llm as LlmTransport } : {}),
     objects: () => objects,
     extractionTransport: () => extraction.transport,
   });

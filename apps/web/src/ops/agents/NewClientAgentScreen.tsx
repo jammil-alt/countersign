@@ -1,10 +1,11 @@
 // `/ops/clients/:clientId/agents/new` (design screen 4; ARCHITECTURE §9.3 "Forking"): a client
 // agent from a template version (fork: ids and base version kept), from scratch, or copied from
-// another client's agent (its live bundle without that client's values or bindings). The Builder's
-// "my description" option is shown, not built yet.
+// another client's agent (its live bundle without that client's values or bindings), or drafted by
+// the Builder from a description ("my description").
 import type { AgentBundle } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { useSession } from "../../session/session";
@@ -18,6 +19,7 @@ import {
   SectionLabel,
 } from "../../ui/primitives";
 import { parseBundle } from "../versions";
+import { BuilderDescribe, BuilderDraftResult } from "./BuilderParts";
 import {
   blankBundle,
   DEFAULT_MODEL,
@@ -46,7 +48,11 @@ import {
   useAction,
 } from "./ui";
 
-type Start = { kind: "blank" } | { kind: "template"; id: string } | { kind: "copy" };
+type Start =
+  | { kind: "builder" }
+  | { kind: "blank" }
+  | { kind: "template"; id: string }
+  | { kind: "copy" };
 
 export function NewClientAgentScreen() {
   const { clientId = "" } = useParams();
@@ -70,6 +76,7 @@ export function NewClientAgentScreen() {
   const [copyClient, setCopyClient] = useState("");
   const [copyAgent, setCopyAgent] = useState("");
   const [touched, setTouched] = useState(false);
+  const [draft, setDraft] = useState<ResponseOf<typeof apiRoutes.opsDraftAgent> | null>(null);
   const action = useAction();
 
   const template =
@@ -140,6 +147,68 @@ export function NewClientAgentScreen() {
     action.clear();
   };
 
+  const startCard = (
+    <Card className="p-5">
+      <SectionLabel>Start from</SectionLabel>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2" data-testid="new-agent-start">
+        <BuilderOption
+          selected={start.kind === "builder"}
+          onSelect={() => choose({ kind: "builder" })}
+        />
+        <StartOption
+          selected={start.kind === "blank"}
+          title="Blank workflow"
+          text="Start empty and add skills, actions and people yourself."
+          onSelect={() => choose({ kind: "blank" })}
+          testId="new-agent-start-blank"
+        />
+        {templates.data?.templates.map((t) => (
+          <StartOption
+            key={t.id}
+            selected={start.kind === "template" && start.id === t.id}
+            title={`Template · ${t.name}`}
+            text={t.role ?? "A template"}
+            onSelect={() => choose({ kind: "template", id: t.id })}
+            testId={`new-agent-start-template-${t.slug}`}
+          />
+        ))}
+        {otherClients.length > 0 ? (
+          <StartOption
+            selected={start.kind === "copy"}
+            title="Another client's agent"
+            text="Copied without that client's settings, records or connections."
+            onSelect={() => choose({ kind: "copy" })}
+            testId="new-agent-start-copy"
+          />
+        ) : null}
+      </div>
+      {templates.error ? (
+        <div className="mt-3">
+          <ErrorNotice error={templates.error} onRetry={templates.reload} />
+        </div>
+      ) : null}
+    </Card>
+  );
+
+  if (start.kind === "builder") {
+    return (
+      <div>
+        <PageHeader
+          title="New agent"
+          subtitle={`An agent for ${client.data.client.name}. Say what the job is and the Builder drafts a starting workflow from what it has connected.`}
+          actions={<Stepper />}
+        />
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="flex flex-col gap-5">
+            {startCard}
+            <BuilderDescribe clientId={clientId} onDrafted={setDraft} />
+          </div>
+          <BuilderDraftResult draft={draft} />
+        </div>
+      </div>
+    );
+  }
+
   async function create() {
     setTouched(true);
     if (Object.keys(errors).length > 0) return;
@@ -182,43 +251,7 @@ export function NewClientAgentScreen() {
       />
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="flex flex-col gap-5">
-          <Card className="p-5">
-            <SectionLabel>Start from</SectionLabel>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2" data-testid="new-agent-start">
-              <BuilderOption />
-              <StartOption
-                selected={start.kind === "blank"}
-                title="Blank workflow"
-                text="Start empty and add skills, actions and people yourself."
-                onSelect={() => choose({ kind: "blank" })}
-                testId="new-agent-start-blank"
-              />
-              {templates.data?.templates.map((t) => (
-                <StartOption
-                  key={t.id}
-                  selected={start.kind === "template" && start.id === t.id}
-                  title={`Template · ${t.name}`}
-                  text={t.role ?? "A template"}
-                  onSelect={() => choose({ kind: "template", id: t.id })}
-                  testId={`new-agent-start-template-${t.slug}`}
-                />
-              ))}
-              {otherClients.length > 0 ? (
-                <StartOption
-                  selected={start.kind === "copy"}
-                  title="Another client's agent"
-                  text="Copied without that client's settings, records or connections."
-                  onSelect={() => choose({ kind: "copy" })}
-                  testId="new-agent-start-copy"
-                />
-              ) : null}
-            </div>
-            {templates.error ? (
-              <div className="mt-3">
-                <ErrorNotice error={templates.error} onRetry={templates.reload} />
-              </div>
-            ) : null}
-          </Card>
+          {startCard}
 
           {start.kind === "blank" ? (
             <Card className="p-5">

@@ -8,9 +8,11 @@ import { type AppDeps, type AppEnv, defaultDeps, errorResponse, requestState } f
 import { connectionRoutes } from "./routes/connections";
 import { documentRoutes } from "./routes/documents";
 import { opsAgentRoutes } from "./routes/ops-agents";
+import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
+import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
 import { sessionRoutes } from "./routes/session";
 import { cronTick } from "./runs/dispatch";
@@ -24,6 +26,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsClientRoutes(app);
   opsAgentRoutes(app);
   opsLineageRoutes(app);
+  opsSkillRoutes(app);
+  opsBuilderRoutes(app);
   opsMergeRoutes(app);
   portalRouteHandlers(app);
   connectionRoutes(app);
