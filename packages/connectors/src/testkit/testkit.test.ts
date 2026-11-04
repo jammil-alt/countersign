@@ -11,6 +11,7 @@ import {
   createTestkitConnector,
   StaleRecordError,
   TESTKIT_QUERY_TOOL,
+  TESTKIT_SAMPLE_RECORDS,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "./index";
@@ -386,5 +387,16 @@ describe("connection status", () => {
       ctx({ status: "pending" }).context,
     );
     expect(ok.output).toMatchObject({ records: [{ id: "r1" }, { id: "r2" }] });
+  });
+});
+
+describe("sample records", () => {
+  it("start every connection with its own copy, so one connection's writes stay its own", () => {
+    const backend = new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS });
+    expect(backend.query("conn-a", {}).map((r) => r.id)).toEqual(["R-1001", "R-1002", "R-1003"]);
+    backend.update("conn-a", "key-1", { id: "R-1001", amount: "70.0000" });
+    expect(backend.get("conn-a", "R-1001")).toMatchObject({ amount: "70.0000", syncToken: "1" });
+    expect(backend.get("conn-b", "R-1001")).toMatchObject({ amount: "64.0000", syncToken: "0" });
+    expect(new TestkitBackend().query("conn-a", {})).toEqual([]);
   });
 });

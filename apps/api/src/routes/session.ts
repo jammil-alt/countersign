@@ -48,12 +48,21 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
     }
   });
 
+  // Which sign-in the sign-in page shows: WorkOS on deployed environments, the dev adapter locally.
+  mountPublic(app, routes.authProvider, ({ services }) => {
+    const choice = services.auth();
+    if (!choice.ok) return { provider: "unavailable" as const, message: choice.refusal.message };
+    return { provider: choice.workos ? ("workos" as const) : ("dev" as const), message: null };
+  });
+
   // WorkOS: start sign-in. With the dev adapter, sign in with POST /api/auth/dev/sign-in.
+  // Both WorkOS routes are full-page navigations, so a failure goes back to the sign-in page with
+  // a short code it turns into words, never a JSON body in the browser.
+  // DECISION: only a code travels in the URL (never message text), so the page can't be made to
+  // show words of someone else's choosing.
   app.get("/api/auth/sign-in", async (c) => {
     const choice = c.get("req").services().auth();
-    if (!choice.ok) {
-      return c.json({ error: { code: choice.refusal.code, message: choice.refusal.message } }, 503);
-    }
+    if (!choice.ok) return c.redirect(signInFailure(choice.refusal.code), 302);
     if (!choice.workos) {
       return c.json(
         { error: { code: "dev_sign_in", message: "use POST /api/auth/dev/sign-in locally" } },
@@ -64,7 +73,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       { returnTo: c.req.query("return_to") ?? null },
       new Date(),
     );
-    if (!r.ok) return c.json({ error: { code: r.code, message: r.message } }, r.status);
+    if (!r.ok) return c.redirect(signInFailure(r.code), 302);
     sendCookies(c, r.setCookies);
     return c.redirect(r.redirectTo, 302);
   });
@@ -74,7 +83,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
     if (!choice.ok || !choice.workos) return c.json({ error: { code: "not_found" } }, 404);
     const r = await choice.workos.callback(c.req.raw, new Date());
     sendCookies(c, r.setCookies);
-    if (!r.ok) return c.json({ error: { code: r.code, message: r.message } }, r.status);
+    if (!r.ok) return c.redirect(signInFailure(r.reason ?? r.code), 302);
     return c.redirect(r.redirectTo, 302);
   });
 
@@ -121,4 +130,9 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       ),
     };
   });
+}
+
+/** The sign-in page, told why sign-in did not complete. */
+function signInFailure(code: string): string {
+  return `/sign-in?error=${encodeURIComponent(code)}`;
 }

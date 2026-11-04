@@ -23,6 +23,7 @@ import {
   withTenant,
 } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
+import { captureException } from "@sentry/cloudflare";
 import type { Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
@@ -207,7 +208,11 @@ export function toHttpError(error: unknown): HttpError {
 
 export function errorResponse(c: Context, error: unknown, setCookies: readonly string[] = []) {
   const e = toHttpError(error);
-  if (e.status === 500) console.error(error);
+  if (e.status === 500) {
+    console.error(error);
+    // A no-op where Sentry is off (no SENTRY_DSN, the tests): src/observability/sentry.ts.
+    captureException(error, { tags: { route: c.req.routePath, method: c.req.method } });
+  }
   for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
   return c.json(
     { error: { code: e.code, message: e.message, ...(e.details ? { details: e.details } : {}) } },

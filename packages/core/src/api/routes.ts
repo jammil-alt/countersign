@@ -502,6 +502,18 @@ const OPS = ["operator"] as const;
 const CLIENT = ["client_admin", "client_user"] as const;
 
 export const authRoutes = {
+  authProvider: defineRoute({
+    method: "GET",
+    path: "/api/auth/provider",
+    auth: "public",
+    roles: [],
+    summary: "Which sign-in this environment uses, so the sign-in page shows the right one",
+    response: z.object({
+      provider: z.enum(["workos", "dev", "unavailable"]),
+      /** Why sign-in is unavailable (misconfiguration), for the operator. */
+      message: z.string().nullable(),
+    }),
+  }),
   devUsers: defineRoute({
     method: "GET",
     path: "/api/auth/dev/users",
