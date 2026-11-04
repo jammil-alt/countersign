@@ -12,7 +12,8 @@
 > **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing through
 > Stripe** comes into v1: a monthly base fee per active agent with a credit allowance, then usage
 > beyond it. **Languages:** the portal and agents' client-facing text in six languages (§1); translating
-> messages comes next. Changed: §1 (MVP and v1 scope), §6.2,
+> messages comes next. **Texts and calls:** Twilio (SMS, voice, numbers, WhatsApp), then WhatsApp via Meta, and ElevenLabs connectors
+> (§1). Changed: §1 (MVP and v1 scope), §6.2,
 > §9.5, §20.
 >
 > **v0.8 (2026-11-03, owner):** **approvals are on by default and set step by step.** Every step that
@@ -209,6 +210,14 @@ In:
 - **Billing** (v0.9): Stripe customers per client; a monthly base fee per active agent that includes a
   credit allowance, then metered usage from `usage_daily` beyond it, invoiced by Stripe
 - ~~Materials pack~~: built separately from this plan (v0.9)
+- **Texts and calls** (v0.9): **Twilio** (SMS, voice, phone numbers and WhatsApp first), then
+  **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
+  agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
+  sending a text or placing a call is an external action behind approval (`docs/plan.md` §1.19)
+- **Reach out** (v0.9): agents know the people they work with and contact them by email, text,
+  WhatsApp or call, in their language, under conditions, through channels each agent is given (a
+  mailbox of its own, Mezonas' sending service or a person's Gmail; the client's numbers). Sending
+  email from Gmail comes into v1, behind approval (`docs/plan.md` §1.25)
 - **Languages** (v0.9): the portal and agents' client-facing text in English, Spanish, French,
   Portuguese (Brazil), Italian and German, per client with a per-user choice; the back office stays in
   English. Next: agents translating incoming and outgoing messages (`docs/plan.md` §1.18)
@@ -219,7 +228,7 @@ Out (designed for, not built):
   automatic template updates (every update is reviewed per client)
 - Connectors beyond QBO, Gmail and upload (Slack, Google Drive, Outlook, bank and card feeds, Ramp,
   HubSpot); Gmail push notifications (v1 polls); sending email without a person's approval; code steps
-  in workflows; A/B versions; outbound SMS; custom collections and fields UI
+  in workflows; A/B versions; custom collections and fields UI
 - Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials
 
 ---

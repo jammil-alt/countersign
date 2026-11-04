@@ -3,6 +3,7 @@
 // workflow builder is a further lazy chunk inside it, loaded when an operator opens a workflow.
 import { Route, Routes } from "react-router-dom";
 import { I18nProvider } from "../i18n/i18n";
+import { OpsRecordScreen } from "../records/RecordScreens";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
@@ -10,24 +11,26 @@ import { MergeScreen } from "./merge/MergeScreen";
 import { OpsLayout } from "./OpsLayout";
 import { AgentPage } from "./screens/AgentPage";
 import { ClientDetailScreen } from "./screens/ClientDetail";
+import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
+import { OpsDocumentScreen, OpsDocumentsScreen } from "./screens/Documents";
 import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
+import { NewClientScreen } from "./screens/NewClient";
+import { OverviewScreen } from "./screens/Overview";
 import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
+import { OpsUsageScreen } from "./screens/Usage";
 import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
 
 /** ARCHITECTURE §15's back-office screens not built yet, as placeholders. */
 const PLACEHOLDERS: [path: string, title: string][] = [
-  ["clients/new", "New client"],
-  ["clients/:clientId/settings", "Client settings"],
   ["agents/:id/merge", "Merge"],
   ["skills", "Skills"],
   ["skills/:id", "Skill"],
   ["packs", "Packs"],
-  ["usage", "Usage and cost"],
   ["settings", "Settings"],
 ];
 
@@ -45,18 +48,24 @@ function OpsBackOffice() {
   return (
     <OpsLayout>
       <Routes>
-        <Route index element={<ClientsScreen overview />} />
+        <Route index element={<OverviewScreen />} />
         <Route path="clients" element={<ClientsScreen />} />
         {PLACEHOLDERS.map(([path, title]) => (
           <Route key={path} path={path} element={<Placeholder title={title} />} />
         ))}
         <Route path="agents/:id/merge" element={<MergeScreen />} />
+        <Route path="clients/new" element={<NewClientScreen />} />
         <Route path="clients/:clientId" element={<ClientDetailScreen />} />
+        <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
+        <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
+        <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />
+        <Route path="clients/:clientId/records/:recordId" element={<OpsRecordScreen />} />
         <Route path="runs" element={<OpsRunsScreen />} />
         <Route path="runs/:id" element={<OpsRunScreen />} />
         <Route path="inbox" element={<OpsInboxScreen />} />
+        <Route path="usage" element={<OpsUsageScreen />} />
         <Route path="requests" element={<OpsRequestsScreen />} />
         <Route path="feedback" element={<OpsFeedbackScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />

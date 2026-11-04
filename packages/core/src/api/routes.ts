@@ -5,10 +5,15 @@ import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
+import { approverRuleRoutes } from "./approver-rules";
 import { defineRoute } from "./contract";
+import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
 import { languageRoutes, SessionLanguage } from "./language";
+import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
+import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -107,6 +112,8 @@ export const ClientSummary = z.object({
   createdAt: Timestamp,
   agents: z.number().int(),
   openInbox: z.number().int(),
+  /** The Sandbox client (`tenant.settings.sandbox`): fixture data for building and test runs. */
+  sandbox: z.boolean().optional(),
 });
 
 export const AgentSummary = z.object({
@@ -372,52 +379,7 @@ export const InboundHookResponse = z.object({
 
 // ── Documents, uploads and forwarding (stream D, docs/plan.md §1.6) ─────────────────────────────
 
-export const DocumentSummary = z.object({
-  id: z.string(),
-  source: z.string(),
-  filename: z.string(),
-  mimeType: z.string(),
-  sizeBytes: z.number(),
-  status: z.string(),
-  pageCount: z.number().nullable(),
-  transactionId: z.string().nullable(),
-  receivedAt: Timestamp,
-  /** From the latest extraction, when there is one. */
-  vendorName: z.string().nullable(),
-  invoiceNumber: z.string().nullable(),
-  total: z.string().nullable(),
-});
-
-export const DocumentExtractionView = z.object({
-  id: z.string(),
-  createdAt: Timestamp,
-  vendorName: z.string(),
-  invoiceNumber: z.string(),
-  invoiceDate: z.string(),
-  dueDate: z.string().nullable(),
-  poNumber: z.string().nullable(),
-  currency: z.string(),
-  subtotal: z.string(),
-  freight: z.string(),
-  surcharges: z.array(z.object({ label: z.string(), amount: z.string() })),
-  tax: z.string(),
-  total: z.string(),
-  linesSum: z.string(),
-  totalsMatch: z.boolean(),
-  problems: z.array(z.string()),
-  lines: z.array(
-    z.object({
-      lineNo: z.number(),
-      vendorSku: z.string().nullable(),
-      description: z.string(),
-      qty: z.string(),
-      uom: z.string().nullable(),
-      unitPrice: z.string(),
-      extPrice: z.string(),
-      page: z.number().nullable(),
-    }),
-  ),
-});
+// DocumentSummary and DocumentExtractionView live in ./documents (shared with the records routes).
 
 export const UploadResult = z.object({
   filename: z.string(),
@@ -696,13 +658,18 @@ export const opsRoutes = {
     path: "/api/ops/clients",
     auth: "session",
     roles: OPS,
-    summary: "Create a client; the creating operator serves it",
+    summary:
+      "Create a client; the creating operator serves it. Optionally invites its client admin and sets who approves",
     body: z.strictObject({
       name: z.string().trim().min(1).max(200),
       timezone: z.string().optional(),
       connectorsOffered: z.array(z.string().min(1)).optional(),
+      /** Who approves its external actions (default: the client admin). */
+      approvals: ExternalApprover.optional(),
+      /** Its client admin, invited in the same step. */
+      admin: InviteBody.omit({ role: true }).optional(),
     }),
-    response: z.object({ client: ClientSummary }),
+    response: z.object({ client: ClientSummary, admin: InviteResult.nullable() }),
   }),
   opsClient: defineRoute({
     method: "GET",
@@ -971,6 +938,13 @@ export const opsRoutes = {
       problems: z.array(z.string()),
       /** Connectors its live (else latest) version needs bound. */
       requiredConnectors: z.array(z.string()),
+      /**
+       * The latest test run of its live version, if any, so the page can poll while one is going
+       * (docs/plan.md §1.16).
+       */
+      testRun: z
+        .object({ id: z.string(), status: RunStatusSchema, createdAt: Timestamp })
+        .nullable(),
     }),
   }),
   opsAgentSkills: defineRoute({
@@ -1124,9 +1098,14 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Test-run a version (never writes): a client agent on its client's data, a template as its test copy in the Sandbox client",
+      "Test-run a version (never writes): a client agent on its client's data, a template as its test copy in the Sandbox client or in a chosen client it serves",
     params: AgentVersionParams,
-    body: z.strictObject({ workflow: z.string().min(1), payload: z.unknown().optional() }),
+    body: z.strictObject({
+      workflow: z.string().min(1),
+      payload: z.unknown().optional(),
+      /** A template only: the served client whose data it runs on (default: the Sandbox). */
+      clientId: ApiId.optional(),
+    }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
   }),
@@ -1545,12 +1524,7 @@ export const portalRoutes = {
     roles: CLIENT,
     summary: "A document: a 5-minute link to the file and its latest extraction",
     params: IdParams,
-    response: z.object({
-      document: DocumentSummary.extend({ meta: z.record(z.string(), z.unknown()) }),
-      url: z.string(),
-      urlExpiresAt: Timestamp,
-      extraction: DocumentExtractionView.nullable(),
-    }),
+    response: DocumentDetail,
   }),
   portalForwarding: defineRoute({
     method: "GET",
@@ -1630,7 +1604,11 @@ export const routes = {
   ...opsRoutes,
   ...portalRoutes,
   ...feedbackRoutes,
+  ...onboardingRoutes,
   ...requestRoutes,
   ...languageRoutes,
+  ...usageRoutes,
+  ...recordRoutes,
+  ...approverRuleRoutes,
 } as const;
 export type Routes = typeof routes;

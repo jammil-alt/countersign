@@ -7,6 +7,7 @@ import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { useI18n } from "../i18n/i18n";
+import { PortalRecordScreen } from "../records/RecordScreens";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
@@ -15,9 +16,12 @@ import { PortalDocumentScreen } from "./screens/Document";
 import { PortalInboxScreen } from "./screens/Inbox";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
+import { PortalReportsScreen } from "./screens/Reports";
 import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
+import { PortalServiceScreen } from "./screens/Service";
+import { PortalSettingsScreen } from "./screens/Settings";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const { t } = useI18n();
@@ -73,16 +77,17 @@ export function PortalApp() {
     <PortalLayout>
       <Routes>
         <Route index element={<OverviewScreen />} />
-        <Route path="services/:id" element={<Placeholder title={t("page.service")} />} />
+        <Route path="services/:id" element={<PortalServiceScreen />} />
         <Route path="inbox" element={<PortalInboxScreen />} />
         <Route path="runs" element={<PortalRunsScreen />} />
         <Route path="runs/:id" element={<PortalRunScreen />} />
-        <Route path="reports/*" element={<Placeholder title={t("nav.reports")} />} />
+        <Route path="reports/*" element={<PortalReportsScreen />} />
         <Route path="connections" element={<PortalConnectionsScreen />} />
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
+        <Route path="records/:id" element={<PortalRecordScreen />} />
         <Route path="requests" element={<PortalRequestsScreen />} />
-        <Route path="settings" element={<Placeholder title={t("nav.settings")} />} />
+        <Route path="settings" element={<PortalSettingsScreen />} />
         <Route
           path="*"
           element={

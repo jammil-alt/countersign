@@ -15,6 +15,7 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
+import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
 
@@ -50,6 +51,7 @@ export function ClientDetailScreen() {
         settings={data.client.settings}
         onSaved={reload}
       />
+      <ClientApproverRules clientId={data.client.id} />
       <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );

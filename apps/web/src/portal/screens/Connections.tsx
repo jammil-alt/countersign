@@ -22,6 +22,7 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
+import { PortalApproverRules } from "./ApproverRules";
 import { UploadSection } from "./Upload";
 
 type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][number];
@@ -130,6 +131,8 @@ export function PortalConnectionsScreen() {
                 : {})}
             />
           ) : null}
+
+          <PortalApproverRules />
 
           {others.length > 0 ? (
             <section>

@@ -59,6 +59,10 @@ export function createDevAdapter(options: {
       }
       return { ok: true, userId: user.id, setCookies: [] };
     },
+    // DECISION: the dev sign-in sends no email; an invited user is in its list at once.
+    async invite() {
+      return { status: "not_sent", reason: "dev_sign_in" } as const;
+    },
     signIn(email) {
       // Plain http on localhost, so not Secure. The value is an email, not a credential: this
       // adapter exists only where anyone at the keyboard may be anyone.
