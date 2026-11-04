@@ -9,6 +9,7 @@ import {
   createTestkitConnector,
   createUploadConnector,
   MemoryObjectStore,
+  type StripeClient,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -109,6 +110,8 @@ export interface HarnessOptions {
   env?: Partial<Bindings>;
   /** The Builder's model transport (tests pass a FakeModel). */
   llm?: LlmTransport;
+  /** Billing's Stripe (tests pass a client over `fakeStripe`); none by default. */
+  stripe?: StripeClient;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -143,6 +146,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     ...(options.llm ? { llm: () => options.llm as LlmTransport } : {}),
     objects: () => objects,
     extractionTransport: () => extraction.transport,
+    stripe: () => options.stripe ?? null,
   });
   const env = {
     ENVIRONMENT: "development",

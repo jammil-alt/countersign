@@ -23,6 +23,7 @@ export * from "./storage/memory";
 export * from "./storage/object-store";
 export * from "./storage/r2";
 export * from "./storage/signed-url";
+export * from "./stripe/index";
 export * from "./testkit/index";
 export * from "./upload/index";
 export * from "./webhook/index";

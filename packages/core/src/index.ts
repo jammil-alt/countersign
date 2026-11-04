@@ -4,10 +4,12 @@
 // Pure: no I/O and no Node/DOM/Workers-only APIs, so it runs in the browser, the Worker and Node.
 // Allowed workspace dependencies: none. See docs/plan.md §2.
 
+export * from "./api/billing";
 export * from "./api/contract";
 export * from "./api/feedback";
 export * from "./api/routes";
 export * from "./api/usage";
+export * from "./billing";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {

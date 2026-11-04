@@ -41,6 +41,7 @@ import { and, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { createRunRow } from "../runs/dispatch";
+import { syncQuantityLater } from "./billing";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
@@ -262,6 +263,8 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       actorId: ctx.session.user.id,
       ctx: ctx.services.platform.ctx,
     });
+    // The base fee counts active client agents: Stripe's quantity follows (billing).
+    syncQuantityLater(ctx, updated.tenantId);
     return { agent: agentSummary(updated) };
   });
 
@@ -279,9 +282,9 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsPause, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    return {
-      agent: agentSummary(await pause(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id })),
-    };
+    const updated = await pause(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
+    syncQuantityLater(ctx, updated.tenantId);
+    return { agent: agentSummary(updated) };
   });
 
   mount(app, routes.opsRunAgent, async (ctx) => {

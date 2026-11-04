@@ -18,6 +18,10 @@ export interface Secrets {
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
+  /** Mezonas' own Stripe account (billing, docs/plan.md §1.24); unset: billing is off. */
+  STRIPE_SECRET_KEY?: string;
+  /** The Stripe webhook endpoint's signing secret (`whsec_…`) for /api/billing/stripe/webhook. */
+  STRIPE_WEBHOOK_SECRET?: string;
   /** R2's S3 API, for presigned links to documents (ARCHITECTURE §17). Optional: see storage.ts. */
   STORAGE_ENDPOINT?: string;
   STORAGE_BUCKET?: string;
