@@ -593,6 +593,55 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(twilio.placed()).toHaveLength(1);
   });
 
+  it("routes the plan's approval by the client's approver rules", async () => {
+    // A rule on the plan's first send (a text) names the client user (docs/plan.md §1.20, §1.25).
+    const rulesPath = `/api/ops/clients/${A()}/approver-rules`;
+    const before = j((await H.call(OPERATOR, "GET", rulesPath)).json);
+    const set = await H.call(OPERATOR, "PUT", rulesPath, {
+      revision: before.revision,
+      rules: [{ match: { tool: "sms.send" }, approver: { kind: "user", userId: H.A.user } }],
+      reason: "Reach-out texts go to the user",
+    });
+    expect(set.status, JSON.stringify(set.json)).toBe(200);
+
+    const params = await startRun("PO-1043");
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      if (type.startsWith("inbox-")) {
+        const [item] = await H.t.db
+          .select()
+          .from(inboxItem)
+          .where(eq(inboxItem.runId, params.runId));
+        expect(item).toMatchObject({ assigneeUserId: H.A.user, assigneeRole: null });
+        // The client admin is no longer the one to approve it; the named user is.
+        const refused = await H.call(admin("a"), "POST", `/api/inbox/${item?.id}/resolve`, {
+          decision: "approve",
+        });
+        expect(refused.status).toBe(403);
+        const done = await H.call(user("a"), "POST", `/api/inbox/${item?.id}/resolve`, {
+          decision: "approve",
+        });
+        expect(done.status, JSON.stringify(done.json)).toBe(200);
+        return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+      }
+      if (type.startsWith("reachout-")) {
+        await textIn(PAT, "Friday is fine");
+        return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+      }
+      throw new Error(`unexpected wait ${type}`);
+    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    expect(await stepOutput(params.runId, "reach")).toMatchObject({ outcome: "replied" });
+
+    const cleared = await H.call(OPERATOR, "PUT", rulesPath, {
+      revision: j(set.json).revision,
+      rules: [],
+      reason: "Back to the default",
+    });
+    expect(cleared.status, JSON.stringify(cleared.json)).toBe(200);
+  });
+
   it("keeps one open reach-out per contact and subject; STOP and opt-outs stop everything", async () => {
     const first = await startRun("PO-2001");
     let firstDone: Promise<unknown> | null = null;

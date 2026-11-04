@@ -12,7 +12,6 @@ import {
   composeReachMessage,
   type PinnedAgent,
   type RuntimeDeps,
-  resolveApprover,
   runPlannedAction,
   type StepContext,
 } from "@countersign/agents";
@@ -37,6 +36,7 @@ import {
   QuietHours,
   quietHoursEnd,
   REACH_OUT_FIXED_INPUTS,
+  REACH_OUT_SKILL,
   type ReachChannel,
   ReachConditions,
   type ReachLanguage,
@@ -46,6 +46,7 @@ import {
   type ReachReply,
   reachLanguage,
   reachSubject,
+  routeApproval,
   type Urgency,
 } from "@countersign/core";
 import {
@@ -546,7 +547,9 @@ export function reachPort(deps: ReachDeps): ReachPort {
         }
       }
 
-      const clientApprover = await deps.runtime.ports.store.clientApprover(info.tenantId);
+      // Who approves the plan: the client's approver rules first (docs/plan.md §1.20), then the
+      // step's, the agent's and the client's default, read fresh like every other approval.
+      const routing = await deps.runtime.ports.store.approvalRouting(info.tenantId);
       const outcome = await withTenant(db, info.tenantId, async (tx) => {
         const loaded = await load(tx, req, input);
         if (typeof loaded === "string") {
@@ -733,12 +736,27 @@ export function reachPort(deps: ReachDeps): ReachPort {
         if (automatic) return { kind: "open" as const, row };
 
         // One approval covers the plan: who, why, which channels, how many attempts.
-        const assignee = resolveApprover([
-          req.approval.approver,
-          definition.permissions.approver,
-          loaded.agentRow.approver,
-          clientApprover,
-        ]);
+        // DECISION: a reach-out plan is matched by approver rules as a create through its first
+        // channel's send tool (e.g. sms.send on twilio), for this agent; it carries no amount.
+        const first = plan.channels[0];
+        const firstConnector = first ? (loaded.channels.get(first)?.connector ?? null) : null;
+        const route = routeApproval({
+          rules: routing.rules,
+          facts: {
+            connector: firstConnector ?? "",
+            tool:
+              (first && firstConnector ? channelTool(firstConnector, first) : null) ??
+              REACH_OUT_SKILL,
+            verb: "create",
+            agentId: info.agentId,
+            amount: null,
+          },
+          step: req.approval.approver,
+          agent: [definition.permissions.approver, loaded.agentRow.approver],
+          client: routing.clientDefault,
+          members: routing.members,
+        });
+        const assignee = route.assignee;
         const [item] = await tx
           .insert(inboxItem)
           .values({
