@@ -118,6 +118,9 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only
   breaks sign-ins in progress. Until all three are set, Zoho CRM shows "Not available yet" in the portal.
   Webhooks need no secret beyond `ENCRYPTION_KEY`.
+- Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
+  from Podio's account settings, its domain set to the app origin, redirect URI
+  `<APP_ORIGIN>/connections/podio/callback`).
 
 ### GitHub summary
 

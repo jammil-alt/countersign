@@ -1,6 +1,21 @@
 // Fakes for tests (`@countersign/connectors/testing`): a Zoho that answers from fixtures/zoho_crm and
 // a webhook receiver that records what it was sent. Never imported by the Worker.
 
+import podioApp from "../../../fixtures/podio/app-jobs.json";
+import podioComment from "../../../fixtures/podio/comment-create.json";
+import podioExpired from "../../../fixtures/podio/expired-token.json";
+import podioItemCreate from "../../../fixtures/podio/item-create.json";
+import podioItem from "../../../fixtures/podio/item-job.json";
+import podioItemUpdate from "../../../fixtures/podio/item-update.json";
+import podioFilter from "../../../fixtures/podio/items-filter.json";
+import podioNotFound from "../../../fixtures/podio/not-found.json";
+import podioOrgs from "../../../fixtures/podio/orgs.json";
+import podioRateLimited from "../../../fixtures/podio/rate-limited.json";
+import podioApps from "../../../fixtures/podio/space-apps.json";
+import podioTask from "../../../fixtures/podio/task-create.json";
+import podioTokenCode from "../../../fixtures/podio/token-authorization-code.json";
+import podioTokenInvalid from "../../../fixtures/podio/token-invalid-grant.json";
+import podioTokenRefresh from "../../../fixtures/podio/token-refresh.json";
 import invalidToken from "../../../fixtures/zoho_crm/invalid-token.json";
 import leadCreate from "../../../fixtures/zoho_crm/lead-create.json";
 import leadCreateInvalid from "../../../fixtures/zoho_crm/lead-create-invalid.json";
@@ -156,4 +171,114 @@ export function fakeReceiver(
     return jsonResponse(answer.status, answer.body);
   };
   return { fetch, received };
+}
+
+export const PODIO_FIXTURES = {
+  tokenCode: podioTokenCode,
+  tokenRefresh: podioTokenRefresh,
+  tokenInvalid: podioTokenInvalid,
+  orgs: podioOrgs,
+  apps: podioApps,
+  app: podioApp,
+  item: podioItem,
+  filter: podioFilter,
+  itemCreate: podioItemCreate,
+  itemUpdate: podioItemUpdate,
+  comment: podioComment,
+  task: podioTask,
+  rateLimited: podioRateLimited,
+  notFound: podioNotFound,
+  expired: podioExpired,
+} as const;
+
+/**
+ * A fake Podio: the token endpoint (`fixture-code` is the one code it accepts) and the API, from
+ * fixtures/podio. Access tokens it accepts: the fixtures' first and refreshed ones. Items created
+ * are remembered by external id, so a repeated create is found, as in Podio.
+ */
+export function fakePodio(opts: { acceptAccessTokens?: string[]; rateLimitNext?: number } = {}) {
+  const requests: RecordedRequest[] = [];
+  const accepted = new Set(
+    opts.acceptAccessTokens ?? [podioTokenCode.access_token, podioTokenRefresh.access_token],
+  );
+  let rateLimit = opts.rateLimitNext ?? 0;
+  let refreshFails = false;
+  const state = {
+    revision: podioItem.current_revision.revision,
+    createdByExternalId: new Map<string, number>(),
+  };
+
+  const fetch: FetchLike = async (url: string, init: HttpRequestInit = {}) => {
+    const method = (init.method ?? "GET").toUpperCase();
+    requests.push({ url, method, headers: { ...(init.headers ?? {}) }, body: init.body });
+    const u = parseUrl(url);
+    if (u?.origin !== "https://api.podio.com") return jsonResponse(404, podioNotFound);
+    if (u.pathname === "/oauth/token" && method === "POST") {
+      const form = formDecode(init.body ?? "");
+      if (form.grant_type === "authorization_code") {
+        return form.code === "fixture-code"
+          ? jsonResponse(200, podioTokenCode)
+          : jsonResponse(400, podioTokenInvalid);
+      }
+      if (form.grant_type === "refresh_token") {
+        const known = [podioTokenCode.refresh_token, podioTokenRefresh.refresh_token];
+        if (refreshFails || !known.includes(form.refresh_token ?? ""))
+          return jsonResponse(400, podioTokenInvalid);
+        return jsonResponse(200, podioTokenRefresh);
+      }
+      return jsonResponse(400, podioTokenInvalid);
+    }
+    const auth = (init.headers?.authorization ?? "").replace(/^OAuth2 /, "");
+    if (!accepted.has(auth)) return jsonResponse(401, podioExpired);
+    if (rateLimit > 0) {
+      rateLimit -= 1;
+      return jsonResponse(420, podioRateLimited);
+    }
+    const p = u.pathname;
+    const appId = podioApp.app_id;
+    const itemId = podioItem.item_id;
+    if (p === "/org/" && method === "GET") return jsonResponse(200, podioOrgs);
+    if (p === `/app/space/${podioApp.space_id}/` && method === "GET")
+      return jsonResponse(200, podioApps);
+    if (p === `/app/${appId}` && method === "GET") return jsonResponse(200, podioApp);
+    if (p === `/item/app/${appId}/filter/` && method === "POST")
+      return jsonResponse(200, podioFilter);
+    if (p === `/item/${itemId}` && method === "GET") {
+      return jsonResponse(200, {
+        ...podioItem,
+        current_revision: { ...podioItem.current_revision, revision: state.revision },
+      });
+    }
+    if (p === `/item/${itemId}` && method === "PUT") {
+      state.revision += 1;
+      return jsonResponse(200, { ...podioItemUpdate, revision: state.revision });
+    }
+    if (p.startsWith(`/item/app/${appId}/external_id/`) && method === "GET") {
+      const ext = decodeURIComponent(p.slice(`/item/app/${appId}/external_id/`.length));
+      const found = state.createdByExternalId.get(ext);
+      return found
+        ? jsonResponse(200, { ...podioItemCreate, app: { app_id: appId }, fields: [] })
+        : jsonResponse(404, podioNotFound);
+    }
+    if (p === `/item/app/${appId}/` && method === "POST") {
+      const body = JSON.parse(init.body ?? "{}") as { external_id?: string };
+      if (body.external_id)
+        state.createdByExternalId.set(body.external_id, podioItemCreate.item_id);
+      return jsonResponse(200, podioItemCreate);
+    }
+    if (p === `/comment/item/${itemId}` && method === "POST")
+      return jsonResponse(200, podioComment);
+    if (p === "/task/" && method === "POST") return jsonResponse(200, podioTask);
+    return jsonResponse(404, podioNotFound);
+  };
+
+  return {
+    fetch,
+    requests,
+    state,
+    apiCalls: () => requests.filter((r) => !r.url.endsWith("/oauth/token")),
+    failRefreshes() {
+      refreshFails = true;
+    },
+  };
 }

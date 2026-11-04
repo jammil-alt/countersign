@@ -4,6 +4,7 @@
 // tool run in a workflow. Secrets never reach the operator or other clients.
 
 import {
+  createPodioConnector,
   createWebhookConnector,
   createZohoCrmConnector,
   generateEncryptionKey,
@@ -11,7 +12,13 @@ import {
   WEBHOOK_SEND_TOOL,
   ZOHO_TOOLS,
 } from "@countersign/connectors";
-import { fakeReceiver, fakeZoho, ZOHO_FIXTURES } from "@countersign/connectors/testing";
+import {
+  fakePodio,
+  fakeReceiver,
+  fakeZoho,
+  PODIO_FIXTURES,
+  ZOHO_FIXTURES,
+} from "@countersign/connectors/testing";
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import {
   agent,
@@ -44,6 +51,7 @@ const receiver = fakeReceiver({
   body: { status: "success", request_id: "zap-req-1" },
 });
 const zoho = fakeZoho();
+const podio = fakePodio();
 const ORIGIN = "https://app.mezonas.test";
 
 const h = await createApiHarness({
@@ -53,6 +61,11 @@ const h = await createApiHarness({
       clientId: "1000.CLIENT",
       clientSecret: "zoho-secret",
       fetch: zoho.fetch,
+    }),
+    createPodioConnector({
+      clientId: "mezonas-test",
+      clientSecret: "podio-secret",
+      fetch: podio.fetch,
     }),
   ],
   env: { ENCRYPTION_KEY, OAUTH_STATE_SECRET: "state-secret-".repeat(4), APP_ORIGIN: ORIGIN },
@@ -95,7 +108,7 @@ describe.skipIf(!h)("connectors through the API", () => {
   });
 
   /** Approves every item the run waits on, as the client admin of `c`. */
-  function approver(c: "a" | "b") {
+  function approver(c: "a" | "b" | "c") {
     return new FakeWorkflowStep(async (_name, type) => {
       const res = await H.call(admin(c), "GET", "/api/inbox");
       const item = j(res.json).items.find(
@@ -532,6 +545,137 @@ describe.skipIf(!h)("connectors through the API", () => {
       ).toBe(true);
       const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
       expect(row).toMatchObject({ status: "disconnected", credentialsEncrypted: null });
+    });
+  });
+
+  describe("Podio", () => {
+    let connectionId = "";
+    const ITEM = PODIO_FIXTURES.item.item_id;
+
+    it("signs the client in through Podio, tokens encrypted, never shown to the operator", async () => {
+      const offer = await H.call(OPERATOR, "PUT", `/api/ops/clients/${H.C.tenantId}/connectors`, {
+        offered: ["testkit", "podio"],
+      });
+      // Client C is served by the other operator.
+      expect(offer.status).toBe(404);
+      const offered = await H.call(
+        "other-operator@example.com",
+        "PUT",
+        `/api/ops/clients/${H.C.tenantId}/connectors`,
+        { offered: ["testkit", "podio"] },
+      );
+      expect(offered.status, JSON.stringify(offered.json)).toBe(200);
+      const start = await H.call(admin("c"), "POST", "/api/connections/podio/authorize");
+      expect(start.status, JSON.stringify(start.json)).toBe(200);
+      const redirect = new URL(j(start.json).redirectUrl);
+      expect(redirect.origin + redirect.pathname).toBe("https://podio.com/oauth/authorize");
+      expect(redirect.searchParams.get("redirect_uri")).toBe(
+        `${ORIGIN}/connections/podio/callback`,
+      );
+      const state = redirect.searchParams.get("state") ?? "";
+      const done = await H.call(admin("c"), "POST", "/api/connections/podio/callback", {
+        params: { code: "fixture-code", state },
+      });
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+      expect(j(done.json).connection.connection).toMatchObject({
+        status: "connected",
+        externalAccountId: "user:4071234",
+      });
+      connectionId = j(done.json).connection.connection.id;
+      const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+      expect(JSON.stringify(row?.credentialsEncrypted)).not.toContain(
+        PODIO_FIXTURES.tokenCode.refresh_token,
+      );
+      const asOperator = JSON.stringify(
+        (
+          await H.call(
+            "other-operator@example.com",
+            "GET",
+            `/api/ops/clients/${H.C.tenantId}/connections`,
+          )
+        ).json,
+      );
+      expect(asOperator).not.toContain(PODIO_FIXTURES.tokenCode.access_token);
+    });
+
+    it("reads an item in a skill step, then updates it once after approval", async () => {
+      const created = await H.call(
+        "other-operator@example.com",
+        "POST",
+        `/api/ops/clients/${H.C.tenantId}/agents`,
+        {
+          slug: "job-clerk",
+          bundle: bundle(
+            "Job clerk",
+            ["podio.item.update"],
+            {
+              schemaVersion: 3,
+              trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+              steps: [
+                {
+                  id: "read",
+                  name: "Read the job",
+                  kind: "skill",
+                  skill: "podio.item.get",
+                  input: { itemId: ITEM },
+                  client: { visible: true, label: "Read the job" },
+                },
+                {
+                  id: "move",
+                  name: "Move to production",
+                  kind: "action",
+                  tool: "podio.item.update",
+                  input: {
+                    itemId: "{{steps.read.output.item.itemId}}",
+                    fields: { status: "In production" },
+                  },
+                  approval: { required: "required" },
+                  client: { visible: true, label: "Moved the job to production" },
+                },
+              ],
+            },
+            ["podio.item.get"],
+          ),
+        },
+      );
+      expect(created.status, JSON.stringify(created.json)).toBe(200);
+      const id = j(created.json).agent.id;
+      const as = "other-operator@example.com";
+      expect(
+        (
+          await H.call(as, "PATCH", `/api/ops/agents/${id}/operation`, {
+            bindings: { podio: connectionId },
+          })
+        ).status,
+      ).toBe(200);
+      const pub = await H.call(
+        as,
+        "POST",
+        `/api/ops/agents/${id}/versions/${j(created.json).version.id}/publish`,
+      );
+      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, id));
+      const res = await H.call(as, "POST", `/api/ops/agents/${id}/run`, { workflow: "main" });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const params = H.instances.started.get(j(res.json).runId);
+      if (!params) throw new Error("not started");
+      const result = await executeRun(deps(), params, cloudflareStepRunner(approver("c")));
+      expect(result).toEqual({ status: "succeeded" });
+      const puts = () => podio.apiCalls().filter((r) => r.method === "PUT");
+      expect(puts()).toHaveLength(1);
+      expect(JSON.parse(puts()[0]?.body ?? "")).toEqual({ fields: { status: [2] }, revision: 3 });
+      const [action] = await H.t.db
+        .select()
+        .from(externalAction)
+        .where(eq(externalAction.runId, params.runId));
+      expect(action).toMatchObject({
+        status: "done",
+        tool: "podio.item.update",
+        approvedBy: H.C.admin,
+      });
+      expect(action?.before).toMatchObject({ itemId: ITEM, fields: { status: ["Quoted"] } });
+      await executeRun(deps(), params, cloudflareStepRunner(approver("c")));
+      expect(puts()).toHaveLength(1);
     });
   });
 });

@@ -1,0 +1,30 @@
+{
+  "total": 37,
+  "filtered": 1,
+  "items": [
+    {
+      "item_id": 1890001234,
+      "app_item_id": 42,
+      "title": "Kitchen cabinets, Lee",
+      "link": "https://podio.com/harbormillwork/jobs/apps/jobs/items/42",
+      "created_on": "2026-10-28 14:02:11",
+      "revision": 3,
+      "fields": [
+        {
+          "field_id": 210001,
+          "external_id": "title",
+          "type": "text",
+          "label": "Job name",
+          "values": [{ "value": "Kitchen cabinets, Lee" }]
+        },
+        {
+          "field_id": 210002,
+          "external_id": "status",
+          "type": "category",
+          "label": "Status",
+          "values": [{ "value": { "id": 1, "text": "Quoted" } }]
+        }
+      ]
+    }
+  ]
+}

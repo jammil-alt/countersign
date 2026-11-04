@@ -48,6 +48,7 @@ pnpm format       # Biome: format and organise imports
 | QuickBooks | Not built yet (phase 3); the testkit connector stands in | `QBO_*` (sandbox) |
 | Webhooks (Zapier) | Real: make a hook in the portal and `curl` its URL; outbound sends need a public https URL | `ENCRYPTION_KEY` |
 | Zoho CRM | Sign-in starts but needs a real Zoho client to finish; tests use a fake Zoho | `ZOHO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Podio | Sign-in starts but needs a real Podio API key to finish; tests use a fake Podio | `PODIO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Email | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
 
 Tests never call a live model. To add a recorded response, run the test once with

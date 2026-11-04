@@ -175,7 +175,7 @@ In:
   mailbox; drafts and labels as write tools), and **upload with email forwarding** (PDF/image
   documents, CSV, forwarded emails). Added by the owner, 2026-11-04: **webhooks** (in and out; works
   with Zapier, Make and n8n; a published Zapier app later) and **Zoho CRM** (OAuth; read and write
-  tools; sync later) (§6.6, §6.7)
+  tools; sync later) (§6.6, §6.7); and **Podio** (OAuth; workspaces, apps, items, comments, tasks) (§6.8)
 - Documents capability: store originals, extract with Claude, validate, link to records
 - **Skills** (operator): built-in plus operator-written (no code), shared or for one client; versioned
 - **Templates** (operator): from scratch or the Builder; workflows in the **drag-and-drop builder**;
@@ -616,6 +616,27 @@ Connector `zoho_crm`, OAuth 2.0 (Zoho Accounts, multi data center). Facts checke
 - Sync of modules into `raw_record` and Zoho notifications are follow-ups; v1 is tools only.
 - Rate limits: credits per rolling 24 hours and concurrent-request caps by edition; a 429 fails the call
   so the step retries with backoff.
+
+### 6.8 Podio (owner, 2026-11-04)
+
+Connector `podio` (the tool first noted as "poladio"), OAuth 2.0. Facts checked and unchecked are in
+`packages/connectors/src/podio/NOTES.md`.
+
+- The client signs in from the portal (`podio.com/oauth/authorize`, code exchanged at
+  `api.podio.com/oauth/token`). Tokens are encrypted on the connection; the signing-in user is
+  `external_account_id`. Access tokens last 8 hours and are refreshed (the new refresh token saved
+  each time); a refused refresh asks the client to reconnect.
+- Podio apps are built by each client, so tools take fields generically (`{ <field external_id>:
+  value }`) and check them against the app's own definition at call time: unknown, inactive or
+  read-only fields, values of the wrong type, choices that don't exist and missing required fields are
+  refused before anything is written.
+- **Tools, read** (`none`): `podio.space.list`, `podio.app.list`, `podio.app.get` (fields, types,
+  choices), `podio.item.filter`, `podio.item.get`.
+- **Tools, write** (`external`, approval on by default): `podio.item.create` (its `external_id` is the
+  external action's key, looked up first, so a retry finds the first item), `podio.item.update` (before
+  state: the changed fields' values; refused if the item's revision moved), `podio.comment.create`,
+  `podio.task.create`. Delete is off.
+- Rate limits answer 420; the call fails as retryable. Sync and Podio hooks are follow-ups.
 
 ## 7. Documents capability
 

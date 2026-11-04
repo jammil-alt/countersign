@@ -11,6 +11,7 @@ import {
 import {
   type Connector,
   ConnectorRegistry,
+  createPodioConnector,
   createTestkitConnector,
   createWebhookConnector,
   createZohoCrmConnector,
@@ -99,15 +100,21 @@ let cached: { key: string; platform: Platform } | undefined;
 // registered everywhere except production, so the Sandbox client and local work can exercise
 // connections, approvals and external actions before any real connector exists. Its records live
 // in the isolate's memory and are lost when the isolate goes.
-export function platformFor(
-  env: Pick<
-    Bindings,
-    "ENVIRONMENT" | "ZOHO_CLIENT_ID" | "ZOHO_CLIENT_SECRET" | "OAUTH_STATE_SECRET"
-  >,
-): Platform {
+type OAuthEnvKey =
+  | "OAUTH_STATE_SECRET"
+  | "ZOHO_CLIENT_ID"
+  | "ZOHO_CLIENT_SECRET"
+  | "PODIO_CLIENT_ID"
+  | "PODIO_CLIENT_SECRET";
+
+export function platformFor(env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey>): Platform {
   const production = isProductionEnv(env);
-  const zohoReady = Boolean(env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
-  const key = `${production ? "production" : "other"}:${zohoReady ? env.ZOHO_CLIENT_ID : "-"}`;
+  const key = [
+    production ? "production" : "other",
+    env.OAUTH_STATE_SECRET ? "state" : "-",
+    env.ZOHO_CLIENT_ID ?? "-",
+    env.PODIO_CLIENT_ID ?? "-",
+  ].join(":");
   if (cached?.key !== key) {
     cached = {
       key,
@@ -121,18 +128,24 @@ export function platformFor(
  * The connectors every deployment registers. Each appears in the operator's offering, the portal's
  * Connections page and the builder's palette through the registry; nothing else names them.
  */
-// DECISION: Zoho CRM is registered even where its OAuth client isn't set, so it can be offered and
-// built with; it signs in only once ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET and OAUTH_STATE_SECRET are
-// all set (the portal shows "not available yet" until then).
+// DECISION: Zoho CRM and Podio are registered even where their OAuth clients aren't set, so they
+// can be offered and built with; each signs in only once its client id and secret and
+// OAUTH_STATE_SECRET are all set (the portal shows "not available yet" until then).
 export function deploymentConnectors(
-  env: Pick<Bindings, "ZOHO_CLIENT_ID" | "ZOHO_CLIENT_SECRET" | "OAUTH_STATE_SECRET">,
+  env: Pick<Bindings, OAuthEnvKey>,
   production: boolean,
 ): Connector[] {
   const zohoReady = Boolean(env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
+  const podioReady = Boolean(
+    env.PODIO_CLIENT_ID && env.PODIO_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
+  );
   return [
     createWebhookConnector(),
     createZohoCrmConnector(
       zohoReady ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : {},
+    ),
+    createPodioConnector(
+      podioReady ? { clientId: env.PODIO_CLIENT_ID, clientSecret: env.PODIO_CLIENT_SECRET } : {},
     ),
     ...(production ? [] : [createTestkitConnector()]),
   ];

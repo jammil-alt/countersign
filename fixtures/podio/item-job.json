@@ -1,0 +1,48 @@
+{
+  "item_id": 1890001234,
+  "app_item_id": 42,
+  "title": "Kitchen cabinets, Lee",
+  "link": "https://podio.com/harbormillwork/jobs/apps/jobs/items/42",
+  "created_on": "2026-10-28 14:02:11",
+  "external_id": null,
+  "app": { "app_id": 26550010, "config": { "name": "Jobs", "item_name": "Job" } },
+  "current_revision": { "revision": 3, "created_on": "2026-11-02 09:00:00" },
+  "comment_count": 1,
+  "fields": [
+    {
+      "field_id": 210001,
+      "external_id": "title",
+      "type": "text",
+      "label": "Job name",
+      "values": [{ "value": "Kitchen cabinets, Lee" }]
+    },
+    {
+      "field_id": 210002,
+      "external_id": "status",
+      "type": "category",
+      "label": "Status",
+      "values": [{ "value": { "id": 1, "text": "Quoted", "status": "active", "color": "DCEBD8" } }]
+    },
+    {
+      "field_id": 210003,
+      "external_id": "budget",
+      "type": "money",
+      "label": "Budget",
+      "values": [{ "value": "18500.0000", "currency": "USD" }]
+    },
+    {
+      "field_id": 210004,
+      "external_id": "due",
+      "type": "date",
+      "label": "Due",
+      "values": [{ "start": "2026-12-01 00:00:00", "start_date": "2026-12-01", "end": null }]
+    },
+    {
+      "field_id": 210006,
+      "external_id": "margin",
+      "type": "calculation",
+      "label": "Margin",
+      "values": [{ "value": "0.2100" }]
+    }
+  ]
+}

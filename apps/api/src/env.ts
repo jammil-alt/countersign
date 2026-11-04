@@ -15,6 +15,9 @@ export interface Secrets {
   /** Zoho API console: a Server-based application with multi-DC on (ARCHITECTURE §6.7). */
   ZOHO_CLIENT_ID?: string;
   ZOHO_CLIENT_SECRET?: string;
+  /** Podio API key (ARCHITECTURE §6.8). */
+  PODIO_CLIENT_ID?: string;
+  PODIO_CLIENT_SECRET?: string;
 }
 
 /** Vars are read as plain strings: deployments set values the generated literals don't know. */

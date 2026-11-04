@@ -6,6 +6,7 @@
 | `gmail/` | Recorded Gmail API responses (history, messages, attachments) for sync tests. Synthetic mail only. |
 | `qbo/` | Sample QBO API payloads (Purchase, Bill, VendorCredit, Vendor, Item, Attachable, CDC response) for mapper tests. |
 | `zoho_crm/` | Synthetic Zoho OAuth and CRM API v8 answers (token, org, search, get, writes, errors), served by a fake `fetch` in tests. |
+| `podio/` | Synthetic Podio OAuth and API answers (orgs, apps with fields, items, writes, errors), served by a fake `fetch` in tests. |
 | `matching/` | Labeled line pairs (`same` / `different`) for the matcher golden test (M3; target ≥ 95% precision on `same`). |
 | `llm/` | Recorded model responses for replay mode, keyed by request hash (created by `LLM_MODE=record`). |
 

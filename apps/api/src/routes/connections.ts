@@ -44,7 +44,7 @@ export async function connectNoAuth(
 ): Promise<string> {
   const { tenantId } = input;
   const connector = input.platform.connectors.get(input.connector);
-  if (!connector || connector.manifest.auth !== "none") {
+  if (connector?.manifest.auth !== "none") {
     throw new HttpError(
       409,
       "not_available",
@@ -195,7 +195,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     const tenantId = tenantIds[0] as string;
     await offeredTo(tx, tenantId, params.connector);
     const connector = services.platform.connectors.get(params.connector);
-    if (!connector || connector.manifest.auth !== "oauth2" || !canSignIn(connector)) {
+    if (connector?.manifest.auth !== "oauth2" || !canSignIn(connector)) {
       throw new HttpError(409, "not_available", "signing in to that tool is not available");
     }
     const existing = await newestConnection(tx, tenantId, params.connector);

@@ -196,9 +196,13 @@ export function paletteSections(bundle: AgentBundle, data: BuilderData): Palette
 }
 
 /** "QuickBooks, Gmail", or "No tool", under a skill's name. */
-export function toolsLine(skill: Pick<SkillDefinition, "tools">, data: BuilderData): string {
+export function toolsLine(
+  skill: Pick<SkillDefinition, "tools"> & Partial<Pick<SkillDefinition, "handler">>,
+  data: BuilderData,
+): string {
   const names = new Set<string>();
-  for (const id of skill.tools) {
+  // A tool-mode skill's handler counts too: a connector's read skill names its connector.
+  for (const id of [...(skill.handler ? [skill.handler] : []), ...skill.tools]) {
     const tool = data.catalog.tools.find((t) => t.id === id);
     if (tool && tool.source !== "platform") names.add(connectorName(data, tool.source));
   }

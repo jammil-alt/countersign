@@ -1,6 +1,6 @@
 // @countersign/connectors: the connector framework (manifest, tools, registry), connection
 // permissions, credential encryption, shared OAuth plumbing and object storage. Connectors:
-// `webhook` (in and out, for Zapier/Make/n8n), `zoho_crm`, and `testkit`, the test connector.
+// `webhook` (in and out, for Zapier/Make/n8n), `zoho_crm`, `podio`, and `testkit`, the test connector.
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
@@ -14,6 +14,7 @@ export * from "./oauth/flow";
 export * from "./oauth/state";
 export * from "./oauth/tokens";
 export * from "./permissions";
+export * from "./podio/index";
 export * from "./registry";
 export * from "./storage/content";
 export * from "./storage/memory";
