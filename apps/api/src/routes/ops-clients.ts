@@ -35,6 +35,7 @@ import {
   opsStep,
   opsToolCall,
 } from "./mappers";
+import { inviteToClient, withApprovals } from "./onboarding";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
 export function isSandbox(settings: Record<string, unknown>): boolean {
@@ -116,7 +117,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     clients: await clientSummaries(ctx.tx, ctx.tenantIds),
   }));
 
-  mount(app, routes.opsCreateClient, async ({ tx, body, session, tenantIds, services }) => {
+  mount(app, routes.opsCreateClient, async (ctx) => {
+    const { tx, body, session, tenantIds, services } = ctx;
     const timezone = body.timezone ?? "UTC";
     if (!validTimezone(timezone)) throw new HttpError(422, "invalid_timezone", timezone);
     const offered = body.connectorsOffered ?? [];
@@ -127,7 +129,15 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     }
     const [row] = await tx
       .insert(tenant)
-      .values({ name: body.name, timezone, settings: { connectors_offered: offered } })
+      .values({
+        name: body.name,
+        timezone,
+        // Approval stays with the client's admin unless the operator delegates it (ARCHITECTURE §4);
+        // unset reads as the client admin.
+        settings: body.approvals
+          ? withApprovals({ connectors_offered: offered }, body.approvals)
+          : { connectors_offered: offered },
+      })
       .returning();
     if (!row) throw new Error("tenant insert returned nothing");
     // DECISION: the operator who creates a client serves it. The new client is added to this
@@ -139,9 +149,18 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     await tx
       .insert(membership)
       .values({ tenantId: row.id, userId: session.user.id, role: "operator" });
+    // The client admin, invited in the same transaction (the email follows the commit).
+    const invited = body.admin
+      ? await inviteToClient(
+          ctx,
+          row.id,
+          { ...body.admin, role: "client_admin" },
+          { surface: "ops" },
+        )
+      : null;
     const [summary] = await clientSummaries(tx, [row.id]);
     if (!summary) throw new Error("the new client is not visible");
-    return { client: summary };
+    return { client: summary, admin: invited };
   });
 
   mount(app, routes.opsClient, async (ctx) => {

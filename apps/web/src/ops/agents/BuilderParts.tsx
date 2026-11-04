@@ -5,7 +5,7 @@
 // from an instruction or one of the client's requests and shows what changed.
 import type { AgentBundle } from "@countersign/core";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -272,15 +272,17 @@ export function ReviseTab({
   onChanged(): void;
 }) {
   const [instruction, setInstruction] = useState("");
-  const [requestId, setRequestId] = useState("");
+  // `?request=<id>` comes from the requests queue's "Revise with the Builder".
+  const [search] = useSearchParams();
+  const [requestId, setRequestId] = useState(search.get("request") ?? "");
   const [result, setResult] = useState<Revision | null>(null);
   const action = useAction();
-  // A client's open change requests can be handed to the Builder as the instruction.
-  const inbox = useApi(
-    apiRoutes.opsInbox,
-    agent.tenantId ? { query: { client: agent.tenantId, status: "open", assigned: "all" } } : null,
+  // A client's open requests can be handed to the Builder as the instruction.
+  const queue = useApi(
+    apiRoutes.opsRequests,
+    agent.tenantId ? { query: { client: agent.tenantId, status: "open" } } : null,
   );
-  const requests = (inbox.data?.items ?? []).filter((i) => i.kind === "change_request");
+  const requests = queue.data?.items ?? [];
   const request = requests.find((r) => r.id === requestId);
   const empty = !instruction.trim() && !requestId;
 
@@ -320,7 +322,7 @@ export function ReviseTab({
                 <option value="">None</option>
                 {requests.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.title}
+                    {r.subject}
                   </option>
                 ))}
               </Select>
@@ -328,7 +330,7 @@ export function ReviseTab({
           ) : null}
           {request ? (
             <Notice tone="neutral" testId="revise-request-text">
-              {typeof request.payload.text === "string" ? request.payload.text : request.title}
+              {request.text}
             </Notice>
           ) : null}
           <Field

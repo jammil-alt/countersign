@@ -10,25 +10,33 @@ import {
   SectionLabel,
 } from "../../ui/primitives";
 
-/** `/ops` and `/ops/clients`: every client the operator serves. */
-export function ClientsScreen({ overview }: { overview?: boolean }) {
-  const { data, error, loading, reload } = useApi(apiRoutes.opsClients);
-
+/** `/ops/clients`: every client the operator serves. */
+export function ClientsScreen() {
   return (
     <div>
       <PageHeader
-        title={overview ? "Overview" : "Clients"}
-        subtitle={
-          overview
-            ? "Every client you serve. Needs attention and usage arrive with the inbox and runs."
-            : "Clients you serve and the agents running for them."
-        }
-        actions={
-          <Link to="/ops/clients/new" className={buttonClass("primary")}>
-            New client
-          </Link>
-        }
+        title="Clients"
+        subtitle="Clients you serve and the agents running for them."
+        actions={<NewClientLink />}
       />
+      <ClientsTable />
+    </div>
+  );
+}
+
+export function NewClientLink() {
+  return (
+    <Link to="/ops/clients/new" className={buttonClass("primary")} data-testid="ops-new-client">
+      New client
+    </Link>
+  );
+}
+
+/** The clients table, on the clients list and the overview. */
+export function ClientsTable() {
+  const { data, error, loading, reload } = useApi(apiRoutes.opsClients);
+  return (
+    <section>
       <SectionLabel>Clients</SectionLabel>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
@@ -65,6 +73,6 @@ export function ClientsScreen({ overview }: { overview?: boolean }) {
           </table>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }

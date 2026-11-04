@@ -7,6 +7,8 @@ import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { defineRoute } from "./contract";
 import { feedbackRoutes } from "./feedback";
+import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+import { requestRoutes } from "./requests";
 import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -688,13 +690,18 @@ export const opsRoutes = {
     path: "/api/ops/clients",
     auth: "session",
     roles: OPS,
-    summary: "Create a client; the creating operator serves it",
+    summary:
+      "Create a client; the creating operator serves it. Optionally invites its client admin and sets who approves",
     body: z.strictObject({
       name: z.string().trim().min(1).max(200),
       timezone: z.string().optional(),
       connectorsOffered: z.array(z.string().min(1)).optional(),
+      /** Who approves its external actions (default: the client admin). */
+      approvals: ExternalApprover.optional(),
+      /** Its client admin, invited in the same step. */
+      admin: InviteBody.omit({ role: true }).optional(),
     }),
-    response: z.object({ client: ClientSummary }),
+    response: z.object({ client: ClientSummary, admin: InviteResult.nullable() }),
   }),
   opsClient: defineRoute({
     method: "GET",
@@ -1622,6 +1629,8 @@ export const routes = {
   ...opsRoutes,
   ...portalRoutes,
   ...feedbackRoutes,
+  ...onboardingRoutes,
+  ...requestRoutes,
   ...usageRoutes,
 } as const;
 export type Routes = typeof routes;

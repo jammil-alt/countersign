@@ -6,6 +6,8 @@
 
 export * from "./api/contract";
 export * from "./api/feedback";
+export * from "./api/onboarding";
+export * from "./api/requests";
 export * from "./api/routes";
 export * from "./api/usage";
 export * from "./bundle/client-specific";
