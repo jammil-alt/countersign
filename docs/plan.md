@@ -243,7 +243,7 @@ ARCHITECTURE §1 item 7 and §11: a client asks for a change or a new service fr
 | Topic | Decision |
 |---|---|
 | Approver rules | Per client. The operator sets them; the client admin can only make them stricter (a stricter approver, never a looser one). A rule matches on any of: connector or tool, verb (`create`, `update`, …), an amount over a threshold, the client agent; it names the approver: the client admin, a named client user, a client role, or the operator on the client's behalf. Rules are ordered: the first match wins; with no match, the client admin approves. They decide *who* approves; whether a step needs approval at all stays per step and per matrix (invariant 8). A run snapshots the approver it used. |
-| Billing | Stripe. Each client is a Stripe customer; a monthly base fee plus metered usage from `usage_daily`, invoiced by Stripe. Keys are network secrets, never in the repo. Prices are open (§7). |
+| Billing | Stripe. Each client is a Stripe customer. A monthly **base fee per active client agent** (not per user), which includes an allowance of **credits**; usage beyond the allowance is billed per credit (Stripe metered prices with the allowance as the free tier), counted from `usage_daily`. Keys are network secrets, never in the repo. What a credit measures, the allowance and the prices are open (§7). |
 | Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. |
 
 ---
@@ -567,6 +567,6 @@ Answered (2026-11-04, ARCHITECTURE v0.9)
 5. Billing: **Stripe**, a monthly base fee per client plus metered usage from `usage_daily` (§1.17).
 
 Open
-1. Stripe: the base fee and the usage price (per run, or model cost with a markup), and whether the base is per client or per active agent. The Stripe account and its keys (saved as network secrets, never in the repo).
-2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification.
-3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first.
+1. Stripe: the base fee is per active agent, with a credit allowance and overage (owner, 2026-11-04). Open: what one credit measures (a run, a step, or model cost), the allowance per agent, whether a client's allowances are pooled across its agents, the prices, and the Stripe account and its keys (saved as network secrets, never in the repo).
+2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
+3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first (owner: tomorrow).

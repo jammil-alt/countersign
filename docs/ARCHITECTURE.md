@@ -10,7 +10,8 @@
 > it takes), and **QuickBooks Online** ships its reads plus the planned writes (attach a document,
 > itemize lines with the total unchanged, update memo, update purchase cost), each behind approval.
 > **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing through
-> Stripe** comes into v1: a monthly base fee plus metered usage. Changed: §1 (MVP and v1 scope), §6.2,
+> Stripe** comes into v1: a monthly base fee per active agent with a credit allowance, then usage
+> beyond it. Changed: §1 (MVP and v1 scope), §6.2,
 > §9.5, §20.
 >
 > **v0.8 (2026-11-03, owner):** **approvals are on by default and set step by step.** Every step that
@@ -204,8 +205,8 @@ In:
   export), run timeline, inbox, connections, requests, users and notification settings
 - **Approver rules** (v0.9): per client, set by the operator, tightened by the client admin; they name
   who approves each change (`docs/plan.md` §1.17)
-- **Billing** (v0.9): Stripe customers per client; a monthly base fee plus metered usage from
-  `usage_daily`, invoiced by Stripe
+- **Billing** (v0.9): Stripe customers per client; a monthly base fee per active agent that includes a
+  credit allowance, then metered usage from `usage_daily` beyond it, invoiced by Stripe
 - ~~Materials pack~~: built separately from this plan (v0.9)
 
 Out (designed for, not built):
