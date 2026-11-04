@@ -790,6 +790,11 @@ export const usageDaily = pgTable(
     externalActions: integer("external_actions").notNull().default(0),
     /** Texts and WhatsApp messages sent (migration 0013), counted once per provider message id. */
     messages: integer("messages").notNull().default(0),
+    /**
+     * Seconds of phone calls (migration 0015): Twilio's duration of each finished call an agent
+     * placed or answered, counted once per call.
+     */
+    callSeconds: integer("call_seconds").notNull().default(0),
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
     costUsd: usd("cost_usd"),
