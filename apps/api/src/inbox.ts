@@ -58,6 +58,10 @@ export function toRunResolution(item: Pick<InboxRow, "resolution" | "resolvedBy"
 export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<ResolveOutcome> {
   const item = await lockItem(tx, input.tenantId, input.itemId);
   const { decision, answer, note } = input.body;
+  if (item.kind === "change_request") {
+    // A client's request is resolved in the requests queue, where its outcome and links are kept.
+    throw new HttpError(409, "use_requests", "resolve requests in the requests queue");
+  }
   if (item.status === "expired") {
     throw new HttpError(409, "expired", "this item expired: the run stopped waiting for it");
   }

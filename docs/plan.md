@@ -222,6 +222,82 @@ The owner asked for "the same thing as Plenary Labs' feedback" (2026-11-04). Ple
 | Composer | Press Feedback, the page dims ("Tap where the problem is"); a tap pins (copper: a person's mark), "No particular spot" skips the pin, Escape or Cancel sends nothing. The sheet shows the picture with the pin, the pinned element, a required comment, "Leave the picture off" and Send. On phones the button is round and the composer is full screen. The app has no modals yet; when one arrives it should leave room at its foot for the button (z-index 40, bottom right). |
 | Resolve and reopen | `POST /api/ops/feedback/:id/resolve {note?}` records who, when and the note (a URL shows as a link); `POST …/reopen` clears all three. Resolving a resolved item or reopening an open one answers 409. Open shows in signal ("Open"), resolved in positive. |
 
+
+### 1.11 Decisions made in stream H (requests)
+
+ARCHITECTURE §1 item 7 and §11: a client asks for a change or a new service from the portal; it lands in the operator's queue and is resolved by linking the versions made for it.
+
+| Topic | Decision |
+|---|---|
+| Data | A request is an `inbox_item` of kind `change_request`, `assignee_role = 'operator'` (so the client's inbox never shows it), `agent_id` = the service it is about (or null for something new), title = the subject or the text's first line (80 characters), `payload = {text, subject, raisedBy}`. No migration. |
+| Who sees it | `GET /api/requests`: the client admin sees all of the client's requests, a client user the ones they raised. The client sees the status, our note and which of its own services changed (service name and version); never a template, a slug or anything of a bundle. |
+| Raising | `POST /api/requests {subject?, text, serviceId?}`; the service must be one the client's overview lists (its own active or paused client agent). Any client role may raise one. |
+| Queue | `GET /api/ops/requests?status=open|resolved|all&client=` (open by default, newest first, 500 at most) across the clients served; `/ops/requests` in the sidebar under Inbox. The operator inbox still lists requests, with a link to the queue. |
+| Resolving | `POST /api/ops/requests/:id/resolve {outcome: done|declined, note?, links}`, once (409 after). Done needs a link or a note; declined needs a note and links nothing. Links are versions (draft or published) of a template or of this client's own agents, never another client's or a test copy (422 `invalid_link`). Emits `inbox.resolved` (`approved` = done). The generic inbox resolve refuses requests (409 `use_requests`). |
+| Builder | "Revise with the Builder" on a request about a service opens that agent's Revise tab with the request chosen (`?request=`); the revise panel lists the client's open requests from the queue. |
+| Not built | Replies back and forth, withdrawing a request, notifications (M11). |
+
+
+### 1.17 Owner answers, 2026-11-04 (approver rules and billing, to build)
+
+| Topic | Decision |
+|---|---|
+| Approver rules | Per client. The operator sets them; the client admin can only make them stricter (a stricter approver, never a looser one). A rule matches on any of: connector or tool, verb (`create`, `update`, …), an amount over a threshold, the client agent; it names the approver: the client admin, a named client user, a client role, or the operator on the client's behalf. Rules are ordered: the first match wins; with no match, the client admin approves. They decide *who* approves; whether a step needs approval at all stays per step and per matrix (invariant 8). A run snapshots the approver it used. |
+| Billing | Stripe. Each client is a Stripe customer. A monthly **base fee per active client agent** (not per user), which includes an allowance of **credits**; usage beyond the allowance is billed per credit (Stripe metered prices with the allowance as the free tier), counted from `usage_daily`. Keys are network secrets, never in the repo. **One credit is one cent of what the work cost us** (owner, 2026-11-04): model cost plus provider costs (SMS and WhatsApp messages, call minutes), converted from `usage_daily` with unit costs kept as operator settings, so every new tool is billable without a new rule; the markup is in the overage price. The allowance and the prices are open (§7). |
+| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. |
+
+
+### 1.18 Languages (owner, 2026-11-04; stream I)
+
+The portal and what agents write for clients come in the client's language. The back office stays in English.
+
+| Topic | Decision |
+|---|---|
+| Languages | English (the source), Spanish, French, Portuguese (Brazil), Italian, German: `en`, `es`, `fr`, `pt-BR`, `it`, `de`. Regional formats (es-MX, fr-CA, pt-PT…) come from `Intl` with the reader's region; translations are shared per language. Adding a language is a new message file and a review, nothing else. Right-to-left languages are out. |
+| Who picks | Each client has a default language (`tenant.settings.language`, set by the operator or the client admin); each user can choose their own, which wins. Sign-in and anything before a session follow the browser. |
+| Portal text | Every portal and shared-component string goes through `t()` with a message file per language; dates, numbers and money through `Intl` in the reader's locale; API errors shown by their code in the reader's language. The back office keeps literal English. |
+| Agents' client-facing text | Skill and tool summary templates may carry a version per language (falling back to English); the client's language is passed to the runtime, and model-written text that reaches the client is asked for in it. Step labels on the client timeline stay operator-written per client agent, in that client's language. |
+| Translations | Written with the code, marked for review by a fluent speaker before a client sees them. Documents and invoices are not translated. |
+| Next step (planned, not in stream I) | **Message translation.** Agents read and write in several languages and translate incoming text: a client can keep everything in one working language (e.g. Spanish emails, webhook payloads and thread messages in, English stored beside them) or the reverse for outgoing messages, per client and per contact. The original is always kept (raw records stay immutable, invariant 3); the translation is a tool result with `agent_version_id`, never instructions (invariant 9), and is stored beside the original. |
+
+
+### 1.19 Texts and calls: Twilio, WhatsApp, ElevenLabs (owner, 2026-11-04; planned)
+
+Agents send and receive text messages and make and take phone calls, as tools they are given, drawing on what they know about the client. Planned here; not built yet. The defaults below stand unless the owner changes them (§7).
+
+| Topic | Decision (default) |
+|---|---|
+| Connectors | `twilio`: SMS, voice, **phone numbers** (bought and released through Twilio's API in the client's subaccount, by the operator from the back office; never an agent tool, since a number costs money and agents can't change their own setup) and **WhatsApp first through Twilio's WhatsApp senders** on that number (owner, 2026-11-04): one message format, one webhook check and one log for SMS, WhatsApp and voice, with SMS as a fallback. `whatsapp_meta` comes after: Meta's WhatsApp Cloud API directly, so a client can use **its own number and its own WhatsApp Business Account**, with no per-message markup and Meta's newer features. Both give agents the same `whatsapp.*` tools, so a workflow doesn't change when a client moves from one to the other. `elevenlabs`: voice agents for live calls (speech in and out, low latency), on the client's Twilio number. |
+| WhatsApp onboarding | **Through Twilio (first):** the operator registers the client's Twilio number as a WhatsApp sender under the client's business name (Twilio's self sign-up, with the client's Meta business verification). **Through Meta (after):** the client connects its own WhatsApp Business Account from the portal through Meta's Embedded Signup, like signing in to its other tools (the operator never holds its credentials); that needs Mezonas registered as a Meta Tech Provider (business verification and app review: start early, like Google's). Its number can be its own or the client's Twilio number (the platform asks Meta for the registration code and reads it from that number's SMS or call webhook). |
+| Whose accounts | Mezonas' own Twilio account with a **subaccount and number per client**, provisioned by the operator; Mezonas' own ElevenLabs account. These are Mezonas' infrastructure (like email sending), not the client's tools; a client that already has Twilio can connect its own instead. WhatsApp is on the client's Twilio number first, and the client's own account once Meta is added (above). Usage (messages, minutes) is metered into `usage_daily` and counts against credits (§1.17). |
+| Tools | Reads: `messages.search`, `message.get`, `call.get` (transcript, summary, recording link). Writes, each an external action behind approval: `sms.send`, `whatsapp.send` (approved templates outside WhatsApp's 24-hour window), `call.place` (a call with a stated purpose, recipient and the agent to speak). Events: `message.received`, `call.completed`, connector event types as `webhook.received` is; Twilio webhooks verified by their signature, and Meta's (later) by `X-Hub-Signature-256`. |
+| Live calls | A call can't be approved sentence by sentence, so the approval is for **placing the call**: who, why, which agent and what it may do. During the call the voice agent may only use read tools and what the client knows; anything that would change a client's tool is proposed during the call and goes to the inbox after it. Inbound calls and replies to texts follow the same rule as any write: off unless the operator sets the step to run without approval, the matrix allows `auto` and the agent is in `act` mode (invariant 8). |
+| What agents know | A **per-client knowledge base** the agent draws on: the client's documents, FAQs and policies, plus its memory notes, never another client's (invariant 1). Reached through tools (`knowledge.search`), so it is evidence with sources, not instructions. ElevenLabs gets the call's knowledge from our tools at call time, not a copy kept in its account. This is new work: the platform has memory notes and documents, not a knowledge base yet. |
+| Untrusted text | Incoming texts, WhatsApp messages and call transcripts are untrusted data, like email (invariants 9 and 12): tool results only, stored per contact thread, the original kept. |
+| Contacts and consent | A contact record per client (phone, WhatsApp, language, consent and its source, opt-out). Every send checks consent and quiet hours first; STOP and opt-out words are honoured at once; calls say they are an automated assistant and ask before recording. US texting needs A2P 10DLC registration per client number. These rules are checked in code, not left to the model. Needs a migration. |
+| Languages | Texts and calls in the contact's language; translation of incoming messages comes with §1.18's next step. |
+| Order | After the MVP connectors (QuickBooks, Gmail), approver rules and Stripe: contacts and consent, the knowledge base, then Twilio numbers, SMS and WhatsApp, then calls, then WhatsApp through Meta. |
+
+
+### 1.25 Reach out: agents contacting people (owner, 2026-11-04; design)
+
+An agent knows the people it works with and reaches out to them by email, text, WhatsApp or call, in their language, under conditions the operator sets. Builds on contacts (§1.22), calls (§1.23), approver rules (§1.20) and languages (§1.18).
+
+| Topic | Design |
+|---|---|
+| Contacts | §1.22's contact gains: **email**, **preferred channels in order** (e.g. WhatsApp, then call), **language** (already there), **timezone** and quiet hours (default: the client's), **roles** (labels such as `purchaser`, `owner`, `vendor rep`), consent **per channel** (email added beside texts, WhatsApp and calls), and notes. Client data: per client only (invariant 1); the operator and the client admin edit them. |
+| An agent's people | A template declares the **roles** it reaches (`people: [{role, description, required, channels}]` in the bundle, no contact data). A client agent **binds each role to one or more contacts**, like connection bindings: operational data on the client agent, never in a version, so forks and promotions never carry anyone's details (invariant 11). Activation refuses a required role with nobody bound. This is how "add people to an agent's memory" works: who they are, how to reach them and when. |
+| Conditions | Per binding, checked in code before anything is sent: **urgency → channels** (default: urgent: call, then text; normal: the contact's preferred order; FYI: email only), **hours** (the contact's timezone and quiet hours; urgent may be allowed outside them only if the operator says so), **how often** (at most N per day and one open reach-out per contact and subject), **only if** (an optional rule over the step's facts, the same rules as forks, e.g. amount over $500), and **escalation** (no reply after a set time → the next channel; stop at the first reply, an opt-out or the last channel). |
+| The skill | `comms.reach-out`, built in. Input: `to` (a role or a contact), `about` (the record it concerns, as sources), `purpose` (fixed text, §1.23's fixed-input rule), `message` (a fixed template per language, or "compose": the model writes it from the fixed purpose and the record's data, in the contact's language), `urgency`, `expectReply`, `timeout`. Output: `outcome` (`replied`, `no_reply`, `declined`, `opted_out`, `not_allowed`), the channel used, the reply as untrusted data, the contact, and sources. |
+| Waiting for a reply | The step waits like a person step: the run waits for the reply event (`message.received`, `call.completed`, an email reply) or the timeout, using the same wait the inbox uses; escalation steps happen inside the wait. The workflow then forks on `outcome`. |
+| Channel choice | The contact's preferred order, filtered by the binding's allowed channels, consent, what the client has connected and the hours; the first that passes is used; none passes → `not_allowed`, recorded with the reason, nothing sent. |
+| Language | The contact's language, else the client's, else English. Fixed templates carry one text per language (as summaries do, §1.18); composed messages are written in that language. Replies in another language are translated when §1.18's message translation lands. |
+| Approval | On by default (invariant 8). One approval covers **the reach-out plan**: who, why, which channels and how many attempts; each attempt inside the plan then runs. Approver rules (§1.20) route these approvals like any other change. A step runs without approval only under the usual three conditions. |
+| Evidence and safety | Every attempt and reply goes in the contact's thread with the run, the agent version and the sources (invariant 10). Replies and transcripts are data, never instructions (invariant 9). Consent, opt-out, hours and caps are code, not model judgement. Test runs never send. |
+| The agent's own channels (owner, 2026-11-04) | An agent is **given channels**, as it is given connections: each client agent binds an email channel, a texting number, a WhatsApp number and a calling number, each to a connection. Email can be **a mailbox of its own** (a Gmail account made for the agent, which the client or the operator signs in to), **Mezonas' sending service** (Resend, from an address on the client's verified domain, our domain until then), or **a person's Gmail** that the person signs in to and lets the agent send from. Texts and calls use the client's Twilio numbers (§1.22, §1.23). The skill sends only through the agent's bound channels; an unbound channel is `not_allowed`. |
+| Email sending | Gmail gains send (`gmail.send`, Google's send scope, behind approval like every send; this adds to the Gmail app review) and still never syncs beyond the connection's query (invariant 12). A `resend` connector is Mezonas' infrastructure: a domain per client verified by DNS records shown in the back office. Replies come back to the client's forwarding address (§1.6) or the Gmail mailbox and are matched to the reach-out by thread and headers; reply text is untrusted data. |
+| Who edits (owner, 2026-11-04) | **The operator and the client admin, fully**: both add and edit contacts, bind people to an agent's roles and set or loosen the conditions (hours, how often, urgency → channels, escalation, "only if"). Every change is logged with who (the tenant_change pattern). What stays the operator's alone: whether a step needs approval and the connection matrix (invariant 8), and binding channels to connections. Consent and opt-outs are never overridden by either. |
+
 ---
 
 ## 2. Package layering
@@ -307,6 +383,7 @@ Progress, phase 1 and Track B (2026-11-03):
 | `apps/web` | Shells done: sign-in, both layouts, clients, client page, agent page. Track B's screens are listed below; the rest are placeholders (phase 3) |
 | Local stack | Done: `setup-postgres.sh`, `wrangler dev`, health, session, ops and portal routes, and a test run through `RunWorkflow` checked by hand |
 | Screens (Track B) | Done: templates list, new template, new client agent (blank, fork, copy), the agent page's Overview, Versions (diff as sentences, publish, roll back, update available, customizations, used by) and Settings (definition editor, bindings, activate/pause/retire, test run); back-office inbox, runs, run view and client connections (matrix, offering); portal inbox, runs, run timeline and connections. Stream B: the merge view (apply update, promote selected changes, detach, re-link; §1.7). Open: OAuth sign-in, `/remind`, requests queue, record pages for sources, activation does not poll a running test run |
+| Requests (stream H) | Done (§1.11): the portal's `/requests` (ask about a service or something new, follow the reply and what changed), the back office's `/ops/requests` queue (filter by status and client, hand to the Builder, resolve as done with linked versions or decline with a note). Closes M5's "raises a request the operator sees in the queue" |
 | Feedback (stream F) | Done (§1.10): the Feedback button on every back-office screen and, when the operator switches it on for a client (with a reason), on its portal; pin, screenshot without the feedback layer, comment, send (comment first, picture after); `/ops/feedback` with open/resolved/all, the picture with its pin, resolve with a note and reopen; the client page's switch with its history. Migration 0005 (`feedback`, `tenant_change`) |
 | Workflow builder (Track B) | Done (§1.5): the Workflow tab is the builder for templates and client agents; workflow switcher and "add workflow"; header with version badge, counts, Save draft, Test run (sample or manual payload; templates run as their Sandbox test copy) and Publish (refused while invalid); palette (event triggers, the agent's skills then the library, actions grouped by connector, people, logic) with search, drag in or +; numbered cards with kind tags and badges (invalid, approval or runs automatically, hidden from client, customized against the template), drag handles, forks as side-by-side paths with "Drop a step here" and "Paths join here", for-each blocks, delete, undo/redo; inspector with schema-generated input forms, template fields with an upstream-output picker, fork paths as ordered rule rows, skill settings with defaults and the template's value, client timeline label and visibility, and the Approval control; live validation with a clickable problem list that selects the step and focuses the field; the rolling draft in the browser. Checked in Chromium against `pnpm dev` (add, drag into a fork path, save, test run, publish). The merge view is built (stream B, §1.7). Open: a recent real record as a test-run payload; dragging a whole fork path's steps at once; a Playwright test of the M7 done-when script |
 | Foundation follow-ups (Track B) | Done: durable approval resume (cron re-sends until the run takes the resolution), one `step_run` per (run, node) with an upserting step log, template test runs through a Sandbox test copy, test runs refused for an invalid version, shared skills copied into the client before a test run (§1.5). Open: template test runs on a chosen client's data |
@@ -317,9 +394,10 @@ Progress, phase 1 and Track B (2026-11-03):
 **Phase 2: Cloud.** Bootstrap workflow, deploy spike, staging (M0's deploy spike, `docs/operations.md`).
 
 **Phase 3: Product surfaces and tools, as needed.** Track B built most of the M5–M7 screens (inbox,
-portal connections, templates and client agents, the builder, run views; progress above). Left: skills authoring, requests, reports and usage screens; then
-tools and connectors (upload and email forwarding, documents, QuickBooks, Gmail) and agents (the
-Materials pack and Pia, M8–M10).
+portal connections, templates and client agents, the builder, run views; progress above). Left: reports and usage screens; then
+QuickBooks (M9) and Gmail (M10, now in the MVP), approver rules and Stripe billing (§1.17), languages
+(§1.18); then texts and calls (§1.19). Pia and the Materials pack (M8) are built separately
+(ARCHITECTURE v0.9).
 
 ---
 
@@ -534,9 +612,16 @@ Answered (2026-11-03)
 - Connectors: QuickBooks Online and Gmail first, plus upload (ARCHITECTURE v0.4).
 - `main` created from the setup branch (2026-11-03).
 
+Answered (2026-11-04, ARCHITECTURE v0.9)
+1. Email for the MVP: **Gmail goes into the MVP.** Start Google's OAuth app verification now and see how long it takes (it was quick on another project). Forwarding stays as built.
+2. QuickBooks: **reads and the planned writes**: `qbo.attachable.upload`, `qbo.bill.update_lines` / `qbo.purchase.update_lines` (total unchanged), `update_memo`, `update_purchase_cost`; each behind approval, delete off.
+3. The millwork shop's mailbox: **not part of this plan.** Pia and the millwork use case are built separately; the Materials pack (M8) stays in its own branches and is not merged here.
+4. Approvals: **approver rules decide who approves** (§1.17).
+5. Billing: **Stripe**, a monthly base fee per client plus metered usage from `usage_daily` (§1.17).
+
 Open
-1. Email for the MVP: forwarding to a private address (built in, no Google review) instead of Gmail, with the Gmail connector right after. Confirm, or move Gmail into the MVP.
-2. First QBO writes: proposal is `qbo.attachable.upload` first, then `update_memo` and `update_purchase_cost` (ARCHITECTURE §20).
-3. Gmail: which mailbox the millwork shop uses for invoices (shared `ap@` box or a person's), and whether they're on Google Workspace (decides verified app vs domain-wide delegation, ARCHITECTURE §20).
-4. Approvals: should external actions default to the client approving, or do some clients want the operator to approve on their behalf? (Both are supported; this sets the default.)
-5. Billing: usage is metered per client from v1; how will clients be charged (per agent per month, usage, a mix)? This decides what the back office invoices later.
+1. Stripe: the base fee is per active agent, with a credit allowance and overage (owner, 2026-11-04). One credit is one cent of our cost (owner, 2026-11-04). Open: the allowance per agent, whether a client's allowances are pooled across its agents, the prices, and the Stripe account and its keys (saved as network secrets, never in the repo).
+2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
+3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first (owner: tomorrow).
+5. Reach out (§1.25): answered (2026-11-04): agents get their own channels (a Gmail of their own, Resend, or a person's Gmail; Twilio numbers), and the operator and the client admin both edit people and conditions. Open: a Resend account and its key; Google's send scope added to the Gmail review.
+4. Texts and calls (§1.19): WhatsApp through Twilio first, then Meta directly so clients can use their own number (owner, 2026-11-04); register Mezonas as a Meta Tech Provider ahead of the Meta step. Open: Mezonas-owned Twilio subaccounts per client (default) or each client's own Twilio; which countries first (US texting needs A2P 10DLC registration); Twilio and ElevenLabs accounts and keys; `api.twilio.com`, `graph.facebook.com` and `api.elevenlabs.io` allowed in the network. Legal review of consent, calling hours, recording consent and AI disclosure for each country before any live client calls.
