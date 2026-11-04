@@ -237,6 +237,15 @@ ARCHITECTURE §1 item 7 and §11: a client asks for a change or a new service fr
 | Builder | "Revise with the Builder" on a request about a service opens that agent's Revise tab with the request chosen (`?request=`); the revise panel lists the client's open requests from the queue. |
 | Not built | Replies back and forth, withdrawing a request, notifications (M11). |
 
+
+### 1.17 Owner answers, 2026-11-04 (approver rules and billing, to build)
+
+| Topic | Decision |
+|---|---|
+| Approver rules | Per client. The operator sets them; the client admin can only make them stricter (a stricter approver, never a looser one). A rule matches on any of: connector or tool, verb (`create`, `update`, …), an amount over a threshold, the client agent; it names the approver: the client admin, a named client user, a client role, or the operator on the client's behalf. Rules are ordered: the first match wins; with no match, the client admin approves. They decide *who* approves; whether a step needs approval at all stays per step and per matrix (invariant 8). A run snapshots the approver it used. |
+| Billing | Stripe. Each client is a Stripe customer; a monthly base fee plus metered usage from `usage_daily`, invoiced by Stripe. Keys are network secrets, never in the repo. Prices are open (§7). |
+| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. |
+
 ---
 
 ## 2. Package layering
@@ -334,8 +343,8 @@ Progress, phase 1 and Track B (2026-11-03):
 
 **Phase 3: Product surfaces and tools, as needed.** Track B built most of the M5–M7 screens (inbox,
 portal connections, templates and client agents, the builder, run views; progress above). Left: reports and usage screens; then
-tools and connectors (upload and email forwarding, documents, QuickBooks, Gmail) and agents (the
-Materials pack and Pia, M8–M10).
+QuickBooks (M9) and Gmail (M10, now in the MVP), approver rules and Stripe billing (§1.17). Pia and the
+Materials pack (M8) are built separately (ARCHITECTURE v0.9).
 
 ---
 
@@ -550,9 +559,14 @@ Answered (2026-11-03)
 - Connectors: QuickBooks Online and Gmail first, plus upload (ARCHITECTURE v0.4).
 - `main` created from the setup branch (2026-11-03).
 
+Answered (2026-11-04, ARCHITECTURE v0.9)
+1. Email for the MVP: **Gmail goes into the MVP.** Start Google's OAuth app verification now and see how long it takes (it was quick on another project). Forwarding stays as built.
+2. QuickBooks: **reads and the planned writes**: `qbo.attachable.upload`, `qbo.bill.update_lines` / `qbo.purchase.update_lines` (total unchanged), `update_memo`, `update_purchase_cost`; each behind approval, delete off.
+3. The millwork shop's mailbox: **not part of this plan.** Pia and the millwork use case are built separately; the Materials pack (M8) stays in its own branches and is not merged here.
+4. Approvals: **approver rules decide who approves** (§1.17).
+5. Billing: **Stripe**, a monthly base fee per client plus metered usage from `usage_daily` (§1.17).
+
 Open
-1. Email for the MVP: forwarding to a private address (built in, no Google review) instead of Gmail, with the Gmail connector right after. Confirm, or move Gmail into the MVP.
-2. First QBO writes: proposal is `qbo.attachable.upload` first, then `update_memo` and `update_purchase_cost` (ARCHITECTURE §20).
-3. Gmail: which mailbox the millwork shop uses for invoices (shared `ap@` box or a person's), and whether they're on Google Workspace (decides verified app vs domain-wide delegation, ARCHITECTURE §20).
-4. Approvals: should external actions default to the client approving, or do some clients want the operator to approve on their behalf? (Both are supported; this sets the default.)
-5. Billing: usage is metered per client from v1; how will clients be charged (per agent per month, usage, a mix)? This decides what the back office invoices later.
+1. Stripe: the base fee and the usage price (per run, or model cost with a markup), and whether the base is per client or per active agent. The Stripe account and its keys (saved as network secrets, never in the repo).
+2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification.
+3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first.

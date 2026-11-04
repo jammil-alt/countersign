@@ -4,6 +4,15 @@
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
 
+> **v0.9 (2026-11-04, owner):** **Pia and the millwork shop are built separately**, outside this plan
+> (the Materials pack, M8, stays in its own branches and is not merged here). The MVP is the platform
+> with its tools: **Gmail moves into the MVP** (start Google's app verification now and measure how long
+> it takes), and **QuickBooks Online** ships its reads plus the planned writes (attach a document,
+> itemize lines with the total unchanged, update memo, update purchase cost), each behind approval.
+> **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing through
+> Stripe** comes into v1: a monthly base fee plus metered usage. Changed: §1 (MVP and v1 scope), §6.2,
+> §9.5, §20.
+>
 > **v0.8 (2026-11-03, owner):** **approvals are on by default and set step by step.** Every step that
 > changes a client's tool waits for a person unless that step is explicitly set to run without approval,
 > which is only possible where the client's connection allows it. A **MVP** is defined (§1): Pia live
@@ -150,13 +159,14 @@ can change Pia's workflow, publish a new version and roll it back.
 In the MVP:
 - Sign-in (WorkOS), one operator, clients (the millwork shop and the sandbox), back office and portal
   shells, inbox and approvals, the portal's Connections page
-- Connectors: **QuickBooks Online** (sync, read tools, the two write tools in §6.2) and **upload, with
-  email forwarding** (§6.5); documents capability
+- Connectors: **QuickBooks Online** (sync, read tools, and the writes in v0.9: attach, itemize lines,
+  update memo, update purchase cost), **Gmail** (moved into the MVP in v0.9), and **upload, with email
+  forwarding** (§6.5); documents capability
 - Templates and client agents: create, fork, edit, versions, publish, rollback, bindings, activation
   (lineage is recorded from the start so updates can come later without a migration)
 - Workflow engine and the step-list builder with forks, person steps and **per-step approvals**; test
   runs; back-office run view and portal run timeline
-- Materials pack: catalog, matching, prices, alerts, Price watch; Pia forked and customized for the shop
+- Approver rules and Stripe billing (v0.9). Pia and the Materials pack are built separately (v0.9).
 
 After the MVP, in this order unless the owner reorders: template updates and promotion (three-way merge
 and merge view); Gmail connector; the Builder (drafting agents and skills from a description);
@@ -192,11 +202,14 @@ In:
   model cost per client and agent
 - **Client portal:** overview of their services and outcomes, reports (pack reports + activity, CSV
   export), run timeline, inbox, connections, requests, users and notification settings
-- **Materials pack:** catalog, matching, prices, alerts, Price watch report; the Pia template and its two
-  workflows, forked and customized for the millwork shop
+- **Approver rules** (v0.9): per client, set by the operator, tightened by the client admin; they name
+  who approves each change (`docs/plan.md` §1.17)
+- **Billing** (v0.9): Stripe customers per client; a monthly base fee plus metered usage from
+  `usage_daily`, invoiced by Stripe
+- ~~Materials pack~~: built separately from this plan (v0.9)
 
 Out (designed for, not built):
-- Billing and invoicing clients (usage is metered so it can be added); client self-serve building;
+- Client self-serve building;
   showing workflows or instructions to clients; other operators on the platform (one operator in v1);
   automatic template updates (every update is reviewed per client)
 - Connectors beyond QBO, Gmail and upload (Slack, Google Drive, Outlook, bank and card feeds, Ramp,
