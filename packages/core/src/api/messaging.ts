@@ -2,9 +2,9 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import {
   CONSENT_SOURCE_MAX,
+  ConsentChannel,
   ContactConsent,
   E164,
-  MessagingChannel,
   QuietHours,
 } from "../messaging/rules";
 import { defineRoute } from "./contract";
@@ -36,7 +36,7 @@ export const ContactCreate = z
     /** Consent given already (e.g. on the client's web form): channels and how. */
     consent: z
       .strictObject({
-        channels: z.array(MessagingChannel).min(1),
+        channels: z.array(ConsentChannel).min(1),
         source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
       })
       .optional(),
@@ -62,10 +62,10 @@ export type ContactPatchInput = z.input<typeof ContactPatch>;
 export const ContactConsentChange = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("grant"),
-    channel: MessagingChannel,
+    channel: ConsentChannel,
     source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
   }),
-  z.strictObject({ action: z.literal("withdraw"), channel: MessagingChannel }),
+  z.strictObject({ action: z.literal("withdraw"), channel: ConsentChannel }),
   z.strictObject({ action: z.literal("opt_out") }),
   z.strictObject({ action: z.literal("lift_opt_out") }),
 ]);
@@ -81,6 +81,8 @@ export const Contact = z.object({
   optedOut: z.object({ at: z.string(), source: z.string() }).nullable(),
   /** Whether a send could go out now, quiet hours aside. */
   canMessage: z.object({ sms: z.boolean(), whatsapp: z.boolean() }),
+  /** Whether an agent's call could be placed now (consent to calls, a phone), quiet hours aside. */
+  canCall: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -90,7 +92,8 @@ export type Contact = z.infer<typeof Contact>;
 export const ContactMessage = z.object({
   id: z.string(),
   direction: z.enum(["in", "out"]),
-  channel: MessagingChannel,
+  /** `voice`: a phone call; its text is the call's summary (or what happened, e.g. voicemail). */
+  channel: z.enum(["sms", "whatsapp", "voice"]),
   text: z.string(),
   /** The provider's message id. */
   sid: z.string().nullable(),

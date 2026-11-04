@@ -27,6 +27,9 @@ import {
   withTenant,
 } from "@countersign/db";
 import { and, desc, eq, sql } from "drizzle-orm";
+import type { VoiceDeps } from "../calls/answer";
+import { dbVoiceServices } from "../calls/services";
+import type { Platform } from "../platform";
 import {
   contactThread,
   findContactByNumber,
@@ -216,7 +219,16 @@ async function recordOutboundTx(tx: Tx, tenantId: string, m: OutboundMessage): P
   }
 }
 
-/** For the runtime: platform services for every connector call (RuntimeDeps.services). */
-export function connectorServicesFor(db: Db): (connection: ConnectionRef) => ConnectorServices {
-  return (connection) => ({ messaging: dbMessagingServices(db, connection) });
+/**
+ * For the runtime: platform services for every connector call (RuntimeDeps.services). Calls get
+ * their services only where the deployment's voice settings are passed in.
+ */
+export function connectorServicesFor(
+  db: Db,
+  calls?: { voice: VoiceDeps; platform: Platform },
+): (connection: ConnectionRef) => ConnectorServices {
+  return (connection) => ({
+    messaging: dbMessagingServices(db, connection),
+    ...(calls ? { voice: dbVoiceServices(db, connection, calls) } : {}),
+  });
 }

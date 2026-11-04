@@ -28,7 +28,13 @@ import {
 
 export type ContactsSurface = { kind: "ops"; clientId: string } | { kind: "portal" };
 
-const CHANNEL_LABEL: Record<MessagingChannel, string> = { sms: "Texts", whatsapp: "WhatsApp" };
+const CHANNEL_LABEL: Record<MessagingChannel | "voice", string> = {
+  sms: "Texts",
+  whatsapp: "WhatsApp",
+  voice: "Calls",
+};
+/** What can be agreed to: texts, WhatsApp, and calls from an automated assistant. */
+type ConsentChoice = MessagingChannel | "voice";
 
 function errorText(error: unknown, fallback: string): string {
   return isApiError(error) ? error.message : fallback;
@@ -127,6 +133,14 @@ function ConsentPills({ contact }: { contact: Contact }) {
             {CHANNEL_LABEL[ch]}: {contact.canMessage[ch] ? "agreed" : "not agreed"}
           </Badge>
         ))}
+      {contact.phone ? (
+        <Badge
+          tone={contact.canCall ? "positive" : "neutral"}
+          testId={`contact-${contact.id}-voice`}
+        >
+          Calls: {contact.canCall ? "agreed" : "not agreed"}
+        </Badge>
+      ) : null}
     </>
   );
 }
@@ -146,7 +160,7 @@ function ContactCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [channel, setChannel] = useState<MessagingChannel>(contact.phone ? "sms" : "whatsapp");
+  const [channel, setChannel] = useState<ConsentChoice>(contact.phone ? "sms" : "whatsapp");
   const [source, setSource] = useState("");
 
   async function change(body: ContactConsentChangeInput) {
@@ -225,11 +239,12 @@ function ContactCard({
                 <Field label="Channel">
                   <Select
                     value={channel}
-                    onChange={(e) => setChannel(e.target.value as MessagingChannel)}
+                    onChange={(e) => setChannel(e.target.value as ConsentChoice)}
                     data-testid={`contact-${contact.id}-channel`}
                   >
                     <option value="sms">Texts</option>
                     <option value="whatsapp">WhatsApp</option>
+                    <option value="voice">Calls from an automated assistant</option>
                   </Select>
                 </Field>
                 <Field label="How they agreed" hint="For example: signed the service agreement.">
@@ -309,7 +324,14 @@ function ContactMessages({
       {data.items.slice(0, 20).map((m) => (
         <li key={m.id} className="text-sm">
           <span className="eyebrow text-ink-muted">
-            {m.direction === "in" ? "They wrote" : "We sent"} · {CHANNEL_LABEL[m.channel]} ·{" "}
+            {m.channel === "voice"
+              ? m.direction === "in"
+                ? "They called"
+                : "We called"
+              : m.direction === "in"
+                ? "They wrote"
+                : "We sent"}{" "}
+            · {m.channel === "voice" ? "Call" : CHANNEL_LABEL[m.channel]} ·{" "}
             {new Date(m.at).toLocaleString()}
             {m.status ? ` · ${m.status}` : ""}
           </span>

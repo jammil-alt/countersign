@@ -79,7 +79,8 @@ example signature (`GvWf1cFY/Q7PnoempGyD5oXAezc=` for token `12345`), which is i
 
 ## What is not built
 
-- Voice (`call.place`, `call.get`). That is the calls stream, which can add tools to this connector.
+- Voice: built by the calls stream (`call.place`, `call.answer`, `call.get`, `twilio/voice.ts`,
+  `twilio/call-tools.ts`). Its notes are in `../elevenlabs/NOTES.md`.
 - MMS media download, toll-free verification, numbers outside the US, Messaging Services managed by API.
 - Inbound messages counted as usage (only sent messages count, against the agent that sent them).
 - Translation of incoming messages (plan §1.18, next step).

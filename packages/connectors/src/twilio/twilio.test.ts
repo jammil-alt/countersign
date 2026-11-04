@@ -129,10 +129,15 @@ describe("twilio connector", () => {
       [MESSAGE_GET_TOOL, "none", "read", null],
       [SMS_SEND_TOOL, "external", "create", "twilio"],
       [WHATSAPP_SEND_TOOL, "external", "create", "twilio"],
+      ["call.place", "external", "create", "twilio"],
+      ["call.answer", "external", "create", "twilio"],
+      ["call.get", "none", "read", null],
     ]);
     expect(c.manifest.events?.map((e) => e.type)).toEqual([
       MESSAGE_RECEIVED_EVENT,
       "message.status",
+      "call.received",
+      "call.completed",
     ]);
     expect(c.manifest.sharedNamespaces).toContain("whatsapp");
   });
