@@ -122,6 +122,7 @@ export function agentPort(deps: RuntimeDeps, reach?: ReachPort): AgentPort {
         stepRunId,
         approval,
         mode: run.mode,
+        language: run.language,
       });
       switch (r.status) {
         case "succeeded":

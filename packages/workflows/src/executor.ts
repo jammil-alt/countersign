@@ -27,6 +27,8 @@ import {
   type SkillStep,
   type Step,
   type StopStep,
+  TIMELINE_WORDS,
+  type TimelineWords,
   type WaitStep,
   type Workflow,
 } from "@countersign/core";
@@ -118,6 +120,11 @@ class Executor {
     return this.ctx.run.mode === "test";
   }
 
+  /** The platform's words on the client timeline, in the client's language. */
+  get words(): TimelineWords {
+    return TIMELINE_WORDS[this.ctx.run.language ?? "en"];
+  }
+
   async runList(steps: readonly Step[], frame: Frame): Promise<void> {
     for (const step of steps) await this.runStep(step, frame);
   }
@@ -161,7 +168,7 @@ class Executor {
         await this.ctx.log.update(id, {
           status: "failed",
           error,
-          summary: `${clientLabel(step)}: failed`,
+          summary: `${clientLabel(step)}: ${this.words.failed}`,
         });
         return null;
       });
@@ -173,7 +180,7 @@ class Executor {
   // ── skill and action steps ────────────────────────────────────────────────────────────────────
 
   summaryFor(step: SkillStep | ActionStep, output: unknown, rejected: boolean): string {
-    if (rejected) return `${clientLabel(step)}: not approved`;
+    if (rejected) return `${clientLabel(step)}: ${this.words.notApproved}`;
     const catalog = this.ctx.catalog ?? {};
     const template =
       step.kind === "skill"
@@ -181,13 +188,13 @@ class Executor {
         : catalog.tools?.[step.tool]?.summary;
     if (template) {
       try {
-        const line = renderSummary(template, output).trim();
+        const line = renderSummary(template, output, this.ctx.run.language).trim();
         if (line) return line;
       } catch {
         // A broken template falls back to the label: the timeline never shows model text.
       }
     }
-    return `${clientLabel(step)}: done`;
+    return `${clientLabel(step)}: ${this.words.done}`;
   }
 
   /**
@@ -217,7 +224,10 @@ class Executor {
         if (done.tokensOut !== undefined) update.tokensOut = done.tokensOut;
         break;
       case "approval":
-        update = { status: "waiting", summary: `${clientLabel(step)}: waiting for approval` };
+        update = {
+          status: "waiting",
+          summary: `${clientLabel(step)}: ${this.words.waitingForApproval}`,
+        };
         break;
       case "waiting":
         update = { status: "waiting", summary: `${clientLabel(step)}: waiting for a reply` };
@@ -226,11 +236,15 @@ class Executor {
         update = {
           status: "failed",
           error: `escalated: ${done.reason}`,
-          summary: `${clientLabel(step)}: needs the operator`,
+          summary: `${clientLabel(step)}: ${this.words.needsOperator}`,
         };
         break;
       case "failed":
-        update = { status: "failed", error: done.error, summary: `${clientLabel(step)}: failed` };
+        update = {
+          status: "failed",
+          error: done.error,
+          summary: `${clientLabel(step)}: ${this.words.failed}`,
+        };
         break;
     }
     await this.ctx.log.update(stepRunId, update);
@@ -413,7 +427,7 @@ class Executor {
       });
       await log.update(stepRunId, {
         status: "waiting",
-        summary: `${clientLabel(step)}: waiting for ${step.mode === "approve" ? "approval" : "an answer"}`,
+        summary: `${clientLabel(step)}: ${step.mode === "approve" ? this.words.waitingForApproval : this.words.waitingForAnswer}`,
       });
       return { stepRunId, inboxItemId: item.id };
     });
@@ -427,7 +441,7 @@ class Executor {
         await log.update(created.stepRunId, {
           status: step.onTimeout === "continue" ? "skipped" : "failed",
           output,
-          summary: `${label}: no answer in time`,
+          summary: `${label}: ${this.words.noAnswerInTime}`,
         });
         if (step.onTimeout === "notify_operator") {
           await notify.notifyOperator({
@@ -454,8 +468,8 @@ class Executor {
     const output = { approved, answer: resolution.answer ?? null, by: resolution.by };
     const summary =
       step.mode === "approve"
-        ? `${label}: ${approved ? "approved" : "not approved"}`
-        : `${label}: ${approved ? "answered" : "declined"}`;
+        ? `${label}: ${approved ? this.words.approved : this.words.notApproved}`
+        : `${label}: ${approved ? this.words.answered : this.words.declined}`;
     await this.runner.do(`${name}:done`, async () => {
       await log.update(created.stepRunId, { status: "succeeded", output, summary });
       return null;
@@ -482,7 +496,7 @@ class Executor {
       await log.update(stepRunId, {
         status: "succeeded",
         output,
-        summary: `${clientLabel(step)}: ${output.pathName}`,
+        summary: `${clientLabel(step)}: ${path ? output.pathName : this.words.otherwise}`,
       });
       return { index, output };
     });
@@ -536,7 +550,7 @@ class Executor {
       await log.update(stepRunId, {
         status: ended?.result.status === "failed" ? "failed" : "succeeded",
         output,
-        summary: `${clientLabel(step)}: ${items.length} ${items.length === 1 ? "item" : "items"}`,
+        summary: `${clientLabel(step)}: ${this.words.items(items.length)}`,
       });
       return null;
     });
@@ -550,7 +564,7 @@ class Executor {
       const id = await log.start({ runId: run.id, nodeId: name, nodeType: "wait" });
       await log.update(id, {
         status: "waiting",
-        summary: `${clientLabel(step)}: waiting ${step.for}`,
+        summary: `${clientLabel(step)}: ${this.words.waiting(step.for)}`,
       });
       return { stepRunId: id };
     });
@@ -558,7 +572,7 @@ class Executor {
     await this.runner.do(`${name}:done`, async () => {
       await log.update(stepRunId, {
         status: "succeeded",
-        summary: `${clientLabel(step)}: waited ${step.for}`,
+        summary: `${clientLabel(step)}: ${this.words.waited(step.for)}`,
       });
       return null;
     });
@@ -576,7 +590,10 @@ class Executor {
         input: { channel: step.channel, to, text },
       });
       await notify.send({ run, step, nodeId: name, channel: step.channel, to, text });
-      await log.update(id, { status: "succeeded", summary: `${clientLabel(step)}: sent` });
+      await log.update(id, {
+        status: "succeeded",
+        summary: `${clientLabel(step)}: ${this.words.sent}`,
+      });
       return null;
     });
   }
@@ -587,7 +604,7 @@ class Executor {
       const id = await log.start({ runId: run.id, nodeId: name, nodeType: "stop" });
       await log.update(id, {
         status: "succeeded",
-        summary: `${clientLabel(step)}: ${step.status}`,
+        summary: `${clientLabel(step)}: ${this.words.stopped[step.status]}`,
       });
       return null;
     });

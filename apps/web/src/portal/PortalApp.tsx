@@ -1,11 +1,11 @@
 // The client portal (`/`, client roles): the client's own frame, with no switcher and no building
-// (ARCHITECTURE §15). Overview, Inbox, Runs, Connections and Requests are wired; the rest are
-// placeholders.
+// (ARCHITECTURE §15). Every screen reads in the session's language (docs/plan.md §1.18).
 import type { ReactNode } from "react";
 import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
+import { useI18n } from "../i18n/i18n";
 import { PortalRecordScreen } from "../records/RecordScreens";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
@@ -26,6 +26,7 @@ import { PortalServiceScreen } from "./screens/Service";
 import { PortalSettingsScreen } from "./screens/Settings";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const session = useSession();
   const client =
     session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0] ?? null;
@@ -42,31 +43,43 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         home="/"
         context={
           <span data-testid="portal-client-name" className="text-sm font-medium text-ink">
-            {client?.name ?? "No client"}
+            {client?.name ?? t("shell.noClient")}
           </span>
         }
         inboxTo="/inbox"
         inboxCount={overview.data?.needsYou.inbox}
         sidebar={
           <nav className="flex flex-col gap-0.5">
-            <SidebarLink to="/" label="Overview" end testId="portal-nav-overview" />
-            <SidebarLink to="/inbox" label="Inbox" testId="portal-nav-inbox" />
-            <SidebarLink to="/runs" label="Runs" testId="portal-nav-runs" />
-            <SidebarLink to="/reports" label="Reports" testId="portal-nav-reports" />
-            <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
-            <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
+            <SidebarLink to="/" label={t("nav.overview")} end testId="portal-nav-overview" />
+            <SidebarLink to="/inbox" label={t("nav.inbox")} testId="portal-nav-inbox" />
+            <SidebarLink to="/runs" label={t("nav.runs")} testId="portal-nav-runs" />
+            <SidebarLink to="/reports" label={t("nav.reports")} testId="portal-nav-reports" />
+            <SidebarLink
+              to="/connections"
+              label={t("nav.connections")}
+              testId="portal-nav-connections"
+            />
+            <SidebarLink to="/requests" label={t("nav.requests")} testId="portal-nav-requests" />
             {isAdmin ? (
               <>
-                <SidebarLink to="/knowledge" label="Knowledge" testId="portal-nav-knowledge" />
-                <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
-                <SidebarLink to="/billing" label="Billing" testId="portal-nav-billing" />
+                <SidebarLink
+                  to="/knowledge"
+                  label={t("nav.knowledge")}
+                  testId="portal-nav-knowledge"
+                />
+                <SidebarLink
+                  to="/contacts"
+                  label={t("nav.contacts")}
+                  testId="portal-nav-contacts"
+                />
+                <SidebarLink to="/billing" label={t("nav.billing")} testId="portal-nav-billing" />
+                <SidebarLink to="/people" label={t("nav.people")} testId="portal-nav-people" />
+                <SidebarLink
+                  to="/settings"
+                  label={t("nav.settings")}
+                  testId="portal-nav-settings"
+                />
               </>
-            ) : null}
-            {isAdmin ? (
-              <SidebarLink to="/people" label="People" testId="portal-nav-people" />
-            ) : null}
-            {isAdmin ? (
-              <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
             ) : null}
           </nav>
         }
@@ -79,6 +92,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
 }
 
 export function PortalApp() {
+  const { t } = useI18n();
   return (
     <PortalLayout>
       <Routes>
@@ -98,7 +112,12 @@ export function PortalApp() {
         <Route path="people" element={<PortalPeopleScreen />} />
         <Route path="billing" element={<PortalBillingScreen />} />
         <Route path="settings" element={<PortalSettingsScreen />} />
-        <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
+        <Route
+          path="*"
+          element={
+            <Placeholder title={t("common.notFoundTitle")}>{t("common.notFoundBody")}</Placeholder>
+          }
+        />
       </Routes>
     </PortalLayout>
   );

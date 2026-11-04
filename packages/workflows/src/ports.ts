@@ -7,6 +7,7 @@ import type {
   ActionStep,
   Approval,
   Duration,
+  Locale,
   NotifyStep,
   PersonStep,
   SkillDefinition,
@@ -26,6 +27,11 @@ export interface RunInfo {
   agentVersionId: string;
   workflowSlug: string;
   mode: RunMode;
+  /**
+   * The client's language (docs/plan.md §1.18): summaries and the platform's timeline words are
+   * written in it, and skills are asked to write client-facing text in it. Absent: English.
+   */
+  language?: Locale | undefined;
 }
 
 /** Step-run statuses (packages/db STEP_RUN_STATUSES) the executor writes. */

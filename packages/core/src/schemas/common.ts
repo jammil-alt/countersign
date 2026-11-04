@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { localizedText } from "../i18n/locale";
 
 /** A JSON Schema document (draft 2020-12), as produced by z.toJSONSchema or the operator's field editor. */
 export const JsonSchema = z
@@ -19,6 +20,15 @@ export const NodeId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, "letters, 
 
 /** A string that may contain `{{...}}` references (ARCHITECTURE §10.1). */
 export const TemplateString = z.string().meta({ description: "Text with {{...}} references" });
+
+/**
+ * A client-facing template (skill and tool `summary`): one string (English), or a version per
+ * language with English required (docs/plan.md §1.18). The string form stays valid, so stored
+ * versions parse unchanged (invariant 3).
+ */
+export const LocalizedTemplate = localizedText(TemplateString).meta({
+  description: "Text with {{...}} references, as one string or a version per language",
+});
 
 /** A JSON value whose strings may contain `{{...}}` references; the shape of a step's input. */
 export const TemplateObject = z.record(z.string(), z.unknown());

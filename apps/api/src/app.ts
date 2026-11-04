@@ -23,6 +23,7 @@ import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
+import { languageRouteHandlers } from "./routes/language";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
@@ -64,6 +65,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   feedbackRouteHandlers(app);
   onboardingRouteHandlers(app);
   requestRouteHandlers(app);
+  languageRouteHandlers(app);
   usageRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);

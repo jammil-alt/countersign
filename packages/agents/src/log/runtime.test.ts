@@ -587,6 +587,50 @@ describe.skipIf(!harness)("runtime", () => {
     expect(runRow?.costUsd).toBe(sr?.costUsd);
   });
 
+  it("writes for the client in the client's language: the summary and the model's instructions", async () => {
+    const model = new FakeModel([
+      { toolUse: { name: "finish", input: { answer: "El roble cuesta 5.00", sources: ["r9"] } } },
+    ]);
+    const r = await newRun(h.A);
+    const result = await runAgent(h.deps(model), {
+      tenantId: h.A.tenantId,
+      agentVersionId: agentOf(h.A).versionId,
+      skill: "test.lookup",
+      input: { name: "Roble" },
+      runId: r.id,
+      stepId: LOOKUP_STEP,
+      language: "es",
+    });
+    expect(result.status).toBe("succeeded");
+    if (result.status !== "succeeded") return;
+    expect(result.summary).toBe("Respondido: El roble cuesta 5.00");
+    // Asked for in the system prompt (trusted text), never in the task input or a tool result.
+    const first = model.requests[0];
+    expect(JSON.stringify(first?.system)).toContain("This client reads Spanish");
+    expect(JSON.stringify(first?.messages)).not.toContain("Spanish");
+
+    // A language without a version of the summary falls back to English; English adds nothing.
+    for (const language of ["de", "en"] as const) {
+      const again = new FakeModel([
+        { toolUse: { name: "finish", input: { answer: "5.00", sources: ["r9"] } } },
+      ]);
+      const r2 = await newRun(h.A);
+      const out = await runAgent(h.deps(again), {
+        tenantId: h.A.tenantId,
+        agentVersionId: agentOf(h.A).versionId,
+        skill: "test.lookup",
+        input: { name: "Oak" },
+        runId: r2.id,
+        stepId: LOOKUP_STEP,
+        language,
+      });
+      expect(out.status === "succeeded" && out.summary).toBe("Answered: 5.00");
+      const system = JSON.stringify(again.requests[0]?.system);
+      if (language === "de") expect(system).toContain("This client reads German");
+      else expect(system).not.toContain("## Language");
+    }
+  });
+
   it("an agent's write waits for approval: the step result lists the pending action", async () => {
     const model = new FakeModel([
       { toolUse: { name: "testkit__record__update", input: { id: "r1", amount: "11.00" } } },

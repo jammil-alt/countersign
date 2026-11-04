@@ -1,10 +1,14 @@
 // One record as both surfaces show it (plan §1.16): its kind, its fields and where it came from.
 // A transaction with its lines, documents and the raw record it was made from; a raw record as it
 // arrived from the client's tool or file, with what was made from it; a vendor with its recent
-// transactions. A document's page is the document screen (the screens send it there).
+// transactions. A document's page is the document screen (the screens send it there). Words come
+// from the portal's message files (English in the back office); what a tool or file sent (field
+// names, values, memos) stays as it arrived.
 import type { RecordView } from "@countersign/core";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import type { PlainKey } from "../i18n/catalog";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { connectorName } from "../inbox/change";
 import { documentStatus, figure, money } from "../portal/documents";
 import { shortTime } from "../runs/format";
@@ -15,23 +19,36 @@ export interface RecordHrefs {
   document(id: string): string;
 }
 
-const TXN_KIND: Record<string, string> = {
-  purchase: "Purchase",
-  bill: "Bill",
-  vendor_credit: "Vendor credit",
+const TXN_KIND: Record<string, PlainKey> = {
+  purchase: "record.kind.purchase",
+  bill: "record.kind.bill",
+  vendor_credit: "record.kind.vendor_credit",
 };
 
-export const TXN_STATUS: Record<string, { label: string; tone: Tone }> = {
+export const TXN_STATUS: Record<string, { label: PlainKey; tone: Tone }> = {
   // Waiting on a document: signal, with its word.
-  needs_doc: { label: "Needs a document", tone: "warning" },
-  doc_requested: { label: "Document requested", tone: "warning" },
-  doc_found: { label: "Document found", tone: "accent" },
-  extracted: { label: "Document read", tone: "accent" },
-  processed: { label: "Done", tone: "positive" },
+  needs_doc: { label: "record.status.needs_doc", tone: "warning" },
+  doc_requested: { label: "record.status.doc_requested", tone: "warning" },
+  doc_found: { label: "record.status.doc_found", tone: "accent" },
+  extracted: { label: "record.status.extracted", tone: "accent" },
+  processed: { label: "record.status.processed", tone: "positive" },
 };
 
-export const txnKind = (k: string) => TXN_KIND[k] ?? k;
-const txnStatus = (s: string) => TXN_STATUS[s] ?? { label: s, tone: "neutral" as Tone };
+export function txnKind(k: string, { t }: Pick<I18n, "t"> = EN): string {
+  const key = TXN_KIND[k];
+  return key ? t(key) : k;
+}
+
+function txnStatus(s: string, { t }: Pick<I18n, "t">): { label: string; tone: Tone } {
+  const known = TXN_STATUS[s];
+  return known ? { label: t(known.label), tone: known.tone } : { label: s, tone: "neutral" };
+}
+
+/** A calendar day as stored (YYYY-MM-DD) in the reader's format; anything else as it is. */
+function day(value: string | null, { fmt }: Pick<I18n, "fmt">): string {
+  if (!value) return "–";
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? fmt.date(`${value}T12:00:00`) : value;
+}
 
 type Transaction = Extract<RecordView, { kind: "transaction" }>;
 type Raw = Extract<RecordView, { kind: "raw_record" }>;
@@ -39,9 +56,10 @@ type Vendor = Extract<RecordView, { kind: "vendor" }>;
 type Brief = Raw["transactions"][number];
 
 export function RecordDetail({ record, hrefs }: { record: RecordView; hrefs: RecordHrefs }) {
+  const { t } = useI18n();
   switch (record.kind) {
     case "transaction":
-      return <TransactionDetail t={record} hrefs={hrefs} />;
+      return <TransactionDetail txn={record} hrefs={hrefs} />;
     case "raw_record":
       return <RawDetail r={record} hrefs={hrefs} />;
     case "vendor":
@@ -55,7 +73,7 @@ export function RecordDetail({ record, hrefs }: { record: RecordView; hrefs: Rec
               {record.filename}
             </Link>
           }
-          subtitle="Document"
+          subtitle={t("documents.col.document")}
         />
       );
   }
@@ -70,13 +88,19 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function TransactionDetail({ t, hrefs }: { t: Transaction; hrefs: RecordHrefs }) {
-  const status = txnStatus(t.status);
+function TransactionDetail({ txn, hrefs }: { txn: Transaction; hrefs: RecordHrefs }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const status = txnStatus(txn.status, i18n);
   return (
     <div data-testid="record-transaction">
       <PageHeader
-        title={`${txnKind(t.txnKind)} · ${money(t.total, t.currency)}`}
-        subtitle={[t.vendor?.name, t.txnDate, `from ${connectorName(t.connector)}`]
+        title={`${txnKind(txn.txnKind, i18n)} · ${money(txn.total, txn.currency, i18n)}`}
+        subtitle={[
+          txn.vendor?.name,
+          txn.txnDate ? day(txn.txnDate, i18n) : null,
+          t("record.fromTool", { tool: connectorName(txn.connector) }),
+        ]
           .filter(Boolean)
           .join(" · ")}
         badge={
@@ -87,41 +111,43 @@ function TransactionDetail({ t, hrefs }: { t: Transaction; hrefs: RecordHrefs })
       />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="p-4 lg:col-span-2">
-          <SectionLabel>What it says</SectionLabel>
+          <SectionLabel>{t("document.whatItSays")}</SectionLabel>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-3">
-            <Fact label="Vendor">
-              {t.vendor ? (
-                <Link to={hrefs.record(t.vendor.id)} className="text-link underline">
-                  {t.vendor.name}
+            <Fact label={t("document.vendor")}>
+              {txn.vendor ? (
+                <Link to={hrefs.record(txn.vendor.id)} className="text-link underline">
+                  {txn.vendor.name}
                 </Link>
               ) : (
                 "–"
               )}
             </Fact>
-            <Fact label="Date">{t.txnDate ?? "–"}</Fact>
-            <Fact label="Total">
-              <span className="figures">{money(t.total, t.currency)}</span>
+            <Fact label={t("record.date")}>{day(txn.txnDate, i18n)}</Fact>
+            <Fact label={t("document.total")}>
+              <span className="figures">{money(txn.total, txn.currency, i18n)}</span>
             </Fact>
-            <Fact label="Paid with">{t.paymentType ?? "–"}</Fact>
-            <Fact label="Purchaser">{t.purchaserRef ?? "–"}</Fact>
-            <Fact label="Memo">{t.memo ?? "–"}</Fact>
+            <Fact label={t("record.paidWith")}>{txn.paymentType ?? "–"}</Fact>
+            <Fact label={t("record.purchaser")}>{txn.purchaserRef ?? "–"}</Fact>
+            <Fact label={t("record.memo")}>{txn.memo ?? "–"}</Fact>
           </dl>
         </Card>
         <Card className="p-4" testId="record-origin">
-          <SectionLabel>Where it came from</SectionLabel>
+          <SectionLabel>{t("record.whereFrom")}</SectionLabel>
           <p className="text-sm text-ink">
-            {connectorName(t.connector)}
-            <span className="ml-2 reference text-ink-muted">{t.externalId}</span>
+            {connectorName(txn.connector)}
+            <span className="ml-2 reference text-ink-muted">{txn.externalId}</span>
           </p>
-          <p className="mt-1 text-sm text-ink-muted">Recorded {shortTime(t.createdAt)}</p>
-          {t.rawRecordId ? (
+          <p className="mt-1 text-sm text-ink-muted">
+            {t("record.recorded", { time: shortTime(txn.createdAt, undefined, i18n) })}
+          </p>
+          {txn.rawRecordId ? (
             <p className="mt-2 text-sm">
               <Link
-                to={hrefs.record(t.rawRecordId)}
+                to={hrefs.record(txn.rawRecordId)}
                 className="text-link underline"
                 data-testid="record-raw-link"
               >
-                As it arrived
+                {t("record.asItArrived")}
               </Link>
             </p>
           ) : null}
@@ -129,11 +155,9 @@ function TransactionDetail({ t, hrefs }: { t: Transaction; hrefs: RecordHrefs })
       </div>
 
       <section className="mt-6">
-        <SectionLabel>
-          {t.lines.length} {t.lines.length === 1 ? "line" : "lines"}
-        </SectionLabel>
-        {t.lines.length === 0 ? (
-          <EmptyState>No lines: the total is all we have.</EmptyState>
+        <SectionLabel>{t("document.lineCount", { count: txn.lines.length })}</SectionLabel>
+        {txn.lines.length === 0 ? (
+          <EmptyState>{t("record.noLines")}</EmptyState>
         ) : (
           <div className="dt dt-ana">
             <div>
@@ -141,24 +165,24 @@ function TransactionDetail({ t, hrefs }: { t: Transaction; hrefs: RecordHrefs })
                 <thead>
                   <tr className="dt-cols">
                     <th className="n">#</th>
-                    <th>Account or item</th>
-                    <th>Description</th>
-                    <th className="n">Qty</th>
-                    <th className="n">Unit price</th>
-                    <th className="n">Amount</th>
+                    <th>{t("record.col.item")}</th>
+                    <th>{t("document.col.description")}</th>
+                    <th className="n">{t("document.col.qty")}</th>
+                    <th className="n">{t("document.col.unitPrice")}</th>
+                    <th className="n">{t("document.col.amount")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {t.lines.map((l) => (
+                  {txn.lines.map((l) => (
                     <tr key={l.lineNo}>
                       <td className="n text-ink-muted">{l.lineNo}</td>
                       <td>{l.itemRef ?? l.accountRef ?? "–"}</td>
                       <td>{l.description ?? ""}</td>
-                      <td className="n">{l.qty === null ? "" : figure(l.qty)}</td>
+                      <td className="n">{l.qty === null ? "" : figure(l.qty, i18n)}</td>
                       <td className="n">
-                        {l.unitPrice === null ? "" : money(l.unitPrice, t.currency)}
+                        {l.unitPrice === null ? "" : money(l.unitPrice, txn.currency, i18n)}
                       </td>
-                      <td className="n">{money(l.amount, t.currency)}</td>
+                      <td className="n">{money(l.amount, txn.currency, i18n)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -169,14 +193,14 @@ function TransactionDetail({ t, hrefs }: { t: Transaction; hrefs: RecordHrefs })
       </section>
 
       <section className="mt-6">
-        <SectionLabel>Documents</SectionLabel>
-        {t.documents.length === 0 ? (
-          <EmptyState>No document is linked to it yet.</EmptyState>
+        <SectionLabel>{t("record.documents")}</SectionLabel>
+        {txn.documents.length === 0 ? (
+          <EmptyState>{t("record.noDocuments")}</EmptyState>
         ) : (
           <Card testId="record-documents">
             <ul>
-              {t.documents.map((d) => {
-                const s = documentStatus(d.status);
+              {txn.documents.map((d) => {
+                const s = documentStatus(d.status, i18n);
                 return (
                   <li
                     key={d.id}
@@ -201,9 +225,9 @@ function TransactionDetail({ t, hrefs }: { t: Transaction; hrefs: RecordHrefs })
 }
 
 /** A payload's top-level fields as label/value rows; nested values as compact JSON. */
-export function payloadRows(payload: unknown): [string, string][] {
+export function payloadRows(payload: unknown, valueLabel = "Value"): [string, string][] {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    return [["Value", JSON.stringify(payload)]];
+    return [[valueLabel, JSON.stringify(payload)]];
   }
   return Object.entries(payload as Record<string, unknown>).map(([k, v]) => [
     k,
@@ -212,27 +236,34 @@ export function payloadRows(payload: unknown): [string, string][] {
 }
 
 function RawDetail({ r, hrefs }: { r: Raw; hrefs: RecordHrefs }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   // A CSV row's cells read best as the file's own columns.
   const cells = (r.payload as { cells?: unknown } | null)?.cells;
-  const rows = payloadRows(cells && typeof cells === "object" ? cells : r.payload);
+  const rows = payloadRows(
+    cells && typeof cells === "object" ? cells : r.payload,
+    t("record.value"),
+  );
   const file = (r.payload as { file?: { filename?: unknown; row?: unknown } } | null)?.file;
   return (
     <div data-testid="record-raw">
       <PageHeader
-        title={`${r.entityType} from ${connectorName(r.connector)}`}
+        title={t("record.rawTitle", { type: r.entityType, tool: connectorName(r.connector) })}
         subtitle={[
           typeof file?.filename === "string"
-            ? `${file.filename}${typeof file.row === "number" ? `, row ${file.row}` : ""}`
+            ? typeof file.row === "number"
+              ? t("record.fileRow", { file: file.filename, row: file.row })
+              : file.filename
             : null,
-          `received ${shortTime(r.syncedAt)}`,
+          t("record.received", { time: shortTime(r.syncedAt, undefined, i18n) }),
         ]
           .filter(Boolean)
           .join(" · ")}
-        badge={r.isDeleted ? <Badge tone="neutral">Deleted in the tool</Badge> : undefined}
+        badge={r.isDeleted ? <Badge tone="neutral">{t("record.deletedInTool")}</Badge> : undefined}
       />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="p-4 lg:col-span-2" testId="record-payload">
-          <SectionLabel>As it arrived</SectionLabel>
+          <SectionLabel>{t("record.asItArrived")}</SectionLabel>
           <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
             {rows.map(([k, v]) => (
               <div key={k} className="contents">
@@ -243,14 +274,14 @@ function RawDetail({ r, hrefs }: { r: Raw; hrefs: RecordHrefs }) {
           </dl>
         </Card>
         <Card className="p-4" testId="record-origin">
-          <SectionLabel>Where it came from</SectionLabel>
+          <SectionLabel>{t("record.whereFrom")}</SectionLabel>
           <dl className="flex flex-col gap-2 text-sm">
-            <Fact label="Tool">{connectorName(r.connector)}</Fact>
-            <Fact label="Its id there">
+            <Fact label={t("record.tool")}>{connectorName(r.connector)}</Fact>
+            <Fact label={t("record.idThere")}>
               <span className="reference">{r.externalId}</span>
             </Fact>
             {r.externalVersion ? (
-              <Fact label="Version">
+              <Fact label={t("record.version")}>
                 <span className="reference">{r.externalVersion}</span>
               </Fact>
             ) : null}
@@ -258,30 +289,30 @@ function RawDetail({ r, hrefs }: { r: Raw; hrefs: RecordHrefs }) {
         </Card>
       </div>
       <section className="mt-6">
-        <SectionLabel>Made from it</SectionLabel>
-        <BriefList items={r.transactions} hrefs={hrefs} empty="Nothing was made from it." />
+        <SectionLabel>{t("record.madeFrom")}</SectionLabel>
+        <BriefList items={r.transactions} hrefs={hrefs} empty={t("record.nothingMade")} />
       </section>
     </div>
   );
 }
 
 function VendorDetail({ v, hrefs }: { v: Vendor; hrefs: RecordHrefs }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <div data-testid="record-vendor">
       <PageHeader
         title={v.name}
-        subtitle={`Vendor · first seen ${shortTime(v.createdAt)}`}
-        badge={<Badge tone="neutral">Vendor</Badge>}
+        subtitle={t("record.vendorSince", { time: shortTime(v.createdAt, undefined, i18n) })}
+        badge={<Badge tone="neutral">{t("document.vendor")}</Badge>}
       />
       {v.aliases.length > 0 ? (
-        <p className="mb-4 text-sm text-ink-muted">Also known as {v.aliases.join(", ")}</p>
+        <p className="mb-4 text-sm text-ink-muted">
+          {t("record.aliases", { names: v.aliases.join(", ") })}
+        </p>
       ) : null}
-      <SectionLabel>Recent transactions</SectionLabel>
-      <BriefList
-        items={v.transactions}
-        hrefs={hrefs}
-        empty="No transactions from this vendor yet."
-      />
+      <SectionLabel>{t("record.recentTransactions")}</SectionLabel>
+      <BriefList items={v.transactions} hrefs={hrefs} empty={t("record.noTransactions")} />
     </div>
   );
 }
@@ -295,6 +326,8 @@ function BriefList({
   hrefs: RecordHrefs;
   empty: string;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   if (items.length === 0) return <EmptyState>{empty}</EmptyState>;
   return (
     <div className="dt dt-ana">
@@ -302,21 +335,21 @@ function BriefList({
         <table data-testid="record-transactions">
           <thead>
             <tr className="dt-cols">
-              <th>Transaction</th>
-              <th>Date</th>
-              <th className="n">Total</th>
+              <th>{t("record.col.transaction")}</th>
+              <th>{t("record.date")}</th>
+              <th className="n">{t("document.total")}</th>
             </tr>
           </thead>
           <tbody>
-            {items.map((t) => (
-              <tr key={t.id}>
+            {items.map((b) => (
+              <tr key={b.id}>
                 <td>
-                  <Link to={hrefs.record(t.id)} className="font-medium text-ink hover:underline">
-                    {txnKind(t.txnKind)}
+                  <Link to={hrefs.record(b.id)} className="font-medium text-ink hover:underline">
+                    {txnKind(b.txnKind, i18n)}
                   </Link>
                 </td>
-                <td className="figures">{t.txnDate ?? "–"}</td>
-                <td className="n figures">{money(t.total, t.currency)}</td>
+                <td className="figures">{day(b.txnDate, i18n)}</td>
+                <td className="n figures">{money(b.total, b.currency, i18n)}</td>
               </tr>
             ))}
           </tbody>

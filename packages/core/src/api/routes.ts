@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
@@ -12,6 +13,7 @@ import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
+import { languageRoutes, SessionLanguage } from "./language";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { reachRoutes } from "./reach";
@@ -21,7 +23,8 @@ import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
-export const SessionResponse = z.object({
+/** The session without its language (what packages/auth knows on its own). */
+export const SessionBase = z.object({
   user: z.object({ id: z.string(), email: z.string(), name: z.string().nullable() }),
   /** True when the user is an operator (back office). */
   operator: z.boolean(),
@@ -29,6 +32,12 @@ export const SessionResponse = z.object({
   tenants: z.array(z.object({ id: z.string(), name: z.string(), role: Role })),
   /** The client selected now: a portal session's one client, or the operator's switcher choice. */
   activeTenantId: z.string().nullable(),
+});
+export type SessionBase = z.infer<typeof SessionBase>;
+
+export const SessionResponse = SessionBase.extend({
+  /** The language the app reads in, and the choices behind it (docs/plan.md §1.18). */
+  language: SessionLanguage,
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
@@ -663,6 +672,8 @@ export const opsRoutes = {
       connectorsOffered: z.array(z.string().min(1)).optional(),
       /** Who approves its external actions (default: the client admin). */
       approvals: ExternalApprover.optional(),
+      /** Its default language (plan §1.18); unset follows each reader's browser. */
+      language: Locale.optional(),
       /** Its client admin, invited in the same step. */
       admin: InviteBody.omit({ role: true }).optional(),
     }),
@@ -1603,6 +1614,7 @@ export const routes = {
   ...feedbackRoutes,
   ...onboardingRoutes,
   ...requestRoutes,
+  ...languageRoutes,
   ...usageRoutes,
   ...recordRoutes,
   ...approverRuleRoutes,

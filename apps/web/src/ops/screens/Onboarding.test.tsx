@@ -222,6 +222,11 @@ describe("new client", () => {
     await userEvent.type(tz, "America/Chicago");
     await userEvent.click(await screen.findByTestId("new-client-offer-upload"));
     await userEvent.click(screen.getByTestId("new-client-approvals-operator"));
+    // The client's language: English unless chosen; the six are offered by their own names.
+    const language = screen.getByTestId("new-client-language");
+    expect(language).toHaveValue("en");
+    expect(within(language).getByRole("option", { name: "Deutsch" })).toBeInTheDocument();
+    await userEvent.selectOptions(language, "es");
     await userEvent.type(
       screen.getByTestId("new-client-admin-email"),
       "owner@cabinets.example.com",
@@ -237,6 +242,7 @@ describe("new client", () => {
         timezone: "America/Chicago",
         connectorsOffered: ["upload"],
         approvals: "operator",
+        language: "es",
         admin: { email: "owner@cabinets.example.com" },
       },
     ]);

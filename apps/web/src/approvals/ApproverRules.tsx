@@ -3,6 +3,8 @@
 // removes rules and tries a sample change; the client admin can only make them stricter (a
 // stricter approver on a rule, or a new rule naming the admin or one person), checked here with
 // core's clientTighteningProblems as the server checks it; a client user only reads them.
+// What the portal shows comes from its message files (docs/plan.md §1.18); the operator's own words
+// (back office only: the fallback chain, the history's sides, reordering, Try it) stay English.
 import {
   type ApproverConnectorOption,
   type ApproverMatch,
@@ -17,10 +19,13 @@ import {
   DecimalString,
   deepEqual,
   routeApproval,
+  type TighteningProblem,
   uuidv7,
   type WriteVerb,
 } from "@countersign/core";
 import { useMemo, useState } from "react";
+import type { PlainKey } from "../i18n/catalog";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { Field, Select, TextInput } from "../ui/forms";
 import { Badge, Button, Card, ErrorNotice, Tag } from "../ui/primitives";
 
@@ -40,55 +45,77 @@ export interface RulesView {
   clientDefault?: string | null;
 }
 
-const VERB_LABEL: Record<WriteVerb, string> = {
-  create: "Creates",
-  update: "Updates",
-  delete: "Deletes",
+const VERB_LABEL: Record<WriteVerb, PlainKey> = {
+  create: "approvers.verb.create",
+  update: "approvers.verb.update",
+  delete: "approvers.verb.delete",
+};
+
+/** Why the client admin can't save a draft, by core's problem code. */
+const PROBLEM: Record<TighteningProblem["code"], PlainKey> = {
+  removed: "approvers.problem.removed",
+  reordered: "approvers.problem.reordered",
+  match_changed: "approvers.problem.match_changed",
+  looser: "approvers.problem.looser",
+  to_operator: "approvers.problem.to_operator",
+  new_rule_too_loose: "approvers.problem.new_rule_too_loose",
 };
 
 // ── Labels ───────────────────────────────────────────────────────────────────────────────────────
 
-function personName(people: readonly ApproverPerson[], id: string): string {
+function personName(people: readonly ApproverPerson[], id: string, { t }: Pick<I18n, "t">): string {
   const p = people.find((x) => x.id === id);
-  return p ? (p.name ?? p.email) : "Someone who left";
+  return p ? (p.name ?? p.email) : t("approvers.who.left");
 }
 
 export function approverLabel(
   target: ApproverTarget,
   people: readonly ApproverPerson[],
   editor: RulesEditor,
+  { t }: Pick<I18n, "t"> = EN,
 ): string {
   const portal = editor !== "operator";
   switch (target.kind) {
     case "client_admin":
-      return portal ? "Your admin" : "Client admin";
+      return portal ? t("approvers.who.admin") : "Client admin";
     case "role":
-      if (target.role === "client_admin") return portal ? "Your admin" : "Client admin";
-      return portal ? "Anyone on your team" : "Anyone in the client";
+      if (target.role === "client_admin") return portal ? t("approvers.who.admin") : "Client admin";
+      return portal ? t("approvers.who.team") : "Anyone in the client";
     case "user":
-      return personName(people, target.userId);
+      return personName(people, target.userId, { t });
     case "operator":
-      return portal ? "We approve for you" : "Operator, for the client";
+      return portal ? t("approvers.who.us") : "Operator, for the client";
   }
 }
 
-export function matchLabel(match: ApproverMatch, view: Pick<RulesView, "connectors" | "agents">) {
+export function matchLabel(
+  match: ApproverMatch,
+  view: Pick<RulesView, "connectors" | "agents">,
+  { t }: Pick<I18n, "t"> = EN,
+) {
   const parts: string[] = [];
   if (match.connector) {
     parts.push(view.connectors.find((c) => c.id === match.connector)?.name ?? match.connector);
   }
   if (match.tool) {
-    const tool = view.connectors.flatMap((c) => c.tools).find((t) => t.id === match.tool);
+    // A tool's description is the connector's own (English) words.
+    const tool = view.connectors.flatMap((c) => c.tools).find((x) => x.id === match.tool);
     parts.push(tool?.description ?? match.tool);
   }
-  if (match.verb) parts.push(VERB_LABEL[match.verb]);
+  if (match.verb) parts.push(t(VERB_LABEL[match.verb]));
   if (match.amountOver) {
-    parts.push(`Over ${match.amountOver.value} ${match.amountOver.currency}`);
+    // The amount as the rule holds it (a decimal string), never through a float.
+    parts.push(
+      t("approvers.over", {
+        amount: match.amountOver.value,
+        currency: match.amountOver.currency,
+      }),
+    );
   }
   if (match.agentId) {
-    parts.push(view.agents.find((a) => a.id === match.agentId)?.name ?? "A service that left");
+    parts.push(view.agents.find((a) => a.id === match.agentId)?.name ?? t("approvers.serviceLeft"));
   }
-  return parts.length === 0 ? "Any change" : parts.join(" · ");
+  return parts.length === 0 ? t("approvers.anyChange") : parts.join(" · ");
 }
 
 // ── The editor ───────────────────────────────────────────────────────────────────────────────────
@@ -103,6 +130,8 @@ export function ApproverRules({
   /** Saves the whole ordered list; rejects with the API's error. */
   onSave?: (body: { revision: number; rules: DraftRule[]; reason: string }) => Promise<void>;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [draft, setDraft] = useState<DraftRule[]>(view.rules);
   const [form, setForm] = useState<{ index: number | null } | null>(null);
   const [reason, setReason] = useState("");
@@ -130,7 +159,7 @@ export function ApproverRules({
     if (!onSave) return;
     const text = reason.trim();
     if (!text) {
-      setReasonProblem("Say why, so the change log makes sense later.");
+      setReasonProblem(t("approvers.reasonNeeded"));
       return;
     }
     setBusy(true);
@@ -146,21 +175,19 @@ export function ApproverRules({
     }
   }
 
-  const fallback = portal
-    ? "your admin approves, unless the service names someone"
-    : "the step's or agent's approver, then the client's default, then the client admin";
-
   return (
     <Card testId="approver-rules" className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h3 className="eyebrow text-ink-muted">Who approves</h3>
+        <h3 className="eyebrow text-ink-muted">{t("approvers.title")}</h3>
         <p className="text-sm text-ink-muted">
-          The first rule that fits a change decides. If none fits, {fallback}.
+          {portal
+            ? t("approvers.intro")
+            : "The first rule that fits a change decides. If none fits, the step's or agent's approver, then the client's default, then the client admin."}
         </p>
       </div>
       {draft.length === 0 ? (
         <p className="px-4 py-4 text-ink-muted" data-testid="approver-rules-empty">
-          {portal ? "No rules yet. Your admin approves every change." : "No rules yet."}
+          {portal ? t("approvers.empty") : "No rules yet."}
         </p>
       ) : (
         <ol className="divide-y divide-line" data-testid="approver-rules-list">
@@ -173,7 +200,10 @@ export function ApproverRules({
               view={view}
               editor={editable ? editor : "viewer"}
               last={i === draft.length - 1}
-              problem={problems.find((p) => p.ruleId === rule.id)?.message ?? null}
+              problem={problemText(
+                problems.find((p) => p.ruleId === rule.id),
+                i18n,
+              )}
               onMove={(by) => move(i, by)}
               onEdit={() => setForm({ index: i })}
               onRemove={() => setDraft((d) => d.filter((_, k) => k !== i))}
@@ -209,7 +239,7 @@ export function ApproverRules({
             data-testid="approver-rules-add"
             onClick={() => setForm({ index: null })}
           >
-            Add a rule
+            {t("approvers.add")}
           </Button>
         </div>
       ) : null}
@@ -223,7 +253,7 @@ export function ApproverRules({
       {editable && dirty ? (
         <div className="flex flex-wrap items-end justify-between gap-3 border-t border-line px-4 py-3">
           <Field
-            label="Why this change?"
+            label={t("approvers.why")}
             error={reasonProblem ?? undefined}
             className="min-w-64 flex-1"
             testId="approver-rules-reason"
@@ -246,7 +276,7 @@ export function ApproverRules({
                 setForm(null);
               }}
             >
-              Discard
+              {t("matrix.discard")}
             </Button>
             <Button
               variant="primary"
@@ -254,12 +284,12 @@ export function ApproverRules({
               disabled={busy || problems.length > 0}
               onClick={() => void save()}
             >
-              Save rules
+              {t("approvers.save")}
             </Button>
           </div>
           <p className="w-full text-sm text-ink-muted">
             {editor === "client_admin"
-              ? "You can make approvals stricter yourself. Only we can loosen them again."
+              ? t("approvers.tightenNote")
               : "New approvals follow the rules at once. Changes are logged with your reason."}
           </p>
         </div>
@@ -274,8 +304,7 @@ export function ApproverRules({
         >
           {view.changes.map((c) => (
             <li key={c.id}>
-              {changeAuthor(c, editor)} on {new Date(c.createdAt).toLocaleDateString()}:{" "}
-              <span className="text-ink">{c.reason}</span>
+              {changeLine(c, editor, i18n)} <span className="text-ink">{c.reason}</span>
             </li>
           ))}
         </ul>
@@ -284,11 +313,22 @@ export function ApproverRules({
   );
 }
 
-function changeAuthor(c: ApproverRuleChange, editor: RulesEditor): string {
+/** A tightening problem in the reader's words (core's message is the English fallback). */
+function problemText(p: TighteningProblem | undefined, { t }: Pick<I18n, "t">): string | null {
+  if (!p) return null;
+  const key = PROBLEM[p.code];
+  return key ? t(key) : p.message;
+}
+
+/** "We changed them on Nov 3, 2026:", "Ana changed them on …:": who changed the rules, and when. */
+function changeLine(c: ApproverRuleChange, editor: RulesEditor, { t, fmt }: I18n): string {
+  const date = fmt.date(c.createdAt);
   if (editor === "operator") {
-    return `${c.side === "client" ? "The client" : "We"} changed them (${c.by ?? "someone"})`;
+    return `${c.side === "client" ? "The client" : "We"} changed them (${c.by ?? "someone"}) on ${date}:`;
   }
-  return c.side === "operator" ? "We changed them" : `${c.by ?? "Your team"} changed them`;
+  return c.side === "operator"
+    ? t("approvers.changedByUs", { date })
+    : t("approvers.changedBy", { name: c.by ?? t("approvers.yourTeam"), date });
 }
 
 function RuleRow({
@@ -316,9 +356,15 @@ function RuleRow({
   onRemove: () => void;
   onApprover: (approver: ApproverTarget) => void;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const portal = editor !== "operator";
   const byClient = rule.setBy === "client" || (!rule.setBy && editor === "client_admin");
-  const addedBy = byClient ? (portal ? "Added by you" : "Added by the client") : "Set by us";
+  const addedBy = byClient
+    ? portal
+      ? t("approvers.addedByYou")
+      : "Added by the client"
+    : t("approvers.setByUs");
   const isNew = saved === null;
   return (
     <li
@@ -328,12 +374,12 @@ function RuleRow({
       <span className="figures w-6 text-ink-muted">{index + 1}</span>
       <div className="min-w-0 flex-1">
         <p className="text-ink" data-testid="approver-rule-match">
-          {matchLabel(rule.match, view)}
+          {matchLabel(rule.match, view, i18n)}
         </p>
         <p className="text-sm text-ink-muted">
           {addedBy}
           {rule.note ? ` · ${rule.note}` : ""}
-          {isNew ? " · not saved yet" : ""}
+          {isNew ? ` · ${t("approvers.notSaved")}` : ""}
         </p>
         {problem ? (
           <p className="ds-error text-sm" data-testid="approver-rule-problem">
@@ -351,7 +397,7 @@ function RuleRow({
         />
       ) : (
         <Tag tone="person" testId="approver-rule-approver">
-          {approverLabel(rule.approver, view.people, editor)}
+          {approverLabel(rule.approver, view.people, editor, i18n)}
         </Tag>
       )}
       {editor === "operator" ? (
@@ -386,7 +432,7 @@ function RuleRow({
       ) : null}
       {editor === "client_admin" && isNew ? (
         <Button size="sm" variant="ghost" data-testid="approver-rule-remove" onClick={onRemove}>
-          Remove
+          {t("approvers.remove")}
         </Button>
       ) : null}
     </li>
@@ -416,6 +462,7 @@ function approverOptions(
   people: readonly ApproverPerson[],
   editor: RulesEditor,
   floor: ApproverTarget | null,
+  i18n: Pick<I18n, "t">,
 ) {
   const all: { value: string; label: string; target: ApproverTarget }[] = [
     { kind: "client_admin" } as const,
@@ -424,7 +471,7 @@ function approverOptions(
     { kind: "operator" } as const,
   ].map((target) => ({
     value: approverValue(target),
-    label: approverLabel(target, people, editor),
+    label: approverLabel(target, people, editor, i18n),
     target,
   }));
   if (editor !== "client_admin") return all;
@@ -450,10 +497,11 @@ function ClientApproverSelect({
   people: readonly ApproverPerson[];
   onChange: (t: ApproverTarget) => void;
 }) {
-  const options = approverOptions(people, "client_admin", floor);
+  const i18n = useI18n();
+  const options = approverOptions(people, "client_admin", floor, i18n);
   return (
     <Select
-      aria-label={`Who approves rule ${index + 1}`}
+      aria-label={i18n.t("approvers.whoForRule", { n: index + 1 })}
       data-testid="approver-rule-approver-select"
       className="h-8 w-56 text-sm"
       value={approverValue(value)}
@@ -491,7 +539,10 @@ function toFields(m: ApproverMatch | undefined): MatchFields {
 }
 
 /** The match the fields describe, or a problem to show. */
-function toMatch(f: MatchFields): { match: ApproverMatch } | { problem: string } {
+function toMatch(
+  f: MatchFields,
+  { t }: Pick<I18n, "t">,
+): { match: ApproverMatch } | { problem: string } {
   const match: ApproverMatch = {};
   if (f.connector) match.connector = f.connector;
   if (f.tool) match.tool = f.tool;
@@ -501,10 +552,10 @@ function toMatch(f: MatchFields): { match: ApproverMatch } | { problem: string }
     const value = f.amount.trim();
     const currency = f.currency.trim().toUpperCase();
     if (!DecimalString.safeParse(value).success) {
-      return { problem: "Write the amount as a number, like 500 or 1250.50." };
+      return { problem: t("approvers.amountProblem") };
     }
     if (!CurrencyCode.safeParse(currency).success) {
-      return { problem: "Use a three-letter currency code, like USD." };
+      return { problem: t("approvers.currencyProblem") };
     }
     match.amountOver = { value, currency };
   }
@@ -522,19 +573,20 @@ function MatchInputs({
   onChange: (f: MatchFields) => void;
   prefix: string;
 }) {
+  const { t } = useI18n();
   const tools = view.connectors
     .filter((c) => !fields.connector || c.id === fields.connector)
     .flatMap((c) => c.tools);
   const set = (patch: Partial<MatchFields>) => onChange({ ...fields, ...patch });
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-      <Field label="Tool">
+      <Field label={t("approvers.field.tool")}>
         <Select
           data-testid={`${prefix}-connector`}
           value={fields.connector}
           onChange={(e) => set({ connector: e.target.value, tool: "" })}
         >
-          <option value="">Any tool</option>
+          <option value="">{t("approvers.anyTool")}</option>
           {view.connectors.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -542,33 +594,33 @@ function MatchInputs({
           ))}
         </Select>
       </Field>
-      <Field label="Change">
+      <Field label={t("approvers.field.change")}>
         <Select
           data-testid={`${prefix}-tool`}
           value={fields.tool}
           onChange={(e) => set({ tool: e.target.value })}
         >
-          <option value="">Any change</option>
-          {tools.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.description}
+          <option value="">{t("approvers.anyChange")}</option>
+          {tools.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.description}
             </option>
           ))}
         </Select>
       </Field>
-      <Field label="Kind">
+      <Field label={t("approvers.field.kind")}>
         <Select
           data-testid={`${prefix}-verb`}
           value={fields.verb}
           onChange={(e) => set({ verb: e.target.value })}
         >
-          <option value="">Creates or updates</option>
-          <option value="create">Creates</option>
-          <option value="update">Updates</option>
-          <option value="delete">Deletes</option>
+          <option value="">{t("approvers.verb.any")}</option>
+          <option value="create">{t("approvers.verb.create")}</option>
+          <option value="update">{t("approvers.verb.update")}</option>
+          <option value="delete">{t("approvers.verb.delete")}</option>
         </Select>
       </Field>
-      <Field label="Amount over" hint="Leave empty for any amount. Only the same currency counts.">
+      <Field label={t("approvers.field.amount")} hint={t("approvers.field.amountHelp")}>
         <TextInput
           data-testid={`${prefix}-amount`}
           inputMode="decimal"
@@ -576,7 +628,7 @@ function MatchInputs({
           onChange={(e) => set({ amount: e.target.value })}
         />
       </Field>
-      <Field label="Currency">
+      <Field label={t("approvers.field.currency")}>
         <TextInput
           data-testid={`${prefix}-currency`}
           maxLength={3}
@@ -584,13 +636,13 @@ function MatchInputs({
           onChange={(e) => set({ currency: e.target.value })}
         />
       </Field>
-      <Field label="Service">
+      <Field label={t("approvers.field.service")}>
         <Select
           data-testid={`${prefix}-agent`}
           value={fields.agentId}
           onChange={(e) => set({ agentId: e.target.value })}
         >
-          <option value="">Any service</option>
+          <option value="">{t("approvers.anyService")}</option>
           {view.agents.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -615,8 +667,10 @@ function RuleForm({
   onCancel: () => void;
   onDone: (rule: DraftRule, atTop: boolean) => void;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [fields, setFields] = useState<MatchFields>(toFields(initial?.match));
-  const options = approverOptions(view.people, editor, null);
+  const options = approverOptions(view.people, editor, null, i18n);
   const [approver, setApprover] = useState(
     initial ? approverValue(initial.approver) : (options[0]?.value ?? "client_admin"),
   );
@@ -625,7 +679,7 @@ function RuleForm({
   const [problem, setProblem] = useState<string | null>(null);
 
   function done() {
-    const out = toMatch(fields);
+    const out = toMatch(fields, i18n);
     if ("problem" in out) {
       setProblem(out.problem);
       return;
@@ -648,7 +702,7 @@ function RuleForm({
     >
       <MatchInputs view={view} fields={fields} onChange={setFields} prefix="approver-rule-form" />
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <Field label="Who approves">
+        <Field label={t("approvers.title")}>
           <Select
             data-testid="approver-rule-form-approver"
             value={approver}
@@ -661,7 +715,7 @@ function RuleForm({
             ))}
           </Select>
         </Field>
-        <Field label="Note (optional)">
+        <Field label={t("approvers.field.note")}>
           <TextInput
             data-testid="approver-rule-form-note"
             value={note}
@@ -670,14 +724,14 @@ function RuleForm({
           />
         </Field>
         {initial === null ? (
-          <Field label="Where">
+          <Field label={t("approvers.field.where")}>
             <Select
               data-testid="approver-rule-form-where"
               value={atTop ? "top" : "end"}
               onChange={(e) => setAtTop(e.target.value === "top")}
             >
-              <option value="top">First, before the other rules</option>
-              <option value="end">Last, after the other rules</option>
+              <option value="top">{t("approvers.where.top")}</option>
+              <option value="end">{t("approvers.where.end")}</option>
             </Select>
           </Field>
         ) : null}
@@ -689,10 +743,10 @@ function RuleForm({
       ) : null}
       <div className="mt-3 flex gap-2">
         <Button variant="primary" size="sm" data-testid="approver-rule-form-done" onClick={done}>
-          {initial ? "Update rule" : "Add rule"}
+          {initial ? t("approvers.updateRule") : t("approvers.addRule")}
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </div>
     </div>
@@ -711,7 +765,8 @@ const SOURCE_LABEL = {
 
 function TryIt({ view, rules }: { view: RulesView; rules: readonly DraftRule[] }) {
   const [fields, setFields] = useState<MatchFields>({ ...toFields(undefined), verb: "update" });
-  const out = toMatch(fields);
+  // The back office: English, as everything here.
+  const out = toMatch(fields, EN);
   let result: string;
   if ("problem" in out) {
     result = out.problem;

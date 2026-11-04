@@ -25,6 +25,7 @@ import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectNoAuth } from "./connections";
+import { withLanguage } from "./language";
 import {
   agentSummary,
   matrixEdit,
@@ -135,9 +136,12 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         timezone,
         // Approval stays with the client's admin unless the operator delegates it (ARCHITECTURE §4);
         // unset reads as the client admin.
-        settings: body.approvals
-          ? withApprovals({ connectors_offered: offered }, body.approvals)
-          : { connectors_offered: offered },
+        settings: withLanguage(
+          body.approvals
+            ? withApprovals({ connectors_offered: offered }, body.approvals)
+            : { connectors_offered: offered },
+          body.language,
+        ),
       })
       .returning();
     if (!row) throw new Error("tenant insert returned nothing");

@@ -20,6 +20,7 @@ import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientBillingSection } from "./ClientBilling";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientTabs } from "./ClientKnowledge";
+import { ClientLanguageSetting } from "./ClientLanguageSetting";
 
 export function ClientDetailScreen() {
   const { clientId = "" } = useParams();
@@ -58,6 +59,11 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientLanguageSetting
+        clientId={data.client.id}
+        settings={data.client.settings}
+        onSaved={reload}
+      />
       <ClientApproverRules clientId={data.client.id} />
       <ClientBillingSection clientId={data.client.id} />
       <ClientFeedbackSetting clientId={data.client.id} />

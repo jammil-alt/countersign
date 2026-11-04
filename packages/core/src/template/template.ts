@@ -1,3 +1,4 @@
+import { DEFAULT_LOCALE, type Locale, type LocalizedText, pickLocalized } from "../i18n/locale";
 import { isPlainObject } from "../json";
 
 /**
@@ -167,9 +168,16 @@ export interface RunContext {
   index?: number;
 }
 
-/** A skill's or tool's client timeline line, rendered over its output (docs/plan.md §1.2). */
-export function renderSummary(template: string, output: unknown): string {
-  return renderTemplate(template, output);
+/**
+ * A skill's or tool's client timeline line, rendered over its output (docs/plan.md §1.2), in the
+ * client's language when the template has a version for it, else in English (§1.18).
+ */
+export function renderSummary(
+  template: LocalizedText,
+  output: unknown,
+  locale: Locale = DEFAULT_LOCALE,
+): string {
+  return renderTemplate(pickLocalized(template, locale), output);
 }
 
 /** Whether a templated value (a string, or strings anywhere in objects and arrays) has a `{{`. */

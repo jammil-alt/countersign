@@ -1,8 +1,12 @@
 // Billing pieces shared by the back office and the portal (docs/plan.md §1.24): prices as words,
 // the credit meter, and Stripe's invoices with their hosted page and PDF. Amounts are decimal
-// strings, formatted without floats.
+// strings, formatted without floats. The meter and the invoices read in the reader's language
+// (docs/plan.md §1.18); the back office reads English, as outside any provider.
 import type { BillingInvoice, Money } from "@countersign/core";
 import { formatAmount } from "@countersign/core";
+import type { PlainKey } from "../i18n/catalog";
+import { type I18n, useI18n } from "../i18n/i18n";
+import { richText } from "../i18n/rich";
 import { Badge, type Tone } from "../ui/primitives";
 import { count, dayLabel } from "../usage/format";
 
@@ -16,14 +20,22 @@ export function amountText(amount: string): string {
   return `${sign}${digits}.${places}`;
 }
 
-/** "$250.00", "$0.015", or "250.00 EUR". */
+/** "$250.00", "$0.015", or "250.00 EUR" (the back office's words). */
 export function price(m: Money): string {
   return m.currency === "USD"
     ? `$${amountText(m.amount)}`
     : `${amountText(m.amount)} ${m.currency}`;
 }
 
-/** "1 credit", "1,234 credits". */
+/**
+ * A price in the reader's locale, straight from its decimal string through Intl (up to 4 places):
+ * "$0.015", "250,00 €". Never a float (invariant 6).
+ */
+export function localPrice(m: Money, i18n: I18n): string {
+  return i18n.fmt.unitPrice(m.amount, m.currency);
+}
+
+/** "1 credit", "1,234 credits" (the back office's words). */
 export function credits(n: number): string {
   return `${count(n)} ${n === 1 ? "credit" : "credits"}`;
 }
@@ -41,6 +53,7 @@ export function CreditMeter({
   allowance: number;
   testId?: string;
 }) {
+  const { t, intl } = useI18n();
   // Whole percent from integers: no float reaches a figure the client reads.
   const pct =
     allowance > 0 ? Math.min(100, Math.floor((used * 100) / allowance)) : used > 0 ? 100 : 0;
@@ -50,22 +63,31 @@ export function CreditMeter({
       {/* biome-ignore lint/a11y/useSemanticElements: a native <meter> takes the browser's colours; this one is drawn with the data tokens. */}
       <div
         role="meter"
-        aria-label="Credits used this period"
+        aria-label={t("billing.meter.label")}
         aria-valuemin={0}
         aria-valuemax={allowance}
         aria-valuenow={Math.min(used, allowance)}
-        aria-valuetext={`${credits(used)} of ${credits(allowance)}`}
+        aria-valuetext={t("billing.meter.valueText", {
+          used: t("billing.credits", { count: used }),
+          allowance: t("billing.credits", { count: allowance }),
+        })}
         className="flex h-2 w-full overflow-hidden rounded-sm bg-data-track"
       >
         <span className="block h-full bg-data-bar" style={{ width: `${pct}%` }} />
       </div>
       <p className="text-sm text-ink-muted">
-        <span className="text-ink figures">{count(used)}</span> of{" "}
-        <span className="figures">{credits(allowance)}</span> used
+        {richText(t("billing.meter.used", { used: "{used}", allowance: "{allowance}" }), {
+          used: <span className="text-ink figures">{count(used, intl)}</span>,
+          allowance: <span className="figures">{t("billing.credits", { count: allowance })}</span>,
+        })}
         {extra > 0 ? (
           <>
             {" · "}
-            <span className="text-ink figures">{credits(extra)}</span> over the allowance
+            {richText(t("billing.meter.over", { credits: "{credits}" }), {
+              credits: (
+                <span className="text-ink figures">{t("billing.credits", { count: extra })}</span>
+              ),
+            })}
           </>
         ) : null}
       </p>
@@ -73,46 +95,51 @@ export function CreditMeter({
   );
 }
 
-const STATUS: Record<string, { label: string; tone: Tone }> = {
-  paid: { label: "Paid", tone: "positive" },
-  open: { label: "To pay", tone: "warning" },
-  draft: { label: "Draft", tone: "neutral" },
-  void: { label: "Void", tone: "neutral" },
-  uncollectible: { label: "Not collected", tone: "risk" },
+const STATUS: Record<string, { label: PlainKey; tone: Tone }> = {
+  paid: { label: "billing.status.paid", tone: "positive" },
+  open: { label: "billing.status.open", tone: "warning" },
+  draft: { label: "billing.status.draft", tone: "neutral" },
+  void: { label: "billing.status.void", tone: "neutral" },
+  uncollectible: { label: "billing.status.uncollectible", tone: "risk" },
 };
-
-const day = (iso: string | null) => (iso ? dayLabel(iso.slice(0, 10)) : "");
 
 /** Stripe's invoices, newest first, with links to the hosted invoice and its PDF. */
 export function InvoiceTable({ invoices, testId }: { invoices: BillingInvoice[]; testId: string }) {
+  const i18n = useI18n();
+  const { t, intl } = i18n;
+  const day = (iso: string | null) => (iso ? dayLabel(iso.slice(0, 10), intl) : "");
   return (
     <div className="dt overflow-x-auto">
       <table data-testid={testId}>
         <thead>
           <tr className="dt-cols">
-            <th>Date</th>
-            <th>Invoice</th>
-            <th>Period</th>
-            <th className="n">Amount</th>
-            <th>Status</th>
+            <th>{t("billing.column.date")}</th>
+            <th>{t("billing.column.invoice")}</th>
+            <th>{t("billing.column.period")}</th>
+            <th className="n">{t("billing.column.amount")}</th>
+            <th>{t("billing.column.status")}</th>
             <th>
-              <span className="sr-only">Links</span>
+              <span className="sr-only">{t("billing.column.links")}</span>
             </th>
           </tr>
         </thead>
         <tbody>
           {invoices.map((i) => {
-            const s = STATUS[i.status ?? ""] ?? { label: i.status ?? "Unknown", tone: "neutral" };
+            const known = STATUS[i.status ?? ""];
+            // A status Stripe adds later shows as Stripe wrote it.
+            const s: { label: string; tone: Tone } = known
+              ? { label: t(known.label), tone: known.tone }
+              : { label: i.status ?? t("billing.status.unknown"), tone: "neutral" };
             return (
               <tr key={i.id} data-testid={`${testId}-row-${i.id}`}>
                 <td className="text-ink">{day(i.createdAt)}</td>
-                <td>{i.number ?? "Draft"}</td>
+                <td>{i.number ?? t("billing.draft")}</td>
                 <td className="muted">
                   {i.periodStart && i.periodEnd
                     ? `${day(i.periodStart)} – ${day(i.periodEnd)}`
                     : ""}
                 </td>
-                <td className="n text-ink">{price(i.total)}</td>
+                <td className="n text-ink">{localPrice(i.total, i18n)}</td>
                 <td>
                   <Badge tone={s.tone}>{s.label}</Badge>
                 </td>
@@ -125,7 +152,7 @@ export function InvoiceTable({ invoices, testId }: { invoices: BillingInvoice[];
                         target="_blank"
                         rel="noreferrer"
                       >
-                        {s.tone === "warning" ? "View and pay" : "View"}
+                        {s.tone === "warning" ? t("billing.viewAndPay") : t("billing.view")}
                       </a>
                     ) : null}
                     {i.pdfUrl ? (
@@ -135,7 +162,7 @@ export function InvoiceTable({ invoices, testId }: { invoices: BillingInvoice[];
                         target="_blank"
                         rel="noreferrer"
                       >
-                        PDF
+                        {t("billing.pdf")}
                       </a>
                     ) : null}
                   </span>

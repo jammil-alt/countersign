@@ -2,7 +2,7 @@
 // description, category, instructions, a tool picker, input and output fields that produce JSON
 // Schema, and settings (with `clientSpecific`). Always agent mode, id `custom:<slug>`. Pure
 // functions, so the form round-trips a stored definition without losing what it doesn't show.
-import type { SkillDefinition, ToolSpec } from "@countersign/core";
+import { pickLocalized, type SkillDefinition, type ToolSpec } from "@countersign/core";
 
 export const FIELD_TYPES = ["string", "number", "integer", "boolean", "array", "object"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
@@ -157,7 +157,9 @@ export function formFromDefinition(def: SkillDefinition): SkillForm {
       options: (s.options ?? []).join(", "),
       clientSpecific: s.clientSpecific,
     })),
-    summary: def.summary ?? "",
+    // DECISION: the editor edits the English summary (the source); a stored version per language
+    // is kept as it was (see definitionFromForm). Editing the other languages here is open.
+    summary: def.summary === undefined ? "" : pickLocalized(def.summary, "en"),
     producesAlerts: def.producesAlerts,
   };
 }
@@ -242,7 +244,9 @@ export function definitionFromForm(
     const t = tools.find((x) => x.id === id);
     if (t?.connector) connectors.add(t.connector);
   }
-  const summary = form.summary.trim();
+  const english = form.summary.trim();
+  const other = typeof base?.summary === "object" ? base.summary : null;
+  const summary = english && other ? { ...other, en: english } : english;
   return {
     ...(base ?? {}),
     schemaVersion: 1,

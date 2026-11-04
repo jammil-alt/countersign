@@ -4,12 +4,14 @@ import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
+import { useI18n } from "../../i18n/i18n";
 import { usePoll } from "../../runs/usePoll";
 import { ErrorNotice, Loading } from "../../ui/primitives";
 
 export function PortalDocumentScreen() {
   const { id = "" } = useParams();
   const api = useApiClient();
+  const { t } = useI18n();
   const { data, error, loading, reload } = useApi(apiRoutes.portalDocument, { params: { id } });
   const reading = data?.document.status === "stored" || data?.document.status === "extracting";
   usePoll(reload, reading, 3_000);
@@ -24,7 +26,7 @@ export function PortalDocumentScreen() {
     <div className="max-w-6xl">
       <p className="mb-2 text-sm">
         <Link to="/connections" className="text-ink-muted hover:underline">
-          Connections
+          {t("nav.connections")}
         </Link>
       </p>
       {loading && !data ? <Loading /> : null}

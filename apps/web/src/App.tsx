@@ -4,6 +4,7 @@ import { lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ApiClient } from "./api/client";
 import { ApiProvider } from "./api/useApi";
+import { SessionLanguage } from "./i18n/SessionLanguage";
 import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
 import { SessionProvider, useSessionState } from "./session/session";
@@ -84,7 +85,11 @@ function Centered({ children }: { children: ReactNode }) {
 }
 
 export function AppProviders({ client, children }: { client?: ApiClient; children: ReactNode }) {
-  const inner = <SessionProvider>{children}</SessionProvider>;
+  const inner = (
+    <SessionProvider>
+      <SessionLanguage>{children}</SessionLanguage>
+    </SessionProvider>
+  );
   return client ? <ApiProvider client={client}>{inner}</ApiProvider> : inner;
 }
 

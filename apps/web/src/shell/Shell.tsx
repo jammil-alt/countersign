@@ -4,6 +4,8 @@
 // sidebar; the page.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
+import { useI18n } from "../i18n/i18n";
+import { LanguageMenu } from "../i18n/LanguageMenu";
 import { displayName, userInitial, useSession, useSessionState } from "../session/session";
 import { Logo, PRODUCT_NAME } from "../ui/brand";
 import { Icon } from "../ui/icons";
@@ -29,6 +31,7 @@ export function AppShell({
   sidebar: ReactNode;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <div data-testid={`shell-${surface}`} className="flex min-h-screen flex-col bg-paper">
       <header className="ds-header sticky top-0 z-20 gap-5">
@@ -46,9 +49,9 @@ export function AppShell({
             />
             <input
               data-testid="shell-command-bar"
-              aria-label="Command bar"
+              aria-label={t("shell.commandBar")}
               disabled
-              placeholder="Ask an agent, or type / for a command"
+              placeholder={t("shell.commandPlaceholder")}
               className="ds-input pl-9 disabled:bg-surface-subtle"
             />
           </span>
@@ -58,13 +61,13 @@ export function AppShell({
           data-testid="shell-inbox"
           className="flex shrink-0 items-center gap-2 rounded-sm text-sm font-medium text-ink hover:text-slate"
         >
-          Inbox
+          {t("shell.inbox")}
           {inboxCount !== undefined ? <Count n={inboxCount} tone="warning" /> : null}
         </Link>
-        <UserMenu />
+        <UserMenu surface={surface} />
       </header>
       <div className="flex flex-1">
-        <aside aria-label="Navigation" className="ds-sidebar shrink-0">
+        <aside aria-label={t("shell.navigation")} className="ds-sidebar shrink-0">
           {sidebar}
         </aside>
         <main className="min-w-0 flex-1 px-10 py-8">{children}</main>
@@ -73,7 +76,8 @@ export function AppShell({
   );
 }
 
-function UserMenu() {
+function UserMenu({ surface }: { surface: "ops" | "portal" }) {
+  const { t } = useI18n();
   const session = useSession();
   const { signOut } = useSessionState();
   // The operator is Mezonas staff, a person on the client's account: copper, like the lead. A
@@ -96,7 +100,7 @@ function UserMenu() {
       <button
         type="button"
         data-testid="shell-avatar"
-        aria-label={`Account: ${displayName(session.user)}`}
+        aria-label={t("shell.account", { name: displayName(session.user) })}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className={cx(
@@ -107,16 +111,18 @@ function UserMenu() {
         {userInitial(session.user)}
       </button>
       {open ? (
-        <div className="absolute right-0 z-30 mt-2 w-64 rounded-md border border-line bg-surface p-4 elevation-pop">
+        <div className="absolute right-0 z-30 mt-2 w-80 rounded-md border border-line bg-surface p-4 elevation-pop">
           <p className="font-medium text-ink">{displayName(session.user)}</p>
           <p className="truncate text-sm text-ink-muted">{session.user.email}</p>
+          {/* The back office stays in English (plan §1.18): only the portal offers languages. */}
+          {surface === "portal" ? <LanguageMenu /> : null}
           <button
             type="button"
             data-testid="shell-sign-out"
             onClick={() => void signOut()}
             className="ds-btn ds-btn--link mt-3"
           >
-            Sign out
+            {t("shell.signOut")}
           </button>
         </div>
       ) : null}

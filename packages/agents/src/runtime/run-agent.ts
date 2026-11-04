@@ -17,6 +17,8 @@ import {
   type Approval,
   Decimal,
   type JsonSchema,
+  LOCALE_ENGLISH_NAMES,
+  type Locale,
   parseSkillRef,
   renderSummary,
   resolveSkillSettings,
@@ -56,6 +58,11 @@ export interface RunAgentInput {
   threadId?: string;
   /** Defaults to the run's mode. */
   mode?: RunMode;
+  /**
+   * The client's language (docs/plan.md §1.18), from the client's settings, never from document
+   * text: summaries render in it, and the model is asked to write client-facing text in it.
+   */
+  language?: Locale | undefined;
 }
 
 export interface PendingAction {
@@ -170,10 +177,31 @@ function checkOutput(
   return r;
 }
 
-function summarize(def: SkillDefinition, output: unknown, fallback?: string): string | null {
+/**
+ * The instruction that asks for client-facing text in the client's language. It goes in the system
+ * prompt (operator and platform text), never in a tool result, and names only a language from the
+ * client's settings (invariant 9). English adds nothing, so English prompts stay as they were.
+ */
+export function languageInstruction(language: Locale | undefined): string | null {
+  if (!language || language === "en") return null;
+  const name = LOCALE_ENGLISH_NAMES[language];
+  return [
+    `## Language
+This client reads ${name}. Write every text a person at the client will read (summaries, messages, questions, answers, titles, notes) in ${name}.`,
+    "Keep record ids, names, amounts, codes and text quoted from documents exactly as they are.",
+    "Field names and other structured values stay as the output schema defines them.",
+  ].join(" ");
+}
+
+function summarize(
+  def: SkillDefinition,
+  output: unknown,
+  language: Locale | undefined,
+  fallback?: string,
+): string | null {
   if (def.summary) {
     try {
-      return renderSummary(def.summary, output);
+      return renderSummary(def.summary, output, language);
     } catch {
       return fallback ?? null;
     }
@@ -276,7 +304,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     }
   };
   const finish = async (output: unknown, fallbackSummary?: string): Promise<AgentResult> => {
-    const summary = summarize(def, output, fallbackSummary);
+    const summary = summarize(def, output, input.language, fallbackSummary);
     const waiting = pending.some((p) => p.status === "awaiting_approval");
     await log.finishStepRun(input.tenantId, stepRunId, {
       status: waiting ? "waiting" : "succeeded",
@@ -307,7 +335,17 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     if (o.status !== "done") return finish(null);
     const out = checkOutput(def, o.output);
     if (!out.ok) return fail(`invalid output: ${out.message}`);
-    return finish(out.value, o.summary);
+    // The handler's own summary, rendered again in the client's language when it has one.
+    const handlerSummary = deps.tools.get(def.handler)?.spec.summary;
+    let fallback = o.summary;
+    if (handlerSummary && input.language && input.language !== "en") {
+      try {
+        fallback = renderSummary(handlerSummary, o.output, input.language);
+      } catch {
+        // Keep the English line the tool call rendered.
+      }
+    }
+    return finish(out.value, fallback);
   }
 
   // 3. Agent mode: the loop.
@@ -334,6 +372,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   const memory = definition.memory.enabled
     ? await store.memoryNotes(input.tenantId, agent.agentId, 50)
     : [];
+  const language = languageInstruction(input.language);
   const system = [
     PLATFORM_PREAMBLE,
     `## Who you are\n${definition.identity.name}: ${definition.identity.role}. ${definition.identity.mission}`,
@@ -342,6 +381,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     ...(Object.keys(settings).length > 0
       ? [`## Settings for this task\n${JSON.stringify(settings, null, 2)}`]
       : []),
+    ...(language ? [language] : []),
   ].join("\n\n");
   const byName = new Map<string, string>();
   const tools: NonNullable<LlmRequest["tools"]> = [];

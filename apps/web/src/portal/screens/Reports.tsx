@@ -6,6 +6,8 @@ import type { ActivityReport } from "@countersign/core";
 import { Link, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import type { PlainKey } from "../../i18n/catalog";
+import { type I18n, useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { type PackReport, packReportPath, packReportsFor } from "../../packs/registry";
 import {
@@ -18,14 +20,14 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
-import { count, isoDay, monthEnd, monthStart, periodLabel, plural } from "../../usage/format";
+import { isoDay, monthEnd, monthStart, periodLabel } from "../../usage/format";
 import { Stat, StatRow } from "../../usage/Stat";
 
 const PERIODS = [
-  ["month", "This month"],
-  ["last", "Last month"],
-  ["quarter", "Last 3 months"],
-] as const;
+  ["month", "reports.period.month"],
+  ["last", "reports.period.last"],
+  ["quarter", "reports.period.quarter"],
+] as const satisfies readonly (readonly [string, PlainKey])[];
 type Period = (typeof PERIODS)[number][0];
 
 /**
@@ -47,11 +49,13 @@ export function reportPeriod(
 
 /** The reports the client can open: activity, then its packs' reports. */
 function ReportLinks({ packs, current }: { packs: PackReport[]; current: string }) {
+  const { t } = useI18n();
   if (packs.length === 0) return null;
   return (
-    <nav className="mb-6 flex flex-wrap gap-2" aria-label="Reports">
+    <nav className="mb-6 flex flex-wrap gap-2" aria-label={t("nav.reports")}>
       {[
-        { to: "/reports", title: "Activity" },
+        // Pack reports carry their own titles (a pack's screens, not the platform's words).
+        { to: "/reports", title: t("reports.activity") },
         ...packs.map((r) => ({ to: packReportPath(r), title: r.title })),
       ].map((r) => (
         <Link
@@ -67,18 +71,28 @@ function ReportLinks({ packs, current }: { packs: PackReport[]; current: string 
   );
 }
 
-function RunsNote({ runs }: { runs: ActivityReport["runs"] }) {
+/** "1 done, 1 failed, 1 waiting for a person": how a period's runs ended, the empty ones left out. */
+export function runsNote(
+  runs: Pick<ActivityReport["runs"], "succeeded" | "failed" | "waiting" | "going" | "cancelled">,
+  { t }: Pick<I18n, "t">,
+  waiting:
+    | "reports.runs.waitingForPerson"
+    | "reports.runs.waiting" = "reports.runs.waitingForPerson",
+): string | null {
   const parts = [
-    runs.succeeded ? `${count(runs.succeeded)} done` : null,
-    runs.failed ? `${count(runs.failed)} failed` : null,
-    runs.waiting ? `${count(runs.waiting)} waiting for a person` : null,
-    runs.going ? `${count(runs.going)} running` : null,
-    runs.cancelled ? `${count(runs.cancelled)} cancelled` : null,
+    runs.succeeded ? t("reports.runs.done", { count: runs.succeeded }) : null,
+    runs.failed ? t("reports.runs.failed", { count: runs.failed }) : null,
+    runs.waiting ? t(waiting, { count: runs.waiting }) : null,
+    runs.going ? t("reports.runs.running", { count: runs.going }) : null,
+    runs.cancelled ? t("reports.runs.cancelled", { count: runs.cancelled }) : null,
   ].filter(Boolean);
-  return <>{parts.length > 0 ? parts.join(", ") : "Nothing ran"}</>;
+  // DECISION: a plain comma list in every language; the counts carry the grammar.
+  return parts.length > 0 ? parts.join(", ") : null;
 }
 
 export function ActivityReportScreen() {
+  const i18n = useI18n();
+  const { t, fmt } = i18n;
   const [params, setParams] = useSearchParams();
   const period = (PERIODS.find(([p]) => p === params.get("period"))?.[0] ?? "month") as Period;
   const service = params.get("service") ?? "";
@@ -99,11 +113,11 @@ export function ActivityReportScreen() {
   return (
     <div>
       <PageHeader
-        title="Reports"
+        title={t("nav.reports")}
         subtitle={
           data
-            ? `What your services did, ${periodLabel(data.from, data.to)}.`
-            : "What your services did."
+            ? t("reports.subtitlePeriod", { period: periodLabel(data.from, data.to, i18n.intl) })
+            : t("reports.subtitle")
         }
       />
       <ReportLinks packs={packs} current="/reports" />
@@ -112,19 +126,20 @@ export function ActivityReportScreen() {
           value={period}
           onChange={(p) => set({ period: p === "month" ? "" : p })}
           area="portal-report-period"
-          label="Period"
-          options={PERIODS.map(([p, l]) => [p, l])}
+          label={t("reports.period")}
+          options={PERIODS.map(([p, l]) => [p, t(l)])}
         />
         {service ? (
           <span className="flex items-center gap-2 text-sm text-ink-muted">
-            Service: <span className="text-ink">{serviceName ?? "this service"}</span>
+            {t("reports.forService")}{" "}
+            <span className="text-ink">{serviceName ?? t("reports.thisService")}</span>
             <Button
               size="sm"
               variant="ghost"
               data-testid="portal-report-all-services"
               onClick={() => set({ service: "" })}
             >
-              All services
+              {t("reports.allServices")}
             </Button>
           </span>
         ) : null}
@@ -136,46 +151,53 @@ export function ActivityReportScreen() {
           <StatRow cols={3}>
             <Stat
               testId="portal-report-runs"
-              label="Runs"
-              value={count(data.runs.total)}
-              note={<RunsNote runs={data.runs} />}
+              label={t("reports.runs")}
+              value={fmt.number(data.runs.total)}
+              note={runsNote(data.runs, i18n) ?? t("reports.runs.none")}
             />
             <Stat
               testId="portal-report-documents"
-              label="Documents read"
-              value={count(data.documents.read)}
-              note={`${plural(data.documents.received, "document")} came in`}
+              label={t("reports.documentsRead")}
+              value={fmt.number(data.documents.read)}
+              note={t("reports.documentsIn", { count: data.documents.received })}
             />
             <Stat
               testId="portal-report-actions"
-              label="Changes to your tools"
-              value={count(data.actions.total)}
+              label={t("reports.changes")}
+              value={fmt.number(data.actions.total)}
               note={
                 data.actions.byConnector.length > 0
-                  ? data.actions.byConnector.map((c) => `${c.name} ${count(c.count)}`).join(", ")
-                  : "None in this period"
+                  ? data.actions.byConnector
+                      .map((c) => `${c.name} ${fmt.number(c.count)}`)
+                      .join(", ")
+                  : t("reports.changesNone")
               }
             />
           </StatRow>
           <section>
-            <SectionLabel>By service</SectionLabel>
+            <SectionLabel>{t("reports.byService")}</SectionLabel>
             {data.services.length === 0 ? (
-              <EmptyState>
-                No services yet. We set them up with you, and their work shows here.
-              </EmptyState>
+              <EmptyState>{t("reports.noServices")}</EmptyState>
             ) : (
               <div className="dt dt-ana overflow-x-auto">
                 <table data-testid="portal-report-services">
                   <thead>
                     <tr className="dt-cols">
-                      <th>Service</th>
-                      {["Runs", "Done", "Failed", "Waiting", "Documents read", "Changes"].map(
-                        (h) => (
-                          <th key={h} className="n">
-                            {h}
-                          </th>
-                        ),
-                      )}
+                      <th>{t("runs.col.service")}</th>
+                      {(
+                        [
+                          "reports.runs",
+                          "reports.col.done",
+                          "reports.col.failed",
+                          "reports.col.waiting",
+                          "reports.documentsRead",
+                          "reports.col.changes",
+                        ] as const
+                      ).map((h) => (
+                        <th key={h} className="n">
+                          {t(h)}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -189,18 +211,20 @@ export function ActivityReportScreen() {
                             {s.name}
                           </Link>
                         </td>
-                        <td className="n">{count(s.runs.total)}</td>
-                        <td className="n">{count(s.runs.succeeded)}</td>
-                        <td className="n">{count(s.runs.failed)}</td>
+                        <td className="n">{fmt.number(s.runs.total)}</td>
+                        <td className="n">{fmt.number(s.runs.succeeded)}</td>
+                        <td className="n">{fmt.number(s.runs.failed)}</td>
                         <td className="n">
                           {s.runs.waiting > 0 ? (
-                            <Badge tone="warning">{count(s.runs.waiting)} waiting</Badge>
+                            <Badge tone="warning">
+                              {t("reports.runs.waiting", { count: s.runs.waiting })}
+                            </Badge>
                           ) : (
-                            "0"
+                            fmt.number(0)
                           )}
                         </td>
-                        <td className="n">{count(s.documentsRead)}</td>
-                        <td className="n">{count(s.actions)}</td>
+                        <td className="n">{fmt.number(s.documentsRead)}</td>
+                        <td className="n">{fmt.number(s.actions)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -216,6 +240,7 @@ export function ActivityReportScreen() {
 
 /** `/reports/<pack>/<report>`: a registered pack report, if the client has its pack. */
 function PackReportScreen() {
+  const { t } = useI18n();
   const { pack, report } = useParams();
   const { data, error, loading, reload } = useApi(apiRoutes.portalActivityReport);
   const packs = packReportsFor(data?.packs ?? []);
@@ -225,11 +250,11 @@ function PackReportScreen() {
   if (!found) {
     return (
       <div>
-        <PageHeader title="Reports" />
+        <PageHeader title={t("nav.reports")} />
         <Card className="p-6">
-          <p className="text-ink">This report isn't available for you.</p>
+          <p className="text-ink">{t("reports.notAvailable")}</p>
           <Link to="/reports" className="ds-btn ds-btn--link mt-2 text-sm">
-            See your activity
+            {t("reports.seeActivity")}
           </Link>
         </Card>
       </div>

@@ -6,7 +6,7 @@ import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
-import { documentStatus, money, SOURCE_LABEL } from "../../portal/documents";
+import { documentStatus, money, sourceLabel } from "../../portal/documents";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
@@ -65,7 +65,7 @@ export function OpsDocumentsScreen() {
                           {d.invoiceNumber ? `Invoice ${d.invoiceNumber}` : d.filename}
                         </Link>
                         <span className="block text-sm text-ink-muted">
-                          {SOURCE_LABEL[d.source] ?? d.source} · {d.filename}
+                          {sourceLabel(d.source)} · {d.filename}
                         </span>
                       </td>
                       <td className="text-ink">{d.vendorName ?? "–"}</td>

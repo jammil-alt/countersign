@@ -13,7 +13,7 @@ import {
   R2ObjectStore,
   type UrlSigner,
 } from "@countersign/connectors";
-import type { Workflow } from "@countersign/core";
+import type { Locale, Workflow } from "@countersign/core";
 import { agentVersion, connection, type Db, run, withTenant } from "@countersign/db";
 import {
   anthropicTransport,
@@ -35,6 +35,7 @@ import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
 import { type ReachDeps, reachPort } from "../reach/service";
+import { tenantLocale } from "../routes/language";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, senseEmitter } from "./dispatch";
 import type { RunInstances, RunParams } from "./instances";
@@ -133,7 +134,7 @@ const STEP_CONFIG = {
   timeout: "15 minutes",
 } as const;
 
-type Loaded = { ok: true; workflow: Workflow } | { ok: false; reason: string };
+type Loaded = { ok: true; workflow: Workflow; language: Locale } | { ok: false; reason: string };
 
 /** The agents runtime over the database, as a run (or the cron, for reach-outs) uses it. */
 export function runtimeFor(
@@ -202,7 +203,9 @@ export async function executeRun(
         );
       const wf = v?.bundle.workflows.find((w) => w.slug === info.workflowSlug);
       if (!wf) return { ok: false, reason: `no workflow ${info.workflowSlug} in that version` };
-      return { ok: true, workflow: wf.workflow };
+      // DECISION: the run reads the client's language once, inside this durable step, so a replay
+      // writes in the same language even if the client changed it meanwhile (plan §1.18).
+      return { ok: true, workflow: wf.workflow, language: await tenantLocale(tx, info.tenantId) };
     }),
   );
 
@@ -236,6 +239,7 @@ export async function executeRun(
   }
 
   const runtime = runtimeFor(deps, { collect: emitted, testRun: info.mode === "test" });
+  info.language = loaded.language;
   const ctx: ExecutorContext = {
     run: info,
     agent: agentPort(

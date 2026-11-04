@@ -15,6 +15,7 @@ import {
   notFound,
   requestedClient,
 } from "../http";
+import { sessionLanguage } from "./language";
 
 function sendCookies(c: AppContext, cookies: readonly string[]) {
   for (const cookie of cookies) c.header("Set-Cookie", cookie, { append: true });
@@ -42,7 +43,14 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
         return c.json({ error: { code: result.code, message: result.message } }, result.status);
       }
       sendCookies(c, result.setCookies);
-      return c.json(routes.session.response.parse(toSessionResponse(result.session)));
+      const language = await sessionLanguage(
+        services.db,
+        result.session,
+        c.req.header("accept-language"),
+      );
+      return c.json(
+        routes.session.response.parse({ ...toSessionResponse(result.session), language }),
+      );
     } catch (error) {
       return errorResponse(c, error);
     }

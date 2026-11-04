@@ -5,6 +5,8 @@
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import type { PlainKey } from "../../i18n/catalog";
+import { useI18n } from "../../i18n/i18n";
 import { connectorName, connectorOf } from "../../inbox/change";
 import { SourceLinks } from "../../records/SourceLinks";
 import {
@@ -30,13 +32,13 @@ import {
   type Tone,
 } from "../../ui/primitives";
 
-const ACTION_WORDS: Record<string, string> = {
-  proposed: "Waiting for approval",
-  approved: "Approved",
-  executing: "Being made",
-  done: "Made",
-  rejected: "Rejected",
-  failed: "Failed",
+const ACTION_WORDS: Record<string, PlainKey> = {
+  proposed: "action.status.proposed",
+  approved: "action.status.approved",
+  executing: "action.status.executing",
+  done: "action.status.done",
+  rejected: "action.status.rejected",
+  failed: "action.status.failed",
 };
 
 /** Made = done; waiting = on a person (signal); approved = a person signed (copper); failed = risk. */
@@ -49,6 +51,9 @@ const ACTION_TONE: Record<string, Tone> = {
 
 export function PortalRunScreen() {
   const { id = "" } = useParams();
+  const i18n = useI18n();
+  const { t } = i18n;
+  const time = (iso: string | null) => shortTime(iso, undefined, i18n);
   const { data, error, loading, reload } = useApi(apiRoutes.portalRun, { params: { id } });
   usePoll(reload, data ? isRunGoing(data.run.status) : false, 2_000);
 
@@ -61,7 +66,7 @@ export function PortalRunScreen() {
     <div className="max-w-5xl">
       <p className="mb-3 text-sm">
         <Link to="/runs" className="text-link underline">
-          Runs
+          {t("nav.runs")}
         </Link>
       </p>
       <PageHeader
@@ -69,12 +74,16 @@ export function PortalRunScreen() {
         title={run.service.name}
         badge={
           <Badge tone={runStatusTone(run.status)} testId="portal-run-status">
-            {runStatusLabel(run.status)}
+            {runStatusLabel(run.status, i18n)}
           </Badge>
         }
         subtitle={[
-          run.startedAt ? `Started ${shortTime(run.startedAt)}` : "Not started yet",
-          run.finishedAt ? `took ${duration(run.startedAt, run.finishedAt)}` : null,
+          run.startedAt ? t("run.started", { time: time(run.startedAt) }) : t("run.notStarted"),
+          run.finishedAt
+            ? t("run.took", {
+                duration: duration(run.startedAt, run.finishedAt, undefined, i18n),
+              })
+            : null,
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -83,14 +92,16 @@ export function PortalRunScreen() {
         <section>
           <Card testId="portal-run-timeline" className="overflow-hidden">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="eyebrow text-ink-muted">What happened</h2>
+              <h2 className="eyebrow text-ink-muted">{t("run.whatHappened")}</h2>
               <span className="text-sm text-ink-muted figures">
-                {data.steps.filter((s) => s.status === "succeeded").length} of {data.steps.length}{" "}
-                steps
+                {t("run.stepsDone", {
+                  done: data.steps.filter((s) => s.status === "succeeded").length,
+                  count: data.steps.length,
+                })}
               </span>
             </div>
             {data.steps.length === 0 ? (
-              <p className="px-4 py-4 text-ink-muted">Nothing to show yet.</p>
+              <p className="px-4 py-4 text-ink-muted">{t("run.nothingYet")}</p>
             ) : (
               <ol>
                 {data.steps.map((s, i) => (
@@ -102,9 +113,11 @@ export function PortalRunScreen() {
                     <StepMark status={s.status} n={i + 1} />
                     <div className="min-w-0">
                       <p className="font-medium text-ink">{s.label}</p>
-                      <p className="text-sm text-ink">{s.summary ?? stepStatusLabel(s.status)}</p>
+                      <p className="text-sm text-ink">
+                        {s.summary ?? stepStatusLabel(s.status, i18n)}
+                      </p>
                       <p className="mt-0.5 text-xs text-ink-muted">
-                        {[shortTime(s.finishedAt ?? s.startedAt), stepStatusLabel(s.status)]
+                        {[time(s.finishedAt ?? s.startedAt), stepStatusLabel(s.status, i18n)]
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
@@ -123,9 +136,9 @@ export function PortalRunScreen() {
         </section>
         <section className="flex flex-col gap-6">
           <div>
-            <SectionLabel>Changes to your tools</SectionLabel>
+            <SectionLabel>{t("run.changes")}</SectionLabel>
             {data.actions.length === 0 ? (
-              <EmptyState>No changes to your tools in this run.</EmptyState>
+              <EmptyState>{t("run.noChanges")}</EmptyState>
             ) : (
               <Card testId="portal-run-actions">
                 <ul>
@@ -140,11 +153,13 @@ export function PortalRunScreen() {
                       </div>
                       <div className="shrink-0 text-right">
                         <Badge tone={ACTION_TONE[a.status] ?? "neutral"}>
-                          {ACTION_WORDS[a.status] ?? a.status}
+                          {ACTION_WORDS[a.status]
+                            ? t(ACTION_WORDS[a.status] as PlainKey)
+                            : a.status}
                         </Badge>
                         {a.executedAt ? (
                           <p className="mt-1 text-sm text-ink-muted figures">
-                            {shortTime(a.executedAt)}
+                            {time(a.executedAt)}
                           </p>
                         ) : null}
                       </div>
@@ -155,9 +170,9 @@ export function PortalRunScreen() {
             )}
           </div>
           <div>
-            <SectionLabel>Approvals</SectionLabel>
+            <SectionLabel>{t("run.approvals")}</SectionLabel>
             {data.approvals.length === 0 ? (
-              <EmptyState>No approvals in this run.</EmptyState>
+              <EmptyState>{t("run.noApprovals")}</EmptyState>
             ) : (
               <Card testId="portal-run-approvals">
                 <ul>
@@ -168,7 +183,7 @@ export function PortalRunScreen() {
                     >
                       <p className="min-w-0 text-ink">{a.title}</p>
                       {a.status === "open" ? (
-                        <Badge tone="warning">Waiting</Badge>
+                        <Badge tone="warning">{t("common.waiting")}</Badge>
                       ) : (
                         // A person's sign-off is copper; a rejection or expiry stays muted.
                         <p
@@ -180,11 +195,22 @@ export function PortalRunScreen() {
                           )}
                         >
                           {a.status === "expired"
-                            ? "Expired"
-                            : `${a.approved === false ? "Rejected" : "Approved"}${a.by?.name ? ` by ${a.by.name}` : ""}`}
+                            ? t("common.expired")
+                            : a.by?.name
+                              ? t(
+                                  a.approved === false
+                                    ? "inbox.outcome.rejectedBy"
+                                    : "inbox.outcome.approvedBy",
+                                  { name: a.by.name },
+                                )
+                              : t(
+                                  a.approved === false
+                                    ? "inbox.outcome.rejected"
+                                    : "inbox.outcome.approved",
+                                )}
                           {a.resolvedAt ? (
                             <span className="font-normal text-ink-muted figures">
-                              {` · ${shortTime(a.resolvedAt)}`}
+                              {` · ${time(a.resolvedAt)}`}
                             </span>
                           ) : null}
                         </p>
@@ -195,7 +221,7 @@ export function PortalRunScreen() {
                 {data.approvals.some((a) => a.status === "open") ? (
                   <p className="border-t border-line px-4 py-3 text-sm">
                     <Link to="/inbox" className="text-link underline">
-                      Open your inbox
+                      {t("run.openInbox")}
                     </Link>
                   </p>
                 ) : null}

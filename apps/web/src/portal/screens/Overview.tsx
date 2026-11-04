@@ -3,6 +3,8 @@
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import type { PlainKey } from "../../i18n/catalog";
+import { useI18n } from "../../i18n/i18n";
 import { Icon } from "../../ui/icons";
 import {
   AgentAvatar,
@@ -15,23 +17,39 @@ import {
   SectionLabel,
 } from "../../ui/primitives";
 
+const SERVICE_STATUS: Record<string, PlainKey> = {
+  active: "service.status.active",
+  paused: "service.status.paused",
+  draft: "service.status.draft",
+  retired: "service.status.retired",
+};
+
 export function OverviewScreen() {
+  const { t } = useI18n();
   const { data, error, loading, reload } = useApi(apiRoutes.portalOverview);
+  const status = (s: string) => {
+    const key = SERVICE_STATUS[s];
+    return key ? t(key) : s.charAt(0).toUpperCase() + s.slice(1);
+  };
 
   return (
     <div>
       <PageHeader
-        title="Overview"
-        subtitle={`${data ? `${data.client.name}: your` : "Your"} services, what they did, and what needs you.`}
+        title={t("overview.title")}
+        subtitle={
+          data
+            ? t("overview.subtitleWithClient", { client: data.client.name })
+            : t("overview.subtitle")
+        }
       />
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data ? (
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
           <section>
-            <SectionLabel>Your services</SectionLabel>
+            <SectionLabel>{t("overview.services")}</SectionLabel>
             {data.services.length === 0 ? (
-              <EmptyState>No services yet. We set them up with you, and they show here.</EmptyState>
+              <EmptyState>{t("overview.noServices")}</EmptyState>
             ) : (
               <div data-testid="portal-services" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {data.services.map((s) => (
@@ -42,7 +60,7 @@ export function OverviewScreen() {
                         <span className="font-medium text-ink hover:underline">{s.name}</span>
                       </Link>
                       <Badge tone={s.status === "active" ? "positive" : "neutral"}>
-                        {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
+                        {status(s.status)}
                       </Badge>
                     </div>
                     {s.description ? <p className="mt-3 text-ink">{s.description}</p> : null}
@@ -55,11 +73,11 @@ export function OverviewScreen() {
             <SectionLabel
               action={
                 <Link to="/inbox" className="ds-btn ds-btn--link text-sm">
-                  Open inbox
+                  {t("overview.openInbox")}
                 </Link>
               }
             >
-              Needs you
+              {t("overview.needsYou")}
             </SectionLabel>
             {/* The Mezonas StatCard: one number, its unit, and what waits on you. */}
             <Card className="flex flex-col gap-3 p-6" testId="portal-needs-you">
@@ -68,22 +86,22 @@ export function OverviewScreen() {
                   {data.needsYou.inbox}
                 </span>
                 <span className="ds-help text-sm">
-                  {data.needsYou.inbox === 1 ? "item" : "items"} in your inbox
+                  {t("overview.inboxItems", { count: data.needsYou.inbox })}
                 </span>
               </span>
               {data.needsYou.inbox > 0 ? (
                 <span>
-                  <Badge tone="warning">Waiting on you</Badge>
+                  <Badge tone="warning">{t("common.waitingOnYou")}</Badge>
                 </span>
               ) : null}
               <span className="flex flex-col gap-1.5 text-sm text-ink">
                 <span className="flex items-center gap-2">
                   <Icon name="sign" className="text-ink-muted" />
-                  Changes to your tools wait for you to sign
+                  {t("overview.changesWait")}
                 </span>
                 <span className="flex items-center gap-2">
                   <Icon name="message" className="text-ink-muted" />
-                  Questions wait for your answer
+                  {t("overview.questionsWait")}
                 </span>
               </span>
             </Card>

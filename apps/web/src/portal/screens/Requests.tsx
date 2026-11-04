@@ -11,6 +11,8 @@ import {
 import { type FormEvent, useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import type { PlainKey } from "../../i18n/catalog";
+import { EN, type I18n, useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { useSession } from "../../session/session";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
@@ -28,21 +30,19 @@ import {
 
 type Filter = "all" | "open" | "resolved";
 
-export const REQUEST_STATUS: Record<RequestStatus, { label: string; tone: Tone }> = {
-  open: { label: "With us", tone: "neutral" },
-  done: { label: "Done", tone: "positive" },
-  declined: { label: "Declined", tone: "neutral" },
+export const REQUEST_STATUS: Record<RequestStatus, { label: PlainKey; tone: Tone }> = {
+  open: { label: "requests.status.open", tone: "neutral" },
+  done: { label: "requests.status.done", tone: "positive" },
+  declined: { label: "requests.status.declined", tone: "neutral" },
 };
 
-export function when(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+/** "Nov 3, 2026", in the reader's format. */
+export function when(iso: string, { fmt }: Pick<I18n, "fmt"> = EN): string {
+  return fmt.date(iso);
 }
 
 export function PortalRequestsScreen() {
+  const { t } = useI18n();
   const session = useSession();
   const client = session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0];
   const isAdmin = client?.role === "client_admin";
@@ -53,10 +53,7 @@ export function PortalRequestsScreen() {
 
   return (
     <div className="max-w-5xl">
-      <PageHeader
-        title="Requests"
-        subtitle="Ask us to change one of your services, or for something new. We reply here."
-      />
+      <PageHeader title={t("requests.title")} subtitle={t("requests.subtitle")} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="order-2 xl:order-1">
           <SectionLabel
@@ -65,22 +62,22 @@ export function PortalRequestsScreen() {
                 value={filter}
                 onChange={setFilter}
                 area="portal-requests"
-                label="Which requests"
+                label={t("requests.which")}
                 options={[
-                  ["all", "All"],
-                  ["open", "With us"],
-                  ["resolved", "Answered"],
+                  ["all", t("requests.filter.all")],
+                  ["open", t("requests.filter.open")],
+                  ["resolved", t("requests.filter.resolved")],
                 ]}
               />
             }
           >
-            {isAdmin ? "Your team's requests" : "Your requests"}
+            {isAdmin ? t("requests.team") : t("requests.yours")}
           </SectionLabel>
           {loading && !data ? <Loading /> : null}
           {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
           {data && data.items.length === 0 ? (
             <EmptyState>
-              {filter === "all" ? "No requests yet. Ask us anything with the form." : "None here."}
+              {filter === "all" ? t("requests.emptyAll") : t("requests.emptyFiltered")}
             </EmptyState>
           ) : null}
           <div data-testid="portal-requests-list" className="flex flex-col gap-4">
@@ -99,6 +96,7 @@ export function PortalRequestsScreen() {
 
 function RaiseRequest({ onRaised }: { onRaised: () => void }) {
   const api = useApiClient();
+  const { t } = useI18n();
   const overview = useApi(apiRoutes.portalOverview);
   const services = overview.data?.services ?? [];
   const [serviceId, setServiceId] = useState("");
@@ -128,7 +126,7 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
       setSent(true);
       onRaised();
     } catch {
-      setError("We couldn't send it. Try again.");
+      setError(t("requests.failed"));
     } finally {
       setBusy(false);
     }
@@ -136,15 +134,15 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
 
   return (
     <Card className="p-5" testId="portal-request-form">
-      <SectionLabel>Ask us</SectionLabel>
+      <SectionLabel>{t("requests.askUs")}</SectionLabel>
       <form className="flex flex-col gap-4" onSubmit={(e) => void send(e)}>
-        <Field label="About">
+        <Field label={t("requests.about")}>
           <Select
             data-testid="portal-request-service"
             value={serviceId}
             onChange={(e) => setServiceId(e.target.value)}
           >
-            <option value="">Something new, or anything else</option>
+            <option value="">{t("requests.somethingNew")}</option>
             {services.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -152,7 +150,7 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
             ))}
           </Select>
         </Field>
-        <Field label="Subject" hint="Optional. We use the first line if you leave it out.">
+        <Field label={t("requests.subject")} hint={t("requests.subjectHint")}>
           <TextInput
             data-testid="portal-request-subject"
             value={subject}
@@ -160,13 +158,13 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
             onChange={(e) => setSubject(e.target.value)}
           />
         </Field>
-        <Field label="What would you like?">
+        <Field label={t("requests.what")}>
           <TextArea
             data-testid="portal-request-text"
             rows={5}
             value={text}
             maxLength={REQUEST_TEXT_MAX}
-            placeholder="e.g. We started buying from Acme Lumber. Please watch their prices too."
+            placeholder={t("requests.placeholder")}
             onChange={(e) => {
               setText(e.target.value);
               setSent(false);
@@ -180,11 +178,11 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
             data-testid="portal-request-send"
             disabled={busy || !text.trim()}
           >
-            {busy ? "Sending…" : "Send request"}
+            {busy ? t("common.sending") : t("requests.send")}
           </Button>
           {sent ? (
             <span className="text-sm text-ink-muted" data-testid="portal-request-sent">
-              Sent. We'll reply here.
+              {t("requests.sent")}
             </span>
           ) : null}
           {error ? <span className="ds-error text-sm">{error}</span> : null}
@@ -195,6 +193,8 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
 }
 
 function RequestCard({ item, showWho }: { item: PortalRequest; showWho: boolean }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const status = REQUEST_STATUS[item.status];
   return (
     <Card testId={`portal-request-${item.id}`} className="p-5">
@@ -206,26 +206,32 @@ function RequestCard({ item, showWho }: { item: PortalRequest; showWho: boolean 
           <p className="text-sm text-ink-muted">
             {item.service ? `${item.service.name} · ` : ""}
             {showWho && item.raisedBy?.name ? `${item.raisedBy.name} · ` : ""}
-            {when(item.createdAt)}
+            {when(item.createdAt, i18n)}
           </p>
         </div>
         <Badge tone={status.tone} testId="portal-request-status">
-          {status.label}
+          {t(status.label)}
         </Badge>
       </div>
       <p className="mt-3 whitespace-pre-wrap text-ink">{item.text}</p>
       {item.status !== "open" ? (
         <div className="mt-4 border-t border-line pt-4" data-testid="portal-request-reply">
           <p className="text-sm text-ink-muted">
-            {item.status === "done" ? "Done" : "Declined"}
-            {item.resolvedAt ? ` on ${when(item.resolvedAt)}` : ""}
+            {item.resolvedAt
+              ? t(item.status === "done" ? "requests.doneOn" : "requests.declinedOn", {
+                  date: when(item.resolvedAt, i18n),
+                })
+              : t(item.status === "done" ? "requests.status.done" : "requests.status.declined")}
           </p>
           {item.note ? <p className="mt-1 whitespace-pre-wrap text-ink">{item.note}</p> : null}
           {item.changes.length > 0 ? (
             <ul className="mt-2 flex flex-col gap-1 text-sm" data-testid="portal-request-changes">
               {item.changes.map((c) => (
                 <li key={`${c.service.id}:${c.version}`} className="text-ink">
-                  {c.service.name}: now on version {c.version}
+                  {t("requests.nowOnVersion", {
+                    service: c.service.name,
+                    version: String(c.version),
+                  })}
                 </li>
               ))}
             </ul>

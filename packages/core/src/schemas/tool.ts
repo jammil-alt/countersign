@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ToolAmount } from "../approvals/rules";
-import { JsonSchema, TemplateString, ToolId } from "./common";
+import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { SideEffect, Verb } from "./permissions";
 
 /**
@@ -20,7 +20,7 @@ export const ToolSpec = z
     /** The connector whose connection the tool acts through; required for `external` tools. */
     connector: z.string().min(1).optional(),
     /** Client timeline line over the tool's output, e.g. "Attached {{filename}}". */
-    summary: TemplateString.optional(),
+    summary: LocalizedTemplate.optional(),
     /**
      * Input fields the tool turns into instructions (e.g. a voice agent's prompt and opening line),
      * so they must be fixed text in the agent's version: an action step's own literal input, never

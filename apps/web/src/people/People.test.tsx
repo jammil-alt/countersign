@@ -82,7 +82,9 @@ describe("portal: People", () => {
     expect(within(role).getByText("Opted out")).toBeInTheDocument();
     await userEvent.click(within(role).getByTestId(`role-purchaser-contact-${PAT}`));
     await userEvent.click(within(role).getByTestId("role-purchaser-channel-voice"));
-    await userEvent.type(within(role).getByTestId("role-purchaser-escalate"), "1 hour");
+    // A number and a unit (hours by default), stored as the platform's duration.
+    await userEvent.type(within(role).getByTestId("role-purchaser-escalate"), "1");
+    expect(within(role).getByTestId("role-purchaser-escalate-unit")).toHaveValue("hour");
     await userEvent.click(within(role).getByTestId("role-purchaser-urgent-hours"));
     await userEvent.click(screen.getByTestId(`people-${AGENT}-save`));
     await waitFor(() =>

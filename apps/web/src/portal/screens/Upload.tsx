@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { type UploadResponse, uploadFiles } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
+import { type I18n, useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
 import { TextArea } from "../../ui/forms";
 import {
@@ -19,16 +20,17 @@ import {
   SectionLabel,
   Tag,
 } from "../../ui/primitives";
-import { DROP_REASON, documentStatus, money, SOURCE_LABEL } from "../documents";
+import { documentStatus, dropReason, money, sourceLabel } from "../documents";
 
 type Result = UploadResponse["results"][number];
 type Shown = Result & { key: string };
 
 export function UploadSection({ isAdmin }: { isAdmin: boolean }) {
+  const { t } = useI18n();
   const documents = useApi(apiRoutes.portalDocuments, { query: { limit: 20 } });
   return (
     <section data-testid="portal-upload">
-      <SectionLabel>Upload and forwarding · built in</SectionLabel>
+      <SectionLabel>{t("upload.section")}</SectionLabel>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <DropZone onUploaded={documents.reload} />
         <Forwarding isAdmin={isAdmin} />
@@ -40,23 +42,32 @@ export function UploadSection({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function resultLine(r: Result): { text: string; tone: "positive" | "neutral" | "risk" } {
-  if (r.kind === "refused") return { text: r.error ?? "Not accepted.", tone: "risk" };
+function resultLine(
+  r: Result,
+  { t, locale }: Pick<I18n, "t" | "locale">,
+): { text: string; tone: "positive" | "neutral" | "risk" } {
+  // The server's reason is English: other languages show their own word for a refusal.
+  if (r.kind === "refused") {
+    return {
+      text: r.error && locale === "en" ? r.error : t("upload.refused"),
+      tone: "risk",
+    };
+  }
   if (r.kind === "purchases" && r.purchases) {
     const p = r.purchases;
-    const parts = [`${p.created} ${p.created === 1 ? "purchase" : "purchases"} added`];
-    if (p.duplicates > 0) parts.push(`${p.duplicates} already here`);
-    if (p.errors.length > 0) {
-      parts.push(`${p.errors.length} ${p.errors.length === 1 ? "row" : "rows"} skipped`);
-    }
+    const parts = [t("upload.purchasesAdded", { count: p.created })];
+    if (p.duplicates > 0) parts.push(t("upload.alreadyHere", { count: p.duplicates }));
+    if (p.errors.length > 0) parts.push(t("upload.rowsSkipped", { count: p.errors.length }));
     return { text: parts.join(" · "), tone: p.errors.length > 0 ? "neutral" : "positive" };
   }
   return r.created
-    ? { text: "Received", tone: "positive" }
-    : { text: "Already here: we keep one copy.", tone: "neutral" };
+    ? { text: t("upload.received"), tone: "positive" }
+    : { text: t("upload.duplicate"), tone: "neutral" };
 }
 
 function DropZone({ onUploaded }: { onUploaded: () => void }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -82,10 +93,8 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
 
   return (
     <Card className="flex flex-col p-4">
-      <p className="font-medium text-ink">Upload</p>
-      <p className="mt-1 text-sm text-ink-muted">
-        Invoices and receipts (PDF or image), or a CSV of purchases with date, vendor and amount.
-      </p>
+      <p className="font-medium text-ink">{t("upload.title")}</p>
+      <p className="mt-1 text-sm text-ink-muted">{t("upload.help")}</p>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the drop target; the button inside is the keyboard path. */}
       <div
         data-testid="portal-upload-drop"
@@ -104,13 +113,13 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
           over ? "border-slate bg-slate-tint" : "border-line-strong",
         )}
       >
-        <p className="text-sm text-ink">Drop files here</p>
+        <p className="text-sm text-ink">{t("upload.drop")}</p>
         <Button
           data-testid="portal-upload-choose"
           disabled={busy}
           onClick={() => input.current?.click()}
         >
-          {busy ? "Uploading…" : "Choose files"}
+          {busy ? t("upload.uploading") : t("upload.choose")}
         </Button>
         <input
           ref={input}
@@ -130,7 +139,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
       {results.length > 0 ? (
         <ul data-testid="portal-upload-results" className="mt-3 flex flex-col gap-1.5 text-sm">
           {results.map((r) => {
-            const line = resultLine(r);
+            const line = resultLine(r, i18n);
             return (
               <li key={r.key} className="flex items-start justify-between gap-3">
                 <span className="min-w-0 truncate text-ink">
@@ -161,6 +170,8 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
 
 function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   const api = useApiClient();
+  const i18n = useI18n();
+  const { t } = i18n;
   const { data, error, loading, reload } = useApi(apiRoutes.portalForwarding);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -185,20 +196,15 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <Card testId="portal-forwarding" className="flex flex-col p-4">
-      <p className="font-medium text-ink">Forward invoices by email</p>
+      <p className="font-medium text-ink">{t("forwarding.title")}</p>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {f && !f.available ? (
-        <p className="mt-1 text-sm text-ink-muted">
-          Forwarding isn't switched on yet. Your private address will appear here.
-        </p>
+        <p className="mt-1 text-sm text-ink-muted">{t("forwarding.off")}</p>
       ) : null}
       {f?.available && f.address ? (
         <>
-          <p className="mt-1 text-sm text-ink-muted">
-            Add a forwarding rule in your email (for example from your accounts payable inbox) to
-            this private address. We keep the attachments, never the message text.
-          </p>
+          <p className="mt-1 text-sm text-ink-muted">{t("forwarding.help")}</p>
           <div className="mt-3 flex items-center gap-2">
             <code
               data-testid="portal-forwarding-address"
@@ -213,26 +219,28 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
                 void navigator.clipboard?.writeText(f.address ?? "").then(() => setCopied(true));
               }}
             >
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("common.copied") : t("common.copy")}
             </Button>
           </div>
           <p className="mt-3 text-sm text-ink-muted figures">
-            {f.accepted} received · {f.dropped} not accepted
+            {t("forwarding.received", { count: f.accepted })} ·{" "}
+            {t("forwarding.dropped", { count: f.dropped })}
             {f.lastDropReason && f.lastDroppedAt
-              ? ` (last ${shortTime(f.lastDroppedAt)}: ${DROP_REASON[f.lastDropReason] ?? f.lastDropReason})`
+              ? ` ${t("forwarding.lastDrop", {
+                  time: shortTime(f.lastDroppedAt, undefined, i18n),
+                  reason: dropReason(f.lastDropReason, i18n),
+                })}`
               : ""}
           </p>
         </>
       ) : null}
       {f?.available ? (
         <div className="mt-4">
-          <p className="text-sm font-medium text-ink">Who may forward</p>
+          <p className="text-sm font-medium text-ink">{t("forwarding.whoMay")}</p>
           {f.allowedSenders.length === 0 && !editing ? (
             <p className="mt-1 flex items-center gap-2 text-sm text-ink-muted">
-              <Badge tone="warning">Waiting on you</Badge>
-              {isAdmin
-                ? "Add the addresses or domains that forward to you. Mail from anyone else is not accepted."
-                : "Your admin adds who may forward. Until then, nothing is accepted."}
+              <Badge tone="warning">{t("common.waitingOnYou")}</Badge>
+              {isAdmin ? t("forwarding.adminAdd") : t("forwarding.userWait")}
             </p>
           ) : null}
           {!editing && f.allowedSenders.length > 0 ? (
@@ -250,11 +258,9 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={"ap@yourshop.com\nyourvendor.com"}
-                aria-label="Addresses or domains, one per line"
+                aria-label={t("forwarding.sendersLabel")}
               />
-              <p className="mt-1 text-sm text-ink-muted">
-                One per line. A domain (yourvendor.com) covers everyone at it.
-              </p>
+              <p className="mt-1 text-sm text-ink-muted">{t("forwarding.sendersHelp")}</p>
               {saveError ? (
                 <div className="mt-2">
                   <ErrorNotice error={saveError} />
@@ -266,10 +272,10 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
                   variant="primary"
                   onClick={() => void save()}
                 >
-                  Save
+                  {t("common.save")}
                 </Button>
                 <Button variant="ghost" onClick={() => setEditing(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             </div>
@@ -283,7 +289,7 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
                 setEditing(true);
               }}
             >
-              Edit who may forward
+              {t("forwarding.edit")}
             </Button>
           ) : null}
         </div>
@@ -298,29 +304,29 @@ function RecentDocuments({
   state: ReturnType<typeof useApi<typeof apiRoutes.portalDocuments>>;
 }) {
   const { data, error, loading, reload } = state;
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <div>
-      <p className="mb-2 text-sm font-medium text-ink">Recent documents</p>
+      <p className="mb-2 text-sm font-medium text-ink">{t("documents.recent")}</p>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && data.documents.length === 0 ? (
-        <EmptyState>Nothing yet. Upload or forward an invoice and it shows here.</EmptyState>
-      ) : null}
+      {data && data.documents.length === 0 ? <EmptyState>{t("documents.empty")}</EmptyState> : null}
       {data && data.documents.length > 0 ? (
         <div className="dt dt-ana">
           <table data-testid="portal-documents">
             <thead>
               <tr className="dt-cols">
-                <th>Document</th>
-                <th>Vendor</th>
-                <th className="n">Total</th>
-                <th>Status</th>
-                <th>Received</th>
+                <th>{t("documents.col.document")}</th>
+                <th>{t("documents.col.vendor")}</th>
+                <th className="n">{t("documents.col.total")}</th>
+                <th>{t("documents.col.status")}</th>
+                <th>{t("documents.col.received")}</th>
               </tr>
             </thead>
             <tbody>
               {data.documents.map((d) => {
-                const s = documentStatus(d.status);
+                const s = documentStatus(d.status, i18n);
                 return (
                   <tr key={d.id}>
                     <td>
@@ -329,18 +335,20 @@ function RecentDocuments({
                         data-testid={`portal-document-${d.id}-open`}
                         className="font-medium text-ink hover:underline"
                       >
-                        {d.invoiceNumber ? `Invoice ${d.invoiceNumber}` : d.filename}
+                        {d.invoiceNumber
+                          ? t("documents.invoiceNumber", { number: d.invoiceNumber })
+                          : d.filename}
                       </Link>
                       <span className="block text-sm text-ink-muted">
-                        {SOURCE_LABEL[d.source] ?? d.source}
+                        {sourceLabel(d.source, i18n)}
                       </span>
                     </td>
                     <td className="text-ink">{d.vendorName ?? "–"}</td>
-                    <td className="n text-ink figures">{money(d.total)}</td>
+                    <td className="n text-ink figures">{money(d.total, "USD", i18n)}</td>
                     <td>
                       <Badge tone={s.tone}>{s.label}</Badge>
                     </td>
-                    <td className="text-ink figures">{shortTime(d.receivedAt)}</td>
+                    <td className="text-ink figures">{shortTime(d.receivedAt, undefined, i18n)}</td>
                   </tr>
                 );
               })}
