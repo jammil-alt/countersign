@@ -7,6 +7,7 @@
 export * from "./api/approver-rules";
 export * from "./api/contract";
 export * from "./api/feedback";
+export * from "./api/knowledge";
 export * from "./api/requests";
 export * from "./api/routes";
 export * from "./approvals/rules";

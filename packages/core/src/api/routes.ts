@@ -8,6 +8,7 @@ import { ToolSpec } from "../schemas/tool";
 import { approverRuleRoutes } from "./approver-rules";
 import { defineRoute } from "./contract";
 import { feedbackRoutes } from "./feedback";
+import { knowledgeRoutes } from "./knowledge";
 import { requestRoutes } from "./requests";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -1625,5 +1626,6 @@ export const routes = {
   ...feedbackRoutes,
   ...requestRoutes,
   ...approverRuleRoutes,
+  ...knowledgeRoutes,
 } as const;
 export type Routes = typeof routes;

@@ -6,6 +6,7 @@ export * from "./extract";
 export * from "./find-support";
 export * from "./forwarding";
 export * from "./get";
+export * from "./knowledge";
 export * from "./link";
 export * from "./store";
 export * from "./validate";
