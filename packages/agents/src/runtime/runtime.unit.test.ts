@@ -40,6 +40,9 @@ describe("tool registry", () => {
     });
     expect(Object.keys(tools.specs()).sort()).toEqual([
       "demo.thing.find",
+      "docs.extract",
+      "docs.find_support",
+      "docs.get",
       "inbox.create",
       "memory.write",
       "testkit.record.query",

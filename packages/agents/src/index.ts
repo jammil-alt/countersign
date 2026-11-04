@@ -5,6 +5,7 @@
 // storage through the ports in src/runtime/ports.ts, and agent reasoning reaches data only through tools.
 
 export * from "./errors";
+export * from "./log/documents-port";
 export * from "./log/external-actions";
 export * from "./log/platform-store";
 export * from "./log/ports";
@@ -21,5 +22,6 @@ export * from "./runtime/context";
 export * from "./runtime/json-schema";
 export * from "./runtime/ports";
 export * from "./runtime/run-agent";
+export * from "./tools/docs";
 export * from "./tools/platform";
 export * from "./tools/types";
