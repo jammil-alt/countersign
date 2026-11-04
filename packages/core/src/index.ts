@@ -10,6 +10,7 @@ export * from "./api/onboarding";
 export * from "./api/packs";
 export * from "./api/requests";
 export * from "./api/routes";
+export * from "./api/usage";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {

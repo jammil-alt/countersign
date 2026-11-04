@@ -10,6 +10,7 @@ import { feedbackRoutes } from "./feedback";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { packRoutes } from "./packs";
 import { requestRoutes } from "./requests";
+import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -1632,5 +1633,6 @@ export const routes = {
   ...onboardingRoutes,
   ...packRoutes,
   ...requestRoutes,
+  ...usageRoutes,
 } as const;
 export type Routes = typeof routes;

@@ -2,7 +2,7 @@
 // fake. Loads the pinned version's workflow, executes it through packages/workflows with the real
 // ports, records how it ended on `run`, rolls usage up, and dispatches the events it emitted.
 
-import { createDbPorts, finishRun, type RuntimeDeps, rollupUsageDaily } from "@countersign/agents";
+import { createDbPorts, finishRun, type RuntimeDeps, rollupUsageForRun } from "@countersign/agents";
 import {
   ContentStore,
   CredentialCipher,
@@ -178,10 +178,8 @@ export async function executeRun(
             ? {}
             : { error: { reason: result.reason ?? null, nodeId: result.nodeId ?? null } }),
         });
-        await rollupUsageDaily(tx, {
-          tenantId: info.tenantId,
-          day: new Date().toISOString().slice(0, 10),
-        });
+        // Every day the run touched: one that waited overnight added to more than today.
+        await rollupUsageForRun(tx, { tenantId: info.tenantId, runId: info.id });
       });
       // Best effort: whatever this misses (or a replay lost), the cron sweep dispatches.
       if (deps.instances && emitted.length > 0) {
