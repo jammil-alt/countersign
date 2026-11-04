@@ -13,6 +13,8 @@ import type { Logger } from "./logger";
 import type { MessagingServices } from "./messaging/services";
 import type { TokenRefresher } from "./oauth/tokens";
 import { manifestDefaultProblems } from "./permissions";
+import type { EmailServices } from "./resend/index";
+import type { VoiceServices } from "./voice/services";
 
 /** Mirrors `connection.status` in packages/db. */
 export type ConnectionStatus = "pending" | "connected" | "disconnected" | "error";
@@ -42,6 +44,10 @@ export interface ConnectionRef {
 export interface ConnectorServices {
   /** Contacts and consent, for connectors that text or message people (messaging/services.ts). */
   messaging?: MessagingServices;
+  /** Contacts, consent and calls, for connectors that place or answer calls (voice/services.ts). */
+  voice?: VoiceServices;
+  /** Contacts and consent for email sends (resend/index.ts). */
+  email?: EmailServices;
 }
 
 /** Everything a connector call runs with: one client, one connection. */
@@ -137,6 +143,8 @@ export function defineWriteTool<
   description: string;
   verb: Exclude<Verb, "read">;
   summary?: string;
+  /** Input fields that become instructions: fixed text in the step only (ToolSpec `fixedInputs`). */
+  fixedInputs?: string[];
   /** Where the input carries money, for approver rules on an amount (docs/plan.md §1.20). */
   amount?: ToolAmount;
   input: I;
@@ -155,6 +163,7 @@ export function defineWriteTool<
       sideEffect: "external",
       verb: def.verb,
       ...(def.summary === undefined ? {} : { summary: def.summary }),
+      ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
       ...(def.amount === undefined ? {} : { amount: def.amount }),
     },
     handler: {

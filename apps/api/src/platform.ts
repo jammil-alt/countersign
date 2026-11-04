@@ -6,6 +6,7 @@ import {
   DOCS_SKILLS,
   KNOWLEDGE_SKILLS,
   PLATFORM_TOOLS,
+  REACH_SKILLS,
   type RegistryContext,
   SkillCatalog,
   ToolRegistry,
@@ -14,6 +15,7 @@ import {
   type Connector,
   ConnectorRegistry,
   createPodioConnector,
+  createResendConnector,
   createTestkitConnector,
   createTwilioConnector,
   createUploadConnector,
@@ -87,6 +89,7 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     [
       ...DOCS_SKILLS,
       ...KNOWLEDGE_SKILLS,
+      ...REACH_SKILLS,
       ...(options.skills ?? []),
       ...connectorReadSkills(connectors),
     ],
@@ -168,6 +171,9 @@ export function deploymentConnectors(
     // Texts and WhatsApp: registered everywhere; a client gets a connection only when the
     // operator makes its subaccount, which needs TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.
     createTwilioConnector(),
+    // Email sending (Resend): registered everywhere; a client gets a connection only when the
+    // operator sets it up, which needs RESEND_API_KEY.
+    createResendConnector(),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

@@ -22,6 +22,13 @@ export const ToolSpec = z
     /** Client timeline line over the tool's output, e.g. "Attached {{filename}}". */
     summary: TemplateString.optional(),
     /**
+     * Input fields the tool turns into instructions (e.g. a voice agent's prompt and opening line),
+     * so they must be fixed text in the agent's version: an action step's own literal input, never
+     * filled from a template or written by a model (invariant 9). The gate refuses any other call,
+     * and workflow validation flags them.
+     */
+    fixedInputs: z.array(z.string().min(1)).optional(),
+    /**
      * Where a write carries money in its input, for approver rules on an amount (docs/plan.md
      * §1.20). Tools without it never match an amount rule.
      */

@@ -755,6 +755,13 @@ export async function activationProblems(
     }
   }
 
+  // A required role with nobody bound (docs/plan.md §1.25).
+  for (const r of live.bundle.people ?? []) {
+    if (r.required && !(row.people[r.role]?.contactIds.length ?? 0)) {
+      problems.push(`nobody is bound to the required role ${r.role}`);
+    }
+  }
+
   for (const e of await validateForPublish(tx, row, live.bundle, input.ctx)) {
     problems.push(`v${live.version}${e.stepId ? ` step ${e.stepId}` : ""}: ${e.message}`);
   }

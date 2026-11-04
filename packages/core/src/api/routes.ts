@@ -6,12 +6,15 @@ import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { approverRuleRoutes } from "./approver-rules";
+import { billingRoutes } from "./billing";
+import { callRoutes } from "./calls";
 import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { usageRoutes } from "./usage";
@@ -1605,5 +1608,8 @@ export const routes = {
   ...approverRuleRoutes,
   ...messagingRoutes,
   ...knowledgeRoutes,
+  ...callRoutes,
+  ...billingRoutes,
+  ...reachRoutes,
 } as const;
 export type Routes = typeof routes;

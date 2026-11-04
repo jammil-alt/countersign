@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBundleInput } from "../schemas/agent";
+import type { SkillDefinition } from "../schemas/skill";
+import { ToolSpec as ToolSpecSchema } from "../schemas/tool";
 import type { ActionStep, ForEachStep, ForkStep, SkillStep, Workflow } from "../schemas/workflow";
 import { bundleInput, ctx, edit, workflowInput } from "../testing/fixtures";
 import {
@@ -472,5 +474,64 @@ describe("validateBundle", () => {
     expect(validateBundle(b, ctx).errors).toEqual([
       expect.objectContaining({ code: "skill_not_allowed", stepId: "s6", workflow: "intake" }),
     ]);
+  });
+});
+
+describe("fixed inputs (text that becomes instructions)", () => {
+  const CALL = ToolSpecSchema.parse({
+    id: "test.call.place",
+    description: "Call someone",
+    input: {
+      type: "object",
+      properties: {
+        to: { type: "string" },
+        purpose: { type: "string" },
+        firstMessage: { type: "string" },
+      },
+      required: ["to", "purpose"],
+      additionalProperties: false,
+    },
+    output: { type: "object", properties: {} },
+    sideEffect: "external",
+    verb: "create",
+    source: "test",
+    connector: "test",
+    fixedInputs: ["purpose", "firstMessage"],
+  });
+  const caller = { ...(ctx.skills?.["test.itemize"] as SkillDefinition), id: "test.caller" };
+  const callCtx: ValidationContext = {
+    ...ctx,
+    tools: { ...ctx.tools, [CALL.id]: CALL },
+    skills: { ...ctx.skills, [caller.id]: { ...caller, tools: [CALL.id] } as SkillDefinition },
+  };
+  const calling = (input: Record<string, unknown>) =>
+    edit(workflowInput(), (w) => {
+      Object.assign(action(w), { tool: CALL.id, input: { to: "{{trigger.vendor}}", ...input } });
+    });
+  const fixedErrors = (wf: unknown) =>
+    codes(wf, callCtx).filter((e) => e.code === "input_not_fixed");
+
+  it("accepts a purpose and opening written in the step (the number may still be a template)", () => {
+    const wf = calling({ purpose: "Confirm Friday's delivery", firstMessage: "About your order." });
+    expect(fixedErrors(wf)).toEqual([]);
+  });
+
+  it("flags a purpose from the trigger and an opening from a step's output", () => {
+    const wf = calling({
+      purpose: "Ask about {{trigger.vendor}}",
+      firstMessage: "{{steps.s1.output.total}}",
+    });
+    expect(fixedErrors(wf)).toEqual([
+      { code: "input_not_fixed", stepId: "s7", field: "input.purpose" },
+      { code: "input_not_fixed", stepId: "s7", field: "input.firstMessage" },
+    ]);
+  });
+
+  it("flags a skill step whose model could call the tool", () => {
+    const wf = edit(workflowInput(), (w) => {
+      extract(w).skill = caller.id;
+      extract(w).input = {};
+    });
+    expect(fixedErrors(wf)).toEqual([{ code: "input_not_fixed", stepId: "s1", field: "skill" }]);
   });
 });

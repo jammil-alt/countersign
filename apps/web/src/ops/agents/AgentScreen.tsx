@@ -17,6 +17,7 @@ import {
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+import { OpsChannelsSection, OpsPeopleSection } from "../../people/PeoplePanel";
 import {
   AgentAvatar,
   Badge,
@@ -124,6 +125,7 @@ export function AgentScreen({
           active: builder !== null || workflowTab !== null,
         },
         { to: `${base}/runs${keep}`, label: "Runs" },
+        ...(view.kind === "client" ? [{ to: `${base}/people`, label: "People" }] : []),
         { to: `${base}/versions${keep}`, label: "Versions", count: versions.length },
         { to: `${base}/settings${keep}`, label: "Settings" },
       ]}
@@ -278,6 +280,28 @@ export function AgentScreen({
                 <EmptyState>
                   Templates don't run for clients. Their test runs belong to their test copy in the
                   Sandbox client.
+                </EmptyState>
+              )
+            }
+          />
+          <Route
+            path="people"
+            element={
+              view.kind === "client" ? (
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
+                  <div>
+                    <h2 className="mb-1 type-subheading text-ink">People</h2>
+                    <p className="mb-4 text-sm text-ink-muted">
+                      Who this agent reaches for each of its roles, and when. The client's admin can
+                      change these too; consent and opt-outs stay with each contact.
+                    </p>
+                    <OpsPeopleSection agentId={view.id} />
+                  </div>
+                  <OpsChannelsSection agentId={view.id} />
+                </div>
+              ) : (
+                <EmptyState>
+                  Templates declare roles; each client agent binds its own people.
                 </EmptyState>
               )
             }

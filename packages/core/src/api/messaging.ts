@@ -2,11 +2,12 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import {
   CONSENT_SOURCE_MAX,
+  ConsentChannel,
   ContactConsent,
   E164,
-  MessagingChannel,
   QuietHours,
 } from "../messaging/rules";
+import { ReachChannel, RoleName } from "../reach/rules";
 import { defineRoute } from "./contract";
 
 // Texts and WhatsApp through Twilio (docs/plan.md §1.19, §1.22): a client's contacts and their
@@ -26,23 +27,42 @@ const Language = z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/, "a language code lik
 
 /** A phone as typed; the API turns it into E.164 or answers 422 `invalid_phone`. */
 const PhoneInput = z.string().trim().min(1).max(40);
+/** Stored in lower case. */
+export const EmailAddress = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254)
+  .regex(/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, "an email address like pat@shop.com");
+/** An IANA zone, checked by the API against the runtime's list. */
+const Timezone = z.string().trim().min(1).max(64);
+export const CONTACT_NOTES_MAX = 2000;
+export const CONTACT_ROLES_MAX = 10;
+const Roles = z.array(RoleName).max(CONTACT_ROLES_MAX);
+const Preferred = z.array(ReachChannel).max(4);
 
 export const ContactCreate = z
   .strictObject({
     name: z.string().trim().min(1).max(CONTACT_NAME_MAX),
     phone: PhoneInput.optional(),
     whatsapp: PhoneInput.optional(),
+    email: EmailAddress.optional(),
     language: Language.optional(),
+    preferredChannels: Preferred.optional(),
+    timezone: Timezone.optional(),
+    quietHours: QuietHours.optional(),
+    roles: Roles.optional(),
+    notes: z.string().trim().max(CONTACT_NOTES_MAX).optional(),
     /** Consent given already (e.g. on the client's web form): channels and how. */
     consent: z
       .strictObject({
-        channels: z.array(MessagingChannel).min(1),
+        channels: z.array(ConsentChannel).min(1),
         source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
       })
       .optional(),
   })
-  .refine((b) => b.phone !== undefined || b.whatsapp !== undefined, {
-    message: "give a phone or a WhatsApp number",
+  .refine((b) => b.phone !== undefined || b.whatsapp !== undefined || b.email !== undefined, {
+    message: "give a phone, a WhatsApp number or an email address",
     path: ["phone"],
   });
 export type ContactCreateInput = z.input<typeof ContactCreate>;
@@ -51,7 +71,13 @@ export const ContactPatch = z.strictObject({
   name: z.string().trim().min(1).max(CONTACT_NAME_MAX).optional(),
   phone: PhoneInput.nullable().optional(),
   whatsapp: PhoneInput.nullable().optional(),
+  email: EmailAddress.nullable().optional(),
   language: Language.nullable().optional(),
+  preferredChannels: Preferred.optional(),
+  timezone: Timezone.nullable().optional(),
+  quietHours: QuietHours.nullable().optional(),
+  roles: Roles.optional(),
+  notes: z.string().trim().max(CONTACT_NOTES_MAX).nullable().optional(),
 });
 export type ContactPatchInput = z.input<typeof ContactPatch>;
 
@@ -62,10 +88,10 @@ export type ContactPatchInput = z.input<typeof ContactPatch>;
 export const ContactConsentChange = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("grant"),
-    channel: MessagingChannel,
+    channel: ConsentChannel,
     source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
   }),
-  z.strictObject({ action: z.literal("withdraw"), channel: MessagingChannel }),
+  z.strictObject({ action: z.literal("withdraw"), channel: ConsentChannel }),
   z.strictObject({ action: z.literal("opt_out") }),
   z.strictObject({ action: z.literal("lift_opt_out") }),
 ]);
@@ -76,11 +102,22 @@ export const Contact = z.object({
   name: z.string(),
   phone: E164.nullable(),
   whatsapp: E164.nullable(),
+  email: z.string().nullable().optional(),
   language: z.string().nullable(),
+  preferredChannels: z.array(ReachChannel).optional(),
+  /** Null: the client's timezone and quiet hours. */
+  timezone: z.string().nullable().optional(),
+  quietHours: QuietHours.nullable().optional(),
+  roles: z.array(z.string()).optional(),
+  notes: z.string().nullable().optional(),
   consent: ContactConsent,
   optedOut: z.object({ at: z.string(), source: z.string() }).nullable(),
   /** Whether a send could go out now, quiet hours aside. */
   canMessage: z.object({ sms: z.boolean(), whatsapp: z.boolean() }),
+  /** Whether an agent's call could be placed now (consent to calls, a phone), quiet hours aside. */
+  canCall: z.boolean().optional(),
+  /** Whether an agent's email could go out now (an address and consent, not opted out). */
+  canEmail: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -90,7 +127,17 @@ export type Contact = z.infer<typeof Contact>;
 export const ContactMessage = z.object({
   id: z.string(),
   direction: z.enum(["in", "out"]),
-  channel: MessagingChannel,
+  /** `voice`: a phone call; its text is the call's summary (or what happened, e.g. voicemail). */
+  channel: z.enum(["sms", "whatsapp", "voice", "email"]),
+  /** A reach-out line: why, by which agent version, about which records (invariant 10). */
+  reachOut: z
+    .object({
+      id: z.string(),
+      runId: z.string().nullable(),
+      agentVersionId: z.string().nullable(),
+      sources: z.array(z.string()),
+    })
+    .optional(),
   text: z.string(),
   /** The provider's message id. */
   sid: z.string().nullable(),

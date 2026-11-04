@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DecimalString } from "../money";
+import { PersonRole } from "../reach/rules";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
 import { Workflow } from "./workflow";
@@ -66,6 +67,11 @@ export const AgentBundle = z
     schemaVersion: z.literal(1),
     definition: AgentDefinition,
     workflows: z.array(BundleWorkflow),
+    /**
+     * The roles this agent reaches (docs/plan.md §1.25): no contact data, which is bound on the
+     * client agent. Optional with no default, so older versions parse and hash as they were.
+     */
+    people: z.array(PersonRole).optional(),
   })
   .meta({ id: "AgentBundle" });
 export type AgentBundle = z.infer<typeof AgentBundle>;

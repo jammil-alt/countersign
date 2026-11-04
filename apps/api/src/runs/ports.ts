@@ -11,7 +11,7 @@ import {
   runAgent,
   type StepContext,
 } from "@countersign/agents";
-import { isPlainObject, type JsonObject } from "@countersign/core";
+import { isPlainObject, type JsonObject, parseSkillRef, REACH_OUT_SKILL } from "@countersign/core";
 import { type Db, inboxItem, stepRun, withTenant } from "@countersign/db";
 import type {
   AgentPort,
@@ -24,6 +24,7 @@ import type {
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { toRunResolution } from "../inbox";
+import { type ReachPort, reachOutState } from "../reach/service";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
 
@@ -94,10 +95,21 @@ function firstWaiting(state: PendingState, after = -1): StepOutcome | null {
     : null;
 }
 
-/** Skill and action steps through packages/agents: the gate, external actions, approvals. */
-export function agentPort(deps: RuntimeDeps): AgentPort {
+/**
+ * Skill and action steps through packages/agents: the gate, external actions, approvals. The
+ * built-in `comms.reach-out` goes to the reach-out service, which plans, sends and waits.
+ */
+// DECISION: the reach-out is a built-in skill the API carries out (it needs contacts, waits and the
+// cron), routed here by its id; without the service (no database) it fails rather than run as a
+// plain tool.
+export function agentPort(deps: RuntimeDeps, reach?: ReachPort): AgentPort {
   return {
-    async runSkill({ run, step, nodeId, stepRunId, input, approval }) {
+    async runSkill(request) {
+      const { run, step, nodeId, stepRunId, input, approval } = request;
+      if (parseSkillRef(step.skill).id === REACH_OUT_SKILL) {
+        if (!reach) return { kind: "failed", error: "comms.reach-out needs the reach-out service" };
+        return reach.start(request);
+      }
       const r = await runAgent(deps, {
         tenantId: run.tenantId,
         agentVersionId: run.agentVersionId,
@@ -148,6 +160,8 @@ export function agentPort(deps: RuntimeDeps): AgentPort {
         stepId: nodeId,
         mode: run.mode,
         approval,
+        // The step as written in the version: fixed inputs are checked against it, not `input`.
+        literalInput: step.input,
         externalIndex: { next: 0 },
       };
       const o = await callTool(deps, ctx, { toolId: step.tool, input });
@@ -174,7 +188,19 @@ export function agentPort(deps: RuntimeDeps): AgentPort {
       }
     },
 
-    async resume({ run, step, pending, resolution }) {
+    async waitDone(request) {
+      if (!reach) return true;
+      return reach.waitDone(request);
+    },
+
+    async afterWait(request) {
+      if (!reach) return { kind: "failed", error: "nothing to wait for" };
+      return reach.afterWait(request);
+    },
+
+    async resume(request) {
+      const { run, step, pending, resolution } = request;
+      if (reach && reachOutState(pending.state)) return reach.resume(request);
       const state = PendingState.parse(pending.state ?? { actions: [] });
       const index = state.actions.findIndex((a) => a.inboxItemId === pending.inboxItemId);
       const current = state.actions[index];

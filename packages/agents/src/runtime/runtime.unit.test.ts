@@ -39,6 +39,7 @@ describe("tool registry", () => {
       ],
     });
     expect(Object.keys(tools.specs()).sort()).toEqual([
+      "comms.reach_out",
       "demo.thing.find",
       "docs.extract",
       "docs.find_support",

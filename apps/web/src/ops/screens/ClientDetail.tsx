@@ -17,6 +17,7 @@ import {
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
 import { ClientApproverRules } from "./ClientApproverRules";
+import { ClientBillingSection } from "./ClientBilling";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientTabs } from "./ClientKnowledge";
 
@@ -58,6 +59,7 @@ export function ClientDetailScreen() {
         </div>
       )}
       <ClientApproverRules clientId={data.client.id} />
+      <ClientBillingSection clientId={data.client.id} />
       <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );

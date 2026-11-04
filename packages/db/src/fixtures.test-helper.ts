@@ -10,6 +10,8 @@ import {
   agentChange,
   agentVersion,
   appUser,
+  billingEvent,
+  billingUsageReport,
   connection,
   connectionChange,
   contact,
@@ -28,6 +30,7 @@ import {
   memoryNote,
   message,
   rawRecord,
+  reachOut,
   run,
   skill,
   skillVersion,
@@ -210,6 +213,19 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .returning();
   if (!ct) throw new Error("no contact");
   await db.insert(contactChange).values({ tenantId, contactId: ct.id, change: { created: true } });
+  await db.insert(reachOut).values({
+    tenantId,
+    agentId: a.id,
+    agentVersionId: av.id,
+    runId: r.id,
+    nodeId: "s1",
+    contactId: ct.id,
+    subject: "s",
+    purpose: "Confirm the delivery date",
+    urgency: "normal",
+    plan: {},
+    status: "open",
+  });
 
   const [v] = await db
     .insert(vendor)
@@ -284,6 +300,26 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     comment: "This is confusing",
     path: "/inbox",
     viewport: { width: 1280, height: 800 },
+  });
+  await db.insert(billingUsageReport).values({
+    tenantId,
+    period: "2026-11-01",
+    day: "2026-11-03",
+    agents: 1,
+    allowance: 2000,
+    credits: 12,
+    overage: 0,
+    quantity: 0,
+    costUsd: "0.1150",
+    identifier: `${tenantId}:2026-11-01:2026-11-03`,
+    status: "none",
+  });
+  await db.insert(billingEvent).values({
+    tenantId,
+    stripeEventId: `evt_${tenantId}`,
+    type: "invoice.paid",
+    objectId: "in_1",
+    summary: { status: "paid" },
   });
 
   const [ke] = await db

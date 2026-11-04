@@ -4,18 +4,23 @@
 // consent, which was given for the old number.
 
 import {
+  type ConsentChannel,
   type Contact,
   type ContactConsent,
   type ContactConsentChangeInput,
   type ContactCreateInput,
   type ContactMessage,
   type ContactPatchInput,
+  callBlock,
   consentBlock,
+  consentBlockFor,
   DEFAULT_QUIET_HOURS,
   type Keyword,
   type MessagingChannel,
   normalizePhone,
   QuietHours,
+  type ReachChannel,
+  type ReachContact,
 } from "@countersign/core";
 import { contact, contactChange, message, type Tx, tenant, thread } from "@countersign/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
@@ -29,7 +34,37 @@ function stored(c: ContactConsent): StoredConsent {
   const out: StoredConsent = {};
   if (c.sms) out.sms = c.sms;
   if (c.whatsapp) out.whatsapp = c.whatsapp;
+  if (c.voice) out.voice = c.voice;
+  if (c.email) out.email = c.email;
   return out;
+}
+
+/** A contact as the reach-out evaluator reads it (core's ReachContact). */
+export function reachContactOf(row: ContactRow): ReachContact {
+  const q = QuietHours.safeParse(row.quietHours);
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    whatsapp: row.whatsapp,
+    language: row.language,
+    preferredChannels: (row.preferredChannels ?? []) as ReachChannel[],
+    timezone: row.timezone,
+    quietHours: q.success ? q.data : null,
+    consent: (row.consent ?? {}) as ContactConsent,
+    optedOutAt: row.optedOutAt,
+  };
+}
+
+/** A timezone the runtime knows, or a 422. */
+function timezoneOrThrow(tz: string): string {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    throw new HttpError(422, "invalid_timezone", `${tz} is not a timezone, e.g. America/Chicago`);
+  }
 }
 
 export const CONTACT_THREAD_SUBJECT = "contact";
@@ -42,7 +77,13 @@ export function contactView(row: ContactRow): Contact {
     name: row.name,
     phone: row.phone,
     whatsapp: row.whatsapp,
+    email: row.email,
     language: row.language,
+    preferredChannels: (row.preferredChannels ?? []) as ReachChannel[],
+    timezone: row.timezone,
+    quietHours: QuietHours.safeParse(row.quietHours).data ?? null,
+    roles: row.roles ?? [],
+    notes: row.notes,
     consent,
     optedOut:
       row.optedOutAt && row.optOutSource
@@ -52,6 +93,8 @@ export function contactView(row: ContactRow): Contact {
       sms: consentBlock(state, "sms") === null,
       whatsapp: consentBlock(state, "whatsapp") === null,
     },
+    canCall: callBlock(state) === null,
+    canEmail: consentBlockFor(reachContactOf(row), "email") === null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -101,17 +144,22 @@ export async function getContact(tx: Tx, tenantId: string, id: string): Promise<
 async function ensureFree(
   tx: Tx,
   tenantId: string,
-  field: "phone" | "whatsapp",
+  field: "phone" | "whatsapp" | "email",
   value: string,
   except?: string,
 ) {
-  const col = field === "phone" ? contact.phone : contact.whatsapp;
+  const col =
+    field === "phone" ? contact.phone : field === "whatsapp" ? contact.whatsapp : contact.email;
   const [taken] = await tx
     .select({ id: contact.id })
     .from(contact)
     .where(and(eq(contact.tenantId, tenantId), eq(col, value)));
   if (taken && taken.id !== except) {
-    throw new HttpError(409, "contact_exists", "another contact already has that number");
+    throw new HttpError(
+      409,
+      "contact_exists",
+      `another contact already has that ${field === "email" ? "email address" : "number"}`,
+    );
   }
 }
 
@@ -124,10 +172,20 @@ export async function createContact(
 ): Promise<ContactRow> {
   const phone = input.phone === undefined ? null : phoneOrThrow(input.phone, "phone");
   const whatsapp = input.whatsapp === undefined ? null : phoneOrThrow(input.whatsapp, "whatsapp");
+  const email = input.email?.trim().toLowerCase() ?? null;
   if (phone) await ensureFree(tx, tenantId, "phone", phone);
   if (whatsapp) await ensureFree(tx, tenantId, "whatsapp", whatsapp);
+  if (email) await ensureFree(tx, tenantId, "email", email);
   const consent: ContactConsent = {};
   for (const ch of input.consent?.channels ?? []) {
+    const address = ch === "email" ? email : ch === "whatsapp" ? whatsapp : phone;
+    if (!address) {
+      throw new HttpError(
+        422,
+        "no_number",
+        `add the contact's ${ch === "email" ? "email" : "number"} for ${ch} first`,
+      );
+    }
     consent[ch] = { grantedAt: now.toISOString(), source: input.consent?.source ?? "" };
   }
   const [row] = await tx
@@ -137,7 +195,13 @@ export async function createContact(
       name: input.name.trim(),
       phone,
       whatsapp,
+      email,
       language: input.language ?? null,
+      preferredChannels: [...new Set(input.preferredChannels ?? [])],
+      timezone: input.timezone === undefined ? null : timezoneOrThrow(input.timezone),
+      quietHours: input.quietHours ?? null,
+      roles: [...new Set(input.roles ?? [])],
+      notes: input.notes?.trim() || null,
       consent: stored(consent),
       createdBy: actorId,
     })
@@ -173,26 +237,61 @@ export async function updateContact(
         : patch.whatsapp === null
           ? null
           : phoneOrThrow(patch.whatsapp, "whatsapp"),
+    email:
+      patch.email === undefined
+        ? row.email
+        : patch.email === null
+          ? null
+          : patch.email.trim().toLowerCase(),
     language: patch.language === undefined ? row.language : patch.language,
+    preferredChannels:
+      patch.preferredChannels === undefined
+        ? row.preferredChannels
+        : [...new Set(patch.preferredChannels)],
+    timezone:
+      patch.timezone === undefined
+        ? row.timezone
+        : patch.timezone === null
+          ? null
+          : timezoneOrThrow(patch.timezone),
+    quietHours: patch.quietHours === undefined ? row.quietHours : patch.quietHours,
+    roles: patch.roles === undefined ? row.roles : [...new Set(patch.roles)],
+    notes: patch.notes === undefined ? row.notes : patch.notes?.trim() || null,
   };
-  if (!next.phone && !next.whatsapp) {
-    throw new HttpError(422, "invalid_contact", "a contact needs a phone or a WhatsApp number");
+  if (!next.phone && !next.whatsapp && !next.email) {
+    throw new HttpError(
+      422,
+      "invalid_contact",
+      "a contact needs a phone, a WhatsApp number or an email address",
+    );
   }
   if (next.phone && next.phone !== row.phone)
     await ensureFree(tx, tenantId, "phone", next.phone, id);
   if (next.whatsapp && next.whatsapp !== row.whatsapp) {
     await ensureFree(tx, tenantId, "whatsapp", next.whatsapp, id);
   }
+  if (next.email && next.email !== row.email) {
+    await ensureFree(tx, tenantId, "email", next.email, id);
+  }
   // DECISION: consent is for a number; a new number for a channel needs consent again.
   const consent = { ...((row.consent ?? {}) as ContactConsent) };
-  const withdrawn: MessagingChannel[] = [];
+  const withdrawn: ConsentChannel[] = [];
   if (next.phone !== row.phone && consent.sms) {
     delete consent.sms;
     withdrawn.push("sms");
   }
+  // Calls go to the phone too.
+  if (next.phone !== row.phone && consent.voice) {
+    delete consent.voice;
+    withdrawn.push("voice");
+  }
   if (next.whatsapp !== row.whatsapp && consent.whatsapp) {
     delete consent.whatsapp;
     withdrawn.push("whatsapp");
+  }
+  if (next.email !== row.email && consent.email) {
+    delete consent.email;
+    withdrawn.push("email");
   }
   const [updated] = await tx
     .update(contact)
@@ -200,9 +299,16 @@ export async function updateContact(
     .where(and(eq(contact.id, id), eq(contact.tenantId, tenantId)))
     .returning();
   if (!updated) throw notFound("contact");
+  const changed: Record<string, { before: unknown; after: unknown }> = {};
+  for (const k of Object.keys(next) as (keyof typeof next)[]) {
+    if (JSON.stringify(row[k] ?? null) !== JSON.stringify(next[k] ?? null)) {
+      changed[k] = { before: row[k] ?? null, after: next[k] ?? null };
+    }
+  }
   await log(tx, tenantId, id, actorId, {
     kind: "edited",
     fields: Object.keys(patch),
+    changed,
     ...(withdrawn.length ? { consentWithdrawn: withdrawn } : {}),
   });
   return updated;
@@ -225,9 +331,20 @@ export async function changeConsent(
       if (row.optedOutAt) {
         throw new HttpError(409, "opted_out", "this contact opted out: lift the opt-out first");
       }
-      const number = change.channel === "sms" ? row.phone : row.whatsapp;
+      const number =
+        change.channel === "whatsapp"
+          ? row.whatsapp
+          : change.channel === "email"
+            ? row.email
+            : row.phone;
       if (!number) {
-        throw new HttpError(422, "no_number", "add the contact's number for that channel first");
+        throw new HttpError(
+          422,
+          "no_number",
+          change.channel === "email"
+            ? "add the contact's email address first"
+            : "add the contact's number for that channel first",
+        );
       }
       consent[change.channel] = { grantedAt: now.toISOString(), source: change.source };
       set = { consent: stored(consent) };
@@ -346,12 +463,15 @@ export async function contactThread(tx: Tx, row: ContactRow): Promise<string> {
 /** What a contact-thread message keeps in `message.body`. */
 export interface ThreadMessageBody {
   direction: "in" | "out";
-  channel: MessagingChannel;
+  /** `voice`: a call (calls/store.ts threadCallLine); `email`: a reach-out email or its reply. */
+  channel: MessagingChannel | "voice" | "email";
   /** The sender's words (or the template id): shown to people, never handed to a model. */
   text: string;
   sid: string;
   rawRecordId: string;
   status: string | null;
+  /** A reach-out's own line: the run, the agent version and the sources (invariant 10). */
+  reachOut?: { id: string; runId: string | null; agentVersionId: string | null; sources: string[] };
 }
 
 export async function contactMessages(
@@ -377,7 +497,11 @@ export async function contactMessages(
     return {
       id: r.id,
       direction: b.direction === "in" ? "in" : "out",
-      channel: b.channel === "whatsapp" ? "whatsapp" : "sms",
+      channel:
+        b.channel === "whatsapp" || b.channel === "voice" || b.channel === "email"
+          ? b.channel
+          : "sms",
+      ...(b.reachOut ? { reachOut: b.reachOut } : {}),
       text: typeof b.text === "string" ? b.text : "",
       sid: typeof b.sid === "string" ? b.sid : null,
       status: typeof b.status === "string" ? b.status : null,

@@ -38,7 +38,22 @@ interface FakeNumber {
   phone_number: string;
   friendly_name: string;
   sms_url: string;
+  voice_url?: string;
+  status_callback?: string;
   capabilities: { voice: boolean; sms: boolean; mms: boolean };
+}
+
+interface FakeCall {
+  sid: string;
+  account_sid: string;
+  from: string;
+  to: string;
+  url: string;
+  status_callback: string;
+  time_limit: string;
+  status: string;
+  direction: string;
+  date_created?: string;
 }
 
 const hex32 = (n: number) => n.toString(16).padStart(32, "0");
@@ -75,6 +90,7 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
   ]);
   const numbers = new Map<string, FakeNumber>();
   const messages = new Map<string, FakeMessage>();
+  const calls = new Map<string, FakeCall>();
   const brands = new Map<string, string>();
   const campaigns = new Map<string, string>();
   const requests: FakeTwilioRequest[] = [];
@@ -218,6 +234,50 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
       return json(201, n);
     }
     const release = rest.match(/^\/IncomingPhoneNumbers\/(PN[0-9a-f]{32})\.json$/);
+    if (release?.[1] && method === "POST") {
+      const n = numbers.get(release[1]);
+      if (!n || n.account_sid !== account) return json(404, { code: 20404, message: "not found" });
+      if (form.VoiceUrl !== undefined) n.voice_url = form.VoiceUrl;
+      if (form.StatusCallback !== undefined) n.status_callback = form.StatusCallback;
+      return json(200, n);
+    }
+    if (rest === "/Calls.json" && method === "POST") {
+      const to = form.To ?? "";
+      if (!/^\+[1-9]\d{6,14}$/.test(to)) {
+        return json(400, {
+          code: 21211,
+          message: `The 'To' number ${to} is not a valid phone number.`,
+        });
+      }
+      const from = [...numbers.values()].find(
+        (n) => n.account_sid === account && n.phone_number === form.From,
+      );
+      if (!from)
+        return json(400, { code: 21210, message: "The source phone number is not verified" });
+      const call: FakeCall = {
+        sid: `CA${hex32(next())}`,
+        account_sid: account,
+        from: form.From ?? "",
+        to,
+        url: form.Url ?? "",
+        status_callback: form.StatusCallback ?? "",
+        time_limit: form.TimeLimit ?? "",
+        status: "queued",
+        direction: "outbound-api",
+        date_created: rfc2822(now()),
+      };
+      calls.set(call.sid, call);
+      return json(201, call);
+    }
+    if (rest === "/Calls.json" && method === "GET") {
+      const list = [...calls.values()]
+        .filter((x) => x.account_sid === account)
+        .filter((x) => !query.To || x.to === query.To)
+        .filter((x) => !query.From || x.from === query.From)
+        .reverse()
+        .slice(0, Number(query.PageSize ?? 50));
+      return json(200, { calls: list, next_page_uri: null });
+    }
     if (release?.[1] && method === "DELETE") {
       const n = numbers.get(release[1]);
       if (!n || n.account_sid !== account) return json(404, { code: 20404, message: "not found" });
@@ -268,6 +328,91 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
     accounts,
     numbers,
     messages,
+    calls,
+    /** Requests that placed a call. */
+    placed: () => requests.filter((r) => r.method === "POST" && r.url.endsWith("/Calls.json")),
+    /** Someone calls one of the account's numbers: the form Twilio posts to its VoiceUrl, signed. */
+    async voiceIn(input: { account: string; from: string; to: string; url: string; sid?: string }) {
+      const sid = input.sid ?? `CA${hex32(next())}`;
+      calls.set(sid, {
+        sid,
+        account_sid: input.account,
+        from: input.from,
+        to: input.to,
+        url: input.url,
+        status_callback: "",
+        time_limit: "",
+        status: "ringing",
+        direction: "inbound",
+        date_created: rfc2822(now()),
+      });
+      const params: Record<string, string> = {
+        CallSid: sid,
+        AccountSid: input.account,
+        From: input.from,
+        To: input.to,
+        Caller: input.from,
+        Called: input.to,
+        CallStatus: "ringing",
+        Direction: "inbound",
+        ApiVersion: "2010-04-01",
+      };
+      const token = accounts.get(input.account)?.token ?? "";
+      return { sid, params, signature: await twilioSignature(token, input.url, params) };
+    },
+    /** A call we placed was picked up: Twilio requests its Url (as given, query and all), signed. */
+    async pickUp(sid: string) {
+      const call = calls.get(sid);
+      if (!call) throw new Error(`no call ${sid}`);
+      call.status = "in-progress";
+      const params: Record<string, string> = {
+        CallSid: sid,
+        AccountSid: call.account_sid,
+        From: call.from,
+        To: call.to,
+        CallStatus: "in-progress",
+        Direction: "outbound-api",
+        ApiVersion: "2010-04-01",
+      };
+      const token = accounts.get(call.account_sid)?.token ?? "";
+      return { url: call.url, params, signature: await twilioSignature(token, call.url, params) };
+    },
+    /** A call's final status, posted to `url`, signed. */
+    async callStatus(input: { sid: string; status: string; durationSecs?: number; url: string }) {
+      const call = calls.get(input.sid);
+      if (!call) throw new Error(`no call ${input.sid}`);
+      call.status = input.status;
+      const params: Record<string, string> = {
+        CallSid: call.sid,
+        AccountSid: call.account_sid,
+        From: call.from,
+        To: call.to,
+        CallStatus: input.status,
+        Direction: call.direction,
+        ApiVersion: "2010-04-01",
+        ...(input.durationSecs === undefined ? {} : { CallDuration: String(input.durationSecs) }),
+      };
+      const token = accounts.get(call.account_sid)?.token ?? "";
+      return { params, signature: await twilioSignature(token, input.url, params) };
+    },
+    /** A voicemail's recording callback, signed for `url`. */
+    async recording(input: { callSid: string; durationSecs: number; url: string }) {
+      const call = calls.get(input.callSid);
+      if (!call) throw new Error(`no call ${input.callSid}`);
+      const rsid = `RE${hex32(next())}`;
+      const params: Record<string, string> = {
+        AccountSid: call.account_sid,
+        CallSid: call.sid,
+        RecordingSid: rsid,
+        RecordingUrl: `${TWILIO_API}/Accounts/${call.account_sid}/Recordings/${rsid}`,
+        RecordingStatus: "completed",
+        RecordingDuration: String(input.durationSecs),
+        RecordingChannels: "1",
+        RecordingSource: "RecordVerb",
+      };
+      const token = accounts.get(call.account_sid)?.token ?? "";
+      return { sid: rsid, params, signature: await twilioSignature(token, input.url, params) };
+    },
     /** Calls that sent a message. */
     sends: () => requests.filter((r) => r.method === "POST" && r.url.endsWith("/Messages.json")),
     setBrand(sid: string, status: string) {

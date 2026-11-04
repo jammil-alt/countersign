@@ -14,7 +14,7 @@ import type { Rules } from "../schemas/rules";
 import { skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import { type Step, type Workflow, Workflow as WorkflowSchema } from "../schemas/workflow";
-import { collectRefs, singleRef } from "../template/template";
+import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   lookupSkill,
   type Scope,
@@ -38,6 +38,7 @@ export type ValidationCode =
   | "duplicate_id"
   | "duplicate_slug"
   | "duplicate_skill"
+  | "duplicate_role"
   | "fork_no_paths"
   | "for_each_empty"
   | "for_each_not_array"
@@ -58,6 +59,7 @@ export type ValidationCode =
   | "input_missing"
   | "input_type"
   | "input_unknown"
+  | "input_not_fixed"
   | "approval_not_write"
   | "connection_missing"
   | "verb_off"
@@ -347,6 +349,16 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
         );
       }
       if (tool) checkInput(c, step.id, step.input, tool.input, scope);
+      for (const f of tool?.fixedInputs ?? []) {
+        if (isPlainObject(step.input) && hasTemplate(step.input[f])) {
+          c.add(
+            step.id,
+            `input.${f}`,
+            "input_not_fixed",
+            `write ${f} in the step: it becomes instructions, so it can't come from a template`,
+          );
+        }
+      }
       break;
     }
     case "person":
@@ -381,13 +393,43 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
 
   const approval = step.kind === "skill" || step.kind === "action" ? step.approval : undefined;
   const writes = stepWrites(step, ctx);
-  if (approval?.required === "not_required" && writes !== undefined && writes.length === 0) {
+  const reaches = step.kind === "skill" && lookupSkill(step.skill, ctx)?.reachesPeople === true;
+  if (
+    approval?.required === "not_required" &&
+    writes !== undefined &&
+    writes.length === 0 &&
+    !reaches
+  ) {
     c.add(
       step.id,
       "approval.required",
       "approval_not_write",
       "only steps that change a client's tool have an approval setting",
     );
+  }
+  if (step.kind === "skill") {
+    // A built-in skill with its own fixed inputs (comms.reach-out's purpose) writes only from them:
+    // those fields must be the step's own text, like an action step's.
+    const def = lookupSkill(step.skill, ctx);
+    for (const f of def?.fixedInputs ?? []) {
+      if (isPlainObject(step.input) && hasTemplate(step.input[f])) {
+        c.add(
+          step.id,
+          `input.${f}`,
+          "input_not_fixed",
+          `write ${f} in the step: it becomes instructions, so it can't come from a template`,
+        );
+      }
+    }
+    for (const tool of def?.fixedInputs?.length ? [] : (writes ?? [])) {
+      if (!tool.fixedInputs?.length) continue;
+      c.add(
+        step.id,
+        "skill",
+        "input_not_fixed",
+        `"${tool.id}" runs only from an action step with its ${tool.fixedInputs.join(" and ")} written in it, not from a skill`,
+      );
+    }
   }
   if (ctx.publish && writes) {
     for (const tool of writes) {
@@ -572,6 +614,18 @@ export function validateBundle(
       });
     }
     skillIds.add(id);
+  });
+  const roles = new Set<string>();
+  (bundle.people ?? []).forEach((p, i) => {
+    if (roles.has(p.role)) {
+      errors.push({
+        stepId: null,
+        field: `people.${i}.role`,
+        code: "duplicate_role",
+        message: `role "${p.role}" is listed more than once`,
+      });
+    }
+    roles.add(p.role);
   });
   errors.push(...duplicateIds(bundle.workflows));
   const full: ValidationContext = { ...ctx, agent: bundle.definition };

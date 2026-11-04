@@ -8,6 +8,7 @@ import {
   type FlatBundle,
   flattenBundle,
   listOwner,
+  PEOPLE_LIST,
   ROOT,
   unflattenBundle,
 } from "./flatten";
@@ -352,6 +353,8 @@ function mergeFlat(
   }
   const lists = new Map<string, string[]>();
   const listKeys = new Set<string>([`${ROOT}>skills`, `${ROOT}>workflows`]);
+  // `people` is kept when any side has it (a side that added roles, or a base that had them).
+  if ([base, ours, theirs].some((f) => f.lists.has(PEOPLE_LIST))) listKeys.add(PEOPLE_LIST);
   for (const e of entities.values()) for (const l of childLists(e)) listKeys.add(l);
   for (const l of listKeys) lists.set(l, m.order(l, members.get(l) ?? new Set()));
 
