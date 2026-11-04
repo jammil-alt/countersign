@@ -102,6 +102,7 @@ export const ReachConditions = z
   })
   .meta({ id: "ReachConditions" });
 export type ReachConditions = z.infer<typeof ReachConditions>;
+export type ReachConditionsInput = z.input<typeof ReachConditions>;
 
 /** What the evaluator needs of a contact. */
 export interface ReachContact {

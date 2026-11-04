@@ -22,6 +22,7 @@ import {
   type Tone,
 } from "../../ui/primitives";
 import { CallsPanel } from "./Calls";
+import { EmailPanel } from "./EmailSetup";
 
 const A2P: Record<A2pStatus, { label: string; tone: Tone }> = {
   not_started: { label: "Not started", tone: "neutral" },
@@ -57,6 +58,9 @@ export function OpsMessagingScreen() {
       {data ? <TwilioSetup clientId={clientId} setup={data} onChange={setOverride} /> : null}
       <div className="mt-6">
         <CallsPanel clientId={clientId} />
+      </div>
+      <div className="mt-6">
+        <EmailPanel clientId={clientId} />
       </div>
       <div className="mt-8">
         <ContactsPanel surface={{ kind: "ops", clientId }} />

@@ -150,6 +150,13 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
   ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
   `packages/connectors/src/elevenlabs/NOTES.md`.
+- Needed for email reach-outs (plan §1.25; wiring into `deploy.yml` is the coordinator's):
+  `RESEND_API_KEY` (Mezonas' Resend account: it only makes each client's domain and a sending key
+  restricted to it, which is encrypted in the client's `resend` connection),
+  `RESEND_FALLBACK_DOMAIN` (our own verified sending domain, e.g. `mail.mezonas.com`, used until a
+  client's domain is verified) and `RESEND_FALLBACK_DOMAIN_ID` (Resend's id for it, so fallback keys
+  can send only from it). Replies come back through `EMAIL_FORWARDING_DOMAIN` to each client's
+  forwarding address. What to check first: `packages/connectors/src/resend/NOTES.md`.
 
 ### GitHub summary
 

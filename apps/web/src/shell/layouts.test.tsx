@@ -140,6 +140,7 @@ describe("portal layout", () => {
       "Connections",
       "Requests",
       "Contacts",
+      "People",
       "Settings",
     ]);
 
