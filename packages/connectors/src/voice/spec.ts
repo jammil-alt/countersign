@@ -40,6 +40,13 @@ export const VoiceSettings = z.object({
 });
 export type VoiceSettings = z.infer<typeof VoiceSettings>;
 
+/**
+ * The settings that become the voice agent's instructions and opening line: fixed text in the
+ * step only, never a template or a model's words (ToolSpec `fixedInputs`, invariant 9), so what a
+ * contact texted or said can't steer a call.
+ */
+export const VOICE_FIXED_INPUTS = ["purpose", "firstMessage"];
+
 export const CallPlaceInput = VoiceSettings.extend({
   /** The contact's phone, E.164. They must be a contact of this client who agreed to calls. */
   to: E164,

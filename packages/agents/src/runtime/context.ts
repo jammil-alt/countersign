@@ -43,6 +43,12 @@ export interface StepContext {
   mode: RunMode;
   /** The step's approval setting; absent means required (approval is on by default). */
   approval?: Approval | undefined;
+  /**
+   * An action step's input as written in the agent's version, before templates: the gate checks a
+   * tool's fixed inputs (ToolSpec `fixedInputs`) against it. Absent when a model wrote the call
+   * (skills, agent mode), so such tools are refused there.
+   */
+  literalInput?: unknown;
   threadId?: string | undefined;
   /** Counts external calls in this step, for `<run id>:<step id>:<index>` keys. */
   externalIndex: { next: number };

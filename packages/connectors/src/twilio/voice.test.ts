@@ -58,6 +58,8 @@ function memoryVoice(over: { block?: CallCheck & { ok: false }; quiet?: boolean 
         status: i.status,
         to: i.to,
         from: i.from,
+        contactId: i.contactId,
+        contactName: "Pat Lee",
         key: i.idempotencyKey,
       });
     },
@@ -188,6 +190,42 @@ describe("calls through the twilio connector", () => {
     ).rejects.toThrow(/aren't turned on/);
     expect(twilio.placed()).toHaveLength(0);
     expect(off.twilio.placed()).toHaveLength(0);
+  });
+
+  it("returns a call already placed on a re-run, even if the contact opted out or it's quiet hours since", async () => {
+    const { twilio, connector, ctx } = await setup();
+    const over: Parameters<typeof memoryVoice>[0] = {};
+    const voice = memoryVoice(over);
+    const first = await executeWrite(connector, CALL_PLACE_TOOL, CALL, ctx(voice.services));
+    expect(twilio.placed()).toHaveLength(1);
+    const checks = voice.checks.length;
+
+    // The action was left executing and runs again, after Pat opted out.
+    over.block = { ok: false, block: "opted_out", message: "opted out" };
+    const again = await executeWrite(connector, CALL_PLACE_TOOL, CALL, ctx(voice.services));
+    expect(again.output).toEqual(first.output);
+    expect(again.output).toMatchObject({ contactName: "Pat Lee" });
+    // In quiet hours too; and no check runs for a call already placed.
+    delete over.block;
+    over.quiet = true;
+    await executeWrite(connector, CALL_PLACE_TOOL, CALL, ctx(voice.services));
+    expect(voice.checks).toHaveLength(checks);
+    expect(twilio.placed()).toHaveLength(1);
+    expect(voice.prepared()).toBe(1);
+    // A new key is a new call: checked, and refused.
+    over.block = { ok: false, block: "opted_out", message: "opted out" };
+    await expect(
+      executeWrite(connector, CALL_PLACE_TOOL, CALL, ctx(voice.services, "run-2:call:0")),
+    ).rejects.toThrow(/opted out/);
+    expect(twilio.placed()).toHaveLength(1);
+  });
+
+  it("marks purpose and opening as fixed inputs on the call tools", () => {
+    const connector = createTwilioConnector({ fetch: fakeTwilio().fetch });
+    const specs = Object.fromEntries(connector.manifest.tools.map((t) => [t.id, t]));
+    expect(specs[CALL_PLACE_TOOL]?.fixedInputs).toEqual(["purpose", "firstMessage"]);
+    expect(specs[CALL_ANSWER_TOOL]?.fixedInputs).toEqual(["purpose", "firstMessage"]);
+    expect(specs[CALL_GET_TOOL]?.fixedInputs).toBeUndefined();
   });
 
   it("records an inbound call the agent answered, and refuses one it didn't before any approval", async () => {

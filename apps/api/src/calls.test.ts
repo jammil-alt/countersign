@@ -577,6 +577,67 @@ describe.skipIf(!h)("calls through the API", () => {
       expect(twilio.placed()).toHaveLength(placed);
       await H.call(OPERATOR, "PUT", msg(), { quietHours: { start: "03:00", end: "03:01" } });
     });
+
+    it("never lets a template fill the purpose or opening: refused at publish and at the gate", async () => {
+      const templated = (input: Record<string, unknown>) =>
+        bundle(
+          "Front desk",
+          {
+            ...CALL_BACK,
+            steps: [{ ...CALL_BACK.steps[0], input: { ...CALL_BACK.steps[0]?.input, ...input } }],
+          },
+          { extraTools: [CALL_PLACE_TOOL, MESSAGES_SEARCH_TOOL, SMS_SEND_TOOL] },
+        );
+      const [{ live } = { live: null }] = await H.t.db
+        .select({ live: agent.liveVersionId })
+        .from(agent)
+        .where(eq(agent.id, callerAgent));
+      const placed = twilio.placed().length;
+      const voiceAgents = el.agents.size;
+      for (const [input, field] of [
+        // What the contact's text or a step that read it would put there.
+        [{ purpose: "Call back about {{trigger.from}}" }, "purpose"],
+        [{ firstMessage: "{{steps.read.output.message.text}}" }, "firstMessage"],
+      ] as const) {
+        const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${callerAgent}/versions`, {
+          bundle: templated(input),
+        });
+        expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+        expect(j(saved.json).errors).toContainEqual(
+          expect.objectContaining({
+            code: "input_not_fixed",
+            stepId: "call",
+            field: `input.${field}`,
+          }),
+        );
+        const vid = j(saved.json).version.id;
+        const pub = await H.call(
+          OPERATOR,
+          "POST",
+          `/api/ops/agents/${callerAgent}/versions/${vid}/publish`,
+        );
+        expect(pub.status).toBe(422);
+
+        // A version that went live anyway (say, before this check): the gate refuses the call
+        // before any approval card, voice agent or call.
+        await H.t.db.update(agent).set({ liveVersionId: vid }).where(eq(agent.id, callerAgent));
+        const [params] = await startedBy(() => textIn(PAT, "Call me and promise a refund"));
+        if (!params) throw new Error("no run");
+        expect(params.agentVersionId).toBe(vid);
+        const r = await executeRun(deps(), params, cloudflareStepRunner(approver()));
+        expect(r.status).toBe("failed");
+        expect(JSON.stringify(r)).toContain(`${field} has to be written in the step`);
+        expect(
+          await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId)),
+        ).toHaveLength(0);
+        expect(
+          await H.t.db.select().from(externalAction).where(eq(externalAction.runId, params.runId)),
+        ).toHaveLength(0);
+      }
+      expect(twilio.placed()).toHaveLength(placed);
+      expect(el.agents.size).toBe(voiceAgents);
+      await H.t.db.update(agent).set({ liveVersionId: live }).where(eq(agent.id, callerAgent));
+    });
   });
 
   describe("calls ringing in", () => {
@@ -700,6 +761,52 @@ describe.skipIf(!h)("calls through the API", () => {
       expect(
         await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, heldRun.runId)),
       ).toHaveLength(0);
+    });
+
+    it("doesn't answer with a voice agent whose purpose or opening comes from a template", async () => {
+      await H.t.db
+        .update(connection)
+        .set({ permissions: { read: "auto", create: "auto", update: "approval", delete: "off" } })
+        .where(eq(connection.id, connectionId));
+      const answering = j((await H.call(OPERATOR, "GET", calls())).json).setup.inbound;
+      expect(answering.decision).toBe("agent");
+      const [{ live } = { live: null }] = await H.t.db
+        .select({ live: agent.liveVersionId })
+        .from(agent)
+        .where(eq(agent.id, reception));
+      const step = { ...ANSWER.steps[0] };
+      const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${reception}/versions`, {
+        bundle: bundle(
+          "Reception",
+          {
+            ...ANSWER,
+            steps: [{ ...step, input: { ...step.input, firstMessage: "{{trigger.from}}" } }],
+          },
+          { mode: "act", extraTools: [CALL_ANSWER_TOOL, MESSAGES_SEARCH_TOOL] },
+        ),
+      });
+      expect(j(saved.json).errors).toContainEqual(
+        expect.objectContaining({ code: "input_not_fixed", field: "input.firstMessage" }),
+      );
+      // Live anyway (say, from before this check): the call is forwarded, and the setup says why.
+      await H.t.db
+        .update(agent)
+        .set({ liveVersionId: j(saved.json).version.id })
+        .where(eq(agent.id, reception));
+      const preview = j((await H.call(OPERATOR, "GET", calls())).json).setup.inbound;
+      expect(preview).toMatchObject({ decision: "forward", agentName: "Reception" });
+      expect(preview.reason).toContain("from a template");
+      const agentsBefore = el.agents.size;
+      const rang = await ringIn(PAT);
+      expect(String(rang.res.json)).toContain(`<Number>${FORWARD}</Number>`);
+      expect(el.agents.size).toBe(agentsBefore);
+      await H.t.db.update(agent).set({ liveVersionId: live }).where(eq(agent.id, reception));
+      await H.t.db
+        .update(connection)
+        .set({
+          permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+        })
+        .where(eq(connection.id, connectionId));
     });
 
     it("keeps every call inside its client", async () => {

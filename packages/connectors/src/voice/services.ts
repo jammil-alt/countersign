@@ -25,6 +25,9 @@ export interface PlacedCall {
   status: string;
   to: string;
   from: string;
+  /** Who was called, as recorded then (a re-run returns the call without checking again). */
+  contactId: string;
+  contactName: string;
 }
 
 export interface OutboundCallRequest {

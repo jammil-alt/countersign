@@ -15,6 +15,7 @@ import {
   type FetchLike,
   FOLLOW_UP_TOOL,
   globalFetch,
+  VOICE_FIXED_INPUTS,
   type VoiceAgentConfig,
   type VoiceSettings,
   VoiceSettings as VoiceSettingsSchema,
@@ -27,6 +28,7 @@ import {
   type AgentBundle,
   type CallLanguage,
   decideToolCall,
+  fixedInputProblem,
   type InboundDecision,
   openingLine,
   type PermissionMatrix,
@@ -259,6 +261,13 @@ export async function planInbound(
   const { callSid: _ignored, ...raw } = answering.step.input as Record<string, unknown>;
   const settings = VoiceSettingsSchema.safeParse(raw);
   if (!settings.success) return fallback(`${answering.agentName}'s answering step isn't complete`);
+  // The step's raw input is never rendered here, but a template in what becomes the voice agent's
+  // words is refused all the same, as the gate refuses it for `call.place` (invariant 9).
+  if (fixedInputProblem(VOICE_FIXED_INPUTS, raw, raw)) {
+    return fallback(
+      `${answering.agentName}'s answering step takes its purpose or opening from a template`,
+    );
+  }
   const decision = decideToolCall({
     sideEffect: "external",
     verb: "create",

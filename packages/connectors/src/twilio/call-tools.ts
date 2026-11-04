@@ -9,10 +9,11 @@ import {
   defineWriteTool,
   type ToolContext,
   type ToolDefinition,
+  type WriteContext,
 } from "../connector";
 import type { FetchLike } from "../http";
 import type { SendContact } from "../messaging/services";
-import { CallBlockedError, type VoiceServices } from "../voice/services";
+import { CallBlockedError, type PlacedCall, type VoiceServices } from "../voice/services";
 import {
   CALL_ANSWER_TOOL,
   CALL_GET_TOOL,
@@ -25,6 +26,7 @@ import {
   CallPlaceBefore,
   CallPlaceInput,
   CallPlaceOutput,
+  VOICE_FIXED_INPUTS,
 } from "../voice/spec";
 import { TwilioError } from "./api";
 import { placeCall, readVoiceConfig, type TwilioVoiceConfig } from "./voice";
@@ -78,6 +80,15 @@ async function checkCall(
   return { contact: check.contact, from };
 }
 
+/**
+ * The call already placed under the action's key, when `before` runs as part of executing it
+ * (executeWrite passes the write context); null when drawing the approval card, which has no key.
+ */
+async function placedUnder(ctx: ToolContext): Promise<PlacedCall | null> {
+  const key = (ctx as Partial<WriteContext>).idempotencyKey;
+  return key ? voiceOf(ctx).placedFor(key) : null;
+}
+
 /** The tools, with the connector's injected fetch and Twilio auth. */
 export function callTools(
   doFetch: () => FetchLike,
@@ -90,11 +101,17 @@ export function callTools(
         "Call a contact from the client's number with a voice agent, for a stated purpose. Only contacts who agreed to calls, outside quiet hours. The agent can only look things up during the call.",
       verb: "create",
       summary: "Called {{contactName}}",
+      fixedInputs: VOICE_FIXED_INPUTS,
       input: CallPlaceInput,
       output: CallPlaceOutput,
       beforeSchema: CallPlaceBefore,
       async before(input, ctx) {
-        const { contact, from } = await checkCall(ctx, input.to, { forPlacing: false });
+        // Executing (the action's key is set): a call already placed under it is described as
+        // placed, without the checks, as `run` returns it (see there).
+        const placed = await placedUnder(ctx);
+        const { contact, from } = placed
+          ? { contact: { id: placed.contactId, name: placed.contactName }, from: placed.from }
+          : await checkCall(ctx, input.to, { forPlacing: false });
         return {
           contact: { id: contact.id, name: contact.name },
           to: input.to,
@@ -107,17 +124,20 @@ export function callTools(
       async run(input, ctx) {
         const voice = voiceOf(ctx);
         // A re-run after a crash (the action was left executing): the call was placed already.
+        // DECISION: it is returned before any check, so an opt-out or quiet hours since then can't
+        // record a call Twilio placed as failed; nothing more is placed either way, and the checks
+        // still stop every call not yet placed (docs/plan.md §1.23).
         const already = await voice.placedFor(ctx.idempotencyKey);
-        const { contact, from } = await checkCall(ctx, input.to, { forPlacing: already === null });
         if (already) {
           return {
             callSid: already.callSid,
             status: already.status,
             to: already.to,
             from: already.from,
-            contactName: contact.name,
+            contactName: already.contactName,
           };
         }
+        const { contact, from } = await checkCall(ctx, input.to, { forPlacing: true });
         const { to, ...settings } = input;
         const prepared = await voice.prepareOutbound({
           idempotencyKey: ctx.idempotencyKey,
@@ -156,6 +176,7 @@ export function callTools(
         "Answer incoming calls with a voice agent. Answers only when this step runs without approval, the connection allows it and the agent acts; otherwise calls go to voicemail or are forwarded.",
       verb: "create",
       summary: "Answered a call from {{contactName}}",
+      fixedInputs: VOICE_FIXED_INPUTS,
       input: CallAnswerInput,
       output: CallAnswerOutput,
       beforeSchema: CallAnswerBefore,

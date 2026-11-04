@@ -3,7 +3,7 @@
 // same way.
 
 import { captureBefore, runReadTool } from "@countersign/connectors";
-import { decideToolCall, type JsonObject } from "@countersign/core";
+import { decideToolCall, fixedInputProblem, type JsonObject } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
 import {
@@ -92,6 +92,13 @@ async function dispatch(
   input: unknown,
 ): Promise<ToolOutcome> {
   const mode = step.agent.bundle.definition.permissions.mode;
+  // Inputs that become instructions are the step's own fixed text, before any approval card or
+  // write: never a template's value or a model's words (invariant 9).
+  const fixed = tool.spec.fixedInputs;
+  if (fixed?.length) {
+    const problem = fixedInputProblem(fixed, step.literalInput, input);
+    if (problem) return { status: "refused", reason: `${tool.spec.id}: ${problem}` };
+  }
   if (tool.kind === "internal") {
     // Platform and pack tools write only the platform's own records: `none` and `internal` run.
     const parsed = tool.tool.input.safeParse(input);

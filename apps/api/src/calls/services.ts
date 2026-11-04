@@ -19,6 +19,7 @@ import {
 import {
   agent,
   agentVersion,
+  contact,
   type Db,
   externalAction,
   run,
@@ -89,7 +90,19 @@ export function dbVoiceServices(
         );
         if (!row) return null;
         const p = row.payload as unknown as CallPayload;
-        return { callSid: row.externalId, status: p.status, to: p.to, from: p.from };
+        // Not getContact: a placed call is returned even if its contact was removed since.
+        const [who] = await tx
+          .select({ name: contact.name })
+          .from(contact)
+          .where(and(eq(contact.id, p.contactId), eq(contact.tenantId, tenantId)));
+        return {
+          callSid: row.externalId,
+          status: p.status,
+          to: p.to,
+          from: p.from,
+          contactId: p.contactId,
+          contactName: who?.name ?? p.to,
+        };
       });
     },
 
@@ -139,6 +152,8 @@ export function dbVoiceServices(
           who.language,
           (t.settings as { language?: string } | null)?.language,
         );
+        // r.settings' purpose and opening are the step's fixed text: the gate refused the call
+        // otherwise, before its approval card (call.place `fixedInputs`, invariant 9).
         const config = voiceAgentConfig({
           tenantId,
           client: t.name,

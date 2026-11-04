@@ -139,6 +139,8 @@ export function defineWriteTool<
   description: string;
   verb: Exclude<Verb, "read">;
   summary?: string;
+  /** Input fields that become instructions: fixed text in the step only (ToolSpec `fixedInputs`). */
+  fixedInputs?: string[];
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -155,6 +157,7 @@ export function defineWriteTool<
       sideEffect: "external",
       verb: def.verb,
       ...(def.summary === undefined ? {} : { summary: def.summary }),
+      ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
     },
     handler: {
       kind: "write",
