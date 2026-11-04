@@ -6,6 +6,7 @@
 import type { Db, Tx } from "@countersign/db";
 import { z } from "zod";
 import { decideLine } from "./catalog/match";
+import { mergeItems } from "./catalog/merge";
 import { catalogCsv, catalogReport, priceWatch, priceWatchCsv, reviewLines } from "./reports";
 
 export interface PackReportHandler {
@@ -24,6 +25,29 @@ export const MATERIALS_REPORTS: Readonly<Record<string, PackReportHandler>> = {
     title: "Catalog",
     json: async (tx, tenantId) => ({ ...(await catalogReport(tx, tenantId)) }),
     csv: async (tx, tenantId) => catalogCsv(await catalogReport(tx, tenantId)),
+  },
+};
+
+/** A back-office action on one client's pack data (a person's, never an agent's). */
+export interface PackActionHandler {
+  input: z.ZodType;
+  run(
+    db: Db,
+    ctx: { tenantId: string; userId: string; input: unknown },
+  ): Promise<Record<string, unknown>>;
+}
+
+export const MATERIALS_ACTIONS: Readonly<Record<string, PackActionHandler>> = {
+  // The back office's catalog merge (ARCHITECTURE §12.2 "plus catalog merge"): mergeItems
+  // refuses different categories or units (invariant 7) and moves aliases and price history.
+  "merge-items": {
+    input: z.strictObject({ fromId: z.uuid(), intoId: z.uuid() }),
+    async run(db, ctx) {
+      const input = ctx.input as { fromId: string; intoId: string };
+      return {
+        ...(await mergeItems(db, { tenantId: ctx.tenantId, userId: ctx.userId, ...input })),
+      };
+    },
   },
 };
 

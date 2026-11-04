@@ -118,6 +118,16 @@ export const packRoutes = {
     params: z.object({ id: Id, pack: Slug, report: ReportName }),
     response: PackReport,
   }),
+  opsClientPackAction: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/packs/:pack/actions/:action",
+    auth: "session",
+    roles: OPS,
+    summary: "A person's action on a client's pack data (e.g. merge two catalog items)",
+    params: z.object({ id: Id, pack: Slug, action: Slug }),
+    body: z.record(z.string(), z.unknown()),
+    response: z.object({ result: z.record(z.string(), z.unknown()) }),
+  }),
   portalPacks: defineRoute({
     method: "GET",
     path: "/api/packs",

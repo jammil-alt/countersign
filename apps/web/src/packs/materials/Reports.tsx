@@ -5,11 +5,12 @@
 import { type CSSProperties, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
+import { useApi, useApiClient } from "../../api/useApi";
 import { money } from "../../portal/documents";
 import { Icon } from "../../ui/icons";
 import {
   Badge,
+  Button,
   buttonClass,
   Card,
   EmptyState,
@@ -23,6 +24,7 @@ import {
   ALERT_LABEL,
   CATEGORY_LABEL,
   type CatalogReport,
+  type CatalogRow,
   type PriceWatchAlert,
   type PriceWatchReport,
   type PriceWatchRow,
@@ -328,6 +330,71 @@ export function PriceWatchView({
   );
 }
 
+/**
+ * The back office's catalog merge: this item is a duplicate of another in the same category and
+ * unit (the only merges the pack allows); its vendor names and price history move there.
+ */
+function MergeControl({
+  clientId,
+  item,
+  items,
+  onDone,
+}: {
+  clientId: string;
+  item: CatalogRow;
+  items: CatalogRow[];
+  onDone: () => void;
+}) {
+  const client = useApiClient();
+  const options = items.filter(
+    (o) => o.id !== item.id && o.category === item.category && o.standardUom === item.standardUom,
+  );
+  const [into, setInto] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  if (options.length === 0) return <span className="muted">–</span>;
+  return (
+    <span className="flex items-center gap-2" data-testid={`materials-merge-${item.id}`}>
+      <select
+        className="ds-select"
+        aria-label={`Merge ${item.name} into`}
+        value={into}
+        onChange={(e) => setInto(e.target.value)}
+      >
+        <option value="">Same as…</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+      <Button
+        size="sm"
+        disabled={!into || busy}
+        data-testid="materials-merge-submit"
+        onClick={async () => {
+          setBusy(true);
+          setProblem(null);
+          try {
+            await client.call(apiRoutes.opsClientPackAction, {
+              params: { id: clientId, pack: PACK, action: "merge-items" },
+              body: { fromId: item.id, intoId: into },
+            });
+            onDone();
+          } catch {
+            setProblem("We couldn't merge these.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        Merge
+      </Button>
+      {problem ? <span className="text-sm text-risk-ink">{problem}</span> : null}
+    </span>
+  );
+}
+
 export function CatalogView({ clientId, clientName }: { clientId?: string; clientName?: string }) {
   const { data, error, loading, reload } = useReport<CatalogReport>("catalog", clientId);
   const [filter, setFilter] = useState("");
@@ -375,6 +442,7 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
                   <th className="n">Purchases</th>
                   <th className="n">Last price</th>
                   <th className="n">Last bought</th>
+                  {clientId ? <th>Merge</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -393,6 +461,16 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
                     <td className="n">{i.purchases}</td>
                     <td className="n">{i.lastPrice ? money(i.lastPrice) : "–"}</td>
                     <td className="n">{i.lastOn ?? "–"}</td>
+                    {clientId ? (
+                      <td>
+                        <MergeControl
+                          clientId={clientId}
+                          item={i}
+                          items={data.items}
+                          onDone={reload}
+                        />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

@@ -5,8 +5,10 @@
 // May import core, db, llm, senses, documents, connectors; never agents or workflows.
 
 export {
+  MATERIALS_ACTIONS,
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
+  type PackActionHandler,
   type PackReportHandler,
   type PackReviewHandler,
   ReviewError,

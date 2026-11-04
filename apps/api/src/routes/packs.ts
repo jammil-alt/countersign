@@ -267,6 +267,32 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     return reportResponse(ctx.tx, ctx.services, ctx.params.id, ctx.params.pack, ctx.params.report);
   });
 
+  mount(app, routes.opsClientPackAction, async (ctx) => {
+    const { tx, params, services, session, body } = ctx;
+    ensureClient(ctx, params.id);
+    const pack = packOf(services, params.pack);
+    const on = await enabledPacks(tx, params.id);
+    if (!on.some((e) => e.pack === pack.manifest.id)) throw notFound("pack");
+    const handler = pack.actions?.[params.action];
+    if (!handler) throw notFound("action");
+    const input = handler.input.parse(body);
+    try {
+      // Its own transaction for that one client (the pack's action opens it).
+      return {
+        result: await handler.run(services.db, {
+          tenantId: params.id,
+          userId: session.user.id,
+          input,
+        }),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "MatchError") {
+        throw new HttpError(422, "refused", error.message);
+      }
+      throw error;
+    }
+  });
+
   async function opsItem(tx: Tx, tenantIds: readonly string[], id: string): Promise<InboxRow> {
     const [item] = await tx
       .select()

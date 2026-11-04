@@ -195,6 +195,55 @@ describe("Catalog", () => {
   });
 });
 
+describe("the back office's catalog merge", () => {
+  it("merges an item into another of the same category and unit", async () => {
+    const row = (id: string, name: string, category = "sheet_goods") => ({
+      id,
+      category,
+      name,
+      standardUom: category === "hardwood" ? "board_foot" : "sheet",
+      attributes: {},
+      vendors: 1,
+      aliases: 1,
+      purchases: 1,
+      lastPrice: null,
+      lastOn: null,
+    });
+    const bodies: unknown[] = [];
+    const DUP = "00000000-0000-4000-8000-0000000c0009";
+    renderWith(
+      <CatalogView clientId={CLIENT} />,
+      {
+        [`GET /api/ops/clients/${CLIENT}/reports/materials/catalog`]: () => ({
+          report: {
+            items: [
+              row(ITEM, "Baltic birch plywood 3/4in 60x60in BB/BB"),
+              row(DUP, "Baltic birch plywood 3/4in"),
+              row("00000000-0000-4000-8000-0000000c0003", "Red oak 4/4", "hardwood"),
+            ],
+          },
+        }),
+        [`POST /api/ops/clients/${CLIENT}/packs/materials/actions/merge-items`]: ({ init }) => {
+          bodies.push(JSON.parse(String(init.body)));
+          return { result: { intoId: ITEM, merged: [DUP] } };
+        },
+      },
+      OPERATOR_SESSION,
+    );
+    const control = await screen.findByTestId(`materials-merge-${DUP}`);
+    const select = within(control).getByRole("combobox");
+    // Only same category and unit: the oak isn't offered.
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Same as…", "Baltic birch plywood 3/4in 60x60in BB/BB"]);
+    await userEvent.selectOptions(select, ITEM);
+    await userEvent.click(within(control).getByTestId("materials-merge-submit"));
+    await waitFor(() => expect(bodies).toEqual([{ fromId: DUP, intoId: ITEM }]));
+  });
+});
+
 describe("the match review card", () => {
   const line = (over: Record<string, unknown> = {}) => ({
     docLineId: LINE,

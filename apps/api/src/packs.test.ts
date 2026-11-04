@@ -409,6 +409,50 @@ describe.skipIf(!h)("packs on the platform", () => {
     ).toBe(403);
   });
 
+  it("merges two catalog items from the back office, never across categories", async () => {
+    const insert = async (description: string) => {
+      const parsed = parseLine(description);
+      const [row] = await H.t.db
+        .insert(catalogItem)
+        .values({
+          tenantId: H.A.tenantId,
+          category: parsed.category,
+          canonicalName: `${canonicalName(parsed.category, parsed.attributes, parsed.normalized)} (dup)`,
+          attributes: parsed.attributes,
+          standardUom: parsed.standardUom,
+        })
+        .returning();
+      return row?.id as string;
+    };
+    const items = await H.t.db
+      .select()
+      .from(catalogItem)
+      .where(and(eq(catalogItem.tenantId, H.A.tenantId), isNull(catalogItem.mergedIntoId)));
+    const bb = items.find((i) => i.canonicalName.startsWith("Baltic birch plywood 3/4in"));
+    const dup = await insert("BALTIC BIRCH PLYWOOD 3/4 BB/BB");
+    const path = `/api/ops/clients/${H.A.tenantId}/packs/materials/actions/merge-items`;
+    const res = await H.call(OPERATOR, "POST", path, { fromId: dup, intoId: bb?.id });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect((res.json as J).result).toMatchObject({ intoId: bb?.id, merged: [dup] });
+    const [merged] = await H.t.db.select().from(catalogItem).where(eq(catalogItem.id, dup));
+    expect(merged?.mergedIntoId).toBe(bb?.id);
+
+    const oak = await insert("4/4 RED OAK FAS");
+    const refused = await H.call(OPERATOR, "POST", path, { fromId: oak, intoId: bb?.id });
+    expect(refused.status).toBe(422);
+    expect((await H.call(OPERATOR, "POST", path, { fromId: "nope" })).status).toBe(400);
+    expect(
+      (
+        await H.call(
+          OPERATOR,
+          "POST",
+          `/api/ops/clients/${H.A.tenantId}/packs/materials/actions/delete-everything`,
+          {},
+        )
+      ).status,
+    ).toBe(404);
+  });
+
   it("keeps the pack off for clients the operator never switched it on for", async () => {
     const rows = await H.t.db
       .select()

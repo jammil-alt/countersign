@@ -8,10 +8,12 @@ import type { PackManifest } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
+  MATERIALS_ACTIONS,
   MATERIALS_HANDLERS,
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
   materialsManifest,
+  type PackActionHandler,
   type PackReportHandler,
   type PackReviewHandler,
   type PackTool,
@@ -25,6 +27,8 @@ export interface RegisteredPack {
   reports?: Readonly<Record<string, PackReportHandler>>;
   /** Its inbox review cards by the `review` key of an item's payload (e.g. `materials.match`). */
   reviews?: Readonly<Record<string, PackReviewHandler>>;
+  /** People's actions on a client's pack data from the back office (e.g. a catalog merge). */
+  actions?: Readonly<Record<string, PackActionHandler>>;
 }
 
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
@@ -34,6 +38,7 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     handlers: MATERIALS_HANDLERS,
     reports: MATERIALS_REPORTS,
     reviews: MATERIALS_REVIEWS,
+    actions: MATERIALS_ACTIONS,
   },
 ];
 
