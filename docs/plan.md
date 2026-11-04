@@ -222,6 +222,21 @@ The owner asked for "the same thing as Plenary Labs' feedback" (2026-11-04). Ple
 | Composer | Press Feedback, the page dims ("Tap where the problem is"); a tap pins (copper: a person's mark), "No particular spot" skips the pin, Escape or Cancel sends nothing. The sheet shows the picture with the pin, the pinned element, a required comment, "Leave the picture off" and Send. On phones the button is round and the composer is full screen. The app has no modals yet; when one arrives it should leave room at its foot for the button (z-index 40, bottom right). |
 | Resolve and reopen | `POST /api/ops/feedback/:id/resolve {note?}` records who, when and the note (a URL shows as a link); `POST …/reopen` clears all three. Resolving a resolved item or reopening an open one answers 409. Open shows in signal ("Open"), resolved in positive. |
 
+
+### 1.11 Decisions made in stream H (requests)
+
+ARCHITECTURE §1 item 7 and §11: a client asks for a change or a new service from the portal; it lands in the operator's queue and is resolved by linking the versions made for it.
+
+| Topic | Decision |
+|---|---|
+| Data | A request is an `inbox_item` of kind `change_request`, `assignee_role = 'operator'` (so the client's inbox never shows it), `agent_id` = the service it is about (or null for something new), title = the subject or the text's first line (80 characters), `payload = {text, subject, raisedBy}`. No migration. |
+| Who sees it | `GET /api/requests`: the client admin sees all of the client's requests, a client user the ones they raised. The client sees the status, our note and which of its own services changed (service name and version); never a template, a slug or anything of a bundle. |
+| Raising | `POST /api/requests {subject?, text, serviceId?}`; the service must be one the client's overview lists (its own active or paused client agent). Any client role may raise one. |
+| Queue | `GET /api/ops/requests?status=open|resolved|all&client=` (open by default, newest first, 500 at most) across the clients served; `/ops/requests` in the sidebar under Inbox. The operator inbox still lists requests, with a link to the queue. |
+| Resolving | `POST /api/ops/requests/:id/resolve {outcome: done|declined, note?, links}`, once (409 after). Done needs a link or a note; declined needs a note and links nothing. Links are versions (draft or published) of a template or of this client's own agents, never another client's or a test copy (422 `invalid_link`). Emits `inbox.resolved` (`approved` = done). The generic inbox resolve refuses requests (409 `use_requests`). |
+| Builder | "Revise with the Builder" on a request about a service opens that agent's Revise tab with the request chosen (`?request=`); the revise panel lists the client's open requests from the queue. |
+| Not built | Replies back and forth, withdrawing a request, notifications (M11). |
+
 ---
 
 ## 2. Package layering
@@ -307,6 +322,7 @@ Progress, phase 1 and Track B (2026-11-03):
 | `apps/web` | Shells done: sign-in, both layouts, clients, client page, agent page. Track B's screens are listed below; the rest are placeholders (phase 3) |
 | Local stack | Done: `setup-postgres.sh`, `wrangler dev`, health, session, ops and portal routes, and a test run through `RunWorkflow` checked by hand |
 | Screens (Track B) | Done: templates list, new template, new client agent (blank, fork, copy), the agent page's Overview, Versions (diff as sentences, publish, roll back, update available, customizations, used by) and Settings (definition editor, bindings, activate/pause/retire, test run); back-office inbox, runs, run view and client connections (matrix, offering); portal inbox, runs, run timeline and connections. Stream B: the merge view (apply update, promote selected changes, detach, re-link; §1.7). Open: OAuth sign-in, `/remind`, requests queue, record pages for sources, activation does not poll a running test run |
+| Requests (stream H) | Done (§1.11): the portal's `/requests` (ask about a service or something new, follow the reply and what changed), the back office's `/ops/requests` queue (filter by status and client, hand to the Builder, resolve as done with linked versions or decline with a note). Closes M5's "raises a request the operator sees in the queue" |
 | Feedback (stream F) | Done (§1.10): the Feedback button on every back-office screen and, when the operator switches it on for a client (with a reason), on its portal; pin, screenshot without the feedback layer, comment, send (comment first, picture after); `/ops/feedback` with open/resolved/all, the picture with its pin, resolve with a note and reopen; the client page's switch with its history. Migration 0005 (`feedback`, `tenant_change`) |
 | Workflow builder (Track B) | Done (§1.5): the Workflow tab is the builder for templates and client agents; workflow switcher and "add workflow"; header with version badge, counts, Save draft, Test run (sample or manual payload; templates run as their Sandbox test copy) and Publish (refused while invalid); palette (event triggers, the agent's skills then the library, actions grouped by connector, people, logic) with search, drag in or +; numbered cards with kind tags and badges (invalid, approval or runs automatically, hidden from client, customized against the template), drag handles, forks as side-by-side paths with "Drop a step here" and "Paths join here", for-each blocks, delete, undo/redo; inspector with schema-generated input forms, template fields with an upstream-output picker, fork paths as ordered rule rows, skill settings with defaults and the template's value, client timeline label and visibility, and the Approval control; live validation with a clickable problem list that selects the step and focuses the field; the rolling draft in the browser. Checked in Chromium against `pnpm dev` (add, drag into a fork path, save, test run, publish). The merge view is built (stream B, §1.7). Open: a recent real record as a test-run payload; dragging a whole fork path's steps at once; a Playwright test of the M7 done-when script |
 | Foundation follow-ups (Track B) | Done: durable approval resume (cron re-sends until the run takes the resolution), one `step_run` per (run, node) with an upserting step log, template test runs through a Sandbox test copy, test runs refused for an invalid version, shared skills copied into the client before a test run (§1.5). Open: template test runs on a chosen client's data |
@@ -317,7 +333,7 @@ Progress, phase 1 and Track B (2026-11-03):
 **Phase 2: Cloud.** Bootstrap workflow, deploy spike, staging (M0's deploy spike, `docs/operations.md`).
 
 **Phase 3: Product surfaces and tools, as needed.** Track B built most of the M5–M7 screens (inbox,
-portal connections, templates and client agents, the builder, run views; progress above). Left: skills authoring, requests, reports and usage screens; then
+portal connections, templates and client agents, the builder, run views; progress above). Left: reports and usage screens; then
 tools and connectors (upload and email forwarding, documents, QuickBooks, Gmail) and agents (the
 Materials pack and Pia, M8–M10).
 
