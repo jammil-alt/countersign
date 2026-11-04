@@ -108,6 +108,7 @@ async function dispatch(
       threadId: step.threadId,
       platform: deps.ports.platform,
       documents: deps.ports.documents,
+      knowledge: deps.ports.knowledge,
       recordUsage: (usage) =>
         deps.ports.log.addUsage(
           step.tenantId,

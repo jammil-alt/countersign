@@ -11,6 +11,7 @@ import { contactRoutes } from "./routes/contacts";
 import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
+import { knowledgeRouteHandlers } from "./routes/knowledge";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
@@ -54,6 +55,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   contactRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
+  knowledgeRouteHandlers(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
   // Sentry there, and answered here in the API's error shape.

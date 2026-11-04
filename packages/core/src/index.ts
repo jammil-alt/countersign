@@ -8,6 +8,7 @@ export * from "./api/approver-rules";
 export * from "./api/contract";
 export * from "./api/documents";
 export * from "./api/feedback";
+export * from "./api/knowledge";
 export * from "./api/messaging";
 export * from "./api/onboarding";
 export * from "./api/records";
