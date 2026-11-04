@@ -15,6 +15,7 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
+import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 
 export function ClientDetailScreen() {
   const { clientId = "" } = useParams();
@@ -43,6 +44,7 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );
 }

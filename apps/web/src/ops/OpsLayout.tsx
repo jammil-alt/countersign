@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Link, useMatch, useNavigate } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
+import { FeedbackButton } from "../feedback/Feedback";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink, SidebarSection } from "../shell/Shell";
 import { Icon } from "../ui/icons";
@@ -22,41 +23,46 @@ export function OpsLayout({ children }: { children: ReactNode }) {
   const base = clientId ? `/ops/clients/${clientId}` : null;
 
   return (
-    <AppShell
-      surface="ops"
-      home="/ops"
-      context={<ClientSwitcher selected={clientId} />}
-      inboxTo="/ops/inbox"
-      sidebar={
-        <nav className="flex flex-col">
-          <div className="flex flex-col gap-0.5">
-            <SidebarLink to={base ?? "/ops"} label="Home" end testId="ops-nav-home" />
-            <SidebarLink to="/ops/inbox" label="Inbox" testId="ops-nav-inbox" />
-            {base ? null : (
-              <SidebarLink to="/ops/clients" label="Clients" testId="ops-nav-clients" />
-            )}
-          </div>
-          {clientId ? <AgentsSection clientId={clientId} /> : null}
-          <SidebarSection label="Build">
-            <SidebarLink to="/ops/templates" label="Templates" testId="ops-nav-templates" />
-            <SidebarLink to="/ops/skills" label="Skills" testId="ops-nav-skills" />
-            <SidebarLink
-              to={base ? `${base}/connections` : "/ops/clients"}
-              label="Connections"
-              testId="ops-nav-connections"
-            />
-            <SidebarLink to="/ops/runs" label="Runs" testId="ops-nav-runs" />
-            <SidebarLink
-              to={base ? `${base}/settings` : "/ops/settings"}
-              label="Settings"
-              testId="ops-nav-settings"
-            />
-          </SidebarSection>
-        </nav>
-      }
-    >
-      {children}
-    </AppShell>
+    <>
+      <AppShell
+        surface="ops"
+        home="/ops"
+        context={<ClientSwitcher selected={clientId} />}
+        inboxTo="/ops/inbox"
+        sidebar={
+          <nav className="flex flex-col">
+            <div className="flex flex-col gap-0.5">
+              <SidebarLink to={base ?? "/ops"} label="Home" end testId="ops-nav-home" />
+              <SidebarLink to="/ops/inbox" label="Inbox" testId="ops-nav-inbox" />
+              {base ? null : (
+                <SidebarLink to="/ops/clients" label="Clients" testId="ops-nav-clients" />
+              )}
+            </div>
+            {clientId ? <AgentsSection clientId={clientId} /> : null}
+            <SidebarSection label="Build">
+              <SidebarLink to="/ops/templates" label="Templates" testId="ops-nav-templates" />
+              <SidebarLink to="/ops/skills" label="Skills" testId="ops-nav-skills" />
+              <SidebarLink
+                to={base ? `${base}/connections` : "/ops/clients"}
+                label="Connections"
+                testId="ops-nav-connections"
+              />
+              <SidebarLink to="/ops/runs" label="Runs" testId="ops-nav-runs" />
+              <SidebarLink to="/ops/feedback" label="Feedback" testId="ops-nav-feedback" />
+              <SidebarLink
+                to={base ? `${base}/settings` : "/ops/settings"}
+                label="Settings"
+                testId="ops-nav-settings"
+              />
+            </SidebarSection>
+          </nav>
+        }
+      >
+        {children}
+      </AppShell>
+      {/* The back office always has the Feedback button. */}
+      <FeedbackButton surface="ops" />
+    </>
   );
 }
 

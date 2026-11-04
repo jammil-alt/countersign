@@ -11,6 +11,7 @@ import { AgentPage } from "./screens/AgentPage";
 import { ClientDetailScreen } from "./screens/ClientDetail";
 import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
+import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
@@ -45,6 +46,7 @@ export default function OpsApp() {
         <Route path="runs" element={<OpsRunsScreen />} />
         <Route path="runs/:id" element={<OpsRunScreen />} />
         <Route path="inbox" element={<OpsInboxScreen />} />
+        <Route path="feedback" element={<OpsFeedbackScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
         <Route path="skills" element={<SkillsScreen />} />
