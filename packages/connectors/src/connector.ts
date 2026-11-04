@@ -1,5 +1,6 @@
 import {
   ConnectorManifest,
+  connectorPrefixes,
   type JsonObject,
   type PermissionMatrix,
   type ToolSpec,
@@ -8,6 +9,7 @@ import {
 import { z } from "zod";
 import type { CredentialsAccessor } from "./credentials-accessor";
 import type { Logger } from "./logger";
+import type { MessagingServices } from "./messaging/services";
 import type { TokenRefresher } from "./oauth/tokens";
 import { manifestDefaultProblems } from "./permissions";
 
@@ -31,6 +33,16 @@ export interface ConnectionRef {
   permissions: Partial<PermissionMatrix>;
 }
 
+/**
+ * What a connector may ask of the platform beyond its credentials, for the call's one client
+ * (apps/api provides them, scoped with withTenant). Each is optional: a connector that needs one
+ * refuses to act without it rather than skip the check.
+ */
+export interface ConnectorServices {
+  /** Contacts and consent, for connectors that text or message people (messaging/services.ts). */
+  messaging?: MessagingServices;
+}
+
 /** Everything a connector call runs with: one client, one connection. */
 export interface ConnectionContext {
   tenantId: string;
@@ -39,6 +51,7 @@ export interface ConnectionContext {
   credentials: CredentialsAccessor;
   logger: Logger;
   now: () => Date;
+  services?: ConnectorServices;
 }
 
 export type ToolContext = ConnectionContext;
@@ -256,6 +269,7 @@ export function defineConnector(
     entities,
     defaultPermissions,
     events,
+    sharedNamespaces,
     tools,
     ...hooks
   } = def;
@@ -275,6 +289,7 @@ export function defineConnector(
     tools: specs,
     ...(defaultPermissions === undefined ? {} : { defaultPermissions }),
     ...(events === undefined ? {} : { events }),
+    ...(sharedNamespaces === undefined ? {} : { sharedNamespaces }),
   });
   if (!parsed.success) {
     problems.push(
@@ -282,8 +297,9 @@ export function defineConnector(
     );
   }
   const handlers: Record<string, ToolHandler> = {};
+  const prefixes = connectorPrefixes({ id, sharedNamespaces });
   for (const t of tools) {
-    if (!t.spec.id.startsWith(`${id}.`)) {
+    if (!prefixes.some((p) => t.spec.id.startsWith(p))) {
       problems.push(`tool ${t.spec.id} must start with "${id}."`);
     }
     // DECISION: connector tools are reads or writes to the client's system; `internal` writes

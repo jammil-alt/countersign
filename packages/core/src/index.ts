@@ -6,6 +6,7 @@
 
 export * from "./api/contract";
 export * from "./api/feedback";
+export * from "./api/messaging";
 export * from "./api/requests";
 export * from "./api/routes";
 export * from "./bundle/client-specific";
@@ -26,6 +27,7 @@ export * from "./duration";
 export * from "./ids";
 export * from "./json";
 export * from "./mappers/upload";
+export * from "./messaging/rules";
 export * from "./money";
 export * from "./permissions/decide";
 export * from "./roles";

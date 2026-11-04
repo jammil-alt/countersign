@@ -11,7 +11,7 @@ import {
   type Session,
   tenantScope,
 } from "@countersign/auth";
-import { type ObjectStore, R2ObjectStore } from "@countersign/connectors";
+import { type FetchLike, type ObjectStore, R2ObjectStore } from "@countersign/connectors";
 import { type Role, type RouteSpec, routeFamily } from "@countersign/core";
 import {
   closeDb,
@@ -50,6 +50,8 @@ export interface AppDeps {
    * no model key is configured (documents then wait for an agent's `docs.extract`).
    */
   extractionTransport(env: Bindings): LlmTransport | null;
+  /** Outbound HTTP for provisioning calls (Twilio numbers); tests pass a fake. */
+  fetch?(env: Bindings): FetchLike;
 }
 
 export const defaultDeps: AppDeps = {

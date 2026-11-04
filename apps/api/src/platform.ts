@@ -14,6 +14,7 @@ import {
   ConnectorRegistry,
   createPodioConnector,
   createTestkitConnector,
+  createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
   createZohoCrmConnector,
@@ -87,7 +88,9 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
   );
   const events = new EventTypeRegistry();
   for (const c of connectors.list()) {
-    if (c.manifest.events?.length) events.registerConnector(c.manifest.id, c.manifest.events);
+    if (c.manifest.events?.length) {
+      events.registerConnector(c.manifest.id, c.manifest.events, c.manifest.sharedNamespaces);
+    }
   }
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
 }
@@ -156,6 +159,9 @@ export function deploymentConnectors(
     createPodioConnector(
       podioReady ? { clientId: env.PODIO_CLIENT_ID, clientSecret: env.PODIO_CLIENT_SECRET } : {},
     ),
+    // Texts and WhatsApp: registered everywhere; a client gets a connection only when the
+    // operator makes its subaccount, which needs TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.
+    createTwilioConnector(),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),
