@@ -41,6 +41,8 @@ export interface AppDeps {
   /** A database client for one request (or one job), and how to close it. */
   openDb(env: Bindings): { db: Db; close(): Promise<void> };
   instances(env: Bindings): RunInstances;
+  /** The Builder's model transport; default the Worker's live one (tests pass a FakeModel). */
+  llm?(env: Bindings): LlmTransport;
   /** Object storage for originals: the R2 binding; memory in tests. */
   objects(env: Bindings): ObjectStore;
   /**
@@ -143,7 +145,7 @@ export function requestState(deps: AppDeps) {
 
 export class HttpError extends Error {
   constructor(
-    readonly status: 400 | 401 | 403 | 404 | 409 | 422 | 500 | 503,
+    readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422 | 429 | 500 | 502 | 503,
     readonly code: string,
     message: string,
     readonly details?: unknown,

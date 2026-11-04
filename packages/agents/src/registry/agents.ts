@@ -201,7 +201,7 @@ export async function boundMatrices(
 /** Validates a version's bundle as it would be published (client agents: against their bindings). */
 export async function validateForPublish(
   tx: Tx,
-  row: AgentRow,
+  row: Pick<AgentRow, "tenantId" | "kind" | "bindings">,
   bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<ValidationError[]> {
@@ -245,6 +245,9 @@ export async function publish(
   const v = await getVersion(tx, input.versionId);
   if (v.agentId !== row.id) throw notFound(`version ${input.versionId} of agent ${row.slug}`);
   if (v.status === "live") throw new AgentsError("invalid_state", "that version is already live");
+  if (row.status === "disabled") {
+    throw new AgentsError("invalid_state", "it was discarded: restore it before publishing");
+  }
   const errors = await validateForPublish(tx, row, v.bundle, input.ctx);
   if (errors.length > 0) {
     throw new AgentsError("invalid_bundle", `v${v.version} does not validate`, errors);
@@ -709,6 +712,7 @@ export async function activationProblems(
   if (row.kind !== "client" || !row.tenantId) return ["only client agents run"];
   if (row.testCopy) return ["a template's test copy only test-runs: fork the template to run it"];
   if (row.runStatus === "retired") return ["the agent is retired"];
+  if (row.status === "disabled") return ["it was discarded: restore it first"];
   if (!row.liveVersionId) return ["it has no live version: publish one first"];
   const live = await getVersion(tx, row.liveVersionId);
   const problems: string[] = [];
@@ -831,19 +835,92 @@ export async function retire(
 }
 
 /** Templates, newest first (operator sessions). */
-export async function listTemplates(tx: Tx): Promise<AgentRow[]> {
+/** Templates; discarded drafts only when asked for. */
+export async function listTemplates(
+  tx: Tx,
+  options: { discarded?: boolean } = {},
+): Promise<AgentRow[]> {
   return tx
     .select()
     .from(agent)
-    .where(and(isNull(agent.tenantId), eq(agent.kind, "template")))
+    .where(
+      and(
+        isNull(agent.tenantId),
+        eq(agent.kind, "template"),
+        options.discarded ? undefined : eq(agent.status, "active"),
+      ),
+    )
     .orderBy(agent.slug);
 }
 
-/** A client's agents. */
-export async function listClientAgents(tx: Tx, tenantId: string): Promise<AgentRow[]> {
+/** A client's agents; discarded drafts only when asked for. */
+export async function listClientAgents(
+  tx: Tx,
+  tenantId: string,
+  options: { discarded?: boolean } = {},
+): Promise<AgentRow[]> {
   return tx
     .select()
     .from(agent)
-    .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client")))
+    .where(
+      and(
+        eq(agent.tenantId, tenantId),
+        eq(agent.kind, "client"),
+        options.discarded ? undefined : eq(agent.status, "active"),
+      ),
+    )
     .orderBy(agent.slug);
+}
+
+// ── Discarding drafts ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Discards an agent that was never published (a Builder draft the operator doesn't want, or any
+ * other unpublished draft): it leaves the lists and can't be activated or routed, its versions
+ * stay (invariant 3), and `restoreAgent` brings it back.
+ */
+// DECISION: discarding sets `agent.status = 'disabled'` (the routers already skip disabled agents)
+// instead of deleting: versions are immutable and never deleted, so the agent row stays too. Only
+// agents with no live version can be discarded; a published client agent is retired instead, and
+// a published template stays (clients' agents may be based on it). The slug stays taken.
+export async function discardDraft(
+  tx: Tx,
+  input: { agentId: string; actorId?: string | null },
+): Promise<AgentRow> {
+  const row = await lockAgent(tx, input.agentId);
+  if (row.status === "disabled") throw new AgentsError("invalid_state", "it is already discarded");
+  if (row.liveVersionId) {
+    throw new AgentsError(
+      "invalid_state",
+      row.kind === "client"
+        ? "it has been published: retire it instead"
+        : "it has been published, so it stays",
+    );
+  }
+  if (row.testCopy) throw new AgentsError("invalid_state", "a test copy is not a draft");
+  const [updated] = await tx
+    .update(agent)
+    .set({ status: "disabled" })
+    .where(eq(agent.id, row.id))
+    .returning();
+  if (!updated) throw new Error("discard updated nothing");
+  await insertAgentChange(tx, row, input.actorId, { kind: "discard" });
+  return updated;
+}
+
+/** Brings a discarded draft back. */
+export async function restoreAgent(
+  tx: Tx,
+  input: { agentId: string; actorId?: string | null },
+): Promise<AgentRow> {
+  const row = await lockAgent(tx, input.agentId);
+  if (row.status !== "disabled") throw new AgentsError("invalid_state", "it is not discarded");
+  const [updated] = await tx
+    .update(agent)
+    .set({ status: "active" })
+    .where(eq(agent.id, row.id))
+    .returning();
+  if (!updated) throw new Error("restore updated nothing");
+  await insertAgentChange(tx, row, input.actorId, { kind: "restore" });
+  return updated;
 }

@@ -127,6 +127,15 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   accident (replacing it would make stored connection credentials unreadable; rotation is described in
   `packages/connectors/src/credentials.ts`).
 - Later: `QBO_*` and `GOOGLE_*` when those connectors are built, the same way.
+- Needed by the Zoho CRM connector (stream G, 2026-11-04; wiring them into `deploy.yml` is the
+  coordinator's): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
+  multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
+  `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only
+  breaks sign-ins in progress. Until all three are set, Zoho CRM shows "Not available yet" in the portal.
+  Webhooks need no secret beyond `ENCRYPTION_KEY`.
+- Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
+  from Podio's account settings, its domain set to the app origin, redirect URI
+  `<APP_ORIGIN>/connections/podio/callback`).
 
 ### GitHub summary
 

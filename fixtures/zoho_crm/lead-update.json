@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "code": "SUCCESS",
+      "details": {
+        "Modified_Time": "2026-11-04T15:05:00+00:00",
+        "Modified_By": { "name": "Sam Owner", "id": "5843104000000391001" },
+        "Created_Time": "2026-10-30T10:15:00+00:00",
+        "id": "5843104000000424672",
+        "Created_By": { "name": "Sam Owner", "id": "5843104000000391001" }
+      },
+      "message": "record updated",
+      "status": "success"
+    }
+  ]
+}

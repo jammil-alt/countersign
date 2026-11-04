@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": "5843104000000424672",
+      "Last_Name": "Lee",
+      "First_Name": "Pat",
+      "Email": "pat@example.com",
+      "Company": "Lee Cabinets",
+      "Lead_Status": "Not Contacted",
+      "Lead_Source": "Web Form",
+      "Created_Time": "2026-10-30T10:15:00+00:00",
+      "Modified_Time": "2026-11-02T09:00:00+00:00",
+      "$approval_state": "approved"
+    }
+  ]
+}

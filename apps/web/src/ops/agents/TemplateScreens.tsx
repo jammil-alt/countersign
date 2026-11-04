@@ -1,8 +1,9 @@
 // Templates (ARCHITECTURE §9.3, §15): `/ops/templates` lists them, `/ops/templates/new` makes one
-// from scratch (the Builder's "describe" option is shown, not built yet), and
+// from scratch or from a description (the Builder), and
 // `/ops/templates/:slug` is the agent screen shared with client agents.
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import {
@@ -19,6 +20,7 @@ import {
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
 import { AgentScreen } from "./AgentScreen";
+import { BuilderDescribe, BuilderDraftResult } from "./BuilderParts";
 import {
   blankBundle,
   DEFAULT_MODEL,
@@ -38,7 +40,11 @@ import {
 import { errorText, Field, isCode, Notice, notifyAgentsChanged, TextInput, useAction } from "./ui";
 
 export function TemplatesScreen() {
-  const { data, error, loading, reload } = useApi(apiRoutes.opsTemplates);
+  const [showDiscarded, setShowDiscarded] = useState(false);
+  const { data, error, loading, reload } = useApi(
+    apiRoutes.opsTemplates,
+    showDiscarded ? { query: { include: "discarded" } } : {},
+  );
   return (
     <div>
       <PageHeader
@@ -54,7 +60,22 @@ export function TemplatesScreen() {
           </Link>
         }
       />
-      <SectionLabel>Templates</SectionLabel>
+      <SectionLabel
+        action={
+          <label className="flex items-center gap-2 text-sm text-ink-muted">
+            <input
+              type="checkbox"
+              className="size-4 accent-slate"
+              data-testid="templates-show-discarded"
+              checked={showDiscarded}
+              onChange={(e) => setShowDiscarded(e.target.checked)}
+            />
+            Show discarded drafts
+          </label>
+        }
+      >
+        Templates
+      </SectionLabel>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.templates.length === 0 ? <EmptyState>No templates yet.</EmptyState> : null}
@@ -71,7 +92,10 @@ export function TemplatesScreen() {
             </thead>
             <tbody>
               {data.templates.map((t) => {
-                const badge = summaryBadge(t);
+                const badge =
+                  t.status === "disabled"
+                    ? { tone: "neutral" as const, label: "Discarded" }
+                    : summaryBadge(t);
                 return (
                   <tr key={t.id}>
                     <td>
@@ -105,6 +129,8 @@ export function TemplatesScreen() {
   );
 }
 
+type Draft = ResponseOf<typeof apiRoutes.opsDraftAgent>;
+
 const EMPTY_JOB: NewAgentFields = {
   name: "",
   role: "",
@@ -120,7 +146,44 @@ export function NewTemplateScreen() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [releaseNote, setReleaseNote] = useState("");
   const [touched, setTouched] = useState(false);
+  const [useBuilder, setUseBuilder] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const action = useAction();
+
+  const startCard = (
+    <Card className="p-5">
+      <SectionLabel>Start from</SectionLabel>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <BuilderOption selected={useBuilder} onSelect={() => setUseBuilder(true)} />
+        <StartOption
+          selected={!useBuilder}
+          title="Blank workflow"
+          text="Start empty and add skills, actions and people yourself."
+          onSelect={() => setUseBuilder(false)}
+          testId="new-template-start-blank"
+        />
+      </div>
+    </Card>
+  );
+
+  if (useBuilder) {
+    return (
+      <div>
+        <PageHeader
+          title="New template"
+          subtitle="Say what the job is. The Builder drafts a starting workflow you can rearrange step by step."
+          actions={<Stepper />}
+        />
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="flex flex-col gap-5">
+            {startCard}
+            <BuilderDescribe onDrafted={setDraft} />
+          </div>
+          <BuilderDraftResult draft={draft} />
+        </div>
+      </div>
+    );
+  }
 
   const effectiveSlug = slugEdited ? slug : slugify(fields.name);
   const errors: JobErrors = validateJob(fields);
@@ -189,19 +252,7 @@ export function NewTemplateScreen() {
               </Field>
             </div>
           </Card>
-          <Card className="p-5">
-            <SectionLabel>Start from</SectionLabel>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <BuilderOption />
-              <StartOption
-                selected
-                title="Blank workflow"
-                text="Start empty and add skills, actions and people yourself."
-                onSelect={() => {}}
-                testId="new-template-start-blank"
-              />
-            </div>
-          </Card>
+          {startCard}
         </div>
         <div className="flex flex-col gap-4">
           <WorkflowPreview
@@ -244,7 +295,7 @@ export function NewTemplateScreen() {
 
 export function TemplatePage() {
   const { slug = "" } = useParams();
-  const list = useApi(apiRoutes.opsTemplates);
+  const list = useApi(apiRoutes.opsTemplates, { query: { include: "discarded" } });
   const template = list.data?.templates.find((t) => t.slug === slug);
   if (list.error) return <ErrorNotice error={list.error} onRetry={list.reload} />;
   if (!list.data) return <Loading />;

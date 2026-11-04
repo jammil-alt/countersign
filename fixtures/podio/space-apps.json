@@ -1,0 +1,20 @@
+[
+  {
+    "app_id": 26550010,
+    "status": "active",
+    "space_id": 7721001,
+    "config": { "name": "Jobs", "item_name": "Job" }
+  },
+  {
+    "app_id": 26550011,
+    "status": "inactive",
+    "space_id": 7721001,
+    "config": { "name": "Old jobs", "item_name": "Job" }
+  },
+  {
+    "app_id": 26550012,
+    "status": "active",
+    "space_id": 7721001,
+    "config": { "name": "Quotes", "item_name": "Quote" }
+  }
+]
