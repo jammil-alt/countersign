@@ -15,9 +15,26 @@ export interface Secrets {
   /** Zoho API console: a Server-based application with multi-DC on (ARCHITECTURE §6.7). */
   ZOHO_CLIENT_ID?: string;
   ZOHO_CLIENT_SECRET?: string;
+  /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  /** Mezonas' own ElevenLabs account: the voice agents on calls (docs/plan.md §1.23). */
+  ELEVENLABS_API_KEY?: string;
+  /** Signs ElevenLabs' post-call webhook; also keys each call's tool token. */
+  ELEVENLABS_WEBHOOK_SECRET?: string;
+  /** Mezonas' own Resend account: makes each client's sending domain and key (docs/plan.md §1.25). */
+  RESEND_API_KEY?: string;
+  /** Our own sending domain, used until a client's domain is verified (e.g. mail.mezonas.com). */
+  RESEND_FALLBACK_DOMAIN?: string;
+  /** Resend's id for that domain, so fallback keys can send only from it. */
+  RESEND_FALLBACK_DOMAIN_ID?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
+  /** Mezonas' own Stripe account (billing, docs/plan.md §1.24); unset: billing is off. */
+  STRIPE_SECRET_KEY?: string;
+  /** The Stripe webhook endpoint's signing secret (`whsec_…`) for /api/billing/stripe/webhook. */
+  STRIPE_WEBHOOK_SECRET?: string;
   /** R2's S3 API, for presigned links to documents (ARCHITECTURE §17). Optional: see storage.ts. */
   STORAGE_ENDPOINT?: string;
   STORAGE_BUCKET?: string;

@@ -10,9 +10,12 @@ import { PortalRecordScreen } from "../records/RecordScreens";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
+import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConnectionsScreen } from "./screens/Connections";
+import { PortalContactsScreen, PortalPeopleScreen } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
 import { PortalInboxScreen } from "./screens/Inbox";
+import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
 import { PortalReportsScreen } from "./screens/Reports";
@@ -58,7 +61,13 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             />
             <SidebarLink to="/requests" label={t("nav.requests")} testId="portal-nav-requests" />
             {isAdmin ? (
-              <SidebarLink to="/settings" label={t("nav.settings")} testId="portal-nav-settings" />
+              <>
+                <SidebarLink to="/knowledge" label="Knowledge" testId="portal-nav-knowledge" />
+                <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
+                <SidebarLink to="/billing" label="Billing" testId="portal-nav-billing" />
+                <SidebarLink to="/people" label="People" testId="portal-nav-people" />
+                <SidebarLink to="/settings" label={t("nav.settings")} testId="portal-nav-settings" />
+              </>
             ) : null}
           </nav>
         }
@@ -86,6 +95,10 @@ export function PortalApp() {
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
         <Route path="records/:id" element={<PortalRecordScreen />} />
         <Route path="requests" element={<PortalRequestsScreen />} />
+        <Route path="knowledge" element={<PortalKnowledgeScreen />} />
+        <Route path="contacts" element={<PortalContactsScreen />} />
+        <Route path="people" element={<PortalPeopleScreen />} />
+        <Route path="billing" element={<PortalBillingScreen />} />
         <Route path="settings" element={<PortalSettingsScreen />} />
         <Route
           path="*"

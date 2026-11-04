@@ -11,7 +11,9 @@ import {
   isClientVisible,
   lookupSkill,
   type PathOption,
+  parseSkillRef,
   pathsAt,
+  REACH_OUT_SKILL,
   type Rule,
   type RuleOp,
   type Rules,
@@ -39,6 +41,7 @@ import {
   TemplateInput,
 } from "./fields";
 import { type ApprovalEnv, approvalOption, findTemplateStep, newPath } from "./model";
+import { ReachOutFields } from "./ReachOutFields";
 
 export type Selection = { type: "step"; id: string } | { type: "trigger" };
 
@@ -279,15 +282,25 @@ function KindFields(
             <p className="text-sm text-ink-muted">{skill.description}</p>
           ) : null}
           <Section title="Input">
-            <SchemaForm
-              schema={skill?.input}
-              value={step.input}
-              onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
-              paths={paths}
-              prefix="input"
-              errors={fieldErrors}
-              testPrefix="builder-input"
-            />
+            {parseSkillRef(step.skill).id === REACH_OUT_SKILL ? (
+              <ReachOutFields
+                step={step}
+                bundle={props.bundle}
+                paths={paths}
+                fieldErrors={fieldErrors}
+                set={set}
+              />
+            ) : (
+              <SchemaForm
+                schema={skill?.input}
+                value={step.input}
+                onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+                paths={paths}
+                prefix="input"
+                errors={fieldErrors}
+                testPrefix="builder-input"
+              />
+            )}
           </Section>
         </>
       );

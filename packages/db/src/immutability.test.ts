@@ -14,10 +14,14 @@ import {
 import {
   agentChange,
   agentVersion,
+  billingEvent,
+  billingUsageReport,
   connectionChange,
+  contactChange,
   docExtraction,
   docLine,
   document,
+  knowledgeEntryVersion,
   rawRecord,
   skillVersion,
 } from "./schema";
@@ -144,13 +148,30 @@ describe.skipIf(!online)("immutability", () => {
     );
   });
 
-  it("connection_change and agent_change are append-only", async () => {
-    for (const table of [connectionChange, agentChange]) {
+  it("connection_change, agent_change and contact_change are append-only", async () => {
+    for (const table of [connectionChange, agentChange, contactChange]) {
       expect(await errorCode(t.db.update(table).set({ change: { edited: true } }))).toBe(
         RESTRICT_VIOLATION,
       );
       expect(await errorCode(t.db.delete(table))).toBe(RESTRICT_VIOLATION);
     }
+  });
+
+  it("knowledge_entry_version is append-only: an edit is a new version", async () => {
+    expect(await errorCode(t.db.update(knowledgeEntryVersion).set({ body: "edited" }))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    expect(await errorCode(t.db.delete(knowledgeEntryVersion))).toBe(RESTRICT_VIOLATION);
+  });
+
+  it("billing_usage_report: only status, error and sent_at change; billing_event never does", async () => {
+    expect(await errorCode(t.db.update(billingUsageReport).set({ quantity: 99 }))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    await t.db.update(billingUsageReport).set({ status: "sent", sentAt: new Date(), error: null });
+    expect(await errorCode(t.db.delete(billingUsageReport))).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.update(billingEvent).set({ type: "x" }))).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.delete(billingEvent))).toBe(RESTRICT_VIOLATION);
   });
 
   it("doc_extraction and doc_line never change and are never deleted; the document's status can", async () => {

@@ -4,7 +4,9 @@
 
 import {
   DOCS_SKILLS,
+  KNOWLEDGE_SKILLS,
   PLATFORM_TOOLS,
+  REACH_SKILLS,
   type RegistryContext,
   SkillCatalog,
   ToolRegistry,
@@ -13,7 +15,9 @@ import {
   type Connector,
   ConnectorRegistry,
   createPodioConnector,
+  createResendConnector,
   createTestkitConnector,
+  createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
   createZohoCrmConnector,
@@ -78,16 +82,24 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
-  // The platform's built-in skills (docs.*) come first, then the caller's, then a tool-mode skill
+  // The platform's built-in skills (docs.*, knowledge.search) come first, then the caller's, then a tool-mode skill
   // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
   // packs register theirs here when they exist (registerPack); none yet.
   const catalog = new SkillCatalog(
-    [...DOCS_SKILLS, ...(options.skills ?? []), ...connectorReadSkills(connectors)],
+    [
+      ...DOCS_SKILLS,
+      ...KNOWLEDGE_SKILLS,
+      ...REACH_SKILLS,
+      ...(options.skills ?? []),
+      ...connectorReadSkills(connectors),
+    ],
     tools,
   );
   const events = new EventTypeRegistry();
   for (const c of connectors.list()) {
-    if (c.manifest.events?.length) events.registerConnector(c.manifest.id, c.manifest.events);
+    if (c.manifest.events?.length) {
+      events.registerConnector(c.manifest.id, c.manifest.events, c.manifest.sharedNamespaces);
+    }
   }
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
 }
@@ -156,6 +168,12 @@ export function deploymentConnectors(
     createPodioConnector(
       podioReady ? { clientId: env.PODIO_CLIENT_ID, clientSecret: env.PODIO_CLIENT_SECRET } : {},
     ),
+    // Texts and WhatsApp: registered everywhere; a client gets a connection only when the
+    // operator makes its subaccount, which needs TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.
+    createTwilioConnector(),
+    // Email sending (Resend): registered everywhere; a client gets a connection only when the
+    // operator sets it up, which needs RESEND_API_KEY.
+    createResendConnector(),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

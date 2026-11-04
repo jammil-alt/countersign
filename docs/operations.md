@@ -136,6 +136,33 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
+- Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
+  `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
+  keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
+  clients' connections. `APP_ORIGIN` must be set, since Twilio is pointed at
+  `<APP_ORIGIN>/api/twilio/<client>/messages` and `/status` and signs requests over those URLs.
+  What to check in Twilio before a client goes live: `packages/connectors/src/twilio/NOTES.md`.
+- Needed for calls (plan §1.23; wiring into `deploy.yml` is the coordinator's): `ELEVENLABS_API_KEY`
+  (Mezonas' ElevenLabs workspace, Conversational AI) and `ELEVENLABS_WEBHOOK_SECRET` (the signing
+  secret of ElevenLabs' post-call webhook, pointed at `<APP_ORIGIN>/api/elevenlabs/post-call`; it
+  also keys each call's tool token). Calls use the Twilio secrets above and `APP_ORIGIN` (Twilio is
+  pointed at `<APP_ORIGIN>/api/twilio/<client>/voice`, `/voice/answer` and `/voice/status`; the voice
+  agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
+  ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
+  `packages/connectors/src/elevenlabs/NOTES.md`.
+- Needed by billing (stream J, 2026-11-04; wiring them into `deploy.yml` is the coordinator's), copied
+  like the API keys: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a restricted or secret key; test
+  mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the `whsec_…` signing secret of
+  the webhook endpoint `https://<domain>/api/billing/stripe/webhook`). Without the key billing is off;
+  without the webhook secret Stripe's events are refused. Allow `api.stripe.com` in the network if it is
+  restricted. Stripe set-up steps: `packages/connectors/src/stripe/NOTES.md`.
+- Needed for email reach-outs (plan §1.25; wiring into `deploy.yml` is the coordinator's):
+  `RESEND_API_KEY` (Mezonas' Resend account: it only makes each client's domain and a sending key
+  restricted to it, which is encrypted in the client's `resend` connection),
+  `RESEND_FALLBACK_DOMAIN` (our own verified sending domain, e.g. `mail.mezonas.com`, used until a
+  client's domain is verified) and `RESEND_FALLBACK_DOMAIN_ID` (Resend's id for it, so fallback keys
+  can send only from it). Replies come back through `EMAIL_FORWARDING_DOMAIN` to each client's
+  forwarding address. What to check first: `packages/connectors/src/resend/NOTES.md`.
 
 ### GitHub summary
 

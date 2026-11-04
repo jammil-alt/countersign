@@ -3,14 +3,19 @@
 // same rows through cs_worker's eyes.
 
 import type { AgentBundle } from "@countersign/core";
+import { sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   agent,
   agentChange,
   agentVersion,
   appUser,
+  billingEvent,
+  billingUsageReport,
   connection,
   connectionChange,
+  contact,
+  contactChange,
   docExtraction,
   docLine,
   document,
@@ -18,10 +23,14 @@ import {
   externalAction,
   feedback,
   inboxItem,
+  knowledgeChunk,
+  knowledgeEntry,
+  knowledgeEntryVersion,
   membership,
   memoryNote,
   message,
   rawRecord,
+  reachOut,
   run,
   skill,
   skillVersion,
@@ -198,6 +207,25 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .insert(memoryNote)
     .values({ tenantId, agentId: a.id, note: "remember", sourceMessageId: m.id });
   await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
+  const [ct] = await db
+    .insert(contact)
+    .values({ tenantId, name: "Pat Lee", phone: "+15555550100" })
+    .returning();
+  if (!ct) throw new Error("no contact");
+  await db.insert(contactChange).values({ tenantId, contactId: ct.id, change: { created: true } });
+  await db.insert(reachOut).values({
+    tenantId,
+    agentId: a.id,
+    agentVersionId: av.id,
+    runId: r.id,
+    nodeId: "s1",
+    contactId: ct.id,
+    subject: "s",
+    purpose: "Confirm the delivery date",
+    urgency: "normal",
+    plan: {},
+    status: "open",
+  });
 
   const [v] = await db
     .insert(vendor)
@@ -272,6 +300,56 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     comment: "This is confusing",
     path: "/inbox",
     viewport: { width: 1280, height: 800 },
+  });
+  await db.insert(billingUsageReport).values({
+    tenantId,
+    period: "2026-11-01",
+    day: "2026-11-03",
+    agents: 1,
+    allowance: 2000,
+    credits: 12,
+    overage: 0,
+    quantity: 0,
+    costUsd: "0.1150",
+    identifier: `${tenantId}:2026-11-01:2026-11-03`,
+    status: "none",
+  });
+  await db.insert(billingEvent).values({
+    tenantId,
+    stripeEventId: `evt_${tenantId}`,
+    type: "invoice.paid",
+    objectId: "in_1",
+    summary: { status: "paid" },
+  });
+
+  const [ke] = await db
+    .insert(knowledgeEntry)
+    .values({ tenantId, kind: "faq", createdBy: u.id })
+    .returning();
+  if (!ke) throw new Error("no knowledge entry");
+  const [kv] = await db
+    .insert(knowledgeEntryVersion)
+    .values({
+      tenantId,
+      entryId: ke.id,
+      version: 1,
+      title: "Opening hours",
+      body: "We open at 8am.",
+      status: "active",
+      authorId: u.id,
+      authorRole: "client_admin",
+    })
+    .returning();
+  if (!kv) throw new Error("no knowledge entry version");
+  await db.insert(knowledgeChunk).values({
+    tenantId,
+    sourceType: "entry",
+    entryId: ke.id,
+    entryVersionId: kv.id,
+    chunkNo: 0,
+    title: "Opening hours",
+    body: "We open at 8am.",
+    tsv: sql`to_tsvector('english', 'Opening hours We open at 8am.')`,
   });
 
   return {

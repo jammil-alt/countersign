@@ -7,6 +7,7 @@ import { ContentStore, MAX_FORWARDED_BYTES } from "@countersign/connectors";
 import { type ForwardingOutcome, receiveForwardedEmail } from "@countersign/documents";
 import type { Bindings } from "./env";
 import { type AppDeps, defaultDeps, type Services } from "./http";
+import { forwardingAddress, receiveReachOutReply, wakeAll } from "./reach/replies";
 import { extractInBackground } from "./routes/documents";
 import { dispatchEvents } from "./runs/dispatch";
 
@@ -40,6 +41,17 @@ export async function handleEmail(
       message.rawSize > MAX_FORWARDED_BYTES
         ? new Uint8Array(0)
         : new Uint8Array(await new Response(message.raw).arrayBuffer());
+    // A reply to a reach-out email (its tagged reply-to address) ends that reach-out; it is not
+    // forwarded mail.
+    const reply = await receiveReachOutReply(
+      db,
+      { from: message.from, to: message.to, raw },
+      { domain, now: new Date(), forwardingAddress },
+    );
+    if (reply) {
+      await wakeAll(deps.instances(env), reply.woken);
+      return { status: "dropped", tenantId: reply.tenantId, reason: "unknown_address" };
+    }
     const content = new ContentStore(deps.objects(env));
     const outcome = await receiveForwardedEmail(
       { db, content },

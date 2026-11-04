@@ -3,17 +3,24 @@
 // same way.
 
 import { captureBefore, runReadTool } from "@countersign/connectors";
-import { changeFacts, decideToolCall, type JsonObject, routeApproval } from "@countersign/core";
+import {
+  changeFacts,
+  decideToolCall,
+  fixedInputProblem,
+  type JsonObject,
+  routeApproval,
+} from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
 import {
   asJsonObject,
   connectionContext,
   idempotencyKey,
+  nextIdempotencyKey,
   type RuntimeDeps,
   type StepContext,
 } from "./context";
-import type { ToolCallStatus } from "./ports";
+import type { ExternalActionRecord, ToolCallStatus } from "./ports";
 
 export type ToolOutcome =
   | { status: "done"; output: unknown; summary?: string | undefined; actionId?: string }
@@ -91,6 +98,18 @@ async function dispatch(
   input: unknown,
 ): Promise<ToolOutcome> {
   const mode = step.agent.bundle.definition.permissions.mode;
+  // A retry finds its first try's action before any check, the fixed-input check included.
+  if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
+    const resumed = await resumeProposed(deps, step, tool);
+    if (resumed) return resumed;
+  }
+  // Inputs that become instructions are the step's own fixed text, before any approval card or
+  // write: never a template's value or a model's words (invariant 9).
+  const fixed = tool.spec.fixedInputs;
+  if (fixed?.length) {
+    const problem = fixedInputProblem(fixed, step.literalInput, input);
+    if (problem) return { status: "refused", reason: `${tool.spec.id}: ${problem}` };
+  }
   if (tool.kind === "internal") {
     // Platform and pack tools write only the platform's own records: `none` and `internal` run.
     const parsed = tool.tool.input.safeParse(input);
@@ -107,6 +126,7 @@ async function dispatch(
       threadId: step.threadId,
       platform: deps.ports.platform,
       documents: deps.ports.documents,
+      knowledge: deps.ports.knowledge,
       recordUsage: (usage) =>
         deps.ports.log.addUsage(
           step.tenantId,
@@ -200,7 +220,44 @@ async function dispatch(
         }
       : null,
   });
-  if (test) return { status: "would_have_done", actionId: action.id, before: captured.before };
+  return settle(deps, step, action);
+}
+
+/**
+ * A retried step (a crash, a Workflow retry) finds the action its first try proposed under the
+ * same key and resumes or returns it, before any proposal check: fixed inputs, the matrix, the
+ * before state and the connector's consent checks only apply to a new action. Otherwise an opt-out since the first
+ * try would fail the step and leave the action `executing`, though its write may have gone out.
+ * The connector's `run` still checks every write it hasn't made yet.
+ */
+// DECISION: on a retry the action found by key stands as it is (docs/plan.md §1.22); a person's
+// approval path runs it directly (executeAction) and is unchanged.
+async function resumeProposed(
+  deps: RuntimeDeps,
+  step: StepContext,
+  tool: RegisteredTool,
+): Promise<ToolOutcome | null> {
+  const existing = await deps.ports.actions.byKey(step.tenantId, nextIdempotencyKey(step));
+  if (!existing) return null;
+  idempotencyKey(step); // taken, as proposing would have
+  if (existing.tool !== tool.spec.id) {
+    return {
+      status: "failed",
+      error: `this step's change ${existing.idempotencyKey} was proposed for ${existing.tool}`,
+    };
+  }
+  return settle(deps, step, existing);
+}
+
+/** What a proposed action means for the step now: waiting, refused, or executed once. */
+async function settle(
+  deps: RuntimeDeps,
+  step: StepContext,
+  action: ExternalActionRecord,
+): Promise<ToolOutcome> {
+  if (step.mode === "test") {
+    return { status: "would_have_done", actionId: action.id, before: action.before };
+  }
   switch (action.status) {
     case "proposed":
       return {

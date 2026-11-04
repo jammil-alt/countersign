@@ -37,6 +37,16 @@ export const SkillDefinition = z
     requiresPacks: z.array(z.string()).default([]),
     /** Outputs must carry `sources` (CLAUDE.md invariant 10). */
     producesAlerts: z.boolean().default(false),
+    /**
+     * Built-ins only: input fields that become instructions (e.g. a reach-out's purpose), so a step
+     * must write them itself, never from a template or a model (docs/plan.md §1.23, §1.25).
+     */
+    fixedInputs: z.array(z.string().min(1)).optional(),
+    /**
+     * Built-ins only: the skill contacts people through the agent's bound channels (each send an
+     * external action), so its step has an approval setting like a write.
+     */
+    reachesPeople: z.boolean().optional(),
   })
   .refine((s) => s.mode !== "tool" || s.handler !== undefined, {
     message: "a tool-mode skill needs a handler",

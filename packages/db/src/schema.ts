@@ -14,6 +14,7 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   date,
   foreignKey,
   index,
@@ -77,7 +78,8 @@ export const TOOL_CALL_STATUSES = [
   "awaiting_approval",
 ] as const;
 export const THREAD_STATUSES = ["open", "closed"] as const;
-export const MESSAGE_SENDER_TYPES = ["agent", "user", "system"] as const;
+/** `contact`: a person a client texts (inbound SMS and WhatsApp, migration 0006); sender_id = contact.id. */
+export const MESSAGE_SENDER_TYPES = ["agent", "user", "system", "contact"] as const;
 export const MESSAGE_KINDS = ["text", "command", "result"] as const;
 export const MESSAGE_AUDIENCES = ["client", "operator"] as const;
 export const INBOX_KINDS = [
@@ -332,6 +334,13 @@ export const agent = pgTable(
     serviceDescription: text("service_description"),
     /** connector id → connection id. */
     bindings: json<Record<string, string>>("bindings").notNull().default({}),
+    /**
+     * The people this agent reaches (docs/plan.md §1.25): role (from the bundle's `people`) → the
+     * contacts bound to it and the conditions for reaching them. Operational, never in a version.
+     */
+    people: json<Record<string, AgentPeopleBinding>>("people").notNull().default({}),
+    /** The agent's own channels: `email` | `sms` | `whatsapp` | `voice` → connection id. */
+    channels: json<Record<string, string>>("channels").notNull().default({}),
     /** Null = the client's setting. */
     approver: text("approver").$type<(typeof AGENT_APPROVERS)[number]>(),
     runStatus: text("run_status").$type<(typeof AGENT_RUN_STATUSES)[number]>(),
@@ -363,6 +372,13 @@ export const agent = pgTable(
     ),
   ],
 );
+
+/** One role's binding on a client agent: who fills it, and when and how they may be reached. */
+export interface AgentPeopleBinding {
+  contactIds: string[];
+  /** Validated by core's ReachConditions; the defaults apply to anything missing. */
+  conditions?: Record<string, unknown>;
+}
 
 /** One whole bundle. Immutable except `status` (trigger). */
 export const agentVersion = pgTable(
@@ -786,6 +802,13 @@ export const usageDaily = pgTable(
     steps: integer("steps").notNull().default(0),
     documents: integer("documents").notNull().default(0),
     externalActions: integer("external_actions").notNull().default(0),
+    /** Texts and WhatsApp messages sent (migration 0006), counted once per provider message id. */
+    messages: integer("messages").notNull().default(0),
+    /**
+     * Seconds of phone calls (migration 0008): Twilio's duration of each finished call an agent
+     * placed or answered, counted once per call.
+     */
+    callSeconds: integer("call_seconds").notNull().default(0),
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
     costUsd: usd("cost_usd"),
@@ -1106,10 +1129,448 @@ export const feedback = pgTable(
   ],
 );
 
+// ── Contacts (migration 0006, docs/plan.md §1.22) ─────────────────────────────────────────────────
+
+export const MESSAGING_CHANNELS = ["sms", "whatsapp"] as const;
+export type MessagingChannel = (typeof MESSAGING_CHANNELS)[number];
+
+/** One channel's consent: when it was given and how (a web form, a signed paper, a START text). */
+export interface ContactChannelConsent {
+  grantedAt: string;
+  source: string;
+}
+/**
+ * Consent per channel; `voice` is calls from an agent to the contact's phone (docs/plan.md §1.23),
+ * `email` is email from an agent (§1.25).
+ */
+export type ContactConsent = Partial<
+  Record<MessagingChannel | "voice" | "email", ContactChannelConsent>
+>;
+
+/**
+ * A person a client's agents may text or message: a phone in E.164 (SMS), a WhatsApp number, a
+ * language, consent per channel with its source and time, and an opt-out that stops every channel.
+ * Sends check this in code before calling the provider; STOP and START texts change it at once.
+ */
+export const contact = pgTable(
+  "contact",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text("name").notNull(),
+    /** E.164, e.g. `+15551234567`. */
+    phone: text("phone"),
+    /** The WhatsApp number, E.164 (often the same as `phone`). */
+    whatsapp: text("whatsapp"),
+    /** Lower case; email-only contacts are allowed (migration 0010). */
+    email: text("email"),
+    /** e.g. `es`; null: the client's language. */
+    language: text("language"),
+    /** Channels in the order the contact prefers (`whatsapp`, `voice`, `sms`, `email`). */
+    preferredChannels: json<string[]>("preferred_channels").notNull().default([]),
+    /** IANA zone; null: the client's timezone. */
+    timezone: text("timezone"),
+    /** `{start, end}` as `HH:MM`; null: the client's quiet hours. */
+    quietHours: json<{ start: string; end: string }>("quiet_hours"),
+    /** Labels such as `purchaser`, `owner`, `vendor rep`. */
+    roles: json<string[]>("roles").notNull().default([]),
+    notes: text("notes"),
+    consent: json<ContactConsent>("consent").notNull().default({}),
+    optedOutAt: ts("opted_out_at"),
+    /** `keyword:STOP`, `operator`, `client`. */
+    optOutSource: text("opt_out_source"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("contact_id_tenant_key").on(t.id, t.tenantId),
+    uniqueIndex("contact_phone_key").on(t.tenantId, t.phone),
+    uniqueIndex("contact_whatsapp_key").on(t.tenantId, t.whatsapp),
+    uniqueIndex("contact_email_key").on(t.tenantId, t.email),
+    index("contact_tenant_idx").on(t.tenantId, t.name),
+    check(
+      "contact_reachable_check",
+      sql`${t.phone} is not null or ${t.whatsapp} is not null or ${t.email} is not null`,
+    ),
+    check("contact_opt_out_check", sql`(${t.optedOutAt} is null) = (${t.optOutSource} is null)`),
+  ],
+);
+
+/** Append-only log of a contact's changes: consent given or withdrawn, opt-outs, edits. */
+export const contactChange = pgTable(
+  "contact_change",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contactId: uuid("contact_id").notNull(),
+    /** Null for the system (a STOP or START text). */
+    actorId: uuid("actor_id").references(() => appUser.id),
+    change: json("change").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "contact_change_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    index("contact_change_contact_idx").on(t.contactId, t.createdAt),
+    index("contact_change_tenant_idx").on(t.tenantId),
+  ],
+);
+
+// ── Reach out (migration 0010, docs/plan.md §1.25) ───────────────────────────────────────────────
+
+export const REACH_OUT_STATUSES = ["awaiting_approval", "open", "ended"] as const;
+export const REACH_OUT_OUTCOMES = [
+  "replied",
+  "no_reply",
+  "declined",
+  "opted_out",
+  "not_allowed",
+] as const;
+
+/**
+ * One agent reaching one contact from one workflow step: the approved plan (channels, attempts,
+ * escalation), each attempt (an external action with its own key), the reply as untrusted data, and
+ * how it ended. At most one open per contact and subject. The run waits on it like an inbox item:
+ * once it ends, the cron re-sends its event until the run takes it (`run_received_at`).
+ */
+export const reachOut = pgTable(
+  "reach_out",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").notNull(),
+    agentVersionId: uuid("agent_version_id").notNull(),
+    runId: uuid("run_id").notNull(),
+    stepRunId: uuid("step_run_id"),
+    /** The step's durable name in the run. */
+    nodeId: text("node_id").notNull(),
+    contactId: uuid("contact_id").notNull(),
+    /** The role it was addressed to, if any. */
+    role: text("role"),
+    /** What it is about (its sources, else its purpose): one open reach-out per contact and subject. */
+    subject: text("subject").notNull(),
+    purpose: text("purpose").notNull(),
+    urgency: text("urgency").notNull(),
+    /** Channels in order, attempts, escalation, language and the message. */
+    plan: json("plan").notNull(),
+    status: text("status").$type<(typeof REACH_OUT_STATUSES)[number]>().notNull(),
+    outcome: text("outcome").$type<(typeof REACH_OUT_OUTCOMES)[number]>(),
+    reason: text("reason"),
+    /** Each attempt: channel, its external action and when. */
+    attempts: json<Record<string, unknown>[]>("attempts").notNull().default([]),
+    /** The reply, as untrusted data (never instructions). */
+    reply: json("reply"),
+    sources: json<string[]>("sources").notNull().default([]),
+    inboxItemId: uuid("inbox_item_id"),
+    nextAttemptAt: ts("next_attempt_at"),
+    dueAt: ts("due_at"),
+    endedAt: ts("ended_at"),
+    runReceivedAt: ts("run_received_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("reach_out_id_tenant_key").on(t.id, t.tenantId),
+    uniqueIndex("reach_out_step_key").on(t.tenantId, t.runId, t.nodeId),
+    uniqueIndex("reach_out_open_key")
+      .on(t.tenantId, t.contactId, t.subject)
+      .where(sql`${t.status} <> 'ended'`),
+    index("reach_out_due_idx").on(t.tenantId, t.status, t.nextAttemptAt),
+    index("reach_out_contact_idx").on(t.tenantId, t.contactId, t.createdAt),
+    foreignKey({
+      name: "reach_out_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    foreignKey({
+      name: "reach_out_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "reach_out_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    check("reach_out_status_check", oneOf(t.status, REACH_OUT_STATUSES)),
+    check(
+      "reach_out_outcome_check",
+      sql`${t.outcome} is null or ${oneOf(t.outcome, REACH_OUT_OUTCOMES)}`,
+    ),
+    check("reach_out_ended_check", sql`(${t.status} = 'ended') = (${t.outcome} is not null)`),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
  */
+
+// ── Knowledge base ───────────────────────────────────────────────────────────────────────────────
+
+export const KNOWLEDGE_ENTRY_KINDS = ["faq", "policy"] as const;
+export const KNOWLEDGE_ENTRY_STATUSES = ["active", "archived"] as const;
+export const KNOWLEDGE_AUTHOR_ROLES = ["operator", "client_admin"] as const;
+export const KNOWLEDGE_SOURCE_TYPES = ["entry", "document"] as const;
+
+/** Postgres full-text search vectors; written with `to_tsvector(...)` in SQL, never parsed here. */
+const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
+
+/**
+ * A client's FAQ or policy (docs/plan.md §1.21), written by the operator or the client admin. The
+ * row is the entry's current state (its latest version number, archived or not); what it says
+ * lives in its versions.
+ */
+export const knowledgeEntry = pgTable(
+  "knowledge_entry",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    kind: text("kind").$type<(typeof KNOWLEDGE_ENTRY_KINDS)[number]>().notNull(),
+    status: text("status")
+      .$type<(typeof KNOWLEDGE_ENTRY_STATUSES)[number]>()
+      .notNull()
+      .default("active"),
+    /** The latest version's number (`knowledge_entry_version.version`). */
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("knowledge_entry_id_tenant_key").on(t.id, t.tenantId),
+    index("knowledge_entry_tenant_idx").on(t.tenantId, t.status),
+    check("knowledge_entry_kind_check", oneOf(t.kind, KNOWLEDGE_ENTRY_KINDS)),
+    check("knowledge_entry_status_check", oneOf(t.status, KNOWLEDGE_ENTRY_STATUSES)),
+  ],
+);
+
+/**
+ * Every saved state of an entry, in order: its title and text, archived or not, and who saved it.
+ * Immutable (trigger): an edit or an archive inserts the next version, so this is the audit trail.
+ */
+export const knowledgeEntryVersion = pgTable(
+  "knowledge_entry_version",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    entryId: uuid("entry_id").notNull(),
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    status: text("status").$type<(typeof KNOWLEDGE_ENTRY_STATUSES)[number]>().notNull(),
+    authorId: uuid("author_id").references(() => appUser.id),
+    authorRole: text("author_role").$type<(typeof KNOWLEDGE_AUTHOR_ROLES)[number]>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("knowledge_entry_version_id_tenant_key").on(t.id, t.tenantId),
+    unique("knowledge_entry_version_key").on(t.entryId, t.version),
+    foreignKey({
+      name: "knowledge_entry_version_entry_fk",
+      columns: [t.entryId, t.tenantId],
+      foreignColumns: [knowledgeEntry.id, knowledgeEntry.tenantId],
+    }),
+    check("knowledge_entry_version_status_check", oneOf(t.status, KNOWLEDGE_ENTRY_STATUSES)),
+    check("knowledge_entry_version_role_check", oneOf(t.authorRole, KNOWLEDGE_AUTHOR_ROLES)),
+    check("knowledge_entry_version_number_check", sql`${t.version} >= 1`),
+  ],
+);
+
+/**
+ * The searchable index: passages of an entry's current version, or of a document (its name and
+ * latest extraction). Derived from those records and rebuilt when they change, so rows are
+ * replaced, not versioned. `config` is the text-search configuration the passage was indexed
+ * with (from the client's language).
+ */
+export const knowledgeChunk = pgTable(
+  "knowledge_chunk",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    sourceType: text("source_type").$type<(typeof KNOWLEDGE_SOURCE_TYPES)[number]>().notNull(),
+    entryId: uuid("entry_id"),
+    entryVersionId: uuid("entry_version_id"),
+    documentId: uuid("document_id"),
+    /** The extraction the passage was read from; null for a document not read yet. */
+    extractionId: uuid("extraction_id"),
+    chunkNo: integer("chunk_no").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    config: text("config").notNull().default("english"),
+    tsv: tsvector("tsv").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "knowledge_chunk_entry_fk",
+      columns: [t.entryId, t.tenantId],
+      foreignColumns: [knowledgeEntry.id, knowledgeEntry.tenantId],
+    }),
+    foreignKey({
+      name: "knowledge_chunk_entry_version_fk",
+      columns: [t.entryVersionId, t.tenantId],
+      foreignColumns: [knowledgeEntryVersion.id, knowledgeEntryVersion.tenantId],
+    }),
+    foreignKey({
+      name: "knowledge_chunk_document_fk",
+      columns: [t.documentId, t.tenantId],
+      foreignColumns: [document.id, document.tenantId],
+    }),
+    foreignKey({
+      name: "knowledge_chunk_extraction_fk",
+      columns: [t.extractionId, t.tenantId],
+      foreignColumns: [docExtraction.id, docExtraction.tenantId],
+    }),
+    index("knowledge_chunk_tsv_idx").using("gin", t.tsv),
+    index("knowledge_chunk_entry_idx").on(t.entryId),
+    index("knowledge_chunk_document_idx").on(t.documentId),
+    index("knowledge_chunk_tenant_idx").on(t.tenantId),
+    check("knowledge_chunk_source_check", oneOf(t.sourceType, KNOWLEDGE_SOURCE_TYPES)),
+    // An entry's passage names its entry and version; a document's passage its document.
+    check(
+      "knowledge_chunk_source_ids_check",
+      sql`(${t.sourceType} = 'entry' and ${t.entryId} is not null and ${t.entryVersionId} is not null and ${t.documentId} is null) or (${t.sourceType} = 'document' and ${t.documentId} is not null and ${t.entryId} is null)`,
+    ),
+  ],
+);
+
+// ── Billing (docs/plan.md §1.17, §1.24) ──────────────────────────────────────────────────────────
+// Mezonas bills each client through Stripe: a base fee per active client agent that includes an
+// allowance of credits, then usage beyond it. One credit is one cent of what the work cost us,
+// priced from `usage_daily` with the unit costs below. A client's Stripe ids live in
+// `tenant.settings.billing` (the webhook finds the client by customer id in that global table);
+// what was reported, and the Stripe events received, are tenant tables here.
+
+export const BILLING_REPORT_STATUSES = ["pending", "sent", "failed", "none"] as const;
+
+/**
+ * Mezonas' own billing settings: one row (`id` = 1), global, written only from `/api/ops/billing`.
+ * The base fee and overage price are snapshots of the Stripe prices, taken when the ids are saved.
+ */
+export const billingSetting = pgTable(
+  "billing_setting",
+  {
+    id: integer("id").primaryKey().default(1),
+    /** Credits each active client agent includes per month; a client's agents pool theirs. */
+    allowanceCreditsPerAgent: integer("allowance_credits_per_agent").notNull(),
+    /** Stripe price of the monthly base fee (licensed, quantity = active client agents). */
+    basePriceId: text("base_price_id"),
+    /** Stripe price per overage credit (metered, on the meter below). */
+    overagePriceId: text("overage_price_id"),
+    /** The Stripe billing meter's event name the overage is reported to. */
+    meterEventName: text("meter_event_name").notNull(),
+    /** Invoices are sent (not charged to a card on file) and due this many days after. */
+    daysUntilDue: integer("days_until_due").notNull().default(30),
+    baseFee: money("base_fee"),
+    overagePrice: money("overage_price"),
+    currency: currency(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+  },
+  (t) => [
+    check("billing_setting_singleton_check", sql`${t.id} = 1`),
+    check("billing_setting_allowance_check", sql`${t.allowanceCreditsPerAgent} >= 0`),
+    check("billing_setting_days_until_due_check", sql`${t.daysUntilDue} between 1 and 365`),
+  ],
+);
+
+/**
+ * What one unit of a usage measure costs us (a measure is a `usage_daily` column, by its SQL
+ * name): `unit_cost` per `per_units` units, e.g. `cost_usd` 1.0000 per 1, `call_seconds` 0.1000 per
+ * 60. Global, operator-written. A measure with no row is not billed.
+ */
+export const billingUnitCost = pgTable(
+  "billing_unit_cost",
+  {
+    measure: text("measure").primaryKey(),
+    unitCost: numeric("unit_cost", { precision: 14, scale: 4 }).notNull(),
+    perUnits: integer("per_units").notNull().default(1),
+    currency: currency(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+  },
+  (t) => [
+    check("billing_unit_cost_per_units_check", sql`${t.perUnits} > 0`),
+    check("billing_unit_cost_nonnegative_check", sql`${t.unitCost} >= 0`),
+  ],
+);
+
+/**
+ * One day's usage report for a client and billing period: the period's credits through `day`, the
+ * allowance, the overage, and the increment sent to Stripe (`quantity`) under `identifier`, so a
+ * repeat of the day sends nothing. Immutable except status, error and sent_at; never deleted.
+ */
+export const billingUsageReport = pgTable(
+  "billing_usage_report",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** The billing period's first day (calendar months, UTC). */
+    period: date("period").notNull(),
+    day: date("day").notNull(),
+    /** Active client agents when reported; the allowance is theirs, pooled. */
+    agents: integer("agents").notNull(),
+    allowance: integer("allowance").notNull(),
+    /** Credits used in the period through `day` (each day rounded up). */
+    credits: integer("credits").notNull(),
+    overage: integer("overage").notNull(),
+    /** Overage credits sent with this report (the increment over earlier reports). */
+    quantity: integer("quantity").notNull(),
+    /** What the period's work cost us through `day`, as priced (operator only). */
+    costUsd: usd("cost_usd"),
+    currency: currency(),
+    /** The meter event's identifier and idempotency key: `<tenant>:<period>:<day>`. */
+    identifier: text("identifier").notNull(),
+    status: text("status").$type<(typeof BILLING_REPORT_STATUSES)[number]>().notNull(),
+    error: text("error"),
+    sentAt: ts("sent_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("billing_usage_report_day_key").on(t.tenantId, t.period, t.day),
+    index("billing_usage_report_tenant_idx").on(t.tenantId, t.period),
+    check("billing_usage_report_status_check", oneOf(t.status, BILLING_REPORT_STATUSES)),
+    check(
+      "billing_usage_report_counts_check",
+      sql`${t.quantity} >= 0 and ${t.overage} >= 0 and ${t.credits} >= 0 and ${t.allowance} >= 0`,
+    ),
+  ],
+);
+
+/** A Stripe webhook event, stored once per event id: invoice paid or failed, subscription changes. */
+export const billingEvent = pgTable(
+  "billing_event",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    stripeEventId: text("stripe_event_id").notNull().unique(),
+    type: text("type").notNull(),
+    /** The invoice or subscription id. */
+    objectId: text("object_id"),
+    /** What we read from it (status, amounts as decimal strings, links), not the whole event. */
+    summary: json("summary").notNull().default({}),
+    stripeCreatedAt: ts("stripe_created_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("billing_event_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+/**
+ * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
+ * forces row-level security on each; migrations.test.ts checks this list against the database.
+ */
+
 export const TENANT_TABLES = [
   "membership",
   "connection",
@@ -1139,6 +1600,14 @@ export const TENANT_TABLES = [
   "doc_line",
   "tenant_change",
   "feedback",
+  "contact",
+  "contact_change",
+  "knowledge_entry",
+  "knowledge_entry_version",
+  "knowledge_chunk",
+  "billing_usage_report",
+  "billing_event",
+  "reach_out",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

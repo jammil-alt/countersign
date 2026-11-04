@@ -30,8 +30,11 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
+import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import type { Bindings } from "../env";
+import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
+import { type ReachDeps, reachPort } from "../reach/service";
 import { tenantLocale } from "../routes/language";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, senseEmitter } from "./dispatch";
@@ -46,6 +49,8 @@ export interface RunDeps {
   credentials?: RuntimeDeps["credentials"];
   /** Object storage and links for the `docs.*` tools; extraction uses `transport`. */
   documents?: { content: ContentStore; signer?: UrlSigner | null };
+  /** ElevenLabs, the public origin and outbound HTTP, for calls (`call.place`). */
+  voice?: VoiceDeps;
 }
 
 /**
@@ -111,6 +116,7 @@ export function runDepsFromEnv(
   return {
     ...base,
     transport: workerTransport(env),
+    voice: voiceDepsFromEnv(env),
     documents: {
       content: new ContentStore(new R2ObjectStore(env.ARTIFACTS)),
       signer: signerFor(env, env.APP_ORIGIN ?? ""),
@@ -129,6 +135,41 @@ const STEP_CONFIG = {
 } as const;
 
 type Loaded = { ok: true; workflow: Workflow; language: Locale } | { ok: false; reason: string };
+
+/** The agents runtime over the database, as a run (or the cron, for reach-outs) uses it. */
+export function runtimeFor(
+  deps: RunDeps,
+  options: { collect?: EventRow[]; testRun?: boolean } = {},
+): RuntimeDeps {
+  const { db } = deps;
+  return {
+    ports: createDbPorts(db, {
+      emit: senseEmitter(deps.platform.events, {
+        ...(options.collect ? { collect: options.collect } : {}),
+        testRun: options.testRun === true,
+      }),
+      ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
+    }),
+    tools: deps.platform.tools,
+    catalog: deps.platform.catalog,
+    transport: deps.transport,
+    ...(deps.credentials ? { credentials: deps.credentials } : {}),
+    // Contacts and consent for messaging connectors, scoped to the connection's client.
+    services: connectorServicesFor(
+      db,
+      deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+    ),
+  };
+}
+
+/** The reach-out service outside a run (the cron's escalation). */
+export function reachDepsFor(deps: RunDeps): ReachDeps {
+  return {
+    db: deps.db,
+    runtime: runtimeFor(deps),
+    ...(deps.instances ? { instances: deps.instances } : {}),
+  };
+}
 
 export async function executeRun(
   deps: RunDeps,
@@ -197,23 +238,14 @@ export async function executeRun(
     return result;
   }
 
-  const runtime: RuntimeDeps = {
-    ports: createDbPorts(db, {
-      emit: senseEmitter(deps.platform.events, {
-        collect: emitted,
-        testRun: info.mode === "test",
-      }),
-      ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
-    }),
-    tools: deps.platform.tools,
-    catalog: deps.platform.catalog,
-    transport: deps.transport,
-    ...(deps.credentials ? { credentials: deps.credentials } : {}),
-  };
+  const runtime = runtimeFor(deps, { collect: emitted, testRun: info.mode === "test" });
   info.language = loaded.language;
   const ctx: ExecutorContext = {
     run: info,
-    agent: agentPort(runtime),
+    agent: agentPort(
+      runtime,
+      reachPort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
+    ),
     inbox: dbInboxPort(db, info),
     notify: threadNotifyPort(runtime),
     log: dbStepLog(db, info),

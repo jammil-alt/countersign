@@ -2,7 +2,7 @@
 // "External actions"). The workflow executor calls this in its own durable step keyed by the
 // action's idempotency key, after the approval resolved (or at once on the automatic path).
 
-import { executeWrite } from "@countersign/connectors";
+import { executeWrite, UnconfirmedWriteError } from "@countersign/connectors";
 import { AgentsError, notFound } from "../errors";
 import { connectionContext, type RuntimeDeps } from "./context";
 import type { ExternalActionRecord } from "./ports";
@@ -25,6 +25,8 @@ function message(error: unknown): string {
  * - Actions of test runs never execute (ARCHITECTURE §10.4).
  * - An action left `executing` by a crash is run again with the same idempotency key; connectors
  *   must make writes idempotent by that key (the testkit does; QBO takes it as its request id).
+ * - A connector that can't tell whether such a write happened (UnconfirmedWriteError) never writes
+ *   again: the action fails with its reason and the operator gets a `review` item to check it.
  */
 // DECISION: crash recovery re-runs an `executing` action with its key rather than failing it, so a
 // Workflow retry after a lost response completes the write instead of stranding it.
@@ -86,6 +88,31 @@ export async function executeAction(
     });
     return { status: "done", action: done, output: written.output, summary: written.summary };
   } catch (error) {
+    if (error instanceof UnconfirmedWriteError) {
+      // DECISION: a write that may have happened goes to the operator, not to a retry: the action
+      // fails with the connector's reason and a `review` item opens with it, in one transaction
+      // (docs/plan.md §1.22).
+      const owner = action.runId ? await store.run(input.tenantId, action.runId) : null;
+      const failed = await actions.fail(
+        input.tenantId,
+        action.id,
+        { message: error.message, unconfirmed: true, ...error.details },
+        {
+          inbox: {
+            title: error.title,
+            agentId: owner?.agentId ?? null,
+            payload: {
+              reason: error.message,
+              tool: action.tool,
+              connectionId: action.connectionId,
+              idempotencyKey: action.idempotencyKey,
+              ...error.details,
+            },
+          },
+        },
+      );
+      return { status: "failed", action: failed, error: error.message };
+    }
     const failed = await actions.fail(input.tenantId, action.id, { message: message(error) });
     return { status: "failed", action: failed, error: message(error) };
   }

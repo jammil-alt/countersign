@@ -42,6 +42,7 @@ import {
   type StepLog,
   type StepOutcome,
   type StepRunUpdate,
+  type StepWait,
 } from "./ports";
 import { inboxEventType, isWaitTimeout, type StepConfig, type StepRunner } from "./runner";
 
@@ -228,6 +229,9 @@ class Executor {
           summary: `${clientLabel(step)}: ${this.words.waitingForApproval}`,
         };
         break;
+      case "waiting":
+        update = { status: "waiting", summary: `${clientLabel(step)}: waiting for a reply` };
+        break;
       case "escalated":
         update = {
           status: "failed",
@@ -272,7 +276,11 @@ class Executor {
     const { stepRunId } = first;
     let outcome = first.outcome;
     let rejected = false;
-    for (let n = 1; outcome.kind === "approval"; n++) {
+    for (let n = 1; outcome.kind === "approval" || outcome.kind === "waiting"; n++) {
+      if (outcome.kind === "waiting") {
+        outcome = await this.awaitStep(step, name, stepRunId, outcome.wait, n, rejected);
+        continue;
+      }
       const pending = outcome.pending;
       const base = `${name}:approval:${n}`;
       const timeout = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
@@ -310,6 +318,48 @@ class Executor {
       throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
     }
     frame.scope.steps[step.id] = { output: outcome.output };
+  }
+
+  /**
+   * A step waiting on something outside the run (a reach-out's reply): check-before-wait, then the
+   * event or the timeout, then the port says what came of it (its record is the truth).
+   */
+  async awaitStep(
+    step: SkillStep | ActionStep,
+    name: string,
+    stepRunId: string,
+    wait: StepWait,
+    n: number,
+    rejected: boolean,
+  ): Promise<StepOutcome> {
+    const { agent, run } = this.ctx;
+    const { waitDone, afterWait } = agent;
+    if (!waitDone || !afterWait) {
+      throw new Error(`step ${step.id} waits, but the agent port can't wait`);
+    }
+    const base = `${name}:wait:${n}`;
+    const request = { run, step, nodeId: name, stepRunId, wait };
+    const done = await this.runner.do(`${base}:check`, () => waitDone.call(agent, request));
+    let timedOut = false;
+    if (!done) {
+      try {
+        await this.runner.waitForEvent(`${base}:wait`, {
+          type: wait.eventType,
+          timeout: wait.timeout,
+        });
+      } catch (error) {
+        if (!isWaitTimeout(error)) throw error;
+        timedOut = true;
+      }
+    }
+    return this.runner.do(
+      `${base}:resume`,
+      async () => {
+        const next = await afterWait.call(agent, { ...request, timedOut });
+        return this.settle(step, stepRunId, next, rejected);
+      },
+      this.ctx.stepConfig,
+    );
   }
 
   /**

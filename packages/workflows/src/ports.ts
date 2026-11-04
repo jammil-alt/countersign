@@ -6,6 +6,7 @@
 import type {
   ActionStep,
   Approval,
+  Duration,
   Locale,
   NotifyStep,
   PersonStep,
@@ -58,9 +59,31 @@ export type StepOutcome =
    * instead ("would have done").
    */
   | { kind: "approval"; pending: PendingApproval; output?: unknown }
+  /**
+   * The step waits for something outside the run (a reach-out's reply, docs/plan.md §1.25): the
+   * executor waits for `eventType` or `timeout`, then asks the port (`afterWait`) what came of it.
+   * The port's own record is the truth; the event only wakes the run.
+   */
+  | { kind: "waiting"; wait: StepWait; output?: unknown }
   /** A budget was hit: the port created an inbox item for the operator. */
   | { kind: "escalated"; reason: string; inboxItemId?: string }
   | { kind: "failed"; error: string };
+
+/** What a waiting step waits for. Small JSON: it is stored as a durable step result. */
+export interface StepWait {
+  eventType: string;
+  timeout: Duration;
+  /** Whatever the port needs to look it up again (e.g. the reach-out's id). */
+  state?: unknown;
+}
+
+export interface WaitRequest {
+  run: RunInfo;
+  step: SkillStep | ActionStep;
+  nodeId: string;
+  stepRunId: string;
+  wait: StepWait;
+}
 
 export interface SkillStepRequest {
   run: RunInfo;
@@ -105,6 +128,13 @@ export interface AgentPort {
    * rejected. May ask for another approval (an agent-mode skill that writes again).
    */
   resume(request: ResumeRequest): Promise<StepOutcome>;
+  /**
+   * Check-before-wait for a `waiting` outcome: whether what it waits for has already happened (its
+   * event may have been sent before the run began waiting). Ports that never wait leave it out.
+   */
+  waitDone?(request: WaitRequest): Promise<boolean>;
+  /** After the wait (its event, or the timeout): what the step came to, or a further wait. */
+  afterWait?(request: WaitRequest & { timedOut: boolean }): Promise<StepOutcome>;
 }
 
 /** How an inbox item was resolved: the payload of its event and of `POST /api/inbox/:id/resolve`. */

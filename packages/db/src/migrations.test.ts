@@ -24,12 +24,18 @@ const journal = JSON.parse(
 describe("migration journal", () => {
   const entries = journal.entries;
 
-  it("lists idx 0..n-1 with numbered, unique tags", () => {
+  // DECISION: parallel streams reserve migration numbers ahead (docs/plan.md §1.21), so a branch's
+  // journal may skip numbers; tags must still be numbered, unique and in ascending order.
+  it("lists idx 0..n-1 with numbered, unique, ascending tags", () => {
     expect(entries.map((e) => e.idx)).toEqual(entries.map((_, i) => i));
     expect(new Set(entries.map((e) => e.tag)).size).toBe(entries.length);
-    entries.forEach((e, i) => {
-      expect(e.tag.startsWith(String(i).padStart(4, "0"))).toBe(true);
+    const numbers = entries.map((e) => {
+      expect(e.tag).toMatch(/^\d{4}_/);
+      return Number(e.tag.slice(0, 4));
     });
+    for (let i = 1; i < numbers.length; i++) {
+      expect(numbers[i]).toBeGreaterThan(numbers[i - 1] ?? -1);
+    }
   });
 
   // Drizzle's migrator applies only entries whose `when` is later than the last applied one, so an
@@ -149,14 +155,46 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "doc_line",
       "tenant_change",
       "feedback",
+      "contact",
+      "contact_change",
+      "knowledge_entry",
+      "knowledge_entry_version",
+      "billing_setting",
+      "billing_usage_report",
+      "billing_event",
+      "reach_out",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    expect(await can("contact_change", "UPDATE")).toBe(false);
+    expect(await can("knowledge_entry_version", "UPDATE")).toBe(false);
+    expect(await can("billing_event", "UPDATE")).toBe(false);
     expect(await can("connection_change", "UPDATE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);
     expect(await can("tenant_change", "UPDATE")).toBe(false);
+  });
+
+  it("seed the billing settings and let only operator sessions change them", async () => {
+    const [row] = await t.db.$client<{ a: number; m: string }[]>`
+      select allowance_credits_per_agent as a, meter_event_name as m from billing_setting`;
+    expect({ ...row }).toEqual({ a: 2000, m: "mezonas_credits" });
+    const costs = await t.db.$client<{ measure: string; unit_cost: string; per_units: number }[]>`
+      select measure, unit_cost, per_units from billing_unit_cost order by measure`;
+    expect(costs.map((c) => [c.measure, c.unit_cost, c.per_units])).toEqual([
+      ["call_seconds", "0.1000", 60],
+      ["cost_usd", "1.0000", 1],
+      ["messages", "0.0083", 1],
+    ]);
+    const updated = async (operator: boolean) =>
+      t.db.$client.begin(async (tx) => {
+        await tx`select set_config('app.operator', ${operator ? "on" : "off"}, true)`;
+        await tx`set local role cs_worker`;
+        return (await tx`update billing_setting set allowance_credits_per_agent = 2000`).count;
+      });
+    expect(await updated(false)).toBe(0);
+    expect(await updated(true)).toBe(1);
   });
 
   it("default ids to uuid v7, in creation order", async () => {

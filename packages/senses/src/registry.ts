@@ -70,13 +70,19 @@ export class EventTypeRegistry {
    * pack's, they start with the connector's id; unlike a pack's, they are in every client's
    * catalogue (whether a client can receive them depends on its connections, not on enabling).
    */
-  registerConnector(connectorId: string, specs: readonly EventTypeSpec[]): this {
+  registerConnector(
+    connectorId: string,
+    specs: readonly EventTypeSpec[],
+    /** The manifest's `sharedNamespaces` (e.g. `message`): types may start with those too. */
+    sharedNamespaces: readonly string[] = [],
+  ): this {
+    const prefixes = [connectorId, ...sharedNamespaces].map((p) => `${p}.`);
     for (const raw of specs) {
       const spec = EventTypeSpec.parse(raw);
       if (PLATFORM.has(spec.type)) {
         throw new Error(`connector ${connectorId} may not redefine platform event ${spec.type}`);
       }
-      if (!spec.type.startsWith(`${connectorId}.`)) {
+      if (!prefixes.some((p) => spec.type.startsWith(p))) {
         throw new Error(
           `connector ${connectorId} event ${spec.type} must start with "${connectorId}."`,
         );
