@@ -107,6 +107,8 @@ export interface HarnessOptions {
   connectors?: (backend: TestkitBackend) => Connector[];
   /** Env beside the dev sign-in (e.g. ENCRYPTION_KEY, OAUTH_STATE_SECRET). */
   env?: Partial<Bindings>;
+  /** The Builder's model transport (tests pass a FakeModel). */
+  llm?: LlmTransport;
 }
 
 /** null when no database is reachable (the tests then skip). */

@@ -358,6 +358,8 @@ export const PortalWebhookSetup = z.object({
 export const InboundHookResponse = z.object({
   status: z.enum(["accepted", "duplicate"]),
   id: z.string(),
+});
+
 // ── Documents, uploads and forwarding (stream D, docs/plan.md §1.6) ─────────────────────────────
 
 export const DocumentSummary = z.object({
@@ -1507,6 +1509,7 @@ export const portalRoutes = {
     params: IdParams,
     body: z.strictObject({ url: z.string().max(2048).nullable() }),
     response: PortalWebhookSetup,
+  }),
   portalUploads: defineRoute({
     method: "POST",
     path: "/api/uploads",
@@ -1594,6 +1597,7 @@ export const routes = {
       "A delivery to a client's inbound hook (Zapier, Make, n8n): JSON or a form, with the hook's token or signature",
     params: z.object({ tenantId: ApiId, hookId: ApiId }),
     response: InboundHookResponse,
+  }),
   connectors: defineRoute({
     method: "GET",
     path: "/api/connectors",

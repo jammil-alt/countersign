@@ -14,9 +14,9 @@ import {
   ConnectorRegistry,
   createPodioConnector,
   createTestkitConnector,
+  createUploadConnector,
   createWebhookConnector,
   createZohoCrmConnector,
-  createUploadConnector,
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";

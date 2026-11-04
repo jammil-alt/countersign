@@ -24,6 +24,6 @@ export * from "./storage/object-store";
 export * from "./storage/r2";
 export * from "./storage/signed-url";
 export * from "./testkit/index";
+export * from "./upload/index";
 export * from "./webhook/index";
 export * from "./zoho_crm/index";
-export * from "./upload/index";
