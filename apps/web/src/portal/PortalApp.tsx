@@ -5,6 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
+import { PortalRecordScreen } from "../records/RecordScreens";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
@@ -72,6 +73,7 @@ export function PortalApp() {
         <Route path="connections" element={<PortalConnectionsScreen />} />
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
+        <Route path="records/:id" element={<PortalRecordScreen />} />
         <Route path="requests" element={<Placeholder title="Requests" />} />
         <Route path="settings" element={<Placeholder title="Settings" />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
