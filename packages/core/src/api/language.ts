@@ -23,7 +23,7 @@ export type SessionLanguage = z.infer<typeof SessionLanguage>;
 export const languageRoutes = {
   portalSetMyLanguage: defineRoute({
     method: "PUT",
-    path: "/api/portal/me/language",
+    path: "/api/me/language",
     auth: "session",
     roles: ["client_admin", "client_user"],
     summary: "Choose the language you read the portal in (null follows your client's default)",
@@ -32,7 +32,7 @@ export const languageRoutes = {
   }),
   portalSetClientLanguage: defineRoute({
     method: "PUT",
-    path: "/api/portal/language",
+    path: "/api/client/language",
     auth: "session",
     roles: ["client_admin"],
     summary: "Set your client's default language (the client admin)",

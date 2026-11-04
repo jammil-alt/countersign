@@ -7,12 +7,14 @@ describe("document figures", () => {
   it("formats money from decimal strings with separators, never floats", () => {
     expect(money("9742.3500")).toBe("$9,742.35");
     expect(money("0.1")).toBe("$0.10");
-    expect(money("-120.0000")).toBe("−$120.00");
+    expect(money("-120.0000")).toBe("-$120.00");
+    // The largest numeric(14,4), straight from its string.
+    expect(money("9999999999.9949")).toBe("$9,999,999,999.99");
     expect(money(null)).toBe("–");
   });
 
   it("shows quantities and unit prices as printed", () => {
-    expect(figure("2000.0000")).toBe("2000");
+    expect(figure("2000.0000")).toBe("2,000");
     expect(figure("0.0425")).toBe("0.0425");
     expect(figure("6.8500")).toBe("6.85");
     expect(figure("1.5000")).toBe("1.50");

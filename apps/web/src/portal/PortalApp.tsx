@@ -6,6 +6,7 @@ import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
+import { useI18n } from "../i18n/i18n";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
@@ -19,6 +20,7 @@ import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const session = useSession();
   const client =
     session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0] ?? null;
@@ -35,21 +37,25 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         home="/"
         context={
           <span data-testid="portal-client-name" className="text-sm font-medium text-ink">
-            {client?.name ?? "No client"}
+            {client?.name ?? t("shell.noClient")}
           </span>
         }
         inboxTo="/inbox"
         inboxCount={overview.data?.needsYou.inbox}
         sidebar={
           <nav className="flex flex-col gap-0.5">
-            <SidebarLink to="/" label="Overview" end testId="portal-nav-overview" />
-            <SidebarLink to="/inbox" label="Inbox" testId="portal-nav-inbox" />
-            <SidebarLink to="/runs" label="Runs" testId="portal-nav-runs" />
-            <SidebarLink to="/reports" label="Reports" testId="portal-nav-reports" />
-            <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
-            <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
+            <SidebarLink to="/" label={t("nav.overview")} end testId="portal-nav-overview" />
+            <SidebarLink to="/inbox" label={t("nav.inbox")} testId="portal-nav-inbox" />
+            <SidebarLink to="/runs" label={t("nav.runs")} testId="portal-nav-runs" />
+            <SidebarLink to="/reports" label={t("nav.reports")} testId="portal-nav-reports" />
+            <SidebarLink
+              to="/connections"
+              label={t("nav.connections")}
+              testId="portal-nav-connections"
+            />
+            <SidebarLink to="/requests" label={t("nav.requests")} testId="portal-nav-requests" />
             {isAdmin ? (
-              <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
+              <SidebarLink to="/settings" label={t("nav.settings")} testId="portal-nav-settings" />
             ) : null}
           </nav>
         }
@@ -62,21 +68,27 @@ export function PortalLayout({ children }: { children: ReactNode }) {
 }
 
 export function PortalApp() {
+  const { t } = useI18n();
   return (
     <PortalLayout>
       <Routes>
         <Route index element={<OverviewScreen />} />
-        <Route path="services/:id" element={<Placeholder title="Service" />} />
+        <Route path="services/:id" element={<Placeholder title={t("page.service")} />} />
         <Route path="inbox" element={<PortalInboxScreen />} />
         <Route path="runs" element={<PortalRunsScreen />} />
         <Route path="runs/:id" element={<PortalRunScreen />} />
-        <Route path="reports/*" element={<Placeholder title="Reports" />} />
+        <Route path="reports/*" element={<Placeholder title={t("nav.reports")} />} />
         <Route path="connections" element={<PortalConnectionsScreen />} />
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
         <Route path="requests" element={<PortalRequestsScreen />} />
-        <Route path="settings" element={<Placeholder title="Settings" />} />
-        <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
+        <Route path="settings" element={<Placeholder title={t("nav.settings")} />} />
+        <Route
+          path="*"
+          element={
+            <Placeholder title={t("common.notFoundTitle")}>{t("common.notFoundBody")}</Placeholder>
+          }
+        />
       </Routes>
     </PortalLayout>
   );

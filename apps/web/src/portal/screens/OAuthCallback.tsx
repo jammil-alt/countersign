@@ -5,10 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
+import { useI18n } from "../../i18n/i18n";
 import { buttonClass, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
 
 export function OAuthCallbackScreen() {
   const api = useApiClient();
+  const { t } = useI18n();
   const { connector = "" } = useParams();
   const [search] = useSearchParams();
   const navigate = useNavigate();
@@ -28,16 +30,16 @@ export function OAuthCallbackScreen() {
 
   return (
     <div>
-      <PageHeader title="Connecting" subtitle="Finishing the sign-in to your tool." />
+      <PageHeader title={t("callback.title")} subtitle={t("callback.subtitle")} />
       {error ? (
         <div className="flex flex-col gap-3">
           <ErrorNotice error={error} />
           <Link to="/connections" className={buttonClass("secondary", "self-start")}>
-            Back to Connections
+            {t("callback.back")}
           </Link>
         </div>
       ) : (
-        <Loading label="Connecting…" />
+        <Loading label={t("callback.connecting")} />
       )}
     </div>
   );

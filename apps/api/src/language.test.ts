@@ -65,30 +65,30 @@ describe.skipIf(!h)("languages", () => {
   });
 
   it("a user's own choice beats the client's, for that user only, and can be cleared", async () => {
-    const set = await H.call(user("a"), "PUT", "/api/portal/me/language", { language: "fr" });
+    const set = await H.call(user("a"), "PUT", "/api/me/language", { language: "fr" });
     expect(set.status, JSON.stringify(set.json)).toBe(200);
     expect(j(set.json)).toEqual({ user: "fr", client: "es" });
     expect(await session(user("a"), "de")).toEqual({ effective: "fr", user: "fr", client: "es" });
     expect(await session(admin("a"))).toMatchObject({ effective: "es", user: null });
-    const cleared = await H.call(user("a"), "PUT", "/api/portal/me/language", { language: null });
+    const cleared = await H.call(user("a"), "PUT", "/api/me/language", { language: null });
     expect(j(cleared.json)).toEqual({ user: null, client: "es" });
     expect(await session(user("a"))).toMatchObject({ effective: "es", user: null });
   });
 
   it("the client admin changes the client's default; a client user can't", async () => {
-    const byUser = await H.call(user("a"), "PUT", "/api/portal/language", { language: "it" });
+    const byUser = await H.call(user("a"), "PUT", "/api/client/language", { language: "it" });
     expect(byUser.status).toBe(403);
-    const byAdmin = await H.call(admin("a"), "PUT", "/api/portal/language", { language: "pt-BR" });
+    const byAdmin = await H.call(admin("a"), "PUT", "/api/client/language", { language: "pt-BR" });
     expect(byAdmin.status, JSON.stringify(byAdmin.json)).toBe(200);
     expect(await session(user("a"))).toMatchObject({ effective: "pt-BR", client: "pt-BR" });
   });
 
   it("refuses languages we don't have, and clients the operator doesn't serve", async () => {
     expect(
-      (await H.call(admin("a"), "PUT", "/api/portal/language", { language: "es-MX" })).status,
+      (await H.call(admin("a"), "PUT", "/api/client/language", { language: "es-MX" })).status,
     ).toBe(400);
     expect(
-      (await H.call(user("a"), "PUT", "/api/portal/me/language", { language: "klingon" })).status,
+      (await H.call(user("a"), "PUT", "/api/me/language", { language: "klingon" })).status,
     ).toBe(400);
     const other = await H.call(
       "other-operator@example.com",

@@ -7,6 +7,7 @@ import { FEEDBACK_COMMENT_MAX, type FeedbackSubmission } from "@countersign/core
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useApiClient } from "../api/useApi";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { Icon } from "../ui/icons";
 import { Button, cx } from "../ui/primitives";
 import { captureViewport, FEEDBACK_LAYER_ATTR } from "./capture";
@@ -34,10 +35,8 @@ const layer = { [FEEDBACK_LAYER_ATTR]: "" };
 const TOAST_MS = 2400;
 const TOAST_LONG_MS = 6000;
 
-export function toastFor(outcome: ScreenshotOutcome): string {
-  return outcome === "failed"
-    ? "We saved your comment, but the picture didn't upload."
-    : "Thanks. We got your feedback.";
+export function toastFor(outcome: ScreenshotOutcome, { t }: Pick<I18n, "t"> = EN): string {
+  return outcome === "failed" ? t("feedback.pictureFailed") : t("feedback.thanks");
 }
 
 /** The element under a point, ignoring the feedback layer itself. */
@@ -47,6 +46,8 @@ function elementAt(x: number, y: number): Element | null {
 }
 
 export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const location = useLocation();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [toast, setToast] = useState<{ text: string; ms: number } | null>(null);
@@ -85,7 +86,7 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
         <button
           type="button"
           data-testid="feedback-button"
-          aria-label="Feedback"
+          aria-label={t("feedback.button")}
           onClick={() => setPhase({ kind: "picking" })}
           className={cx(
             "ds-btn ds-btn--secondary fixed right-4 bottom-4 z-40 border border-line bg-surface",
@@ -93,7 +94,7 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
           )}
         >
           <Icon name="message" />
-          <span className="max-sm:sr-only">Feedback</span>
+          <span className="max-sm:sr-only">{t("feedback.button")}</span>
         </button>
       ) : null}
 
@@ -106,7 +107,7 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
             data-testid="feedback-capturing"
             className="relative rounded-sm bg-surface px-4 py-3 text-sm text-ink elevation-pop"
           >
-            Taking the picture…
+            {t("feedback.capturing")}
           </p>
         </div>
       ) : null}
@@ -119,7 +120,7 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
           onSent={(outcome) => {
             setPhase({ kind: "idle" });
             setToast({
-              text: toastFor(outcome),
+              text: toastFor(outcome, i18n),
               ms: outcome === "failed" ? TOAST_LONG_MS : TOAST_MS,
             });
           }}
@@ -144,23 +145,24 @@ function PinPicker({
   onPin: (pin: Pin | null) => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="fixed inset-0 z-50">
       <button
         type="button"
         data-testid="feedback-pick-area"
-        aria-label="Tap where the problem is"
+        aria-label={t("feedback.tapWhere")}
         className="ds-scrim block cursor-crosshair border-0 p-0"
         onClick={(e) => onPin({ x: e.clientX, y: e.clientY })}
       />
       <div className="pointer-events-none absolute inset-x-0 top-6 flex justify-center px-4">
         <div className="pointer-events-auto flex flex-wrap items-center gap-3 rounded-md border border-line bg-surface px-4 py-3 elevation-pop">
-          <p className="font-medium text-ink">Tap where the problem is</p>
+          <p className="font-medium text-ink">{t("feedback.tapWhere")}</p>
           <Button size="sm" data-testid="feedback-no-spot" onClick={() => onPin(null)}>
-            No particular spot
+            {t("feedback.noSpot")}
           </Button>
           <Button size="sm" variant="ghost" data-testid="feedback-pick-cancel" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
         </div>
       </div>
@@ -180,6 +182,7 @@ function Composer({
   onSent: (outcome: ScreenshotOutcome) => void;
 }) {
   const client = useApiClient();
+  const { t } = useI18n();
   const [comment, setComment] = useState("");
   const [leaveOff, setLeaveOff] = useState(false);
   const [sending, setSending] = useState(false);
@@ -199,7 +202,7 @@ function Composer({
   async function send() {
     const text = comment.trim();
     if (!text) {
-      setError("Say what's wrong, or what would help.");
+      setError(t("feedback.sayWhat"));
       textRef.current?.focus();
       return;
     }
@@ -222,7 +225,7 @@ function Composer({
       onSent(screenshot);
     } catch {
       setSending(false);
-      setError("We couldn't send that. Try again.");
+      setError(t("feedback.failed"));
     }
   }
 
@@ -242,9 +245,9 @@ function Composer({
         <div className="ds-dialog__body min-h-0 flex-1 overflow-y-auto">
           <div>
             <h2 id="feedback-title" className="type-subheading text-ink">
-              Send feedback
+              {t("feedback.title")}
             </h2>
-            <p className="text-sm text-ink-muted">We read every one.</p>
+            <p className="text-sm text-ink-muted">{t("feedback.weRead")}</p>
           </div>
           {draft.picture && !leaveOff ? (
             <PinnedPicture
@@ -258,18 +261,16 @@ function Composer({
               data-testid="feedback-no-picture"
               className="rounded-sm border border-dashed border-line-strong px-3 py-4 text-sm text-ink-muted"
             >
-              {leaveOff
-                ? "The picture stays off."
-                : "We couldn't take a picture of this page. Your comment still helps."}
+              {leaveOff ? t("feedback.pictureOff") : t("feedback.noPicture")}
             </p>
           )}
           {draft.target ? (
             <p data-testid="feedback-target" className="text-sm text-ink-muted">
-              Pinned: <span className="text-ink">{draft.target}</span>
+              {t("feedback.pinned")} <span className="text-ink">{draft.target}</span>
             </p>
           ) : null}
           <label className="ds-field">
-            <span className="text-sm font-medium text-ink">What's wrong, or what would help?</span>
+            <span className="text-sm font-medium text-ink">{t("feedback.question")}</span>
             <textarea
               ref={textRef}
               data-testid="feedback-comment"
@@ -297,13 +298,13 @@ function Composer({
               className="ds-choice"
             >
               <span className="ds-check">{leaveOff ? "✓" : ""}</span>
-              Leave the picture off
+              {t("feedback.leaveOff")}
             </button>
           ) : null}
         </div>
         <div className="ds-dialog__foot">
           <Button variant="ghost" data-testid="feedback-cancel" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -311,7 +312,7 @@ function Composer({
             disabled={sending}
             onClick={() => void send()}
           >
-            {sending ? "Sending…" : "Send"}
+            {sending ? t("common.sending") : t("common.send")}
           </Button>
         </div>
       </div>
@@ -331,15 +332,14 @@ export function PinnedPicture({
   viewport: { width: number; height: number };
   testId?: string;
 }) {
+  const { t } = useI18n();
   return (
     <div
       data-testid={testId}
       className="relative overflow-hidden rounded-sm border border-line bg-surface-subtle"
       style={{ aspectRatio: `${viewport.width} / ${viewport.height}` }}
     >
-      {src ? (
-        <img src={src} alt="The page when feedback was sent" className="block w-full" />
-      ) : null}
+      {src ? <img src={src} alt={t("feedback.pictureAlt")} className="block w-full" /> : null}
       {pin ? (
         <span
           data-testid={testId ? `${testId}-pin` : undefined}

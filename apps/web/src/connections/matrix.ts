@@ -3,6 +3,7 @@
 // a client admin may only tighten from what is saved; a client user only reads it; delete stays
 // off for everyone in v1. The API enforces the same rules; this only offers what it would accept.
 import type { PermissionLevel, Verb } from "@countersign/core";
+import type { PlainKey } from "../i18n/catalog";
 import type { Tone } from "../ui/primitives";
 
 export const VERBS: readonly Verb[] = ["read", "create", "update", "delete"];
@@ -47,17 +48,15 @@ export function levelTone(level: PermissionLevel): Tone {
   }
 }
 
-export const LEVEL_LABEL: Record<PermissionLevel, string> = {
-  auto: "Auto",
-  approval: "Approval",
-  off: "Off",
+export const LEVEL_LABEL: Record<PermissionLevel, PlainKey> = {
+  auto: "matrix.level.auto",
+  approval: "matrix.level.approval",
+  off: "matrix.level.off",
 };
 
-/** What a level means for a verb, in the client's words. */
-export function levelMeaning(verb: Verb, level: PermissionLevel): string {
-  if (level === "off") return `Agents can't ${verb} here.`;
-  if (verb === "read") return "Agents read what they need.";
-  return level === "auto"
-    ? "A step may run without asking, if we set it to."
-    : "Every change waits in your inbox until someone says yes.";
-}
+export const VERB_LABEL: Record<Verb, PlainKey> = {
+  read: "matrix.verb.read",
+  create: "matrix.verb.create",
+  update: "matrix.verb.update",
+  delete: "matrix.verb.delete",
+};

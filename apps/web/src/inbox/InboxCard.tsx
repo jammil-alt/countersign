@@ -6,6 +6,8 @@ import type { ResolveBody } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
+import type { PlainKey } from "../i18n/catalog";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { shortTime } from "../runs/format";
 import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
@@ -26,13 +28,13 @@ export interface InboxCardItem {
   resolvedAt: string | null;
 }
 
-const KIND_LABEL: Record<string, string> = {
-  external_action: "Change",
-  approval: "Approval",
-  request: "Question",
-  review: "Review",
-  extraction_review: "Check",
-  change_request: "Request",
+const KIND_LABEL: Record<string, PlainKey> = {
+  external_action: "inbox.kind.external_action",
+  approval: "inbox.kind.approval",
+  request: "inbox.kind.request",
+  review: "inbox.kind.review",
+  extraction_review: "inbox.kind.extraction_review",
+  change_request: "inbox.kind.change_request",
 };
 
 /** Payload keys that are plumbing, not something a person reads. */
@@ -57,18 +59,20 @@ export function outcomeText(
   kind: string,
   approved: boolean | null | undefined,
   byName: string | null | undefined,
+  { t }: Pick<I18n, "t"> = EN,
 ): string {
   const verb =
     kind === "request"
       ? approved === false
-        ? "Declined"
-        : "Answered"
+        ? "declined"
+        : "answered"
       : approved === true
-        ? "Approved"
+        ? "approved"
         : approved === false
-          ? "Rejected"
-          : "Resolved";
-  return byName ? `${verb} by ${byName}` : verb;
+          ? "rejected"
+          : "resolved";
+  if (!byName) return t(`inbox.outcome.${verb}`);
+  return t(`inbox.outcome.${verb}By`, { name: byName });
 }
 
 /** What the run asked a person, as label/value pairs (free-form payloads of person steps). */
@@ -78,17 +82,27 @@ export function payloadFacts(payload: Record<string, unknown>): [string, string]
     .map(([k, v]) => [fieldLabel(k), formatValue(v)]);
 }
 
-function statusBadge(item: InboxCardItem, outcome: string | null): { label: string; tone: Tone } {
-  if (item.status === "expired") return { label: "Expired", tone: "neutral" };
+function statusBadge(
+  item: InboxCardItem,
+  outcome: string | null,
+  { t }: Pick<I18n, "t">,
+): { label: string; tone: Tone } {
+  if (item.status === "expired") return { label: t("common.expired"), tone: "neutral" };
   // Resolved by a person (approved, answered): copper; rejected or declined stays neutral.
   if (item.status === "resolved") {
-    const declined = /^(Rejected|Declined)/.test(outcome ?? "");
-    return { label: outcome ?? "Resolved", tone: declined ? "neutral" : "person" };
+    // The outcome is outcomeText's: "Rejected by Ana" starts with "Rejected" in every language
+    // (the message files keep the "…By" forms starting with the plain word).
+    const declined = [t("inbox.outcome.rejected"), t("inbox.outcome.declined")].some((w) =>
+      (outcome ?? "").startsWith(w),
+    );
+    return { label: outcome ?? t("inbox.outcome.resolved"), tone: declined ? "neutral" : "person" };
   }
   // Open items wait on you: signal, with a word.
-  if (item.kind === "external_action") return { label: "Needs approval", tone: "warning" };
-  if (item.kind === "request") return { label: "Needs an answer", tone: "warning" };
-  return { label: "Waiting", tone: "warning" };
+  if (item.kind === "external_action") {
+    return { label: t("inbox.status.needsApproval"), tone: "warning" };
+  }
+  if (item.kind === "request") return { label: t("inbox.status.needsAnswer"), tone: "warning" };
+  return { label: t("common.waiting"), tone: "warning" };
 }
 
 export function InboxCard({
@@ -117,8 +131,10 @@ export function InboxCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [answer, setAnswer] = useState("");
+  const i18n = useI18n();
+  const { t } = i18n;
   const open = item.status === "open";
-  const badge = statusBadge(item, outcome ?? null);
+  const badge = statusBadge(item, outcome ?? null, i18n);
   const isChange = item.kind === "external_action";
   const tool = typeof item.payload.tool === "string" ? item.payload.tool : null;
   const connector =
@@ -153,10 +169,10 @@ export function InboxCard({
           <Badge tone={badge.tone} testId="inbox-item-status">
             {badge.label}
           </Badge>
-          <Tag>{KIND_LABEL[item.kind] ?? item.kind}</Tag>
+          <Tag>{KIND_LABEL[item.kind] ? t(KIND_LABEL[item.kind] as PlainKey) : item.kind}</Tag>
         </div>
         <span className="text-sm text-ink-muted">
-          {[context, shortTime(item.createdAt)].filter(Boolean).join(" · ")}
+          {[context, shortTime(item.createdAt, undefined, i18n)].filter(Boolean).join(" · ")}
         </span>
       </div>
 
@@ -187,7 +203,7 @@ export function InboxCard({
 
       {item.kind === "request" && open && onResolve ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>
-          <span className="text-sm font-medium text-ink">Your answer</span>
+          <span className="text-sm font-medium text-ink">{t("inbox.yourAnswer")}</span>
           <textarea
             id={`answer-${item.id}`}
             data-testid="inbox-item-answer-input"
@@ -203,7 +219,7 @@ export function InboxCard({
         <div className="mz-sign__receipts">
           <Link to={runHref} className="mz-receipt" data-testid="inbox-item-run-open">
             <Icon name="worksheet" size={14} className="ds-icon" />
-            View run
+            {t("inbox.viewRun")}
           </Link>
         </div>
       ) : null}
@@ -215,13 +231,13 @@ export function InboxCard({
           {open
             ? onResolve
               ? isChange
-                ? "Nothing changes in the tool until you sign."
+                ? t("inbox.nothingChangesUntilSign")
                 : item.dueAt
-                  ? `Waits until ${shortTime(item.dueAt)}.`
+                  ? t("inbox.waitsUntil", { time: shortTime(item.dueAt, undefined, i18n) })
                   : null
               : (waitingOn ?? null)
             : outcome
-              ? `${outcome}${item.resolvedAt ? ` · ${shortTime(item.resolvedAt)}` : ""}`
+              ? `${outcome}${item.resolvedAt ? ` · ${shortTime(item.resolvedAt, undefined, i18n)}` : ""}`
               : null}
         </p>
         {open && onResolve ? (
@@ -251,10 +267,11 @@ function Actions({
   answer: string;
   onResolve: (body: ResolveInput) => void;
 }) {
+  const { t } = useI18n();
   if (kind === "change_request") {
     return (
       <Link to="/ops/requests" className="text-sm text-link underline">
-        Open the requests queue
+        {t("inbox.openRequestsQueue")}
       </Link>
     );
   }
@@ -267,7 +284,7 @@ function Actions({
           disabled={busy}
           onClick={() => onResolve({ decision: "reject" })}
         >
-          Decline
+          {t("inbox.decline")}
         </Button>
         <Button
           data-testid="inbox-item-answer-send"
@@ -275,7 +292,7 @@ function Actions({
           disabled={busy || answer.trim().length === 0}
           onClick={() => onResolve({ decision: "approve", answer: answer.trim() })}
         >
-          Send answer
+          {t("inbox.sendAnswer")}
         </Button>
       </div>
     );
@@ -288,7 +305,7 @@ function Actions({
         disabled={busy}
         onClick={() => onResolve({ decision: "reject" })}
       >
-        Reject
+        {t("inbox.reject")}
       </Button>
       <Button
         data-testid="inbox-item-approve"
@@ -298,7 +315,9 @@ function Actions({
         onClick={() => onResolve({ decision: "approve" })}
       >
         {/* Approving an action is always "Sign" (brand book). */}
-        {kind === "external_action" && toolName ? `Sign and update ${toolName}` : "Sign"}
+        {kind === "external_action" && toolName
+          ? t("inbox.signAndUpdate", { tool: toolName })
+          : t("inbox.sign")}
       </Button>
     </div>
   );

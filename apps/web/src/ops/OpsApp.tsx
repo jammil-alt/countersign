@@ -2,6 +2,7 @@
 // check, so client users never download it (plan §1.2 "Back office and portal in one app"). The
 // workflow builder is a further lazy chunk inside it, loaded when an operator opens a workflow.
 import { Route, Routes } from "react-router-dom";
+import { I18nProvider } from "../i18n/i18n";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
@@ -31,6 +32,16 @@ const PLACEHOLDERS: [path: string, title: string][] = [
 ];
 
 export default function OpsApp() {
+  // The back office stays in English (plan §1.18), whatever the browser or a client reads; the
+  // components it shares with the portal render English here.
+  return (
+    <I18nProvider locale="en">
+      <OpsBackOffice />
+    </I18nProvider>
+  );
+}
+
+function OpsBackOffice() {
   return (
     <OpsLayout>
       <Routes>

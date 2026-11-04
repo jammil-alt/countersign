@@ -3,10 +3,18 @@
 // and are saved together; a client admin is offered only the saved level or stricter.
 import type { PermissionLevel, Verb } from "@countersign/core";
 import { useState } from "react";
+import { useI18n } from "../i18n/i18n";
 import { formatValue } from "../inbox/change";
 import { Select } from "../ui/forms";
 import { Badge, Button, Card, cx, ErrorNotice } from "../ui/primitives";
-import { allowedLevels, LEVEL_LABEL, levelTone, type MatrixEditor, VERBS } from "./matrix";
+import {
+  allowedLevels,
+  LEVEL_LABEL,
+  levelTone,
+  type MatrixEditor,
+  VERB_LABEL,
+  VERBS,
+} from "./matrix";
 
 export interface MatrixRow {
   /** The connection id. */
@@ -33,6 +41,7 @@ export function MatrixTable({
   /** The line at the top right ("Approval means the change waits in your inbox…"). */
   note?: string;
 }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState<Draft>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -71,7 +80,7 @@ export function MatrixTable({
   return (
     <Card testId="matrix" className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h3 className="eyebrow text-ink-muted">What agents may do in each tool</h3>
+        <h3 className="eyebrow text-ink-muted">{t("matrix.title")}</h3>
         {note ? <p className="text-sm text-ink-muted">{note}</p> : null}
       </div>
       {/* The Mezonas TableAnalytical layout (dt-ana), inside the card. */}
@@ -79,11 +88,11 @@ export function MatrixTable({
         <table>
           <thead>
             <tr className="dt-cols">
-              <th>Tool</th>
+              <th>{t("matrix.tool")}</th>
               {VERBS.map((v) => (
-                <th key={v}>{v}</th>
+                <th key={v}>{t(VERB_LABEL[v])}</th>
               ))}
-              <th>Scope</th>
+              <th>{t("matrix.scope")}</th>
             </tr>
           </thead>
           <tbody>
@@ -108,7 +117,7 @@ export function MatrixTable({
                           />
                         ) : (
                           <Badge tone={levelTone(current)} testId={`matrix-${verb}-level`}>
-                            {LEVEL_LABEL[current]}
+                            {t(LEVEL_LABEL[current])}
                           </Badge>
                         )}
                       </td>
@@ -117,17 +126,17 @@ export function MatrixTable({
                   <td className="text-ink">
                     {editable && editor === "operator" && isTextScope(row.permissions.scope) ? (
                       <input
-                        aria-label={`Scope for ${row.name}`}
+                        aria-label={t("matrix.scopeFor", { name: row.name })}
                         data-testid="matrix-scope-input"
                         value={String(
                           (edit.scope as string | undefined) ?? row.permissions.scope ?? "",
                         )}
-                        placeholder="Everything the connection reaches"
+                        placeholder={t("matrix.everything")}
                         onChange={(e) => set(row, "scope", e.target.value || undefined)}
                         className="ds-input h-8 min-w-48 text-sm"
                       />
                     ) : row.permissions.scope === undefined ? (
-                      <span className="text-ink-muted">Everything the connection reaches</span>
+                      <span className="text-ink-muted">{t("matrix.everything")}</span>
                     ) : (
                       formatValue(row.permissions.scope)
                     )}
@@ -146,9 +155,7 @@ export function MatrixTable({
       {editable && dirty ? (
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-sm text-ink-muted">
-            {editor === "client_admin"
-              ? "You can tighten these yourself. Only we can loosen them again."
-              : "Changes apply to the next tool call, and are logged."}
+            {editor === "client_admin" ? t("matrix.tightenNote") : t("matrix.operatorNote")}
           </p>
           <div className="flex gap-2">
             <Button
@@ -157,7 +164,7 @@ export function MatrixTable({
               disabled={busy}
               onClick={() => setDraft({})}
             >
-              Discard
+              {t("matrix.discard")}
             </Button>
             <Button
               data-testid="matrix-changes-save"
@@ -165,7 +172,7 @@ export function MatrixTable({
               disabled={busy}
               onClick={() => void save()}
             >
-              Save permissions
+              {t("matrix.save")}
             </Button>
           </div>
         </div>
@@ -191,9 +198,10 @@ function LevelSelect({
   changed: boolean;
   onChange: (level: PermissionLevel) => void;
 }) {
+  const { t } = useI18n();
   return (
     <Select
-      aria-label={verb}
+      aria-label={t(VERB_LABEL[verb])}
       data-testid={`matrix-${verb}-select`}
       value={value}
       onChange={(e) => onChange(e.target.value as PermissionLevel)}
@@ -201,7 +209,7 @@ function LevelSelect({
     >
       {options.map((l) => (
         <option key={l} value={l}>
-          {LEVEL_LABEL[l]}
+          {t(LEVEL_LABEL[l])}
         </option>
       ))}
     </Select>

@@ -5,6 +5,8 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { isApiError } from "../api/client";
+import { errorText } from "../i18n/errors";
+import { useI18n } from "../i18n/i18n";
 import { cx } from "./cx";
 import { Icon } from "./icons";
 
@@ -225,8 +227,9 @@ export function Tabs({
   /** `active` overrides the URL match (a tab that owns several routes). */
   items: { to: string; label: string; count?: number; end?: boolean; active?: boolean }[];
 }) {
+  const { t } = useI18n();
   return (
-    <nav className="flex gap-5 border-b border-line" aria-label="Sections">
+    <nav className="flex gap-5 border-b border-line" aria-label={t("common.sections")}>
       {items.map((t) => (
         <NavLink
           key={t.to}
@@ -251,25 +254,22 @@ export function Tabs({
   );
 }
 
-export function Loading({ label = "Loading…" }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <p role="status" className="py-6 text-ink-muted">
-      {label}
+      {label ?? t("common.loading")}
     </p>
   );
 }
 
-/** What a failed load says, as a risk Banner. Server codes are shown so a contract break is recognisable. */
+/**
+ * What a failed load says, as a risk Banner, in the reader's language (by the error's code).
+ * Server codes are shown so a contract break is recognisable.
+ */
 export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const message = isApiError(error)
-    ? error.status === 404
-      ? "Not found."
-      : error.status === 403
-        ? "You don't have access to this."
-        : error.message
-    : error instanceof Error
-      ? error.message
-      : String(error);
+  const i18n = useI18n();
+  const message = errorText(error, i18n);
   return (
     <div role="alert" className="ds-banner items-center">
       <Icon name="alert" className="mt-px" />
@@ -279,7 +279,7 @@ export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () =
       </span>
       {onRetry ? (
         <Button variant="ghost" size="sm" onClick={onRetry} className="text-risk">
-          Try again
+          {i18n.t("common.tryAgain")}
         </Button>
       ) : null}
     </div>
@@ -288,14 +288,13 @@ export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () =
 
 /** A screen from ARCHITECTURE §15 that later milestones fill in. */
 export function Placeholder({ title, children }: { title: string; children?: ReactNode }) {
+  const { t } = useI18n();
   return (
     <div data-testid="placeholder">
       <PageHeader title={title} />
       <div className="ds-empty">
-        <span className="eyebrow text-ink-muted">Not built yet</span>
-        <span className="text-ink-muted">
-          {children ?? "This screen comes in a later milestone."}
-        </span>
+        <span className="eyebrow text-ink-muted">{t("common.notBuiltTitle")}</span>
+        <span className="text-ink-muted">{children ?? t("common.notBuiltBody")}</span>
       </div>
     </div>
   );

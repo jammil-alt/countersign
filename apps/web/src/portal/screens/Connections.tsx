@@ -9,6 +9,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { WebhookSetup } from "../../connections/WebhookSetup";
+import { useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
 import { useSession } from "../../session/session";
 import {
@@ -27,6 +28,7 @@ type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][num
 
 export function PortalConnectionsScreen() {
   const api = useApiClient();
+  const { t } = useI18n();
   const session = useSession();
   const role =
     session.tenants.find((t) => t.id === session.activeTenantId)?.role ??
@@ -54,10 +56,7 @@ export function PortalConnectionsScreen() {
 
   return (
     <div>
-      <PageHeader
-        title="Connections"
-        subtitle="Connect each tool once. Your agents use these connections, within the permissions shown here."
-      />
+      <PageHeader title={t("connections.title")} subtitle={t("connections.subtitle")} />
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {actionError ? (
@@ -69,11 +68,11 @@ export function PortalConnectionsScreen() {
         <div className="flex flex-col gap-6">
           <UploadSection isAdmin={isAdmin} />
           <section>
-            <SectionLabel>Connected · {connected.length}</SectionLabel>
+            <SectionLabel>{t("connections.connected", { count: connected.length })}</SectionLabel>
             {connected.length === 0 ? (
               <EmptyState>
-                No tools connected yet.{" "}
-                {isAdmin ? "Connect one below." : "Your admin connects them."}
+                {t("connections.noneConnected")}{" "}
+                {isAdmin ? t("connections.connectBelow") : t("connections.adminConnects")}
               </EmptyState>
             ) : (
               <div
@@ -107,7 +106,7 @@ export function PortalConnectionsScreen() {
           {withRows.length > 0 ? (
             <MatrixTable
               editor={isAdmin ? "client_admin" : "viewer"}
-              note="Approval means the change waits in your inbox until someone says yes."
+              note={t("connections.matrixNote")}
               rows={withRows.map((c) => ({
                 id: c.connection?.id ?? c.connector,
                 name: c.name,
@@ -134,7 +133,7 @@ export function PortalConnectionsScreen() {
 
           {others.length > 0 ? (
             <section>
-              <SectionLabel>Available</SectionLabel>
+              <SectionLabel>{t("connections.available")}</SectionLabel>
               <div
                 data-testid="portal-connections-available"
                 className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4"
@@ -173,6 +172,8 @@ function ConnectedCard({
   canDisconnect: boolean;
   onDisconnect: (connectionId: string) => Promise<void>;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [showTools, setShowTools] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const conn = item.connection;
@@ -188,23 +189,29 @@ function ConnectedCard({
         </div>
       </div>
       <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
-        <Badge tone="positive">{connectionStatusLabel(conn.status)}</Badge>
-        {conn.lastSyncAt ? `synced ${shortTime(conn.lastSyncAt)}` : "live"}
+        <Badge tone="positive">{connectionStatusLabel(conn.status, i18n)}</Badge>
+        {conn.lastSyncAt
+          ? t("connections.synced", { time: shortTime(conn.lastSyncAt, undefined, i18n) })
+          : t("connections.live")}
       </p>
       <p className="mt-2 text-sm text-ink-muted">
-        Used by {conn.usedBy.length} {conn.usedBy.length === 1 ? "service" : "services"} · {writes}{" "}
-        {writes === 1 ? "action" : "actions"}
+        {t("connections.usedByServices", { count: conn.usedBy.length })} ·{" "}
+        {t("connections.actions", { count: writes })}
       </p>
       {showTools ? (
         <ul data-testid="portal-connection-tools" className="mt-3 flex flex-col gap-1.5 text-sm">
           {conn.access.map((a) => (
             <li key={a.toolId} className="flex items-start justify-between gap-3">
               <span className="text-ink">{a.description}</span>
-              <span className="shrink-0 text-ink-muted">{accessLabel(a.access)}</span>
+              <span className="shrink-0 text-ink-muted">{accessLabel(a.access, i18n)}</span>
             </li>
           ))}
           {conn.usedBy.length > 0 ? (
-            <li className="text-ink-muted">Used by {conn.usedBy.map((u) => u.name).join(", ")}</li>
+            <li className="text-ink-muted">
+              {t("connections.usedByNames", {
+                names: new Intl.ListFormat(i18n.intl).format(conn.usedBy.map((u) => u.name)),
+              })}
+            </li>
           ) : null}
         </ul>
       ) : null}
@@ -214,7 +221,7 @@ function ConnectedCard({
           onClick={() => setShowTools((s) => !s)}
           aria-expanded={showTools}
         >
-          Permissions
+          {t("connections.permissions")}
         </Button>
         {canDisconnect && !confirming ? (
           <Button
@@ -222,27 +229,27 @@ function ConnectedCard({
             variant="ghost"
             onClick={() => setConfirming(true)}
           >
-            Disconnect
+            {t("connections.disconnect")}
           </Button>
         ) : null}
       </div>
       {confirming ? (
         <div className="ds-banner mt-3 block">
-          <p>Agents stop using {item.name} until you connect it again.</p>
+          <p>{t("connections.disconnectWarning", { tool: item.name })}</p>
           <div className="mt-2 flex gap-2">
             <Button
               data-testid="portal-connection-disconnect-confirm"
               variant="primary"
               onClick={() => void onDisconnect(conn.id).then(() => setConfirming(false))}
             >
-              Disconnect
+              {t("connections.disconnect")}
             </Button>
             <Button
               data-testid="portal-connection-disconnect-cancel"
               variant="ghost"
               onClick={() => setConfirming(false)}
             >
-              Keep it
+              {t("connections.keepIt")}
             </Button>
           </div>
         </div>
@@ -260,6 +267,8 @@ function AvailableCard({
   isAdmin: boolean;
   onConnect: () => Promise<void>;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [busy, setBusy] = useState(false);
   const status = item.connection?.status;
   const reconnect = status === "disconnected" || status === "error";
@@ -270,14 +279,14 @@ function AvailableCard({
         <div className="min-w-0">
           <p className="font-medium text-ink">{item.name}</p>
           {status && status !== "pending" ? (
-            <p className="text-sm text-ink-muted">{connectionStatusLabel(status)}</p>
+            <p className="text-sm text-ink-muted">{connectionStatusLabel(status, i18n)}</p>
           ) : null}
         </div>
       </div>
       <p className="mt-3 text-sm text-ink">{item.description}</p>
       <div className="mt-auto pt-4">
         {!item.available ? (
-          <Badge testId="portal-connection-unavailable">Not available yet</Badge>
+          <Badge testId="portal-connection-unavailable">{t("connections.notAvailable")}</Badge>
         ) : isAdmin ? (
           <Button
             data-testid="portal-connection-connect"
@@ -288,10 +297,10 @@ function AvailableCard({
               void onConnect().finally(() => setBusy(false));
             }}
           >
-            {reconnect ? "Reconnect" : "Connect"}
+            {reconnect ? t("connections.reconnect") : t("connections.connect")}
           </Button>
         ) : (
-          <p className="text-sm text-ink-muted">Your admin can connect it.</p>
+          <p className="text-sm text-ink-muted">{t("connections.adminCanConnect")}</p>
         )}
       </div>
     </Card>

@@ -8,34 +8,36 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
+import type { PlainKey } from "../i18n/catalog";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { Logo, PRODUCT_NAME } from "../ui/brand";
 import { Icon } from "../ui/icons";
 import { Button, buttonClass, Card, cx, ErrorNotice, Loading } from "../ui/primitives";
 import { homeFor, useSessionState } from "./session";
 
 const ROLE_LABEL = {
-  operator: "Operator",
-  client_admin: "Client admin",
-  client_user: "Client user",
-};
+  operator: "signin.role.operator",
+  client_admin: "signin.role.client_admin",
+  client_user: "signin.role.client_user",
+} satisfies Record<string, PlainKey>;
 
 /** What the sign-in page says when the API sent the browser back with `?error=<code>`. */
-const SIGN_IN_ERRORS: Record<string, string> = {
-  not_invited:
-    "This email address has not been invited to Mezonas. Ask your Mezonas contact for an invitation, then sign in with the same address.",
-  email_not_verified: "Verify your email address on the sign-in page first, then sign in again.",
-  email_taken: "This email address is tied to a different sign-in. Contact us to sort it out.",
-  misconfigured: "Sign-in is not set up on this site yet.",
-  adapter_disabled: "Sign-in is not set up on this site yet.",
+const SIGN_IN_ERRORS: Record<string, PlainKey> = {
+  not_invited: "signin.error.not_invited",
+  email_not_verified: "signin.error.email_not_verified",
+  email_taken: "signin.error.email_taken",
+  misconfigured: "signin.error.misconfigured",
+  adapter_disabled: "signin.error.misconfigured",
 };
-const SIGN_IN_ERROR_DEFAULT = "Sign-in did not finish. Start again.";
 
-export function signInErrorText(code: string | null): string | null {
+/** Before a session, in the browser's language (plan §1.18). */
+export function signInErrorText(code: string | null, { t }: Pick<I18n, "t"> = EN): string | null {
   if (!code) return null;
-  return SIGN_IN_ERRORS[code] ?? SIGN_IN_ERROR_DEFAULT;
+  return t(SIGN_IN_ERRORS[code] ?? "signin.error.default");
 }
 
 export function SignInScreen() {
+  const { t } = useI18n();
   const provider = useApi(apiRoutes.authProvider);
   if (provider.loading) {
     return (
@@ -48,9 +50,9 @@ export function SignInScreen() {
   if (provider.data?.provider === "unavailable") {
     return (
       <SignInFrame>
-        <h1 className="type-heading text-ink">Sign in to {PRODUCT_NAME}</h1>
+        <h1 className="type-heading text-ink">{t("signin.title", { product: PRODUCT_NAME })}</h1>
         <div className="mt-4">
-          <ErrorNotice error={new Error(SIGN_IN_ERRORS.misconfigured)} />
+          <ErrorNotice error={new Error(t("signin.error.misconfigured"))} />
         </div>
       </SignInFrame>
     );
@@ -69,19 +71,19 @@ function SignInFrame({ children }: { children: ReactNode }) {
 }
 
 function WorkOSSignIn() {
+  const i18n = useI18n();
+  const { t } = i18n;
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   const next = params.get("next");
-  const error = signInErrorText(params.get("error"));
+  const error = signInErrorText(params.get("error"), i18n);
   // `next` is only ever a path inside this app; the API checks `return_to` again.
   const target = next?.startsWith("/") && !next.startsWith("//") ? next : null;
   const href = `/api/auth/sign-in${target ? `?return_to=${encodeURIComponent(target)}` : ""}`;
   return (
     <SignInFrame>
-      <h1 className="type-heading text-ink">Sign in to {PRODUCT_NAME}</h1>
-      <p className="mt-1 mb-5 text-ink-muted">
-        Use the email address you were invited with. We send you to our sign-in page and back.
-      </p>
+      <h1 className="type-heading text-ink">{t("signin.title", { product: PRODUCT_NAME })}</h1>
+      <p className="mt-1 mb-5 text-ink-muted">{t("signin.workosHelp")}</p>
       {error ? (
         <div className="mb-5" data-testid="signin-error">
           <ErrorNotice error={new Error(error)} />
@@ -92,13 +94,15 @@ function WorkOSSignIn() {
         className={buttonClass("primary", "w-full justify-center")}
         data-testid="signin-workos"
       >
-        Continue to sign in
+        {t("signin.continue")}
       </a>
     </SignInFrame>
   );
 }
 
 function DevSignIn() {
+  const i18n = useI18n();
+  const { t } = i18n;
   const client = useApiClient();
   const { refresh } = useSessionState();
   const navigate = useNavigate();
@@ -121,7 +125,7 @@ function DevSignIn() {
         const target = next?.startsWith("/") && !next.startsWith("//") ? next : null;
         navigate(target ?? homeFor(state.session), { replace: true });
       } else {
-        setFailure(new Error("Signed in, but the session did not open. Is this user seeded?"));
+        setFailure(new Error(t("signin.noSession")));
       }
     } catch (e) {
       setFailure(e);
@@ -143,8 +147,8 @@ function DevSignIn() {
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-paper px-4 py-10">
       <Logo height={26} />
       <Card className="w-full max-w-lg p-6">
-        <h1 className="type-heading text-ink">Sign in to {PRODUCT_NAME}</h1>
-        <p className="mt-1 mb-5 text-ink-muted">Development sign-in: pick a seeded user.</p>
+        <h1 className="type-heading text-ink">{t("signin.title", { product: PRODUCT_NAME })}</h1>
+        <p className="mt-1 mb-5 text-ink-muted">{t("signin.devHelp")}</p>
         {users.loading ? <Loading /> : null}
         {users.error && !noList ? <ErrorNotice error={users.error} /> : null}
         {users.data ? (
@@ -176,7 +180,7 @@ function DevSignIn() {
                         {u.name ?? u.email}
                       </span>
                       <span className="ds-listrow__meta truncate">
-                        {u.email} · {describe(u)}
+                        {u.email} · {describe(u, i18n)}
                       </span>
                     </span>
                   </span>
@@ -189,7 +193,7 @@ function DevSignIn() {
         {!users.loading ? (
           <form onSubmit={submit} className="flex gap-2">
             <label className="sr-only" htmlFor="signin-email">
-              Email
+              {t("signin.email")}
             </label>
             <input
               id="signin-email"
@@ -206,7 +210,7 @@ function DevSignIn() {
               disabled={busy || !email.trim()}
               data-testid="signin-email-submit"
             >
-              Sign in
+              {t("signin.submit")}
             </Button>
           </form>
         ) : null}
@@ -220,14 +224,17 @@ function DevSignIn() {
   );
 }
 
-function describe(u: {
-  operator: boolean;
-  tenants: { name: string; role: keyof typeof ROLE_LABEL }[];
-}): string {
+function describe(
+  u: {
+    operator: boolean;
+    tenants: { name: string; role: keyof typeof ROLE_LABEL }[];
+  },
+  { t }: Pick<I18n, "t">,
+): string {
   if (u.operator) {
-    const n = new Set(u.tenants.map((t) => t.name)).size;
-    return `Operator · ${n} ${n === 1 ? "client" : "clients"}`;
+    const n = new Set(u.tenants.map((c) => c.name)).size;
+    return t("signin.operatorClients", { count: n });
   }
-  const t = u.tenants[0];
-  return t ? `${ROLE_LABEL[t.role]} · ${t.name}` : "No client";
+  const c = u.tenants[0];
+  return c ? `${t(ROLE_LABEL[c.role])} · ${c.name}` : t("signin.noClient");
 }

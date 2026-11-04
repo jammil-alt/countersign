@@ -4,11 +4,13 @@
 import { useState } from "react";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
+import { useI18n } from "../i18n/i18n";
 import { shortTime } from "../runs/format";
 import { Field, TextInput } from "../ui/forms";
 import { Button, Card, EmptyState, ErrorNotice, Loading, SectionLabel } from "../ui/primitives";
 
 function CopyButton({ value, testId }: { value: string; testId: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <Button
@@ -24,13 +26,15 @@ function CopyButton({ value, testId }: { value: string; testId: string }) {
         );
       }}
     >
-      {copied ? "Copied" : "Copy"}
+      {copied ? t("common.copied") : t("common.copy")}
     </Button>
   );
 }
 
 export function WebhookSetup({ connectionId }: { connectionId: string }) {
   const api = useApiClient();
+  const i18n = useI18n();
+  const { t } = i18n;
   const { data, error, loading, reload } = useApi(apiRoutes.portalWebhook, {
     params: { id: connectionId },
   });
@@ -56,7 +60,7 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
 
   return (
     <section data-testid="webhook-setup">
-      <SectionLabel>Webhooks · set up</SectionLabel>
+      <SectionLabel>{t("webhook.section")}</SectionLabel>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {actionError ? (
@@ -68,28 +72,26 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card className="flex flex-col gap-3 p-4">
             <div>
-              <p className="font-medium text-ink">Into Mezonas</p>
-              <p className="text-sm text-ink-muted">
-                Make a hook, then paste its URL into your Zap's "Webhooks by Zapier · POST" action.
-                Each hook starts the services listening for it. Keep the URL private: it carries the
-                hook's secret.
-              </p>
+              <p className="font-medium text-ink">{t("webhook.inTitle")}</p>
+              <p className="text-sm text-ink-muted">{t("webhook.inHelp")}</p>
             </div>
             {data.hooks.length === 0 ? (
-              <EmptyState>No hooks yet.</EmptyState>
+              <EmptyState>{t("webhook.noHooks")}</EmptyState>
             ) : (
               <ul data-testid="webhook-hooks" className="flex flex-col gap-3">
                 {data.hooks.map((h) => (
                   <li key={h.id} className="flex flex-col gap-1.5 border-t border-line pt-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-ink">{h.name}</span>
-                      <span className="text-sm text-ink-muted">made {shortTime(h.createdAt)}</span>
+                      <span className="text-sm text-ink-muted">
+                        {t("webhook.made", { time: shortTime(h.createdAt, undefined, i18n) })}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <TextInput
                         readOnly
                         value={h.url}
-                        aria-label={`URL of ${h.name}`}
+                        aria-label={t("webhook.urlOf", { name: h.name })}
                         data-testid="webhook-hook-url"
                         className="font-mono text-sm"
                         onFocus={(e) => e.currentTarget.select()}
@@ -108,7 +110,7 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
                           )
                         }
                       >
-                        Remove
+                        {t("webhook.remove")}
                       </Button>
                     </div>
                   </li>
@@ -129,9 +131,9 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
                 });
               }}
             >
-              <Field label="New hook" className="grow">
+              <Field label={t("webhook.newHook")} className="grow">
                 <TextInput
-                  placeholder="e.g. Website form entries"
+                  placeholder={t("webhook.newHookPlaceholder")}
                   data-testid="webhook-hook-name"
                   value={name}
                   maxLength={80}
@@ -139,18 +141,15 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
                 />
               </Field>
               <Button type="submit" data-testid="webhook-hook-add" disabled={busy || !name.trim()}>
-                Make hook
+                {t("webhook.makeHook")}
               </Button>
             </form>
           </Card>
 
           <Card className="flex flex-col gap-3 p-4">
             <div>
-              <p className="font-medium text-ink">Out of Mezonas</p>
-              <p className="text-sm text-ink-muted">
-                Paste your Zap's "Catch Hook" URL. Each event waits for approval in your inbox
-                first, unless your permissions let a step run without asking.
-              </p>
+              <p className="font-medium text-ink">{t("webhook.outTitle")}</p>
+              <p className="text-sm text-ink-muted">{t("webhook.outHelp")}</p>
             </div>
             <form
               className="flex items-end gap-2"
@@ -165,7 +164,7 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
                 });
               }}
             >
-              <Field label="Send events to (https)" className="grow">
+              <Field label={t("webhook.sendTo")} className="grow">
                 <TextInput
                   data-testid="webhook-outbound-url"
                   type="url"
@@ -175,24 +174,27 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
                 />
               </Field>
               <Button type="submit" data-testid="webhook-outbound-save" disabled={busy}>
-                Save
+                {t("common.save")}
               </Button>
             </form>
             {data.outbound ? (
               <div className="flex flex-col gap-1.5 text-sm">
                 <p className="text-ink-muted">
-                  Sending to {data.outbound.host}
-                  {data.outbound.setAt ? ` since ${shortTime(data.outbound.setAt)}` : ""}.
+                  {data.outbound.setAt
+                    ? t("webhook.sendingToSince", {
+                        host: data.outbound.host,
+                        time: shortTime(data.outbound.setAt, undefined, i18n),
+                      })
+                    : t("webhook.sendingTo", { host: data.outbound.host })}
                 </p>
                 <p className="text-ink-muted">
-                  Signing secret, to check the{" "}
-                  <span className="font-mono">x-mezonas-signature</span> header if your tool can:
+                  {t("webhook.secretHelp", { header: "x-mezonas-signature" })}
                 </p>
                 <div className="flex items-center gap-2">
                   <TextInput
                     readOnly
                     value={data.outbound.signingSecret}
-                    aria-label="Signing secret"
+                    aria-label={t("webhook.secret")}
                     data-testid="webhook-signing-secret"
                     className="font-mono text-sm"
                     onFocus={(e) => e.currentTarget.select()}
@@ -201,9 +203,7 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-ink-muted">
-                No outbound URL yet: agents can't send events.
-              </p>
+              <p className="text-sm text-ink-muted">{t("webhook.noOutbound")}</p>
             )}
           </Card>
         </div>
