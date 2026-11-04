@@ -5,6 +5,7 @@
 
 import { DEV_USER_HEADER } from "@countersign/auth";
 import {
+  type Connector,
   createTestkitConnector,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
@@ -93,8 +94,15 @@ async function addClient(
   return { tenantId: row.id, admin, user, connectionId: conn.id };
 }
 
+export interface HarnessOptions {
+  /** More connectors beside the testkit (e.g. webhooks, Zoho CRM over fakes). */
+  connectors?: (backend: TestkitBackend) => Connector[];
+  /** Env beside the dev sign-in (e.g. ENCRYPTION_KEY, OAUTH_STATE_SECRET). */
+  env?: Partial<Bindings>;
+}
+
 /** null when no database is reachable (the tests then skip). */
-export async function createApiHarness(): Promise<ApiHarness | null> {
+export async function createApiHarness(options: HarnessOptions = {}): Promise<ApiHarness | null> {
   const t = await createTestDatabase();
   if (!t) return null;
   const db = createDb(workerUrl(t.url), { max: 4 });
@@ -106,14 +114,20 @@ export async function createApiHarness(): Promise<ApiHarness | null> {
   const backend = new TestkitBackend();
   backend.seed(A.connectionId, [{ id: "r1", name: "Oak board", amount: "10.00" }]);
   backend.seed(B.connectionId, [{ id: "r1", name: "Maple board", amount: "20.00" }]);
-  const platform = createPlatform({ connectors: [createTestkitConnector(backend)] });
+  const platform = createPlatform({
+    connectors: [createTestkitConnector(backend), ...(options.connectors?.(backend) ?? [])],
+  });
   const instances = new MemoryInstances();
   const app = createApp({
     platform: () => platform,
     openDb: () => ({ db, close: async () => {} }),
     instances: () => instances,
   });
-  const env = { ENVIRONMENT: "development", AUTH_PROVIDER: "dev" } as unknown as Bindings;
+  const env = {
+    ENVIRONMENT: "development",
+    AUTH_PROVIDER: "dev",
+    ...options.env,
+  } as unknown as Bindings;
   const pending: Promise<unknown>[] = [];
   const executionCtx = {
     waitUntil: (p: Promise<unknown>) => void pending.push(p),

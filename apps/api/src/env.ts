@@ -10,6 +10,11 @@ export interface Secrets {
   /** 32 bytes, base64: connection credentials at rest (ARCHITECTURE §17). */
   ENCRYPTION_KEY?: string;
   ENCRYPTION_KEY_PREVIOUS?: string;
+  /** At least 32 bytes: signs the OAuth `state` of a client's sign-in to a tool. */
+  OAUTH_STATE_SECRET?: string;
+  /** Zoho API console: a Server-based application with multi-DC on (ARCHITECTURE §6.7). */
+  ZOHO_CLIENT_ID?: string;
+  ZOHO_CLIENT_SECRET?: string;
 }
 
 /** Vars are read as plain strings: deployments set values the generated literals don't know. */

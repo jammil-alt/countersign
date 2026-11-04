@@ -8,8 +8,14 @@ import {
   SkillCatalog,
   ToolRegistry,
 } from "@countersign/agents";
-import { type Connector, ConnectorRegistry, createTestkitConnector } from "@countersign/connectors";
-import type { SkillDefinition } from "@countersign/core";
+import {
+  type Connector,
+  ConnectorRegistry,
+  createTestkitConnector,
+  createWebhookConnector,
+  createZohoCrmConnector,
+} from "@countersign/connectors";
+import { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 import type { Bindings } from "./env";
 
@@ -27,12 +33,49 @@ export interface PlatformOptions {
   skills?: readonly SkillDefinition[];
 }
 
+/**
+ * A built-in tool-mode skill for every connector read tool (e.g. "Search records" for
+ * `zoho_crm.record.search`), so a workflow can read a client's tool in a skill step without a
+ * model, and the builder's library lists the reads of every registered connector.
+ */
+// DECISION: read tools become skills here, generated from their specs (same id, input and output),
+// rather than each connector shipping skill definitions; writes stay action steps behind approval.
+export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinition[] {
+  return connectors.list().flatMap((c) =>
+    c.manifest.tools
+      .filter((t) => t.sideEffect === "none")
+      .map((t) =>
+        SkillDefinition.parse({
+          schemaVersion: 1,
+          id: t.id,
+          name: t.description.split(/[.(]/)[0]?.trim() || t.id,
+          description: t.description,
+          category: c.manifest.name,
+          mode: "tool",
+          handler: t.id,
+          tools: [],
+          input: t.input,
+          output: t.output,
+          ...(t.summary ? { summary: t.summary } : {}),
+          requiresConnectors: [c.manifest.id],
+        }),
+      ),
+  );
+}
+
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
-  const catalog = new SkillCatalog(options.skills ?? [], tools);
-  // Packs register their event types here when they exist (registerPack); none yet.
+  const catalog = new SkillCatalog(
+    [...(options.skills ?? []), ...connectorReadSkills(connectors)],
+    tools,
+  );
+  // Connectors' event types (e.g. webhook.received) join the catalogue; packs register theirs
+  // here when they exist (registerPack); none yet.
   const events = new EventTypeRegistry();
+  for (const c of connectors.list()) {
+    if (c.manifest.events?.length) events.registerConnector(c.manifest.id, c.manifest.events);
+  }
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
 }
 
@@ -49,11 +92,41 @@ let cached: { key: string; platform: Platform } | undefined;
 // registered everywhere except production, so the Sandbox client and local work can exercise
 // connections, approvals and external actions before any real connector exists. Its records live
 // in the isolate's memory and are lost when the isolate goes.
-export function platformFor(env: Pick<Bindings, "ENVIRONMENT">): Platform {
-  const key = isProductionEnv(env) ? "production" : "other";
+export function platformFor(
+  env: Pick<
+    Bindings,
+    "ENVIRONMENT" | "ZOHO_CLIENT_ID" | "ZOHO_CLIENT_SECRET" | "OAUTH_STATE_SECRET"
+  >,
+): Platform {
+  const production = isProductionEnv(env);
+  const zohoReady = Boolean(env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
+  const key = `${production ? "production" : "other"}:${zohoReady ? env.ZOHO_CLIENT_ID : "-"}`;
   if (cached?.key !== key) {
-    const connectors = key === "production" ? [] : [createTestkitConnector()];
-    cached = { key, platform: createPlatform({ connectors }) };
+    cached = {
+      key,
+      platform: createPlatform({ connectors: deploymentConnectors(env, production) }),
+    };
   }
   return cached.platform;
+}
+
+/**
+ * The connectors every deployment registers. Each appears in the operator's offering, the portal's
+ * Connections page and the builder's palette through the registry; nothing else names them.
+ */
+// DECISION: Zoho CRM is registered even where its OAuth client isn't set, so it can be offered and
+// built with; it signs in only once ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET and OAUTH_STATE_SECRET are
+// all set (the portal shows "not available yet" until then).
+export function deploymentConnectors(
+  env: Pick<Bindings, "ZOHO_CLIENT_ID" | "ZOHO_CLIENT_SECRET" | "OAUTH_STATE_SECRET">,
+  production: boolean,
+): Connector[] {
+  const zohoReady = Boolean(env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
+  return [
+    createWebhookConnector(),
+    createZohoCrmConnector(
+      zohoReady ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : {},
+    ),
+    ...(production ? [] : [createTestkitConnector()]),
+  ];
 }
