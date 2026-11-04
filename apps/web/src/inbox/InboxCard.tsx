@@ -6,6 +6,7 @@ import type { ResolveBody } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
+import { SourceLinks } from "../records/SourceLinks";
 import { shortTime } from "../runs/format";
 import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
@@ -37,6 +38,8 @@ const KIND_LABEL: Record<string, string> = {
 
 /** Payload keys that are plumbing, not something a person reads. */
 const PLUMBING = new Set([
+  // Shown as Receipts that open their record pages.
+  "sources",
   "tool",
   "verb",
   "connector",
@@ -95,6 +98,7 @@ export function InboxCard({
   item,
   context,
   runHref,
+  recordHref,
   connectorNames,
   onResolve,
   waitingOn,
@@ -105,6 +109,8 @@ export function InboxCard({
   /** "Record keeping · Client A": who asks, for whom. */
   context?: string | null;
   runHref?: string | null;
+  /** The record page for a source id (payload `sources`, invariant 10), in this surface. */
+  recordHref?: ((id: string) => string) | null;
   connectorNames?: Record<string, string>;
   /** Null when this person can't resolve it (it is someone else's), or it is not open. */
   onResolve: ((body: ResolveInput) => Promise<void>) | null;
@@ -130,6 +136,9 @@ export function InboxCard({
   const toolName = connector ? connectorName(connector, connectorNames) : null;
   const target = isChange ? changeTarget(item.payload.before, item.payload.input) : null;
   const facts = isChange ? [] : payloadFacts(item.payload);
+  const sources = Array.isArray(item.payload.sources)
+    ? item.payload.sources.filter((x): x is string => typeof x === "string")
+    : [];
 
   async function resolve(body: ResolveInput) {
     if (!onResolve) return;
@@ -199,12 +208,17 @@ export function InboxCard({
         </label>
       ) : null}
 
-      {runHref ? (
+      {runHref || (recordHref && sources.length > 0) ? (
         <div className="mz-sign__receipts">
-          <Link to={runHref} className="mz-receipt" data-testid="inbox-item-run-open">
-            <Icon name="worksheet" size={14} className="ds-icon" />
-            View run
-          </Link>
+          {runHref ? (
+            <Link to={runHref} className="mz-receipt" data-testid="inbox-item-run-open">
+              <Icon name="worksheet" size={14} className="ds-icon" />
+              View run
+            </Link>
+          ) : null}
+          {recordHref ? (
+            <SourceLinks ids={sources} href={recordHref} testId="inbox-item-sources" />
+          ) : null}
         </div>
       ) : null}
 
@@ -252,7 +266,11 @@ function Actions({
   onResolve: (body: ResolveInput) => void;
 }) {
   if (kind === "change_request") {
-    return <span className="text-sm text-ink-muted">Handled in the requests queue.</span>;
+    return (
+      <Link to="/ops/requests" className="text-sm text-link underline">
+        Open the requests queue
+      </Link>
+    );
   }
   if (kind === "request") {
     return (
