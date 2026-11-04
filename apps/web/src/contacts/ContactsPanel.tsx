@@ -4,7 +4,8 @@
 // lifted only by the contact texting START, so its opt-out has no "lift" button here. Reach out
 // (plan §1.25) adds email, preferred channels in order, the contact's own timezone and quiet hours,
 // roles and notes; the operator and the client admin both edit them, and every edit is logged.
-// Portal strings are plain English for now; the languages stream moves them to t().
+// Words in the reader's language (docs/plan.md §1.18; English in the back office). What contacts
+// wrote, call transcripts and email text are untrusted data: shown as text, never translated.
 import {
   CONSENT_SOURCE_MAX,
   CONTACT_NAME_MAX,
@@ -14,6 +15,9 @@ import {
   type ContactConsentChangeInput,
   type ContactCreateInput,
   type ContactPatchInput,
+  LOCALE_NAMES,
+  LOCALES,
+  type Locale,
   REACH_CHANNELS,
   type ReachChannel,
 } from "@countersign/core";
@@ -21,6 +25,9 @@ import { type FormEvent, useState } from "react";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
+import type { PlainKey } from "../i18n/catalog";
+import { errorText as apiErrorText } from "../i18n/errors";
+import { type I18n, useI18n } from "../i18n/i18n";
 import { Field, Select, TextInput } from "../ui/forms";
 import {
   Badge,
@@ -34,25 +41,48 @@ import {
 
 export type ContactsSurface = { kind: "ops"; clientId: string } | { kind: "portal" };
 
-const CHANNEL_LABEL: Record<ReachChannel, string> = {
-  sms: "Texts",
-  whatsapp: "WhatsApp",
-  voice: "Calls",
-  email: "Email",
+const CHANNEL_KEY: Record<ReachChannel, PlainKey> = {
+  sms: "contacts.channel.sms",
+  whatsapp: "contacts.channel.whatsapp",
+  voice: "contacts.channel.voice",
+  email: "contacts.channel.email",
 };
+
+/** Delivery and call statuses we have words for; any other shows as the carrier wrote it. */
+const STATUS_KEY: Record<string, PlainKey> = {
+  queued: "contacts.status.queued",
+  sent: "contacts.status.sent",
+  delivered: "contacts.status.delivered",
+  undelivered: "contacts.status.undelivered",
+  failed: "contacts.status.failed",
+  read: "contacts.status.read",
+  received: "contacts.status.received",
+  replied: "contacts.status.replied",
+  not_sent: "contacts.status.not_sent",
+  no_reply: "contacts.status.no_reply",
+  completed: "contacts.status.completed",
+  busy: "contacts.status.busy",
+  "no-answer": "contacts.status.no-answer",
+};
+
 /** What can be agreed to: texts, WhatsApp, calls from an automated assistant, and email. */
 type ConsentChoice = ConsentChannel;
 
-function errorText(error: unknown, fallback: string): string {
-  return isApiError(error) ? error.message : fallback;
+function problemText(error: unknown, fallback: PlainKey, i18n: I18n): string {
+  return isApiError(error) ? apiErrorText(error, i18n) : i18n.t(fallback);
 }
 
-function when(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+/** A language by its name in the reader's language: "Spanish", "Spanisch", "Portuguese (Brazil)". */
+function languageName(code: string, i18n: I18n): string {
+  try {
+    const names = new Intl.DisplayNames([i18n.intl], {
+      type: "language",
+      languageDisplay: "standard",
+    });
+    return names.of(code) ?? code;
+  } catch {
+    return LOCALE_NAMES[code as Locale] ?? code;
+  }
 }
 
 /** The routes for one surface, so the rest of the panel doesn't care which it is on. */
@@ -81,6 +111,7 @@ function useContactsApi(surface: ContactsSurface) {
 }
 
 export function ContactsPanel({ surface }: { surface: ContactsSurface }) {
+  const { t } = useI18n();
   const c = useContactsApi(surface);
   const { data, error, loading, reload } = c.list;
   const [open, setOpen] = useState<string | null>(null);
@@ -89,14 +120,10 @@ export function ContactsPanel({ surface }: { surface: ContactsSurface }) {
     <section data-testid="contacts-panel">
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="order-2 xl:order-1">
-          <SectionLabel>Contacts</SectionLabel>
+          <SectionLabel>{t("contacts.title")}</SectionLabel>
           {loading && !data ? <Loading /> : null}
           {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-          {data && data.items.length === 0 ? (
-            <EmptyState>
-              No contacts yet. Add the people your agents may reach, with how they agreed to it.
-            </EmptyState>
-          ) : null}
+          {data && data.items.length === 0 ? <EmptyState>{t("contacts.empty")}</EmptyState> : null}
           <ul data-testid="contacts-list" className="flex flex-col gap-3">
             {data?.items.map((contact) => (
               <li key={contact.id}>
@@ -120,13 +147,20 @@ export function ContactsPanel({ surface }: { surface: ContactsSurface }) {
 }
 
 function ConsentPills({ contact }: { contact: Contact }) {
+  const { t } = useI18n();
   if (contact.optedOut) {
     return (
       <Badge testId={`contact-${contact.id}-opted-out`}>
-        Opted out {contact.optedOut.source === "keyword:STOP" ? "by text" : ""}
+        {contact.optedOut.source === "keyword:STOP"
+          ? t("contacts.optedOutByText")
+          : t("contacts.optedOut")}
       </Badge>
     );
   }
+  const pill = (channel: ReachChannel, agreed: boolean | undefined) =>
+    agreed
+      ? t("contacts.agreed", { channel: t(CHANNEL_KEY[channel]) })
+      : t("contacts.notAgreed", { channel: t(CHANNEL_KEY[channel]) });
   return (
     <>
       {(["sms", "whatsapp"] as const)
@@ -137,7 +171,7 @@ function ConsentPills({ contact }: { contact: Contact }) {
             tone={contact.canMessage[ch] ? "positive" : "neutral"}
             testId={`contact-${contact.id}-${ch}`}
           >
-            {CHANNEL_LABEL[ch]}: {contact.canMessage[ch] ? "agreed" : "not agreed"}
+            {pill(ch, contact.canMessage[ch])}
           </Badge>
         ))}
       {contact.phone ? (
@@ -145,7 +179,7 @@ function ConsentPills({ contact }: { contact: Contact }) {
           tone={contact.canCall ? "positive" : "neutral"}
           testId={`contact-${contact.id}-voice`}
         >
-          Calls: {contact.canCall ? "agreed" : "not agreed"}
+          {pill("voice", contact.canCall)}
         </Badge>
       ) : null}
       {contact.email ? (
@@ -153,7 +187,7 @@ function ConsentPills({ contact }: { contact: Contact }) {
           tone={contact.canEmail ? "positive" : "neutral"}
           testId={`contact-${contact.id}-email`}
         >
-          Email: {contact.canEmail ? "agreed" : "not agreed"}
+          {pill("email", contact.canEmail)}
         </Badge>
       ) : null}
     </>
@@ -170,6 +204,8 @@ function ContactDetails({
   api: ReturnType<typeof useContactsApi>;
   onChanged: () => void;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [email, setEmail] = useState(contact.email ?? "");
   const [phone, setPhone] = useState(contact.phone ?? "");
   const [whatsapp, setWhatsapp] = useState(contact.whatsapp ?? "");
@@ -202,7 +238,7 @@ function ContactDetails({
           ? undefined
           : null;
     if (quiet === undefined) {
-      setError("Give both times for quiet hours, or neither.");
+      setError(t("contacts.problem.quietHours"));
       setBusy(false);
       return;
     }
@@ -224,7 +260,7 @@ function ContactDetails({
       setSaved(true);
       onChanged();
     } catch (err) {
-      setError(errorText(err, "That didn't save. Try again."));
+      setError(problemText(err, "contacts.problem.notSaved", i18n));
     } finally {
       setBusy(false);
     }
@@ -237,7 +273,7 @@ function ContactDetails({
       data-testid={`contact-${contact.id}-details`}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Field label="Email">
+        <Field label={t("contacts.email")}>
           <TextInput
             value={email}
             type="email"
@@ -245,10 +281,10 @@ function ContactDetails({
             data-testid={`contact-${contact.id}-email-input`}
           />
         </Field>
-        <Field label="Phone">
+        <Field label={t("contacts.phone")}>
           <TextInput value={phone} inputMode="tel" onChange={(e) => setPhone(e.target.value)} />
         </Field>
-        <Field label="WhatsApp number">
+        <Field label={t("contacts.whatsapp")}>
           <TextInput
             value={whatsapp}
             inputMode="tel"
@@ -258,17 +294,19 @@ function ContactDetails({
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <Field key={i} label={i === 0 ? "Reach them first by" : "Then"}>
+          <Field key={i} label={i === 0 ? t("contacts.firstBy") : t("contacts.then")}>
             <Select
               value={preferred[i] ?? ""}
               disabled={i > preferred.length}
               onChange={(e) => setRank(i, e.target.value)}
               data-testid={`contact-${contact.id}-preferred-${i}`}
             >
-              <option value="">{i === 0 ? "No preference" : "Nothing else"}</option>
+              <option value="">
+                {i === 0 ? t("contacts.noPreference") : t("contacts.nothingElse")}
+              </option>
               {REACH_CHANNELS.filter((ch) => !preferred.slice(0, i).includes(ch)).map((ch) => (
                 <option key={ch} value={ch}>
-                  {CHANNEL_LABEL[ch]}
+                  {t(CHANNEL_KEY[ch])}
                 </option>
               ))}
             </Select>
@@ -276,18 +314,17 @@ function ContactDetails({
         ))}
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-        <Field label="Language">
+        <Field label={t("contacts.language")}>
           <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="">Your language</option>
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-            <option value="pt-BR">Portuguese (Brazil)</option>
-            <option value="it">Italian</option>
-            <option value="de">German</option>
+            <option value="">{t("contacts.yourLanguage")}</option>
+            {LOCALES.map((code) => (
+              <option key={code} value={code}>
+                {languageName(code, i18n)}
+              </option>
+            ))}
           </Select>
         </Field>
-        <Field label="Timezone" hint="Empty: yours.">
+        <Field label={t("contacts.timezone")} hint={t("contacts.emptyIsYours")}>
           <TextInput
             value={timezone}
             placeholder="America/Chicago"
@@ -295,14 +332,14 @@ function ContactDetails({
             data-testid={`contact-${contact.id}-timezone`}
           />
         </Field>
-        <Field label="Quiet from" hint="Empty: yours.">
+        <Field label={t("contacts.quietFrom")} hint={t("contacts.emptyIsYours")}>
           <TextInput
             value={quietStart}
             placeholder="21:00"
             onChange={(e) => setQuietStart(e.target.value)}
           />
         </Field>
-        <Field label="Quiet until">
+        <Field label={t("contacts.quietUntil")}>
           <TextInput
             value={quietEnd}
             placeholder="08:00"
@@ -310,14 +347,14 @@ function ContactDetails({
           />
         </Field>
       </div>
-      <Field label="Roles" hint="Comma-separated, e.g. purchaser, owner.">
+      <Field label={t("contacts.roles")} hint={t("contacts.rolesHint")}>
         <TextInput
           value={roles}
           onChange={(e) => setRoles(e.target.value)}
           data-testid={`contact-${contact.id}-roles`}
         />
       </Field>
-      <Field label="Notes">
+      <Field label={t("contacts.notes")}>
         <TextInput
           value={notes}
           maxLength={CONTACT_NOTES_MAX}
@@ -337,9 +374,9 @@ function ContactDetails({
           disabled={busy}
           data-testid={`contact-${contact.id}-save`}
         >
-          Save details
+          {t("contacts.saveDetails")}
         </Button>
-        {saved ? <span className="text-sm text-ink-muted">Saved.</span> : null}
+        {saved ? <span className="text-sm text-ink-muted">{t("contacts.saved")}</span> : null}
       </div>
     </form>
   );
@@ -358,6 +395,8 @@ function ContactCard({
   onToggle: () => void;
   onChanged: () => void;
 }) {
+  const i18n = useI18n();
+  const { t, fmt } = i18n;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [channel, setChannel] = useState<ConsentChoice>(contact.phone ? "sms" : "whatsapp");
@@ -371,7 +410,7 @@ function ContactCard({
       setSource("");
       onChanged();
     } catch (e) {
-      setError(errorText(e, "That didn't save. Try again."));
+      setError(problemText(e, "contacts.problem.notSaved", i18n));
     } finally {
       setBusy(false);
     }
@@ -393,7 +432,7 @@ function ContactCard({
             ]
               .filter(Boolean)
               .join(" · ")}
-            {contact.language ? ` · ${contact.language}` : ""}
+            {contact.language ? ` · ${languageName(contact.language, i18n)}` : ""}
           </div>
           {contact.roles?.length ? (
             <div className="mt-1 flex flex-wrap gap-1">
@@ -413,7 +452,7 @@ function ContactCard({
             onClick={onToggle}
             data-testid={`contact-${contact.id}-open`}
           >
-            {open ? "Close" : "Manage"}
+            {open ? t("contacts.close") : t("contacts.manage")}
           </Button>
         </div>
       </div>
@@ -424,8 +463,8 @@ function ContactCard({
             <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
               <span className="text-ink-muted">
                 {keywordOptOut
-                  ? `Texted STOP on ${when(contact.optedOut.at)}. Only they can opt back in, by texting START.`
-                  : `Opted out on ${when(contact.optedOut.at)}. Nothing is sent to them.`}
+                  ? t("contacts.stoppedByText", { date: fmt.date(contact.optedOut.at) })
+                  : t("contacts.optedOutOn", { date: fmt.date(contact.optedOut.at) })}
               </span>
               {keywordOptOut ? null : (
                 <Button
@@ -434,7 +473,7 @@ function ContactCard({
                   onClick={() => void change({ action: "lift_opt_out" })}
                   data-testid={`contact-${contact.id}-lift`}
                 >
-                  Lift the opt-out
+                  {t("contacts.liftOptOut")}
                 </Button>
               )}
             </div>
@@ -447,19 +486,19 @@ function ContactCard({
               }}
             >
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
-                <Field label="Channel">
+                <Field label={t("contacts.consentChannel")}>
                   <Select
                     value={channel}
                     onChange={(e) => setChannel(e.target.value as ConsentChoice)}
                     data-testid={`contact-${contact.id}-channel`}
                   >
-                    <option value="sms">Texts</option>
-                    <option value="whatsapp">WhatsApp</option>
-                    <option value="voice">Calls from an automated assistant</option>
-                    <option value="email">Email</option>
+                    <option value="sms">{t("contacts.channel.sms")}</option>
+                    <option value="whatsapp">{t("contacts.channel.whatsapp")}</option>
+                    <option value="voice">{t("contacts.consentOption.voice")}</option>
+                    <option value="email">{t("contacts.channel.email")}</option>
                   </Select>
                 </Field>
-                <Field label="How they agreed" hint="For example: signed the service agreement.">
+                <Field label={t("contacts.howAgreed")} hint={t("contacts.howAgreedHint")}>
                   <TextInput
                     value={source}
                     maxLength={CONSENT_SOURCE_MAX}
@@ -476,7 +515,7 @@ function ContactCard({
                   disabled={busy || !source.trim()}
                   data-testid={`contact-${contact.id}-grant`}
                 >
-                  Record consent
+                  {t("contacts.recordConsent")}
                 </Button>
                 {contact.consent[channel] ? (
                   <Button
@@ -484,7 +523,7 @@ function ContactCard({
                     disabled={busy}
                     onClick={() => void change({ action: "withdraw", channel })}
                   >
-                    Withdraw consent
+                    {t("contacts.withdrawConsent")}
                   </Button>
                 ) : null}
                 <Button
@@ -493,7 +532,7 @@ function ContactCard({
                   onClick={() => void change({ action: "opt_out" })}
                   data-testid={`contact-${contact.id}-opt-out`}
                 >
-                  Opt out of everything
+                  {t("contacts.optOutAll")}
                 </Button>
               </div>
             </form>
@@ -517,6 +556,7 @@ function ContactMessages({
   api: ReturnType<typeof useContactsApi>;
   contactId: string;
 }) {
+  const { t, fmt } = useI18n();
   const opsMessages = useApi(
     apiRoutes.opsContactMessages,
     api.ops ? { params: { id: api.ops, contactId } } : null,
@@ -526,31 +566,35 @@ function ContactMessages({
     api.ops ? null : { params: { id: contactId } },
   );
   const { data, error, loading } = api.ops ? opsMessages : portalMessages;
-  if (loading && !data) return <Loading label="Loading messages…" />;
+  if (loading && !data) return <Loading label={t("contacts.loadingMessages")} />;
   if (error) return <ErrorNotice error={error} />;
   if (!data || data.items.length === 0) {
-    return <p className="text-sm text-ink-muted">No messages yet.</p>;
+    return <p className="text-sm text-ink-muted">{t("contacts.noMessages")}</p>;
   }
   return (
     <ol data-testid={`contact-${contactId}-messages`} className="flex flex-col gap-2">
-      {data.items.slice(0, 20).map((m) => (
-        <li key={m.id} className="text-sm">
-          <span className="eyebrow text-ink-muted">
-            {m.channel === "voice"
-              ? m.direction === "in"
-                ? "They called"
-                : "We called"
-              : m.direction === "in"
-                ? "They wrote"
-                : "We sent"}{" "}
-            · {m.channel === "voice" ? "Call" : CHANNEL_LABEL[m.channel]}
-            {m.reachOut ? " · reach-out" : ""} · {new Date(m.at).toLocaleString()}
-            {m.status ? ` · ${m.status}` : ""}
-          </span>
-          {/* The sender's words, shown as text, never as markup. */}
-          <p className="mt-0.5 whitespace-pre-wrap text-ink">{m.text}</p>
-        </li>
-      ))}
+      {data.items.slice(0, 20).map((m) => {
+        const status = m.status ? STATUS_KEY[m.status] : undefined;
+        return (
+          <li key={m.id} className="text-sm">
+            <span className="eyebrow text-ink-muted">
+              {m.channel === "voice"
+                ? m.direction === "in"
+                  ? t("contacts.message.theyCalled")
+                  : t("contacts.message.weCalled")
+                : m.direction === "in"
+                  ? t("contacts.message.theyWrote")
+                  : t("contacts.message.weSent")}{" "}
+              · {m.channel === "voice" ? t("contacts.message.call") : t(CHANNEL_KEY[m.channel])}
+              {m.reachOut ? ` · ${t("contacts.message.reachOut")}` : ""} · {fmt.time(m.at)}
+              {m.status ? ` · ${status ? t(status) : m.status}` : ""}
+            </span>
+            {/* The sender's words (a text, an email, a call transcript), shown as text, never as
+                markup, and never translated. */}
+            <p className="mt-0.5 whitespace-pre-wrap text-ink">{m.text}</p>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -562,6 +606,8 @@ function AddContact({
   api: ReturnType<typeof useContactsApi>;
   onAdded: () => void;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
@@ -600,7 +646,7 @@ function AddContact({
       setSource("");
       onAdded();
     } catch (err) {
-      setError(errorText(err, "We couldn't add them. Try again."));
+      setError(problemText(err, "contacts.problem.notAdded", i18n));
     } finally {
       setBusy(false);
     }
@@ -608,9 +654,9 @@ function AddContact({
 
   return (
     <Card className="p-5" testId="contact-add">
-      <SectionLabel>Add a contact</SectionLabel>
+      <SectionLabel>{t("contacts.add")}</SectionLabel>
       <form className="flex flex-col gap-4" onSubmit={(e) => void add(e)}>
-        <Field label="Name">
+        <Field label={t("contacts.name")}>
           <TextInput
             value={name}
             maxLength={CONTACT_NAME_MAX}
@@ -618,7 +664,7 @@ function AddContact({
             data-testid="contact-add-name"
           />
         </Field>
-        <Field label="Phone" hint="With the country code, e.g. +1 555 555 0100.">
+        <Field label={t("contacts.phone")} hint={t("contacts.phoneHint")}>
           <TextInput
             value={phone}
             inputMode="tel"
@@ -626,7 +672,7 @@ function AddContact({
             data-testid="contact-add-phone"
           />
         </Field>
-        <Field label="WhatsApp number" hint="Leave empty if they don't use WhatsApp.">
+        <Field label={t("contacts.whatsapp")} hint={t("contacts.whatsappHint")}>
           <TextInput
             value={whatsapp}
             inputMode="tel"
@@ -634,7 +680,7 @@ function AddContact({
             data-testid="contact-add-whatsapp"
           />
         </Field>
-        <Field label="Email">
+        <Field label={t("contacts.email")}>
           <TextInput
             value={email}
             type="email"
@@ -649,10 +695,10 @@ function AddContact({
             onChange={(e) => setAgreed(e.target.checked)}
             data-testid="contact-add-agreed"
           />
-          They agreed to hear from you on these numbers and this address
+          {t("contacts.agreedToHear")}
         </label>
         {agreed ? (
-          <Field label="How they agreed">
+          <Field label={t("contacts.howAgreed")}>
             <TextInput
               value={source}
               maxLength={CONSENT_SOURCE_MAX}
@@ -673,7 +719,7 @@ function AddContact({
             disabled={busy || !ready}
             data-testid="contact-add-save"
           >
-            Add contact
+            {t("contacts.addContact")}
           </Button>
         </div>
       </form>

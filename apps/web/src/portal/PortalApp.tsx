@@ -62,11 +62,23 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             <SidebarLink to="/requests" label={t("nav.requests")} testId="portal-nav-requests" />
             {isAdmin ? (
               <>
-                <SidebarLink to="/knowledge" label="Knowledge" testId="portal-nav-knowledge" />
-                <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
-                <SidebarLink to="/billing" label="Billing" testId="portal-nav-billing" />
-                <SidebarLink to="/people" label="People" testId="portal-nav-people" />
-                <SidebarLink to="/settings" label={t("nav.settings")} testId="portal-nav-settings" />
+                <SidebarLink
+                  to="/knowledge"
+                  label={t("nav.knowledge")}
+                  testId="portal-nav-knowledge"
+                />
+                <SidebarLink
+                  to="/contacts"
+                  label={t("nav.contacts")}
+                  testId="portal-nav-contacts"
+                />
+                <SidebarLink to="/billing" label={t("nav.billing")} testId="portal-nav-billing" />
+                <SidebarLink to="/people" label={t("nav.people")} testId="portal-nav-people" />
+                <SidebarLink
+                  to="/settings"
+                  label={t("nav.settings")}
+                  testId="portal-nav-settings"
+                />
               </>
             ) : null}
           </nav>

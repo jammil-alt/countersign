@@ -1,7 +1,8 @@
 // The portal screens other streams built, in Spanish and German (docs/plan.md §1.18): Settings
 // (people, invites, emails, approvals), Reports and the Service page, record pages and a document,
-// and "Who approves" for the client admin. Words come from the message files; numbers, money and
-// dates from Intl in the reader's locale; names and what a tool sent stay as written.
+// "Who approves" for the client admin, and Contacts, Knowledge, Billing and People. Words come
+// from the message files; numbers, money and dates from Intl in the reader's locale; names, what
+// a tool sent and what contacts wrote stay as written.
 import type { Locale } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -20,6 +21,10 @@ const TXN = "00000000-0000-4000-8000-0000000a7001";
 const VENDOR = "00000000-0000-4000-8000-0000000a7003";
 const DOC = "00000000-0000-4000-8000-0000000a7004";
 const ANA = "00000000-0000-4000-8000-00000000b011";
+const PAT = "00000000-0000-4000-8000-0000000c0001";
+const SAM = "00000000-0000-4000-8000-0000000c0002";
+const ENTRY = "00000000-0000-4000-8000-0000000ab001";
+const AGENT = "00000000-0000-4000-8000-0000000a9001";
 
 function sessionIn(locale: Locale) {
   return { ...CLIENT_SESSION, language: { effective: locale, user: locale, client: null } };
@@ -362,3 +367,293 @@ describe("who approves, for the client admin in German", () => {
     await waitFor(() => expect(document.documentElement.lang).toBe("de"));
   });
 });
+
+// ── Contacts, Knowledge, Billing and People (texts, calls, the knowledge base, billing, reach out) ──
+
+const eur = (amount: string) => ({ amount, currency: "EUR" });
+
+const contactRow = (over: Record<string, unknown> = {}) => ({
+  id: PAT,
+  name: "Pat Lee",
+  phone: "+15555550100",
+  whatsapp: null,
+  email: "pat@demo.example.com",
+  language: "de",
+  consent: { sms: { grantedAt: "2026-11-04T10:00:00.000Z", source: "signed the agreement" } },
+  optedOut: null,
+  canMessage: { sms: true, whatsapp: false },
+  canCall: false,
+  canEmail: false,
+  createdAt: "2026-11-04T10:00:00.000Z",
+  updatedAt: "2026-11-04T10:00:00.000Z",
+  ...over,
+});
+
+const contactsRoutes = {
+  "GET /api/contacts": () => ({
+    items: [
+      contactRow(),
+      contactRow({
+        id: SAM,
+        name: "Sam Roe",
+        email: null,
+        language: null,
+        optedOut: { at: "2026-11-03T10:00:00.000Z", source: "keyword:STOP" },
+        canMessage: { sms: false, whatsapp: false },
+      }),
+    ],
+  }),
+  [`GET /api/contacts/${PAT}/messages`]: () => ({
+    items: [
+      {
+        id: "m1",
+        direction: "out",
+        channel: "sms",
+        text: "Your order is ready.",
+        sid: null,
+        status: "delivered",
+        at: "2026-11-04T11:00:00.000Z",
+      },
+      {
+        id: "m2",
+        direction: "in",
+        channel: "voice",
+        text: "Caller: is it ready? Agent: yes.",
+        sid: null,
+        status: "completed",
+        at: "2026-11-04T12:00:00.000Z",
+      },
+    ],
+  }),
+};
+
+const knowledgeRoutes = {
+  "GET /api/knowledge": () => ({
+    entries: [
+      {
+        id: ENTRY,
+        kind: "faq",
+        status: "active",
+        version: 1,
+        title: "When do you deliver?",
+        body: "Tuesdays and Thursdays.",
+        createdAt: "2026-11-04T10:00:00.000Z",
+        updatedAt: "2026-11-04T10:00:00.000Z",
+        updatedBy: { role: "operator", name: null },
+      },
+    ],
+  }),
+};
+
+const billingRoutes = {
+  "GET /api/billing": () => ({
+    setUp: true,
+    plan: { agents: 2, baseFee: eur("250.0000"), monthly: eur("500.0000") },
+    period: { start: "2026-11-01", end: "2026-11-30", through: "2026-11-04" },
+    allowance: 4000,
+    creditsUsed: 4312,
+    extraCredits: 312,
+    extraCreditPrice: eur("0.0150"),
+    paymentProblem: true,
+    invoices: [
+      {
+        id: "in_1",
+        number: "MZ-0001",
+        status: "open",
+        total: eur("265.0000"),
+        amountDue: eur("265.0000"),
+        createdAt: "2026-11-01T00:00:00.000Z",
+        periodStart: "2026-10-01T00:00:00.000Z",
+        periodEnd: "2026-11-01T00:00:00.000Z",
+        dueAt: null,
+        hostedInvoiceUrl: "https://invoice.stripe.com/i/acct/in_1",
+        pdfUrl: "https://pay.stripe.com/invoice/acct/in_1/pdf",
+      },
+    ],
+    invoicesUnavailable: false,
+  }),
+};
+
+const peopleRoutes = {
+  "GET /api/people": () => ({
+    items: [
+      {
+        agentId: AGENT,
+        agentName: "Orders desk",
+        roles: [
+          {
+            role: "purchaser",
+            description: "Buys the materials",
+            required: true,
+            channels: ["sms", "voice"],
+          },
+        ],
+        people: {},
+        missing: ["purchaser"],
+        contacts: [
+          {
+            id: PAT,
+            name: "Pat Lee",
+            roles: ["purchaser"],
+            reachable: ["sms", "voice"],
+            optedOut: false,
+          },
+          { id: SAM, name: "Sam Roe", roles: [], reachable: [], optedOut: true },
+        ],
+      },
+    ],
+  }),
+};
+
+const WORDS = {
+  es: {
+    contacts: "Contactos",
+    smsAgreed: "SMS: aceptado",
+    stopped: "Dado de baja por SMS",
+    contactLine: "alemán",
+    manage: "Gestionar",
+    firstBy: "Contactar primero por",
+    sent: "Enviamos · SMS",
+    delivered: "entregado",
+    called: "Llamó · Llamada",
+    ended: "terminada",
+    knowledge: "Conocimiento",
+    byline: "Versión 1 · nosotros · 4 nov 2026",
+    kind: "Pregunta frecuente",
+    edit: "Editar",
+    question: "Pregunta",
+    filterAll: "Todas, con las archivadas",
+    billing: "Facturación",
+    plan: ["500,00 €", "al mes"],
+    planNote: "2 servicios × 250,00 €",
+    allowance: ["4000", "créditos"],
+    extra: "0,015 € cada uno, en su próxima factura",
+    meter: "4312 de 4000 créditos usados · 312 créditos por encima de lo incluido",
+    period: "1 nov – 4 nov 2026",
+    invoice: ["1 nov 2026", "265,00 €", "Por pagar", "Ver y pagar"],
+    payment: "Su último pago no se completó.",
+    people: "Personas",
+    required: "Obligatorio: nadie todavía",
+    missing: "Elija a alguien para purchaser antes de que pueda empezar.",
+    reachable: "SMS, Llamada",
+    optedOut: "Dado de baja",
+    units: ["minutos", "horas", "días"],
+    save: "Guardar personas",
+    nav: ["Conocimiento", "Contactos", "Facturación", "Personas", "Ajustes"],
+  },
+  de: {
+    contacts: "Kontakte",
+    smsAgreed: "SMS: zugestimmt",
+    stopped: "Per SMS abgemeldet",
+    contactLine: "Deutsch",
+    manage: "Verwalten",
+    firstBy: "Zuerst erreichen per",
+    sent: "Wir haben gesendet · SMS",
+    delivered: "zugestellt",
+    called: "Hat angerufen · Anruf",
+    ended: "beendet",
+    knowledge: "Wissen",
+    byline: "Version 1 · uns · 4. Nov. 2026",
+    kind: "FAQ",
+    edit: "Bearbeiten",
+    question: "Frage",
+    filterAll: "Alle, mit archivierten",
+    billing: "Abrechnung",
+    plan: ["500,00 €", "pro Monat"],
+    planNote: "2 Services × 250,00 €",
+    allowance: ["4.000", "Credits"],
+    extra: "0,015 € pro Stück, auf Ihrer nächsten Rechnung",
+    meter: "4.312 von 4.000 Credits verbraucht · 312 Credits über dem Kontingent",
+    period: "1. Nov. – 4. Nov. 2026",
+    invoice: ["1. Nov. 2026", "265,00 €", "Zu bezahlen", "Ansehen und bezahlen"],
+    payment: "Ihre letzte Zahlung ist nicht durchgegangen.",
+    people: "Personen",
+    required: "Erforderlich: noch niemand",
+    missing: "Wählen Sie jemanden für purchaser, bevor es starten kann.",
+    reachable: "SMS, Anruf",
+    optedOut: "Abgemeldet",
+    units: ["Minuten", "Stunden", "Tage"],
+    save: "Personen speichern",
+    nav: ["Wissen", "Kontakte", "Abrechnung", "Personen", "Einstellungen"],
+  },
+} as const;
+
+for (const locale of ["es", "de"] as const) {
+  const w = WORDS[locale];
+
+  describe(`contacts, knowledge, billing and people in ${locale}`, () => {
+    it("keeps contacts' consent, calls and messages, with what they wrote as written", async () => {
+      renderAt("/contacts", portalApi(locale, contactsRoutes));
+      expect(
+        await screen.findByRole("heading", { name: w.contacts, level: 1 }),
+      ).toBeInTheDocument();
+      // The admin's sidebar links, all translated.
+      expect(
+        ["knowledge", "contacts", "billing", "people", "settings"].map(
+          (l) => screen.getByTestId(`portal-nav-${l}`).textContent,
+        ),
+      ).toEqual(w.nav);
+      expect(await screen.findByTestId(`contact-${PAT}-sms`)).toHaveTextContent(w.smsAgreed);
+      expect(screen.getByTestId(`contact-${SAM}-opted-out`)).toHaveTextContent(w.stopped);
+      expect(screen.getByTestId(`contact-${PAT}`)).toHaveTextContent(w.contactLine);
+      expect(screen.getByTestId(`contact-${PAT}-open`)).toHaveTextContent(w.manage);
+      await userEvent.click(screen.getByTestId(`contact-${PAT}-open`));
+      expect(screen.getByTestId(`contact-${PAT}-details`)).toHaveTextContent(w.firstBy);
+      const msgs = await screen.findByTestId(`contact-${PAT}-messages`);
+      expect(msgs).toHaveTextContent(w.sent);
+      expect(msgs).toHaveTextContent(w.delivered);
+      expect(msgs).toHaveTextContent(w.called);
+      expect(msgs).toHaveTextContent(w.ended);
+      // A text and a call transcript are the contact's and the call's own words: never translated.
+      expect(within(msgs).getByText("Your order is ready.")).toBeInTheDocument();
+      expect(within(msgs).getByText("Caller: is it ready? Agent: yes.")).toBeInTheDocument();
+    });
+
+    it("shows the knowledge base with the client's entries as written", async () => {
+      renderAt("/knowledge", portalApi(locale, knowledgeRoutes));
+      expect(await screen.findByRole("heading", { name: w.knowledge })).toBeInTheDocument();
+      const card = await screen.findByTestId(`portal-knowledge-entry-${ENTRY}`);
+      expect(card).toHaveTextContent(w.byline);
+      expect(card).toHaveTextContent(w.kind);
+      expect(card).toHaveTextContent("When do you deliver?");
+      expect(within(card).getByTestId("portal-knowledge-entry-edit")).toHaveTextContent(w.edit);
+      expect(screen.getByTestId("portal-knowledge-new")).toHaveTextContent(w.question);
+      expect(screen.getByTestId("portal-knowledge-filter-all")).toHaveTextContent(w.filterAll);
+    });
+
+    it("shows billing with prices and credits through Intl", async () => {
+      renderAt("/billing", portalApi(locale, billingRoutes));
+      expect(await screen.findByRole("heading", { name: w.billing })).toBeInTheDocument();
+      const plan = await screen.findByTestId("portal-billing-plan");
+      for (const text of w.plan) expect(plan).toHaveTextContent(text);
+      expect(plan).toHaveTextContent(w.planNote);
+      for (const text of w.allowance) {
+        expect(screen.getByTestId("portal-billing-allowance")).toHaveTextContent(text);
+      }
+      expect(screen.getByTestId("portal-billing-extra")).toHaveTextContent(w.extra);
+      expect(screen.getByTestId("portal-billing-meter")).toHaveTextContent(w.meter);
+      expect(screen.getByText(new RegExp(`^${w.period}\\.`))).toBeInTheDocument();
+      const row = screen.getByTestId("portal-billing-invoices-row-in_1");
+      for (const text of w.invoice) expect(row).toHaveTextContent(text);
+      expect(screen.getByTestId("portal-billing-payment-problem")).toHaveTextContent(w.payment);
+    });
+
+    it("binds people to roles, with role names and contacts as written", async () => {
+      renderAt("/people", portalApi(locale, peopleRoutes));
+      expect(await screen.findByRole("heading", { name: w.people })).toBeInTheDocument();
+      const role = await screen.findByTestId("role-purchaser");
+      expect(role).toHaveTextContent("purchaser");
+      expect(role).toHaveTextContent("Buys the materials");
+      expect(within(role).getByTestId("role-purchaser-required")).toHaveTextContent(w.required);
+      expect(role).toHaveTextContent(w.reachable);
+      expect(within(role).getByText(w.optedOut)).toBeInTheDocument();
+      expect(screen.getByTestId("people-missing")).toHaveTextContent(w.missing);
+      expect(
+        within(within(role).getByTestId("role-purchaser-escalate-unit"))
+          .getAllByRole("option")
+          .map((o) => o.textContent),
+      ).toEqual(w.units);
+      expect(screen.getByTestId(`people-${AGENT}-save`)).toHaveTextContent(w.save);
+    });
+  });
+}

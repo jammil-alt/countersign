@@ -1,9 +1,10 @@
 // `/knowledge` (client admin): the client's FAQs and policies, which our agents use when they answer
-// for the client (docs/plan.md §1.21). Add one, edit it, archive it; every change is kept. Plain
-// English for now: the languages stream moves these strings into message files.
+// for the client (docs/plan.md §1.21). Add one, edit it, archive it; every change is kept. Words in
+// the reader's language (docs/plan.md §1.18); the entries themselves stay as the client wrote them.
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { type EntryActions, EntryForm, EntryList } from "../../knowledge/Entries";
 import { Card, ErrorNotice, Loading, PageHeader, SectionLabel } from "../../ui/primitives";
@@ -11,6 +12,7 @@ import { Card, ErrorNotice, Loading, PageHeader, SectionLabel } from "../../ui/p
 type Show = "active" | "all";
 
 export function PortalKnowledgeScreen() {
+  const { t } = useI18n();
   const api = useApiClient();
   const [show, setShow] = useState<Show>("active");
   const { data, error, loading, reload } = useApi(apiRoutes.portalKnowledge, { query: { show } });
@@ -24,10 +26,7 @@ export function PortalKnowledgeScreen() {
 
   return (
     <div className="max-w-5xl">
-      <PageHeader
-        title="Knowledge"
-        subtitle="Your FAQs and policies. Our agents use them to answer for you. We keep every earlier version."
-      />
+      <PageHeader title={t("knowledge.title")} subtitle={t("knowledge.subtitle")} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="order-2 xl:order-1">
           <SectionLabel
@@ -36,15 +35,15 @@ export function PortalKnowledgeScreen() {
                 value={show}
                 onChange={setShow}
                 area="portal-knowledge"
-                label="Which entries"
+                label={t("knowledge.which")}
                 options={[
-                  ["active", "In use"],
-                  ["all", "All, with archived"],
+                  ["active", t("knowledge.show.active")],
+                  ["all", t("knowledge.show.all")],
                 ]}
               />
             }
           >
-            FAQs and policies
+            {t("knowledge.section")}
           </SectionLabel>
           {loading && !data ? <Loading /> : null}
           {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
@@ -53,17 +52,17 @@ export function PortalKnowledgeScreen() {
               entries={data.entries}
               actions={actions}
               onChanged={reload}
-              us="us"
+              us={t("knowledge.us")}
               area="portal-knowledge"
-              empty="Nothing here yet. Add a question you're often asked, or a policy, with the form."
+              empty={t("knowledge.empty")}
             />
           ) : null}
         </section>
         <div className="order-1 xl:order-2">
           <Card className="p-5" testId="portal-knowledge-add">
-            <SectionLabel>Add</SectionLabel>
+            <SectionLabel>{t("knowledge.add")}</SectionLabel>
             <EntryForm
-              submitLabel="Add"
+              submitLabel={t("knowledge.add")}
               testId="portal-knowledge-new"
               onSubmit={async (v) => {
                 await actions.create(v);
