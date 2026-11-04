@@ -136,6 +136,15 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
 
+### The first operator
+
+A fresh environment has no users, and sign-in only admits invited addresses, so the first operator
+is invited from GitHub: Actions → **Add operator** → target, email (the address you sign in to
+WorkOS with), name. It creates an `app_user` row that your first WorkOS sign-in with that verified
+email claims, and an operator membership in every client. On staging it can run the seed first
+(Sandbox and Demo clients, the platform templates); the seed never runs on production. Safe to run
+again, e.g. after new clients exist.
+
 ## 1.1 Onboarding a client (managed service)
 
 Done by the operator in the back office once M5–M6 ship: create the client → invite the client admin
