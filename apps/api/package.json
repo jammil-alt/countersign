@@ -23,6 +23,7 @@
     "@countersign/threads": "workspace:*",
     "@countersign/workflows": "workspace:*",
     "@hono/zod-validator": "^0.9.1",
+    "@sentry/cloudflare": "11.2.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.7",
     "postgres": "^3.4.9",
