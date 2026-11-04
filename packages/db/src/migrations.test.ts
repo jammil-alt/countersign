@@ -155,12 +155,18 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "doc_line",
       "tenant_change",
       "feedback",
+      "contact",
+      "contact_change",
+      "knowledge_entry",
+      "knowledge_entry_version",
       "billing_setting",
       "billing_usage_report",
       "billing_event",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    expect(await can("contact_change", "UPDATE")).toBe(false);
+    expect(await can("knowledge_entry_version", "UPDATE")).toBe(false);
     expect(await can("billing_event", "UPDATE")).toBe(false);
     expect(await can("connection_change", "UPDATE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);

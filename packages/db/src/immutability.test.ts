@@ -17,9 +17,11 @@ import {
   billingEvent,
   billingUsageReport,
   connectionChange,
+  contactChange,
   docExtraction,
   docLine,
   document,
+  knowledgeEntryVersion,
   rawRecord,
   skillVersion,
 } from "./schema";
@@ -146,13 +148,20 @@ describe.skipIf(!online)("immutability", () => {
     );
   });
 
-  it("connection_change and agent_change are append-only", async () => {
-    for (const table of [connectionChange, agentChange]) {
+  it("connection_change, agent_change and contact_change are append-only", async () => {
+    for (const table of [connectionChange, agentChange, contactChange]) {
       expect(await errorCode(t.db.update(table).set({ change: { edited: true } }))).toBe(
         RESTRICT_VIOLATION,
       );
       expect(await errorCode(t.db.delete(table))).toBe(RESTRICT_VIOLATION);
     }
+  });
+
+  it("knowledge_entry_version is append-only: an edit is a new version", async () => {
+    expect(await errorCode(t.db.update(knowledgeEntryVersion).set({ body: "edited" }))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    expect(await errorCode(t.db.delete(knowledgeEntryVersion))).toBe(RESTRICT_VIOLATION);
   });
 
   it("billing_usage_report: only status, error and sent_at change; billing_event never does", async () => {
