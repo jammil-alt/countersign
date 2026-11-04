@@ -18,6 +18,7 @@ import {
   type Resolution,
   type SkillDefinition,
   type Step,
+  selectChanges,
   validateBundle,
   walkSteps,
 } from "@countersign/core";
@@ -248,6 +249,10 @@ export function stripForPromotion(
 export interface PromotionPreview extends MergePreview {
   /** The client version promoted (before stripping). */
   client: AgentVersionRow;
+  /** The client version's bundle with client-specific values stripped (every change offered). */
+  stripped: AgentBundle;
+  /** The "theirs" side merged: `stripped` with only the selected changes (all when none given). */
+  selected: AgentBundle;
 }
 
 /**
@@ -260,6 +265,8 @@ export async function previewPromotion(
   input: {
     agentId: string;
     versionId?: string | null;
+    /** Ids from core's `selectableBetween(base, stripped)`; omitted: every change. */
+    changes?: readonly string[] | null;
     resolutions?: readonly Resolution[];
     ctx: RegistryContext;
   },
@@ -278,9 +285,10 @@ export async function previewPromotion(
     catalog: input.ctx.catalog,
   });
   const stripped = stripForPromotion(client.bundle, base.bundle, skills);
-  const result = mergeBundles(base.bundle, ours.bundle, stripped, input.resolutions ?? []);
+  const selected = input.changes ? selectChanges(base.bundle, stripped, input.changes) : stripped;
+  const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? []);
   // The "theirs" side is the stripped client bundle; report it against the client version row.
-  return { base, ours, theirs: client, client, result };
+  return { base, ours, theirs: client, client, stripped, selected, result };
 }
 
 /** Saves a promotion as a template draft (author_type 'promote'). */
@@ -289,6 +297,7 @@ export async function createPromotionDraft(
   input: {
     agentId: string;
     versionId?: string | null;
+    changes?: readonly string[] | null;
     resolutions?: readonly Resolution[];
     actorId?: string | null;
     changeNote?: string | null;

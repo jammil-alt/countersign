@@ -9,11 +9,9 @@ import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
   canonicalJson,
-  lookupSkill,
   Slug,
   type TriggerOn,
   type ValidationError,
-  validateBundle,
   type Workflow,
 } from "@countersign/core";
 import {
@@ -62,6 +60,7 @@ import {
   filterSections,
   paletteSections,
   typingContext,
+  validateLikeServer,
 } from "./catalog";
 import { SmallInput, SmallSelect } from "./fields";
 import { type FocusRequest, Inspector, type Member, type Selection } from "./Inspector";
@@ -325,26 +324,10 @@ function BuilderBody(
     () => (agent.kind === "client" ? boundMatrices(agent.bindings, props.connections ?? []) : {}),
     [agent, props.connections],
   );
-  const result = useMemo(() => {
-    const r = validateBundle(bundle, {
-      ...ctx,
-      ...(agent.kind === "client" ? { publish: { matrices } } : {}),
-    });
-    // The server's publish check also refuses agent skills it can't resolve (validateForPublish).
-    const missing: ValidationError[] = bundle.definition.skills
-      .filter((s) => !lookupSkill(s.skill, ctx))
-      .filter(
-        (s) => !r.errors.some((e) => e.code === "unknown_skill" && e.message.includes(s.skill)),
-      )
-      .map((s) => ({
-        stepId: null,
-        field: "definition.skills",
-        code: "unknown_skill",
-        message: `skill ${s.skill} not found`,
-      }));
-    const errors = [...r.errors, ...missing];
-    return { valid: errors.length === 0, errors };
-  }, [bundle, ctx, matrices, agent.kind]);
+  const result = useMemo(
+    () => validateLikeServer(bundle, ctx, agent.kind === "client" ? { matrices } : undefined),
+    [bundle, ctx, matrices, agent.kind],
+  );
   const workflowErrors = result.errors.filter((e) => e.workflow === slug);
   const env: ApprovalEnv = {
     ctx,

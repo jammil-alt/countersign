@@ -10,6 +10,7 @@ import { useApi } from "../../api/useApi";
 import {
   Badge,
   Button,
+  buttonClass,
   Card,
   EmptyState,
   ErrorNotice,
@@ -17,7 +18,7 @@ import {
   SectionLabel,
 } from "../../ui/primitives";
 import { ChangeList } from "./ChangeList";
-import { detailMessages, errorText, Notice, plural, useAction } from "./ui";
+import { detailMessages, errorText, Notice, plural, Select, useAction } from "./ui";
 
 export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
@@ -104,6 +105,9 @@ export function VersionsTab({
         <LineageCard
           agent={agent}
           update={update}
+          hasLive={liveId !== null}
+          templateVersions={template.data?.versions ?? []}
+          onChanged={onChanged}
           templateName={template.data?.agent.name ?? null}
           baseVersion={
             templateVersion(
@@ -226,7 +230,7 @@ export function VersionsTab({
       </div>
 
       {agent.kind === "client" && agent.templateId ? (
-        <CustomizationsCard agentId={agent.id} />
+        <CustomizationsCard key={liveId ?? "none"} agentId={agent.id} />
       ) : null}
     </div>
   );
@@ -270,14 +274,28 @@ function VersionDiff({
 function LineageCard({
   agent,
   update,
+  hasLive,
+  templateVersions,
+  onChanged,
   templateName,
   baseVersion,
 }: {
   agent: AgentSummary;
   update: AgentDetail["update"];
+  hasLive: boolean;
+  templateVersions: VersionSummary[];
+  onChanged(): void;
   templateName: string | null;
   baseVersion: number | null;
 }) {
+  const action = useAction();
+  const [confirmDetach, setConfirmDetach] = useState(false);
+  const published = [...templateVersions]
+    .filter((v) => v.status !== "draft")
+    .sort((a, b) => b.version - a.version);
+  const [relinkTo, setRelinkTo] = useState<string>("");
+  const relinkChoice = relinkTo || published[0]?.id || "";
+
   if (!agent.templateId) {
     return (
       <Card className="p-5" testId="agent-lineage">
@@ -286,6 +304,20 @@ function LineageCard({
       </Card>
     );
   }
+
+  async function detach() {
+    setConfirmDetach(false);
+    const res = await action.call(apiRoutes.opsDetach, { params: { id: agent.id } });
+    if (res.ok) onChanged();
+  }
+  async function relink() {
+    const res = await action.call(apiRoutes.opsRelink, {
+      params: { id: agent.id },
+      body: { templateVersionId: relinkChoice },
+    });
+    if (res.ok) onChanged();
+  }
+
   return (
     <Card className="p-5" testId="agent-lineage">
       <SectionLabel>Lineage</SectionLabel>
@@ -311,6 +343,76 @@ function LineageCard({
           Applying an update merges the template's changes with this client's customizations in the
           merge view.
         </p>
+      ) : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {agent.linked && update?.available ? (
+          <Link
+            to={`/ops/agents/${agent.id}/merge?mode=update`}
+            className={buttonClass("primary")}
+            data-testid="agent-lineage-review-update"
+          >
+            Review update
+          </Link>
+        ) : null}
+        {hasLive ? (
+          <Link
+            to={`/ops/agents/${agent.id}/merge?mode=promote`}
+            className={buttonClass("secondary")}
+            data-testid="agent-lineage-promote"
+          >
+            Promote to template
+          </Link>
+        ) : null}
+        {agent.linked ? (
+          confirmDetach ? (
+            <Button
+              data-testid="agent-lineage-detach-confirm"
+              disabled={action.busy}
+              onClick={detach}
+            >
+              Detach? It will take no more updates
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              data-testid="agent-lineage-detach"
+              onClick={() => setConfirmDetach(true)}
+            >
+              Detach
+            </Button>
+          )
+        ) : hasLive && published.length > 0 ? (
+          <span className="flex flex-wrap items-center gap-2">
+            <Select
+              aria-label="Template version"
+              className="w-40"
+              value={relinkChoice}
+              onChange={(e) => setRelinkTo(e.target.value)}
+              data-testid="agent-lineage-relink-version"
+            >
+              {published.map((v) => (
+                <option key={v.id} value={v.id}>
+                  Template v{v.version}
+                  {v.status === "live" ? " (live)" : ""}
+                </option>
+              ))}
+            </Select>
+            <Button
+              data-testid="agent-lineage-relink"
+              disabled={action.busy || !relinkChoice}
+              onClick={relink}
+            >
+              Re-link as its base
+            </Button>
+          </span>
+        ) : null}
+      </div>
+      {action.error ? (
+        <div className="mt-3">
+          <Notice tone="warning" testId="agent-lineage-error">
+            {errorText(action.error)}
+          </Notice>
+        </div>
       ) : null}
     </Card>
   );

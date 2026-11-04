@@ -17,6 +17,7 @@ export {
   unflattenBundle,
 } from "./bundle/flatten";
 export * from "./bundle/merge";
+export * from "./bundle/select";
 export * from "./canonical";
 export * from "./documents/extraction";
 export * from "./duration";
