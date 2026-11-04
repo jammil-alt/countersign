@@ -593,12 +593,12 @@ function BuilderBody(
           sample={samplePayload(workflow, data)}
           busy={action.busy}
           onClose={() => setPanel(null)}
-          run={async (payload) => {
+          run={async (payload, clientId) => {
             const v = dirty ? await save() : saved;
             if (!v) return null;
             const res = await action.call(apiRoutes.opsTestRun, {
               params: { id: agent.id, vid: v.id },
-              body: { workflow: slug, payload },
+              body: { workflow: slug, payload, ...(clientId ? { clientId } : {}) },
             });
             return res.ok ? res.data.runId : null;
           }}
@@ -1033,10 +1033,15 @@ function TestRunPanel({
   slug: string;
   sample: unknown;
   busy: boolean;
-  run(payload: unknown): Promise<string | null>;
+  /** `clientId`: a template's chosen client (none: the Sandbox). */
+  run(payload: unknown, clientId: string | null): Promise<string | null>;
   onClose(): void;
 }) {
   const sampleText = JSON.stringify(sample, null, 2);
+  const isTemplate = agent.kind === "template";
+  // A template can run on the Sandbox's fixture data or on a client the operator serves.
+  const clients = useApi(apiRoutes.opsClients, isTemplate ? {} : null);
+  const [clientId, setClientId] = useState("");
   const [source, setSource] = useState<"sample" | "manual">("sample");
   const [text, setText] = useState(sampleText);
   const [problem, setProblem] = useState<string | null>(null);
@@ -1055,11 +1060,29 @@ function TestRunPanel({
       <p className="text-sm text-ink-muted">
         A test run reads real data and never changes the client's tools: changes are recorded as
         “would have done”.{" "}
-        {agent.kind === "template"
-          ? "A template runs as its test copy in the Sandbox client."
+        {isTemplate
+          ? "A template runs as its test copy in the client you choose, on that client's data."
           : "It runs on this client's data."}{" "}
         Unsaved changes are saved as a draft first.
       </p>
+      {isTemplate ? (
+        <SmallSelect
+          aria-label="Client"
+          data-testid="builder-test-client"
+          value={clientId}
+          className="max-w-xs"
+          onChange={(e) => setClientId(e.target.value)}
+        >
+          <option value="">The Sandbox client (fixture data)</option>
+          {(clients.data?.clients ?? [])
+            .filter((c) => !c.sandbox)
+            .map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+        </SmallSelect>
+      ) : null}
       <SmallSelect
         aria-label="Payload"
         data-testid="builder-test-source"
@@ -1109,7 +1132,7 @@ function TestRunPanel({
               return;
             }
             setProblem(null);
-            const id = await run(payload);
+            const id = await run(payload, clientId || null);
             if (id) setRunId(id);
           }}
         >

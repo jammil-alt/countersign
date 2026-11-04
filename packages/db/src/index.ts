@@ -17,5 +17,5 @@ export {
   withTenants,
   withUser,
 } from "./client";
-export { type UserMembership, userMemberships } from "./queries";
+export { membershipsOfUser, type UserMembership, userMemberships } from "./queries";
 export * from "./schema";

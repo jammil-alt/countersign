@@ -11,7 +11,7 @@ import {
   type ProvisionRefusalReason,
   refuse,
 } from "../types";
-import { createWorkOS, type WorkOSAuthentication, type WorkOSClient } from "./client";
+import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./client";
 import type { WorkOSConfig } from "./config";
 import {
   clearSessionCookie,
@@ -169,6 +169,20 @@ export function createWorkOSAdapter(options: {
         redirectTo: state.r,
         setCookies: [...clear, sessionCookie(await sealSession(session, password), session, now)],
       };
+    },
+
+    async invite(email) {
+      try {
+        const { id } = await workos.sendInvitation(email.trim().toLowerCase());
+        return { status: "sent", invitationId: id } as const;
+      } catch (error) {
+        // Only the code travels on (WorkOS messages can echo the address back).
+        const reason =
+          error instanceof WorkOSError
+            ? (error.code ?? (error.status === null ? "unreachable" : `http_${error.status}`))
+            : "unknown";
+        return { status: "failed", reason } as const;
+      }
     },
 
     async signOut(request) {

@@ -8,6 +8,8 @@ import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+import { isRunGoing } from "../../runs/format";
+import { usePoll } from "../../runs/usePoll";
 import {
   Badge,
   Button,
@@ -60,6 +62,10 @@ export function OperationPanel({
 }) {
   const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
   const required = activation.data?.requiredConnectors ?? [];
+  // DECISION: while the live version's latest test run is going, the activation check polls every
+  // 2 s (the run page's rate, plan §1.2 "Live updates"), so it turns ready when the run passes.
+  const testRun = activation.data?.testRun ?? null;
+  usePoll(activation.reload, testRun ? isRunGoing(testRun.status) : false, 2_000);
   return (
     <div className="flex flex-col gap-5">
       <StatusCard
@@ -127,6 +133,8 @@ function StatusCard({
   }
 
   const problems = activation.data?.problems ?? [];
+  const testRun = activation.data?.testRun ?? null;
+  const testGoing = testRun ? isRunGoing(testRun.status) : false;
   return (
     <Card className="p-5" testId="agent-operation-status">
       <SectionLabel>
@@ -140,8 +148,8 @@ function StatusCard({
 
       {agent.testCopy ? (
         <p className="mb-3 text-ink">
-          A template's test copy in the Sandbox client: it only test-runs, and is never activated.
-          Fork the template into a client to run it there.
+          A template's test copy in this client: it only test-runs, and is never activated. Fork the
+          template into the client to run it there.
         </p>
       ) : null}
 
@@ -149,6 +157,19 @@ function StatusCard({
         <ErrorNotice error={activation.error} onRetry={activation.reload} />
       ) : null}
       {!activation.data && !activation.error ? <Loading label="Checking activation…" /> : null}
+      {testRun && live && status !== "retired" && (testGoing || testRun.status === "failed") ? (
+        <p
+          className="mb-3 text-ink"
+          data-testid={testGoing ? "agent-activation-test-running" : "agent-activation-test-failed"}
+        >
+          {testGoing
+            ? `A test run of v${live.version} is going. We check again when it finishes.`
+            : `The last test run of v${live.version} failed.`}{" "}
+          <Link to={`/ops/runs/${testRun.id}`} className="text-link underline">
+            Open the run
+          </Link>
+        </p>
+      ) : null}
       {activation.data && status !== "active" && status !== "retired" ? (
         problems.length === 0 ? (
           <p className="text-ink" data-testid="agent-activation-ready">
@@ -223,7 +244,9 @@ function StatusCard({
         </Button>
       </div>
 
-      {status !== "retired" ? <TestRun agent={agent} live={live} liveBundle={liveBundle} /> : null}
+      {status !== "retired" ? (
+        <TestRun agent={agent} live={live} liveBundle={liveBundle} onStarted={activation.reload} />
+      ) : null}
     </Card>
   );
 }
@@ -232,10 +255,13 @@ function TestRun({
   agent,
   live,
   liveBundle,
+  onStarted,
 }: {
   agent: AgentSummary;
   live: VersionSummary | null;
   liveBundle: AgentBundle | null;
+  /** The activation check reloads, sees the run and polls it. */
+  onStarted(): void;
 }) {
   const workflows = liveBundle?.workflows ?? [];
   const [workflow, setWorkflow] = useState(workflows[0]?.slug ?? "");
@@ -272,7 +298,10 @@ function TestRun({
       params: { id: agent.id, vid: live.id },
       body: { workflow, payload: parsed },
     });
-    if (res.ok) setStarted(res.data.runId);
+    if (res.ok) {
+      setStarted(res.data.runId);
+      onStarted();
+    }
   }
 
   return (
@@ -317,7 +346,7 @@ function TestRun({
           <Link to={`/ops/runs/${started}`} className="text-link underline">
             Open the run
           </Link>
-          , then check activation again when it has finished.
+          . Activation updates when it finishes.
         </p>
       ) : null}
       {action.error ? (

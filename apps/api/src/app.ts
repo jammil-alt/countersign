@@ -10,6 +10,7 @@ import { connectionRoutes } from "./routes/connections";
 import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
+import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
@@ -17,8 +18,10 @@ import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
+import { recordRouteHandlers } from "./routes/records";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
+import { usageRouteHandlers } from "./routes/usage";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick } from "./runs/dispatch";
 
@@ -40,7 +43,10 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   hookRoutes(app);
   documentRoutes(app);
   feedbackRouteHandlers(app);
+  onboardingRouteHandlers(app);
   requestRouteHandlers(app);
+  usageRouteHandlers(app);
+  recordRouteHandlers(app);
   approverRuleRoutes(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
