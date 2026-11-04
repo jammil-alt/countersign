@@ -77,7 +77,7 @@ export const TOOL_CALL_STATUSES = [
   "awaiting_approval",
 ] as const;
 export const THREAD_STATUSES = ["open", "closed"] as const;
-/** `contact`: a person a client texts (inbound SMS and WhatsApp, migration 0013); sender_id = contact.id. */
+/** `contact`: a person a client texts (inbound SMS and WhatsApp, migration 0006); sender_id = contact.id. */
 export const MESSAGE_SENDER_TYPES = ["agent", "user", "system", "contact"] as const;
 export const MESSAGE_KINDS = ["text", "command", "result"] as const;
 export const MESSAGE_AUDIENCES = ["client", "operator"] as const;
@@ -787,7 +787,7 @@ export const usageDaily = pgTable(
     steps: integer("steps").notNull().default(0),
     documents: integer("documents").notNull().default(0),
     externalActions: integer("external_actions").notNull().default(0),
-    /** Texts and WhatsApp messages sent (migration 0013), counted once per provider message id. */
+    /** Texts and WhatsApp messages sent (migration 0006), counted once per provider message id. */
     messages: integer("messages").notNull().default(0),
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
@@ -1109,7 +1109,7 @@ export const feedback = pgTable(
   ],
 );
 
-// ── Contacts (migration 0013, docs/plan.md §1.22) ─────────────────────────────────────────────────
+// ── Contacts (migration 0006, docs/plan.md §1.22) ─────────────────────────────────────────────────
 
 export const MESSAGING_CHANNELS = ["sms", "whatsapp"] as const;
 export type MessagingChannel = (typeof MESSAGING_CHANNELS)[number];
