@@ -8,6 +8,7 @@ import {
   type Connector,
   createTestkitConnector,
   createUploadConnector,
+  type FetchLike,
   MemoryObjectStore,
   type StripeClient,
   TESTKIT_UPDATE_TOOL,
@@ -112,6 +113,8 @@ export interface HarnessOptions {
   llm?: LlmTransport;
   /** A fake WorkOS API for the WorkOS sign-in (with `AUTH_PROVIDER: "workos"` in `env`). */
   workos?: WorkOSClient;
+  /** Outbound HTTP for provisioning routes (e.g. a fake Twilio). */
+  fetch?: FetchLike;
   /** Billing's Stripe (tests pass a client over `fakeStripe`); none by default. */
   stripe?: StripeClient;
 }
@@ -147,6 +150,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     instances: () => instances,
     ...(options.llm ? { llm: () => options.llm as LlmTransport } : {}),
     ...(options.workos ? { workos: () => options.workos as WorkOSClient } : {}),
+    ...(options.fetch ? { fetch: () => options.fetch as FetchLike } : {}),
     objects: () => objects,
     extractionTransport: () => extraction.transport,
     stripe: () => options.stripe ?? null,
@@ -187,10 +191,14 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
           method,
           headers: {
             ...(email ? { [DEV_USER_HEADER]: email } : {}),
-            ...(body === undefined ? {} : { "content-type": "application/json" }),
+            ...(body === undefined || typeof body === "string"
+              ? {}
+              : { "content-type": "application/json" }),
             ...headers,
           },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          ...(body === undefined
+            ? {}
+            : { body: typeof body === "string" ? body : JSON.stringify(body) }),
         },
         env,
         executionCtx as unknown as ExecutionContext,

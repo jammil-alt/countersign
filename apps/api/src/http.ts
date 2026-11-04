@@ -14,6 +14,7 @@ import {
 } from "@countersign/auth";
 import {
   createStripeClient,
+  type FetchLike,
   globalFetch,
   type ObjectStore,
   R2ObjectStore,
@@ -59,6 +60,8 @@ export interface AppDeps {
   extractionTransport(env: Bindings): LlmTransport | null;
   /** The WorkOS API client for the WorkOS sign-in; default over `fetch` (tests pass a fake). */
   workos?(env: Bindings): WorkOSClient;
+  /** Outbound HTTP for provisioning calls (Twilio numbers); tests pass a fake. */
+  fetch?(env: Bindings): FetchLike;
   /** Mezonas' Stripe (billing); null when STRIPE_SECRET_KEY is not set. Tests pass a fake. */
   stripe?(env: Bindings): StripeClient | null;
 }

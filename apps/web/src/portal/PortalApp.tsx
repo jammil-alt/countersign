@@ -12,8 +12,10 @@ import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
 import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConnectionsScreen } from "./screens/Connections";
+import { PortalContactsScreen } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
 import { PortalInboxScreen } from "./screens/Inbox";
+import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
 import { PortalReportsScreen } from "./screens/Reports";
@@ -54,7 +56,11 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
             <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
             {isAdmin ? (
-              <SidebarLink to="/billing" label="Billing" testId="portal-nav-billing" />
+              <>
+                <SidebarLink to="/knowledge" label="Knowledge" testId="portal-nav-knowledge" />
+                <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
+                <SidebarLink to="/billing" label="Billing" testId="portal-nav-billing" />
+              </>
             ) : null}
             {isAdmin ? (
               <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
@@ -84,6 +90,8 @@ export function PortalApp() {
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
         <Route path="records/:id" element={<PortalRecordScreen />} />
         <Route path="requests" element={<PortalRequestsScreen />} />
+        <Route path="knowledge" element={<PortalKnowledgeScreen />} />
+        <Route path="contacts" element={<PortalContactsScreen />} />
         <Route path="billing" element={<PortalBillingScreen />} />
         <Route path="settings" element={<PortalSettingsScreen />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />

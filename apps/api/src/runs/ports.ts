@@ -148,6 +148,8 @@ export function agentPort(deps: RuntimeDeps): AgentPort {
         stepId: nodeId,
         mode: run.mode,
         approval,
+        // The step as written in the version: fixed inputs are checked against it, not `input`.
+        literalInput: step.input,
         externalIndex: { next: 0 },
       };
       const o = await callTool(deps, ctx, { toolId: step.tool, input });

@@ -1125,7 +1125,8 @@ export interface ContactChannelConsent {
   grantedAt: string;
   source: string;
 }
-export type ContactConsent = Partial<Record<MessagingChannel, ContactChannelConsent>>;
+/** Consent per channel; `voice` is calls from an agent to the contact's phone (docs/plan.md §1.23). */
+export type ContactConsent = Partial<Record<MessagingChannel | "voice", ContactChannelConsent>>;
 
 /**
  * A person a client's agents may text or message: a phone in E.164 (SMS), a WhatsApp number, a

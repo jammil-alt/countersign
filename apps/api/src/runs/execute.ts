@@ -30,7 +30,9 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
+import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import type { Bindings } from "../env";
+import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, senseEmitter } from "./dispatch";
@@ -45,6 +47,8 @@ export interface RunDeps {
   credentials?: RuntimeDeps["credentials"];
   /** Object storage and links for the `docs.*` tools; extraction uses `transport`. */
   documents?: { content: ContentStore; signer?: UrlSigner | null };
+  /** ElevenLabs, the public origin and outbound HTTP, for calls (`call.place`). */
+  voice?: VoiceDeps;
 }
 
 /**
@@ -110,6 +114,7 @@ export function runDepsFromEnv(
   return {
     ...base,
     transport: workerTransport(env),
+    voice: voiceDepsFromEnv(env),
     documents: {
       content: new ContentStore(new R2ObjectStore(env.ARTIFACTS)),
       signer: signerFor(env, env.APP_ORIGIN ?? ""),
@@ -206,6 +211,11 @@ export async function executeRun(
     catalog: deps.platform.catalog,
     transport: deps.transport,
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
+    // Contacts and consent for messaging connectors, scoped to the connection's client.
+    services: connectorServicesFor(
+      db,
+      deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+    ),
   };
   const ctx: ExecutorContext = {
     run: info,

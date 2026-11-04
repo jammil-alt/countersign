@@ -21,6 +21,8 @@ export interface ToolInvocation {
   platform: PlatformStore;
   /** The documents capability (`docs.*` tools); absent where nothing provides it. */
   documents?: DocumentsPort | undefined;
+  /** The client's knowledge base (`knowledge.search`); absent where nothing provides it. */
+  knowledge?: KnowledgePort | undefined;
   /** Adds a model call a tool made (e.g. extraction) to the step's and run's cost. */
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
@@ -101,6 +103,32 @@ export interface DocumentsPort {
     tenantId: string,
     input: { transactionId: string; testRun: boolean },
   ): Promise<FindSupportOutcome>;
+}
+
+/** One thing `knowledge.search` found: an FAQ, policy, document or memory note. */
+export interface KnowledgeHitForTool {
+  kind: "faq" | "policy" | "document" | "memory";
+  id: string;
+  title: string;
+  excerpt: string;
+  score: number;
+  sources: string[];
+}
+
+/**
+ * The client's knowledge base as tools reach it. Implemented over packages/documents in
+ * `src/log/`; each call is one client-scoped transaction.
+ */
+export interface KnowledgePort {
+  search(
+    tenantId: string,
+    input: {
+      query: string;
+      limit: number;
+      /** The asking agent's own memory notes in these scopes are searched too. */
+      memory: { agentId: string; scopes: string[] };
+    },
+  ): Promise<KnowledgeHitForTool[]>;
 }
 
 /** A platform or pack tool: its spec plus a handler validated on both sides (invariant 5). */

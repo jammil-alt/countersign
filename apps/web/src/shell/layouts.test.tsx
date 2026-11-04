@@ -139,6 +139,8 @@ describe("portal layout", () => {
       "Reports",
       "Connections",
       "Requests",
+      "Knowledge",
+      "Contacts",
       "Billing",
       "Settings",
     ]);
@@ -164,6 +166,7 @@ describe("portal layout", () => {
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
     expect(screen.queryByTestId("portal-nav-settings")).toBeNull();
+    expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
     expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
   });
 

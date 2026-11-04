@@ -171,3 +171,45 @@ export interface RunContext {
 export function renderSummary(template: string, output: unknown): string {
   return renderTemplate(template, output);
 }
+
+/** Whether a templated value (a string, or strings anywhere in objects and arrays) has a `{{`. */
+export function hasTemplate(value: unknown): boolean {
+  if (typeof value === "string") return isTemplate(value);
+  if (Array.isArray(value)) return value.some(hasTemplate);
+  if (isPlainObject(value)) return Object.values(value).some(hasTemplate);
+  return false;
+}
+
+/**
+ * Why a call to a tool with fixed inputs (ToolSpec `fixedInputs`) may not run, or null when it may.
+ * `literal` is the action step's input as written in the agent's version, before templates; it is
+ * undefined when a model wrote the call (a skill, agent mode). Each fixed field the call carries
+ * must be the step's own text: written there, with no template, and unchanged.
+ */
+// DECISION: fixed inputs are checked against the unrendered step input at the gate, the one place
+// every tool call passes, rather than escaped into the prompt as data: what a contact wrote (an
+// SMS, a call transcript, a model's reading of either) can then never become a voice agent's
+// instructions or opening line, whichever path filled it (docs/plan.md §1.23).
+export function fixedInputProblem(
+  fields: readonly string[],
+  literal: unknown,
+  input: unknown,
+): string | null {
+  const given = isPlainObject(input) ? input : {};
+  for (const f of fields) {
+    if (!isPlainObject(literal)) {
+      if (given[f] !== undefined) {
+        return `${f} has to be written in an action step, not by a model: it becomes instructions`;
+      }
+      continue;
+    }
+    const raw = literal[f];
+    if (hasTemplate(raw)) {
+      return `${f} has to be written in the step, not filled from a template: it becomes instructions`;
+    }
+    if (JSON.stringify(raw ?? null) !== JSON.stringify(given[f] ?? null)) {
+      return `${f} isn't the text written in the step`;
+    }
+  }
+  return null;
+}

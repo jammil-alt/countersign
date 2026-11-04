@@ -3,14 +3,11 @@
 
 import { z } from "zod";
 import { DOCS_TOOLS } from "./docs";
+import { KNOWLEDGE_TOOLS } from "./knowledge";
+import { memoryScope } from "./memory-scope";
 import { defineInternalTool, type InternalTool } from "./types";
 
-export const MEMORY_TEST_SCOPE_PREFIX = "test-run:";
-
-/** The memory scope a note is written under: test runs tag theirs with the run (ARCHITECTURE §10.4). */
-export function memoryScope(mode: "live" | "test", runId: string): string {
-  return mode === "test" ? `${MEMORY_TEST_SCOPE_PREFIX}${runId}` : "agent";
-}
+export { MEMORY_TEST_SCOPE_PREFIX, memoryScope } from "./memory-scope";
 
 const Uuid = z.uuid();
 
@@ -112,10 +109,11 @@ export const memoryWrite = defineInternalTool({
   },
 });
 
-/** The platform's own tools, for the tool registry: inbox, threads, memory and documents. */
+/** The platform's own tools, for the tool registry: inbox, threads, memory, documents, knowledge. */
 export const PLATFORM_TOOLS: readonly InternalTool[] = [
   inboxCreate,
   threadsPost,
   memoryWrite,
   ...DOCS_TOOLS,
+  ...KNOWLEDGE_TOOLS,
 ];

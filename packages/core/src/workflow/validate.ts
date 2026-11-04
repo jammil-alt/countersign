@@ -14,7 +14,7 @@ import type { Rules } from "../schemas/rules";
 import { skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import { type Step, type Workflow, Workflow as WorkflowSchema } from "../schemas/workflow";
-import { collectRefs, singleRef } from "../template/template";
+import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   lookupSkill,
   type Scope,
@@ -58,6 +58,7 @@ export type ValidationCode =
   | "input_missing"
   | "input_type"
   | "input_unknown"
+  | "input_not_fixed"
   | "approval_not_write"
   | "connection_missing"
   | "verb_off"
@@ -347,6 +348,16 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
         );
       }
       if (tool) checkInput(c, step.id, step.input, tool.input, scope);
+      for (const f of tool?.fixedInputs ?? []) {
+        if (isPlainObject(step.input) && hasTemplate(step.input[f])) {
+          c.add(
+            step.id,
+            `input.${f}`,
+            "input_not_fixed",
+            `write ${f} in the step: it becomes instructions, so it can't come from a template`,
+          );
+        }
+      }
       break;
     }
     case "person":
@@ -388,6 +399,17 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
       "approval_not_write",
       "only steps that change a client's tool have an approval setting",
     );
+  }
+  if (step.kind === "skill") {
+    for (const tool of writes ?? []) {
+      if (!tool.fixedInputs?.length) continue;
+      c.add(
+        step.id,
+        "skill",
+        "input_not_fixed",
+        `"${tool.id}" runs only from an action step with its ${tool.fixedInputs.join(" and ")} written in it, not from a skill`,
+      );
+    }
   }
   if (ctx.publish && writes) {
     for (const tool of writes) {

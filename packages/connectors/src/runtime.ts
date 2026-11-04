@@ -20,7 +20,7 @@ interface SubtleCryptoLike {
   importKey(
     format: "raw",
     keyData: Uint8Array,
-    algorithm: { name: "AES-GCM" } | { name: "HMAC"; hash: "SHA-256" },
+    algorithm: { name: "AES-GCM" } | { name: "HMAC"; hash: "SHA-256" | "SHA-1" },
     extractable: boolean,
     usages: ("encrypt" | "decrypt" | "sign" | "verify")[],
   ): Promise<CryptoKeyLike>;
@@ -129,9 +129,9 @@ export function fromBase64Url(input: string): Uint8Array {
   return fromBase64(input);
 }
 
-export async function hmacKey(secret: Uint8Array): Promise<CryptoKeyLike> {
-  return subtle().importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, [
-    "sign",
-    "verify",
-  ]);
+export async function hmacKey(
+  secret: Uint8Array,
+  hash: "SHA-256" | "SHA-1" = "SHA-256",
+): Promise<CryptoKeyLike> {
+  return subtle().importKey("raw", secret, { name: "HMAC", hash }, false, ["sign", "verify"]);
 }
