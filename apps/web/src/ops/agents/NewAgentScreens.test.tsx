@@ -81,7 +81,12 @@ describe("new template", () => {
 });
 
 /** What POST /api/ops/agents/draft answers: a saved v1 draft with gaps and the guards' notes. */
-function draftResponse(agent: typeof AGENT_SUMMARY) {
+function draftResponse(
+  agent: Omit<typeof AGENT_SUMMARY, "tenantId" | "kind"> & {
+    tenantId: string | null;
+    kind: "template" | "client";
+  },
+) {
   return {
     agent,
     version: { ...AGENT_DETAIL.versions[1], version: 1, status: "draft", authorType: "builder" },

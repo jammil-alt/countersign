@@ -967,7 +967,12 @@ export const opsRoutes = {
     roles: OPS,
     summary: "The skills library: built-in, shared and the clients' own skills, with used-by",
     query: z.object({ client: ApiId.optional() }),
-    response: z.object({ skills: z.array(SkillListItem) }),
+    response: z.object({
+      skills: z.array(SkillListItem),
+      /** What the skill editor picks tools from, grouped under the connectors. */
+      tools: z.array(ToolSpec),
+      connectors: z.array(z.object({ id: z.string(), name: z.string() })),
+    }),
   }),
   opsCreateSkill: defineRoute({
     method: "POST",

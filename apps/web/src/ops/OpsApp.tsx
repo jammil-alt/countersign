@@ -13,14 +13,13 @@ import { OpsConnectionsScreen } from "./screens/Connections";
 import { OpsInboxScreen } from "./screens/Inbox";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
+import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
 
 /** ARCHITECTURE §15's back-office screens not built yet, as placeholders. */
 const PLACEHOLDERS: [path: string, title: string][] = [
   ["clients/new", "New client"],
   ["clients/:clientId/settings", "Client settings"],
   ["agents/:id/merge", "Merge"],
-  ["skills", "Skills"],
-  ["skills/:id", "Skill"],
   ["packs", "Packs"],
   ["requests", "Requests"],
   ["usage", "Usage and cost"],
@@ -44,6 +43,9 @@ export default function OpsApp() {
         <Route path="inbox" element={<OpsInboxScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
+        <Route path="skills" element={<SkillsScreen />} />
+        <Route path="skills/new" element={<NewSkillScreen />} />
+        <Route path="skills/:id" element={<SkillPage />} />
         <Route path="templates" element={<TemplatesScreen />} />
         <Route path="templates/new" element={<NewTemplateScreen />} />
         <Route path="templates/:slug/*" element={<TemplatePage />} />

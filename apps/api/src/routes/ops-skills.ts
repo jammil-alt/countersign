@@ -323,7 +323,13 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
       );
     }
     items.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-    return { skills: items };
+    return {
+      skills: items,
+      tools: platform.tools.list().map((t) => t.spec),
+      connectors: platform.connectors
+        .list()
+        .map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
+    };
   });
 
   mount(app, routes.opsCreateSkill, async (ctx) => {
