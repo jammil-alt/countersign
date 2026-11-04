@@ -31,7 +31,6 @@ import {
   eq,
   gte,
   inArray,
-  isNotNull,
   isNull,
   lt,
   lte,

@@ -15,6 +15,7 @@ import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
+import { OpsUsageScreen } from "./screens/Usage";
 import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
 
 /** ARCHITECTURE §15's back-office screens not built yet, as placeholders. */
@@ -26,7 +27,6 @@ const PLACEHOLDERS: [path: string, title: string][] = [
   ["skills/:id", "Skill"],
   ["packs", "Packs"],
   ["requests", "Requests"],
-  ["usage", "Usage and cost"],
   ["settings", "Settings"],
 ];
 
@@ -46,6 +46,7 @@ export default function OpsApp() {
         <Route path="runs" element={<OpsRunsScreen />} />
         <Route path="runs/:id" element={<OpsRunScreen />} />
         <Route path="inbox" element={<OpsInboxScreen />} />
+        <Route path="usage" element={<OpsUsageScreen />} />
         <Route path="feedback" element={<OpsFeedbackScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
