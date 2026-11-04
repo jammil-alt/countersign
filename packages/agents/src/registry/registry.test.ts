@@ -229,7 +229,11 @@ describe.skipIf(!harness)("agent registry", () => {
         workflowSlug: "check-record",
         mode: "test",
       });
-      expect(ok.config).toEqual({ bindings: { testkit: h.A.connectionId }, approver: null });
+      expect(ok.config).toEqual({
+        bindings: { testkit: h.A.connectionId },
+        approver: null,
+        approverRules: { revision: 0, rules: [] },
+      });
       await finishRun(tx, { tenantId: h.A.tenantId, runId: ok.id, status: "succeeded" });
     });
     const active = await h.ops((tx) => activate(tx, { agentId: a.id, ctx: h.ctx }));
