@@ -77,6 +77,13 @@ describe("dev adapter", () => {
     expect(ok(await getSession(viaCookie, { adapter, directory })).user.id).toBe("u-staff");
   });
 
+  it("sends no invitation email: the dev sign-in lists invited users at once", async () => {
+    expect(await adapter.invite("new@millwork.test")).toEqual({
+      status: "not_sent",
+      reason: "dev_sign_in",
+    });
+  });
+
   it("refuses no credentials and an unknown email", async () => {
     expect(await getSession(req(), { adapter, directory })).toMatchObject({
       ok: false,

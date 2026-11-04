@@ -295,4 +295,5 @@ export {
   type FakeResendEmail,
   fakeResend,
 } from "./resend/fake";
+export * from "./stripe/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";

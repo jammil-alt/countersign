@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ToolAmount } from "../approvals/rules";
 import { JsonSchema, TemplateString, ToolId } from "./common";
 import { SideEffect, Verb } from "./permissions";
 
@@ -27,6 +28,11 @@ export const ToolSpec = z
      * and workflow validation flags them.
      */
     fixedInputs: z.array(z.string().min(1)).optional(),
+    /**
+     * Where a write carries money in its input, for approver rules on an amount (docs/plan.md
+     * §1.20). Tools without it never match an amount rule.
+     */
+    amount: ToolAmount.optional(),
   })
   // DECISION: an external tool names its connector explicitly, so the permission gate and the
   // publish check find the connection matrix without guessing from `source`.

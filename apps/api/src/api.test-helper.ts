@@ -3,13 +3,14 @@
 // app built over them with the dev sign-in, the testkit connector and in-memory Workflow
 // instances, and a fake WorkflowStep for driving runs.
 
-import { DEV_USER_HEADER } from "@countersign/auth";
+import { DEV_USER_HEADER, type WorkOSClient } from "@countersign/auth";
 import {
   type Connector,
   createTestkitConnector,
   createUploadConnector,
   type FetchLike,
   MemoryObjectStore,
+  type StripeClient,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -110,8 +111,12 @@ export interface HarnessOptions {
   env?: Partial<Bindings>;
   /** The Builder's model transport (tests pass a FakeModel). */
   llm?: LlmTransport;
+  /** A fake WorkOS API for the WorkOS sign-in (with `AUTH_PROVIDER: "workos"` in `env`). */
+  workos?: WorkOSClient;
   /** Outbound HTTP for provisioning routes (e.g. a fake Twilio). */
   fetch?: FetchLike;
+  /** Billing's Stripe (tests pass a client over `fakeStripe`); none by default. */
+  stripe?: StripeClient;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -144,9 +149,11 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     openDb: () => ({ db, close: async () => {} }),
     instances: () => instances,
     ...(options.llm ? { llm: () => options.llm as LlmTransport } : {}),
+    ...(options.workos ? { workos: () => options.workos as WorkOSClient } : {}),
     ...(options.fetch ? { fetch: () => options.fetch as FetchLike } : {}),
     objects: () => objects,
     extractionTransport: () => extraction.transport,
+    stripe: () => options.stripe ?? null,
   });
   const env = {
     ENVIRONMENT: "development",

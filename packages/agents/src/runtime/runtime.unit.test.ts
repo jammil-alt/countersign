@@ -45,6 +45,7 @@ describe("tool registry", () => {
       "docs.find_support",
       "docs.get",
       "inbox.create",
+      "knowledge.search",
       "memory.write",
       "testkit.record.query",
       "testkit.record.update",

@@ -1,5 +1,5 @@
 {
-  "id": "ce641f49-59af-4dbd-b058-9e89f35600a4",
+  "id": "6ffcd01d-40ec-4c1b-88fb-476dcedcd114",
   "prevId": "42e9f74b-a446-4d75-bd16-4c49074ea167",
   "version": "7",
   "dialect": "postgresql",
@@ -4860,13 +4860,6 @@
           "notNull": true,
           "default": 0
         },
-        "call_seconds": {
-          "name": "call_seconds",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "tokens_in": {
           "name": "tokens_in",
           "type": "bigint",
@@ -5030,6 +5023,524 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.knowledge_chunk": {
+      "name": "knowledge_chunk",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_id": {
+          "name": "entry_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entry_version_id": {
+          "name": "entry_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "document_id": {
+          "name": "document_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extraction_id": {
+          "name": "extraction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chunk_no": {
+          "name": "chunk_no",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'english'"
+        },
+        "tsv": {
+          "name": "tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "knowledge_chunk_tsv_idx": {
+          "name": "knowledge_chunk_tsv_idx",
+          "columns": [
+            {
+              "expression": "tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "knowledge_chunk_entry_idx": {
+          "name": "knowledge_chunk_entry_idx",
+          "columns": [
+            {
+              "expression": "entry_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "knowledge_chunk_document_idx": {
+          "name": "knowledge_chunk_document_idx",
+          "columns": [
+            {
+              "expression": "document_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "knowledge_chunk_tenant_idx": {
+          "name": "knowledge_chunk_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "knowledge_chunk_tenant_id_tenant_id_fk": {
+          "name": "knowledge_chunk_tenant_id_tenant_id_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_entry_fk": {
+          "name": "knowledge_chunk_entry_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "knowledge_entry",
+          "columnsFrom": [
+            "entry_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_entry_version_fk": {
+          "name": "knowledge_chunk_entry_version_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "knowledge_entry_version",
+          "columnsFrom": [
+            "entry_version_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_document_fk": {
+          "name": "knowledge_chunk_document_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "document",
+          "columnsFrom": [
+            "document_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_extraction_fk": {
+          "name": "knowledge_chunk_extraction_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "doc_extraction",
+          "columnsFrom": [
+            "extraction_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_chunk_source_check": {
+          "name": "knowledge_chunk_source_check",
+          "value": "\"knowledge_chunk\".\"source_type\" in ('entry', 'document')"
+        },
+        "knowledge_chunk_source_ids_check": {
+          "name": "knowledge_chunk_source_ids_check",
+          "value": "(\"knowledge_chunk\".\"source_type\" = 'entry' and \"knowledge_chunk\".\"entry_id\" is not null and \"knowledge_chunk\".\"entry_version_id\" is not null and \"knowledge_chunk\".\"document_id\" is null) or (\"knowledge_chunk\".\"source_type\" = 'document' and \"knowledge_chunk\".\"document_id\" is not null and \"knowledge_chunk\".\"entry_id\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.knowledge_entry": {
+      "name": "knowledge_entry",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "knowledge_entry_tenant_idx": {
+          "name": "knowledge_entry_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "knowledge_entry_tenant_id_tenant_id_fk": {
+          "name": "knowledge_entry_tenant_id_tenant_id_fk",
+          "tableFrom": "knowledge_entry",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_entry_created_by_app_user_id_fk": {
+          "name": "knowledge_entry_created_by_app_user_id_fk",
+          "tableFrom": "knowledge_entry",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "knowledge_entry_id_tenant_key": {
+          "name": "knowledge_entry_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_entry_kind_check": {
+          "name": "knowledge_entry_kind_check",
+          "value": "\"knowledge_entry\".\"kind\" in ('faq', 'policy')"
+        },
+        "knowledge_entry_status_check": {
+          "name": "knowledge_entry_status_check",
+          "value": "\"knowledge_entry\".\"status\" in ('active', 'archived')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.knowledge_entry_version": {
+      "name": "knowledge_entry_version",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_id": {
+          "name": "entry_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_role": {
+          "name": "author_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "knowledge_entry_version_tenant_id_tenant_id_fk": {
+          "name": "knowledge_entry_version_tenant_id_tenant_id_fk",
+          "tableFrom": "knowledge_entry_version",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_entry_version_author_id_app_user_id_fk": {
+          "name": "knowledge_entry_version_author_id_app_user_id_fk",
+          "tableFrom": "knowledge_entry_version",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_entry_version_entry_fk": {
+          "name": "knowledge_entry_version_entry_fk",
+          "tableFrom": "knowledge_entry_version",
+          "tableTo": "knowledge_entry",
+          "columnsFrom": [
+            "entry_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "knowledge_entry_version_id_tenant_key": {
+          "name": "knowledge_entry_version_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        },
+        "knowledge_entry_version_key": {
+          "name": "knowledge_entry_version_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "entry_id",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_entry_version_status_check": {
+          "name": "knowledge_entry_version_status_check",
+          "value": "\"knowledge_entry_version\".\"status\" in ('active', 'archived')"
+        },
+        "knowledge_entry_version_role_check": {
+          "name": "knowledge_entry_version_role_check",
+          "value": "\"knowledge_entry_version\".\"author_role\" in ('operator', 'client_admin')"
+        },
+        "knowledge_entry_version_number_check": {
+          "name": "knowledge_entry_version_number_check",
+          "value": "\"knowledge_entry_version\".\"version\" >= 1"
+        }
+      },
       "isRLSEnabled": false
     }
   },

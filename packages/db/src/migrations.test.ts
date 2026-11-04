@@ -157,16 +157,44 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "feedback",
       "contact",
       "contact_change",
+      "knowledge_entry",
+      "knowledge_entry_version",
+      "billing_setting",
+      "billing_usage_report",
+      "billing_event",
       "reach_out",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
     expect(await can("contact_change", "UPDATE")).toBe(false);
+    expect(await can("knowledge_entry_version", "UPDATE")).toBe(false);
+    expect(await can("billing_event", "UPDATE")).toBe(false);
     expect(await can("connection_change", "UPDATE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);
     expect(await can("tenant_change", "UPDATE")).toBe(false);
+  });
+
+  it("seed the billing settings and let only operator sessions change them", async () => {
+    const [row] = await t.db.$client<{ a: number; m: string }[]>`
+      select allowance_credits_per_agent as a, meter_event_name as m from billing_setting`;
+    expect({ ...row }).toEqual({ a: 2000, m: "mezonas_credits" });
+    const costs = await t.db.$client<{ measure: string; unit_cost: string; per_units: number }[]>`
+      select measure, unit_cost, per_units from billing_unit_cost order by measure`;
+    expect(costs.map((c) => [c.measure, c.unit_cost, c.per_units])).toEqual([
+      ["call_seconds", "0.1000", 60],
+      ["cost_usd", "1.0000", 1],
+      ["messages", "0.0083", 1],
+    ]);
+    const updated = async (operator: boolean) =>
+      t.db.$client.begin(async (tx) => {
+        await tx`select set_config('app.operator', ${operator ? "on" : "off"}, true)`;
+        await tx`set local role cs_worker`;
+        return (await tx`update billing_setting set allowance_credits_per_agent = 2000`).count;
+      });
+    expect(await updated(false)).toBe(0);
+    expect(await updated(true)).toBe(1);
   });
 
   it("default ids to uuid v7, in creation order", async () => {

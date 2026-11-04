@@ -3,7 +3,13 @@
 // same way.
 
 import { captureBefore, runReadTool } from "@countersign/connectors";
-import { decideToolCall, fixedInputProblem, type JsonObject } from "@countersign/core";
+import {
+  changeFacts,
+  decideToolCall,
+  fixedInputProblem,
+  type JsonObject,
+  routeApproval,
+} from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
 import {
@@ -12,7 +18,6 @@ import {
   idempotencyKey,
   nextIdempotencyKey,
   type RuntimeDeps,
-  resolveApprover,
   type StepContext,
 } from "./context";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
@@ -121,6 +126,7 @@ async function dispatch(
       threadId: step.threadId,
       platform: deps.ports.platform,
       documents: deps.ports.documents,
+      knowledge: deps.ports.knowledge,
       recordUsage: (usage) =>
         deps.ports.log.addUsage(
           step.tenantId,
@@ -162,15 +168,27 @@ async function dispatch(
   const key = idempotencyKey(step);
   const test = step.mode === "test";
   const automatic = decision === "run" && !test;
-  const approver =
-    automatic || test
-      ? null
-      : resolveApprover([
-          step.approval?.approver,
-          step.agent.bundle.definition.permissions.approver,
-          step.agent.approver,
-          await deps.ports.store.clientApprover(step.tenantId),
-        ]);
+  // Who approves (never whether: that was decided above, invariant 8). Read fresh for each
+  // proposal, so a client's tightening applies to the next approval at once.
+  let approver: ReturnType<typeof routeApproval> | null = null;
+  let revision = 0;
+  if (!automatic && !test) {
+    const routing = await deps.ports.store.approvalRouting(step.tenantId);
+    revision = routing.revision;
+    approver = routeApproval({
+      rules: routing.rules,
+      facts: changeFacts({
+        spec: tool.spec,
+        connector: connectorId,
+        agentId: step.agent.agentId,
+        input: captured.input,
+      }),
+      step: step.approval?.approver,
+      agent: [step.agent.bundle.definition.permissions.approver, step.agent.approver],
+      client: routing.clientDefault,
+      members: routing.members,
+    });
+  }
   const { action } = await deps.ports.actions.propose(step.tenantId, {
     connectionId: conn.id,
     tool: tool.spec.id,
@@ -185,7 +203,7 @@ async function dispatch(
       ? {
           title: `${tool.spec.description} (${tool.spec.id})`,
           agentId: step.agent.agentId,
-          ...approver,
+          ...approver.assignee,
           payload: {
             tool: tool.spec.id,
             verb: tool.spec.verb,
@@ -195,6 +213,9 @@ async function dispatch(
             before: (captured.before ?? null) as JsonObject[string],
             stepId: step.stepId,
             onReject: step.approval?.onReject ?? "stop",
+            // What chose the approver: a rule (with the rules' revision), the step, the agent,
+            // the client's default, or the default (the client admin).
+            approverRoute: { source: approver.source, ruleId: approver.ruleId, revision },
           },
         }
       : null,
