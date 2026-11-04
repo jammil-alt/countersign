@@ -9,7 +9,11 @@ import type { Db } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
   MATERIALS_HANDLERS,
+  MATERIALS_REPORTS,
+  MATERIALS_REVIEWS,
   materialsManifest,
+  type PackReportHandler,
+  type PackReviewHandler,
   type PackTool,
   packToolContext,
 } from "@countersign/pack-materials";
@@ -17,11 +21,20 @@ import {
 export interface RegisteredPack {
   manifest: PackManifest;
   handlers: Readonly<Record<string, PackTool>>;
+  /** Its client reports by name (`/api/reports/:pack/:report`). */
+  reports?: Readonly<Record<string, PackReportHandler>>;
+  /** Its inbox review cards by the `review` key of an item's payload (e.g. `materials.match`). */
+  reviews?: Readonly<Record<string, PackReviewHandler>>;
 }
 
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
 export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
-  { manifest: materialsManifest, handlers: MATERIALS_HANDLERS },
+  {
+    manifest: materialsManifest,
+    handlers: MATERIALS_HANDLERS,
+    reports: MATERIALS_REPORTS,
+    reviews: MATERIALS_REVIEWS,
+  },
 ];
 
 function adapt(tool: PackTool): InternalTool {

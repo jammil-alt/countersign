@@ -30,6 +30,8 @@ export interface Platform {
   tools: ToolRegistry;
   catalog: SkillCatalog;
   events: EventTypeRegistry;
+  /** The packs it registered, with their reports and review cards. */
+  packs: readonly RegisteredPack[];
   /** What publishing and validation need: tools, skills, event types. */
   ctx: RegistryContext;
 }
@@ -104,7 +106,14 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     if (c.manifest.events?.length) events.registerConnector(c.manifest.id, c.manifest.events);
   }
   for (const p of packs) events.registerPack(p.manifest.id, p.manifest.events);
-  return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
+  return {
+    connectors,
+    tools,
+    catalog,
+    events,
+    packs,
+    ctx: { tools, catalog, events: events.byType() },
+  };
 }
 
 export function isProductionEnv(env: Pick<Bindings, "ENVIRONMENT">): boolean {

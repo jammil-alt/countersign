@@ -4,6 +4,13 @@
 // units, recording, the six alert rules, history and the digest (§12.4). apps/api registers it.
 // May import core, db, llm, senses, documents, connectors; never agents or workflows.
 
+export {
+  MATERIALS_REPORTS,
+  MATERIALS_REVIEWS,
+  type PackReportHandler,
+  type PackReviewHandler,
+  ReviewError,
+} from "./api";
 export * from "./catalog/keys";
 export {
   decideLine,
