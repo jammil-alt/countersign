@@ -5,6 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
+import { MergeScreen } from "./merge/MergeScreen";
 import { OpsLayout } from "./OpsLayout";
 import { AgentPage } from "./screens/AgentPage";
 import { ClientDetailScreen } from "./screens/ClientDetail";
@@ -18,7 +19,6 @@ import { OpsRunScreen } from "./screens/RunView";
 const PLACEHOLDERS: [path: string, title: string][] = [
   ["clients/new", "New client"],
   ["clients/:clientId/settings", "Client settings"],
-  ["agents/:id/merge", "Merge"],
   ["skills", "Skills"],
   ["skills/:id", "Skill"],
   ["packs", "Packs"],
@@ -36,6 +36,7 @@ export default function OpsApp() {
         {PLACEHOLDERS.map(([path, title]) => (
           <Route key={path} path={path} element={<Placeholder title={title} />} />
         ))}
+        <Route path="agents/:id/merge" element={<MergeScreen />} />
         <Route path="clients/:clientId" element={<ClientDetailScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />

@@ -356,6 +356,36 @@ export const BundleDiff = z.object({
   labels: z.record(z.string(), z.string()),
 });
 
+/** One merge conflict (core's `MergeConflict`): settled by a resolution with the same path. */
+export const MergeConflictSchema = z.object({
+  path: z.string(),
+  kind: z.enum(["field", "exists", "location", "order"]),
+  entity: z.string(),
+  base: z.unknown(),
+  ours: z.unknown(),
+  theirs: z.unknown(),
+});
+
+/** How the merge view settles one conflict (core's `Resolution`). */
+export const ResolutionSchema = z.union([
+  z.strictObject({ path: z.string().max(2000), choice: z.enum(["ours", "theirs", "base"]) }),
+  z.strictObject({ path: z.string().max(2000), choice: z.literal("value"), value: z.unknown() }),
+]);
+
+/**
+ * A three-way merge's inputs and its unresolved result, for the merge view (ARCHITECTURE §10.5).
+ * The view re-runs core's `mergeBundles` and `validateBundle` with its resolutions as they change;
+ * the server runs them again on save.
+ */
+export const MergeInputs = z.object({
+  base: VersionDetail,
+  ours: VersionDetail,
+  /** For a promotion, the client version with client-specific values stripped. */
+  theirs: VersionDetail,
+  conflicts: z.array(MergeConflictSchema),
+  labels: z.record(z.string(), z.string()),
+});
+
 /** A skill an agent may use, with its settings schema (the editor builds its forms from it). */
 export const SkillOption = z.object({
   /** The reference a bundle names it by (`docs.extract`, `custom:<slug>`). */
@@ -796,6 +826,86 @@ export const opsRoutes = {
         }),
       ),
     }),
+  }),
+  opsUpdatePreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/update-preview",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A template update for a client agent: base, client and template bundles and the merge's conflicts",
+    params: IdParams,
+    response: MergeInputs.extend({
+      /** The template the update comes from. */
+      template: AgentSummary,
+    }),
+  }),
+  opsUpdate: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/update",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Apply a template update: the merge with every conflict resolved, saved as the client agent's draft",
+    params: IdParams,
+    body: z.strictObject({
+      resolutions: z.array(ResolutionSchema).max(500),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ version: VersionSummary }),
+  }),
+  opsPromotePreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/promote-preview",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Promote a client agent's changes: base, template and stripped client bundles, what stays with the client",
+    params: IdParams,
+    query: z.object({ version: ApiId.optional() }),
+    response: MergeInputs.extend({
+      template: AgentSummary,
+      /** The client version promoted (its bundle, stripped, is `theirs.bundle`). */
+      client: VersionSummary,
+      /** Client-specific values left out: the stripped bundle against the client version. */
+      leftOut: z.array(BundleChangeSchema),
+    }),
+  }),
+  opsPromote: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/promote",
+    auth: "session",
+    roles: OPS,
+    summary: "Promote a client agent's changes (all or selected) into a new template draft",
+    params: IdParams,
+    body: z.strictObject({
+      versionId: ApiId.optional(),
+      /** Ids from core's `selectableBetween(base, stripped)`; omitted: every change. */
+      changes: z.array(z.string().max(2000)).max(1000).optional(),
+      resolutions: z.array(ResolutionSchema).max(500),
+      changeNote: Note.optional(),
+      releaseNote: Note.optional(),
+    }),
+    response: z.object({ template: AgentSummary, version: VersionSummary }),
+  }),
+  opsDetach: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/detach",
+    auth: "session",
+    roles: OPS,
+    summary: "Detach a client agent from its template: it keeps its history, takes no updates",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
+  opsRelink: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/relink",
+    auth: "session",
+    roles: OPS,
+    summary: "Re-link a client agent to a published template version as its new base",
+    params: IdParams,
+    body: z.strictObject({ templateVersionId: ApiId }),
+    response: z.object({ agent: AgentSummary, version: VersionSummary }),
   }),
   opsRunAgent: defineRoute({
     method: "POST",

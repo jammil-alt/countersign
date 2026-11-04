@@ -102,7 +102,7 @@ export function entityName(key: string, labels: Record<string, string>, value?: 
 }
 
 /** The owner of a list key (`path:low>steps` → "Fork path “Low”"; `bundle>skills` → "the agent"). */
-function listName(listKey: string, labels: Record<string, string>): string {
+export function listName(listKey: string, labels: Record<string, string>): string {
   const owner = listKey.slice(0, listKey.lastIndexOf(">"));
   if (owner === "bundle") return listKey.endsWith(">skills") ? "the skills" : "the workflows";
   return entityName(owner, labels);

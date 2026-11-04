@@ -37,7 +37,7 @@ import { agentSummary, versionSummary } from "./mappers";
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
-async function agentInScope(ctx: Scope, id: string): Promise<AgentRow> {
+export async function agentInScope(ctx: Scope, id: string): Promise<AgentRow> {
   const row = await getAgent(ctx.tx, id);
   if (row.tenantId !== null && !ctx.tenantIds.includes(row.tenantId)) throw notFound("agent");
   return row;
@@ -85,7 +85,7 @@ function diff(a: AgentBundle, b: AgentBundle): { changes: BundleChange[] } {
   }
 }
 
-function labels(...bundles: AgentBundle[]): Record<string, string> {
+export function labels(...bundles: AgentBundle[]): Record<string, string> {
   try {
     return bundleLabels(...bundles);
   } catch {
