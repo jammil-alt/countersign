@@ -331,7 +331,9 @@ describe.skipIf(!h)("API", () => {
     it("shows the client its offered tools, what agents may do and who uses them", async () => {
       const res = await H.call(user("a"), "GET", "/api/connections");
       expect(res.status).toBe(200);
-      const [testkit] = j(res.json).connections;
+      // Upload is built in and listed first; the offered tool follows.
+      const [upload, testkit] = j(res.json).connections;
+      expect(upload).toMatchObject({ connector: "upload" });
       expect(testkit).toMatchObject({ connector: "testkit", name: "Testkit" });
       expect(testkit.connection.usedBy).toEqual([{ id: clientAgentId, name: "Record keeping" }]);
       expect(testkit.connection.access.map((a: { access: string }) => a.access)).toEqual([
@@ -347,7 +349,8 @@ describe.skipIf(!h)("API", () => {
       const ids = j(conn.json).connections.map(
         (c: { connection: { id: string } | null }) => c.connection?.id,
       );
-      expect(ids).toEqual([H.B.connectionId]);
+      // Upload (built in, not used yet: no connection) and B's own testkit connection.
+      expect(ids).toEqual([undefined, H.B.connectionId]);
       // A's agent is not a service of B.
       const overview = await H.call(admin("b"), "GET", "/api/overview");
       expect(j(overview.json).client.id).toBe(H.B.tenantId);

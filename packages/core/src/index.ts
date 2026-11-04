@@ -19,9 +19,11 @@ export {
 export * from "./bundle/merge";
 export * from "./bundle/select";
 export * from "./canonical";
+export * from "./documents/extraction";
 export * from "./duration";
 export * from "./ids";
 export * from "./json";
+export * from "./mappers/upload";
 export * from "./money";
 export * from "./permissions/decide";
 export * from "./roles";

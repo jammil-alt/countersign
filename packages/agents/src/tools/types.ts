@@ -19,6 +19,88 @@ export interface ToolInvocation {
   threadId?: string | undefined;
   /** The platform's own records (inbox, threads, memory), reached through a port. */
   platform: PlatformStore;
+  /** The documents capability (`docs.*` tools); absent where nothing provides it. */
+  documents?: DocumentsPort | undefined;
+  /** Adds a model call a tool made (e.g. extraction) to the step's and run's cost. */
+  recordUsage?:
+    | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
+    | undefined;
+}
+
+/** A document as tools see it: metadata, a short-lived link, and its latest reading. */
+export interface DocumentForTool {
+  id: string;
+  source: string;
+  filename: string;
+  mimeType: string;
+  status: string;
+  pageCount: number | null;
+  transactionId: string | null;
+  receivedAt: string;
+  /** Signed, 5 minutes; null where no signer is configured. */
+  url: string | null;
+  extraction: {
+    id: string;
+    model: string;
+    header: Record<string, unknown>;
+    subtotal: string;
+    freight: string;
+    surcharges: { label: string; amount: string }[];
+    tax: string;
+    total: string;
+    totalsMatch: boolean;
+    problems: string[];
+    lines: {
+      lineNo: number;
+      vendorSku: string | null;
+      description: string;
+      qty: string;
+      uom: string | null;
+      unitPrice: string;
+      extPrice: string;
+      page: number | null;
+    }[];
+  } | null;
+}
+
+export interface ExtractSummary {
+  documentId: string;
+  extractionId: string;
+  status: "extracted" | "needs_review";
+  totalsMatch: boolean;
+  problems: string[];
+  lineCount: number;
+  vendorName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  total: string;
+  inboxItemId: string | null;
+}
+
+export type FindSupportOutcome =
+  | { status: "found"; transactionId: string; documentIds: string[]; linkedNow: boolean }
+  | { status: "candidates"; transactionId: string; documentIds: string[] }
+  | { status: "missing"; transactionId: string; unextractedDocumentIds: string[] };
+
+/**
+ * The documents capability as tools reach it. Implemented over packages/documents in `src/log/`;
+ * each call is its own client-scoped transaction(s), never held across a model call.
+ */
+export interface DocumentsPort {
+  get(tenantId: string, documentId: string): Promise<DocumentForTool | null>;
+  extract(
+    tenantId: string,
+    input: {
+      documentId: string;
+      agentVersionId: string;
+      testRun: boolean;
+      recordUsage?: ToolInvocation["recordUsage"];
+    },
+  ): Promise<ExtractSummary>;
+  findSupport(
+    tenantId: string,
+    input: { transactionId: string; testRun: boolean },
+  ): Promise<FindSupportOutcome>;
 }
 
 /** A platform or pack tool: its spec plus a handler validated on both sides (invariant 5). */

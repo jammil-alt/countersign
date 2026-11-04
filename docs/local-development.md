@@ -46,7 +46,9 @@ pnpm format       # Biome: format and organise imports
 | File storage | Local R2 simulation in `wrangler dev` | always on |
 | Models | `LLM_MODE=replay` in tests; `live` calls Anthropic | `ANTHROPIC_API_KEY` |
 | QuickBooks | Not built yet (phase 3); the testkit connector stands in | `QBO_*` (sandbox) |
-| Email | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
+| Email (sending) | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
+| Email forwarding (receiving) | Post a `.eml` to `wrangler dev` (below) | `EMAIL_FORWARDING_DOMAIN` (e.g. `in.mezonas.test`) |
+| Document links | The Worker signs its own 5-minute links | `STORAGE_*` (R2 presigned URLs) |
 
 Tests never call a live model. To add a recorded response, run the test once with
 `LLM_MODE=record` and an API key, and commit the new file under `fixtures/llm/`.
@@ -91,4 +93,21 @@ There is no screen for writing skills yet; skill steps also need `ANTHROPIC_API_
 Phase 1 (`docs/plan.md` §3) and most of Track B run locally end to end: migrations and seed, the
 Worker with its Workflows and cron, sign-in, templates and client agents with the workflow builder,
 test and live runs with approvals, the back office's and the portal's inbox, runs and connections.
-Template updates, promotion, detach and re-link run through the merge view (an agent's Versions tab). QuickBooks, email and document extraction are not built yet.
+Template updates, promotion, detach and re-link run through the merge view (an agent's Versions tab). QuickBooks is not built yet.
+
+## Uploads and email forwarding
+
+Upload invoices or a purchases CSV on the portal's Connections page. With `ANTHROPIC_API_KEY` set,
+each new document is read in the background; without it, documents stay "Received" until an agent's
+`docs.extract` reads them.
+
+With `EMAIL_FORWARDING_DOMAIN` in `.env`, the Connections page shows the client's private address.
+Add an allowed sender there, then hand `wrangler dev` a message the way Email Routing would:
+
+```bash
+TO=<the address from the Connections page>
+sed "s/hollis-millwork-TENANT-SECRET@in.mezonas.test/$TO/" fixtures/email/forwarded-by-ap.eml > /tmp/fwd.eml
+curl -X POST "http://localhost:8787/cdn-cgi/handler/email?from=ap@hollismillwork.example&to=$TO" \
+  --data-binary @/tmp/fwd.eml
+```
+

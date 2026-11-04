@@ -3,6 +3,7 @@
 // place that names connectors (and, later, packs); nothing in packages/* does.
 
 import {
+  DOCS_SKILLS,
   PLATFORM_TOOLS,
   type RegistryContext,
   SkillCatalog,
@@ -12,6 +13,7 @@ import {
   type Connector,
   ConnectorRegistry,
   createTestkitConnector,
+  createUploadConnector,
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -36,7 +38,8 @@ export interface PlatformOptions {
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
-  const catalog = new SkillCatalog(options.skills ?? [], tools);
+  // The platform's built-in skills (docs.*) come first; callers add their own.
+  const catalog = new SkillCatalog([...DOCS_SKILLS, ...(options.skills ?? [])], tools);
   // Packs register their event types here when they exist (registerPack); none yet.
   const events = new EventTypeRegistry();
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
@@ -60,10 +63,12 @@ let cached: { key: string; platform: Platform } | undefined;
 export function platformFor(env: Pick<Bindings, "ENVIRONMENT">): Platform {
   const key = isProductionEnv(env) ? "production" : "other";
   if (cached?.key !== key) {
+    // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
+    const upload = createUploadConnector();
     const connectors =
       key === "production"
-        ? []
-        : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))];
+        ? [upload]
+        : [upload, createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))];
     cached = { key, platform: createPlatform({ connectors }) };
   }
   return cached.platform;
