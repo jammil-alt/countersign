@@ -2,6 +2,7 @@ import {
   ConnectorManifest,
   type JsonObject,
   type PermissionMatrix,
+  type ToolAmount,
   type ToolSpec,
   type Verb,
 } from "@countersign/core";
@@ -123,6 +124,8 @@ export function defineWriteTool<
   description: string;
   verb: Exclude<Verb, "read">;
   summary?: string;
+  /** Where the input carries money, for approver rules on an amount (docs/plan.md §1.20). */
+  amount?: ToolAmount;
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -139,6 +142,7 @@ export function defineWriteTool<
       sideEffect: "external",
       verb: def.verb,
       ...(def.summary === undefined ? {} : { summary: def.summary }),
+      ...(def.amount === undefined ? {} : { amount: def.amount }),
     },
     handler: {
       kind: "write",

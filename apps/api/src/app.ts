@@ -5,6 +5,7 @@ import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type AppDeps, type AppEnv, defaultDeps, errorResponse, requestState } from "./http";
+import { approverRuleRoutes } from "./routes/approver-rules";
 import { connectionRoutes } from "./routes/connections";
 import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
@@ -46,6 +47,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   requestRouteHandlers(app);
   usageRouteHandlers(app);
   recordRouteHandlers(app);
+  approverRuleRoutes(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
   // Sentry there, and answered here in the API's error shape.

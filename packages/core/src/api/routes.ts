@@ -5,6 +5,7 @@ import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
+import { approverRuleRoutes } from "./approver-rules";
 import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
@@ -1599,5 +1600,6 @@ export const routes = {
   ...requestRoutes,
   ...usageRoutes,
   ...recordRoutes,
+  ...approverRuleRoutes,
 } as const;
 export type Routes = typeof routes;
