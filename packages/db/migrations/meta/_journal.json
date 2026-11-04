@@ -50,6 +50,13 @@
       "when": 1793768963907,
       "tag": "0006_materials_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793772058353,
+      "tag": "0007_alerts",
+      "breakpoints": true
     }
   ]
 }
