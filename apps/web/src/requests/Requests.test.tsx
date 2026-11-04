@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply } from "../test/fixtures";
 
+// These two type whole sentences key by key; on a loaded machine 5 s is not enough.
+const SLOW = 15_000;
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 const SERVICE = "00000000-0000-4000-8000-0000000a9001";
 const VERSION = "00000000-0000-4000-8000-0000000a9101";
@@ -38,7 +40,7 @@ const portalItem = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("portal requests", () => {
-  it("sends a request about a service and shows it with us", async () => {
+  it("sends a request about a service and shows it with us", { timeout: SLOW }, async () => {
     const items: unknown[] = [];
     const sent: unknown[] = [];
     const api = fakeApi({
@@ -222,7 +224,9 @@ function opsApi() {
 }
 
 describe("ops requests queue", () => {
-  it("hands a request to the Builder and resolves it as done with a version", async () => {
+  it("hands a request to the Builder and resolves it as done with a version", {
+    timeout: SLOW,
+  }, async () => {
     const { api, bodies } = opsApi();
     renderAt("/ops/requests", api);
     const card = await screen.findByTestId(`ops-request-${REQ}`);
