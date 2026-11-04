@@ -207,7 +207,12 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const action = useAction();
-  useEffect(() => setDraft(draftOf(data.settings)), [data.settings]);
+  // Re-fill the form only when the saved settings change, not on every reload: a refresh after
+  // another client's set-up or sync returns equal settings and must keep unsaved edits.
+  const savedSettings = JSON.stringify(data.settings);
+  useEffect(() => {
+    setDraft(draftOf(JSON.parse(savedSettings) as OpsBilling["settings"]));
+  }, [savedSettings]);
   const set = (patch: Partial<Draft>) => {
     setSaved(false);
     setDraft((d) => ({ ...d, ...patch }));
