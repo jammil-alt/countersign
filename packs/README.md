@@ -7,7 +7,7 @@ for the tenant.
 
 | Pack | What |
 |---|---|
-| `materials/` | Material cost management: catalog, cross-vendor item matching, prices, alerts, Price watch. Template agent Pia with the `purchase-intake` and `weekly-price-review` workflows. |
+| `materials/` | Material cost management: catalog, cross-vendor item matching (built, M8a), prices, alerts, Price watch, and the template agent Pia with the `purchase-intake` and `weekly-price-review` workflows (M8b). Its tables are in the shared migration sequence (0006). |
 
 A pack may import `core`, `db`, `llm`, `senses`, `documents` and `connectors`; never `agents` or
 `workflows` (`scripts/check-deps.mjs`).

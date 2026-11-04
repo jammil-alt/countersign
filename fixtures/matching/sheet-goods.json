@@ -1,0 +1,425 @@
+{
+  "description": "Sheet goods as three vendors print them. Labels are a buyer's: same = one catalog item.",
+  "pairs": [
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "BALTIC BIRCH PLYWOOD 18MM BB/BB 60X60",
+      "label": "same",
+      "note": "fraction vs mm, feet vs inches"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "BIRCH BALTIC 3/4\" 1525X1525MM BB/BB",
+      "label": "same",
+      "note": "word order, metric size"
+    },
+    {
+      "a": "BALTIC BIRCH PLYWOOD 18MM BB/BB 60X60",
+      "b": "18mm Balt. Birch BB/BB 5' x 5'",
+      "label": "same",
+      "note": "abbreviation, feet marks"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "1/2 BB/BB BALTIC BIRCH 5X5",
+      "label": "different",
+      "note": "3/4 vs 1/2"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "3/4 B/BB BALTIC BIRCH 5X5",
+      "label": "different",
+      "note": "BB/BB vs B/BB"
+    },
+    {
+      "a": "3/4 B/BB BALTIC BIRCH 5X5",
+      "b": "18MM B/BB BALTIC BIRCH PLY 60X60",
+      "label": "same",
+      "note": "B/BB both"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "3/4 BB/BB BALTIC BIRCH 4X8",
+      "label": "different",
+      "note": "5x5 vs 4x8"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 4X8",
+      "b": "BALTIC BIRCH 18MM BB/BB 1220X2440",
+      "label": "same",
+      "note": "metric 4x8"
+    },
+    {
+      "a": "1/2 BB/BB BALTIC BIRCH 5X5",
+      "b": "12MM BB/BB BALTIC BIRCH 1525X1525",
+      "label": "same",
+      "note": "12mm is 1/2"
+    },
+    {
+      "a": "1/2 BB/BB BALTIC BIRCH 5X5",
+      "b": "15MM BB/BB BALTIC BIRCH 1525X1525",
+      "label": "different",
+      "note": "12 vs 15 mm"
+    },
+    {
+      "a": "1/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "6MM BALTIC BIRCH BB/BB 60X60",
+      "label": "same",
+      "note": "6mm is 1/4"
+    },
+    {
+      "a": "1/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "1/4 CP/CP BALTIC BIRCH 5X5",
+      "label": "different",
+      "note": "BB/BB vs CP/CP"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "3/4 BB/BB BALTIC BIRCH 5X5 UV1S",
+      "label": "different",
+      "note": "prefinished vs not"
+    },
+    {
+      "a": "3/4 PREFINISHED BALTIC BIRCH BB/BB 5X5",
+      "b": "18MM UV1S BB/BB BALTIC BIRCH 60X60",
+      "label": "same",
+      "note": "prefinished both"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4\" MAPLE PLYWOOD A-1 VENEER CORE 48X96",
+      "label": "same",
+      "note": "A1 vs A-1"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 MAPLE PLY B2 VC 4X8",
+      "label": "different",
+      "note": "A1 vs B2"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 MAPLE PLY A1 MDF CORE 4X8",
+      "label": "different",
+      "note": "veneer core vs MDF core"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 MDF CORE 4X8",
+      "b": "MAPLE PLYWOOD 3/4 A-1 MDF-CORE 4' X 8'",
+      "label": "same",
+      "note": "MDF core both"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 PREFINISHED MAPLE PLY A1 VC 4X8",
+      "label": "different",
+      "note": "prefinished vs not"
+    },
+    {
+      "a": "3/4 PF MAPLE PLY A1 VC 4X8",
+      "b": "3/4 PREFINISHED MAPLE PLYWOOD A-1 VC 48X96",
+      "label": "same",
+      "note": "PF abbreviation"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "1/2 MAPLE PLY A1 VC 4X8",
+      "label": "different",
+      "note": "3/4 vs 1/2"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 MAPLE PLY A1 VC 4X10",
+      "label": "different",
+      "note": "4x8 vs 4x10"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "23/32 MAPLE PLY A1 VC 4X8",
+      "label": "same",
+      "note": "23/32 is 3/4"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": ".75 MAPLE PLYWOOD A1 VC 48X96",
+      "label": "same",
+      "note": ".75 decimal"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 BIRCH PLY A1 VC 4X8",
+      "label": "different",
+      "note": "maple vs birch face"
+    },
+    {
+      "a": "3/4 RO PLY A1 VC 4X8",
+      "b": "3/4 RED OAK PLYWOOD A-1 VC 48X96",
+      "label": "same",
+      "note": "RO abbreviation"
+    },
+    {
+      "a": "3/4 RED OAK PLY A1 VC 4X8",
+      "b": "3/4 WHITE OAK PLY A1 VC 4X8",
+      "label": "different",
+      "note": "red vs white oak"
+    },
+    {
+      "a": "3/4 RIFT WO PLY A1 MDF CORE 4X8",
+      "b": "3/4 WO PLY A1 MDF CORE 4X8",
+      "label": "different",
+      "note": "rift vs plain sliced"
+    },
+    {
+      "a": "3/4 RIFT WHITE OAK PLY A1 MDF CORE 4X8",
+      "b": "3/4 RIFT CUT WO PLYWOOD A-1 MDF-CORE 48X96",
+      "label": "same",
+      "note": "rift both"
+    },
+    {
+      "a": "3/4 WALNUT PLY A1 VC 4X8",
+      "b": "3/4 WAL PLY A-1 VC 4'X8'",
+      "label": "same",
+      "note": "WAL abbreviation"
+    },
+    {
+      "a": "3/4 WALNUT PLY A1 VC 4X8",
+      "b": "3/4 WALNUT PLY B2 VC 4X8",
+      "label": "different",
+      "note": "A1 vs B2"
+    },
+    {
+      "a": "3/4 CHERRY PLY A1 VC 4X8",
+      "b": "3/4 CHERRY PLY A1 PB CORE 4X8",
+      "label": "different",
+      "note": "veneer vs particleboard core"
+    },
+    {
+      "a": "3/4 WHITE MEL PB 4X8",
+      "b": "3/4 WHT MELAMINE PARTICLEBOARD 48X96",
+      "label": "same",
+      "note": "WHT, MEL"
+    },
+    {
+      "a": "3/4 WHITE MEL PB 4X8",
+      "b": "3/4 WHITE MEL PB 49X97",
+      "label": "different",
+      "note": "4x8 vs 49x97 oversize"
+    },
+    {
+      "a": "3/4 WHITE MEL PB 49X97",
+      "b": "3/4 WHITE MELAMINE PB 49\" X 97\"",
+      "label": "same",
+      "note": "inch marks"
+    },
+    {
+      "a": "3/4 WHITE MEL PB 4X8",
+      "b": "3/4 WHITE MEL MDF 4X8",
+      "label": "different",
+      "note": "particleboard vs MDF core"
+    },
+    {
+      "a": "3/4 WHITE MEL PB 4X8",
+      "b": "3/4 BLACK MEL PB 4X8",
+      "label": "different",
+      "note": "white vs black"
+    },
+    {
+      "a": "3/4 WHITE MEL PB 4X8",
+      "b": "1/2 WHITE MEL PB 4X8",
+      "label": "different",
+      "note": "3/4 vs 1/2"
+    },
+    {
+      "a": "1/4 WHITE MEL MDF 4X8",
+      "b": "6MM WHITE MELAMINE MDF 1220X2440",
+      "label": "same",
+      "note": "metric"
+    },
+    {
+      "a": "3/4 ALMOND MEL PB 4X8",
+      "b": "3/4 MELAMINE ALMOND PB 48X96",
+      "label": "same",
+      "note": "word order"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "3/4\" MDF 48X96",
+      "label": "same",
+      "note": "plain MDF"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "3/4 MDF 4X10",
+      "label": "different",
+      "note": "4x8 vs 4x10"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "1/2 MDF 4X8",
+      "label": "different",
+      "note": "3/4 vs 1/2"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "3/4 MDF FR 4X8",
+      "label": "different",
+      "note": "fire rated vs standard"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "3/4 MDF MR 4X8",
+      "label": "different",
+      "note": "moisture resistant vs standard"
+    },
+    {
+      "a": "3/4 MDF NAUF 4X8",
+      "b": "3/4 MDF NO ADDED FORMALDEHYDE 48X96",
+      "label": "same",
+      "note": "NAUF spelled out"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "3/4 MDF NAUF 4X8",
+      "label": "different",
+      "note": "NAUF vs standard"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "19MM MDF 1220X2440",
+      "label": "same",
+      "note": "19mm metric MDF"
+    },
+    {
+      "a": "1/2 MDF 4X8",
+      "b": "12MM MDF 4X8",
+      "label": "same",
+      "note": "12mm"
+    },
+    {
+      "a": "3/4 MDF 4X8",
+      "b": "3/4 PRIMED MDF 4X8",
+      "label": "different",
+      "note": "primed vs raw"
+    },
+    {
+      "a": "1/4 HARDBOARD 4X8",
+      "b": "1/4 HDBD 48X96",
+      "label": "same",
+      "note": "HDBD"
+    },
+    {
+      "a": "1/4 HARDBOARD 4X8",
+      "b": "1/8 HARDBOARD 4X8",
+      "label": "different",
+      "note": "1/4 vs 1/8"
+    },
+    {
+      "a": "3/4 PARTICLEBOARD 4X8",
+      "b": "3/4 PB 49X97",
+      "label": "different",
+      "note": "4x8 vs 49x97"
+    },
+    {
+      "a": "3/4 PARTICLEBOARD 49X97",
+      "b": "3/4 PARTICLE BOARD 49X97",
+      "label": "same",
+      "note": "spelling"
+    },
+    {
+      "a": "3/4 PARTICLEBOARD 4X8",
+      "b": "3/4 MDF 4X8",
+      "label": "different",
+      "note": "particleboard vs MDF"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 MAPLE MDF 4X8",
+      "label": "different",
+      "note": "plywood vs raw MDF"
+    },
+    {
+      "a": "3/4 BIRCH PLY B2 VC 4X8",
+      "b": "3/4 WHITE BIRCH PLYWOOD B-2 VC 48X96",
+      "label": "same",
+      "note": "white birch"
+    },
+    {
+      "a": "3/4 BIRCH PLY B2 VC 4X8",
+      "b": "3/4 BALTIC BIRCH B/BB 4X8",
+      "label": "different",
+      "note": "birch vs Baltic birch"
+    },
+    {
+      "a": "1/2 BIRCH PLY B2 VC 4X8",
+      "b": "15/32 BIRCH PLY B2 VC 4X8",
+      "label": "same",
+      "note": "15/32 is 1/2"
+    },
+    {
+      "a": "5/8 BIRCH PLY B2 VC 4X8",
+      "b": "1/2 BIRCH PLY B2 VC 4X8",
+      "label": "different",
+      "note": "5/8 vs 1/2"
+    },
+    {
+      "a": "1/4 LAUAN 4X8",
+      "b": "5.2MM LAUAN PLYWOOD 4X8",
+      "label": "same",
+      "note": "5.2mm lauan is 1/4"
+    },
+    {
+      "a": "3/4 HICKORY PLY A1 VC 4X8",
+      "b": "3/4 HICKORY PLY A1 VC 4X8 PREFINISHED",
+      "label": "different",
+      "note": "prefinished vs not"
+    },
+    {
+      "a": "3/4 ALDER PLY A1 VC 4X8",
+      "b": "3/4 ALD PLY A1 VC 4X8",
+      "label": "same",
+      "note": "ALD abbreviation"
+    },
+    {
+      "a": "3/4 ALDER PLY A1 VC 4X8",
+      "b": "3/4 ASH PLY A1 VC 4X8",
+      "label": "different",
+      "note": "alder vs ash"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 MAPLE PLY A1 COMBI CORE 4X8",
+      "label": "different",
+      "note": "veneer vs combi core"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 MAPLE PLY ROTARY A1 VC 4X8",
+      "label": "different",
+      "note": "rotary vs plain sliced"
+    },
+    {
+      "a": "1/2 BB/BB BALTIC BIRCH 4X8",
+      "b": "1/2 BB/BB BALTIC BIRCH 5X5",
+      "label": "different",
+      "note": "4x8 vs 5x5"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "3/4 BB/CP BALTIC BIRCH 5X5",
+      "label": "different",
+      "note": "BB/BB vs BB/CP"
+    },
+    {
+      "a": "3/4 BB/BB BALTIC BIRCH 5X5",
+      "b": "5/8 BB/BB BALTIC BIRCH 5X5",
+      "label": "different",
+      "note": "3/4 vs 5/8"
+    },
+    {
+      "a": "3/4 MAPLE PLY A1 VC 4X8",
+      "b": "3/4 MAPLE PLY A2 VC 4X8",
+      "label": "different",
+      "note": "A1 vs A2"
+    }
+  ]
+}

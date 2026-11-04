@@ -263,6 +263,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     mode,
     approval: input.approval,
     threadId: input.threadId,
+    settings,
     externalIndex: { next: 0 },
   };
   const allowed = new Set([...skillTools(def), ...agent.bundle.definition.extraTools]);

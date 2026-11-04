@@ -207,6 +207,8 @@ export async function executeRun(
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,
     transport: deps.transport,
+    // Pack tools reach the client's data through the run's database (packs.ts).
+    services: { db, transport: deps.transport },
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
   };
   const ctx: ExecutorContext = {

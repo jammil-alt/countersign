@@ -8,6 +8,7 @@ import {
   agent,
   agentChange,
   agentVersion,
+  alert,
   appUser,
   connection,
   connectionChange,
@@ -272,6 +273,18 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     comment: "This is confusing",
     path: "/inbox",
     viewport: { width: 1280, height: 800 },
+  });
+  await db.insert(alert).values({
+    tenantId,
+    kind: "price_jump",
+    subjectType: "document",
+    subjectId: d.id,
+    severity: "warning",
+    title: "Price up",
+    body: "A price went up.",
+    evidence: [dl?.id ?? d.id],
+    raisedByRunId: r.id,
+    agentVersionId: av.id,
   });
 
   return {

@@ -1,6 +1,6 @@
 // The registries the API and the runs share (docs/plan.md §2): tools from the platform's own list
 // and each registered connector's manifest, built-in skills, and event types. This is the one
-// place that names connectors (and, later, packs); nothing in packages/* does.
+// place that names connectors and (through packs.ts) packs; nothing in packages/* does.
 
 import {
   DOCS_SKILLS,
@@ -23,6 +23,7 @@ import {
 import { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 import type { Bindings } from "./env";
+import { DEPLOYMENT_PACKS, packToolSource, type RegisteredPack } from "./packs";
 
 export interface Platform {
   connectors: ConnectorRegistry;
@@ -36,6 +37,8 @@ export interface Platform {
 export interface PlatformOptions {
   connectors?: readonly Connector[];
   skills?: readonly SkillDefinition[];
+  /** Default: every pack the deployment registers (packs.ts). */
+  packs?: readonly RegisteredPack[];
 }
 
 /**
@@ -77,18 +80,30 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
 
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
-  const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
-  // The platform's built-in skills (docs.*) come first, then the caller's, then a tool-mode skill
-  // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
-  // packs register theirs here when they exist (registerPack); none yet.
+  const packs = options.packs ?? DEPLOYMENT_PACKS;
+  const tools = new ToolRegistry({
+    platform: PLATFORM_TOOLS,
+    connectors,
+    packs: packs.map(packToolSource),
+  });
+  // The platform's built-in skills (docs.*) come first, then the caller's, then each pack's, then
+  // a tool-mode skill per connector read tool. Connectors' and packs' event types (e.g.
+  // webhook.received, materials.line.matched) join the catalogue; a pack's are listed only for
+  // clients that enabled it.
   const catalog = new SkillCatalog(
-    [...DOCS_SKILLS, ...(options.skills ?? []), ...connectorReadSkills(connectors)],
+    [
+      ...DOCS_SKILLS,
+      ...(options.skills ?? []),
+      ...packs.flatMap((p) => p.manifest.skills),
+      ...connectorReadSkills(connectors),
+    ],
     tools,
   );
   const events = new EventTypeRegistry();
   for (const c of connectors.list()) {
     if (c.manifest.events?.length) events.registerConnector(c.manifest.id, c.manifest.events);
   }
+  for (const p of packs) events.registerPack(p.manifest.id, p.manifest.events);
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
 }
 

@@ -21,6 +21,16 @@ export interface ToolInvocation {
   platform: PlatformStore;
   /** The documents capability (`docs.*` tools); absent where nothing provides it. */
   documents?: DocumentsPort | undefined;
+  /**
+   * The settings of the skill this call runs under (its defaults under the agent's overrides),
+   * e.g. a matching threshold. Tools read thresholds here, never from the model's input.
+   */
+  settings?: Readonly<Record<string, unknown>> | undefined;
+  /**
+   * Per-run handles apps/api gives pack tools (a database, the model transport). Opaque here:
+   * packages/agents passes them through and never reads them (plan §1.12).
+   */
+  services?: Readonly<Record<string, unknown>> | undefined;
   /** Adds a model call a tool made (e.g. extraction) to the step's and run's cost. */
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
