@@ -23,3 +23,6 @@ export * from "./runtime/ports";
 export * from "./runtime/run-agent";
 export * from "./tools/platform";
 export * from "./tools/types";
+export * from "./builder/builder";
+export * from "./builder/context";
+export * from "./builder/guards";
