@@ -84,7 +84,8 @@ afterEach(() => vi.restoreAllMocks());
 describe("back-office documents", () => {
   it("lists the client's documents and opens one", async () => {
     renderAt(`/ops/clients/${CLIENT}/documents`);
-    const table = await screen.findByTestId("ops-documents");
+    // The back office is a lazy chunk: give it time to load on a busy machine.
+    const table = await screen.findByTestId("ops-documents", {}, { timeout: 10_000 });
     const row = within(table).getByTestId(`ops-document-row-${DOC}`);
     expect(row).toHaveTextContent("Invoice 20418");
     expect(row).toHaveTextContent("Forwarded");
@@ -102,14 +103,14 @@ describe("back-office documents", () => {
     );
     await userEvent.setup().click(within(row).getByRole("link", { name: "Invoice 20418" }));
     expect(await screen.findByTestId("ops-document-status")).toHaveTextContent("Needs review");
-  });
+  }, 20_000);
 
   it("shows the reading, its problems and the purchase, and opens a fresh link", async () => {
     const opened = vi.spyOn(window, "open").mockImplementation(() => null);
     const api = renderAt(`/ops/clients/${CLIENT}/documents/${DOC}`);
-    expect(await screen.findByTestId("ops-document-problems")).toHaveTextContent(
-      "Lines add up to $8,990.00",
-    );
+    expect(
+      await screen.findByTestId("ops-document-problems", {}, { timeout: 10_000 }),
+    ).toHaveTextContent("Lines add up to $8,990.00");
     expect(screen.getByTestId("ops-document-lines")).toHaveTextContent("Baltic birch 3/4in");
     expect(screen.getByTestId("ops-document-totals")).toHaveTextContent("$9,742.35");
     expect(screen.getByTestId("ops-document-transaction")).toHaveAttribute(
@@ -122,5 +123,5 @@ describe("back-office documents", () => {
     expect(api.calls.filter((c) => c.endsWith(`/documents/${DOC}`)).length).toBe(before + 1);
     // Back-office words, not the client's.
     expect(document.body.textContent).not.toContain("Your team at Mezonas");
-  });
+  }, 20_000);
 });
