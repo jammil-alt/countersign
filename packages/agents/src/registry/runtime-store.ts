@@ -2,17 +2,19 @@
 // client (withTenant), so a run sees its own client's rows and nothing else (invariant 1).
 
 import type { ConnectionRef } from "@countersign/connectors";
+import { readApproverRuleSet } from "@countersign/core";
 import {
   agent,
   agentVersion,
   connection,
   type Db,
+  membership,
   memoryNote,
   run,
   tenant,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, like, not } from "drizzle-orm";
+import { and, desc, eq, inArray, like, not } from "drizzle-orm";
 import { notFound } from "../errors";
 import type { MemoryNoteRecord, PinnedAgent, RuntimeStore } from "../runtime/ports";
 import { MEMORY_TEST_SCOPE_PREFIX } from "../tools/platform";
@@ -104,13 +106,29 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
       });
     },
 
-    clientApprover(tenantId) {
+    approvalRouting(tenantId) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
           .select({ settings: tenant.settings })
           .from(tenant)
           .where(eq(tenant.id, tenantId));
-        return row ? clientApproverSetting(row.settings) : null;
+        const settings = row?.settings ?? {};
+        const set = readApproverRuleSet(settings);
+        const people = await tx
+          .select({ userId: membership.userId })
+          .from(membership)
+          .where(
+            and(
+              eq(membership.tenantId, tenantId),
+              inArray(membership.role, ["client_admin", "client_user"]),
+            ),
+          );
+        return {
+          rules: set.rules,
+          revision: set.revision,
+          clientDefault: clientApproverSetting(settings),
+          members: new Set(people.map((p) => p.userId)),
+        };
       });
     },
 

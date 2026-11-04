@@ -173,6 +173,8 @@ export function createTestkitConnector(
         description: "Change a record's name or amount.",
         verb: "update",
         summary: "Updated record {{record.id}}",
+        // The testkit's company keeps US dollars.
+        amount: { path: "amount", currency: "USD" },
         input: UpdateInput,
         output: UpdateOutput,
         beforeSchema: TestkitRecord,
