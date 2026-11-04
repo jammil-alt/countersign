@@ -16,7 +16,10 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
+import { ClientApproverRules } from "./ClientApproverRules";
+import { ClientBillingSection } from "./ClientBilling";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
+import { ClientTabs } from "./ClientKnowledge";
 
 export function ClientDetailScreen() {
   const { clientId = "" } = useParams();
@@ -44,6 +47,7 @@ export function ClientDetailScreen() {
           </Link>
         }
       />
+      <ClientTabs clientId={data.client.id} />
       <SectionLabel>Agents</SectionLabel>
       {data.agents.length === 0 ? (
         <EmptyState>No agents yet. Fork a template into this client to start.</EmptyState>
@@ -54,6 +58,8 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientApproverRules clientId={data.client.id} />
+      <ClientBillingSection clientId={data.client.id} />
       <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );

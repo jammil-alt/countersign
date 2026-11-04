@@ -3,15 +3,27 @@
 
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
+import { billingTick } from "./billing/jobs";
 import type { Bindings } from "./env";
-import { type AppDeps, type AppEnv, defaultDeps, errorResponse, requestState } from "./http";
+import {
+  type AppDeps,
+  type AppEnv,
+  defaultDeps,
+  errorResponse,
+  requestState,
+  stripeFor,
+} from "./http";
+import { approverRuleRoutes } from "./routes/approver-rules";
+import { billingRouteHandlers } from "./routes/billing";
 import { callsSetupRoutes } from "./routes/calls-setup";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
 import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
+import { knowledgeRouteHandlers } from "./routes/knowledge";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
+import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
@@ -19,13 +31,15 @@ import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
+import { recordRouteHandlers } from "./routes/records";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
+import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
-import { cronTick } from "./runs/dispatch";
+import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -45,13 +59,19 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   hookRoutes(app);
   documentRoutes(app);
   feedbackRouteHandlers(app);
+  onboardingRouteHandlers(app);
   requestRouteHandlers(app);
+  usageRouteHandlers(app);
+  recordRouteHandlers(app);
+  approverRuleRoutes(app);
   contactRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
+  knowledgeRouteHandlers(app);
   callsSetupRoutes(app);
   twilioVoiceRoutes(app);
   voiceHookRoutes(app);
+  billingRouteHandlers(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
   // Sentry there, and answered here in the API's error shape.
@@ -59,11 +79,17 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   return app;
 }
 
-/** The every-minute cron: re-dispatch undispatched events, start due schedules. */
+/**
+ * The every-minute cron: re-dispatch undispatched events, start due schedules; hourly, after the
+ * usage rollup, the billing pass (agent counts, and yesterday's usage report once a day).
+ */
 export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps = defaultDeps) {
   const { db, close } = deps.openDb(env);
   try {
     await cronTick({ db, instances: deps.instances(env) }, scheduledTime);
+    if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
+      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
+    }
   } finally {
     await close();
   }

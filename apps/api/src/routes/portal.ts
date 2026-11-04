@@ -94,7 +94,8 @@ async function portalItems(tx: Tx, rows: InboxRow[]) {
 const serviceName = (a: Pick<typeof agent.$inferSelect, "serviceName" | "name">) =>
   a.serviceName ?? a.name;
 
-async function runSummaries(tx: Tx, tenantId: string, where: SQL[], limit: number) {
+/** Live runs of the client's services, newest first (test runs never reach the portal). */
+export async function runSummaries(tx: Tx, tenantId: string, where: SQL[], limit: number) {
   const rows = await tx
     .select({ r: run, a: agent })
     .from(run)

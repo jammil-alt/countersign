@@ -91,9 +91,23 @@ export type Identification =
   | { readonly ok: true; readonly userId: string; readonly setCookies: readonly string[] }
   | AuthRefusal;
 
+/**
+ * What became of the email that tells an invited person to sign in. The invitation itself is the
+ * `app_user` row with its membership (the API writes it); this is only the message.
+ */
+export type InviteDelivery =
+  /** The sign-in provider emailed the invitation. */
+  | { readonly status: "sent"; readonly invitationId: string }
+  /** Nothing to send: the dev sign-in lists every user, so they can sign in at once. */
+  | { readonly status: "not_sent"; readonly reason: "dev_sign_in" }
+  /** The provider refused or could not be reached; `reason` is its error code, never its text. */
+  | { readonly status: "failed"; readonly reason: string };
+
 export interface AuthAdapter {
   readonly kind: AdapterKind;
   identify(request: Request, now: Date): Promise<Identification>;
+  /** Tell an invited address how to sign in. Never throws: a failure is a `failed` delivery. */
+  invite(email: string): Promise<InviteDelivery>;
 }
 
 /** Reads auth needs on every request. */

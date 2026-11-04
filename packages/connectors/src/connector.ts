@@ -3,6 +3,7 @@ import {
   connectorPrefixes,
   type JsonObject,
   type PermissionMatrix,
+  type ToolAmount,
   type ToolSpec,
   type Verb,
 } from "@countersign/core";
@@ -141,6 +142,8 @@ export function defineWriteTool<
   summary?: string;
   /** Input fields that become instructions: fixed text in the step only (ToolSpec `fixedInputs`). */
   fixedInputs?: string[];
+  /** Where the input carries money, for approver rules on an amount (docs/plan.md §1.20). */
+  amount?: ToolAmount;
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -158,6 +161,7 @@ export function defineWriteTool<
       verb: def.verb,
       ...(def.summary === undefined ? {} : { summary: def.summary }),
       ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
+      ...(def.amount === undefined ? {} : { amount: def.amount }),
     },
     handler: {
       kind: "write",

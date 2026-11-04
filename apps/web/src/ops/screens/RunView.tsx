@@ -11,6 +11,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeTarget, connectorName, connectorOf } from "../../inbox/change";
 import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
+import { SourceLinks, sourcesOf } from "../../records/SourceLinks";
 import {
   duration,
   isRunGoing,
@@ -75,6 +76,8 @@ export function OpsRunScreen() {
     going,
   });
   const done = rows.filter((r) => r.status === "succeeded").length;
+  // The records each step's output cites (invariant 10), linked to their pages.
+  const sources = new Map(data.steps.map((s) => [s.id, sourcesOf(s.output)]));
   const items = new Map(data.inbox.map((i) => [i.id, i]));
   const waitingOnYou = data.inbox.filter(
     (i) => i.status === "open" && operatorMayResolve(i, session.user.id),
@@ -166,6 +169,13 @@ export function OpsRunScreen() {
                     <span className="text-ink">{r.title}</span>
                   </p>
                   {r.detail ? <p className="mt-1 text-sm text-ink">{r.detail}</p> : null}
+                  {r.stepRunId ? (
+                    <SourceLinks
+                      ids={sources.get(r.stepRunId) ?? []}
+                      href={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
+                      testId={`ops-run-step-sources-${r.key}`}
+                    />
+                  ) : null}
                   <p className="mt-0.5 text-xs text-ink-muted">
                     {[
                       shortTime(r.at),
@@ -206,6 +216,7 @@ export function OpsRunScreen() {
                   key={i.id}
                   item={i}
                   testId={`ops-run-item-${i.id}`}
+                  recordHref={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
                   onResolve={
                     operatorMayResolve(i, session.user.id) ? (body) => resolve(i.id, body) : null
                   }

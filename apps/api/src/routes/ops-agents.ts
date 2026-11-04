@@ -19,6 +19,7 @@ import {
   type OperationalPatch,
   pause,
   publish,
+  requiredConnectors,
   restoreAgent,
   rollback,
   skillContext,
@@ -35,12 +36,13 @@ import {
   type SkillDefinition,
   validateWorkflow,
 } from "@countersign/core";
-import { tenant } from "@countersign/db";
+import { connection, tenant } from "@countersign/db";
 import { type RoutableAgent, type RunRequest, requestRun } from "@countersign/workflows";
-import { and, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { createRunRow } from "../runs/dispatch";
+import { syncQuantityLater } from "./billing";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
@@ -77,6 +79,43 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
     throw new HttpError(409, "no_sandbox", "a template is test-run in a Sandbox client you serve");
   }
   return row.id;
+}
+
+/**
+ * Binds a test copy's unbound required connectors to its client's connection for each, when the
+ * client has one (a client has at most one connection per connector). Logged as any binding is.
+ */
+// DECISION: a template's test copy is bound to its client's connections on each test run where
+// it is not bound yet, so a test run on the Sandbox or a chosen client reaches that client's tools
+// without a trip to the copy's Settings. Bindings the operator set are kept (docs/plan.md §1.16).
+async function bindTestCopy(
+  ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session">,
+  copy: AgentRow,
+  bundle: AgentBundle,
+): Promise<AgentRow> {
+  const tenantId = copy.tenantId as string;
+  const { skills } = await skillContext(ctx.tx, {
+    tenantId,
+    bundle,
+    catalog: ctx.services.platform.catalog,
+  });
+  const needed = requiredConnectors(bundle, skills, ctx.services.platform.tools).filter(
+    (c) => !copy.bindings[c],
+  );
+  if (needed.length === 0) return copy;
+  const rows = await ctx.tx
+    .select({ id: connection.id, connector: connection.connector })
+    .from(connection)
+    .where(and(eq(connection.tenantId, tenantId), inArray(connection.connector, needed)))
+    .orderBy(connection.createdAt);
+  const add: Record<string, string> = {};
+  for (const r of rows) add[r.connector] ??= r.id;
+  if (Object.keys(add).length === 0) return copy;
+  return updateOperational(ctx.tx, {
+    agentId: copy.id,
+    actorId: ctx.session.user.id,
+    patch: { bindings: { ...copy.bindings, ...add } },
+  });
 }
 
 /** requestRun's refusals are plain errors: they are the caller's to fix. */
@@ -262,6 +301,8 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       actorId: ctx.session.user.id,
       ctx: ctx.services.platform.ctx,
     });
+    // The base fee counts active client agents: Stripe's quantity follows (billing).
+    syncQuantityLater(ctx, updated.tenantId);
     return { agent: agentSummary(updated) };
   });
 
@@ -279,9 +320,9 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsPause, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    return {
-      agent: agentSummary(await pause(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id })),
-    };
+    const updated = await pause(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
+    syncQuantityLater(ctx, updated.tenantId);
+    return { agent: agentSummary(updated) };
   });
 
   mount(app, routes.opsRunAgent, async (ctx) => {
@@ -311,17 +352,32 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     if (errors.length > 0) {
       throw new HttpError(422, "invalid_bundle", `v${v.version} does not validate`, errors);
     }
+    const { clientId } = ctx.body;
+    if (clientId !== undefined && row.kind === "client" && clientId !== row.tenantId) {
+      throw new HttpError(
+        422,
+        "invalid_request",
+        "a client agent test-runs on its own client's data only",
+      );
+    }
+    if (clientId !== undefined) ensureClient(ctx, clientId);
     // DECISION: a template never runs for a client. Test-running a template version runs it as the
-    // template's test copy in the Sandbox client: forked on the first test run, given a new
-    // version holding this one's bundle on later ones (docs/plan.md §1.5 "Template test runs").
+    // template's test copy in the Sandbox client, or in a client the operator serves and chose
+    // (ARCHITECTURE §10.4): forked on the first test run there, given a new version holding this
+    // one's bundle on later ones (docs/plan.md §1.5 "Template test runs", §1.16). The copy is that
+    // client's agent, so its run, steps and outputs stay in that client (invariant 1); it is a
+    // test run, so it never writes to the client's tools (invariant 8).
     const target =
       row.kind === "client"
         ? { agent: row, version: v }
         : await templateTestCopy(ctx.tx, {
-            tenantId: await sandboxClient(ctx),
+            tenantId: clientId ?? (await sandboxClient(ctx)),
             templateVersionId: v.id,
             actorId: ctx.session.user.id,
           });
+    if (target.agent.testCopy) {
+      target.agent = await bindTestCopy(ctx, target.agent, target.version.bundle);
+    }
     // A run sees only its client's rows, so the shared skills the version uses are copied into the
     // client first, as a publish copies them (a draft or a test copy was never published).
     await snapshotSharedSkills(ctx.tx, {

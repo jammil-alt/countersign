@@ -742,6 +742,44 @@ describe("WorkflowBuilder", () => {
     expect(await screen.findByText("The run page")).toBeInTheDocument();
   });
 
+  it("test-runs a template on the Sandbox by default, or on a client the operator chooses", async () => {
+    const { api, sent } = setup({ agent: { kind: "template", tenantId: null, bindings: {} } });
+    const client = (id: string, name: string, sandbox: boolean) => ({
+      id,
+      name,
+      timezone: "America/Chicago",
+      createdAt: "2026-11-01T00:00:00.000Z",
+      agents: 0,
+      openInbox: 0,
+      sandbox,
+    });
+    api.on("GET /api/ops/clients", () => ({
+      clients: [
+        client("00000000-0000-4000-8000-00000000c001", "Millwork demo", false),
+        client("00000000-0000-4000-8000-00000000c002", "Sandbox", true),
+      ],
+    }));
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-test-run"));
+    const picker = screen.getByTestId("builder-test-client");
+    await within(picker).findByText("Millwork demo");
+    // The Sandbox is the default, listed once.
+    expect(
+      within(picker)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["The Sandbox client (fixture data)", "Millwork demo"]);
+    await user.click(screen.getByTestId("builder-test-run-start"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.body).not.toHaveProperty("clientId");
+
+    await user.selectOptions(picker, "00000000-0000-4000-8000-00000000c001");
+    await user.click(screen.getByTestId("builder-test-run-start"));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]?.body).toMatchObject({ clientId: "00000000-0000-4000-8000-00000000c001" });
+  });
+
   it("adds a workflow and switches to it, keeping the other's edits", async () => {
     setup();
     await ready();

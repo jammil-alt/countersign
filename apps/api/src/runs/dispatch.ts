@@ -5,7 +5,7 @@
 // the after-commit dispatch missed and starts schedule triggers. Each client is handled in its own
 // withTenant() transaction: jobs act for exactly one client (ARCHITECTURE §16).
 
-import { AgentsError, createRun, type Emit } from "@countersign/agents";
+import { AgentsError, createRun, type Emit, rollupUsageDays, utcDay } from "@countersign/agents";
 import { agent, agentVersion, type Db, type Tx, tenant, withTenant } from "@countersign/db";
 import {
   type EventRow,
@@ -120,6 +120,17 @@ export async function dispatchEvents(deps: DispatchDeps, events: readonly EventR
   }
 }
 
+/** The minute of each hour the cron rolls usage up (runs still waiting have no finish to do it). */
+// DECISION: hourly, for today and yesterday (UTC): finished runs roll their own days up at once;
+// the sweep keeps a waiting run's steps and the actions approved later in usage within the hour.
+export const USAGE_SWEEP_MINUTE = 7;
+
+/** The days the hourly sweep recomputes: yesterday and today, in UTC. */
+export function usageSweepDays(at: Date): string[] {
+  const yesterday = new Date(at.getTime() - 86_400_000);
+  return [utcDay(yesterday), utcDay(at)];
+}
+
 /** Every client: the cron has no session, so it walks clients one at a time. */
 async function allClients(db: Db): Promise<{ id: string; timezone: string }[]> {
   return db.select({ id: tenant.id, timezone: tenant.timezone }).from(tenant);
@@ -128,6 +139,7 @@ async function allClients(db: Db): Promise<{ id: string; timezone: string }[]> {
 /**
  * The cron (every minute): re-dispatch events left undispatched for 30 s, start the schedule
  * triggers due in (previous tick, this tick], and re-send resolutions waiting runs have not taken.
+ * Once an hour it also rolls usage up for today and yesterday (USAGE_SWEEP_MINUTE).
  */
 export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise<void> {
   const clients = await allClients(deps.db);
@@ -147,6 +159,11 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       for (const p of problems) console.warn("schedule could not be evaluated", p);
       for (const request of runs) await startRun(deps, request);
       await redeliverResolutions(deps, client.id, scheduledTime);
+      if (to.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
+        await withTenant(deps.db, client.id, (tx) =>
+          rollupUsageDays(tx, { tenantId: client.id, days: usageSweepDays(to) }),
+        );
+      }
     } catch (error) {
       console.error(`cron for client ${client.id} failed`, error);
     }

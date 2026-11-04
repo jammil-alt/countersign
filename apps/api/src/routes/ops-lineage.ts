@@ -28,10 +28,11 @@ import {
   routes,
   type SkillDefinition,
 } from "@countersign/core";
-import { agent, skill, skillVersion, tenant } from "@countersign/db";
-import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { agent, run, skill, skillVersion, tenant } from "@countersign/db";
+import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import { syncQuantityLater } from "./billing";
 import { agentSummary, versionSummary } from "./mappers";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
@@ -161,9 +162,10 @@ function skillOption(
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    return {
-      agent: agentSummary(await retire(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id })),
-    };
+    const updated = await retire(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
+    // A retired agent is no longer in the base fee (billing).
+    syncQuantityLater(ctx, updated.tenantId);
+    return { agent: agentSummary(updated) };
   });
 
   mount(app, routes.opsActivation, async (ctx) => {
@@ -180,10 +182,36 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       });
       required = requiredConnectors(v.bundle, skills, services.platform.tools);
     }
+    // DECISION: the activation check answers the latest test run of the live version, so the
+    // agent page polls while it is going instead of reporting "no passing test run" until a
+    // reload (docs/plan.md §1.16).
+    const [latestTest] =
+      row.kind === "client" && row.tenantId && row.liveVersionId
+        ? await tx
+            .select({ id: run.id, status: run.status, createdAt: run.createdAt })
+            .from(run)
+            .where(
+              and(
+                eq(run.tenantId, row.tenantId),
+                eq(run.agentId, row.id),
+                eq(run.agentVersionId, row.liveVersionId),
+                eq(run.mode, "test"),
+              ),
+            )
+            .orderBy(desc(run.createdAt), desc(run.id))
+            .limit(1)
+        : [];
     return {
       ready: problems.length === 0,
       problems,
       requiredConnectors: required,
+      testRun: latestTest
+        ? {
+            id: latestTest.id,
+            status: latestTest.status,
+            createdAt: latestTest.createdAt.toISOString(),
+          }
+        : null,
     };
   });
 

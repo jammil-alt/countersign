@@ -4,9 +4,9 @@
 // one short transaction scoped to that client (withTenant), never held across a model call.
 
 import type { ConnectionRef } from "@countersign/connectors";
-import type { AgentBundle, JsonObject } from "@countersign/core";
+import type { AgentBundle, ApproverRule, JsonObject } from "@countersign/core";
 import type { ResolvedSkill } from "../registry/skills";
-import type { DocumentsPort, PlatformStore, RunMode } from "../tools/types";
+import type { DocumentsPort, KnowledgePort, PlatformStore, RunMode } from "../tools/types";
 
 export interface PinnedAgent {
   agentId: string;
@@ -19,6 +19,13 @@ export interface PinnedAgent {
   bindings: Record<string, string>;
   /** The client agent's approver override (null: the client's setting). */
   approver: "client_admin" | "operator" | null;
+}
+
+export interface ApprovalRouting {
+  rules: ApproverRule[];
+  revision: number;
+  clientDefault: string | null;
+  members: ReadonlySet<string>;
 }
 
 export interface MemoryNoteRecord {
@@ -37,8 +44,12 @@ export interface RuntimeStore {
   /** The client agent's live memory notes (never another agent's or client's; no test notes). */
   memoryNotes(tenantId: string, agentId: string, limit: number): Promise<MemoryNoteRecord[]>;
   connection(tenantId: string, connectionId: string): Promise<ConnectionRef | null>;
-  /** `tenant.settings.approvals.external_actions`. */
-  clientApprover(tenantId: string): Promise<string | null>;
+  /**
+   * What decides who approves a write, read fresh for every proposal so a client's tightening
+   * applies at once: the client's approver rules (`tenant.settings.approver_rules`), its default
+   * (`tenant.settings.approvals.external_actions`) and its client users' ids.
+   */
+  approvalRouting(tenantId: string): Promise<ApprovalRouting>;
   run(tenantId: string, runId: string): Promise<{ mode: RunMode; agentId: string } | null>;
 }
 
@@ -193,4 +204,6 @@ export interface RuntimePorts {
   platform: PlatformStore;
   /** The documents capability for `docs.*` tools; absent: those tools fail with a reason. */
   documents?: DocumentsPort;
+  /** The client's knowledge base for `knowledge.search`; absent: that tool fails with a reason. */
+  knowledge?: KnowledgePort;
 }

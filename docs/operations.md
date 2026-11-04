@@ -150,6 +150,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
   ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
   `packages/connectors/src/elevenlabs/NOTES.md`.
+- Needed by billing (stream J, 2026-11-04; wiring them into `deploy.yml` is the coordinator's), copied
+  like the API keys: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a restricted or secret key; test
+  mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the `whsec_…` signing secret of
+  the webhook endpoint `https://<domain>/api/billing/stripe/webhook`). Without the key billing is off;
+  without the webhook secret Stripe's events are refused. Allow `api.stripe.com` in the network if it is
+  restricted. Stripe set-up steps: `packages/connectors/src/stripe/NOTES.md`.
 
 ### GitHub summary
 

@@ -1,5 +1,5 @@
 {
-  "id": "b80d49f2-f84c-4acd-829d-385a69cdfaa1",
+  "id": "02368375-378b-4d01-9c2e-38aa56b51bfb",
   "prevId": "ce641f49-59af-4dbd-b058-9e89f35600a4",
   "version": "7",
   "dialect": "postgresql",
@@ -92,20 +92,6 @@
         },
         "bindings": {
           "name": "bindings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "people": {
-          "name": "people",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "channels": {
-          "name": "channels",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
@@ -1010,46 +996,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "language": {
           "name": "language",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "preferred_channels": {
-          "name": "preferred_channels",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "timezone": {
-          "name": "timezone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quiet_hours": {
-          "name": "quiet_hours",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "roles": {
-          "name": "roles",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "notes": {
-          "name": "notes",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1137,27 +1085,6 @@
           "method": "btree",
           "with": {}
         },
-        "contact_email_key": {
-          "name": "contact_email_key",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "email",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "contact_tenant_idx": {
           "name": "contact_tenant_idx",
           "columns": [
@@ -1223,7 +1150,7 @@
       "checkConstraints": {
         "contact_reachable_check": {
           "name": "contact_reachable_check",
-          "value": "\"contact\".\"phone\" is not null or \"contact\".\"whatsapp\" is not null or \"contact\".\"email\" is not null"
+          "value": "\"contact\".\"phone\" is not null or \"contact\".\"whatsapp\" is not null"
         },
         "contact_opt_out_check": {
           "name": "contact_opt_out_check",
@@ -3324,371 +3251,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.reach_out": {
-      "name": "reach_out",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_generate_v7()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_version_id": {
-          "name": "agent_version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "step_run_id": {
-          "name": "step_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "node_id": {
-          "name": "node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "contact_id": {
-          "name": "contact_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "purpose": {
-          "name": "purpose",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "urgency": {
-          "name": "urgency",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "plan": {
-          "name": "plan",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "reply": {
-          "name": "reply",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "inbox_item_id": {
-          "name": "inbox_item_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_attempt_at": {
-          "name": "next_attempt_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "due_at": {
-          "name": "due_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "run_received_at": {
-          "name": "run_received_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "reach_out_step_key": {
-          "name": "reach_out_step_key",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "node_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "reach_out_open_key": {
-          "name": "reach_out_open_key",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "contact_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "subject",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"reach_out\".\"status\" <> 'ended'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "reach_out_due_idx": {
-          "name": "reach_out_due_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "next_attempt_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "reach_out_contact_idx": {
-          "name": "reach_out_contact_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "contact_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "reach_out_tenant_id_tenant_id_fk": {
-          "name": "reach_out_tenant_id_tenant_id_fk",
-          "tableFrom": "reach_out",
-          "tableTo": "tenant",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "reach_out_contact_fk": {
-          "name": "reach_out_contact_fk",
-          "tableFrom": "reach_out",
-          "tableTo": "contact",
-          "columnsFrom": [
-            "contact_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "reach_out_run_fk": {
-          "name": "reach_out_run_fk",
-          "tableFrom": "reach_out",
-          "tableTo": "run",
-          "columnsFrom": [
-            "run_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "reach_out_agent_fk": {
-          "name": "reach_out_agent_fk",
-          "tableFrom": "reach_out",
-          "tableTo": "agent",
-          "columnsFrom": [
-            "agent_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "reach_out_id_tenant_key": {
-          "name": "reach_out_id_tenant_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "tenant_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "reach_out_status_check": {
-          "name": "reach_out_status_check",
-          "value": "\"reach_out\".\"status\" in ('awaiting_approval', 'open', 'ended')"
-        },
-        "reach_out_outcome_check": {
-          "name": "reach_out_outcome_check",
-          "value": "\"reach_out\".\"outcome\" is null or \"reach_out\".\"outcome\" in ('replied', 'no_reply', 'declined', 'opted_out', 'not_allowed')"
-        },
-        "reach_out_ended_check": {
-          "name": "reach_out_ended_check",
-          "value": "(\"reach_out\".\"status\" = 'ended') = (\"reach_out\".\"outcome\" is not null)"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.run": {
       "name": "run",
       "schema": "",
@@ -5468,6 +5030,985 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.knowledge_chunk": {
+      "name": "knowledge_chunk",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_id": {
+          "name": "entry_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entry_version_id": {
+          "name": "entry_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "document_id": {
+          "name": "document_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extraction_id": {
+          "name": "extraction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chunk_no": {
+          "name": "chunk_no",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'english'"
+        },
+        "tsv": {
+          "name": "tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "knowledge_chunk_tsv_idx": {
+          "name": "knowledge_chunk_tsv_idx",
+          "columns": [
+            {
+              "expression": "tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "knowledge_chunk_entry_idx": {
+          "name": "knowledge_chunk_entry_idx",
+          "columns": [
+            {
+              "expression": "entry_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "knowledge_chunk_document_idx": {
+          "name": "knowledge_chunk_document_idx",
+          "columns": [
+            {
+              "expression": "document_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "knowledge_chunk_tenant_idx": {
+          "name": "knowledge_chunk_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "knowledge_chunk_tenant_id_tenant_id_fk": {
+          "name": "knowledge_chunk_tenant_id_tenant_id_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_entry_fk": {
+          "name": "knowledge_chunk_entry_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "knowledge_entry",
+          "columnsFrom": [
+            "entry_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_entry_version_fk": {
+          "name": "knowledge_chunk_entry_version_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "knowledge_entry_version",
+          "columnsFrom": [
+            "entry_version_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_document_fk": {
+          "name": "knowledge_chunk_document_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "document",
+          "columnsFrom": [
+            "document_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_chunk_extraction_fk": {
+          "name": "knowledge_chunk_extraction_fk",
+          "tableFrom": "knowledge_chunk",
+          "tableTo": "doc_extraction",
+          "columnsFrom": [
+            "extraction_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_chunk_source_check": {
+          "name": "knowledge_chunk_source_check",
+          "value": "\"knowledge_chunk\".\"source_type\" in ('entry', 'document')"
+        },
+        "knowledge_chunk_source_ids_check": {
+          "name": "knowledge_chunk_source_ids_check",
+          "value": "(\"knowledge_chunk\".\"source_type\" = 'entry' and \"knowledge_chunk\".\"entry_id\" is not null and \"knowledge_chunk\".\"entry_version_id\" is not null and \"knowledge_chunk\".\"document_id\" is null) or (\"knowledge_chunk\".\"source_type\" = 'document' and \"knowledge_chunk\".\"document_id\" is not null and \"knowledge_chunk\".\"entry_id\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.knowledge_entry": {
+      "name": "knowledge_entry",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "knowledge_entry_tenant_idx": {
+          "name": "knowledge_entry_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "knowledge_entry_tenant_id_tenant_id_fk": {
+          "name": "knowledge_entry_tenant_id_tenant_id_fk",
+          "tableFrom": "knowledge_entry",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_entry_created_by_app_user_id_fk": {
+          "name": "knowledge_entry_created_by_app_user_id_fk",
+          "tableFrom": "knowledge_entry",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "knowledge_entry_id_tenant_key": {
+          "name": "knowledge_entry_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_entry_kind_check": {
+          "name": "knowledge_entry_kind_check",
+          "value": "\"knowledge_entry\".\"kind\" in ('faq', 'policy')"
+        },
+        "knowledge_entry_status_check": {
+          "name": "knowledge_entry_status_check",
+          "value": "\"knowledge_entry\".\"status\" in ('active', 'archived')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.knowledge_entry_version": {
+      "name": "knowledge_entry_version",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_id": {
+          "name": "entry_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_role": {
+          "name": "author_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "knowledge_entry_version_tenant_id_tenant_id_fk": {
+          "name": "knowledge_entry_version_tenant_id_tenant_id_fk",
+          "tableFrom": "knowledge_entry_version",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_entry_version_author_id_app_user_id_fk": {
+          "name": "knowledge_entry_version_author_id_app_user_id_fk",
+          "tableFrom": "knowledge_entry_version",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "knowledge_entry_version_entry_fk": {
+          "name": "knowledge_entry_version_entry_fk",
+          "tableFrom": "knowledge_entry_version",
+          "tableTo": "knowledge_entry",
+          "columnsFrom": [
+            "entry_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "knowledge_entry_version_id_tenant_key": {
+          "name": "knowledge_entry_version_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        },
+        "knowledge_entry_version_key": {
+          "name": "knowledge_entry_version_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "entry_id",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_entry_version_status_check": {
+          "name": "knowledge_entry_version_status_check",
+          "value": "\"knowledge_entry_version\".\"status\" in ('active', 'archived')"
+        },
+        "knowledge_entry_version_role_check": {
+          "name": "knowledge_entry_version_role_check",
+          "value": "\"knowledge_entry_version\".\"author_role\" in ('operator', 'client_admin')"
+        },
+        "knowledge_entry_version_number_check": {
+          "name": "knowledge_entry_version_number_check",
+          "value": "\"knowledge_entry_version\".\"version\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.billing_event": {
+      "name": "billing_event",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stripe_event_id": {
+          "name": "stripe_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "object_id": {
+          "name": "object_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "stripe_created_at": {
+          "name": "stripe_created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "billing_event_tenant_idx": {
+          "name": "billing_event_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "billing_event_tenant_id_tenant_id_fk": {
+          "name": "billing_event_tenant_id_tenant_id_fk",
+          "tableFrom": "billing_event",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "billing_event_stripe_event_id_unique": {
+          "name": "billing_event_stripe_event_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "stripe_event_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.billing_setting": {
+      "name": "billing_setting",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "allowance_credits_per_agent": {
+          "name": "allowance_credits_per_agent",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_price_id": {
+          "name": "base_price_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "overage_price_id": {
+          "name": "overage_price_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meter_event_name": {
+          "name": "meter_event_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "days_until_due": {
+          "name": "days_until_due",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 30
+        },
+        "base_fee": {
+          "name": "base_fee",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "overage_price": {
+          "name": "overage_price",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "billing_setting_updated_by_app_user_id_fk": {
+          "name": "billing_setting_updated_by_app_user_id_fk",
+          "tableFrom": "billing_setting",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "updated_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "billing_setting_singleton_check": {
+          "name": "billing_setting_singleton_check",
+          "value": "\"billing_setting\".\"id\" = 1"
+        },
+        "billing_setting_allowance_check": {
+          "name": "billing_setting_allowance_check",
+          "value": "\"billing_setting\".\"allowance_credits_per_agent\" >= 0"
+        },
+        "billing_setting_days_until_due_check": {
+          "name": "billing_setting_days_until_due_check",
+          "value": "\"billing_setting\".\"days_until_due\" between 1 and 365"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.billing_unit_cost": {
+      "name": "billing_unit_cost",
+      "schema": "",
+      "columns": {
+        "measure": {
+          "name": "measure",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "unit_cost": {
+          "name": "unit_cost",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "per_units": {
+          "name": "per_units",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "billing_unit_cost_updated_by_app_user_id_fk": {
+          "name": "billing_unit_cost_updated_by_app_user_id_fk",
+          "tableFrom": "billing_unit_cost",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "updated_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "billing_unit_cost_per_units_check": {
+          "name": "billing_unit_cost_per_units_check",
+          "value": "\"billing_unit_cost\".\"per_units\" > 0"
+        },
+        "billing_unit_cost_nonnegative_check": {
+          "name": "billing_unit_cost_nonnegative_check",
+          "value": "\"billing_unit_cost\".\"unit_cost\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.billing_usage_report": {
+      "name": "billing_usage_report",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period": {
+          "name": "period",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agents": {
+          "name": "agents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "allowance": {
+          "name": "allowance",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credits": {
+          "name": "credits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "overage": {
+          "name": "overage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "billing_usage_report_tenant_idx": {
+          "name": "billing_usage_report_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "billing_usage_report_tenant_id_tenant_id_fk": {
+          "name": "billing_usage_report_tenant_id_tenant_id_fk",
+          "tableFrom": "billing_usage_report",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "billing_usage_report_day_key": {
+          "name": "billing_usage_report_day_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "period",
+            "day"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "billing_usage_report_status_check": {
+          "name": "billing_usage_report_status_check",
+          "value": "\"billing_usage_report\".\"status\" in ('pending', 'sent', 'failed', 'none')"
+        },
+        "billing_usage_report_counts_check": {
+          "name": "billing_usage_report_counts_check",
+          "value": "\"billing_usage_report\".\"quantity\" >= 0 and \"billing_usage_report\".\"overage\" >= 0 and \"billing_usage_report\".\"credits\" >= 0 and \"billing_usage_report\".\"allowance\" >= 0"
+        }
+      },
       "isRLSEnabled": false
     }
   },
