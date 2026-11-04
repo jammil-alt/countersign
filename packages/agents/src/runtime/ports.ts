@@ -152,6 +152,8 @@ export interface ExternalActionStore {
     input: ProposeActionInput,
   ): Promise<{ action: ExternalActionRecord; created: boolean }>;
   get(tenantId: string, actionId: string): Promise<ExternalActionRecord | null>;
+  /** The action proposed under this idempotency key, if any (a retried step finds its own). */
+  byKey(tenantId: string, idempotencyKey: string): Promise<ExternalActionRecord | null>;
   /**
    * Moves `approved` → `executing` and returns the action, or returns it as it is (done, failed,
    * executing, proposed, rejected) for the caller to decide.
@@ -165,7 +167,23 @@ export interface ExternalActionStore {
     actionId: string,
     result: { output: unknown; before: unknown },
   ): Promise<ExternalActionRecord>;
-  fail(tenantId: string, actionId: string, error: unknown): Promise<ExternalActionRecord>;
+  /**
+   * Marks the action failed. With `inbox`, an item for a person to look at is opened in the same
+   * transaction (a write that may have happened: UnconfirmedWriteError).
+   */
+  fail(
+    tenantId: string,
+    actionId: string,
+    error: unknown,
+    options?: { inbox?: FailureInboxItem },
+  ): Promise<ExternalActionRecord>;
+}
+
+/** An inbox item opened with a failed action, for the operator to check what happened. */
+export interface FailureInboxItem {
+  title: string;
+  agentId: string | null;
+  payload: JsonObject;
 }
 
 export interface RuntimePorts {

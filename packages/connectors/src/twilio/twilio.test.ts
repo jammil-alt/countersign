@@ -1,12 +1,18 @@
 import { DEFAULT_PERMISSIONS, type JsonObject, type MessagingChannel } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import type { ConnectionRef, ConnectorServices, WriteContext } from "../connector";
+import {
+  type ConnectionRef,
+  type ConnectorServices,
+  UnconfirmedWriteError,
+  type WriteContext,
+} from "../connector";
 import { memoryCredentials } from "../credentials-accessor";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
 import type {
   MessagingServices,
   OutboundMessage,
+  SendAttempt,
   SendCheck,
   SendCheckInput,
 } from "../messaging/services";
@@ -43,7 +49,10 @@ function memoryMessaging(
   over: { block?: SendCheck & { ok: false }; quiet?: boolean; lastInboundAt?: Date | null } = {},
 ) {
   const recorded: OutboundMessage[] = [];
+  const attempts: SendAttempt[] = [];
   const checks: SendCheckInput[] = [];
+  /** Throws once from recordOutbound: a crash after Twilio accepted the message. */
+  const crash = { onRecord: false };
   const services: MessagingServices = {
     async checkSend(input) {
       checks.push(input);
@@ -60,14 +69,36 @@ function memoryMessaging(
     async sentFor(key) {
       const r = recorded.find((m) => m.idempotencyKey === key);
       return r
-        ? { sid: r.sid, status: r.status, channel: r.channel, to: r.to, from: r.from }
+        ? {
+            sid: r.sid,
+            status: r.status,
+            channel: r.channel,
+            to: r.to,
+            from: r.from,
+            templateId: r.templateId,
+            contactId: r.contactId,
+            contactName: "Pat Lee",
+          }
         : null;
     },
+    async startAttempt(a) {
+      if (!attempts.some((x) => x.idempotencyKey === a.idempotencyKey)) attempts.push(a);
+    },
+    async attemptFor(key) {
+      return attempts.find((a) => a.idempotencyKey === key) ?? null;
+    },
+    async recordedSids(sids) {
+      return sids.filter((sid) => recorded.some((m) => m.sid === sid));
+    },
     async recordOutbound(m) {
-      recorded.push(m);
+      if (crash.onRecord) {
+        crash.onRecord = false;
+        throw new Error("the Worker stopped");
+      }
+      if (!recorded.some((r) => r.sid === m.sid)) recorded.push(m);
     },
   };
-  return { services, recorded, checks };
+  return { services, recorded, attempts, checks, crash, over };
 }
 
 async function setup(opts: { a2p?: boolean; whatsapp?: boolean } = {}) {
@@ -291,6 +322,183 @@ describe("twilio connector", () => {
         noSender.ctx({ messaging: recent.services }),
       ),
     ).rejects.toMatchObject({ block: "no_sender" });
+  });
+
+  it("returns a message already sent on a re-run, even after an opt-out, before any check", async () => {
+    const { twilio, connector, ctx } = await setup();
+    const m = memoryMessaging();
+    const input = { to: PAT, text: "Your order is ready." };
+    const done = await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      input,
+      ctx({ messaging: m.services }),
+    );
+    // Pat opts out after the send; the action was left executing by a crash and runs again.
+    m.over.block = { ok: false, block: "opted_out", message: "this contact opted out" };
+    const checks = m.checks.length;
+    const again = await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      input,
+      ctx({ messaging: m.services }),
+    );
+    expect(again.output).toEqual({ ...(done.output as object), usage: { messages: 0 } });
+    expect(again.before).toEqual({
+      contact: { id: "c1", name: "Pat Lee" },
+      channel: "sms",
+      to: PAT,
+    });
+    expect(m.checks).toHaveLength(checks);
+    expect(twilio.sends()).toHaveLength(1);
+    // A new send (another key) to the opted-out contact is still refused, card and send alike.
+    await expect(
+      captureBefore(
+        connector,
+        SMS_SEND_TOOL,
+        input,
+        ctx({ messaging: m.services }, "run-1:send:1"),
+      ),
+    ).rejects.toMatchObject({ block: "opted_out" });
+    await expect(
+      executeWrite(connector, SMS_SEND_TOOL, input, ctx({ messaging: m.services }, "run-1:send:1")),
+    ).rejects.toMatchObject({ block: "opted_out" });
+    expect(twilio.sends()).toHaveLength(1);
+  });
+
+  it("records the attempt before Twilio, and adopts the one message Twilio took before a crash", async () => {
+    const { twilio, connector, ctx } = await setup({ whatsapp: true });
+    const m = memoryMessaging({ lastInboundAt: new Date(NOW.getTime() - 60_000) });
+    const input = { to: PAT, text: "Yes, 3pm works." };
+    // Twilio accepts the message, then the Worker stops before it is recorded.
+    m.crash.onRecord = true;
+    await expect(
+      executeWrite(connector, WHATSAPP_SEND_TOOL, input, ctx({ messaging: m.services })),
+    ).rejects.toThrow("the Worker stopped");
+    expect(twilio.sends()).toHaveLength(1);
+    expect(m.attempts).toEqual([
+      expect.objectContaining({
+        idempotencyKey: "run-1:send:0",
+        channel: "whatsapp",
+        to: PAT,
+        from: "+15125550101",
+        contactId: "c1",
+        startedAt: NOW,
+      }),
+    ]);
+    expect(m.recorded).toHaveLength(0);
+    // Pat opts out meanwhile. The re-run sends nothing: it finds Twilio's message and adopts it.
+    m.over.block = { ok: false, block: "opted_out", message: "this contact opted out" };
+    const again = await executeWrite(
+      connector,
+      WHATSAPP_SEND_TOOL,
+      input,
+      ctx({ messaging: m.services }),
+    );
+    expect(twilio.sends()).toHaveLength(1);
+    const sid = [...twilio.messages.values()].at(-1)?.sid;
+    expect(again.output).toMatchObject({
+      sid,
+      channel: "whatsapp",
+      to: PAT,
+      contactName: "Pat Lee",
+      template: false,
+      usage: { messages: 1 },
+    });
+    expect(m.recorded).toEqual([
+      expect.objectContaining({ sid, idempotencyKey: "run-1:send:0", text: "Yes, 3pm works." }),
+    ]);
+    const lists = twilio.requests.filter(
+      (r) => r.method === "GET" && r.url.includes("/Messages.json?"),
+    );
+    expect(lists).toHaveLength(1);
+    expect(lists[0]?.url).toContain(`To=${encodeURIComponent(`whatsapp:${PAT}`)}`);
+    expect(lists[0]?.url).toContain(`From=${encodeURIComponent("whatsapp:+15125550101")}`);
+  });
+
+  it("never sends again after an unrecorded attempt: none or several matches fail for the operator", async () => {
+    const { twilio, sub, connector, ctx } = await setup();
+    const input = { to: PAT, text: "Your order is ready." };
+    const attempt = (key: string): SendAttempt => ({
+      idempotencyKey: key,
+      connectionId: "0190f0c8-0000-7000-8000-0000000000c1",
+      channel: "sms",
+      contactId: "c1",
+      contactName: "Pat Lee",
+      to: PAT,
+      from: "+15125550101",
+      text: input.text,
+      templateId: null,
+      startedAt: NOW,
+    });
+
+    // None: the Worker stopped after recording the attempt, before Twilio took anything.
+    const none = memoryMessaging();
+    await none.services.startAttempt(attempt("k-none"));
+    const e1 = await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      input,
+      ctx({ messaging: none.services }, "k-none"),
+    ).catch((e: unknown) => e);
+    expect(e1).toBeInstanceOf(UnconfirmedWriteError);
+    expect((e1 as Error).message).toContain(
+      "The text to Pat Lee may have been sent; check before trying again",
+    );
+    expect((e1 as UnconfirmedWriteError).details).toMatchObject({ candidates: [], to: PAT });
+
+    // Several: two messages to Pat since the attempt that no action recorded.
+    const several = memoryMessaging();
+    await several.services.startAttempt(attempt("k-several"));
+    for (const body of ["one", "two"]) {
+      twilio.messages.set(`SM${body === "one" ? "1".repeat(32) : "2".repeat(32)}`, {
+        sid: `SM${body === "one" ? "1".repeat(32) : "2".repeat(32)}`,
+        account_sid: sub.accountSid,
+        from: "+15125550101",
+        to: PAT,
+        body,
+        status: "sent",
+        direction: "outbound-api",
+        date_sent: NOW.toUTCString(),
+        date_created: NOW.toUTCString(),
+        num_segments: "1",
+        num_media: "0",
+        error_code: null,
+      });
+    }
+    const e2 = await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      input,
+      ctx({ messaging: several.services }, "k-several"),
+    ).catch((e: unknown) => e);
+    expect(e2).toBeInstanceOf(UnconfirmedWriteError);
+    expect((e2 as Error).message).toContain("2 messages");
+    expect(several.recorded).toHaveLength(0);
+
+    // One of them recorded by another action already: the other is this attempt's.
+    several.recorded.push({
+      connectionId: "0190f0c8-0000-7000-8000-0000000000c1",
+      channel: "sms",
+      contactId: "c1",
+      to: PAT,
+      from: "+15125550101",
+      sid: `SM${"1".repeat(32)}`,
+      status: "sent",
+      text: "one",
+      templateId: null,
+      segments: 1,
+      idempotencyKey: "another-action",
+      sentAt: NOW,
+    });
+    const adopted = await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      input,
+      ctx({ messaging: several.services }, "k-several"),
+    );
+    expect((adopted.output as { sid: string }).sid).toBe(`SM${"2".repeat(32)}`);
+    expect(twilio.sends()).toHaveLength(0);
   });
 
   it("reads messages to and from a contact, and one by id, as data", async () => {
