@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
+import { FeedbackButton } from "../feedback/Feedback";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
@@ -21,34 +22,39 @@ export function PortalLayout({ children }: { children: ReactNode }) {
   const isAdmin = client?.role === "client_admin";
   // The header's count; the overview screen reads the same route for its own panel.
   const overview = useApi(apiRoutes.portalOverview);
+  // The operator switches the Feedback button on per client; off, there is no button.
+  const feedback = useApi(apiRoutes.portalFeedbackStatus);
 
   return (
-    <AppShell
-      surface="portal"
-      home="/"
-      context={
-        <span data-testid="portal-client-name" className="text-sm font-medium text-ink">
-          {client?.name ?? "No client"}
-        </span>
-      }
-      inboxTo="/inbox"
-      inboxCount={overview.data?.needsYou.inbox}
-      sidebar={
-        <nav className="flex flex-col gap-0.5">
-          <SidebarLink to="/" label="Overview" end testId="portal-nav-overview" />
-          <SidebarLink to="/inbox" label="Inbox" testId="portal-nav-inbox" />
-          <SidebarLink to="/runs" label="Runs" testId="portal-nav-runs" />
-          <SidebarLink to="/reports" label="Reports" testId="portal-nav-reports" />
-          <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
-          <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
-          {isAdmin ? (
-            <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
-          ) : null}
-        </nav>
-      }
-    >
-      {children}
-    </AppShell>
+    <>
+      <AppShell
+        surface="portal"
+        home="/"
+        context={
+          <span data-testid="portal-client-name" className="text-sm font-medium text-ink">
+            {client?.name ?? "No client"}
+          </span>
+        }
+        inboxTo="/inbox"
+        inboxCount={overview.data?.needsYou.inbox}
+        sidebar={
+          <nav className="flex flex-col gap-0.5">
+            <SidebarLink to="/" label="Overview" end testId="portal-nav-overview" />
+            <SidebarLink to="/inbox" label="Inbox" testId="portal-nav-inbox" />
+            <SidebarLink to="/runs" label="Runs" testId="portal-nav-runs" />
+            <SidebarLink to="/reports" label="Reports" testId="portal-nav-reports" />
+            <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
+            <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
+            {isAdmin ? (
+              <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
+            ) : null}
+          </nav>
+        }
+      >
+        {children}
+      </AppShell>
+      {feedback.data?.enabled ? <FeedbackButton surface="portal" /> : null}
+    </>
   );
 }
 

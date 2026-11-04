@@ -6,6 +6,7 @@ import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { defineRoute } from "./contract";
+import { feedbackRoutes } from "./feedback";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -1331,5 +1332,6 @@ export const routes = {
   ...authRoutes,
   ...opsRoutes,
   ...portalRoutes,
+  ...feedbackRoutes,
 } as const;
 export type Routes = typeof routes;

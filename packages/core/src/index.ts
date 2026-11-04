@@ -5,6 +5,7 @@
 // Allowed workspace dependencies: none. See docs/plan.md §2.
 
 export * from "./api/contract";
+export * from "./api/feedback";
 export * from "./api/routes";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
