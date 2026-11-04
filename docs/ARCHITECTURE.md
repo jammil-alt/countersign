@@ -11,7 +11,8 @@
 > itemize lines with the total unchanged, update memo, update purchase cost), each behind approval.
 > **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing through
 > Stripe** comes into v1: a monthly base fee per active agent with a credit allowance, then usage
-> beyond it. Changed: §1 (MVP and v1 scope), §6.2,
+> beyond it. **Languages:** the portal and agents' client-facing text in six languages (§1); translating
+> messages comes next. Changed: §1 (MVP and v1 scope), §6.2,
 > §9.5, §20.
 >
 > **v0.8 (2026-11-03, owner):** **approvals are on by default and set step by step.** Every step that
@@ -208,6 +209,9 @@ In:
 - **Billing** (v0.9): Stripe customers per client; a monthly base fee per active agent that includes a
   credit allowance, then metered usage from `usage_daily` beyond it, invoiced by Stripe
 - ~~Materials pack~~: built separately from this plan (v0.9)
+- **Languages** (v0.9): the portal and agents' client-facing text in English, Spanish, French,
+  Portuguese (Brazil), Italian and German, per client with a per-user choice; the back office stays in
+  English. Next: agents translating incoming and outgoing messages (`docs/plan.md` §1.18)
 
 Out (designed for, not built):
 - Client self-serve building;

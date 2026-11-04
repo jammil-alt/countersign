@@ -246,6 +246,20 @@ ARCHITECTURE §1 item 7 and §11: a client asks for a change or a new service fr
 | Billing | Stripe. Each client is a Stripe customer. A monthly **base fee per active client agent** (not per user), which includes an allowance of **credits**; usage beyond the allowance is billed per credit (Stripe metered prices with the allowance as the free tier), counted from `usage_daily`. Keys are network secrets, never in the repo. What a credit measures, the allowance and the prices are open (§7). |
 | Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. |
 
+
+### 1.18 Languages (owner, 2026-11-04; stream I)
+
+The portal and what agents write for clients come in the client's language. The back office stays in English.
+
+| Topic | Decision |
+|---|---|
+| Languages | English (the source), Spanish, French, Portuguese (Brazil), Italian, German: `en`, `es`, `fr`, `pt-BR`, `it`, `de`. Regional formats (es-MX, fr-CA, pt-PT…) come from `Intl` with the reader's region; translations are shared per language. Adding a language is a new message file and a review, nothing else. Right-to-left languages are out. |
+| Who picks | Each client has a default language (`tenant.settings.language`, set by the operator or the client admin); each user can choose their own, which wins. Sign-in and anything before a session follow the browser. |
+| Portal text | Every portal and shared-component string goes through `t()` with a message file per language; dates, numbers and money through `Intl` in the reader's locale; API errors shown by their code in the reader's language. The back office keeps literal English. |
+| Agents' client-facing text | Skill and tool summary templates may carry a version per language (falling back to English); the client's language is passed to the runtime, and model-written text that reaches the client is asked for in it. Step labels on the client timeline stay operator-written per client agent, in that client's language. |
+| Translations | Written with the code, marked for review by a fluent speaker before a client sees them. Documents and invoices are not translated. |
+| Next step (planned, not in stream I) | **Message translation.** Agents read and write in several languages and translate incoming text: a client can keep everything in one working language (e.g. Spanish emails, webhook payloads and thread messages in, English stored beside them) or the reverse for outgoing messages, per client and per contact. The original is always kept (raw records stay immutable, invariant 3); the translation is a tool result with `agent_version_id`, never instructions (invariant 9), and is stored beside the original. |
+
 ---
 
 ## 2. Package layering
