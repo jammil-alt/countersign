@@ -1,8 +1,8 @@
 // Small typed queries the platform needs before it has a client scope. Everything else reads and
 // writes inside withTenant / withTenants / withOperator, in the package that owns the data.
 
-import { eq } from "drizzle-orm";
-import { type Db, withUser } from "./client";
+import { eq, sql } from "drizzle-orm";
+import { type Db, type Tx, withUser } from "./client";
 import { membership, tenant } from "./schema";
 
 export interface UserMembership {
@@ -24,4 +24,26 @@ export function userMemberships(db: Db, userId: string): Promise<UserMembership[
       .where(eq(membership.userId, userId))
       .orderBy(tenant.name),
   );
+}
+
+/**
+ * Every membership one user has, in any client, read from inside a request's transaction: inviting
+ * an address must know whether it already belongs to another client (client users belong to
+ * exactly one) or is an operator, which the request's own scope can't see. Names the user for the
+ * `own_memberships` policy for this one read, then clears it again. Only client ids and roles come
+ * back, and the caller must not show them to the person who asked.
+ */
+// DECISION: the check runs in the request's own transaction (the Worker has one connection per
+// request) rather than in a second `withUser` transaction, which would wait on that connection.
+export async function membershipsOfUser(
+  tx: Tx,
+  userId: string,
+): Promise<{ tenantId: string; role: UserMembership["role"] }[]> {
+  await tx.execute(sql`select set_config('app.user_id', ${userId}, true)`);
+  const rows = await tx
+    .select({ tenantId: membership.tenantId, role: membership.role })
+    .from(membership)
+    .where(eq(membership.userId, userId));
+  await tx.execute(sql`select set_config('app.user_id', '', true)`);
+  return rows;
 }

@@ -9,10 +9,13 @@ import { MergeScreen } from "./merge/MergeScreen";
 import { OpsLayout } from "./OpsLayout";
 import { AgentPage } from "./screens/AgentPage";
 import { ClientDetailScreen } from "./screens/ClientDetail";
+import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
 import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
+import { NewClientScreen } from "./screens/NewClient";
+import { OverviewScreen } from "./screens/Overview";
 import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
@@ -20,8 +23,6 @@ import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
 
 /** ARCHITECTURE §15's back-office screens not built yet, as placeholders. */
 const PLACEHOLDERS: [path: string, title: string][] = [
-  ["clients/new", "New client"],
-  ["clients/:clientId/settings", "Client settings"],
   ["agents/:id/merge", "Merge"],
   ["skills", "Skills"],
   ["skills/:id", "Skill"],
@@ -34,13 +35,15 @@ export default function OpsApp() {
   return (
     <OpsLayout>
       <Routes>
-        <Route index element={<ClientsScreen overview />} />
+        <Route index element={<OverviewScreen />} />
         <Route path="clients" element={<ClientsScreen />} />
         {PLACEHOLDERS.map(([path, title]) => (
           <Route key={path} path={path} element={<Placeholder title={title} />} />
         ))}
         <Route path="agents/:id/merge" element={<MergeScreen />} />
+        <Route path="clients/new" element={<NewClientScreen />} />
         <Route path="clients/:clientId" element={<ClientDetailScreen />} />
+        <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
         <Route path="runs" element={<OpsRunsScreen />} />
