@@ -245,7 +245,14 @@ describe.skipIf(!h)("packs on the platform", () => {
     const steps = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, params.runId));
     const step = (id: string) => steps.find((s) => s.nodeId === id);
     expect(step("find")?.output).toMatchObject({ status: "found", documentIds: [documentId] });
-    expect(step("prices")?.summary).toMatch(/^Recorded \d+ prices from 6 lines$/);
+    // Every line was settled by the rules (no model call): one matched, five new items.
+    expect(step("match")?.output).toMatchObject({
+      total: 6,
+      matched: 1,
+      newItems: 5,
+      needsReview: 0,
+    });
+    expect(step("prices")?.summary).toBe("Recorded 6 prices from 6 lines");
     expect(step("check")?.summary).toMatch(/raised [1-9]\d* alerts$/);
 
     const prices = await H.t.db
