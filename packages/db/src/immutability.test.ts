@@ -14,6 +14,8 @@ import {
 import {
   agentChange,
   agentVersion,
+  billingEvent,
+  billingUsageReport,
   connectionChange,
   docExtraction,
   docLine,
@@ -151,6 +153,16 @@ describe.skipIf(!online)("immutability", () => {
       );
       expect(await errorCode(t.db.delete(table))).toBe(RESTRICT_VIOLATION);
     }
+  });
+
+  it("billing_usage_report: only status, error and sent_at change; billing_event never does", async () => {
+    expect(await errorCode(t.db.update(billingUsageReport).set({ quantity: 99 }))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    await t.db.update(billingUsageReport).set({ status: "sent", sentAt: new Date(), error: null });
+    expect(await errorCode(t.db.delete(billingUsageReport))).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.update(billingEvent).set({ type: "x" }))).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.delete(billingEvent))).toBe(RESTRICT_VIOLATION);
   });
 
   it("doc_extraction and doc_line never change and are never deleted; the document's status can", async () => {
