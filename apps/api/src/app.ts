@@ -5,10 +5,15 @@ import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type AppDeps, type AppEnv, defaultDeps, errorResponse, requestState } from "./http";
+import { approverRuleRoutes } from "./routes/approver-rules";
+import { callsSetupRoutes } from "./routes/calls-setup";
 import { connectionRoutes } from "./routes/connections";
+import { contactRoutes } from "./routes/contacts";
 import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
+import { knowledgeRouteHandlers } from "./routes/knowledge";
+import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsBuilderRoutes } from "./routes/ops-builder";
@@ -20,7 +25,10 @@ import { portalRouteHandlers } from "./routes/portal";
 import { recordRouteHandlers } from "./routes/records";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
+import { twilioHookRoutes } from "./routes/twilio-hooks";
+import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
+import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick } from "./runs/dispatch";
 
@@ -46,6 +54,14 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   requestRouteHandlers(app);
   usageRouteHandlers(app);
   recordRouteHandlers(app);
+  approverRuleRoutes(app);
+  contactRoutes(app);
+  messagingSetupRoutes(app);
+  twilioHookRoutes(app);
+  knowledgeRouteHandlers(app);
+  callsSetupRoutes(app);
+  twilioVoiceRoutes(app);
+  voiceHookRoutes(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
   // Sentry there, and answered here in the API's error shape.

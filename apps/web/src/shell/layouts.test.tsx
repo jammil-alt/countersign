@@ -132,7 +132,17 @@ describe("portal layout", () => {
       within(nav)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Inbox", "Runs", "Reports", "Connections", "Requests", "Settings"]);
+    ).toEqual([
+      "Overview",
+      "Inbox",
+      "Runs",
+      "Reports",
+      "Connections",
+      "Requests",
+      "Knowledge",
+      "Contacts",
+      "Settings",
+    ]);
 
     const service = await screen.findByTestId(
       "portal-service-00000000-0000-4000-8000-00000000b001",
@@ -155,6 +165,7 @@ describe("portal layout", () => {
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
     expect(screen.queryByTestId("portal-nav-settings")).toBeNull();
+    expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
     expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
   });
 

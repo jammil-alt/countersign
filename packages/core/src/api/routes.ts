@@ -5,9 +5,13 @@ import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
+import { approverRuleRoutes } from "./approver-rules";
+import { callRoutes } from "./calls";
 import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
+import { knowledgeRoutes } from "./knowledge";
+import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
@@ -1599,5 +1603,9 @@ export const routes = {
   ...requestRoutes,
   ...usageRoutes,
   ...recordRoutes,
+  ...approverRuleRoutes,
+  ...messagingRoutes,
+  ...knowledgeRoutes,
+  ...callRoutes,
 } as const;
 export type Routes = typeof routes;

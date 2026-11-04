@@ -12,7 +12,7 @@ import {
   tenantScope,
   type WorkOSClient,
 } from "@countersign/auth";
-import { type ObjectStore, R2ObjectStore } from "@countersign/connectors";
+import { type FetchLike, type ObjectStore, R2ObjectStore } from "@countersign/connectors";
 import { type Role, type RouteSpec, routeFamily } from "@countersign/core";
 import {
   closeDb,
@@ -53,6 +53,8 @@ export interface AppDeps {
   extractionTransport(env: Bindings): LlmTransport | null;
   /** The WorkOS API client for the WorkOS sign-in; default over `fetch` (tests pass a fake). */
   workos?(env: Bindings): WorkOSClient;
+  /** Outbound HTTP for provisioning calls (Twilio numbers); tests pass a fake. */
+  fetch?(env: Bindings): FetchLike;
 }
 
 export const defaultDeps: AppDeps = {

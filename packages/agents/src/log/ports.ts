@@ -5,6 +5,7 @@ import { dbRuntimeStore } from "../registry/runtime-store";
 import type { RuntimePorts } from "../runtime/ports";
 import { type DbDocumentsOptions, dbDocumentsPort } from "./documents-port";
 import { dbExternalActions, type Emit } from "./external-actions";
+import { dbKnowledgePort } from "./knowledge-port";
 import { dbPlatformStore } from "./platform-store";
 import { dbRunLog } from "./run-log";
 
@@ -21,6 +22,7 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     log: dbRunLog(db),
     actions: dbExternalActions(db, options.emit ? { emit: options.emit } : {}),
     platform: dbPlatformStore(db),
+    knowledge: dbKnowledgePort(db),
     ...(options.documents ? { documents: dbDocumentsPort(db, options.documents) } : {}),
   };
 }

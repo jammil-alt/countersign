@@ -139,6 +139,21 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       });
     },
 
+    byKey(tenantId, idempotencyKey) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(externalAction)
+          .where(
+            and(
+              eq(externalAction.tenantId, tenantId),
+              eq(externalAction.idempotencyKey, idempotencyKey),
+            ),
+          );
+        return row ? toRecord(row) : null;
+      });
+    },
+
     claim(tenantId, actionId) {
       return withTenant(db, tenantId, async (tx) => {
         const [claimed] = await tx
@@ -178,7 +193,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       });
     },
 
-    fail(tenantId, actionId, error) {
+    fail(tenantId, actionId, error, failOptions = {}) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
           .update(externalAction)
@@ -186,6 +201,22 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
           .where(and(eq(externalAction.id, actionId), eq(externalAction.tenantId, tenantId)))
           .returning();
         if (!row) throw notFound(`external action ${actionId}`);
+        const item = failOptions.inbox;
+        if (item) {
+          // The operator checks what happened; the action stays failed and is never re-run.
+          await tx.insert(inboxItem).values({
+            tenantId,
+            kind: "review",
+            agentId: item.agentId,
+            subjectType: "external_action",
+            subjectId: row.id,
+            runId: row.runId,
+            assigneeRole: "operator",
+            assigneeUserId: null,
+            title: item.title,
+            payload: { ...item.payload, actionId: row.id },
+          });
+        }
         await finishedEvent(tx, row, "external_action.failed");
         return toRecord(row);
       });

@@ -1,7 +1,17 @@
 // What ran, as rows (ARCHITECTURE §5.3, §13): runs, step runs with cost and tokens written as each
 // model call returns, and tool calls. Each write is one short client-scoped transaction.
 
-import { agent, type Db, run, stepRun, type Tx, toolCall, withTenant } from "@countersign/db";
+import { readApproverRuleSet } from "@countersign/core";
+import {
+  agent,
+  type Db,
+  run,
+  stepRun,
+  type Tx,
+  tenant,
+  toolCall,
+  withTenant,
+} from "@countersign/db";
 import { and, eq, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { RunLog } from "../runtime/ports";
@@ -23,7 +33,8 @@ export interface CreateRunInput {
 
 /**
  * Creates a run of a client agent, pinned to a version, with a snapshot of its bindings and
- * approver (ARCHITECTURE §9.3 "Runs and evidence"). Starting the same id twice returns the first.
+ * approver, and the client's approver rules as they stood (ARCHITECTURE §9.3 "Runs and evidence";
+ * docs/plan.md §1.20). Starting the same id twice returns the first.
  */
 export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof run.$inferSelect> {
   if (input.id) {
@@ -45,6 +56,14 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
   }
   const versionId = input.agentVersionId ?? a.liveVersionId;
   if (!versionId) throw notFound(`a live version of ${a.slug}`);
+  const [t] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, input.tenantId));
+  // DECISION: the run keeps the rules it started under (revision and rules). Each approval is still
+  // routed by the rules at the moment it is proposed, so a client's tightening applies at once,
+  // and records what routed it (`approverRoute` in its payload).
+  const approverRules = readApproverRuleSet(t?.settings ?? {});
   const [row] = await tx
     .insert(run)
     .values({
@@ -53,7 +72,7 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
       agentId: a.id,
       agentVersionId: versionId,
       workflowSlug: input.workflowSlug,
-      config: { bindings: a.bindings, approver: a.approver },
+      config: { bindings: a.bindings, approver: a.approver, approverRules },
       mode: input.mode,
       trigger: input.trigger ?? {},
       status: "running",

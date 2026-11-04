@@ -6,6 +6,7 @@ import { useApi } from "../../api/useApi";
 import {
   AgentAvatar,
   Badge,
+  buttonClass,
   Card,
   EmptyState,
   ErrorNotice,
@@ -15,7 +16,9 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
+import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
+import { ClientTabs } from "./ClientKnowledge";
 
 export function ClientDetailScreen() {
   const { clientId = "" } = useParams();
@@ -33,7 +36,17 @@ export function ClientDetailScreen() {
       <PageHeader
         title={data.client.name}
         subtitle={`${live} of ${data.agents.length} agents live · ${data.client.timezone}`}
+        actions={
+          <Link
+            to={`/ops/clients/${data.client.id}/messaging`}
+            className={buttonClass("secondary")}
+            data-testid="ops-client-messaging"
+          >
+            Texts and contacts
+          </Link>
+        }
       />
+      <ClientTabs clientId={data.client.id} />
       <SectionLabel>Agents</SectionLabel>
       {data.agents.length === 0 ? (
         <EmptyState>No agents yet. Fork a template into this client to start.</EmptyState>
@@ -44,6 +57,7 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientApproverRules clientId={data.client.id} />
       <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );
