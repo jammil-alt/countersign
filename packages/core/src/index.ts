@@ -7,6 +7,7 @@
 export * from "./api/contract";
 export * from "./api/feedback";
 export * from "./api/routes";
+export * from "./api/usage";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {
