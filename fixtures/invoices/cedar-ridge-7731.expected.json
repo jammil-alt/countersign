@@ -1,0 +1,86 @@
+{
+  "header": {
+    "vendorName": "Cedar Ridge Hardwoods",
+    "vendorAddress": "12 Mill Road, Lewisburg, PA 17837",
+    "invoiceNumber": "CR-7731",
+    "invoiceDate": "2026-10-30",
+    "dueDate": "2026-11-29",
+    "poNumber": "J-1185",
+    "currency": "USD",
+    "pageCount": 1,
+    "confidence": {
+      "vendorName": 0.99,
+      "invoiceNumber": 0.99,
+      "invoiceDate": 0.98,
+      "total": 0.99
+    }
+  },
+  "lines": [
+    {
+      "lineNo": 1,
+      "vendorSku": "HM44-FAS",
+      "description": "4/4 Hard Maple FAS S2S 13/16\"",
+      "qty": "220",
+      "uom": "BF",
+      "unitPrice": "6.85",
+      "extPrice": "1507.00",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 2,
+      "vendorSku": "WO84-FAS",
+      "description": "8/4 White Oak Qtr Sawn FAS Rough",
+      "qty": "140",
+      "uom": "BF",
+      "unitPrice": "11.40",
+      "extPrice": "1596.00",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 3,
+      "vendorSku": "WN44-SEL",
+      "description": "4/4 Black Walnut Select & Better S2S",
+      "qty": "90",
+      "uom": "BF",
+      "unitPrice": "13.25",
+      "extPrice": "1192.50",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 4,
+      "vendorSku": "PO54-FAS",
+      "description": "5/4 Poplar FAS S2S 1-1/16\"",
+      "qty": "160",
+      "uom": "BF",
+      "unitPrice": "3.15",
+      "extPrice": "504.00",
+      "discount": null,
+      "page": 1
+    },
+    {
+      "lineNo": 5,
+      "vendorSku": "CH44-FAS",
+      "description": "4/4 Cherry FAS Rough",
+      "qty": "75",
+      "uom": "BF",
+      "unitPrice": "8.90",
+      "extPrice": "667.50",
+      "discount": null,
+      "page": 1
+    }
+  ],
+  "subtotal": "5467.00",
+  "freight": "185.00",
+  "surcharges": [
+    {
+      "label": "Fuel surcharge 3.5%",
+      "amount": "191.35"
+    }
+  ],
+  "tax": "0.00",
+  "total": "5843.35",
+  "confidence": 0.97
+}
