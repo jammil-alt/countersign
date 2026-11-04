@@ -11,7 +11,16 @@ import {
   insertClient,
   insertOperatorRows,
 } from "./fixtures.test-helper";
-import { agentChange, agentVersion, connectionChange, rawRecord, skillVersion } from "./schema";
+import {
+  agentChange,
+  agentVersion,
+  connectionChange,
+  docExtraction,
+  docLine,
+  document,
+  rawRecord,
+  skillVersion,
+} from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -141,6 +150,45 @@ describe.skipIf(!online)("immutability", () => {
         RESTRICT_VIOLATION,
       );
       expect(await errorCode(t.db.delete(table))).toBe(RESTRICT_VIOLATION);
+    }
+  });
+
+  it("doc_extraction and doc_line never change and are never deleted; the document's status can", async () => {
+    expect(
+      await errorCode(
+        t.db
+          .update(docExtraction)
+          .set({ totalsMatch: false })
+          .where(eq(docExtraction.id, A.extractionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(t.db.delete(docExtraction).where(eq(docExtraction.id, A.extractionId))),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(t.db.update(docLine).set({ qty: "2" }).where(eq(docLine.id, A.docLineId))),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.delete(docLine).where(eq(docLine.id, A.docLineId)))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    await t.db
+      .update(document)
+      .set({ status: "needs_review" })
+      .where(eq(document.id, A.documentId));
+  });
+
+  it("the Worker's role cannot update an extraction or delete a document", async () => {
+    for (const statement of [
+      sql`update doc_extraction set model = 'x' where id = ${A.extractionId}`,
+      sql`delete from document where id = ${A.documentId}`,
+    ]) {
+      const code = await errorCode(
+        withOperator(t.db, [A.tenantId], async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
     }
   });
 
