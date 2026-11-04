@@ -283,4 +283,10 @@ export function fakePodio(opts: { acceptAccessTokens?: string[]; rateLimitNext?:
   };
 }
 
+export {
+  FAKE_ELEVENLABS,
+  type FakeElevenLabs,
+  type FakeRegisteredCall,
+  fakeElevenLabs,
+} from "./elevenlabs/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";

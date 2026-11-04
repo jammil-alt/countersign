@@ -40,6 +40,7 @@ import {
   WHATSAPP_SEND_TOOL,
   WhatsAppSendInput,
 } from "../messaging/spec";
+import { CALL_EVENTS, CALL_NAMESPACES } from "../voice/spec";
 import {
   AccountSid,
   accountUrl,
@@ -48,8 +49,10 @@ import {
   TwilioError,
   twilioRequest,
 } from "./api";
+import { callTools } from "./call-tools";
 
 export * from "./api";
+export * from "./voice";
 
 /**
  * "twilio": texts and WhatsApp through Mezonas' own Twilio account, with a subaccount and numbers
@@ -625,8 +628,8 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
     icon: "message",
     auth: "api_key",
     entities: [TWILIO_MESSAGE_ENTITY, TWILIO_STATUS_ENTITY],
-    sharedNamespaces: [...MESSAGING_NAMESPACES],
-    events: MESSAGING_EVENTS,
+    sharedNamespaces: [...MESSAGING_NAMESPACES, ...CALL_NAMESPACES],
+    events: [...MESSAGING_EVENTS, ...CALL_EVENTS],
     tools: [
       defineReadTool({
         id: MESSAGES_SEARCH_TOOL,
@@ -714,6 +717,9 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
             template: input.template,
           }),
       }),
+      // Calls (docs/plan.md §1.23): placed and answered on the client's number, voice agent by
+      // ElevenLabs.
+      ...callTools(doFetch, twilioAuthOf),
     ],
   });
 }
