@@ -1,0 +1,77 @@
+name: Add operator
+
+# By hand, from Actions → Add operator. A fresh environment has no users, so nobody can sign in to
+# invite the first operator from the back office. This invites one: an app_user row with the email
+# (claimed by the first WorkOS sign-in with that verified address) and an operator membership in
+# every client (packages/db/src/operators.ts). Safe to run again.
+#
+# On staging it can first run the seed (Sandbox and Demo clients, the platform templates, two
+# example.com users nobody can sign in as), so there is something to work with. The seed never runs
+# on production: production gets its clients from the operator.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      email:
+        description: The operator's email (the address they sign in to WorkOS with)
+        type: string
+        required: true
+      name:
+        description: Their name (optional)
+        type: string
+        default: ""
+      seed:
+        description: Run the seed first (staging only)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: add-operator-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  add-operator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET: ${{ inputs.target }}
+      EMAIL: ${{ inputs.email }}
+      NAME: ${{ inputs.name }}
+      SEED: ${{ inputs.seed }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ready?
+        run: |
+          [ -n "$NEON_API_KEY" ] || { echo "::error::NEON_API_KEY secret is missing"; exit 1; }
+          [ -n "$NEON_PROJECT_ID" ] || { echo "::error::NEON_PROJECT_ID variable is missing"; exit 1; }
+          if [ "$TARGET" = production ] && [ "$SEED" = true ]; then
+            echo "::error::The seed never runs on production; run again with 'Run the seed first' unticked."
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Seed and invite
+        run: |
+          set -euo pipefail
+          branch=$([ "$TARGET" = production ] && echo main || echo staging)
+          url=$(npx --yes neonctl@4 connection-string "$branch" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          export DIRECT_DATABASE_URL="$url"
+          if [ "$SEED" = true ]; then pnpm --filter @countersign/db run db:seed; fi
+          pnpm --filter @countersign/db run db:add-operator "$EMAIL" "$NAME"
+          echo "Invited $EMAIL as operator on $TARGET. Sign in at https://$([ "$TARGET" = production ] && echo app || echo staging).mezonas.com" >> "$GITHUB_STEP_SUMMARY"
