@@ -139,6 +139,7 @@ describe("portal layout", () => {
       "Reports",
       "Connections",
       "Requests",
+      "Knowledge",
       "Contacts",
       "Settings",
     ]);

@@ -6,6 +6,7 @@ import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
+import { PortalRecordScreen } from "../records/RecordScreens";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
@@ -13,11 +14,15 @@ import { PortalConnectionsScreen } from "./screens/Connections";
 import { PortalContactsScreen } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
 import { PortalInboxScreen } from "./screens/Inbox";
+import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
+import { PortalReportsScreen } from "./screens/Reports";
 import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
+import { PortalServiceScreen } from "./screens/Service";
+import { PortalSettingsScreen } from "./screens/Settings";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const session = useSession();
@@ -50,7 +55,10 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             <SidebarLink to="/connections" label="Connections" testId="portal-nav-connections" />
             <SidebarLink to="/requests" label="Requests" testId="portal-nav-requests" />
             {isAdmin ? (
-              <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
+              <>
+                <SidebarLink to="/knowledge" label="Knowledge" testId="portal-nav-knowledge" />
+                <SidebarLink to="/contacts" label="Contacts" testId="portal-nav-contacts" />
+              </>
             ) : null}
             {isAdmin ? (
               <SidebarLink to="/settings" label="Settings" testId="portal-nav-settings" />
@@ -70,17 +78,19 @@ export function PortalApp() {
     <PortalLayout>
       <Routes>
         <Route index element={<OverviewScreen />} />
-        <Route path="services/:id" element={<Placeholder title="Service" />} />
+        <Route path="services/:id" element={<PortalServiceScreen />} />
         <Route path="inbox" element={<PortalInboxScreen />} />
         <Route path="runs" element={<PortalRunsScreen />} />
         <Route path="runs/:id" element={<PortalRunScreen />} />
-        <Route path="reports/*" element={<Placeholder title="Reports" />} />
+        <Route path="reports/*" element={<PortalReportsScreen />} />
         <Route path="connections" element={<PortalConnectionsScreen />} />
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
+        <Route path="records/:id" element={<PortalRecordScreen />} />
         <Route path="requests" element={<PortalRequestsScreen />} />
+        <Route path="knowledge" element={<PortalKnowledgeScreen />} />
         <Route path="contacts" element={<PortalContactsScreen />} />
-        <Route path="settings" element={<Placeholder title="Settings" />} />
+        <Route path="settings" element={<PortalSettingsScreen />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
       </Routes>
     </PortalLayout>
