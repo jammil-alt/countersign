@@ -11,6 +11,8 @@ import {
   appUser,
   connection,
   connectionChange,
+  contact,
+  contactChange,
   docExtraction,
   docLine,
   document,
@@ -198,6 +200,12 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .insert(memoryNote)
     .values({ tenantId, agentId: a.id, note: "remember", sourceMessageId: m.id });
   await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
+  const [ct] = await db
+    .insert(contact)
+    .values({ tenantId, name: "Pat Lee", phone: "+15555550100" })
+    .returning();
+  if (!ct) throw new Error("no contact");
+  await db.insert(contactChange).values({ tenantId, contactId: ct.id, change: { created: true } });
 
   const [v] = await db
     .insert(vendor)
