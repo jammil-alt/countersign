@@ -3,7 +3,7 @@
 
 import { type ContentStore, isDocumentType } from "@countersign/connectors";
 import { document, type Tx } from "@countersign/db";
-import { emit } from "@countersign/senses";
+import { type EventRow, emit } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
 
 export type DocumentRow = typeof document.$inferSelect;
@@ -51,6 +51,8 @@ export interface StoredDocument {
   document: DocumentRow;
   /** False when this client already had the same bytes: the existing document is returned. */
   created: boolean;
+  /** The `document.received` event, for dispatch after commit; null for a repeat. */
+  event: EventRow | null;
 }
 
 /**
@@ -95,7 +97,7 @@ export async function storeDocument(
     .onConflictDoNothing({ target: [document.tenantId, document.sha256] })
     .returning();
   if (row) {
-    await emit(tx, {
+    const received = await emit(tx, {
       tenantId: input.tenantId,
       type: "document.received",
       subjectId: row.id,
@@ -107,12 +109,12 @@ export async function storeDocument(
         sha256: row.sha256,
       },
     });
-    return { document: row, created: true };
+    return { document: row, created: true, event: received };
   }
   const [existing] = await tx
     .select()
     .from(document)
     .where(and(eq(document.tenantId, input.tenantId), eq(document.sha256, stored.sha256)));
   if (!existing) throw new Error("document vanished after a conflicting insert");
-  return { document: existing, created: false };
+  return { document: existing, created: false, event: null };
 }

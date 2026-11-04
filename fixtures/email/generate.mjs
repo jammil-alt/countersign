@@ -34,7 +34,9 @@ function message({ from, to, subject, date, id, parts }) {
       [
         `--${boundary}`,
         `Content-Type: ${p.type}${p.name ? `; name="${p.name}"` : ""}`,
-        ...(p.disposition ? [`Content-Disposition: ${p.disposition}${p.name ? `; filename="${p.name}"` : ""}`] : []),
+        ...(p.disposition
+          ? [`Content-Disposition: ${p.disposition}${p.name ? `; filename="${p.name}"` : ""}`]
+          : []),
         ...(p.cid ? [`Content-ID: <${p.cid}>`] : []),
         `Content-Transfer-Encoding: ${p.bytes ? "base64" : "7bit"}`,
         "",
@@ -67,7 +69,13 @@ const fixtures = {
     id: "fwd-20418",
     parts: [
       text("Forwarding the Northline invoice."),
-      { type: "image/png", name: "logo.png", disposition: "inline", cid: "logo@hollis", bytes: LOGO },
+      {
+        type: "image/png",
+        name: "logo.png",
+        disposition: "inline",
+        cid: "logo@hollis",
+        bytes: LOGO,
+      },
       pdf("northline-20418.pdf"),
     ],
   }),

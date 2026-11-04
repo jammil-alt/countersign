@@ -15,6 +15,7 @@ import {
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import { connection, type Db, withTenant } from "@countersign/db";
+import type { EventRow } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
 import { storeDocument } from "./store";
 
@@ -24,6 +25,8 @@ export interface ForwardedMessage {
   /** Envelope recipient: the address it was routed to. */
   to: string;
   raw: Uint8Array;
+  /** The message's size, when known before reading it (Email Routing's rawSize). */
+  size?: number;
 }
 
 export type ForwardingOutcome =
@@ -32,6 +35,8 @@ export type ForwardingOutcome =
       tenantId: string;
       documents: { id: string; created: boolean; filename: string }[];
       skipped: { filename: string; reason: string }[];
+      /** `document.received` events, for dispatch after commit. */
+      events: EventRow[];
     }
   | { status: "dropped"; tenantId: string | null; reason: DropReason };
 
@@ -77,7 +82,7 @@ export async function receiveForwardedEmail(
       await countForwarded(tx, conn, { accepted: false, reason }, now());
       return { status: "dropped", tenantId, reason };
     };
-    if (message.raw.length > MAX_FORWARDED_BYTES) return drop("too_large");
+    if ((message.size ?? message.raw.length) > MAX_FORWARDED_BYTES) return drop("too_large");
     let parsed: Awaited<ReturnType<typeof parseForwardedEmail>>;
     try {
       parsed = await parseForwardedEmail(message.raw);
@@ -98,6 +103,7 @@ export async function receiveForwardedEmail(
       },
     };
     const documents: { id: string; created: boolean; filename: string }[] = [];
+    const events: EventRow[] = [];
     for (const a of parsed.attachments) {
       const stored = await storeDocument(tx, deps.content, {
         tenantId,
@@ -109,6 +115,7 @@ export async function receiveForwardedEmail(
         meta,
       });
       documents.push({ id: stored.document.id, created: stored.created, filename: a.filename });
+      if (stored.event) events.push(stored.event);
     }
     await countForwarded(tx, conn, { accepted: true }, now());
     return {
@@ -116,6 +123,7 @@ export async function receiveForwardedEmail(
       tenantId,
       documents,
       skipped: parsed.skipped.map((s) => ({ filename: s.filename, reason: s.reason })),
+      events,
     };
   });
 }

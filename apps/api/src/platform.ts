@@ -3,12 +3,18 @@
 // place that names connectors (and, later, packs); nothing in packages/* does.
 
 import {
+  DOCS_SKILLS,
   PLATFORM_TOOLS,
   type RegistryContext,
   SkillCatalog,
   ToolRegistry,
 } from "@countersign/agents";
-import { type Connector, ConnectorRegistry, createTestkitConnector } from "@countersign/connectors";
+import {
+  type Connector,
+  ConnectorRegistry,
+  createTestkitConnector,
+  createUploadConnector,
+} from "@countersign/connectors";
 import type { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 import type { Bindings } from "./env";
@@ -30,7 +36,8 @@ export interface PlatformOptions {
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
-  const catalog = new SkillCatalog(options.skills ?? [], tools);
+  // The platform's built-in skills (docs.*) come first; callers add their own.
+  const catalog = new SkillCatalog([...DOCS_SKILLS, ...(options.skills ?? [])], tools);
   // Packs register their event types here when they exist (registerPack); none yet.
   const events = new EventTypeRegistry();
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
@@ -52,7 +59,9 @@ let cached: { key: string; platform: Platform } | undefined;
 export function platformFor(env: Pick<Bindings, "ENVIRONMENT">): Platform {
   const key = isProductionEnv(env) ? "production" : "other";
   if (cached?.key !== key) {
-    const connectors = key === "production" ? [] : [createTestkitConnector()];
+    // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
+    const upload = createUploadConnector();
+    const connectors = key === "production" ? [upload] : [upload, createTestkitConnector()];
     cached = { key, platform: createPlatform({ connectors }) };
   }
   return cached.platform;

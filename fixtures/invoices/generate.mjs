@@ -8,9 +8,9 @@
 // Amounts are computed in integer ten-thousandths, never JS floats.
 
 import { writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 
 // require, not import: a globally installed Playwright resolves through NODE_PATH, which ESM ignores.
 const { chromium } = createRequire(import.meta.url)("playwright");
@@ -19,7 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const toUnits = (s) => {
   const [i, f = ""] = s.split(".");
-  return BigInt(i) * 10000n + BigInt((f + "0000").slice(0, 4));
+  return BigInt(i) * 10000n + BigInt(`${f}0000`.slice(0, 4));
 };
 const round2 = (units) => ((units + 50n) / 100n) * 100n; // half up, positive amounts
 const fmt = (units, places = 2) => {
@@ -51,12 +51,12 @@ const INVOICES = [
     billTo: ["Hollis Millwork Co.", "880 Commerce Dr", "Springfield, OH 45502"],
     terms: "Net 30",
     lines: [
-      ["BB34-55", "Baltic Birch Plywood 3/4\" 5x5 BB/BB", "40", "SHT", "68.5000"],
-      ["BB12-55", "Baltic Birch Plywood 1/2\" 5x5 BB/BB", "25", "SHT", "52.7500"],
-      ["MPF34-48", "Maple Plywood 3/4\" 4x8 Prefinished UV 2S", "30", "SHT", "94.2000"],
-      ["MDF34-49", "MDF 3/4\" 49x97 Industrial", "20", "SHT", "41.9000"],
-      ["MEL34-WH", "Melamine Panel 3/4\" 4x8 White 2S", "36", "SHT", "48.3500"],
-      ["HB14-48", "Hardboard 1/4\" 4x8 Tempered", "15", "SHT", "18.6000"],
+      ["BB34-55", 'Baltic Birch Plywood 3/4" 5x5 BB/BB', "40", "SHT", "68.5000"],
+      ["BB12-55", 'Baltic Birch Plywood 1/2" 5x5 BB/BB', "25", "SHT", "52.7500"],
+      ["MPF34-48", 'Maple Plywood 3/4" 4x8 Prefinished UV 2S', "30", "SHT", "94.2000"],
+      ["MDF34-49", 'MDF 3/4" 49x97 Industrial', "20", "SHT", "41.9000"],
+      ["MEL34-WH", 'Melamine Panel 3/4" 4x8 White 2S', "36", "SHT", "48.3500"],
+      ["HB14-48", 'Hardboard 1/4" 4x8 Tempered', "15", "SHT", "18.6000"],
     ],
     freight: "0",
     surcharges: [],
@@ -78,10 +78,10 @@ const INVOICES = [
     billTo: ["Hollis Millwork Co.", "880 Commerce Dr", "Springfield, OH 45502"],
     terms: "Net 30",
     lines: [
-      ["HM44-FAS", "4/4 Hard Maple FAS S2S 13/16\"", "220", "BF", "6.8500"],
+      ["HM44-FAS", '4/4 Hard Maple FAS S2S 13/16"', "220", "BF", "6.8500"],
       ["WO84-FAS", "8/4 White Oak Qtr Sawn FAS Rough", "140", "BF", "11.4000"],
       ["WN44-SEL", "4/4 Black Walnut Select & Better S2S", "90", "BF", "13.2500"],
-      ["PO54-FAS", "5/4 Poplar FAS S2S 1-1/16\"", "160", "BF", "3.1500"],
+      ["PO54-FAS", '5/4 Poplar FAS S2S 1-1/16"', "160", "BF", "3.1500"],
       ["CH44-FAS", "4/4 Cherry FAS Rough", "75", "BF", "8.9000"],
     ],
     freight: "185.00",
@@ -106,17 +106,17 @@ const INVOICES = [
     lines: [
       ["71B3550", "Blum Clip Top Blumotion 110 Hinge Full Overlay", "200", "EA", "6.4200"],
       ["173L6100", "Blum Clip Mounting Plate 0mm", "200", "EA", "1.3800"],
-      ["563H5330B", "Blum Tandem 563H 21\" Full Ext Soft Close Slide", "48", "PR", "38.9500"],
+      ["563H5330B", 'Blum Tandem 563H 21" Full Ext Soft Close Slide', "48", "PR", "38.9500"],
       ["T51.1901R", "Blum Tandem Locking Device Right", "48", "EA", "2.1500"],
       ["T51.1901L", "Blum Tandem Locking Device Left", "48", "EA", "2.1500"],
-      ["SQ8125", "#8 x 1-1/4\" Square Drive Pan Head Screw", "2000", "EA", "0.0425"],
-      ["SQ858", "#8 x 5/8\" Square Drive Wafer Head Screw", "3000", "EA", "0.0310"],
+      ["SQ8125", '#8 x 1-1/4" Square Drive Pan Head Screw', "2000", "EA", "0.0425"],
+      ["SQ858", '#8 x 5/8" Square Drive Wafer Head Screw', "3000", "EA", "0.0310"],
       ["CF114", "Confirmat Screw 7x50mm Zinc", "1000", "EA", "0.0890"],
       ["PL128SS", "Bar Pull 128mm Brushed Stainless", "60", "EA", "4.7500"],
       ["PL160BK", "Bar Pull 160mm Matte Black", "40", "EA", "5.3000"],
       ["KN30SN", "Round Knob 30mm Satin Nickel", "24", "EA", "2.8800"],
       ["SP5MM", "Shelf Pin 5mm Nickel Spoon", "1000", "EA", "0.0600"],
-      ["LEG4", "Adjustable Cabinet Leg 4\" w/ Clip", "64", "EA", "1.9500"],
+      ["LEG4", 'Adjustable Cabinet Leg 4" w/ Clip', "64", "EA", "1.9500"],
       ["EB78MP", "Edgebanding Maple 7/8\" Pre-glued 250' Roll", "6", "RL", "21.4000"],
       ["EB1PVCW", "Edgebanding PVC White 15/16\" x 600'", "4", "RL", "38.7500"],
       ["TB3-GAL", "Titebond III Ultimate Wood Glue 1 gal", "6", "GAL", "39.9000"],
@@ -126,11 +126,11 @@ const INVOICES = [
       ["LT-THN5", "Lacquer Thinner 5 gal", "2", "PL", "64.0000"],
       ["STN-ECG", "Wiping Stain Early American 1 gal", "4", "GAL", "46.2500"],
       ["STN-ESP", "Wiping Stain Espresso 1 gal", "2", "GAL", "46.2500"],
-      ["SD150-5", "Sanding Disc 5\" 150 Grit Hook & Loop (box 100)", "8", "BX", "24.9000"],
-      ["SD220-5", "Sanding Disc 5\" 220 Grit Hook & Loop (box 100)", "8", "BX", "24.9000"],
-      ["SD320-5", "Sanding Disc 5\" 320 Grit Hook & Loop (box 100)", "4", "BX", "26.4000"],
+      ["SD150-5", 'Sanding Disc 5" 150 Grit Hook & Loop (box 100)', "8", "BX", "24.9000"],
+      ["SD220-5", 'Sanding Disc 5" 220 Grit Hook & Loop (box 100)', "8", "BX", "24.9000"],
+      ["SD320-5", 'Sanding Disc 5" 320 Grit Hook & Loop (box 100)', "4", "BX", "26.4000"],
       ["TACK-12", "Tack Cloth (pack 12)", "6", "PK", "9.6000"],
-      ["MSK-2IN", "Masking Tape 2\" x 60yd", "24", "RL", "5.7500"],
+      ["MSK-2IN", 'Masking Tape 2" x 60yd', "24", "RL", "5.7500"],
       ["FLT-2020", "Spray Booth Filter 20x20", "40", "EA", "3.4500"],
       ["NTR-LG", "Nitrile Gloves Large (box 100)", "6", "BX", "14.9500"],
       ["DOW-8X30", "Fluted Dowel 8x30mm (bag 1000)", "2", "BG", "27.5000"],
@@ -146,7 +146,7 @@ const INVOICES = [
 
 function compute(inv) {
   const lines = inv.lines.map(([sku, description, qty, uom, unitPrice], i) => {
-    const ext = round2(toUnits(qty) * toUnits(unitPrice) / 10000n);
+    const ext = round2((toUnits(qty) * toUnits(unitPrice)) / 10000n);
     return { lineNo: i + 1, sku, description, qty, uom, unitPrice, ext };
   });
   const subtotal = lines.reduce((s, l) => s + l.ext, 0n);
@@ -260,15 +260,25 @@ const browser = await chromium.launch();
 try {
   for (const inv of INVOICES) {
     const c = compute(inv);
-    const page = await browser.newPage({ viewport: { width: 816, height: 1056 }, deviceScaleFactor: 1.5 });
+    const page = await browser.newPage({
+      viewport: { width: 816, height: 1056 },
+      deviceScaleFactor: 1.5,
+    });
     await page.setContent(html(inv, c));
     if (inv.format === "pdf") {
-      await page.pdf({ path: join(here, `${inv.file}.pdf`), format: "Letter", printBackground: true });
+      await page.pdf({
+        path: join(here, `${inv.file}.pdf`),
+        format: "Letter",
+        printBackground: true,
+      });
     } else {
       await page.screenshot({ path: join(here, `${inv.file}.png`), fullPage: true });
     }
     await page.close();
-    writeFileSync(join(here, `${inv.file}.expected.json`), `${JSON.stringify(expected(inv, c), null, 2)}\n`);
+    writeFileSync(
+      join(here, `${inv.file}.expected.json`),
+      `${JSON.stringify(expected(inv, c), null, 2)}\n`,
+    );
     console.log(inv.file, "total", fmt(c.total));
   }
 } finally {

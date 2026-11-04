@@ -6,12 +6,16 @@
 import { DEV_USER_HEADER } from "@countersign/auth";
 import {
   createTestkitConnector,
+  createUploadConnector,
+  MemoryObjectStore,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import { appUser, connection, createDb, type Db, membership, tenant } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
+import { type LlmTransport, withRecording } from "@countersign/llm";
+import { fileFixtureStore } from "@countersign/llm/node";
 import type { Hono } from "hono";
 import { createApp } from "./app";
 import type { Bindings } from "./env";
@@ -35,6 +39,10 @@ export interface ApiHarness {
   platform: Platform;
   backend: TestkitBackend;
   instances: MemoryInstances;
+  /** Originals uploaded and forwarded through the app. */
+  objects: MemoryObjectStore;
+  /** What reads documents in the background: replays fixtures/llm. */
+  extraction: { transport: LlmTransport | null };
   operator: string;
   /** Serves only client C. */
   otherOperator: string;
@@ -106,12 +114,20 @@ export async function createApiHarness(): Promise<ApiHarness | null> {
   const backend = new TestkitBackend();
   backend.seed(A.connectionId, [{ id: "r1", name: "Oak board", amount: "10.00" }]);
   backend.seed(B.connectionId, [{ id: "r1", name: "Maple board", amount: "20.00" }]);
-  const platform = createPlatform({ connectors: [createTestkitConnector(backend)] });
+  const platform = createPlatform({
+    connectors: [createUploadConnector(), createTestkitConnector(backend)],
+  });
   const instances = new MemoryInstances();
+  const objects = new MemoryObjectStore();
+  const extraction: { transport: LlmTransport | null } = {
+    transport: withRecording(null, { mode: "replay", store: fileFixtureStore() }),
+  };
   const app = createApp({
     platform: () => platform,
     openDb: () => ({ db, close: async () => {} }),
     instances: () => instances,
+    objects: () => objects,
+    extractionTransport: () => extraction.transport,
   });
   const env = { ENVIRONMENT: "development", AUTH_PROVIDER: "dev" } as unknown as Bindings;
   const pending: Promise<unknown>[] = [];
@@ -128,6 +144,8 @@ export async function createApiHarness(): Promise<ApiHarness | null> {
     platform,
     backend,
     instances,
+    objects,
+    extraction,
     operator,
     otherOperator,
     A,
