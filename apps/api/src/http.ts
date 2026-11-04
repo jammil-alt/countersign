@@ -10,6 +10,7 @@ import {
   requireRole,
   type Session,
   tenantScope,
+  type WorkOSClient,
 } from "@countersign/auth";
 import { type ObjectStore, R2ObjectStore } from "@countersign/connectors";
 import { type Role, type RouteSpec, routeFamily } from "@countersign/core";
@@ -50,6 +51,8 @@ export interface AppDeps {
    * no model key is configured (documents then wait for an agent's `docs.extract`).
    */
   extractionTransport(env: Bindings): LlmTransport | null;
+  /** The WorkOS API client for the WorkOS sign-in; default over `fetch` (tests pass a fake). */
+  workos?(env: Bindings): WorkOSClient;
 }
 
 export const defaultDeps: AppDeps = {
@@ -112,7 +115,7 @@ export function requestState(deps: AppDeps) {
             instances: deps.instances(env),
             deps,
             auth: () => {
-              auth ??= chooseAdapter(env, opened.db);
+              auth ??= chooseAdapter(env, opened.db, deps.workos?.(env));
               return auth;
             },
           };

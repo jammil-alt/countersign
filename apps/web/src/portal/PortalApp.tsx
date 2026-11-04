@@ -18,6 +18,7 @@ import { OverviewScreen } from "./screens/Overview";
 import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
+import { PortalSettingsScreen } from "./screens/Settings";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const session = useSession();
@@ -79,7 +80,7 @@ export function PortalApp() {
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
         <Route path="requests" element={<PortalRequestsScreen />} />
-        <Route path="settings" element={<Placeholder title="Settings" />} />
+        <Route path="settings" element={<PortalSettingsScreen />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
       </Routes>
     </PortalLayout>
