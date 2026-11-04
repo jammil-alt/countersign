@@ -12,6 +12,7 @@ import {
   type ProvisioningDirectory,
   refuse,
   type WorkOSAdapter,
+  type WorkOSClient,
   workosStateOf,
 } from "@countersign/auth";
 import { appUser, type Db, userMemberships } from "@countersign/db";
@@ -90,7 +91,7 @@ export type AdapterChoice =
  * `AUTH_PROVIDER` picks the adapter (default: workos when WORKOS_CLIENT_ID is set, else dev).
  * A misconfigured WorkOS never falls back to dev, and dev never runs in production.
  */
-export function chooseAdapter(env: Bindings, db: Db): AdapterChoice {
+export function chooseAdapter(env: Bindings, db: Db, workosClient?: WorkOSClient): AdapterChoice {
   const provider =
     env.AUTH_PROVIDER?.trim().toLowerCase() || (env.WORKOS_CLIENT_ID?.trim() ? "workos" : "dev");
   if (provider === "workos") {
@@ -107,6 +108,7 @@ export function chooseAdapter(env: Bindings, db: Db): AdapterChoice {
     const workos = createWorkOSAdapter({
       config: state.config,
       directory: provisioningDirectory(db),
+      ...(workosClient ? { workos: workosClient } : {}),
     });
     return { ok: true, adapter: workos, dev: null, workos };
   }

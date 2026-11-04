@@ -3,6 +3,12 @@ name: Checks
 # The whole gate in one place, so a pull request and a merge to main run exactly the same thing.
 # Called by ci.yml and deploy.yml (callers pass `secrets: inherit`).
 #
+# Two jobs side by side: `static` (lint, layering, typecheck) and `test` (the database and the tests).
+# Pull requests test only what they touch (`scope: affected`): the changed packages and every package
+# that depends on them (pnpm's `...[base]` filter), or everything when a shared file changed (the
+# root package.json, the lockfile, tsconfig, scripts, fixtures, workflows); a change to docs and
+# Markdown alone runs no tests. Pushes to main and deploys always run everything.
+#
 # Two databases, as in Plenary Labs:
 #  - A Postgres 16 + pgvector service container (the same image as docker-compose.yml), set up with
 #    Neon's roles by scripts/setup-postgres.sh, is what the tests run against (fast: no network round
@@ -17,8 +23,37 @@ on:
         description: Neon branch the throwaway branch is copied from.
         type: string
         default: main
+      scope:
+        description: "`all` runs every package's tests; `affected` (pull requests) runs only the packages the change touches and those that depend on them."
+        type: string
+        default: all
+      base:
+        description: The branch a pull request merges into, for `affected`.
+        type: string
+        default: main
 
 jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm lint:deps
+
+      - run: pnpm typecheck
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -40,6 +75,9 @@ jobs:
       NEONCTL: neonctl@4
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The whole history, so `affected` can diff against the base branch.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -50,13 +88,30 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm lint
-
-      - run: pnpm lint:deps
-
-      - run: pnpm typecheck
+      - name: What to test
+        id: scope
+        env:
+          SCOPE: ${{ inputs.scope }}
+          BASE: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          if [ "$SCOPE" != "affected" ]; then
+            echo "tests=all" >> "$GITHUB_OUTPUT"; echo "Testing everything."; exit 0
+          fi
+          changed=$(git diff --name-only "origin/$BASE...HEAD")
+          printf 'Changed:\n%s\n' "$changed"
+          code=$(echo "$changed" | grep -vE '^docs/|\.md$' || true)
+          shared=$(echo "$code" | grep -vE '^(apps|packages|packs)/' || true)
+          if [ -z "$code" ]; then
+            echo "tests=none" >> "$GITHUB_OUTPUT"; echo "Docs and Markdown only: no tests."
+          elif [ -n "$shared" ]; then
+            echo "tests=all" >> "$GITHUB_OUTPUT"; printf 'Shared files changed, testing everything:\n%s\n' "$shared"
+          else
+            echo "tests=affected" >> "$GITHUB_OUTPUT"; echo "Testing the changed packages and their dependents."
+          fi
 
       - name: A local Postgres with Neon's roles
+        if: steps.scope.outputs.tests != 'none'
         env:
           PGHOST: localhost
           PGPORT: "5432"
@@ -69,7 +124,15 @@ jobs:
           echo "DIRECT_DATABASE_URL=$url" >> "$GITHUB_ENV"
           echo "TEST_ADMIN_DATABASE_URL=postgres://postgres:ci@localhost:5432/postgres" >> "$GITHUB_ENV"
 
-      - run: pnpm test
+      - name: Tests (everything)
+        if: steps.scope.outputs.tests == 'all'
+        run: pnpm test
+        env:
+          LLM_MODE: replay
+
+      - name: Tests (changed packages and their dependents)
+        if: steps.scope.outputs.tests == 'affected'
+        run: pnpm --filter "...[origin/${{ inputs.base }}]" test
         env:
           LLM_MODE: replay
 

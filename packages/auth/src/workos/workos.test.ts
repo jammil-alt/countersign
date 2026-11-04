@@ -194,6 +194,43 @@ describe("sign-in flow", () => {
   });
 });
 
+describe("invitations", () => {
+  it("asks WorkOS to email the invitation, lowercased", async () => {
+    const workos = fakeWorkOS();
+    const { adapter } = setup(workos);
+    expect(await adapter.invite(" New@Millwork.Test ")).toEqual({
+      status: "sent",
+      invitationId: "inv_1",
+    });
+    expect(workos.sendInvitation).toHaveBeenCalledWith("new@millwork.test");
+  });
+
+  it("reports a refused or unreachable WorkOS as failed, with the code only", async () => {
+    const refused = setup(
+      fakeWorkOS({
+        sendInvitation: async () => {
+          throw new WorkOSError("WorkOS answered 422", 422, "email_already_invited");
+        },
+      }),
+    );
+    expect(await refused.adapter.invite("a@b.test")).toEqual({
+      status: "failed",
+      reason: "email_already_invited",
+    });
+    const down = setup(
+      fakeWorkOS({
+        sendInvitation: async () => {
+          throw new WorkOSError("WorkOS could not be reached", null);
+        },
+      }),
+    );
+    expect(await down.adapter.invite("a@b.test")).toEqual({
+      status: "failed",
+      reason: "unreachable",
+    });
+  });
+});
+
 describe("session cookie", () => {
   it("rejects a tampered cookie and clears it", async () => {
     const { adapter, directory } = setup();

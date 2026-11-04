@@ -1,10 +1,12 @@
 // The client portal (`/`, client roles): the client's own frame, with no switcher and no building
-// (ARCHITECTURE §15). Overview, Inbox, Runs and Connections are wired; the rest are placeholders.
+// (ARCHITECTURE §15). Overview, Inbox, Runs, Connections and Requests are wired; the rest are
+// placeholders.
 import type { ReactNode } from "react";
 import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
+import { PortalRecordScreen } from "../records/RecordScreens";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
@@ -15,9 +17,11 @@ import { PortalInboxScreen } from "./screens/Inbox";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
 import { PortalReportsScreen } from "./screens/Reports";
+import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
 import { PortalServiceScreen } from "./screens/Service";
+import { PortalSettingsScreen } from "./screens/Settings";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const session = useSession();
@@ -78,9 +82,10 @@ export function PortalApp() {
         <Route path="connections" element={<PortalConnectionsScreen />} />
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
-        <Route path="requests" element={<Placeholder title="Requests" />} />
+        <Route path="records/:id" element={<PortalRecordScreen />} />
+        <Route path="requests" element={<PortalRequestsScreen />} />
         <Route path="billing" element={<PortalBillingScreen />} />
-        <Route path="settings" element={<Placeholder title="Settings" />} />
+        <Route path="settings" element={<PortalSettingsScreen />} />
         <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
       </Routes>
     </PortalLayout>

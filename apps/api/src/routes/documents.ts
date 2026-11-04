@@ -33,7 +33,7 @@ import { createLlmClient } from "@countersign/llm";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, HttpError, mount, notFound, type Services } from "../http";
+import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services } from "../http";
 import { dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
 
@@ -145,6 +145,72 @@ async function forwardingView(
   };
 }
 
+/**
+ * A document as both surfaces show it: what was printed, the checks on it and a fresh 5-minute
+ * link. Model names and costs stay out (invariant 11). `tenantId` is the one client asked about.
+ */
+export async function documentDetail(
+  ctx: { c: AppContext; tx: Tx; services: Services },
+  tenantId: string,
+  documentId: string,
+) {
+  const { c, tx, services } = ctx;
+  const view = await getDocument(tx, tenantId, documentId);
+  if (!view) throw notFound("document");
+  const origin = new URL(c.req.url).origin;
+  const signer = signerFor(services.env, origin, () => view.document.filename);
+  const tool = await documentForTool(view, signer);
+  const x = view.extraction;
+  const header = (x?.header ?? {}) as Partial<ExtractedHeader>;
+  // Only what was printed and the checks on it: model names and costs stay out of the portal.
+  const meta = view.document.meta as { email?: Record<string, unknown> };
+  return {
+    document: {
+      ...documentSummary(view.document, x),
+      meta: meta.email
+        ? { email: { from: meta.email.from, subject: meta.email.subject, date: meta.email.date } }
+        : {},
+    },
+    url: tool.url as string,
+    urlExpiresAt: new Date(Date.now() + SIGNED_TTL_MS).toISOString(),
+    extraction: x && {
+      id: x.id,
+      createdAt: x.createdAt.toISOString(),
+      vendorName: header.vendorName ?? "",
+      invoiceNumber: header.invoiceNumber ?? "",
+      invoiceDate: header.invoiceDate ?? "",
+      dueDate: header.dueDate ?? null,
+      poNumber: header.poNumber ?? null,
+      currency: x.currency,
+      subtotal: x.subtotal,
+      freight: x.freight,
+      surcharges: x.surcharges,
+      tax: x.tax,
+      total: x.total,
+      linesSum: x.linesSum,
+      totalsMatch: x.totalsMatch,
+      problems: x.problems,
+      lines: (tool.extraction?.lines ?? []).map((l) => ({ ...l })),
+    },
+  };
+}
+
+/** A client's recent documents, newest first, each with its latest extraction's header. */
+export async function recentDocuments(tx: Tx, tenantId: string, limit: number) {
+  const docs = await tx
+    .select()
+    .from(document)
+    .where(eq(document.tenantId, tenantId))
+    .orderBy(desc(document.receivedAt))
+    .limit(limit);
+  const latest = await latestExtractions(
+    tx,
+    tenantId,
+    docs.map((d) => d.id),
+  );
+  return docs.map((d) => documentSummary(d, latest.get(d.id) ?? null));
+}
+
 export function documentRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalUploads, async ({ c, tx, tenantIds, session, services, defer }) => {
     const tenantId = tenantIds[0] as string;
@@ -252,63 +318,13 @@ export function documentRoutes(app: Hono<AppEnv>): void {
     return { results };
   });
 
-  mount(app, routes.portalDocuments, async ({ tx, tenantIds, query }) => {
-    const tenantId = tenantIds[0] as string;
-    const docs = await tx
-      .select()
-      .from(document)
-      .where(eq(document.tenantId, tenantId))
-      .orderBy(desc(document.receivedAt))
-      .limit(query.limit ?? 50);
-    const latest = await latestExtractions(
-      tx,
-      tenantId,
-      docs.map((d) => d.id),
-    );
-    return { documents: docs.map((d) => documentSummary(d, latest.get(d.id) ?? null)) };
-  });
+  mount(app, routes.portalDocuments, async ({ tx, tenantIds, query }) => ({
+    documents: await recentDocuments(tx, tenantIds[0] as string, query.limit ?? 50),
+  }));
 
-  mount(app, routes.portalDocument, async ({ c, tx, tenantIds, params, services }) => {
-    const tenantId = tenantIds[0] as string;
-    const view = await getDocument(tx, tenantId, params.id);
-    if (!view) throw notFound("document");
-    const origin = new URL(c.req.url).origin;
-    const signer = signerFor(services.env, origin, () => view.document.filename);
-    const tool = await documentForTool(view, signer);
-    const x = view.extraction;
-    const header = (x?.header ?? {}) as Partial<ExtractedHeader>;
-    // Only what was printed and the checks on it: model names and costs stay out of the portal.
-    const meta = view.document.meta as { email?: Record<string, unknown> };
-    return {
-      document: {
-        ...documentSummary(view.document, x),
-        meta: meta.email
-          ? { email: { from: meta.email.from, subject: meta.email.subject, date: meta.email.date } }
-          : {},
-      },
-      url: tool.url as string,
-      urlExpiresAt: new Date(Date.now() + SIGNED_TTL_MS).toISOString(),
-      extraction: x && {
-        id: x.id,
-        createdAt: x.createdAt.toISOString(),
-        vendorName: header.vendorName ?? "",
-        invoiceNumber: header.invoiceNumber ?? "",
-        invoiceDate: header.invoiceDate ?? "",
-        dueDate: header.dueDate ?? null,
-        poNumber: header.poNumber ?? null,
-        currency: x.currency,
-        subtotal: x.subtotal,
-        freight: x.freight,
-        surcharges: x.surcharges,
-        tax: x.tax,
-        total: x.total,
-        linesSum: x.linesSum,
-        totalsMatch: x.totalsMatch,
-        problems: x.problems,
-        lines: (tool.extraction?.lines ?? []).map((l) => ({ ...l })),
-      },
-    };
-  });
+  mount(app, routes.portalDocument, async ({ c, tx, tenantIds, params, services }) =>
+    documentDetail({ c, tx, services }, tenantIds[0] as string, params.id),
+  );
 
   mount(app, routes.portalForwarding, async ({ tx, tenantIds, session, services }) => {
     const tenantId = tenantIds[0] as string;
