@@ -9,6 +9,7 @@ import { approverRuleRoutes } from "./approver-rules";
 import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
+import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
@@ -1601,5 +1602,6 @@ export const routes = {
   ...usageRoutes,
   ...recordRoutes,
   ...approverRuleRoutes,
+  ...messagingRoutes,
 } as const;
 export type Routes = typeof routes;

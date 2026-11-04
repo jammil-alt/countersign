@@ -7,9 +7,11 @@ import type { Bindings } from "./env";
 import { type AppDeps, type AppEnv, defaultDeps, errorResponse, requestState } from "./http";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { connectionRoutes } from "./routes/connections";
+import { contactRoutes } from "./routes/contacts";
 import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
+import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsBuilderRoutes } from "./routes/ops-builder";
@@ -21,6 +23,7 @@ import { portalRouteHandlers } from "./routes/portal";
 import { recordRouteHandlers } from "./routes/records";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
+import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { usageRouteHandlers } from "./routes/usage";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick } from "./runs/dispatch";
@@ -48,6 +51,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   usageRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  contactRoutes(app);
+  messagingSetupRoutes(app);
+  twilioHookRoutes(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
   // Sentry there, and answered here in the API's error shape.

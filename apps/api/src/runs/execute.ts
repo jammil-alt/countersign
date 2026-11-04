@@ -31,6 +31,7 @@ import {
 } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import type { Bindings } from "../env";
+import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, senseEmitter } from "./dispatch";
@@ -206,6 +207,8 @@ export async function executeRun(
     catalog: deps.platform.catalog,
     transport: deps.transport,
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
+    // Contacts and consent for messaging connectors, scoped to the connection's client.
+    services: connectorServicesFor(db),
   };
   const ctx: ExecutorContext = {
     run: info,

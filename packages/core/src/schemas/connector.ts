@@ -3,6 +3,14 @@ import { EventTypeSpec } from "./event";
 import { PermissionMatrix } from "./permissions";
 import { ToolSpec } from "./tool";
 
+/** `<id>.` and each shared namespace's `<ns>.`: what a connector's tool ids and events start with. */
+export function connectorPrefixes(m: {
+  id: string;
+  sharedNamespaces?: readonly string[] | undefined;
+}): string[] {
+  return [m.id, ...(m.sharedNamespaces ?? [])].map((p) => `${p}.`);
+}
+
 /** ARCHITECTURE §6.1. The code side (sync, handlers, OAuth) lives in packages/connectors. */
 export const ConnectorManifest = z
   .object({
@@ -21,6 +29,16 @@ export const ConnectorManifest = z
      * They join the event catalogue for every client, like the platform's.
      */
     events: z.array(EventTypeSpec).optional(),
+    /**
+     * Namespaces the connector shares with other providers of the same thing (e.g. `whatsapp`, which
+     * Twilio and, later, Meta both provide): its tool ids and event types may start with
+     * `<namespace>.` as well as `<connector id>.`, so a workflow keeps its tools when a client
+     * moves from one provider to another (docs/plan.md §1.19, §1.22).
+     */
+    sharedNamespaces: z
+      .array(z.string().regex(/^[a-z][a-z0-9_]*$/))
+      .max(8)
+      .optional(),
   })
   .superRefine((m, ctx) => {
     m.tools.forEach((t, i) => {
@@ -39,8 +57,9 @@ export const ConnectorManifest = z
         });
       }
     });
+    const prefixes = connectorPrefixes(m);
     m.events?.forEach((e, i) => {
-      if (!e.type.startsWith(`${m.id}.`)) {
+      if (!prefixes.some((p) => e.type.startsWith(p))) {
         ctx.addIssue({
           code: "custom",
           message: `event ${e.type} must start with "${m.id}."`,

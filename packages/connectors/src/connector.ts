@@ -1,5 +1,6 @@
 import {
   ConnectorManifest,
+  connectorPrefixes,
   type JsonObject,
   type PermissionMatrix,
   type ToolAmount,
@@ -9,6 +10,7 @@ import {
 import { z } from "zod";
 import type { CredentialsAccessor } from "./credentials-accessor";
 import type { Logger } from "./logger";
+import type { MessagingServices } from "./messaging/services";
 import type { TokenRefresher } from "./oauth/tokens";
 import { manifestDefaultProblems } from "./permissions";
 
@@ -32,6 +34,16 @@ export interface ConnectionRef {
   permissions: Partial<PermissionMatrix>;
 }
 
+/**
+ * What a connector may ask of the platform beyond its credentials, for the call's one client
+ * (apps/api provides them, scoped with withTenant). Each is optional: a connector that needs one
+ * refuses to act without it rather than skip the check.
+ */
+export interface ConnectorServices {
+  /** Contacts and consent, for connectors that text or message people (messaging/services.ts). */
+  messaging?: MessagingServices;
+}
+
 /** Everything a connector call runs with: one client, one connection. */
 export interface ConnectionContext {
   tenantId: string;
@@ -40,6 +52,7 @@ export interface ConnectionContext {
   credentials: CredentialsAccessor;
   logger: Logger;
   now: () => Date;
+  services?: ConnectorServices;
 }
 
 export type ToolContext = ConnectionContext;
@@ -241,6 +254,25 @@ export class ConnectorDefinitionError extends Error {
   }
 }
 
+/**
+ * A write that may have happened: it was started, the provider takes no idempotency key, and no
+ * record of it could be matched (a crash between the provider accepting it and us recording it).
+ * A connector throws this on a re-run instead of writing again; the runtime fails the action with
+ * this reason and asks the operator to check (packages/agents `executeAction`).
+ */
+export class UnconfirmedWriteError extends Error {
+  constructor(
+    /** What may have happened, for the operator's inbox ("The text to Pat Lee may have been sent"). */
+    readonly title: string,
+    why: string,
+    /** What the operator needs to check it (who, from where, since when, what was found). */
+    readonly details: JsonObject = {},
+  ) {
+    super(`${title}; check before trying again: ${why}`);
+    this.name = "UnconfirmedWriteError";
+  }
+}
+
 type ConnectorHooks = Omit<Connector, "manifest" | "tools">;
 
 /**
@@ -260,6 +292,7 @@ export function defineConnector(
     entities,
     defaultPermissions,
     events,
+    sharedNamespaces,
     tools,
     ...hooks
   } = def;
@@ -279,6 +312,7 @@ export function defineConnector(
     tools: specs,
     ...(defaultPermissions === undefined ? {} : { defaultPermissions }),
     ...(events === undefined ? {} : { events }),
+    ...(sharedNamespaces === undefined ? {} : { sharedNamespaces }),
   });
   if (!parsed.success) {
     problems.push(
@@ -286,8 +320,9 @@ export function defineConnector(
     );
   }
   const handlers: Record<string, ToolHandler> = {};
+  const prefixes = connectorPrefixes({ id, sharedNamespaces });
   for (const t of tools) {
-    if (!t.spec.id.startsWith(`${id}.`)) {
+    if (!prefixes.some((p) => t.spec.id.startsWith(p))) {
       problems.push(`tool ${t.spec.id} must start with "${id}."`);
     }
     // DECISION: connector tools are reads or writes to the client's system; `internal` writes

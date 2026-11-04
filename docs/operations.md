@@ -136,6 +136,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
+- Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
+  `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
+  keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
+  clients' connections. `APP_ORIGIN` must be set, since Twilio is pointed at
+  `<APP_ORIGIN>/api/twilio/<client>/messages` and `/status` and signs requests over those URLs.
+  What to check in Twilio before a client goes live: `packages/connectors/src/twilio/NOTES.md`.
 
 ### GitHub summary
 

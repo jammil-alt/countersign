@@ -1,0 +1,294 @@
+// The platform services messaging connectors call (packages/connectors' MessagingServices), over
+// the client's contacts: each call is one short withTenant transaction for the connection's client,
+// so a send can only ever see and record its own client's contacts (invariant 1).
+
+import type {
+  ConnectionRef,
+  ConnectorServices,
+  MessagingServices,
+  OutboundMessage,
+  SendAttempt,
+} from "@countersign/connectors";
+import { TWILIO_ATTEMPT_ENTITY, TWILIO_MESSAGE_ENTITY } from "@countersign/connectors";
+import {
+  type ContactConsent,
+  consentBlock,
+  inQuietHours,
+  type MessagingChannel,
+  sendBlockMessage,
+} from "@countersign/core";
+import {
+  contact,
+  type Db,
+  externalAction,
+  message,
+  rawRecord,
+  run,
+  type Tx,
+  usageDaily,
+  withTenant,
+} from "@countersign/db";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import {
+  contactThread,
+  findContactByNumber,
+  getContact,
+  messagingSettings,
+  type ThreadMessageBody,
+} from "./contacts";
+
+/** The newest message this number sent us on this channel (for WhatsApp's 24-hour window). */
+export async function lastInboundAt(
+  tx: Tx,
+  tenantId: string,
+  channel: MessagingChannel,
+  from: string,
+): Promise<Date | null> {
+  const [row] = await tx
+    .select({ at: rawRecord.syncedAt })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, tenantId),
+        eq(rawRecord.entityType, TWILIO_MESSAGE_ENTITY),
+        sql`${rawRecord.payload}->>'direction' = 'in'`,
+        sql`${rawRecord.payload}->>'channel' = ${channel}`,
+        sql`${rawRecord.payload}->>'from' = ${from}`,
+      ),
+    )
+    .orderBy(desc(rawRecord.syncedAt))
+    .limit(1);
+  return row?.at ?? null;
+}
+
+export function dbMessagingServices(db: Db, connection: ConnectionRef): MessagingServices {
+  const tenantId = connection.tenantId;
+  return {
+    checkSend(input) {
+      return withTenant(db, tenantId, async (tx) => {
+        const c = await findContactByNumber(tx, tenantId, input.channel, input.to);
+        if (!c) {
+          return {
+            ok: false as const,
+            block: "no_contact" as const,
+            message: "that number is not one of this client's contacts",
+          };
+        }
+        const block = consentBlock(
+          {
+            phone: c.phone,
+            whatsapp: c.whatsapp,
+            consent: (c.consent ?? {}) as ContactConsent,
+            optedOutAt: c.optedOutAt,
+          },
+          input.channel,
+        );
+        if (block) return { ok: false as const, block, message: sendBlockMessage(block) };
+        if (!input.ignoreQuietHours) {
+          const s = await messagingSettings(tx, tenantId);
+          if (inQuietHours(input.now, s.timezone, s.quietHours)) {
+            return {
+              ok: false as const,
+              block: "quiet_hours" as const,
+              message: `${sendBlockMessage("quiet_hours", { until: `${s.quietHours.end} (${s.timezone})` })}; send it again after that`,
+            };
+          }
+        }
+        return {
+          ok: true as const,
+          contact: { id: c.id, name: c.name, language: c.language },
+          lastInboundAt: await lastInboundAt(tx, tenantId, input.channel, input.to),
+        };
+      });
+    },
+
+    sentFor(idempotencyKey) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ externalId: rawRecord.externalId, payload: rawRecord.payload })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, TWILIO_MESSAGE_ENTITY),
+              sql`${rawRecord.payload}->>'idempotencyKey' = ${idempotencyKey}`,
+            ),
+          )
+          .limit(1);
+        if (!row) return null;
+        const p = row.payload as {
+          status?: string;
+          channel?: MessagingChannel;
+          to?: string;
+          from?: string;
+          templateId?: string | null;
+          contactId?: string;
+        };
+        const to = p.to ?? "";
+        // Not getContact: a sent message is returned even if its contact was removed since.
+        const [who] = p.contactId
+          ? await tx
+              .select({ name: contact.name })
+              .from(contact)
+              .where(and(eq(contact.id, p.contactId), eq(contact.tenantId, tenantId)))
+          : [];
+        return {
+          sid: row.externalId,
+          status: p.status ?? "queued",
+          channel: p.channel ?? "sms",
+          to,
+          from: p.from ?? "",
+          templateId: p.templateId ?? null,
+          contactId: p.contactId ?? "",
+          contactName: who?.name ?? to,
+        };
+      });
+    },
+
+    startAttempt(a) {
+      return withTenant(db, tenantId, async (tx) => {
+        // Once per key (the raw record's external id): a second start keeps the first.
+        await tx
+          .insert(rawRecord)
+          .values({
+            tenantId,
+            connectionId: connection.id,
+            connector: "twilio",
+            entityType: TWILIO_ATTEMPT_ENTITY,
+            externalId: a.idempotencyKey,
+            externalVersion: null,
+            payload: { ...a, startedAt: a.startedAt.toISOString() },
+            syncedAt: a.startedAt,
+          })
+          .onConflictDoNothing();
+      });
+    },
+
+    attemptFor(idempotencyKey) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ payload: rawRecord.payload })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, TWILIO_ATTEMPT_ENTITY),
+              eq(rawRecord.externalId, idempotencyKey),
+            ),
+          )
+          .limit(1);
+        if (!row) return null;
+        const p = row.payload as Omit<SendAttempt, "startedAt"> & { startedAt: string };
+        return { ...p, startedAt: new Date(p.startedAt) };
+      });
+    },
+
+    recordedSids(sids) {
+      if (sids.length === 0) return Promise.resolve([]);
+      return withTenant(db, tenantId, async (tx) => {
+        const rows = await tx
+          .select({ sid: rawRecord.externalId })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, TWILIO_MESSAGE_ENTITY),
+              inArray(rawRecord.externalId, [...sids]),
+            ),
+          );
+        return rows.map((r) => r.sid);
+      });
+    },
+
+    recordOutbound(m) {
+      return withTenant(db, tenantId, (tx) => recordOutboundTx(tx, tenantId, m));
+    },
+  };
+}
+
+async function recordOutboundTx(tx: Tx, tenantId: string, m: OutboundMessage): Promise<void> {
+  const [stored] = await tx
+    .insert(rawRecord)
+    .values({
+      tenantId,
+      connectionId: m.connectionId,
+      connector: "twilio",
+      entityType: TWILIO_MESSAGE_ENTITY,
+      externalId: m.sid,
+      externalVersion: null,
+      payload: {
+        direction: "out",
+        channel: m.channel,
+        from: m.from,
+        to: m.to,
+        text: m.text,
+        templateId: m.templateId,
+        status: m.status,
+        segments: m.segments,
+        contactId: m.contactId,
+        idempotencyKey: m.idempotencyKey,
+      },
+      syncedAt: m.sentAt,
+    })
+    .onConflictDoNothing()
+    .returning({ id: rawRecord.id });
+  // Recorded before (a retried call): nothing more to count or show.
+  if (!stored) return;
+
+  const [action] = await tx
+    .select({ agentVersionId: externalAction.agentVersionId, agentId: run.agentId })
+    .from(externalAction)
+    .leftJoin(run, and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)))
+    .where(
+      and(
+        eq(externalAction.tenantId, tenantId),
+        eq(externalAction.idempotencyKey, m.idempotencyKey),
+      ),
+    )
+    .limit(1);
+
+  const c = await getContact(tx, tenantId, m.contactId);
+  const threadId = await contactThread(tx, c);
+  const body: ThreadMessageBody = {
+    direction: "out",
+    channel: m.channel,
+    text: m.text,
+    sid: m.sid,
+    rawRecordId: stored.id,
+    status: m.status,
+  };
+  await tx.insert(message).values({
+    tenantId,
+    threadId,
+    senderType: "agent",
+    agentVersionId: action?.agentVersionId ?? null,
+    body: body as unknown as Record<string, unknown>,
+    sources: [stored.id],
+  });
+
+  // DECISION: messages are counted into usage_daily when the provider accepts them, once per
+  // message id, against the client agent whose run sent them (UTC day, as the rollup counts).
+  // The rollup leaves this column alone. Inbound messages are no agent's usage and aren't counted.
+  if (action?.agentId) {
+    await tx
+      .insert(usageDaily)
+      .values({
+        tenantId,
+        day: m.sentAt.toISOString().slice(0, 10),
+        agentId: action.agentId,
+        messages: 1,
+      })
+      .onConflictDoUpdate({
+        target: [usageDaily.tenantId, usageDaily.day, usageDaily.agentId],
+        set: { messages: sql`${usageDaily.messages} + 1` },
+      });
+  }
+}
+
+/** For the runtime: platform services for every connector call (RuntimeDeps.services). */
+export function connectorServicesFor(db: Db): (connection: ConnectionRef) => ConnectorServices {
+  return (connection) => ({ messaging: dbMessagingServices(db, connection) });
+}
