@@ -148,6 +148,19 @@ describe.skipIf(!h)("onboarding", () => {
         role: "client_admin",
       });
       expect([op.status, code(op.json)]).toEqual([409, "is_operator"]);
+      // The Sandbox is the operator's own: it has no client people.
+      const [sandbox] = await H.t.db
+        .insert(tenant)
+        .values({ name: "Sandbox", settings: { sandbox: true } })
+        .returning();
+      await H.t.db
+        .insert(membership)
+        .values({ tenantId: sandbox?.id as string, userId: H.operator, role: "operator" });
+      const inSandbox = await H.call(OPERATOR, "POST", `/api/ops/clients/${sandbox?.id}/invites`, {
+        email: "tester@sandbox.example.com",
+        role: "client_admin",
+      });
+      expect([inSandbox.status, code(inSandbox.json)]).toEqual([409, "sandbox"]);
       expect(await membershipsOf(H, user("b"))).toEqual([
         { tenantId: H.B.tenantId, role: "client_user" },
       ]);

@@ -140,7 +140,7 @@ export function InviteForm({
             onChange={(e) => setEmail(e.target.value)}
           />
         </Field>
-        <Field label="Name" hint="Optional" className="min-w-48 flex-1">
+        <Field label="Name (optional)" className="min-w-48 flex-1">
           <TextInput
             data-testid={`${testId}-name`}
             value={name}

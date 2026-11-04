@@ -457,7 +457,11 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsInvite, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    await clientRow(ctx.tx, ctx.params.id);
+    const t = await clientRow(ctx.tx, ctx.params.id);
+    // The Sandbox is the operator's own test client: it has no client people (§1.5).
+    if (t.settings.sandbox === true) {
+      throw new HttpError(409, "sandbox", "the Sandbox client has no client people");
+    }
     return inviteToClient(ctx, ctx.params.id, ctx.body, { surface: "ops" });
   });
 
