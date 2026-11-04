@@ -12,7 +12,7 @@
 > **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing through
 > Stripe** comes into v1: a monthly base fee per active agent with a credit allowance, then usage
 > beyond it. **Languages:** the portal and agents' client-facing text in six languages (§1); translating
-> messages comes next. **Texts and calls:** Twilio (SMS, WhatsApp) and ElevenLabs (voice) connectors
+> messages comes next. **Texts and calls:** Twilio (SMS, voice, numbers), WhatsApp via Meta and ElevenLabs (voice) connectors
 > (§1). Changed: §1 (MVP and v1 scope), §6.2,
 > §9.5, §20.
 >
@@ -210,8 +210,8 @@ In:
 - **Billing** (v0.9): Stripe customers per client; a monthly base fee per active agent that includes a
   credit allowance, then metered usage from `usage_daily` beyond it, invoiced by Stripe
 - ~~Materials pack~~: built separately from this plan (v0.9)
-- **Texts and calls** (v0.9): **Twilio** (SMS, WhatsApp and phone numbers) and **ElevenLabs** (voice
-  agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
+- **Texts and calls** (v0.9): **Twilio** (SMS, voice and phone numbers), **WhatsApp** through Meta's
+  Cloud API (the client's own account), and **ElevenLabs** (voice agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
   sending a text or placing a call is an external action behind approval (`docs/plan.md` §1.19)
 - **Languages** (v0.9): the portal and agents' client-facing text in English, Spanish, French,
   Portuguese (Brazil), Italian and German, per client with a per-user choice; the back office stays in
