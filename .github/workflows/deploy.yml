@@ -44,6 +44,15 @@ jobs:
       WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # Texts, calls, email and billing (plan §1.19–§1.25). Each is copied only when set, so a
+      # provider stays off on an environment until its key exists.
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_WEBHOOK_SECRET: ${{ secrets.ELEVENLABS_WEBHOOK_SECRET }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -129,11 +138,17 @@ jobs:
         if: steps.ready.outputs.ready == 'true'
         env:
           SENTRY_DSN_API: ${{ vars.SENTRY_DSN_API || secrets.SENTRY_DSN_API }}
+          # Our own Resend sending domain until a client's is verified (not secrets: repository or
+          # environment variables). Unset: email waits for a client domain.
+          RESEND_FALLBACK_DOMAIN: ${{ vars.RESEND_FALLBACK_DOMAIN }}
+          RESEND_FALLBACK_DOMAIN_ID: ${{ vars.RESEND_FALLBACK_DOMAIN_ID }}
         run: |
           set -euo pipefail
           env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
           args=("$env_flag" --var "DEPLOYED_SHA:$GITHUB_SHA" --outdir dist --upload-source-maps)
           [ -z "$SENTRY_DSN_API" ] || args+=(--var "SENTRY_DSN:$SENTRY_DSN_API")
+          [ -z "$RESEND_FALLBACK_DOMAIN" ] || args+=(--var "RESEND_FALLBACK_DOMAIN:$RESEND_FALLBACK_DOMAIN")
+          [ -z "$RESEND_FALLBACK_DOMAIN_ID" ] || args+=(--var "RESEND_FALLBACK_DOMAIN_ID:$RESEND_FALLBACK_DOMAIN_ID")
           pnpm --filter @countersign/api exec wrangler deploy "${args[@]}"
 
       # Readable Worker stack traces in Sentry: the deployed bundle's map, for this release.
@@ -164,6 +179,10 @@ jobs:
           if [ -n "${WORKOS_API_KEY:-}" ]; then put WORKOS_API_KEY "$WORKOS_API_KEY"; fi
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; fi
           if [ -n "${OPENAI_API_KEY:-}" ]; then put OPENAI_API_KEY "$OPENAI_API_KEY"; fi
+          for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
+            RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
+            if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
+          done
           # Generated once inside Cloudflare and never shown or stored anywhere else. If the list of
           # existing secrets can't be read, this step fails (set -e) rather than risk replacing
           # ENCRYPTION_KEY, which would make stored connection credentials unreadable.

@@ -171,6 +171,8 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set |
+| Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
 ### Error tracking (Sentry)
 
