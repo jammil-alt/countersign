@@ -44,9 +44,21 @@ export const ChannelConsent = z.object({
 });
 export type ChannelConsent = z.infer<typeof ChannelConsent>;
 
+/**
+ * What a contact can agree to: texts, WhatsApp, and calls from an automated assistant (`voice`, to
+ * the contact's phone; docs/plan.md §1.23).
+ */
+// DECISION: calls need their own consent, separate from texts: a call from an automated voice is
+// a different thing to agree to (the US treats AI voices as artificial voices), so a contact who
+// agreed to texts is not called until they agree to calls too.
+export const CONSENT_CHANNELS = ["sms", "whatsapp", "voice"] as const;
+export const ConsentChannel = z.enum(CONSENT_CHANNELS);
+export type ConsentChannel = z.infer<typeof ConsentChannel>;
+
 export const ContactConsent = z.object({
   sms: ChannelConsent.optional(),
   whatsapp: ChannelConsent.optional(),
+  voice: ChannelConsent.optional(),
 });
 export type ContactConsent = z.infer<typeof ContactConsent>;
 

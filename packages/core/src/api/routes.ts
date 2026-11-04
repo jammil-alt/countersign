@@ -5,6 +5,7 @@ import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
+import { callRoutes } from "./calls";
 import { defineRoute } from "./contract";
 import { feedbackRoutes } from "./feedback";
 import { messagingRoutes } from "./messaging";
@@ -1625,5 +1626,6 @@ export const routes = {
   ...feedbackRoutes,
   ...requestRoutes,
   ...messagingRoutes,
+  ...callRoutes,
 } as const;
 export type Routes = typeof routes;
