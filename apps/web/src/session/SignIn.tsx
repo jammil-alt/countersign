@@ -1,14 +1,16 @@
-// `/sign-in`: local and e2e sign-in through the dev adapter (plan §1.1 "Auth provider"): pick a
-// seeded user, or type a seeded user's email when the API does not list them. WorkOS sign-in
-// replaces this screen on deployed environments.
-import { type FormEvent, useState } from "react";
+// `/sign-in`. The API says which sign-in this environment uses (plan §1.1 "Auth provider"):
+// - WorkOS (staging, production): one button that goes to WorkOS and comes back signed in, and the
+//   reason when a sign-in did not complete (`?error=<code>`, set by the API's sign-in routes);
+// - the dev adapter (local, e2e): pick a seeded user, or type a seeded user's email when the API
+//   does not list them.
+import { type FormEvent, type ReactNode, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { Logo, PRODUCT_NAME } from "../ui/brand";
 import { Icon } from "../ui/icons";
-import { Button, Card, cx, ErrorNotice, Loading } from "../ui/primitives";
+import { Button, buttonClass, Card, cx, ErrorNotice, Loading } from "../ui/primitives";
 import { homeFor, useSessionState } from "./session";
 
 const ROLE_LABEL = {
@@ -17,7 +19,86 @@ const ROLE_LABEL = {
   client_user: "Client user",
 };
 
+/** What the sign-in page says when the API sent the browser back with `?error=<code>`. */
+const SIGN_IN_ERRORS: Record<string, string> = {
+  not_invited:
+    "This email address has not been invited to Mezonas. Ask your Mezonas contact for an invitation, then sign in with the same address.",
+  email_not_verified: "Verify your email address on the sign-in page first, then sign in again.",
+  email_taken: "This email address is tied to a different sign-in. Contact us to sort it out.",
+  misconfigured: "Sign-in is not set up on this site yet.",
+  adapter_disabled: "Sign-in is not set up on this site yet.",
+};
+const SIGN_IN_ERROR_DEFAULT = "Sign-in did not finish. Start again.";
+
+export function signInErrorText(code: string | null): string | null {
+  if (!code) return null;
+  return SIGN_IN_ERRORS[code] ?? SIGN_IN_ERROR_DEFAULT;
+}
+
 export function SignInScreen() {
+  const provider = useApi(apiRoutes.authProvider);
+  if (provider.loading) {
+    return (
+      <SignInFrame>
+        <Loading />
+      </SignInFrame>
+    );
+  }
+  if (provider.data?.provider === "workos") return <WorkOSSignIn />;
+  if (provider.data?.provider === "unavailable") {
+    return (
+      <SignInFrame>
+        <h1 className="type-heading text-ink">Sign in to {PRODUCT_NAME}</h1>
+        <div className="mt-4">
+          <ErrorNotice error={new Error(SIGN_IN_ERRORS.misconfigured)} />
+        </div>
+      </SignInFrame>
+    );
+  }
+  // The dev adapter, or an API too old to answer: the development sign-in, as before.
+  return <DevSignIn />;
+}
+
+function SignInFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-paper px-4 py-10">
+      <Logo height={26} />
+      <Card className="w-full max-w-lg p-6">{children}</Card>
+    </div>
+  );
+}
+
+function WorkOSSignIn() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const next = params.get("next");
+  const error = signInErrorText(params.get("error"));
+  // `next` is only ever a path inside this app; the API checks `return_to` again.
+  const target = next?.startsWith("/") && !next.startsWith("//") ? next : null;
+  const href = `/api/auth/sign-in${target ? `?return_to=${encodeURIComponent(target)}` : ""}`;
+  return (
+    <SignInFrame>
+      <h1 className="type-heading text-ink">Sign in to {PRODUCT_NAME}</h1>
+      <p className="mt-1 mb-5 text-ink-muted">
+        Use the email address you were invited with. We send you to our sign-in page and back.
+      </p>
+      {error ? (
+        <div className="mb-5" data-testid="signin-error">
+          <ErrorNotice error={new Error(error)} />
+        </div>
+      ) : null}
+      <a
+        href={href}
+        className={buttonClass("primary", "w-full justify-center")}
+        data-testid="signin-workos"
+      >
+        Continue to sign in
+      </a>
+    </SignInFrame>
+  );
+}
+
+function DevSignIn() {
   const client = useApiClient();
   const { refresh } = useSessionState();
   const navigate = useNavigate();

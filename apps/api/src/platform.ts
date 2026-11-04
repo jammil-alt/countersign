@@ -15,6 +15,8 @@ import {
   createTestkitConnector,
   createWebhookConnector,
   createZohoCrmConnector,
+  TESTKIT_SAMPLE_RECORDS,
+  TestkitBackend,
 } from "@countersign/connectors";
 import { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
@@ -99,7 +101,9 @@ let cached: { key: string; platform: Platform } | undefined;
 // DECISION: the testkit connector (an in-memory system with one read and one write tool) is
 // registered everywhere except production, so the Sandbox client and local work can exercise
 // connections, approvals and external actions before any real connector exists. Its records live
-// in the isolate's memory and are lost when the isolate goes.
+// in the isolate's memory and are lost when the isolate goes. Each connection starts with the same
+// three sample records (TESTKIT_SAMPLE_RECORDS), so a Sandbox workflow on staging has something
+// to find and change.
 type OAuthEnvKey =
   | "OAUTH_STATE_SECRET"
   | "ZOHO_CLIENT_ID"
@@ -147,6 +151,8 @@ export function deploymentConnectors(
     createPodioConnector(
       podioReady ? { clientId: env.PODIO_CLIENT_ID, clientSecret: env.PODIO_CLIENT_SECRET } : {},
     ),
-    ...(production ? [] : [createTestkitConnector()]),
+    ...(production
+      ? []
+      : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),
   ];
 }

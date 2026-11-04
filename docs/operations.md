@@ -130,6 +130,26 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
 
+### Error tracking (Sentry)
+
+Errors from the Worker (API routes, the cron, `RunWorkflow`) and from the browser go to Sentry
+org `twelve-thirty-four-consulting`, projects **`mezonas-api`** and **`mezonas-web`** (separate
+from Plenary Labs' projects; nothing is shared but the Sentry account). Off wherever no DSN is
+given: local development and tests never send.
+
+| GitHub | Name | What |
+|---|---|---|
+| Repository variable (or secret) | `SENTRY_DSN_API` | mezonas-api's DSN; the deploy passes it to the Worker as `SENTRY_DSN` |
+| Repository variable (or secret) | `SENTRY_DSN_WEB` | mezonas-web's DSN; built into the page as `VITE_SENTRY_DSN` |
+| Repository secret | `SENTRY_AUTH_TOKEN` | Uploads source maps for each release (the commit) |
+| Repository variables (optional) | `SENTRY_ORG`, `SENTRY_PROJECT_API`, `SENTRY_PROJECT_WEB` | Default to the names above |
+
+DSNs are not secrets (they only let a client send events). What is sent is held to what
+debugging needs: no request bodies, cookies, headers but the user agent, query strings, emails,
+IPs, model inputs or outputs, database query values or local variables; messages are cut short
+and anything shaped like a key or token is removed (`apps/api/src/observability/sentry.ts`,
+`apps/web/src/observability.ts`, with tests).
+
 ### The first operator
 
 A fresh environment has no users, and sign-in only admits invited addresses, so the first operator
