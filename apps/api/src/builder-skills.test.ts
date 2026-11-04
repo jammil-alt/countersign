@@ -408,3 +408,83 @@ describe.skipIf(!h)("the Builder", () => {
     expect(other.status).toBe(404);
   });
 });
+
+describe.skipIf(!h)("discarding drafts", () => {
+  const H = h as NonNullable<typeof h>;
+
+  it("discards an unwanted Builder draft, keeps it out of lists, and restores it", async () => {
+    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
+    const drafted = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
+      description: "Flag card charges over $500 missing receipts",
+      name: "Unwanted draft",
+    });
+    const { agent, version } = drafted.json as { agent: Json; version: Json };
+    const listed = async (query = "") =>
+      (
+        (await H.call(OPERATOR, "GET", `/api/ops/templates${query}`)).json as {
+          templates: Json[];
+        }
+      ).templates.some((t) => t.id === agent.id);
+    expect(await listed()).toBe(true);
+
+    const gone = await H.call(OPERATOR, "POST", `/api/ops/agents/${agent.id}/discard`);
+    expect(gone.json).toMatchObject({ agent: { status: "disabled" } });
+    expect(await listed()).toBe(false);
+    expect(await listed("?include=discarded")).toBe(true);
+    // It can't be published while discarded; its versions are kept.
+    const publish = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${agent.id}/versions/${version.id}/publish`,
+    );
+    expect(publish.status).toBe(409);
+    expect((await H.call(OPERATOR, "GET", `/api/ops/agents/${agent.id}`)).json).toMatchObject({
+      versions: [{ id: version.id }],
+    });
+    // The slug stays taken: the next draft of the same name gets another.
+    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
+    const again = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
+      description: "x",
+      name: "Unwanted draft",
+    });
+    expect((again.json as { agent: Json }).agent.slug).toBe("unwanted-draft-2");
+
+    const back = await H.call(OPERATOR, "POST", `/api/ops/agents/${agent.id}/restore`);
+    expect(back.json).toMatchObject({ agent: { status: "active" } });
+    expect(await listed()).toBe(true);
+  });
+
+  it("refuses to discard a published agent, and hides a discarded client draft", async () => {
+    const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
+      slug: "to-discard",
+      bundle: testBundle(),
+    });
+    const id = (created.json as { agent: Json }).agent.id;
+    await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/discard`);
+    const agents = async (q = "") =>
+      (
+        (await H.call(OPERATOR, "GET", `/api/ops/clients/${H.B.tenantId}/agents${q}`)).json as {
+          agents: Json[];
+        }
+      ).agents.map((a) => a.slug);
+    expect(await agents()).not.toContain("to-discard");
+    expect(await agents("?include=discarded")).toContain("to-discard");
+    const activation = await H.call(OPERATOR, "GET", `/api/ops/agents/${id}/activation`);
+    expect((activation.json as { problems: string[] }).problems).toContain(
+      "it was discarded: restore it first",
+    );
+
+    const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "published-one",
+      bundle: testBundle(),
+    });
+    const t = tpl.json as { agent: Json; version: Json };
+    await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${t.agent.id}/versions/${t.version.id}/publish`,
+    );
+    const refused = await H.call(OPERATOR, "POST", `/api/ops/agents/${t.agent.id}/discard`);
+    expect(refused.status).toBe(409);
+  });
+});

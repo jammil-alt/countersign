@@ -127,6 +127,27 @@ describe("new template from a description", () => {
     );
   });
 
+  it("discards a draft you don't want", async () => {
+    const discarded: string[] = [];
+    const agent = { ...TEMPLATE, slug: "card-receipts", name: "Card receipts" };
+    const { user } = renderAt("/ops/templates/new", {
+      "POST /api/ops/agents/draft": () => draftResponse(agent),
+      [`POST /api/ops/agents/${agent.id}/discard`]: ({ url }) => {
+        discarded.push(url.pathname);
+        return { agent: { ...agent, status: "disabled" } };
+      },
+    });
+    await user.click(await screen.findByTestId("new-agent-start-builder"));
+    await user.type(screen.getByTestId("builder-description-input"), "Chase receipts");
+    await user.click(screen.getByTestId("builder-draft"));
+    await user.click(await screen.findByTestId("agent-discard"));
+    await user.click(screen.getByTestId("agent-discard-yes"));
+    expect(await screen.findByTestId("builder-discarded")).toHaveTextContent(
+      "Discarded Card receipts",
+    );
+    expect(discarded).toHaveLength(1);
+  });
+
   it("drafts a client agent for that client", async () => {
     const sent: unknown[] = [];
     const { user } = renderAt(`/ops/clients/${CLIENT}/agents/new`, {

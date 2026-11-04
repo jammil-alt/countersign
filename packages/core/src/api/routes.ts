@@ -35,6 +35,8 @@ const SlugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, digits and dashes")
   .max(64);
 const Note = z.string().max(2000);
+/** Lists of agents leave discarded drafts out unless asked. */
+const IncludeDiscarded = z.object({ include: z.enum(["discarded"]).optional() });
 
 /** A matrix edit: verbs left out keep their level. */
 export const MatrixEdit = z.strictObject({
@@ -614,7 +616,8 @@ export const opsRoutes = {
     path: "/api/ops/templates",
     auth: "session",
     roles: OPS,
-    summary: "Templates",
+    summary: "Templates (discarded drafts with ?include=discarded)",
+    query: IncludeDiscarded,
     response: z.object({ templates: z.array(AgentSummary) }),
   }),
   opsCreateTemplate: defineRoute({
@@ -648,8 +651,9 @@ export const opsRoutes = {
     path: "/api/ops/clients/:id/agents",
     auth: "session",
     roles: OPS,
-    summary: "A client's agents",
+    summary: "A client's agents (discarded drafts with ?include=discarded)",
     params: IdParams,
+    query: IncludeDiscarded,
     response: z.object({ agents: z.array(AgentSummary) }),
   }),
   opsCreateClientAgent: defineRoute({
@@ -1076,6 +1080,24 @@ export const opsRoutes = {
       version: VersionSummary,
       diff: BundleDiff,
     }),
+  }),
+  opsDiscardAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/discard",
+    auth: "session",
+    roles: OPS,
+    summary: "Discard an agent that was never published (e.g. an unwanted Builder draft)",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
+  opsRestoreAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/restore",
+    auth: "session",
+    roles: OPS,
+    summary: "Bring a discarded draft back",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
   }),
   opsResolveInbox: defineRoute({
     method: "POST",

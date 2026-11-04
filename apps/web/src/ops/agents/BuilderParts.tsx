@@ -12,6 +12,7 @@ import { useApi } from "../../api/useApi";
 import { Badge, Button, buttonClass, Card, SectionLabel } from "../../ui/primitives";
 import { parseBundle } from "../versions";
 import { ChangeList } from "./ChangeList";
+import { DiscardButton } from "./DiscardDraft";
 import { WorkflowPreview } from "./NewAgentParts";
 import {
   errorText,
@@ -187,6 +188,7 @@ export function BuilderDescribe({
 
 /** The right-hand column: the suggested workflow, or what the Builder drafted. */
 export function BuilderDraftResult({ draft }: { draft: Draft | null }) {
+  const [discarded, setDiscarded] = useState<string | null>(null);
   const bundle = draft ? bundleOf(draft.bundle) : null;
   if (!draft) {
     return (
@@ -199,6 +201,13 @@ export function BuilderDraftResult({ draft }: { draft: Draft | null }) {
           </p>
         }
       />
+    );
+  }
+  if (discarded === draft.agent.id) {
+    return (
+      <Notice tone="neutral" testId="builder-discarded">
+        Discarded {draft.agent.name}. Change the description and draft again, or start blank.
+      </Notice>
     );
   }
   const base = agentPath(draft.agent);
@@ -229,7 +238,12 @@ export function BuilderDraftResult({ draft }: { draft: Draft | null }) {
       <p className="text-sm text-ink-muted">
         Saved as {draft.agent.name}, v{draft.version.version} draft.
       </p>
-      <div className="flex justify-end gap-3">
+      <div className="flex flex-wrap justify-end gap-3">
+        <DiscardButton
+          agent={draft.agent}
+          label="Discard"
+          onDiscarded={() => setDiscarded(draft.agent.id)}
+        />
         <Link to={base} className={buttonClass("ghost")} data-testid="builder-open-agent">
           Open the agent
         </Link>

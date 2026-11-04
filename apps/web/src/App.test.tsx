@@ -41,6 +41,9 @@ function backend(): FakeApi & { signedInAs: () => string | null } {
       ],
     }),
     "GET /api/ops/clients/00000000-0000-4000-8000-00000000a001": () => SANDBOX_DETAIL,
+    "GET /api/ops/clients/00000000-0000-4000-8000-00000000a001/agents": () => ({
+      agents: SANDBOX_DETAIL.agents,
+    }),
     "GET /api/ops/agents/00000000-0000-4000-8000-00000000b001": () => AGENT_DETAIL,
     "GET /api/ops/agents/00000000-0000-4000-8000-00000000b001/builder-catalog": () => ({
       skills: [],

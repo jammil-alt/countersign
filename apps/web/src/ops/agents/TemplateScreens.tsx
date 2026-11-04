@@ -40,7 +40,11 @@ import {
 import { errorText, Field, isCode, Notice, notifyAgentsChanged, TextInput, useAction } from "./ui";
 
 export function TemplatesScreen() {
-  const { data, error, loading, reload } = useApi(apiRoutes.opsTemplates);
+  const [showDiscarded, setShowDiscarded] = useState(false);
+  const { data, error, loading, reload } = useApi(
+    apiRoutes.opsTemplates,
+    showDiscarded ? { query: { include: "discarded" } } : {},
+  );
   return (
     <div>
       <PageHeader
@@ -56,7 +60,22 @@ export function TemplatesScreen() {
           </Link>
         }
       />
-      <SectionLabel>Templates</SectionLabel>
+      <SectionLabel
+        action={
+          <label className="flex items-center gap-2 text-sm text-ink-muted">
+            <input
+              type="checkbox"
+              className="size-4 accent-slate"
+              data-testid="templates-show-discarded"
+              checked={showDiscarded}
+              onChange={(e) => setShowDiscarded(e.target.checked)}
+            />
+            Show discarded drafts
+          </label>
+        }
+      >
+        Templates
+      </SectionLabel>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.templates.length === 0 ? <EmptyState>No templates yet.</EmptyState> : null}
@@ -73,7 +92,10 @@ export function TemplatesScreen() {
             </thead>
             <tbody>
               {data.templates.map((t) => {
-                const badge = summaryBadge(t);
+                const badge =
+                  t.status === "disabled"
+                    ? { tone: "neutral" as const, label: "Discarded" }
+                    : summaryBadge(t);
                 return (
                   <tr key={t.id}>
                     <td>
@@ -273,7 +295,7 @@ export function NewTemplateScreen() {
 
 export function TemplatePage() {
   const { slug = "" } = useParams();
-  const list = useApi(apiRoutes.opsTemplates);
+  const list = useApi(apiRoutes.opsTemplates, { query: { include: "discarded" } });
   const template = list.data?.templates.find((t) => t.slug === slug);
   if (list.error) return <ErrorNotice error={list.error} onRetry={list.reload} />;
   if (!list.data) return <Loading />;

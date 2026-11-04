@@ -112,9 +112,10 @@ async function builderContext(
 /** A slug not taken among templates (clientId null) or the client's agents. */
 async function freeSlug(ctx: Pick<Ctx, "tx">, clientId: string | null, base: string) {
   const taken = new Set(
-    (clientId ? await listClientAgents(ctx.tx, clientId) : await listTemplates(ctx.tx)).map(
-      (a) => a.slug,
-    ),
+    (clientId
+      ? await listClientAgents(ctx.tx, clientId, { discarded: true })
+      : await listTemplates(ctx.tx, { discarded: true })
+    ).map((a) => a.slug),
   );
   const root = base.slice(0, 56) || "agent";
   let slug = root;
