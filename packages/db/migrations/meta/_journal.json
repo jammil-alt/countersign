@@ -43,6 +43,13 @@
       "when": 1793766079271,
       "tag": "0005_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793770700000,
+      "tag": "0006_contacts",
+      "breakpoints": true
     }
   ]
 }

@@ -77,7 +77,8 @@ export const TOOL_CALL_STATUSES = [
   "awaiting_approval",
 ] as const;
 export const THREAD_STATUSES = ["open", "closed"] as const;
-export const MESSAGE_SENDER_TYPES = ["agent", "user", "system"] as const;
+/** `contact`: a person a client texts (inbound SMS and WhatsApp, migration 0006); sender_id = contact.id. */
+export const MESSAGE_SENDER_TYPES = ["agent", "user", "system", "contact"] as const;
 export const MESSAGE_KINDS = ["text", "command", "result"] as const;
 export const MESSAGE_AUDIENCES = ["client", "operator"] as const;
 export const INBOX_KINDS = [
@@ -786,6 +787,8 @@ export const usageDaily = pgTable(
     steps: integer("steps").notNull().default(0),
     documents: integer("documents").notNull().default(0),
     externalActions: integer("external_actions").notNull().default(0),
+    /** Texts and WhatsApp messages sent (migration 0006), counted once per provider message id. */
+    messages: integer("messages").notNull().default(0),
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
     costUsd: usd("cost_usd"),
@@ -1106,6 +1109,79 @@ export const feedback = pgTable(
   ],
 );
 
+// ── Contacts (migration 0006, docs/plan.md §1.22) ─────────────────────────────────────────────────
+
+export const MESSAGING_CHANNELS = ["sms", "whatsapp"] as const;
+export type MessagingChannel = (typeof MESSAGING_CHANNELS)[number];
+
+/** One channel's consent: when it was given and how (a web form, a signed paper, a START text). */
+export interface ContactChannelConsent {
+  grantedAt: string;
+  source: string;
+}
+export type ContactConsent = Partial<Record<MessagingChannel, ContactChannelConsent>>;
+
+/**
+ * A person a client's agents may text or message: a phone in E.164 (SMS), a WhatsApp number, a
+ * language, consent per channel with its source and time, and an opt-out that stops every channel.
+ * Sends check this in code before calling the provider; STOP and START texts change it at once.
+ */
+export const contact = pgTable(
+  "contact",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text("name").notNull(),
+    /** E.164, e.g. `+15551234567`. */
+    phone: text("phone"),
+    /** The WhatsApp number, E.164 (often the same as `phone`). */
+    whatsapp: text("whatsapp"),
+    /** e.g. `es`; null: the client's language. */
+    language: text("language"),
+    consent: json<ContactConsent>("consent").notNull().default({}),
+    optedOutAt: ts("opted_out_at"),
+    /** `keyword:STOP`, `operator`, `client`. */
+    optOutSource: text("opt_out_source"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("contact_id_tenant_key").on(t.id, t.tenantId),
+    uniqueIndex("contact_phone_key").on(t.tenantId, t.phone),
+    uniqueIndex("contact_whatsapp_key").on(t.tenantId, t.whatsapp),
+    index("contact_tenant_idx").on(t.tenantId, t.name),
+    check("contact_reachable_check", sql`${t.phone} is not null or ${t.whatsapp} is not null`),
+    check("contact_opt_out_check", sql`(${t.optedOutAt} is null) = (${t.optOutSource} is null)`),
+  ],
+);
+
+/** Append-only log of a contact's changes: consent given or withdrawn, opt-outs, edits. */
+export const contactChange = pgTable(
+  "contact_change",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contactId: uuid("contact_id").notNull(),
+    /** Null for the system (a STOP or START text). */
+    actorId: uuid("actor_id").references(() => appUser.id),
+    change: json("change").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "contact_change_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    index("contact_change_contact_idx").on(t.contactId, t.createdAt),
+    index("contact_change_tenant_idx").on(t.tenantId),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -1139,6 +1215,8 @@ export const TENANT_TABLES = [
   "doc_line",
   "tenant_change",
   "feedback",
+  "contact",
+  "contact_change",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
