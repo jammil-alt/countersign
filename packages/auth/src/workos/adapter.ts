@@ -146,7 +146,10 @@ export function createWorkOSAdapter(options: {
       if (!outcome.ok) {
         // The browser never gets a session of ours, so end the WorkOS one here.
         if (auth.sessionId) await workos.revokeSession(auth.sessionId).catch(() => undefined);
-        return refuse("no_access", PROVISION_MESSAGES[outcome.reason], clear);
+        return {
+          ...refuse("no_access", PROVISION_MESSAGES[outcome.reason], clear),
+          reason: outcome.reason,
+        };
       }
 
       const now = epochSec(nowDate);

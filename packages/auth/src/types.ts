@@ -60,6 +60,8 @@ export interface AuthRefusal {
   readonly message: string;
   /** Cookies to send with the refusal, e.g. clearing a dead session. */
   readonly setCookies: readonly string[];
+  /** Why sign-in provisioning refused (with `no_access`), so the sign-in page can say so. */
+  readonly reason?: ProvisionRefusalReason;
 }
 
 const STATUS: Record<RefusalCode, AuthRefusal["status"]> = {

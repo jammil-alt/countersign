@@ -4,7 +4,8 @@
   // deploy.yml always passes --env=staging or --env=production, so the dev sign-in below can't reach
   // a real domain. Public resources are named Mezonas; the code name stays countersign.
   "name": "mezonas-local",
-  "main": "src/index.ts",
+  // src/worker.ts is src/index.ts with Sentry around it (inert without SENTRY_DSN).
+  "main": "src/worker.ts",
   "compatibility_date": "2026-09-01",
   // postgres-js needs Node's net/tls shims under Workers.
   "compatibility_flags": ["nodejs_compat"],
