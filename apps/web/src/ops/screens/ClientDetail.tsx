@@ -3,6 +3,7 @@
 import { Link, useParams } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { ClientPacks } from "../../packs/screens";
 import {
   AgentAvatar,
   Badge,
@@ -44,6 +45,7 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientPacks clientId={data.client.id} />
       <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );
