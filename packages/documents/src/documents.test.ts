@@ -207,7 +207,7 @@ describe.skipIf(!h)("documents", () => {
       documentId: doc.id,
     });
     expect(r.status).toBe("needs_review");
-    expect(r.problems.join(" ")).toContain("total is 5900.00");
+    expect(r.problems.join(" ")).toContain("total is 5,900.00");
     const [item] = await harness.as(A, (tx) =>
       tx
         .select()

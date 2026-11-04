@@ -24,7 +24,11 @@ type Totals = Pick<
   "lines" | "subtotal" | "freight" | "surcharges" | "tax" | "total"
 >;
 
-const fmt = (d: Decimal) => d.toDecimalPlaces(2).toFixed(2);
+/** 2 places with thousands separators: "5,843.35". */
+const fmt = (d: Decimal) => {
+  const [whole = "0", frac = "00"] = d.toDecimalPlaces(2).toFixed(2).split(".");
+  return `${whole.replace(/\B(?=(\d{3})+$)/g, ",")}.${frac}`;
+};
 
 export function validateTotals(x: Totals): TotalsCheck {
   const problems: string[] = [];
