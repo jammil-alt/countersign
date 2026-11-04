@@ -9,6 +9,7 @@ import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/Templ
 import { MergeScreen } from "./merge/MergeScreen";
 import { OpsLayout } from "./OpsLayout";
 import { AgentPage } from "./screens/AgentPage";
+import { OpsBillingScreen } from "./screens/Billing";
 import { ClientDetailScreen } from "./screens/ClientDetail";
 import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
@@ -60,6 +61,7 @@ export default function OpsApp() {
         <Route path="inbox" element={<OpsInboxScreen />} />
         <Route path="usage" element={<OpsUsageScreen />} />
         <Route path="requests" element={<OpsRequestsScreen />} />
+        <Route path="billing" element={<OpsBillingScreen />} />
         <Route path="feedback" element={<OpsFeedbackScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />

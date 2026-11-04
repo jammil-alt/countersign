@@ -12,7 +12,14 @@ import {
   tenantScope,
   type WorkOSClient,
 } from "@countersign/auth";
-import { type FetchLike, type ObjectStore, R2ObjectStore } from "@countersign/connectors";
+import {
+  createStripeClient,
+  type FetchLike,
+  globalFetch,
+  type ObjectStore,
+  R2ObjectStore,
+  type StripeClient,
+} from "@countersign/connectors";
 import { type Role, type RouteSpec, routeFamily } from "@countersign/core";
 import {
   closeDb,
@@ -55,6 +62,15 @@ export interface AppDeps {
   workos?(env: Bindings): WorkOSClient;
   /** Outbound HTTP for provisioning calls (Twilio numbers); tests pass a fake. */
   fetch?(env: Bindings): FetchLike;
+  /** Mezonas' Stripe (billing); null when STRIPE_SECRET_KEY is not set. Tests pass a fake. */
+  stripe?(env: Bindings): StripeClient | null;
+}
+
+/** The Stripe client for billing, or null where billing is off (no key). */
+export function stripeFor(deps: AppDeps, env: Bindings): StripeClient | null {
+  if (deps.stripe) return deps.stripe(env);
+  const key = env.STRIPE_SECRET_KEY?.trim();
+  return key ? createStripeClient({ secretKey: key, fetch: globalFetch() }) : null;
 }
 
 export const defaultDeps: AppDeps = {

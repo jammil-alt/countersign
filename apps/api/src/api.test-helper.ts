@@ -10,6 +10,7 @@ import {
   createUploadConnector,
   type FetchLike,
   MemoryObjectStore,
+  type StripeClient,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -114,6 +115,8 @@ export interface HarnessOptions {
   workos?: WorkOSClient;
   /** Outbound HTTP for provisioning routes (e.g. a fake Twilio). */
   fetch?: FetchLike;
+  /** Billing's Stripe (tests pass a client over `fakeStripe`); none by default. */
+  stripe?: StripeClient;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -150,6 +153,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     ...(options.fetch ? { fetch: () => options.fetch as FetchLike } : {}),
     objects: () => objects,
     extractionTransport: () => extraction.transport,
+    stripe: () => options.stripe ?? null,
   });
   const env = {
     ENVIRONMENT: "development",
