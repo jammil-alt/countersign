@@ -66,7 +66,9 @@ async function clientSummaries(tx: Tx, ids: readonly string[]) {
   const agents = await tx
     .select({ tenantId: agent.tenantId, n: count() })
     .from(agent)
-    .where(and(inArray(agent.tenantId, [...ids]), eq(agent.kind, "client")))
+    .where(
+      and(inArray(agent.tenantId, [...ids]), eq(agent.kind, "client"), eq(agent.status, "active")),
+    )
     .groupBy(agent.tenantId);
   const open = await tx
     .select({ tenantId: inboxItem.tenantId, n: count() })
@@ -150,7 +152,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const agents = await tx
       .select()
       .from(agent)
-      .where(and(eq(agent.tenantId, t.id), eq(agent.kind, "client")))
+      .where(and(eq(agent.tenantId, t.id), eq(agent.kind, "client"), eq(agent.status, "active")))
       .orderBy(agent.slug);
     const connections = await tx
       .select()
@@ -195,7 +197,9 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const agents = await tx
       .select()
       .from(agent)
-      .where(and(eq(agent.tenantId, params.id), eq(agent.kind, "client")));
+      .where(
+        and(eq(agent.tenantId, params.id), eq(agent.kind, "client"), eq(agent.status, "active")),
+      );
     const usedBy: Record<string, { id: string; name: string }[]> = {};
     for (const c of rows) {
       usedBy[c.id] = agents

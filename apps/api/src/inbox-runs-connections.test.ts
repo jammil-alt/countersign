@@ -125,6 +125,7 @@ describe.skipIf(!h)("back office connections", () => {
     const body = j(res.json);
     expect(body.offered).toEqual(["testkit"]);
     expect(body.connectors).toEqual([
+      expect.objectContaining({ id: "upload", auth: "none", tools: [] }),
       expect.objectContaining({
         id: "testkit",
         auth: "none",
@@ -156,6 +157,7 @@ describe.skipIf(!h)("back office connections", () => {
     );
     const list = await H.call(admin("a"), "GET", "/api/connections");
     expect(j(list.json).connections.map((c: { connector: string }) => c.connector)).toEqual([
+      "upload",
       "testkit",
     ]);
     const back = await H.call(OPERATOR, "PUT", path, { offered: ["testkit", "testkit"] });

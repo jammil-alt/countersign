@@ -11,6 +11,9 @@ import {
   appUser,
   connection,
   connectionChange,
+  docExtraction,
+  docLine,
+  document,
   event,
   externalAction,
   inboxItem,
@@ -26,7 +29,10 @@ import {
   tenantPack,
   thread,
   toolCall,
+  transaction,
+  transactionLine,
   usageDaily,
+  vendor,
 } from "./schema";
 
 export const BUNDLE: AgentBundle = {
@@ -70,6 +76,9 @@ export interface ClientFixture {
   agentVersionId: string;
   skillVersionId: string;
   rawRecordId: string;
+  documentId: string;
+  extractionId: string;
+  docLineId: string;
 }
 
 let counter = 0;
@@ -188,6 +197,69 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .values({ tenantId, agentId: a.id, note: "remember", sourceMessageId: m.id });
   await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
 
+  const [v] = await db
+    .insert(vendor)
+    .values({ tenantId, name: "Acme Lumber", normalizedName: "acme lumber" })
+    .returning();
+  const [tx] = await db
+    .insert(transaction)
+    .values({
+      tenantId,
+      kind: "purchase",
+      connector: "test",
+      vendorId: v?.id ?? null,
+      txnDate: "2026-11-02",
+      total: "100.0000",
+      externalId: "t1",
+      sourceRawRecordId: rr?.id ?? null,
+    })
+    .returning();
+  if (!tx) throw new Error("no transaction");
+  await db
+    .insert(transactionLine)
+    .values({ tenantId, transactionId: tx.id, lineNo: 1, detailType: "account", amount: "100" });
+  const [d] = await db
+    .insert(document)
+    .values({
+      tenantId,
+      transactionId: tx.id,
+      source: "upload",
+      connectionId: c.id,
+      storageKey: `tenants/${tenantId}/content/00/${"0".repeat(64)}`,
+      mimeType: "application/pdf",
+      filename: "invoice.pdf",
+      sizeBytes: 10,
+      sha256: "0".repeat(64),
+    })
+    .returning();
+  if (!d) throw new Error("no document");
+  const [ex] = await db
+    .insert(docExtraction)
+    .values({
+      tenantId,
+      documentId: d.id,
+      model: "test-model",
+      header: { vendorName: "Acme Lumber" },
+      subtotal: "100",
+      total: "100",
+      linesSum: "100",
+      totalsMatch: true,
+    })
+    .returning();
+  if (!ex) throw new Error("no extraction");
+  const [dl] = await db
+    .insert(docLine)
+    .values({
+      tenantId,
+      extractionId: ex.id,
+      lineNo: 1,
+      rawDescription: "Thing",
+      qty: "1",
+      unitPrice: "100",
+      extPrice: "100",
+    })
+    .returning();
+
   return {
     tenantId,
     userId: u.id,
@@ -195,6 +267,9 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     agentVersionId: av.id,
     skillVersionId: sv?.id ?? "",
     rawRecordId: rr?.id ?? "",
+    documentId: d.id,
+    extractionId: ex.id,
+    docLineId: dl?.id ?? "",
   };
 }
 

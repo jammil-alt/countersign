@@ -3,6 +3,7 @@
 // place that names connectors (and, later, packs); nothing in packages/* does.
 
 import {
+  DOCS_SKILLS,
   PLATFORM_TOOLS,
   type RegistryContext,
   SkillCatalog,
@@ -15,6 +16,7 @@ import {
   createTestkitConnector,
   createWebhookConnector,
   createZohoCrmConnector,
+  createUploadConnector,
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -76,12 +78,13 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
+  // The platform's built-in skills (docs.*) come first, then the caller's, then a tool-mode skill
+  // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
+  // packs register theirs here when they exist (registerPack); none yet.
   const catalog = new SkillCatalog(
-    [...(options.skills ?? []), ...connectorReadSkills(connectors)],
+    [...DOCS_SKILLS, ...(options.skills ?? []), ...connectorReadSkills(connectors)],
     tools,
   );
-  // Connectors' event types (e.g. webhook.received) join the catalogue; packs register theirs
-  // here when they exist (registerPack); none yet.
   const events = new EventTypeRegistry();
   for (const c of connectors.list()) {
     if (c.manifest.events?.length) events.registerConnector(c.manifest.id, c.manifest.events);
@@ -144,6 +147,8 @@ export function deploymentConnectors(
     env.PODIO_CLIENT_ID && env.PODIO_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
   return [
+    // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
+    createUploadConnector(),
     createWebhookConnector(),
     createZohoCrmConnector(
       zohoReady ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : {},

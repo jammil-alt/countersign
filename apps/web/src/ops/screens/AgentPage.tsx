@@ -10,10 +10,16 @@ import { AgentScreen } from "../agents/AgentScreen";
 export function AgentPage() {
   const { clientId = "", slug = "" } = useParams();
   const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
-  const summary = client.data?.agents.find((a) => a.slug === slug);
+  // Discarded drafts leave the client's lists but still open by address (to restore them).
+  const agents = useApi(apiRoutes.opsClientAgents, {
+    params: { id: clientId },
+    query: { include: "discarded" },
+  });
+  const summary = agents.data?.agents.find((a) => a.slug === slug);
 
   if (client.error) return <ErrorNotice error={client.error} onRetry={client.reload} />;
-  if (!client.data) return <Loading />;
+  if (agents.error) return <ErrorNotice error={agents.error} onRetry={agents.reload} />;
+  if (!client.data || !agents.data) return <Loading />;
   if (!summary) {
     return <ErrorNotice error={new Error(`This client has no agent "${slug}".`)} />;
   }

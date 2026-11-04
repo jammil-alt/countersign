@@ -18,6 +18,11 @@ export interface Secrets {
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
+  /** R2's S3 API, for presigned links to documents (ARCHITECTURE §17). Optional: see storage.ts. */
+  STORAGE_ENDPOINT?: string;
+  STORAGE_BUCKET?: string;
+  STORAGE_ACCESS_KEY?: string;
+  STORAGE_SECRET_KEY?: string;
 }
 
 /** Vars are read as plain strings: deployments set values the generated literals don't know. */
@@ -27,6 +32,8 @@ export interface Vars {
   WORKOS_CLIENT_ID?: string;
   APP_ORIGIN?: string;
   LLM_MODE?: string;
+  /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
+  EMAIL_FORWARDING_DOMAIN?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */

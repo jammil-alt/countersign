@@ -67,14 +67,29 @@ After the first run: save the project id from the run summary as the repository 
 
 ### By hand
 
-1. **R2 S3 credentials** for signed URLs (Cloudflare → R2 → Manage API tokens): Worker secrets
-   `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`.
+1. **R2 S3 credentials** for signed URLs (Cloudflare → R2 → Manage API tokens, read-only on the
+   environment's bucket): Worker secrets `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, plus
+   `STORAGE_ENDPOINT` (`https://<account id>.r2.cloudflarestorage.com`) and `STORAGE_BUCKET`. Optional:
+   without them the Worker signs its own 5-minute links (`/api/files/:token`, keyed from
+   `ENCRYPTION_KEY`) and streams the file from the R2 binding (`apps/api/src/storage.ts`).
 2. **Custom domains**: nothing by hand. `wrangler deploy` creates `staging.mezonas.com` and
    `app.mezonas.com` on the `mezonas.com` zone; make sure no existing DNS record uses those names.
-3. **Email forwarding** (when the forwarding connector is built): Cloudflare Email Routing on the
-   `in.mezonas.com` and `in.staging.mezonas.com` subdomains of the `mezonas.com` zone, each with a
-   catch-all rule sending to its Worker (`mezonas` / `mezonas-staging`). Worker var
-   `EMAIL_FORWARDING_DOMAIN`.
+3. **Email forwarding** (built: stream D, `apps/api/src/email.ts`). For each environment:
+   - Cloudflare → `mezonas.com` → Email → Email Routing: add the subdomain (`in.staging.mezonas.com`,
+     `in.mezonas.com`) and let Cloudflare add its MX and SPF records for it. Nothing else on the zone
+     changes; mail for `mezonas.com` itself is not routed.
+   - Routing rules → **Catch-all address** for that subdomain → action **Send to a Worker** → `mezonas-staging`
+     (staging) or `mezonas` (production). No custom addresses: every client's address is
+     `<client label>-<26 characters>-<8 characters>@<subdomain>`, made by the app, and the Worker drops
+     anything that is not exactly a client's current address.
+   - Worker var `EMAIL_FORWARDING_DOMAIN` = that subdomain, in the environment's `vars` in
+     `apps/api/wrangler.jsonc` (`in.staging.mezonas.com` / `in.mezonas.com`). Until it is set, the
+     portal says forwarding isn't switched on and `email()` drops everything.
+   - No binding: inbound mail reaches the Worker's `email()` export without one. (`send_email` is only
+     for sending, which v1 doesn't do.)
+   - Check: the portal's Connections page shows the client's address; mail from an allowed sender with
+     a PDF shows up under Recent documents as "Forwarded"; the Worker logs `forwarded email dropped:
+     <reason>` for the rest. Messages over 25 MB are dropped (Email Routing's limit).
 4. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
    `https://staging.mezonas.com/api/auth/callback` and `https://app.mezonas.com/api/auth/callback`;
    Worker secrets `WORKOS_CLIENT_ID`,

@@ -1,7 +1,7 @@
 // Template updates (three-way merge into a client draft) and promotion (into a template draft,
 // client-specific values stripped), against a real database as cs_worker.
 
-import { type AgentBundle, cloneJson, uuidv7 } from "@countersign/core";
+import { type AgentBundle, cloneJson, selectableBetween, uuidv7 } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
 import type { AgentsError } from "../errors";
 import {
@@ -15,8 +15,10 @@ import {
   copyClientAgent,
   createTemplate,
   createVersion,
+  detach,
   fork,
   publish,
+  relink,
   updateOperational,
 } from "./agents";
 import {
@@ -192,6 +194,61 @@ describe.skipIf(!harness)("template updates and promotion", () => {
     expect(version.status).toBe("draft");
     expect(version.mergedFromVersionIds).toEqual([c2.id]);
     expect(version.bundle).toEqual(promoted);
+  });
+
+  it("promotes only the selected changes", async () => {
+    const { tpl, a, c1 } = await setup("promote-some");
+    await h.ops(async (tx) => {
+      const v = await createVersion(tx, {
+        agentId: a.id,
+        bundle: edit(c1.bundle, (b) => {
+          b.definition.instructions = "Client A's private way.";
+          step(b, LOOKUP_STEP).name = "Look it up (better)";
+        }),
+      });
+      await publish(tx, { agentId: a.id, versionId: v.id, ctx: h.ctx });
+    });
+    const all = await h.ops((tx) => previewPromotion(tx, { agentId: a.id, ctx: h.ctx }));
+    const offered = selectableBetween(all.base.bundle, all.stripped).map((g) => g.id);
+    expect(offered).toEqual(
+      expect.arrayContaining(["bundle#/definition/instructions", `step:${LOOKUP_STEP}`]),
+    );
+    const { version } = await h.ops((tx) =>
+      createPromotionDraft(tx, { agentId: a.id, changes: [`step:${LOOKUP_STEP}`], ctx: h.ctx }),
+    );
+    expect(version.agentId).toBe(tpl.id);
+    expect(step(version.bundle, LOOKUP_STEP).name).toBe("Look it up (better)");
+    expect(version.bundle.definition.instructions).toBe(c1.bundle.definition.instructions);
+  });
+
+  it("detaches and re-links a client agent with a new base", async () => {
+    const { tpl, t1, a } = await setup("relink");
+    const t2 = await h.ops(async (tx) => {
+      const v = await createVersion(tx, {
+        agentId: tpl.id,
+        bundle: edit(t1.bundle, (b) => {
+          b.definition.instructions = "Template v2.";
+        }),
+      });
+      return publish(tx, { agentId: tpl.id, versionId: v.id, ctx: h.ctx });
+    });
+    expect((await h.ops((tx) => updateInfo(tx, { agentId: a.id }))).available).toBe(true);
+    const detached = await h.ops((tx) => detach(tx, { agentId: a.id }));
+    expect(detached.linked).toBe(false);
+    const info = await h.ops((tx) => updateInfo(tx, { agentId: a.id }));
+    expect(info.available).toBe(false);
+    const err = await h
+      .ops((tx) => previewUpdate(tx, { agentId: a.id }))
+      .catch((e: AgentsError) => e);
+    expect((err as AgentsError).code).toBe("not_linked");
+
+    const v = await h.ops((tx) => relink(tx, { agentId: a.id, templateVersionId: t2.id }));
+    expect(v.basedOnTemplateVersionId).toBe(t2.id);
+    await h.ops((tx) => publish(tx, { agentId: a.id, versionId: v.id, ctx: h.ctx }));
+    const relinked = await h.ops((tx) => updateInfo(tx, { agentId: a.id }));
+    expect(relinked.linked).toBe(true);
+    expect(relinked.base?.id).toBe(t2.id);
+    expect(relinked.available).toBe(false);
   });
 
   it("copies a client agent into another client without the source client's values", async () => {

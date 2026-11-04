@@ -35,6 +35,8 @@ const SlugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, digits and dashes")
   .max(64);
 const Note = z.string().max(2000);
+/** Lists of agents leave discarded drafts out unless asked. */
+const IncludeDiscarded = z.object({ include: z.enum(["discarded"]).optional() });
 
 /** A matrix edit: verbs left out keep their level. */
 export const MatrixEdit = z.strictObject({
@@ -356,6 +358,101 @@ export const PortalWebhookSetup = z.object({
 export const InboundHookResponse = z.object({
   status: z.enum(["accepted", "duplicate"]),
   id: z.string(),
+// ── Documents, uploads and forwarding (stream D, docs/plan.md §1.6) ─────────────────────────────
+
+export const DocumentSummary = z.object({
+  id: z.string(),
+  source: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number(),
+  status: z.string(),
+  pageCount: z.number().nullable(),
+  transactionId: z.string().nullable(),
+  receivedAt: Timestamp,
+  /** From the latest extraction, when there is one. */
+  vendorName: z.string().nullable(),
+  invoiceNumber: z.string().nullable(),
+  total: z.string().nullable(),
+});
+
+export const DocumentExtractionView = z.object({
+  id: z.string(),
+  createdAt: Timestamp,
+  vendorName: z.string(),
+  invoiceNumber: z.string(),
+  invoiceDate: z.string(),
+  dueDate: z.string().nullable(),
+  poNumber: z.string().nullable(),
+  currency: z.string(),
+  subtotal: z.string(),
+  freight: z.string(),
+  surcharges: z.array(z.object({ label: z.string(), amount: z.string() })),
+  tax: z.string(),
+  total: z.string(),
+  linesSum: z.string(),
+  totalsMatch: z.boolean(),
+  problems: z.array(z.string()),
+  lines: z.array(
+    z.object({
+      lineNo: z.number(),
+      vendorSku: z.string().nullable(),
+      description: z.string(),
+      qty: z.string(),
+      uom: z.string().nullable(),
+      unitPrice: z.string(),
+      extPrice: z.string(),
+      page: z.number().nullable(),
+    }),
+  ),
+});
+
+export const UploadResult = z.object({
+  filename: z.string(),
+  kind: z.enum(["document", "purchases", "refused"]),
+  /** For a document: the stored one (a repeat gives the first back, `created` false). */
+  document: DocumentSummary.nullable(),
+  created: z.boolean(),
+  /** For a purchases CSV. */
+  purchases: z
+    .object({
+      rows: z.number(),
+      created: z.number(),
+      duplicates: z.number(),
+      errors: z.array(z.object({ row: z.number(), message: z.string() })),
+    })
+    .nullable(),
+  /** Why a file was refused. */
+  error: z.string().nullable(),
+});
+
+export const ForwardingView = z.object({
+  /** False until the deployment has a forwarding domain (EMAIL_FORWARDING_DOMAIN). */
+  available: z.boolean(),
+  address: z.string().nullable(),
+  allowedSenders: z.array(z.string()),
+  accepted: z.number(),
+  dropped: z.number(),
+  lastReceivedAt: NullableTimestamp,
+  lastDroppedAt: NullableTimestamp,
+  lastDropReason: z.string().nullable(),
+});
+
+export const ConnectorInfo = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  icon: z.string(),
+  auth: z.enum(["oauth2", "api_key", "none"]),
+  entities: z.array(z.string()),
+  tools: z.array(
+    z.object({
+      id: z.string(),
+      description: z.string(),
+      verb: z.enum(["read", "create", "update", "delete"]),
+      sideEffect: z.enum(["none", "internal", "external"]),
+    }),
+  ),
 });
 
 // ── Back office: agents, versions and lineage (Track B) ─────────────────────────────────────────
@@ -376,6 +473,36 @@ export type BundleChangeView = z.infer<typeof BundleChangeSchema>;
  */
 export const BundleDiff = z.object({
   changes: z.array(BundleChangeSchema),
+  labels: z.record(z.string(), z.string()),
+});
+
+/** One merge conflict (core's `MergeConflict`): settled by a resolution with the same path. */
+export const MergeConflictSchema = z.object({
+  path: z.string(),
+  kind: z.enum(["field", "exists", "location", "order"]),
+  entity: z.string(),
+  base: z.unknown(),
+  ours: z.unknown(),
+  theirs: z.unknown(),
+});
+
+/** How the merge view settles one conflict (core's `Resolution`). */
+export const ResolutionSchema = z.union([
+  z.strictObject({ path: z.string().max(2000), choice: z.enum(["ours", "theirs", "base"]) }),
+  z.strictObject({ path: z.string().max(2000), choice: z.literal("value"), value: z.unknown() }),
+]);
+
+/**
+ * A three-way merge's inputs and its unresolved result, for the merge view (ARCHITECTURE §10.5).
+ * The view re-runs core's `mergeBundles` and `validateBundle` with its resolutions as they change;
+ * the server runs them again on save.
+ */
+export const MergeInputs = z.object({
+  base: VersionDetail,
+  ours: VersionDetail,
+  /** For a promotion, the client version with client-specific values stripped. */
+  theirs: VersionDetail,
+  conflicts: z.array(MergeConflictSchema),
   labels: z.record(z.string(), z.string()),
 });
 
@@ -421,6 +548,73 @@ export const BuilderCatalog = z.object({
   connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
+
+// ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
+
+/** A row of the skills library: built-in (code) or operator-written (rows, shared or one client's). */
+export const SkillListItem = z.object({
+  /** The `skill` row id; built-ins (no row) carry their skill id. */
+  id: z.string(),
+  /** The reference a bundle names it by (`docs.extract`, `custom:<slug>`). */
+  ref: z.string(),
+  name: z.string(),
+  description: z.string(),
+  category: z.string(),
+  source: z.enum(["builtin", "shared", "client"]),
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
+  status: z.string(),
+  liveVersion: z.number().int().nullable(),
+  latestVersion: z.number().int().nullable(),
+  latestStatus: z.string().nullable(),
+  /** Top-level fields of its input and output schemas: "in → out". */
+  inputs: z.array(z.string()),
+  outputs: z.array(z.string()),
+  tools: z.array(z.string()),
+  connectors: z.array(z.string()),
+  /** Agents (templates and client agents) whose live, else latest, version uses it. */
+  usedBy: z.number().int(),
+});
+export type SkillListItem = z.infer<typeof SkillListItem>;
+
+export const SkillVersionView = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  status: z.string(),
+  definition: SkillDefinition,
+  changeNote: z.string().nullable(),
+  authorId: z.string().nullable(),
+  parentVersionId: z.string().nullable(),
+  createdAt: Timestamp,
+});
+export type SkillVersionView = z.infer<typeof SkillVersionView>;
+
+export const SkillUse = z.object({
+  agentId: z.string(),
+  kind: z.enum(["template", "client"]),
+  slug: z.string(),
+  name: z.string(),
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
+  /** The reference as the agent names it (maybe pinned `@N`). */
+  ref: z.string(),
+  version: z.number().int(),
+});
+export type SkillUse = z.infer<typeof SkillUse>;
+
+const BuilderOutcome = z.object({
+  bundle: z.unknown(),
+  /** The Builder's own account of the draft, in plain words. */
+  summary: z.string(),
+  /** What it needs that doesn't exist (no skill, tool, connector or connection). */
+  gaps: z.array(z.string()),
+  /** Rules the server enforced on the model's answer. */
+  notes: z.array(z.string()),
+  /** What would still stop a publish. */
+  errors: z.array(ValidationErrorSchema),
+  /** USD, the model calls' cost (operator only). */
+  costUsd: z.string().nullable(),
+});
 
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -582,7 +776,8 @@ export const opsRoutes = {
     path: "/api/ops/templates",
     auth: "session",
     roles: OPS,
-    summary: "Templates",
+    summary: "Templates (discarded drafts with ?include=discarded)",
+    query: IncludeDiscarded,
     response: z.object({ templates: z.array(AgentSummary) }),
   }),
   opsCreateTemplate: defineRoute({
@@ -616,8 +811,9 @@ export const opsRoutes = {
     path: "/api/ops/clients/:id/agents",
     auth: "session",
     roles: OPS,
-    summary: "A client's agents",
+    summary: "A client's agents (discarded drafts with ?include=discarded)",
     params: IdParams,
+    query: IncludeDiscarded,
     response: z.object({ agents: z.array(AgentSummary) }),
   }),
   opsCreateClientAgent: defineRoute({
@@ -820,6 +1016,86 @@ export const opsRoutes = {
       ),
     }),
   }),
+  opsUpdatePreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/update-preview",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A template update for a client agent: base, client and template bundles and the merge's conflicts",
+    params: IdParams,
+    response: MergeInputs.extend({
+      /** The template the update comes from. */
+      template: AgentSummary,
+    }),
+  }),
+  opsUpdate: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/update",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Apply a template update: the merge with every conflict resolved, saved as the client agent's draft",
+    params: IdParams,
+    body: z.strictObject({
+      resolutions: z.array(ResolutionSchema).max(500),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ version: VersionSummary }),
+  }),
+  opsPromotePreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/promote-preview",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Promote a client agent's changes: base, template and stripped client bundles, what stays with the client",
+    params: IdParams,
+    query: z.object({ version: ApiId.optional() }),
+    response: MergeInputs.extend({
+      template: AgentSummary,
+      /** The client version promoted (its bundle, stripped, is `theirs.bundle`). */
+      client: VersionSummary,
+      /** Client-specific values left out: the stripped bundle against the client version. */
+      leftOut: z.array(BundleChangeSchema),
+    }),
+  }),
+  opsPromote: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/promote",
+    auth: "session",
+    roles: OPS,
+    summary: "Promote a client agent's changes (all or selected) into a new template draft",
+    params: IdParams,
+    body: z.strictObject({
+      versionId: ApiId.optional(),
+      /** Ids from core's `selectableBetween(base, stripped)`; omitted: every change. */
+      changes: z.array(z.string().max(2000)).max(1000).optional(),
+      resolutions: z.array(ResolutionSchema).max(500),
+      changeNote: Note.optional(),
+      releaseNote: Note.optional(),
+    }),
+    response: z.object({ template: AgentSummary, version: VersionSummary }),
+  }),
+  opsDetach: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/detach",
+    auth: "session",
+    roles: OPS,
+    summary: "Detach a client agent from its template: it keeps its history, takes no updates",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
+  opsRelink: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/relink",
+    auth: "session",
+    roles: OPS,
+    summary: "Re-link a client agent to a published template version as its new base",
+    params: IdParams,
+    body: z.strictObject({ templateVersionId: ApiId }),
+    response: z.object({ agent: AgentSummary, version: VersionSummary }),
+  }),
   opsRunAgent: defineRoute({
     method: "POST",
     path: "/api/ops/agents/:id/run",
@@ -927,6 +1203,141 @@ export const opsRoutes = {
       assigned: z.enum(["operator", "all"]).default("operator"),
     }),
     response: z.object({ items: z.array(OpsInboxItem), agents: z.array(OpsAgentRef) }),
+  }),
+  opsSkills: defineRoute({
+    method: "GET",
+    path: "/api/ops/skills",
+    auth: "session",
+    roles: OPS,
+    summary: "The skills library: built-in, shared and the clients' own skills, with used-by",
+    query: z.object({ client: ApiId.optional() }),
+    response: z.object({
+      skills: z.array(SkillListItem),
+      /** What the skill editor picks tools from, grouped under the connectors. */
+      tools: z.array(ToolSpec),
+      connectors: z.array(z.object({ id: z.string(), name: z.string() })),
+    }),
+  }),
+  opsCreateSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills",
+    auth: "session",
+    roles: OPS,
+    summary: "A new operator skill (shared, or for one client) with its v1 draft",
+    body: z.strictObject({
+      clientId: ApiId.optional(),
+      definition: z.unknown(),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ skill: SkillListItem, version: SkillVersionView }),
+  }),
+  opsSkill: defineRoute({
+    method: "GET",
+    path: "/api/ops/skills/:id",
+    auth: "session",
+    roles: OPS,
+    summary: "An operator skill with its versions and the agents that use it",
+    params: IdParams,
+    response: z.object({
+      skill: SkillListItem,
+      versions: z.array(SkillVersionView),
+      usedBy: z.array(SkillUse),
+    }),
+  }),
+  opsSaveSkillVersion: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/versions",
+    auth: "session",
+    roles: OPS,
+    summary: "Save a new draft version of an operator skill",
+    params: IdParams,
+    body: z.strictObject({
+      definition: z.unknown(),
+      parentVersionId: ApiId.optional(),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsPublishSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/versions/:vid/publish",
+    auth: "session",
+    roles: OPS,
+    summary: "Publish a skill version: agents that name the skill without a version use it",
+    params: z.object({ id: ApiId, vid: ApiId }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsRollbackSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/rollback",
+    auth: "session",
+    roles: OPS,
+    summary: "Roll a skill back: an older version copied as a new one and published",
+    params: IdParams,
+    body: z.strictObject({ versionId: ApiId }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsDraftAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/draft",
+    auth: "session",
+    roles: OPS,
+    summary: "The Builder drafts a new template (or a client agent) from a description",
+    body: z.strictObject({
+      description: z.string().trim().min(1).max(4000),
+      clientId: ApiId.optional(),
+      name: z.string().max(200).optional(),
+      role: z.string().max(200).optional(),
+    }),
+    response: BuilderOutcome.extend({
+      agent: AgentSummary,
+      version: VersionSummary,
+      /** A template that already does most of the job, when the Builder found one. */
+      startFromTemplate: z
+        .object({ id: z.string(), slug: z.string(), name: z.string() })
+        .nullable(),
+    }),
+  }),
+  opsReviseAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/revise",
+    auth: "session",
+    roles: OPS,
+    summary: "The Builder revises an agent from an instruction or a client's request",
+    params: IdParams,
+    body: z
+      .strictObject({
+        instruction: z.string().trim().min(1).max(4000).optional(),
+        /** Default: the agent's latest version. */
+        fromVersionId: ApiId.optional(),
+        /** A client's change request handed to the Builder. */
+        requestId: ApiId.optional(),
+      })
+      .refine((b) => b.instruction !== undefined || b.requestId !== undefined, {
+        message: "give an instruction or a request",
+      }),
+    response: BuilderOutcome.extend({
+      version: VersionSummary,
+      diff: BundleDiff,
+    }),
+  }),
+  opsDiscardAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/discard",
+    auth: "session",
+    roles: OPS,
+    summary: "Discard an agent that was never published (e.g. an unwanted Builder draft)",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
+  opsRestoreAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/restore",
+    auth: "session",
+    roles: OPS,
+    summary: "Bring a discarded draft back",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
   }),
   opsResolveInbox: defineRoute({
     method: "POST",
@@ -1096,6 +1507,54 @@ export const portalRoutes = {
     params: IdParams,
     body: z.strictObject({ url: z.string().max(2048).nullable() }),
     response: PortalWebhookSetup,
+  portalUploads: defineRoute({
+    method: "POST",
+    path: "/api/uploads",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "Upload files (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions",
+    response: z.object({ results: z.array(UploadResult) }),
+  }),
+  portalDocuments: defineRoute({
+    method: "GET",
+    path: "/api/documents",
+    auth: "session",
+    roles: CLIENT,
+    summary: "Recent documents: uploaded and forwarded",
+    query: z.object({ limit: z.coerce.number().int().min(1).max(200).optional() }),
+    response: z.object({ documents: z.array(DocumentSummary) }),
+  }),
+  portalDocument: defineRoute({
+    method: "GET",
+    path: "/api/documents/:id",
+    auth: "session",
+    roles: CLIENT,
+    summary: "A document: a 5-minute link to the file and its latest extraction",
+    params: IdParams,
+    response: z.object({
+      document: DocumentSummary.extend({ meta: z.record(z.string(), z.unknown()) }),
+      url: z.string(),
+      urlExpiresAt: Timestamp,
+      extraction: DocumentExtractionView.nullable(),
+    }),
+  }),
+  portalForwarding: defineRoute({
+    method: "GET",
+    path: "/api/connections/upload/forwarding",
+    auth: "session",
+    roles: CLIENT,
+    summary: "Your private forwarding address, who may forward to it, and what arrived",
+    response: z.object({ forwarding: ForwardingView }),
+  }),
+  portalForwardingSenders: defineRoute({
+    method: "PUT",
+    path: "/api/connections/upload/senders",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Set who may forward to your address: email addresses or domains",
+    body: z.strictObject({ allowed: z.array(z.string().min(1).max(254)).max(100) }),
+    response: z.object({ forwarding: ForwardingView }),
   }),
   portalDisconnect: defineRoute({
     method: "DELETE",
@@ -1135,6 +1594,23 @@ export const routes = {
       "A delivery to a client's inbound hook (Zapier, Make, n8n): JSON or a form, with the hook's token or signature",
     params: z.object({ tenantId: ApiId, hookId: ApiId }),
     response: InboundHookResponse,
+  connectors: defineRoute({
+    method: "GET",
+    path: "/api/connectors",
+    auth: "session",
+    roles: ROLES,
+    summary: "The connectors this deployment offers, with the tools each gives agents",
+    response: z.object({ connectors: z.array(ConnectorInfo) }),
+  }),
+  documentFile: defineRoute({
+    method: "GET",
+    path: "/api/files/:token",
+    auth: "public",
+    roles: [],
+    summary:
+      "A document's bytes through a signed, 5-minute link (where object storage can't sign its own); not JSON",
+    params: z.object({ token: z.string().min(10).max(2000) }),
+    response: z.unknown(),
   }),
   ...authRoutes,
   ...opsRoutes,

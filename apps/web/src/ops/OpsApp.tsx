@@ -5,6 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
+import { MergeScreen } from "./merge/MergeScreen";
 import { OpsLayout } from "./OpsLayout";
 import { AgentPage } from "./screens/AgentPage";
 import { ClientDetailScreen } from "./screens/ClientDetail";
@@ -13,6 +14,7 @@ import { OpsConnectionsScreen } from "./screens/Connections";
 import { OpsInboxScreen } from "./screens/Inbox";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
+import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
 
 /** ARCHITECTURE §15's back-office screens not built yet, as placeholders. */
 const PLACEHOLDERS: [path: string, title: string][] = [
@@ -36,6 +38,7 @@ export default function OpsApp() {
         {PLACEHOLDERS.map(([path, title]) => (
           <Route key={path} path={path} element={<Placeholder title={title} />} />
         ))}
+        <Route path="agents/:id/merge" element={<MergeScreen />} />
         <Route path="clients/:clientId" element={<ClientDetailScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
@@ -44,6 +47,9 @@ export default function OpsApp() {
         <Route path="inbox" element={<OpsInboxScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
+        <Route path="skills" element={<SkillsScreen />} />
+        <Route path="skills/new" element={<NewSkillScreen />} />
+        <Route path="skills/:id" element={<SkillPage />} />
         <Route path="templates" element={<TemplatesScreen />} />
         <Route path="templates/new" element={<NewTemplateScreen />} />
         <Route path="templates/:slug/*" element={<TemplatePage />} />

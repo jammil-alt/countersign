@@ -5,6 +5,7 @@ import {
   type AgentBundle,
   type BuilderCatalog,
   type EventTypeSpec,
+  lookupSkill,
   type OpsConnection,
   type PermissionMatrix,
   parseSkillRef,
@@ -12,6 +13,8 @@ import {
   type ToolSpec,
   type TriggerOn,
   type TypingContext,
+  type ValidationError,
+  validateBundle,
 } from "@countersign/core";
 import type { z } from "zod";
 import type { LogicKind, PaletteItem } from "./model";
@@ -47,6 +50,30 @@ export function typingContext(data: BuilderData): TypingContext {
     };
   }
   return { skills, tools, events };
+}
+
+/**
+ * The server's check, in the browser: core's validateBundle with the same context (and, for a
+ * client agent's publish, its bound connections' matrices), plus the publish check's refusal of
+ * agent skills it can't resolve. Shared by the builder and the merge view.
+ */
+export function validateLikeServer(
+  bundle: AgentBundle,
+  ctx: TypingContext,
+  publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> },
+): { valid: boolean; errors: ValidationError[] } {
+  const r = validateBundle(bundle, { ...ctx, ...(publish ? { publish } : {}) });
+  const missing: ValidationError[] = bundle.definition.skills
+    .filter((s) => !lookupSkill(s.skill, ctx))
+    .filter((s) => !r.errors.some((e) => e.code === "unknown_skill" && e.message.includes(s.skill)))
+    .map((s) => ({
+      stepId: null,
+      field: "definition.skills",
+      code: "unknown_skill",
+      message: `skill ${s.skill} not found`,
+    }));
+  const errors = [...r.errors, ...missing];
+  return { valid: errors.length === 0, errors };
 }
 
 export function connectorName(data: BuilderData, id: string): string {

@@ -18,13 +18,41 @@ import {
 /** The workflow's step names, for fork rules that cite an earlier step's output. */
 const Names = createContext<StepNames | undefined>(undefined);
 
-export function StepList({ workflow }: { workflow: Workflow }) {
+/**
+ * What a screen adds to a step's card (the merge view's "added / changed / moved" per side and
+ * its conflicts): badges under the name, and an outline for steps that wait on a decision.
+ */
+export interface StepMark {
+  badges?: ReactNode;
+  attention?: boolean;
+}
+const Marks = createContext<((id: string) => StepMark | undefined) | undefined>(undefined);
+
+export function StepList({
+  workflow,
+  marks,
+}: {
+  workflow: Workflow;
+  /** By step, fork path or trigger id. */
+  marks?: (id: string) => StepMark | undefined;
+}) {
   const names = useMemo(() => stepNames(workflow), [workflow]);
   return (
     <Names.Provider value={names}>
-      <StepListItems workflow={workflow} />
+      <Marks.Provider value={marks}>
+        <StepListItems workflow={workflow} />
+      </Marks.Provider>
     </Names.Provider>
   );
+}
+
+function MarkBadges({ id }: { id: string }) {
+  const mark = useContext(Marks)?.(id);
+  return mark?.badges ? (
+    <div className="mt-1 flex flex-wrap gap-1" data-testid={`step-${id}-marks`}>
+      {mark.badges}
+    </div>
+  ) : null;
 }
 
 function StepListItems({ workflow }: { workflow: Workflow }) {
@@ -106,11 +134,14 @@ function StepCard({
   testId: string;
   compact?: boolean;
 }) {
+  const id = testId.slice("step-".length);
+  const attention = useContext(Marks)?.(id)?.attention;
   return (
     <div
       data-testid={testId}
       className={cx(
-        "flex w-full items-center gap-3 rounded-md border border-line bg-surface",
+        "flex w-full items-center gap-3 rounded-md border bg-surface",
+        attention ? "border-signal" : "border-line",
         compact ? "px-3 py-2.5" : "max-w-[480px] px-4 py-3.5",
       )}
     >
@@ -126,6 +157,7 @@ function StepCard({
       <div className="min-w-0">
         <p className="font-medium text-ink">{title}</p>
         {detail ? <p className="truncate text-sm text-ink-muted">{detail}</p> : null}
+        <MarkBadges id={id} />
       </div>
     </div>
   );
@@ -187,6 +219,7 @@ function Fork({ step }: { step: ForkStep }) {
             className="rounded-md border border-line bg-surface-subtle p-3"
           >
             <h3 className="font-medium text-ink">{path.name}</h3>
+            <MarkBadges id={path.id} />
             <p className="mb-3 reference break-words text-ink-muted">
               if {rulesText(path.when, names)}
             </p>

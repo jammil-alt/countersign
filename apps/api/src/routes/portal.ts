@@ -11,6 +11,7 @@ import {
   describeAccess,
   type MatrixChangeRefusal,
   normalizeMatrix,
+  UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
   clientLabel,
@@ -176,14 +177,16 @@ export async function portalConnections(
   const agents = await tx
     .select()
     .from(agent)
-    .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client")));
+    .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.status, "active")));
   const usedBy = (c: ConnectionRow) =>
     agents
       .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))
       .map((a) => ({ id: a.id, name: serviceName(a) }));
+  // Upload (with forwarding) is built in: every client has it, offered or not.
+  const builtIn = platform.connectors.has(UPLOAD_CONNECTOR_ID) ? [UPLOAD_CONNECTOR_ID] : [];
   const ids = only
     ? rows.map((r) => r.connector)
-    : [...new Set([...offered, ...rows.map((r) => r.connector)])];
+    : [...new Set([...builtIn, ...offered, ...rows.map((r) => r.connector)])];
   return ids.map((id) => {
     const manifest = platform.connectors.get(id)?.manifest;
     const c = rows.find((r) => r.connector === id) ?? null;

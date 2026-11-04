@@ -107,6 +107,13 @@ async function dispatch(
       mode: step.mode,
       threadId: step.threadId,
       platform: deps.ports.platform,
+      documents: deps.ports.documents,
+      recordUsage: (usage) =>
+        deps.ports.log.addUsage(
+          step.tenantId,
+          { runId: step.runId, stepRunId: step.stepRunId },
+          usage,
+        ),
     });
     const out = tool.tool.output.safeParse(raw);
     if (!out.success) return { status: "failed", error: `invalid output: ${out.error.message}` };

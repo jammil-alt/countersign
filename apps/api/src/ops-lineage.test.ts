@@ -216,7 +216,14 @@ describe.skipIf(!h)("agent pages API", () => {
 
       const forTemplate = await H.call(OPERATOR, "GET", `/api/ops/agents/${templateId}/skills`);
       expect(forTemplate.status, JSON.stringify(forTemplate.json)).toBe(200);
-      expect(j(forTemplate.json).skills).toEqual([
+      // The platform's built-in skills (docs.*) are offered everywhere; the rest is the operator's.
+      const builtin = (skills: { source: string; id: string }[]) =>
+        skills.filter((s) => s.source === "builtin").map((s) => s.id);
+      const own = (skills: { source: string }[]) => skills.filter((s) => s.source !== "builtin");
+      expect(builtin(j(forTemplate.json).skills)).toEqual(
+        expect.arrayContaining(["docs.extract", "docs.find-support"]),
+      );
+      expect(own(j(forTemplate.json).skills)).toEqual([
         expect.objectContaining({
           id: "custom:price-watch",
           name: "Price watch",
@@ -236,7 +243,7 @@ describe.skipIf(!h)("agent pages API", () => {
       ]);
       // Client A's own skill of the same slug wins for A's agents.
       const forA = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/skills`);
-      expect(j(forA.json).skills).toEqual([
+      expect(own(j(forA.json).skills)).toEqual([
         expect.objectContaining({
           id: "custom:price-watch",
           name: "Price watch for A",
@@ -255,7 +262,8 @@ describe.skipIf(!h)("agent pages API", () => {
       const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/builder-catalog`);
       expect(res.status, JSON.stringify(res.json)).toBe(200);
       const catalog = j(res.json);
-      expect(catalog.skills).toEqual([
+      const custom = catalog.skills.filter((s: { source: string }) => s.source !== "builtin");
+      expect(custom).toEqual([
         expect.objectContaining({
           ref: "custom:price-watch",
           source: "client",
@@ -275,7 +283,7 @@ describe.skipIf(!h)("agent pages API", () => {
         }),
       ]);
       // Prompts stay with the skill: the builder never needs them.
-      expect(catalog.skills[0].definition.instructions).toBeUndefined();
+      expect(custom[0].definition.instructions).toBeUndefined();
       const update = catalog.tools.find((t: { id: string }) => t.id === "testkit.record.update");
       expect(update).toMatchObject({
         sideEffect: "external",
@@ -283,7 +291,10 @@ describe.skipIf(!h)("agent pages API", () => {
         verb: "update",
       });
       expect(catalog.tools.map((t: { id: string }) => t.id)).toContain("inbox.create");
-      expect(catalog.connectors).toEqual([expect.objectContaining({ id: "testkit" })]);
+      expect(catalog.connectors).toEqual([
+        expect.objectContaining({ id: "upload" }),
+        expect.objectContaining({ id: "testkit" }),
+      ]);
 
       // Triggers come from the event catalogue, now with each payload's schema.
       const events = await H.call(OPERATOR, "GET", "/api/ops/catalog/events");
