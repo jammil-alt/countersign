@@ -7,8 +7,9 @@ import type {
   ConnectorServices,
   MessagingServices,
   OutboundMessage,
+  SendAttempt,
 } from "@countersign/connectors";
-import { TWILIO_MESSAGE_ENTITY } from "@countersign/connectors";
+import { TWILIO_ATTEMPT_ENTITY, TWILIO_MESSAGE_ENTITY } from "@countersign/connectors";
 import {
   type ContactConsent,
   consentBlock,
@@ -17,6 +18,7 @@ import {
   sendBlockMessage,
 } from "@countersign/core";
 import {
+  contact,
   type Db,
   externalAction,
   message,
@@ -26,7 +28,7 @@ import {
   usageDaily,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { VoiceDeps } from "../calls/answer";
 import { dbVoiceServices } from "../calls/services";
 import type { Platform } from "../platform";
@@ -123,14 +125,84 @@ export function dbMessagingServices(db: Db, connection: ConnectionRef): Messagin
           channel?: MessagingChannel;
           to?: string;
           from?: string;
+          templateId?: string | null;
+          contactId?: string;
         };
+        const to = p.to ?? "";
+        // Not getContact: a sent message is returned even if its contact was removed since.
+        const [who] = p.contactId
+          ? await tx
+              .select({ name: contact.name })
+              .from(contact)
+              .where(and(eq(contact.id, p.contactId), eq(contact.tenantId, tenantId)))
+          : [];
         return {
           sid: row.externalId,
           status: p.status ?? "queued",
           channel: p.channel ?? "sms",
-          to: p.to ?? "",
+          to,
           from: p.from ?? "",
+          templateId: p.templateId ?? null,
+          contactId: p.contactId ?? "",
+          contactName: who?.name ?? to,
         };
+      });
+    },
+
+    startAttempt(a) {
+      return withTenant(db, tenantId, async (tx) => {
+        // Once per key (the raw record's external id): a second start keeps the first.
+        await tx
+          .insert(rawRecord)
+          .values({
+            tenantId,
+            connectionId: connection.id,
+            connector: "twilio",
+            entityType: TWILIO_ATTEMPT_ENTITY,
+            externalId: a.idempotencyKey,
+            externalVersion: null,
+            payload: { ...a, startedAt: a.startedAt.toISOString() },
+            syncedAt: a.startedAt,
+          })
+          .onConflictDoNothing();
+      });
+    },
+
+    attemptFor(idempotencyKey) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ payload: rawRecord.payload })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, TWILIO_ATTEMPT_ENTITY),
+              eq(rawRecord.externalId, idempotencyKey),
+            ),
+          )
+          .limit(1);
+        if (!row) return null;
+        const p = row.payload as Omit<SendAttempt, "startedAt"> & { startedAt: string };
+        return { ...p, startedAt: new Date(p.startedAt) };
+      });
+    },
+
+    recordedSids(sids) {
+      if (sids.length === 0) return Promise.resolve([]);
+      return withTenant(db, tenantId, async (tx) => {
+        const rows = await tx
+          .select({ sid: rawRecord.externalId })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, TWILIO_MESSAGE_ENTITY),
+              inArray(rawRecord.externalId, [...sids]),
+            ),
+          );
+        return rows.map((r) => r.sid);
       });
     },
 

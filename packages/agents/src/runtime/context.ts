@@ -67,9 +67,14 @@ export function connectionContext(deps: RuntimeDeps, tenantId: string, connectio
 
 /** `<run id>:<step id>:<index>` (docs/plan.md §1.2 "External actions"). */
 export function idempotencyKey(step: StepContext): string {
-  const index = step.externalIndex.next;
+  const key = nextIdempotencyKey(step);
   step.externalIndex.next += 1;
-  return `${step.runId}:${step.stepId}:${index}`;
+  return key;
+}
+
+/** The key the step's next external call will take, without taking it. */
+export function nextIdempotencyKey(step: StepContext): string {
+  return `${step.runId}:${step.stepId}:${step.externalIndex.next}`;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

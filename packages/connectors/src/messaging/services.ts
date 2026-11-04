@@ -1,7 +1,7 @@
 // What a messaging connector (Twilio now, Meta's WhatsApp later) asks of the platform for one
 // client: may this person be sent to now (consent, opt-out, quiet hours, checked in code before any
-// provider is called), was this send already made (a re-run after a crash), and record a message
-// the provider accepted. apps/api implements it over the client's contacts inside withTenant; the
+// provider is called), was this send already made or started (a re-run after a crash), and record
+// a message the provider accepted. apps/api implements it over the client's contacts inside withTenant; the
 // connector never reads the database itself.
 
 import type { MessagingChannel, SendBlock } from "@countersign/core";
@@ -56,12 +56,42 @@ export interface SentRecord {
   channel: MessagingChannel;
   to: string;
   from: string;
+  templateId: string | null;
+  /** Who it went to, as recorded then (a re-run returns the message without checking again). */
+  contactId: string;
+  contactName: string;
+}
+
+/**
+ * A send that was started: recorded before the provider is called, so a re-run after a crash knows
+ * the provider may have accepted it (docs/plan.md §1.22 "At most once").
+ */
+export interface SendAttempt {
+  /** The external action's key: one attempt per key. */
+  idempotencyKey: string;
+  connectionId: string;
+  channel: MessagingChannel;
+  contactId: string;
+  contactName: string;
+  /** E.164, without any `whatsapp:` prefix. */
+  to: string;
+  from: string;
+  /** What is being sent: the text, or the template's id when a template goes out. */
+  text: string;
+  templateId: string | null;
+  startedAt: Date;
 }
 
 export interface MessagingServices {
   checkSend(input: SendCheckInput): Promise<SendCheck>;
   /** The message already sent under this key, if any. */
   sentFor(idempotencyKey: string): Promise<SentRecord | null>;
+  /** Records that a send is starting, before the provider is called. The first one per key stands. */
+  startAttempt(attempt: SendAttempt): Promise<void>;
+  /** The send started under this key, if any. */
+  attemptFor(idempotencyKey: string): Promise<SendAttempt | null>;
+  /** Which of these provider ids are recorded already, under any key. */
+  recordedSids(sids: readonly string[]): Promise<string[]>;
   /** Stores the message once (by sid) in the contact's thread and counts it as usage. */
   recordOutbound(message: OutboundMessage): Promise<void>;
 }

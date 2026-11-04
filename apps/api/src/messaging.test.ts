@@ -2,10 +2,12 @@
 // a client's subaccount and buys or releases its numbers; contacts and consent from both sides;
 // Twilio's signed webhooks stored once, STOP and START acted on at once, `message.received`
 // starting a workflow that reads the message and texts back once after approval; consent, opt-out
-// and quiet hours stopping a send in code; usage counted; nothing crosses clients.
+// and quiet hours stopping a send in code; usage counted; nothing crosses clients. An automatic text
+// retried after a crash resumes; one Twilio took but we never recorded is found, not sent again.
 
 import {
   createTwilioConnector,
+  type FetchLike,
   formEncode,
   generateEncryptionKey,
   MESSAGE_GET_TOOL,
@@ -15,10 +17,12 @@ import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
 import { AgentBundle, type AgentBundleInput, TWIML_EMPTY } from "@countersign/core";
 import {
   agent,
+  connection,
   contact,
   contactChange,
   event,
   externalAction,
+  inboxItem,
   message,
   rawRecord,
   run,
@@ -49,8 +53,10 @@ const twilio = fakeTwilio();
 const PAT = "+15555550100";
 const SAM = "+15555550111";
 
+/** What the connector's sends reach: the fake Twilio, unless a test stands in front of it. */
+let connectorFetch: FetchLike = twilio.fetch;
 const h = await createApiHarness({
-  connectors: () => [createTwilioConnector({ fetch: twilio.fetch })],
+  connectors: () => [createTwilioConnector({ fetch: (url, init) => connectorFetch(url, init) })],
   env: {
     ENCRYPTION_KEY,
     APP_ORIGIN: ORIGIN,
@@ -61,7 +67,7 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-function bundle(workflow: unknown): AgentBundle {
+function bundle(workflow: unknown, mode: "suggest_only" | "act" = "suggest_only"): AgentBundle {
   return AgentBundle.parse({
     schemaVersion: 1,
     definition: {
@@ -73,13 +79,36 @@ function bundle(workflow: unknown): AgentBundle {
       skills: [{ skill: MESSAGE_GET_TOOL, settings: {} }],
       extraTools: [SMS_SEND_TOOL],
       canCommand: [],
-      permissions: { mode: "suggest_only" },
+      permissions: { mode },
       budgets: { maxSteps: 4, maxCostUsd: "0.10" },
       memory: { enabled: false },
     },
     workflows: [{ slug: "main", name: "Main", workflow }],
   } as AgentBundleInput);
 }
+
+/** Texts the number it is given, without approval (the connection allows `create` on auto). */
+const NOTIFY_WORKFLOW = {
+  schemaVersion: 3,
+  trigger: {
+    id: "trg-manual",
+    on: {
+      type: "manual",
+      input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+    },
+  },
+  steps: [
+    {
+      id: "notify",
+      name: "Text the customer",
+      kind: "action",
+      tool: SMS_SEND_TOOL,
+      input: { to: "{{trigger.to}}", text: "Your order has shipped." },
+      approval: { required: "not_required" },
+      client: { visible: true, label: "Texted the customer" },
+    },
+  ],
+};
 
 const REPLY_WORKFLOW = {
   schemaVersion: 3,
@@ -507,6 +536,206 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       const [b] = await H.t.db.select().from(tenant).where(eq(tenant.id, H.B.tenantId));
       expect(b).toBeDefined();
       expect(j((await H.call(admin("b"), "GET", "/api/contacts")).json).items).toHaveLength(0);
+    });
+  });
+  describe("an automatic text after a crash", () => {
+    let agentId = "";
+    let patId = "";
+
+    beforeAll(async () => {
+      // Texts go out without approval on this connection.
+      await H.t.db
+        .update(connection)
+        .set({
+          permissions: { read: "auto", create: "auto", update: "approval", delete: "off" },
+        })
+        .where(eq(connection.id, setup.twilio.connectionId));
+      const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${A()}/agents`, {
+        slug: "shipping-notices",
+        bundle: bundle(NOTIFY_WORKFLOW, "act"),
+      });
+      expect(created.status, JSON.stringify(created.json)).toBe(200);
+      agentId = j(created.json).agent.id;
+      const op = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${agentId}/operation`, {
+        bindings: { twilio: setup.twilio.connectionId },
+      });
+      expect(op.status, JSON.stringify(op.json)).toBe(200);
+      const pub = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
+      );
+      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
+      const [pat] = await H.t.db.select().from(contact).where(eq(contact.phone, PAT));
+      patId = pat?.id ?? "";
+    });
+
+    afterAll(() => {
+      connectorFetch = twilio.fetch;
+    });
+
+    async function started() {
+      const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/run`, {
+        workflow: "main",
+        input: { to: PAT },
+      });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const params = H.instances.started.get(j(res.json).runId);
+      if (!params) throw new Error("not started");
+      return params;
+    }
+    const runIt = (params: Parameters<typeof executeRun>[1]) =>
+      executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
+    const actionOf = async (runId: string) =>
+      (await H.t.db.select().from(externalAction).where(eq(externalAction.runId, runId)))[0];
+    /** The Worker stopped while the action was executing (the first try's failure is undone). */
+    const leftExecuting = (id: string) =>
+      H.t.db
+        .update(externalAction)
+        .set({ status: "executing", error: null, result: null })
+        .where(eq(externalAction.id, id));
+    const optOut = async (out: boolean) => {
+      const res = out
+        ? await H.call(admin("a"), "POST", `/api/contacts/${patId}/consent`, { action: "opt_out" })
+        : await H.call(OPERATOR, "POST", `/api/ops/clients/${A()}/contacts/${patId}/consent`, {
+            action: "lift_opt_out",
+          });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+    };
+    /** Sends reach Twilio (or not), then the connection is lost: Twilio's answer never arrives. */
+    const lostAnswer =
+      (reachTwilio: boolean): FetchLike =>
+      async (url, init) => {
+        if (init?.method === "POST" && url.endsWith("/Messages.json")) {
+          if (reachTwilio) await twilio.fetch(url, init);
+          throw new Error("the Worker stopped");
+        }
+        return twilio.fetch(url, init);
+      };
+
+    it("resumes when retried: an opt-out since the send doesn't fail it, and nothing is sent twice", async () => {
+      const params = await started();
+      const sends = twilio.sends().length;
+      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(twilio.sends()).toHaveLength(sends + 1);
+      const action = await actionOf(params.runId);
+      expect(action).toMatchObject({ status: "done", approvedBy: null });
+      const sid = (action?.result as { sid?: string } | undefined)?.sid;
+
+      // The Worker stopped before the action was marked done; Pat opts out; the step is retried.
+      await leftExecuting(action?.id ?? "");
+      await optOut(true);
+      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(twilio.sends()).toHaveLength(sends + 1);
+      const again = await actionOf(params.runId);
+      expect(again).toMatchObject({ status: "done", error: null });
+      expect((again?.result as { sid?: string } | undefined)?.sid).toBe(sid);
+
+      // A new text to Pat is refused before anything is proposed or sent.
+      const refused = await started();
+      const r = await runIt(refused);
+      expect(r.status).toBe("failed");
+      expect(JSON.stringify(r)).toContain("opted out");
+      expect(await actionOf(refused.runId)).toBeUndefined();
+      expect(twilio.sends()).toHaveLength(sends + 1);
+      await optOut(false);
+    });
+
+    it("adopts the one message Twilio took before a crash instead of sending again", async () => {
+      const params = await started();
+      const sends = twilio.sends().length;
+      connectorFetch = lostAnswer(true);
+      expect((await runIt(params)).status).toBe("failed");
+      connectorFetch = twilio.fetch;
+      expect(twilio.sends()).toHaveLength(sends + 1);
+      const sid = [...twilio.messages.values()].at(-1)?.sid;
+      const action = await actionOf(params.runId);
+      const attempts = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(
+          and(
+            eq(rawRecord.entityType, "MessageAttempt"),
+            eq(rawRecord.externalId, action?.idempotencyKey ?? ""),
+          ),
+        );
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]?.payload).toMatchObject({ to: PAT, from: number, channel: "sms" });
+
+      await leftExecuting(action?.id ?? "");
+      await optOut(true);
+      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(twilio.sends()).toHaveLength(sends + 1);
+      const done = await actionOf(params.runId);
+      expect(done).toMatchObject({ status: "done" });
+      expect(done?.result).toMatchObject({ sid, to: PAT, contactName: "Pat Lee" });
+      // Recorded once in Pat's thread and counted once.
+      const stored = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(and(eq(rawRecord.entityType, "Message"), eq(rawRecord.externalId, sid ?? "")));
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.payload).toMatchObject({ idempotencyKey: action?.idempotencyKey });
+      const thread = await H.call(admin("a"), "GET", `/api/contacts/${patId}/messages`);
+      expect(j(thread.json).items.filter((m: { sid?: string }) => m.sid === sid)).toHaveLength(1);
+      await optOut(false);
+    });
+
+    it("never sends again when it can't tell: none or several matches fail for the operator to check", async () => {
+      for (const reachTwilio of [false, true]) {
+        const params = await started();
+        const sends = twilio.sends().length;
+        connectorFetch = lostAnswer(reachTwilio);
+        expect((await runIt(params)).status).toBe("failed");
+        connectorFetch = twilio.fetch;
+        if (reachTwilio) {
+          // Someone also texted Pat from the console: two messages nobody recorded.
+          const twin = `SM${"7".repeat(32)}`;
+          const first = [...twilio.messages.values()].at(-1);
+          if (!first) throw new Error("no message");
+          twilio.messages.set(twin, { ...first, sid: twin, body: "From the console" });
+        }
+        const action = await actionOf(params.runId);
+        await leftExecuting(action?.id ?? "");
+
+        const r = await runIt(params);
+        expect(r.status).toBe("failed");
+        expect(JSON.stringify(r)).toContain("may have been sent; check before trying again");
+        expect(twilio.sends()).toHaveLength(sends + (reachTwilio ? 1 : 0));
+        const failed = await actionOf(params.runId);
+        expect(failed?.status).toBe("failed");
+        expect(JSON.stringify(failed?.error)).toContain(
+          "The text to Pat Lee may have been sent; check before trying again",
+        );
+        const items = await H.t.db
+          .select()
+          .from(inboxItem)
+          .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review")));
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+          assigneeRole: "operator",
+          subjectType: "external_action",
+          subjectId: failed?.id,
+          agentId,
+          title: "The text to Pat Lee may have been sent",
+        });
+        expect(items[0]?.payload).toMatchObject({
+          to: PAT,
+          candidates: reachTwilio ? [expect.any(String), expect.any(String)] : [],
+        });
+        // The client never sees it; a replay changes nothing.
+        const portal = await H.call(admin("a"), "GET", "/api/inbox");
+        expect(JSON.stringify(portal.json)).not.toContain(items[0]?.id ?? "-");
+        expect((await runIt(params)).status).toBe("failed");
+        expect(twilio.sends()).toHaveLength(sends + (reachTwilio ? 1 : 0));
+        expect(
+          await H.t.db
+            .select()
+            .from(inboxItem)
+            .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review"))),
+        ).toHaveLength(1);
+      }
     });
   });
 });

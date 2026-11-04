@@ -2,7 +2,16 @@
 // FakeModel: the permission gate's truth table, external actions executed exactly once, rejected
 // and test-run actions never executed, the agent loop with cost, budgets, sources and memory.
 
-import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
+import {
+  ConnectorRegistry,
+  defineConnector,
+  defineWriteTool,
+  TESTKIT_QUERY_TOOL,
+  TESTKIT_UPDATE_TOOL,
+  TestkitRecord,
+  UnconfirmedWriteError,
+  type WriteContext,
+} from "@countersign/connectors";
 import {
   type AgentMode,
   type ApprovalRequirement,
@@ -19,15 +28,18 @@ import {
   toolCall,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import type { AgentsError } from "../errors";
 import { createTemplate, fork, publish, updateOperational } from "../registry/agents";
+import { ToolRegistry } from "../registry/tools";
 import { executeAction } from "../runtime/actions";
 import { callTool } from "../runtime/call-tool";
-import type { StepContext } from "../runtime/context";
+import type { RuntimeDeps, StepContext } from "../runtime/context";
 import type { PinnedAgent } from "../runtime/ports";
 import { runAgent } from "../runtime/run-agent";
+import { PLATFORM_TOOLS } from "../tools/platform";
 import { resolveExternalAction } from "./external-actions";
 import {
   type Client,
@@ -358,6 +370,158 @@ describe.skipIf(!harness)("runtime", () => {
     literal.literalInput = { id: "{{trigger.id}}", amount: "6.66" };
     expect((await callTool(deps, literal, update("6.66"))).status).toBe("done");
     expect(h.backend.writes.length).toBe(writes + 1);
+    await h.setPermissions(h.A, {});
+  });
+
+  /**
+   * Deps whose `testkit.update` is replaced: `before` and `run` as given, writing to the harness's
+   * backend once per key.
+   */
+  function depsWithUpdate(handlers: {
+    before(input: { id: string }, ctx: Partial<WriteContext>): Promise<TestkitRecord | null>;
+    run?(): Promise<void>;
+  }): RuntimeDeps {
+    const kit = defineConnector({
+      id: "testkit",
+      name: "Testkit",
+      description: "The testkit's update, with a check of its own.",
+      icon: "flask",
+      auth: "none",
+      entities: ["Record"],
+      tools: [
+        defineWriteTool({
+          id: TESTKIT_UPDATE_TOOL,
+          description: "Change a record's amount.",
+          verb: "update",
+          input: z.object({ id: z.string(), amount: z.string() }),
+          output: z.object({ record: TestkitRecord }),
+          beforeSchema: TestkitRecord,
+          before: (input, ctx) => handlers.before(input, ctx),
+          async run(input, ctx) {
+            await handlers.run?.();
+            return { record: h.backend.update(ctx.connection.id, ctx.idempotencyKey, input) };
+          },
+        }),
+      ],
+    });
+    return {
+      ...h.deps(),
+      tools: new ToolRegistry({
+        platform: PLATFORM_TOOLS,
+        connectors: new ConnectorRegistry([kit]),
+      }),
+    };
+  }
+
+  it("a retried automatic step resumes the action its first try left executing, before any check", async () => {
+    await h.setPermissions(h.A, { update: "auto" });
+    // Like a consent check: proposing a new change is refused once `blocked` is set. Executing a
+    // change already under way is the connector's own business (as Twilio's send does).
+    const blocked = { value: false };
+    const deps = depsWithUpdate({
+      async before(input, ctx) {
+        if (blocked.value && !ctx.idempotencyKey) throw new Error("this contact opted out");
+        return h.backend.get(h.A.connectionId, input.id) ?? null;
+      },
+    });
+    const s = await step(h.A, { mode: "act", approval: "not_required" });
+    // The first try proposed the change (approved: the automatic path) and claimed it; then the
+    // Worker stopped.
+    const { action } = await deps.ports.actions.propose(h.A.tenantId, {
+      connectionId: h.A.connectionId,
+      tool: TESTKIT_UPDATE_TOOL,
+      runId: s.runId,
+      stepRunId: s.stepRunId,
+      agentVersionId: s.agent.agentVersionId,
+      input: { id: "r1", amount: "5.55" },
+      idempotencyKey: `${s.runId}:${s.stepId}:0`,
+      before: null,
+      status: "approved",
+      inbox: null,
+    });
+    expect((await deps.ports.actions.claim(h.A.tenantId, action.id)).action.status).toBe(
+      "executing",
+    );
+    blocked.value = true;
+    const writes = h.backend.writes.length;
+
+    const retried = await step(h.A, { runId: s.runId, mode: "act", approval: "not_required" });
+    const out = await callTool(deps, retried, update("5.55"));
+    expect(out).toMatchObject({ status: "done", actionId: action.id });
+    expect(h.backend.writes.length).toBe(writes + 1);
+    expect(h.backend.get(h.A.connectionId, "r1")?.amount).toBe("5.55");
+    const [row] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.id, action.id)),
+    );
+    expect(row?.status).toBe("done");
+
+    // The next change of the step is new: the check refuses it, nothing is proposed or written.
+    const fresh = await callTool(deps, retried, update("6.66"));
+    expect(fresh).toMatchObject({ status: "failed", error: "this contact opted out" });
+    const proposed = await h.client(h.A, (tx) =>
+      tx
+        .select()
+        .from(externalAction)
+        .where(eq(externalAction.idempotencyKey, `${s.runId}:${s.stepId}:1`)),
+    );
+    expect(proposed).toEqual([]);
+    expect(h.backend.writes.length).toBe(writes + 1);
+    await h.setPermissions(h.A, {});
+  });
+
+  it("a change that may have been made fails once and goes to the operator, never made again", async () => {
+    await h.setPermissions(h.A, { update: "auto" });
+    let runs = 0;
+    const deps = depsWithUpdate({
+      async before(input) {
+        return h.backend.get(h.A.connectionId, input.id) ?? null;
+      },
+      async run() {
+        runs++;
+        throw new UnconfirmedWriteError(
+          "The change to record r1 may have been made",
+          "we have no record of it",
+          { recordId: "r1" },
+        );
+      },
+    });
+    const s = await step(h.A, { mode: "act", approval: "not_required" });
+    const writes = h.backend.writes.length;
+    const out = await callTool(deps, s, update("8.88"));
+    expect(out.status).toBe("failed");
+    if (out.status !== "failed") return;
+    expect(out.error).toBe(
+      "The change to record r1 may have been made; check before trying again: we have no record of it",
+    );
+    const [action] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.runId, s.runId)),
+    );
+    expect(action).toMatchObject({ status: "failed" });
+    expect(action?.error).toMatchObject({ unconfirmed: true, recordId: "r1" });
+    const items = () =>
+      h.client(h.A, (tx) =>
+        tx
+          .select()
+          .from(inboxItem)
+          .where(and(eq(inboxItem.runId, s.runId), eq(inboxItem.kind, "review"))),
+      );
+    const [item] = await items();
+    expect(item).toMatchObject({
+      assigneeRole: "operator",
+      status: "open",
+      subjectType: "external_action",
+      subjectId: action?.id,
+      agentId: agentOf(h.A).agentId,
+      title: "The change to record r1 may have been made",
+    });
+    expect(item?.payload).toMatchObject({ actionId: action?.id, tool: TESTKIT_UPDATE_TOOL });
+
+    // A retry of the step returns the failure: nothing runs again, no second item.
+    const retried = await step(h.A, { runId: s.runId, mode: "act", approval: "not_required" });
+    expect((await callTool(deps, retried, update("8.88"))).status).toBe("failed");
+    expect(runs).toBe(1);
+    expect(await items()).toHaveLength(1);
+    expect(h.backend.writes.length).toBe(writes);
     await h.setPermissions(h.A, {});
   });
 

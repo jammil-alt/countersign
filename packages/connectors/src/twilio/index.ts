@@ -19,10 +19,18 @@ import {
   defineReadTool,
   defineWriteTool,
   type ToolContext,
+  UnconfirmedWriteError,
+  type WriteContext,
 } from "../connector";
 import { requireCredentials } from "../credentials-accessor";
 import { type FetchLike, globalFetch } from "../http";
-import { type MessagingServices, SendBlockedError, type SendContact } from "../messaging/services";
+import {
+  type MessagingServices,
+  type SendAttempt,
+  SendBlockedError,
+  type SendContact,
+  type SentRecord,
+} from "../messaging/services";
 import {
   MESSAGE_GET_TOOL,
   MESSAGES_SEARCH_TOOL,
@@ -67,11 +75,18 @@ export * from "./voice";
  *   `messages.search` and `message.get` (reads). The ids are provider-neutral (messaging/spec.ts).
  *   Every send asks the platform (`ctx.services.messaging`) whether the contact agreed, hasn't opted
  *   out and isn't in quiet hours, before Twilio is called; without those services nothing is sent.
+ * - Each send goes to Twilio at most once per key: it is recorded as started before Twilio is
+ *   called, and a re-run finds it or gives up (`send`, docs/plan.md §1.22).
  */
 export const TWILIO_CONNECTOR_ID = "twilio";
-/** Raw records: every message in or out, one per message SID; every status update, one per status. */
+/**
+ * Raw records: every message in or out, one per message SID; every status update, one per status;
+ * every send started, one per action key.
+ */
 export const TWILIO_MESSAGE_ENTITY = "Message";
 export const TWILIO_STATUS_ENTITY = "MessageStatus";
+/** A send started (by the action's key), recorded before Twilio is called: our own fact. */
+export const TWILIO_ATTEMPT_ENTITY = "MessageAttempt";
 
 // ── What is stored ───────────────────────────────────────────────────────────────────────────────
 
@@ -510,9 +525,121 @@ async function checkSend(
 
 const MessageCreated = TwilioMessage.extend({ sid: MessageSid });
 
+const CHANNEL_WORD: Record<MessagingChannel, string> = {
+  sms: "text",
+  whatsapp: "WhatsApp message",
+};
+
+/** A message already recorded under the action's key, as the send returns it. */
+function sentOutput(sent: SentRecord): z.input<typeof SendOutput> {
+  return {
+    sid: sent.sid,
+    status: sent.status,
+    channel: sent.channel,
+    to: sent.to,
+    from: sent.from,
+    contactName: sent.contactName,
+    template: sent.templateId !== null,
+    usage: { messages: 0 },
+  };
+}
+
+/** How far Twilio's clock (`date_created`) may be behind ours when matching an attempt. */
+const RECONCILE_SKEW_MS = 2 * 60_000;
+const RECONCILE_PAGE = "50";
+
+/**
+ * A re-run of a send that was started but never recorded: Twilio may have accepted it before the
+ * crash. Nothing is sent again. The candidates are Twilio's recent messages from our number to the
+ * contact since the attempt, less those another action recorded: exactly one is adopted as this
+ * send; none or several fail the action for the operator to check (UnconfirmedWriteError).
+ */
+async function reconcile(
+  fetch: FetchLike,
+  ctx: WriteContext,
+  services: MessagingServices,
+  attempt: SendAttempt,
+): Promise<z.input<typeof SendOutput>> {
+  const auth = await twilioAuthOf(ctx);
+  const prefix = attempt.channel === "whatsapp" ? "whatsapp:" : "";
+  const body = z.object({ messages: z.array(TwilioMessage).default([]) }).parse(
+    await twilioRequest(fetch, auth, "GET", `${accountUrl(auth.accountSid)}/Messages.json`, {
+      query: {
+        To: `${prefix}${attempt.to}`,
+        From: `${prefix}${attempt.from}`,
+        PageSize: RECONCILE_PAGE,
+      },
+    }),
+  );
+  const since = attempt.startedAt.getTime() - RECONCILE_SKEW_MS;
+  const candidates = body.messages.filter((m) => {
+    const to = splitAddress(m.to ?? undefined);
+    const from = splitAddress(m.from ?? undefined);
+    // `date_created` is set when Twilio accepts a message (`date_sent` is empty while queued).
+    const created = Date.parse(m.date_created ?? m.date_sent ?? "");
+    return (
+      MessageSid.safeParse(m.sid).success &&
+      (m.direction ?? "").startsWith("outbound") &&
+      to?.channel === attempt.channel &&
+      to.number === attempt.to &&
+      from?.number === attempt.from &&
+      !Number.isNaN(created) &&
+      created >= since
+    );
+  });
+  const recorded = new Set(await services.recordedSids(candidates.map((m) => m.sid)));
+  const unrecorded = candidates.filter((m) => !recorded.has(m.sid));
+  const startedAt = attempt.startedAt.toISOString();
+  const found = unrecorded.length === 1 ? unrecorded[0] : undefined;
+  if (!found) {
+    throw new UnconfirmedWriteError(
+      `The ${CHANNEL_WORD[attempt.channel]} to ${attempt.contactName} may have been sent`,
+      unrecorded.length === 0
+        ? `we started it at ${startedAt} and have no record of it, and Twilio lists no message to ${attempt.to} since then that we haven't recorded`
+        : `we started it at ${startedAt} and have no record of it, and Twilio lists ${unrecorded.length} messages to ${attempt.to} since then that we haven't recorded, so we can't tell which it was`,
+      {
+        channel: attempt.channel,
+        to: attempt.to,
+        from: attempt.from,
+        contactId: attempt.contactId,
+        startedAt,
+        candidates: unrecorded.map((m) => m.sid),
+      },
+    );
+  }
+  ctx.logger.info("adopted a message Twilio accepted before a crash", {
+    channel: attempt.channel,
+  });
+  const status = found.status ?? "queued";
+  await services.recordOutbound({
+    connectionId: ctx.connection.id,
+    channel: attempt.channel,
+    contactId: attempt.contactId,
+    to: attempt.to,
+    from: attempt.from,
+    sid: found.sid,
+    status,
+    text: attempt.text,
+    templateId: attempt.templateId,
+    segments: found.num_segments == null ? null : Number(found.num_segments) || null,
+    idempotencyKey: ctx.idempotencyKey,
+    sentAt: attempt.startedAt,
+  });
+  return {
+    sid: found.sid,
+    status,
+    channel: attempt.channel,
+    to: attempt.to,
+    from: attempt.from,
+    contactName: attempt.contactName,
+    template: attempt.templateId !== null,
+    usage: { messages: 1 },
+  };
+}
+
 async function send(
   fetch: FetchLike,
-  ctx: ToolContext & { idempotencyKey: string },
+  ctx: WriteContext,
   input: {
     channel: MessagingChannel;
     to: string;
@@ -522,22 +649,18 @@ async function send(
 ): Promise<z.input<typeof SendOutput>> {
   const services = messaging(ctx);
   // A re-run after a crash (the action was left executing): the message went out already.
+  // DECISION: it is returned before any check, so an opt-out or quiet hours since then can't
+  // record a message Twilio sent as failed; nothing more is sent either way, and the checks still
+  // stop every message not yet sent (docs/plan.md §1.22).
   const already = await services.sentFor(ctx.idempotencyKey);
+  if (already) return sentOutput(already);
+  // Started but never recorded: Twilio may have it. Look for it rather than send again.
+  const attempt = await services.attemptFor(ctx.idempotencyKey);
+  if (attempt) return reconcile(fetch, ctx, services, attempt);
+
   const { contact, from, lastInboundAt } = await checkSend(ctx, input.channel, input.to, {
-    forSending: already === null,
+    forSending: true,
   });
-  if (already) {
-    return {
-      sid: already.sid,
-      status: already.status,
-      channel: already.channel,
-      to: already.to,
-      from: already.from,
-      contactName: contact.name,
-      template: false,
-      usage: { messages: 0 },
-    };
-  }
   const config = configOf(ctx);
   const auth = await twilioAuthOf(ctx);
   const prefix = input.channel === "whatsapp" ? "whatsapp:" : "";
@@ -565,6 +688,25 @@ async function send(
   } else {
     form.Body = input.text ?? "";
   }
+  const text = useTemplate ? `template ${input.template?.id ?? ""}` : (input.text ?? "");
+  const templateId = useTemplate ? (input.template?.id ?? null) : null;
+  // DECISION: at most once. Twilio's message create takes no idempotency key (NOTES.md), so the
+  // attempt is recorded, with its time, before Twilio is called. A re-run that finds an attempt
+  // and no message never sends again: it adopts the one matching message Twilio lists, or fails
+  // the action for the operator to check (`reconcile`, docs/plan.md §1.22).
+  const startedAt = ctx.now();
+  await services.startAttempt({
+    idempotencyKey: ctx.idempotencyKey,
+    connectionId: ctx.connection.id,
+    channel: input.channel,
+    contactId: contact.id,
+    contactName: contact.name,
+    to: input.to,
+    from,
+    text,
+    templateId,
+    startedAt,
+  });
   ctx.logger.info("sending a message", { channel: input.channel });
   const created = MessageCreated.parse(
     await twilioRequest(fetch, auth, "POST", `${accountUrl(auth.accountSid)}/Messages.json`, {
@@ -580,11 +722,11 @@ async function send(
     from,
     sid: created.sid,
     status,
-    text: useTemplate ? `template ${input.template?.id ?? ""}` : (input.text ?? ""),
-    templateId: useTemplate ? (input.template?.id ?? null) : null,
+    text,
+    templateId,
     segments: created.num_segments == null ? null : Number(created.num_segments) || null,
     idempotencyKey: ctx.idempotencyKey,
-    sentAt: ctx.now(),
+    sentAt: startedAt,
   });
   return {
     sid: created.sid,
@@ -614,6 +756,21 @@ const before = async (
   channel: MessagingChannel,
   to: string,
 ): Promise<z.input<typeof SendBefore>> => {
+  // Executing (executeWrite passes the action's key; drawing the approval card has none): a
+  // message already sent or started under the key is described as it was, without the checks, as
+  // `send` returns or reconciles it (see there).
+  const key = (ctx as Partial<WriteContext>).idempotencyKey;
+  if (key) {
+    const services = messaging(ctx);
+    const prior = (await services.sentFor(key)) ?? (await services.attemptFor(key));
+    if (prior) {
+      return {
+        contact: { id: prior.contactId, name: prior.contactName },
+        channel: prior.channel,
+        to: prior.to,
+      };
+    }
+  }
   const { contact } = await checkSend(ctx, channel, to, { forSending: false });
   return { contact: { id: contact.id, name: contact.name }, channel, to };
 };

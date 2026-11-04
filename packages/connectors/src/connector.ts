@@ -256,6 +256,25 @@ export class ConnectorDefinitionError extends Error {
   }
 }
 
+/**
+ * A write that may have happened: it was started, the provider takes no idempotency key, and no
+ * record of it could be matched (a crash between the provider accepting it and us recording it).
+ * A connector throws this on a re-run instead of writing again; the runtime fails the action with
+ * this reason and asks the operator to check (packages/agents `executeAction`).
+ */
+export class UnconfirmedWriteError extends Error {
+  constructor(
+    /** What may have happened, for the operator's inbox ("The text to Pat Lee may have been sent"). */
+    readonly title: string,
+    why: string,
+    /** What the operator needs to check it (who, from where, since when, what was found). */
+    readonly details: JsonObject = {},
+  ) {
+    super(`${title}; check before trying again: ${why}`);
+    this.name = "UnconfirmedWriteError";
+  }
+}
+
 type ConnectorHooks = Omit<Connector, "manifest" | "tools">;
 
 /**
