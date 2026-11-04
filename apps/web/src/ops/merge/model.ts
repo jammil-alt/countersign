@@ -130,6 +130,8 @@ export interface FieldRow {
   theirs: string | null;
   result: string;
   conflict: boolean;
+  /** The conflict is still unresolved. */
+  waiting: boolean;
 }
 
 function readPointer(value: unknown, pointer: string): unknown {
@@ -165,6 +167,8 @@ export function fieldRows(input: {
   theirs: AgentBundle;
   merged: AgentBundle;
   conflicts: readonly MergeConflict[];
+  /** Conflicts still unresolved: their merged value is a placeholder, not a decision. */
+  open?: readonly MergeConflict[];
   labels: Record<string, string>;
 }): FieldRow[] {
   const isField = (c: BundleChange) =>
@@ -196,11 +200,14 @@ export function fieldRows(input: {
           : "There",
       ours: o ? shown(input.ours, path, o.kind === "added") : null,
       theirs: t ? shown(input.theirs, path, t.kind === "added") : null,
-      result: path.includes("#")
-        ? showValue(valueAt(input.merged, path))
-        : inMerged
-          ? "Kept"
-          : "Not there",
+      waiting: (input.open ?? []).some((c) => c.path === path),
+      result: (input.open ?? []).some((c) => c.path === path)
+        ? "Waiting on you"
+        : path.includes("#")
+          ? showValue(valueAt(input.merged, path))
+          : inMerged
+            ? "Kept"
+            : "Not there",
       conflict: input.conflicts.some(
         (c) => c.path === path || (c.entity === path && c.kind === "exists"),
       ),

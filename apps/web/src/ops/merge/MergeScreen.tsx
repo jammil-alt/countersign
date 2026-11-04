@@ -79,6 +79,8 @@ function parse(v: VersionDetail): AgentBundle | null {
   return r.success ? r.data : null;
 }
 
+// DECISION: the merge view merges and validates in the browser with core's shared code on every
+// resolution (plan §1.6 "Merge view"); the server repeats both on save and is the one that decides.
 export function MergeScreen() {
   const { id = "" } = useParams();
   const [search] = useSearchParams();
@@ -300,6 +302,7 @@ function MergeBody({
     theirs,
     merged: result.bundle,
     conflicts: raw.conflicts,
+    open: result.conflicts,
     labels,
   });
 
@@ -429,8 +432,8 @@ function MergeBody({
                   <td className="text-ink">
                     {r.label}
                     {r.conflict ? (
-                      <Badge tone="warning" className="ml-2">
-                        Conflict
+                      <Badge tone={r.waiting ? "warning" : "positive"} className="ml-2">
+                        {r.waiting ? "Conflict" : "Resolved"}
                       </Badge>
                     ) : null}
                   </td>

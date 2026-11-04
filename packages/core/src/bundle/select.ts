@@ -28,6 +28,8 @@ export interface SelectableChange {
  * Groups `diffBundles(a, b)` output into selectable changes, in diff order. A step's move within
  * its list (`#@position`) belongs to its list's reorder, which diffBundles reports just before.
  */
+// DECISION: changes are picked by item, agent field or list (plan §1.6 "Selected changes"), not by
+// each field inside an item, so a promoted step never arrives half-edited.
 export function selectableChanges(changes: readonly BundleChange[]): SelectableChange[] {
   const out: SelectableChange[] = [];
   const byId = new Map<string, SelectableChange>();

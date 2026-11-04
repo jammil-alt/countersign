@@ -166,6 +166,7 @@ describe("merge view: template update", () => {
     expect(screen.getByTestId("step-pause-marks").textContent).toContain("Template update: added");
     const row = screen.getByTestId("merge-field-bundle#/definition/instructions");
     expect(row.textContent).toContain("Conflict");
+    expect(row.textContent).toContain("Waiting on you");
     const save = screen.getByTestId("merge-save-button") as HTMLButtonElement;
     expect(save.disabled).toBe(true);
 

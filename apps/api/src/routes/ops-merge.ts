@@ -36,6 +36,7 @@ function resolutions(rs: readonly { path: string; choice: string; value?: unknow
 }
 
 export function opsMergeRoutes(app: Hono<AppEnv>): void {
+  // DECISION: an update always merges the template's live version (plan §1.6 "Lineage routes").
   mount(app, routes.opsUpdatePreview, async (ctx) => {
     const row = await clientAgentInScope(ctx, ctx.params.id);
     const preview = await previewUpdate(ctx.tx, { agentId: row.id });

@@ -91,4 +91,4 @@ There is no screen for writing skills yet; skill steps also need `ANTHROPIC_API_
 Phase 1 (`docs/plan.md` §3) and most of Track B run locally end to end: migrations and seed, the
 Worker with its Workflows and cron, sign-in, templates and client agents with the workflow builder,
 test and live runs with approvals, the back office's and the portal's inbox, runs and connections.
-The merge view, QuickBooks, email and document extraction are not built yet.
+Template updates, promotion, detach and re-link run through the merge view (an agent's Versions tab). QuickBooks, email and document extraction are not built yet.

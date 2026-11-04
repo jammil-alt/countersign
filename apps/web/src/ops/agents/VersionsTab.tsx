@@ -230,7 +230,7 @@ export function VersionsTab({
       </div>
 
       {agent.kind === "client" && agent.templateId ? (
-        <CustomizationsCard agentId={agent.id} />
+        <CustomizationsCard key={liveId ?? "none"} agentId={agent.id} />
       ) : null}
     </div>
   );
