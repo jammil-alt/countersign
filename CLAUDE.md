@@ -10,16 +10,16 @@ runs agents for client businesses from a **back office** that reaches into every
 customized (data, settings, drag-and-drop step workflows) and versioned per client, with lineage so template
 updates can be merged in and client improvements promoted back. Agents do the work and update the
 client's tools (QuickBooks Online and Gmail) within each connection's permissions. Each client gets a
-**portal** for reports, runs, approvals, requests and connections (clients sign in to their own tools); clients never edit agents. The first template,
-Pia, does material cost management; the millwork shop runs its own fork of her. She ships as the
-Materials pack and is built only from platform parts.
+**portal** for reports, runs, approvals, requests and connections (clients sign in to their own tools); clients never edit agents. Use cases
+such as Pia (material cost management for a millwork shop, the Materials pack) are built separately
+from this plan, only from platform parts (ARCHITECTURE v0.9).
 
-- What to build: `docs/ARCHITECTURE.md` (v0.8). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.9). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: phase 1 (the platform foundation) and most of Track B (templates, client agents, the workflow builder, inbox, runs, connections) are built and run locally; phase 2 (cloud) and the merge view are next (`docs/plan.md` §3). **The platform is the product**: no domain tools yet. Use cases like Pia come after. Product shape: ARCHITECTURE v0.8. UI: the **Mezonas design system** in `packages/design-system` (tokens, component classes, logos, icons, Geist fonts; brand book in its README) on the layouts of the owner's v1 screens in `docs/design/`. Groundwork is retired. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: the platform foundation, Track B and streams B–H (merge view, the Builder and skills, documents and upload, feedback, the webhook, Zoho and Podio connectors, requests) are built; staging is deployed. Next: QuickBooks (M9) and Gmail (M10, now in the MVP), approver rules and Stripe billing (`docs/plan.md` §3, §1.17). **The platform is the product.** Product shape: ARCHITECTURE v0.9. UI: the **Mezonas design system** in `packages/design-system` (tokens, component classes, logos, icons, Geist fonts; brand book in its README) on the layouts of the owner's v1 screens in `docs/design/`. Groundwork is retired. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 **Separate from Plenary Labs.** Mezonas follows Plenary Labs' stack, conventions and patterns for
 consistency, and code may be copied from it, but nothing is shared: no runtime dependency, package,
