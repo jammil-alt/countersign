@@ -248,6 +248,7 @@ jobs:
               id=$(cf -X POST "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs" -d "$body" | jq -r '.result.id')
               echo "Created Hyperdrive $name"
             fi
+            echo "Hyperdrive $name id: $id"
             echo "| \`$name\` | \`$id\` |" >> "$GITHUB_STEP_SUMMARY"
           }
 
