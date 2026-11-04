@@ -68,7 +68,7 @@ function bundle(workflow: unknown): AgentBundle {
       schemaVersion: 2,
       identity: { name: "Front desk", role: "answers texts", mission: "reply to customers" },
       kind: "functional",
-      model: { id: "claude-opus-5-5", maxTokens: 1024 },
+      model: { id: "test-model", maxTokens: 1024 },
       instructions: "Only do what the workflow says.",
       skills: [{ skill: MESSAGE_GET_TOOL, settings: {} }],
       extraTools: [SMS_SEND_TOOL],
