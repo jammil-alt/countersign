@@ -5,6 +5,8 @@ export const MODELS = {
   sonnet: "claude-sonnet-5-5",
   haiku: "claude-haiku-5-5",
   opus: "claude-opus-5-5",
+  /** OpenAI's flagship. The `openai:` prefix routes the call to OpenAI (./route.ts). */
+  gpt: "openai:gpt-5.5",
 } as const;
 
 export type ModelId = string;

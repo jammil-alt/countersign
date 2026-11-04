@@ -12,7 +12,12 @@ import {
 } from "@countersign/connectors";
 import type { Workflow } from "@countersign/core";
 import { agentVersion, connection, type Db, run, withTenant } from "@countersign/db";
-import { anthropicTransport, type LlmTransport } from "@countersign/llm";
+import {
+  anthropicTransport,
+  type LlmTransport,
+  openaiTransport,
+  routingTransport,
+} from "@countersign/llm";
 import type { EventRow } from "@countersign/senses";
 import {
   type ExecutorContext,
@@ -37,19 +42,21 @@ export interface RunDeps {
 }
 
 /**
- * The model transport for a deployed Worker.
+ * The model transport for a deployed Worker: Anthropic models with ANTHROPIC_API_KEY, OpenAI models
+ * (`openai:` ids) with OPENAI_API_KEY.
  */
 // DECISION: the Worker calls the model live or not at all: record/replay needs the fixture files,
-// which only tests (Node) have. Without ANTHROPIC_API_KEY every model call fails with a clear
-// error, so a run without a model still runs its tool-mode skills and actions.
-export function workerTransport(env: Pick<Bindings, "ANTHROPIC_API_KEY">): LlmTransport {
-  const apiKey = env.ANTHROPIC_API_KEY?.trim();
-  if (apiKey) return anthropicTransport({ apiKey });
-  return {
-    create: async () => {
-      throw new Error("no model is configured: set ANTHROPIC_API_KEY");
-    },
-  };
+// which only tests (Node) have. A model whose provider has no key fails with an error naming the
+// missing key, so a run without a model still runs its tool-mode skills and actions.
+export function workerTransport(
+  env: Pick<Bindings, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY">,
+): LlmTransport {
+  const anthropicKey = env.ANTHROPIC_API_KEY?.trim();
+  const openaiKey = env.OPENAI_API_KEY?.trim();
+  return routingTransport({
+    ...(anthropicKey ? { anthropic: anthropicTransport({ apiKey: anthropicKey }) } : {}),
+    ...(openaiKey ? { openai: openaiTransport({ apiKey: openaiKey }) } : {}),
+  });
 }
 
 /** Encrypted connection credentials, decrypted only when a connector asks for them. */
