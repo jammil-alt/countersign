@@ -9,6 +9,7 @@ import { connectionRoutes } from "./routes/connections";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsClientRoutes } from "./routes/ops-clients";
 import { opsLineageRoutes } from "./routes/ops-lineage";
+import { opsMergeRoutes } from "./routes/ops-merge";
 import { portalRouteHandlers } from "./routes/portal";
 import { sessionRoutes } from "./routes/session";
 import { cronTick } from "./runs/dispatch";
@@ -22,6 +23,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsClientRoutes(app);
   opsAgentRoutes(app);
   opsLineageRoutes(app);
+  opsMergeRoutes(app);
   portalRouteHandlers(app);
   connectionRoutes(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
