@@ -328,7 +328,9 @@ describe.skipIf(!h)("documents", () => {
           .from(vendor)
           .where(eq(vendor.id, txn.vendorId ?? "")),
       );
-      expect((v?.ext as { domains?: string[] } | undefined)?.domains).toEqual(["keystonehw.example"]);
+      expect((v?.ext as { domains?: string[] } | undefined)?.domains).toEqual([
+        "keystonehw.example",
+      ]);
       // A second invoice from the same domain naming the vendor differently still finds it.
       const D = expectedOf("keystone-55102");
       const renamed = { ...D, header: { ...D.header, vendorName: "KHF Supply" } };

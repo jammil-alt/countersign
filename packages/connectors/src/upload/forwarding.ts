@@ -57,8 +57,9 @@ function bytesUuid(bytes: Uint8Array): string {
 /** A short, readable lead for the address from the client's name. */
 export function addressLabel(name: string): string {
   const slug = name
-    .toLowerCase()
     .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 16)

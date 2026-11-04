@@ -4,6 +4,7 @@
 // Allowed workspace dependencies: connectors llm senses db core. See docs/plan.md §2.
 export * from "./extract";
 export * from "./find-support";
+export * from "./forwarding";
 export * from "./get";
 export * from "./link";
 export * from "./store";
