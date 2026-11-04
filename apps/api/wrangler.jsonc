@@ -56,8 +56,8 @@
       "name": "mezonas-staging",
       "routes": [{ "pattern": "staging.mezonas.com", "custom_domain": true }],
       "triggers": { "crons": ["* * * * *"] },
-      // PLACEHOLDER: the id of Hyperdrive `mezonas-db-staging`, printed by Bootstrap cloud.
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000000" }],
+      // Hyperdrive `mezonas-db-staging` (Neon branch staging), from Bootstrap cloud.
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "934bb30230e344539da6ab05c4447ec6" }],
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas-staging" }],
       "workflows": [
         { "name": "mezonas-staging-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
@@ -75,8 +75,8 @@
       "name": "mezonas",
       "routes": [{ "pattern": "app.mezonas.com", "custom_domain": true }],
       "triggers": { "crons": ["* * * * *"] },
-      // PLACEHOLDER: the id of Hyperdrive `mezonas-db`, printed by Bootstrap cloud.
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "00000000000000000000000000000000" }],
+      // Hyperdrive `mezonas-db` (Neon branch main), from Bootstrap cloud.
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "b4032076210742cb961ccc2fc1bdf282" }],
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas" }],
       "workflows": [
         { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
