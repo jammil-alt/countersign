@@ -17,7 +17,15 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
-import { cost, count, isoDay, monthLabel, monthStart, periodLabel } from "../../usage/format";
+import {
+  cost,
+  count,
+  isoDay,
+  monthLabel,
+  monthStart,
+  periodLabel,
+  plural,
+} from "../../usage/format";
 import { Stat, StatRow } from "../../usage/Stat";
 import { Select } from "../agents/ui";
 
@@ -238,7 +246,7 @@ export function OpsUsageScreen() {
               testId="ops-usage-documents"
               label="Documents read"
               value={count(data.total.documents)}
-              note={`${count(data.total.externalActions)} changes made to clients' tools`}
+              note={`${plural(data.total.externalActions, "change")} made to clients' tools`}
             />
             <Stat
               testId="ops-usage-tokens"

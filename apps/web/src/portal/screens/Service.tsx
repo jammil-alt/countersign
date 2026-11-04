@@ -53,7 +53,7 @@ export function PortalServiceScreen() {
       />
       <SectionLabel>This month</SectionLabel>
       <p className="mb-3 text-sm text-ink-muted">{periodLabel(thisMonth.from, thisMonth.to)}</p>
-      <StatRow>
+      <StatRow cols={3}>
         <Stat
           testId="portal-service-runs"
           label="Runs"

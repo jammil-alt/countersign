@@ -133,7 +133,7 @@ export function ActivityReportScreen() {
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data ? (
         <>
-          <StatRow>
+          <StatRow cols={3}>
             <Stat
               testId="portal-report-runs"
               label="Runs"
@@ -153,7 +153,7 @@ export function ActivityReportScreen() {
               note={
                 data.actions.byConnector.length > 0
                   ? data.actions.byConnector.map((c) => `${c.name} ${count(c.count)}`).join(", ")
-                  : "Each one signed off as your settings ask"
+                  : "None in this period"
               }
             />
           </StatRow>

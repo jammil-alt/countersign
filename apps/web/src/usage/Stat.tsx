@@ -28,8 +28,12 @@ export function Stat({
 }
 
 /** A row of stats that wraps on narrow screens. */
-export function StatRow({ children }: { children: ReactNode }) {
+export function StatRow({ children, cols = 4 }: { children: ReactNode; cols?: 3 | 4 }) {
   return (
-    <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
+    <div
+      className={`mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 ${cols === 3 ? "xl:grid-cols-3" : "xl:grid-cols-4"}`}
+    >
+      {children}
+    </div>
   );
 }
