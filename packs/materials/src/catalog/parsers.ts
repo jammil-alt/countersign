@@ -117,7 +117,9 @@ export const sheetGoods: CategorySpec = {
       a.size,
       a.grade && a.grade !== "none" ? a.grade.toUpperCase() : undefined,
       a.core && !["none", "all_ply"].includes(a.core) ? `${label(a.core)} core` : undefined,
-      a.cut && a.cut !== "plain" ? label(a.cut) : undefined,
+      a.cut && !["plain", "none"].includes(a.cut) && a.face !== "baltic_birch"
+        ? label(a.cut)
+        : undefined,
       a.finish === "prefinished" || a.finish === "primed" ? label(a.finish) : undefined,
       a.spec && a.spec !== "standard" ? label(a.spec) : undefined,
     ];
