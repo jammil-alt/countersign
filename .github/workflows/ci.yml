@@ -9,8 +9,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
+# A run for a draft does nothing (the job below is skipped), so it gets a group of its own: a push
+# and "ready for review" can arrive out of order, and a late draft run must never cancel the real one.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.head_ref || github.ref_name }}${{ github.event.pull_request.draft && '-draft' || '' }}
   cancel-in-progress: true
 
 jobs:
