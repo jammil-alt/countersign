@@ -210,6 +210,32 @@ describe("ops billing", () => {
     expect(api.calls).not.toContain("PUT /api/ops/billing/settings");
   });
 
+  it("keeps unsaved settings when the page reloads with the same settings", async () => {
+    const sandboxRow = BILLING.clients.find((c) => c.id === SANDBOX);
+    let loads = 0;
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      // A fresh copy each time, as a real reload returns; after the set-up the Sandbox is set up.
+      "GET /api/ops/billing": () => {
+        loads += 1;
+        const copy = structuredClone(BILLING);
+        if (loads > 1) {
+          for (const c of copy.clients) if (c.id === SANDBOX) c.setUp = true;
+        }
+        return copy;
+      },
+      [`POST /api/ops/billing/clients/${SANDBOX}/setup`]: () => sandboxRow,
+    });
+    renderAt("/ops/billing", api);
+    const allowance = await screen.findByTestId("ops-billing-allowance");
+    await userEvent.clear(allowance);
+    await userEvent.type(allowance, "2500");
+    // Setting a client up reloads the page's data; wait until the reloaded data is on screen.
+    await userEvent.click(screen.getByTestId(`ops-billing-setup-${SANDBOX}`));
+    await waitFor(() => expect(screen.queryByTestId(`ops-billing-setup-${SANDBOX}`)).toBeNull());
+    expect(screen.getByTestId("ops-billing-allowance")).toHaveDisplayValue("2500");
+  });
+
   it("sets a client up from the list and shows Stripe's refusal", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
