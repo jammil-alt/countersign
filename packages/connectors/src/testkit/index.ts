@@ -38,8 +38,24 @@ export class StaleRecordError extends Error {
  * "company"), plus the writes it executed by idempotency key, so a retried write returns the
  * first result instead of writing twice.
  */
+/**
+ * The records every connection starts with in a deployed Sandbox (staging), so a workflow there
+ * has something to find and change. Tests pass none and seed their own.
+ */
+export const TESTKIT_SAMPLE_RECORDS: readonly Omit<TestkitRecord, "syncToken">[] = [
+  { id: "R-1001", name: "Baltic birch 3/4in 5x5", amount: "64.0000" },
+  { id: "R-1002", name: "White oak 4/4 FAS", amount: "8.7500" },
+  { id: "R-1003", name: "Euro hinge 110 degree", amount: "3.2000" },
+];
+
 export class TestkitBackend {
   private readonly records = new Map<string, Map<string, TestkitRecord>>();
+  /** Copied into each connection's "company" the first time it is used. */
+  private readonly samples: readonly Omit<TestkitRecord, "syncToken">[];
+
+  constructor(options: { samples?: readonly Omit<TestkitRecord, "syncToken">[] } = {}) {
+    this.samples = options.samples ?? [];
+  }
   private readonly executed = new Map<string, { connectionId: string; result: TestkitRecord }>();
   /** Every write that changed a record, in order (for assertions). */
   readonly writes: { connectionId: string; idempotencyKey: string; record: TestkitRecord }[] = [];
@@ -53,7 +69,7 @@ export class TestkitBackend {
   company(connectionId: string): Map<string, TestkitRecord> {
     let map = this.records.get(connectionId);
     if (!map) {
-      map = new Map();
+      map = new Map(this.samples.map((r) => [r.id, { ...r, syncToken: "0" }]));
       this.records.set(connectionId, map);
     }
     return map;
