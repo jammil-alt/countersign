@@ -196,7 +196,8 @@ export function fakeApi(routes: Record<string, Handler>): FakeApi {
     const key = `${init.method ?? "GET"} ${url.pathname}`;
     calls.push(key);
     const handler = table.get(key);
-    const out = handler ? handler({ url, init }) : new Reply(404, { error: "not_found" });
+    // A handler may answer later (a promise), e.g. to show a pending state.
+    const out = await (handler ? handler({ url, init }) : new Reply(404, { error: "not_found" }));
     const reply = out instanceof Reply ? out : new Reply(200, out);
     return new Response(JSON.stringify(reply.body), {
       status: reply.status,

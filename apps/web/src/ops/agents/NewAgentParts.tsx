@@ -1,5 +1,5 @@
 // Parts shared by the "new template" and "new client agent" pages (design screen 4): the job's
-// fields, the start-from choices (the Builder's "my description" is shown, not built yet), the
+// fields, the start-from choices (the Builder's "my description", blank, a template), the
 // stepper, and the starting workflow on the right.
 import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
@@ -135,16 +135,14 @@ export function StartOption({
   );
 }
 
-/** The Builder (ARCHITECTURE §9.6) is not built yet: its option is shown, disabled. */
-export function BuilderOption() {
+/** "My description": the Builder (ARCHITECTURE §9.6) drafts the steps. */
+export function BuilderOption({ selected, onSelect }: { selected: boolean; onSelect(): void }) {
   return (
     <StartOption
-      selected={false}
-      disabled
+      selected={selected}
       title="My description"
       text="The Builder drafts the steps from what you wrote."
-      badge={<Badge tone="neutral">Coming soon</Badge>}
-      onSelect={() => {}}
+      onSelect={onSelect}
       testId="new-agent-start-builder"
     />
   );

@@ -36,6 +36,8 @@ const SlugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, digits and dashes")
   .max(64);
 const Note = z.string().max(2000);
+/** Lists of agents leave discarded drafts out unless asked. */
+const IncludeDiscarded = z.object({ include: z.enum(["discarded"]).optional() });
 
 /** A matrix edit: verbs left out keep their level. */
 export const MatrixEdit = z.strictObject({
@@ -336,6 +338,29 @@ export const PortalConnection = z.object({
     .nullable(),
 });
 
+/** A webhook connection as its client admin sees it: hook URLs carry their secret tokens. */
+export const PortalWebhookSetup = z.object({
+  hooks: z.array(
+    z.object({ id: z.string(), name: z.string(), url: z.string(), createdAt: Timestamp }),
+  ),
+  outbound: z
+    .object({
+      /** The URL as saved, shown back to the client who pasted it. */
+      url: z.string(),
+      host: z.string(),
+      /** Receivers may check `x-mezonas-signature` with it. */
+      signingSecret: z.string(),
+      setAt: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+/** What a delivery to an inbound hook gets back. */
+export const InboundHookResponse = z.object({
+  status: z.enum(["accepted", "duplicate"]),
+  id: z.string(),
+});
+
 // ── Documents, uploads and forwarding (stream D, docs/plan.md §1.6) ─────────────────────────────
 
 export const DocumentSummary = z.object({
@@ -527,6 +552,73 @@ export const BuilderCatalog = z.object({
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
+// ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
+
+/** A row of the skills library: built-in (code) or operator-written (rows, shared or one client's). */
+export const SkillListItem = z.object({
+  /** The `skill` row id; built-ins (no row) carry their skill id. */
+  id: z.string(),
+  /** The reference a bundle names it by (`docs.extract`, `custom:<slug>`). */
+  ref: z.string(),
+  name: z.string(),
+  description: z.string(),
+  category: z.string(),
+  source: z.enum(["builtin", "shared", "client"]),
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
+  status: z.string(),
+  liveVersion: z.number().int().nullable(),
+  latestVersion: z.number().int().nullable(),
+  latestStatus: z.string().nullable(),
+  /** Top-level fields of its input and output schemas: "in → out". */
+  inputs: z.array(z.string()),
+  outputs: z.array(z.string()),
+  tools: z.array(z.string()),
+  connectors: z.array(z.string()),
+  /** Agents (templates and client agents) whose live, else latest, version uses it. */
+  usedBy: z.number().int(),
+});
+export type SkillListItem = z.infer<typeof SkillListItem>;
+
+export const SkillVersionView = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  status: z.string(),
+  definition: SkillDefinition,
+  changeNote: z.string().nullable(),
+  authorId: z.string().nullable(),
+  parentVersionId: z.string().nullable(),
+  createdAt: Timestamp,
+});
+export type SkillVersionView = z.infer<typeof SkillVersionView>;
+
+export const SkillUse = z.object({
+  agentId: z.string(),
+  kind: z.enum(["template", "client"]),
+  slug: z.string(),
+  name: z.string(),
+  clientId: z.string().nullable(),
+  clientName: z.string().nullable(),
+  /** The reference as the agent names it (maybe pinned `@N`). */
+  ref: z.string(),
+  version: z.number().int(),
+});
+export type SkillUse = z.infer<typeof SkillUse>;
+
+const BuilderOutcome = z.object({
+  bundle: z.unknown(),
+  /** The Builder's own account of the draft, in plain words. */
+  summary: z.string(),
+  /** What it needs that doesn't exist (no skill, tool, connector or connection). */
+  gaps: z.array(z.string()),
+  /** Rules the server enforced on the model's answer. */
+  notes: z.array(z.string()),
+  /** What would still stop a publish. */
+  errors: z.array(ValidationErrorSchema),
+  /** USD, the model calls' cost (operator only). */
+  costUsd: z.string().nullable(),
+});
+
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
 const OPS = ["operator"] as const;
@@ -687,7 +779,8 @@ export const opsRoutes = {
     path: "/api/ops/templates",
     auth: "session",
     roles: OPS,
-    summary: "Templates",
+    summary: "Templates (discarded drafts with ?include=discarded)",
+    query: IncludeDiscarded,
     response: z.object({ templates: z.array(AgentSummary) }),
   }),
   opsCreateTemplate: defineRoute({
@@ -721,8 +814,9 @@ export const opsRoutes = {
     path: "/api/ops/clients/:id/agents",
     auth: "session",
     roles: OPS,
-    summary: "A client's agents",
+    summary: "A client's agents (discarded drafts with ?include=discarded)",
     params: IdParams,
+    query: IncludeDiscarded,
     response: z.object({ agents: z.array(AgentSummary) }),
   }),
   opsCreateClientAgent: defineRoute({
@@ -1113,6 +1207,141 @@ export const opsRoutes = {
     }),
     response: z.object({ items: z.array(OpsInboxItem), agents: z.array(OpsAgentRef) }),
   }),
+  opsSkills: defineRoute({
+    method: "GET",
+    path: "/api/ops/skills",
+    auth: "session",
+    roles: OPS,
+    summary: "The skills library: built-in, shared and the clients' own skills, with used-by",
+    query: z.object({ client: ApiId.optional() }),
+    response: z.object({
+      skills: z.array(SkillListItem),
+      /** What the skill editor picks tools from, grouped under the connectors. */
+      tools: z.array(ToolSpec),
+      connectors: z.array(z.object({ id: z.string(), name: z.string() })),
+    }),
+  }),
+  opsCreateSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills",
+    auth: "session",
+    roles: OPS,
+    summary: "A new operator skill (shared, or for one client) with its v1 draft",
+    body: z.strictObject({
+      clientId: ApiId.optional(),
+      definition: z.unknown(),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ skill: SkillListItem, version: SkillVersionView }),
+  }),
+  opsSkill: defineRoute({
+    method: "GET",
+    path: "/api/ops/skills/:id",
+    auth: "session",
+    roles: OPS,
+    summary: "An operator skill with its versions and the agents that use it",
+    params: IdParams,
+    response: z.object({
+      skill: SkillListItem,
+      versions: z.array(SkillVersionView),
+      usedBy: z.array(SkillUse),
+    }),
+  }),
+  opsSaveSkillVersion: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/versions",
+    auth: "session",
+    roles: OPS,
+    summary: "Save a new draft version of an operator skill",
+    params: IdParams,
+    body: z.strictObject({
+      definition: z.unknown(),
+      parentVersionId: ApiId.optional(),
+      changeNote: Note.optional(),
+    }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsPublishSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/versions/:vid/publish",
+    auth: "session",
+    roles: OPS,
+    summary: "Publish a skill version: agents that name the skill without a version use it",
+    params: z.object({ id: ApiId, vid: ApiId }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsRollbackSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/rollback",
+    auth: "session",
+    roles: OPS,
+    summary: "Roll a skill back: an older version copied as a new one and published",
+    params: IdParams,
+    body: z.strictObject({ versionId: ApiId }),
+    response: z.object({ version: SkillVersionView }),
+  }),
+  opsDraftAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/draft",
+    auth: "session",
+    roles: OPS,
+    summary: "The Builder drafts a new template (or a client agent) from a description",
+    body: z.strictObject({
+      description: z.string().trim().min(1).max(4000),
+      clientId: ApiId.optional(),
+      name: z.string().max(200).optional(),
+      role: z.string().max(200).optional(),
+    }),
+    response: BuilderOutcome.extend({
+      agent: AgentSummary,
+      version: VersionSummary,
+      /** A template that already does most of the job, when the Builder found one. */
+      startFromTemplate: z
+        .object({ id: z.string(), slug: z.string(), name: z.string() })
+        .nullable(),
+    }),
+  }),
+  opsReviseAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/revise",
+    auth: "session",
+    roles: OPS,
+    summary: "The Builder revises an agent from an instruction or a client's request",
+    params: IdParams,
+    body: z
+      .strictObject({
+        instruction: z.string().trim().min(1).max(4000).optional(),
+        /** Default: the agent's latest version. */
+        fromVersionId: ApiId.optional(),
+        /** A client's change request handed to the Builder. */
+        requestId: ApiId.optional(),
+      })
+      .refine((b) => b.instruction !== undefined || b.requestId !== undefined, {
+        message: "give an instruction or a request",
+      }),
+    response: BuilderOutcome.extend({
+      version: VersionSummary,
+      diff: BundleDiff,
+    }),
+  }),
+  opsDiscardAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/discard",
+    auth: "session",
+    roles: OPS,
+    summary: "Discard an agent that was never published (e.g. an unwanted Builder draft)",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
+  opsRestoreAgent: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/restore",
+    auth: "session",
+    roles: OPS,
+    summary: "Bring a discarded draft back",
+    params: IdParams,
+    response: z.object({ agent: AgentSummary }),
+  }),
   opsResolveInbox: defineRoute({
     method: "POST",
     path: "/api/ops/inbox/:id/resolve",
@@ -1233,6 +1462,55 @@ export const portalRoutes = {
     params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
     response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
   }),
+  portalAuthorizeCallback: defineRoute({
+    method: "POST",
+    path: "/api/connections/:connector/callback",
+    auth: "session",
+    roles: ["client_admin"],
+    summary:
+      "Finish signing in to a tool: the provider's callback parameters, checked against the state",
+    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    body: z.strictObject({ params: z.record(z.string(), z.string().max(4096)) }),
+    response: z.object({ connection: PortalConnection }),
+  }),
+  portalWebhook: defineRoute({
+    method: "GET",
+    path: "/api/connections/:id/webhook",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "A webhook connection's hooks with their URLs, and where outbound events go",
+    params: IdParams,
+    response: PortalWebhookSetup,
+  }),
+  portalWebhookAddHook: defineRoute({
+    method: "POST",
+    path: "/api/connections/:id/webhook/hooks",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Make an inbound hook: a URL with its own secret to paste into a Zap",
+    params: IdParams,
+    body: z.strictObject({ name: z.string().trim().min(1).max(80) }),
+    response: PortalWebhookSetup,
+  }),
+  portalWebhookRemoveHook: defineRoute({
+    method: "DELETE",
+    path: "/api/connections/:id/webhook/hooks/:hookId",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Remove an inbound hook: deliveries to it are refused from now on",
+    params: z.object({ id: ApiId, hookId: ApiId }),
+    response: PortalWebhookSetup,
+  }),
+  portalWebhookOutbound: defineRoute({
+    method: "PUT",
+    path: "/api/connections/:id/webhook/outbound",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Set (or clear) the https URL outbound events are sent to, e.g. a Zap's catch hook",
+    params: IdParams,
+    body: z.strictObject({ url: z.string().max(2048).nullable() }),
+    response: PortalWebhookSetup,
+  }),
   portalUploads: defineRoute({
     method: "POST",
     path: "/api/uploads",
@@ -1310,6 +1588,16 @@ export const routes = {
     roles: ROLES,
     summary: "The signed-in user, their clients and the active one",
     response: SessionResponse,
+  }),
+  inboundHook: defineRoute({
+    method: "POST",
+    path: "/api/hooks/:tenantId/:hookId",
+    auth: "public",
+    roles: [],
+    summary:
+      "A delivery to a client's inbound hook (Zapier, Make, n8n): JSON or a form, with the hook's token or signature",
+    params: z.object({ tenantId: ApiId, hookId: ApiId }),
+    response: InboundHookResponse,
   }),
   connectors: defineRoute({
     method: "GET",

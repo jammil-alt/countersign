@@ -1,4 +1,4 @@
-// The Feedback button (docs/plan.md §1.8): floats over every screen. Press it and the page dims
+// The Feedback button (docs/plan.md §1.10): floats over every screen. Press it and the page dims
 // ("Tap where the problem is"); a tap drops a pin and records what was under it, the path and the
 // viewport, and takes a picture of the page without this layer. A sheet shows the picture with the
 // pin, a comment box, "Leave the picture off" and Send. "No particular spot" skips the pin;

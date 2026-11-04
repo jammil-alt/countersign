@@ -1,0 +1,5 @@
+{
+  "error": "rate_limit",
+  "error_description": "You have hit the rate limit. Please wait 300 seconds before trying again",
+  "error_detail": null
+}

@@ -10,6 +10,14 @@ export interface Secrets {
   /** 32 bytes, base64: connection credentials at rest (ARCHITECTURE §17). */
   ENCRYPTION_KEY?: string;
   ENCRYPTION_KEY_PREVIOUS?: string;
+  /** At least 32 bytes: signs the OAuth `state` of a client's sign-in to a tool. */
+  OAUTH_STATE_SECRET?: string;
+  /** Zoho API console: a Server-based application with multi-DC on (ARCHITECTURE §6.7). */
+  ZOHO_CLIENT_ID?: string;
+  ZOHO_CLIENT_SECRET?: string;
+  /** Podio API key (ARCHITECTURE §6.8). */
+  PODIO_CLIENT_ID?: string;
+  PODIO_CLIENT_SECRET?: string;
   /** R2's S3 API, for presigned links to documents (ARCHITECTURE §17). Optional: see storage.ts. */
   STORAGE_ENDPOINT?: string;
   STORAGE_BUCKET?: string;

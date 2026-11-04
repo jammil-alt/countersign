@@ -7,6 +7,7 @@
 import type { Session } from "@countersign/auth";
 import {
   applyMatrixChange,
+  type Connector,
   describeAccess,
   type MatrixChangeRefusal,
   normalizeMatrix,
@@ -126,11 +127,18 @@ export function sourcesOf(output: unknown): string[] {
 /**
  * Whether the client can sign in to a connector from the portal now.
  */
-// DECISION: only connectors that need no provider sign-in (`auth: 'none'`, e.g. the testkit) can
-// be connected from the portal today; OAuth connectors show "not available yet" until their
-// connector, callback route and state secret land with QuickBooks (phase 3, tools).
-export function canSignIn(manifest: { auth: string } | undefined): boolean {
-  return manifest?.auth === "none";
+// DECISION: connectors that need no provider sign-in (`auth: 'none'`: the testkit, webhooks)
+// connect at once; OAuth connectors (Zoho CRM) sign in through the provider once the deployment
+// has their client and the state secret (`isConfigured`); others show "not available yet".
+export function canSignIn(
+  connector: Pick<Connector, "manifest" | "isConfigured" | "authorize"> | undefined,
+): boolean {
+  if (!connector) return false;
+  if (connector.manifest.auth === "none") return true;
+  if (connector.manifest.auth === "oauth2") {
+    return Boolean(connector.authorize) && connector.isConfigured?.() !== false;
+  }
+  return false;
 }
 
 export async function portalConnections(
@@ -169,7 +177,7 @@ export async function portalConnections(
   const agents = await tx
     .select()
     .from(agent)
-    .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client")));
+    .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.status, "active")));
   const usedBy = (c: ConnectionRow) =>
     agents
       .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))
@@ -187,7 +195,7 @@ export async function portalConnections(
       name: manifest?.name ?? id,
       description: manifest?.description ?? "",
       icon: manifest?.icon ?? null,
-      available: canSignIn(manifest),
+      available: canSignIn(platform.connectors.get(id)),
       connection: c && {
         id: c.id,
         status: c.status,

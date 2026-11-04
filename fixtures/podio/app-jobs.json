@@ -1,0 +1,75 @@
+{
+  "app_id": 26550010,
+  "status": "active",
+  "space_id": 7721001,
+  "config": { "name": "Jobs", "item_name": "Job" },
+  "fields": [
+    {
+      "field_id": 210001,
+      "external_id": "title",
+      "type": "text",
+      "label": "Job name",
+      "status": "active",
+      "config": { "required": true, "settings": { "size": "small" } }
+    },
+    {
+      "field_id": 210002,
+      "external_id": "status",
+      "type": "category",
+      "label": "Status",
+      "status": "active",
+      "config": {
+        "required": false,
+        "settings": {
+          "multiple": false,
+          "options": [
+            { "id": 1, "text": "Quoted", "status": "active" },
+            { "id": 2, "text": "In production", "status": "active" },
+            { "id": 3, "text": "Delivered", "status": "active" },
+            { "id": 4, "text": "Retired option", "status": "deleted" }
+          ]
+        }
+      }
+    },
+    {
+      "field_id": 210003,
+      "external_id": "budget",
+      "type": "money",
+      "label": "Budget",
+      "status": "active",
+      "config": { "required": false, "settings": { "allowed_currencies": ["USD"] } }
+    },
+    {
+      "field_id": 210004,
+      "external_id": "due",
+      "type": "date",
+      "label": "Due",
+      "status": "active",
+      "config": { "required": false, "settings": { "calendar": true } }
+    },
+    {
+      "field_id": 210005,
+      "external_id": "progress",
+      "type": "progress",
+      "label": "Progress",
+      "status": "active",
+      "config": { "required": false, "settings": null }
+    },
+    {
+      "field_id": 210006,
+      "external_id": "margin",
+      "type": "calculation",
+      "label": "Margin",
+      "status": "active",
+      "config": { "required": false, "settings": null }
+    },
+    {
+      "field_id": 210007,
+      "external_id": "old-notes",
+      "type": "text",
+      "label": "Old notes",
+      "status": "deleted",
+      "config": { "required": false }
+    }
+  ]
+}

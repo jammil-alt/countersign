@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
 
-// The Feedback button's routes (docs/plan.md §1.8). Anyone in the back office, and client users of
+// The Feedback button's routes (docs/plan.md §1.10). Anyone in the back office, and client users of
 // a client the operator has switched feedback on for, send feedback; only operators read it.
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");

@@ -1,4 +1,4 @@
-// The Feedback button (docs/plan.md §1.8): the back office always sends feedback; a client's portal
+// The Feedback button (docs/plan.md §1.10): the back office always sends feedback; a client's portal
 // only when the operator has switched it on for that client (`tenant.settings.feedback`, changed
 // with a reason in tenant_change). The comment is saved first, the screenshot uploaded after, so a
 // failed upload loses only the picture. Only operators read feedback and its screenshots.

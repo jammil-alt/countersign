@@ -46,6 +46,9 @@ pnpm format       # Biome: format and organise imports
 | File storage | Local R2 simulation in `wrangler dev` | always on |
 | Models | `LLM_MODE=replay` in tests; `live` calls Anthropic | `ANTHROPIC_API_KEY` |
 | QuickBooks | Not built yet (phase 3); the testkit connector stands in | `QBO_*` (sandbox) |
+| Webhooks (Zapier) | Real: make a hook in the portal and `curl` its URL; outbound sends need a public https URL | `ENCRYPTION_KEY` |
+| Zoho CRM | Sign-in starts but needs a real Zoho client to finish; tests use a fake Zoho | `ZOHO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Podio | Sign-in starts but needs a real Podio API key to finish; tests use a fake Podio | `PODIO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Email (sending) | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
 | Email forwarding (receiving) | Post a `.eml` to `wrangler dev` (below) | `EMAIL_FORWARDING_DOMAIN` (e.g. `in.mezonas.test`) |
 | Document links | The Worker signs its own 5-minute links | `STORAGE_*` (R2 presigned URLs) |
@@ -86,7 +89,7 @@ passing test run of the live version, Activate in Settings; the client admin the
 from the portal inbox. The testkit is in memory: `testkit.record.update` fails on a record it doesn't
 hold, and it forgets everything when the Worker restarts.
 
-There is no screen for writing skills yet; skill steps also need `ANTHROPIC_API_KEY` to run.
+Write skills in Skills → New skill (publish a version, then add it to an agent from the skill's page); skill steps need `ANTHROPIC_API_KEY` to run. The Builder ("My description" on a new agent, "Revise with the Builder" on an agent page) also needs the key; without it the page says it can't reach its model.
 
 ## Status
 

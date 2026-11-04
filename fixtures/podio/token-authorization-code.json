@@ -1,0 +1,8 @@
+{
+  "access_token": "podio.access.fixture-1",
+  "token_type": "bearer",
+  "expires_in": 28800,
+  "refresh_token": "podio.refresh.fixture",
+  "scope": "global:all",
+  "ref": { "type": "user", "id": 4071234 }
+}
