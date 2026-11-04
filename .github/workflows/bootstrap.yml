@@ -65,17 +65,85 @@ jobs:
             echo "::error::Missing secrets (NEON_API_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID): ${missing[*]}"
             exit 1
           fi
+          # Check the Cloudflare token and account id up front, with Cloudflare's own messages. Values
+          # are never printed; only their length and whether they have stray whitespace.
+          acct_len=${#CF_ACCOUNT}
+          if [[ "$CF_ACCOUNT" =~ [[:space:]] ]]; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID contains a space or line break; re-save it without one."
+            exit 1
+          fi
+          if ! [[ "$CF_ACCOUNT" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID should be 32 lowercase hex characters (it has $acct_len characters). Copy the Account ID from Workers & Pages → right sidebar, not the Zone ID."
+            exit 1
+          fi
+          # The token's shape, described without printing it. An API token is one word of letters,
+          # digits, - and _ (40 characters when this was written).
+          tok_len=${#CF_TOKEN}
+          if [[ "$CF_TOKEN" =~ [[:space:]] ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN ($tok_len characters) contains a space or line break. Paste only the token itself, not the 'curl' test command or 'Bearer'."
+            exit 1
+          fi
+          if [[ "$CF_TOKEN" =~ ^[0-9a-f]{37}$ ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN looks like the Global API Key (37 hex characters). Use the API token created for mezonas-github (My Profile → API Tokens → Create Token); it is shown once, after 'Create Token'."
+            exit 1
+          fi
+          if [[ "$CF_TOKEN" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN looks like an id (32 hex characters), such as the token's or the account's id, not the token value. Roll the token to get a new value and save that."
+            exit 1
+          fi
+          if ! [[ "$CF_TOKEN" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN ($tok_len characters) has characters a token never has (quotes, colons, slashes…). Paste only the token value."
+            exit 1
+          fi
+          verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/tokens/verify")
+          if [ "$(jq -r '.success' <<<"$verify")" != true ]; then
+            verify=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/user/tokens/verify")
+          fi
+          if [ "$(jq -r '.success' <<<"$verify")" != true ]; then
+            echo "::error::Cloudflare rejected CLOUDFLARE_API_TOKEN ($tok_len characters): $(jq -c '.errors' <<<"$verify")"
+            exit 1
+          fi
+          account=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT")
+          if [ "$(jq -r '.success' <<<"$account")" != true ]; then
+            echo "::error::The token can't read account CLOUDFLARE_ACCOUNT_ID: $(jq -c '.errors' <<<"$account"). Check the Account ID, and that the token includes this account."
+            exit 1
+          fi
+          echo "Cloudflare account: $(jq -r '.result.name' <<<"$account")"
 
       - name: Neon project
         run: |
           set -euo pipefail
-          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          # A failed call prints the provider's own error message to the log and stops; the body is
+          # never piped into jq (where it would be swallowed).
+          api() {
+            local out code
+            out=$(mktemp)
+            code=$(curl -sS -o "$out" -w '%{http_code}' "$@") || { cat "$out" >&2; return 1; }
+            if [ "$code" -ge 400 ]; then echo "::error::HTTP $code: $(head -c 800 "$out")"; return 22; fi
+            cat "$out"
+          }
+          neon() { api -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
           if [ -n "$NEON_PROJECT_ID" ]; then
             project="$NEON_PROJECT_ID"
             echo "Using NEON_PROJECT_ID=$project"
           else
             region="$REGION"
             org="$ORG_ID"
+            if [ -z "$org" ]; then
+              # Neon accounts live in organizations, and listing projects needs one. Use the key's
+              # only organization; with several, stop and list them so the owner picks one (Mezonas
+              # must not land in another project's organization by accident).
+              orgs=$(neon "$NEON/users/me/organizations" | jq -c '[.organizations[]? | {id, name}]')
+              count=$(jq 'length' <<<"$orgs")
+              if [ "$count" = 1 ]; then
+                org=$(jq -r '.[0].id' <<<"$orgs")
+                echo "Using the key's only Neon organization: $(jq -r '.[0].name' <<<"$orgs") ($org)"
+              elif [ "$count" -gt 1 ]; then
+                echo "::error::This Neon key belongs to $count organizations. Re-run with org_id set to one of them:"
+                jq -r '.[] | "  \(.name): \(.id)"' <<<"$orgs"
+                exit 1
+              fi
+            fi
             echo "Region $region${org:+, organization $org}"
             existing=$(neon "$NEON/projects?search=mezonas${org:+&org_id=$org}" \
               | jq -r '[.projects[] | select(.name == "mezonas")][0].id // empty')
@@ -96,7 +164,16 @@ jobs:
       - name: Owner role, database and staging branch
         run: |
           set -euo pipefail
-          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          # A failed call prints the provider's own error message to the log and stops; the body is
+          # never piped into jq (where it would be swallowed).
+          api() {
+            local out code
+            out=$(mktemp)
+            code=$(curl -sS -o "$out" -w '%{http_code}' "$@") || { cat "$out" >&2; return 1; }
+            if [ "$code" -ge 400 ]; then echo "::error::HTTP $code: $(head -c 800 "$out")"; return 22; fi
+            cat "$out"
+          }
+          neon() { api -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
           wait_ops() { # Neon applies changes asynchronously; wait until nothing is running
             for _ in $(seq 1 60); do
               running=$(neon "$NEON/projects/$PROJECT/operations?limit=20" \
@@ -134,8 +211,17 @@ jobs:
       - name: Worker role, Hyperdrive and R2
         run: |
           set -euo pipefail
-          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
-          cf() { curl -fsS -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
+          # A failed call prints the provider's own error message to the log and stops; the body is
+          # never piped into jq (where it would be swallowed).
+          api() {
+            local out code
+            out=$(mktemp)
+            code=$(curl -sS -o "$out" -w '%{http_code}' "$@") || { cat "$out" >&2; return 1; }
+            if [ "$code" -ge 400 ]; then echo "::error::HTTP $code: $(head -c 800 "$out")"; return 22; fi
+            cat "$out"
+          }
+          neon() { api -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+          cf() { api -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
 
           provision() { # branch_id, hyperdrive name
             local branch=$1 name=$2 owner_uri worker_password host existing body id
@@ -162,6 +248,7 @@ jobs:
               id=$(cf -X POST "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs" -d "$body" | jq -r '.result.id')
               echo "Created Hyperdrive $name"
             fi
+            echo "Hyperdrive $name id: $id"
             echo "| \`$name\` | \`$id\` |" >> "$GITHUB_STEP_SUMMARY"
           }
 

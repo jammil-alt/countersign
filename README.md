@@ -21,7 +21,7 @@ Status: **repo set up, M0 next** (Worker, app, database, Workflows, sign-in). No
 
 A Hono API on Cloudflare Workers serving a React + Vite app, Cloudflare Workflows for durable jobs,
 Postgres 16 (pgvector, pg_trgm) on Neon through Hyperdrive, R2 for files, WorkOS for sign-in, Anthropic
-models. TypeScript throughout, pnpm workspace, Biome, Vitest.
+and OpenAI models. TypeScript throughout, pnpm workspace, Biome, Vitest.
 
 This is the same stack and set of conventions as Plenary Labs, chosen for consistency. Mezonas is a
 separate product: it shares no runtime dependency, data, infrastructure, keys or secrets with it.

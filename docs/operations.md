@@ -104,7 +104,7 @@ After the first run: save the project id from the run summary as the repository 
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
-- `WORKOS_API_KEY` and `ANTHROPIC_API_KEY`: copied from the GitHub **environment** (`staging` or
+- `WORKOS_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`: copied from the GitHub **environment** (`staging` or
   `production`) on every deploy, so rotating a key is "update the GitHub secret, redeploy".
 - `ENCRYPTION_KEY` (32 random bytes, base64) and `WORKOS_COOKIE_PASSWORD`: generated once inside the job
   when the Worker doesn't have them yet, and never shown or stored anywhere else. If the job can't read
@@ -119,7 +119,7 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 |---|---|---|
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
-| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY` (one per environment) |
+| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
 
 ## 1.1 Onboarding a client (managed service)
 

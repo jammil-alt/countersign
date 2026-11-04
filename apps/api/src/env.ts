@@ -5,6 +5,8 @@ export interface Secrets {
   WORKOS_API_KEY?: string;
   WORKOS_COOKIE_PASSWORD?: string;
   ANTHROPIC_API_KEY?: string;
+  /** Loaded by deploy.yml; used once packages/llm has its OpenAI adapter. */
+  OPENAI_API_KEY?: string;
   /** 32 bytes, base64: connection credentials at rest (ARCHITECTURE §17). */
   ENCRYPTION_KEY?: string;
   ENCRYPTION_KEY_PREVIOUS?: string;

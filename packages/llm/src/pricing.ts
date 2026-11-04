@@ -66,6 +66,27 @@ export const PRICES: Readonly<Record<ModelId, ModelPrice>> = {
       },
     },
   },
+  // DECISION: OpenAI's list prices for GPT-5.5 as reported in 2026-11 ($5 in, $0.50 cached in,
+  // $30 out; prompts over 272k tokens at 2x input and 1.5x output), unverified against OpenAI's own
+  // page like every price here. OpenAI does not charge for cache writes, so they cost what fresh
+  // input does (the transport reports none).
+  [MODELS.gpt]: {
+    inputPerMtok: "5.00",
+    outputPerMtok: "30.00",
+    cacheWrite5mPerMtok: "5.00",
+    cacheWrite1hPerMtok: "5.00",
+    cacheReadPerMtok: "0.50",
+    longContext: {
+      aboveInputTokens: 272_000,
+      price: {
+        inputPerMtok: "10.00",
+        outputPerMtok: "45.00",
+        cacheWrite5mPerMtok: "10.00",
+        cacheWrite1hPerMtok: "10.00",
+        cacheReadPerMtok: "1.00",
+      },
+    },
+  },
 };
 
 /**

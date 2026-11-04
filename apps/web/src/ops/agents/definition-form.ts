@@ -42,9 +42,15 @@ export type FormErrors = Record<string, string>;
 /**
  * The models offered by default.
  */
-// DECISION: the editor offers the three models packages/llm names (opus, the platform default;
-// sonnet; haiku) and keeps any other id a bundle already has; apps/web can't import packages/llm.
-export const MODEL_OPTIONS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] as const;
+// DECISION: the editor offers the models packages/llm names (opus, the platform default; sonnet;
+// haiku; OpenAI's GPT-5.5, routed by its `openai:` prefix) and keeps any other id a bundle already
+// has; apps/web can't import packages/llm.
+export const MODEL_OPTIONS = [
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+  "openai:gpt-5.5",
+] as const;
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
 /** Approvers the editor offers besides a user id. */

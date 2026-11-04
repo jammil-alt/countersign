@@ -216,7 +216,7 @@ Out (designed for, not built):
 | DB | Postgres 16 with `pgvector`, `pg_trgm` | Neon, reached from Workers through Hyperdrive; local via Docker |
 | ORM / migrations | Drizzle | Platform schema in `packages/db`, pack schemas in their packs, one migration sequence |
 | Durable jobs / workflows | Cloudflare Workflows | `step.do` with retries, `step.waitForEvent`, `step.sleep`; Worker cron for schedules |
-| LLM | Anthropic API via `@anthropic-ai/sdk`, tool use + structured outputs | Models below |
+| LLM | Anthropic API via `@anthropic-ai/sdk`, and OpenAI's Responses API for `openai:` model ids (owner, 2026-11-04), tool use + structured outputs | Models below |
 | Object storage | Cloudflare R2 (Worker binding; S3 API for signed URLs) | Original documents, never mutated |
 | Auth | WorkOS (AuthKit), sealed session cookie; behind `packages/auth` | Same as Plenary Labs |
 | Validation | Zod for every definition, tool input/output, API body | Shared with the builder through `packages/core` |
@@ -227,6 +227,7 @@ Models (configurable per agent version and per skill, defaults):
 - `claude-sonnet-5-5` — extraction, agent reasoning, Builder
 - `claude-haiku-5-5` — high-volume classification and adjudication (e.g. item matching)
 - `claude-opus-5-5` — optional for the Builder on complex requests
+- `openai:gpt-5.5` — OpenAI, for any agent or skill the operator sets to it (the `openai:` prefix routes the call)
 
 ---
 
@@ -245,7 +246,7 @@ pnpm monorepo.
                        bundle diff and three-way merge (shared with the merge view), route contract,
                        units, money
   /db                  Drizzle platform schema, migrations (platform + packs), seed, withTenant()
-  /llm                 Anthropic client wrapper, cost tracking, record/replay
+  /llm                 model client (Anthropic, OpenAI), cost tracking, record/replay
   /auth                Tenant + role helpers, WorkOS and dev adapters
   /senses              Event outbox
   /connectors          Connector framework + qbo/ + upload/; object storage
