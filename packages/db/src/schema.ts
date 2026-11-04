@@ -234,6 +234,7 @@ export const rawRecord = pgTable(
       columns: [t.connectionId, t.tenantId],
       foreignColumns: [connection.id, connection.tenantId],
     }),
+    unique("raw_record_id_tenant_key").on(t.id, t.tenantId),
     unique("raw_record_version_key")
       .on(t.connectionId, t.entityType, t.externalId, t.externalVersion)
       .nullsNotDistinct(),
@@ -799,6 +800,236 @@ export const usageDaily = pgTable(
   ],
 );
 
+// ── Shared business records (ARCHITECTURE §5.2) ─────────────────────────────────────────────────
+// Connectors map into these; packs and platform tools read them. Added by migration 0004 with the
+// documents capability (docs/plan.md §1.6).
+
+export const TRANSACTION_KINDS = ["purchase", "bill", "vendor_credit"] as const;
+export const TRANSACTION_STATUSES = [
+  "needs_doc",
+  "doc_requested",
+  "doc_found",
+  "extracted",
+  "processed",
+] as const;
+export const LINE_DETAIL_TYPES = ["account", "item"] as const;
+export const DOCUMENT_SOURCES = ["connector", "upload", "email", "request"] as const;
+export const DOCUMENT_STATUSES = [
+  "stored",
+  "extracting",
+  "extracted",
+  "failed",
+  "needs_review",
+] as const;
+
+/** Money that may be absent (an amount a document did not show). */
+const money = (name: string) => numeric(name, { precision: 14, scale: 4 });
+const currency = () => text("currency").notNull().default("USD");
+
+export const vendor = pgTable(
+  "vendor",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text("name").notNull(),
+    /** Lowercased, punctuation and company suffixes removed: the key a vendor is found by. */
+    normalizedName: text("normalized_name").notNull(),
+    aliases: text("aliases").array().notNull().default(sql`'{}'::text[]`),
+    /** Ids in connected tools, e.g. `{ qbo: "56" }`. */
+    externalRefs: json("external_refs").notNull().default({}),
+    /** Sender domains seen on this vendor's documents, and other signals. */
+    ext: json("ext").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("vendor_id_tenant_key").on(t.id, t.tenantId),
+    unique("vendor_normalized_name_key").on(t.tenantId, t.normalizedName),
+  ],
+);
+
+export const transaction = pgTable(
+  "transaction",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    kind: text("kind").$type<(typeof TRANSACTION_KINDS)[number]>().notNull(),
+    // DECISION: a transaction names the connector it came from (`upload`, `qbo`), so events and
+    // dedupe don't have to join raw_record; with external_id it is unique per client.
+    connector: text("connector").notNull(),
+    vendorId: uuid("vendor_id"),
+    txnDate: date("txn_date"),
+    total: money("total").notNull(),
+    currency: currency(),
+    purchaserRef: text("purchaser_ref"),
+    paymentType: text("payment_type"),
+    memo: text("memo"),
+    sourceRawRecordId: uuid("source_raw_record_id"),
+    externalId: text("external_id").notNull(),
+    status: text("status")
+      .$type<(typeof TRANSACTION_STATUSES)[number]>()
+      .notNull()
+      .default("needs_doc"),
+    ext: json("ext").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("transaction_id_tenant_key").on(t.id, t.tenantId),
+    unique("transaction_external_key").on(t.tenantId, t.connector, t.externalId),
+    foreignKey({
+      name: "transaction_vendor_fk",
+      columns: [t.vendorId, t.tenantId],
+      foreignColumns: [vendor.id, vendor.tenantId],
+    }),
+    foreignKey({
+      name: "transaction_raw_record_fk",
+      columns: [t.sourceRawRecordId, t.tenantId],
+      foreignColumns: [rawRecord.id, rawRecord.tenantId],
+    }),
+    // The linking window: vendor + date (± 7 days) + total (docs/plan.md §1.6).
+    index("transaction_link_idx").on(t.tenantId, t.vendorId, t.txnDate),
+    check("transaction_kind_check", oneOf(t.kind, TRANSACTION_KINDS)),
+    check("transaction_status_check", oneOf(t.status, TRANSACTION_STATUSES)),
+  ],
+);
+
+export const transactionLine = pgTable(
+  "transaction_line",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    transactionId: uuid("transaction_id").notNull(),
+    lineNo: integer("line_no").notNull(),
+    detailType: text("detail_type").$type<(typeof LINE_DETAIL_TYPES)[number]>().notNull(),
+    accountRef: text("account_ref"),
+    itemRef: text("item_ref"),
+    description: text("description"),
+    qty: money("qty"),
+    unitPrice: money("unit_price"),
+    amount: money("amount").notNull(),
+  },
+  (t) => [
+    foreignKey({
+      name: "transaction_line_transaction_fk",
+      columns: [t.transactionId, t.tenantId],
+      foreignColumns: [transaction.id, transaction.tenantId],
+    }),
+    unique("transaction_line_no_key").on(t.transactionId, t.lineNo),
+    check("transaction_line_detail_type_check", oneOf(t.detailType, LINE_DETAIL_TYPES)),
+  ],
+);
+
+/** An original file (invoice, receipt), stored once per client and sha256. */
+export const document = pgTable(
+  "document",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    transactionId: uuid("transaction_id"),
+    source: text("source").$type<(typeof DOCUMENT_SOURCES)[number]>().notNull(),
+    /** The connection it came through (the client's upload connection for uploads and email). */
+    connectionId: uuid("connection_id"),
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    filename: text("filename").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    pageCount: integer("page_count"),
+    status: text("status").$type<(typeof DOCUMENT_STATUSES)[number]>().notNull().default("stored"),
+    /**
+     * Where it came from: who uploaded it, or a forwarded email's headers (from, to, subject,
+     * date, message id). Never an email body (ARCHITECTURE §6.5).
+     */
+    meta: json("meta").notNull().default({}),
+    receivedAt: ts("received_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("document_id_tenant_key").on(t.id, t.tenantId),
+    // DECISION: one document per client and sha256: the same file uploaded twice, or uploaded
+    // and then forwarded, is one document (its first source).
+    unique("document_sha256_key").on(t.tenantId, t.sha256),
+    foreignKey({
+      name: "document_transaction_fk",
+      columns: [t.transactionId, t.tenantId],
+      foreignColumns: [transaction.id, transaction.tenantId],
+    }),
+    foreignKey({
+      name: "document_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    index("document_transaction_idx").on(t.transactionId),
+    index("document_tenant_idx").on(t.tenantId, t.receivedAt),
+    check("document_source_check", oneOf(t.source, DOCUMENT_SOURCES)),
+    check("document_status_check", oneOf(t.status, DOCUMENT_STATUSES)),
+    check("document_sha256_check", sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
+/** One reading of a document. Immutable (trigger): re-extraction inserts a new row. */
+export const docExtraction = pgTable(
+  "doc_extraction",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    documentId: uuid("document_id").notNull(),
+    model: text("model").notNull(),
+    agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
+    /** InvoiceExtraction's header: vendor, invoice number and date, PO, per-field confidence. */
+    header: json("header").notNull(),
+    currency: currency(),
+    subtotal: money("subtotal").notNull(),
+    freight: usd("freight"),
+    /** `[{ label, amount }]`, e.g. a fuel surcharge. */
+    surcharges: json<{ label: string; amount: string }[]>("surcharges").notNull().default([]),
+    tax: usd("tax"),
+    total: money("total").notNull(),
+    linesSum: money("lines_sum").notNull(),
+    totalsMatch: boolean("totals_match").notNull(),
+    /** What validateTotals found, in words, when the totals do not match. */
+    problems: json<string[]>("problems").notNull().default([]),
+    /** The model's overall confidence, 0–1. */
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("doc_extraction_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "doc_extraction_document_fk",
+      columns: [t.documentId, t.tenantId],
+      foreignColumns: [document.id, document.tenantId],
+    }),
+    index("doc_extraction_document_idx").on(t.documentId, t.createdAt),
+  ],
+);
+
+/** A line of an extraction. Immutable with it. */
+export const docLine = pgTable(
+  "doc_line",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    extractionId: uuid("extraction_id").notNull(),
+    lineNo: integer("line_no").notNull(),
+    vendorSku: text("vendor_sku"),
+    rawDescription: text("raw_description").notNull(),
+    qty: money("qty").notNull(),
+    uomRaw: text("uom_raw"),
+    unitPrice: money("unit_price").notNull(),
+    extPrice: money("ext_price").notNull(),
+    discount: money("discount"),
+    page: integer("page"),
+    bbox: json("bbox"),
+  },
+  (t) => [
+    foreignKey({
+      name: "doc_line_extraction_fk",
+      columns: [t.extractionId, t.tenantId],
+      foreignColumns: [docExtraction.id, docExtraction.tenantId],
+    }),
+    unique("doc_line_no_key").on(t.extractionId, t.lineNo),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -824,6 +1055,12 @@ export const TENANT_TABLES = [
   "inbox_item",
   "memory_note",
   "usage_daily",
+  "vendor",
+  "transaction",
+  "transaction_line",
+  "document",
+  "doc_extraction",
+  "doc_line",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
