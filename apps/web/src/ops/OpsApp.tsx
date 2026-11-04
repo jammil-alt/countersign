@@ -16,6 +16,7 @@ import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
 import { NewClientScreen } from "./screens/NewClient";
 import { OverviewScreen } from "./screens/Overview";
+import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
@@ -26,7 +27,6 @@ const PLACEHOLDERS: [path: string, title: string][] = [
   ["skills", "Skills"],
   ["skills/:id", "Skill"],
   ["packs", "Packs"],
-  ["requests", "Requests"],
   ["usage", "Usage and cost"],
   ["settings", "Settings"],
 ];
@@ -49,6 +49,7 @@ export default function OpsApp() {
         <Route path="runs" element={<OpsRunsScreen />} />
         <Route path="runs/:id" element={<OpsRunScreen />} />
         <Route path="inbox" element={<OpsInboxScreen />} />
+        <Route path="requests" element={<OpsRequestsScreen />} />
         <Route path="feedback" element={<OpsFeedbackScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />

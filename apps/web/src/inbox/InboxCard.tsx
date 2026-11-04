@@ -252,7 +252,11 @@ function Actions({
   onResolve: (body: ResolveInput) => void;
 }) {
   if (kind === "change_request") {
-    return <span className="text-sm text-ink-muted">Handled in the requests queue.</span>;
+    return (
+      <Link to="/ops/requests" className="text-sm text-link underline">
+        Open the requests queue
+      </Link>
+    );
   }
   if (kind === "request") {
     return (

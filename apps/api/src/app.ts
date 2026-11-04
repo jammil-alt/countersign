@@ -17,6 +17,7 @@ import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
+import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick } from "./runs/dispatch";
@@ -40,6 +41,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   documentRoutes(app);
   feedbackRouteHandlers(app);
   onboardingRouteHandlers(app);
+  requestRouteHandlers(app);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
   // Sentry there, and answered here in the API's error shape.
