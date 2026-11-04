@@ -14,7 +14,8 @@
     "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "db:add-operator": "tsx scripts/add-operator.ts"
   },
   "dependencies": {
     "@countersign/core": "workspace:*",
