@@ -56,6 +56,14 @@ export async function tenantLocale(db: Db | Tx, tenantId: string): Promise<Local
   return clientLanguage(await settingsOf(db, tenantId)) ?? "en";
 }
 
+/** New client settings with its default language, when one was chosen (onboarding). */
+export function withLanguage(
+  settings: Record<string, unknown>,
+  language: Locale | undefined,
+): Record<string, unknown> {
+  return language ? { ...settings, [CLIENT_LANGUAGE_KEY]: language } : settings;
+}
+
 /** Sets one key of `tenant.settings` in place, so concurrent changes to other keys aren't lost. */
 async function setClientLanguage(tx: Tx, tenantId: string, language: Locale): Promise<Locale> {
   const [row] = await tx

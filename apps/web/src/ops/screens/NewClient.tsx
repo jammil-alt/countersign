@@ -1,7 +1,14 @@
-// `/ops/clients/new`: onboarding a client (ARCHITECTURE §15): its name and timezone, the tools it
+// `/ops/clients/new`: onboarding a client (ARCHITECTURE §15): its name, timezone and language, the tools it
 // is offered, who approves changes to its tools, and its admin, invited in the same step. Then the
 // client's settings page, which says what became of the invitation email.
-import type { ExternalApprover, InviteResult } from "@countersign/core";
+import {
+  type ExternalApprover,
+  type InviteResult,
+  LOCALE_NAMES,
+  LOCALES,
+  type Locale,
+  parseLocale,
+} from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isApiError } from "../../api/client";
@@ -9,7 +16,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { inviteProblem } from "../../people/People";
 import { useSessionState } from "../../session/session";
-import { Field, TextInput } from "../../ui/forms";
+import { Field, Select, TextInput } from "../../ui/forms";
 import {
   Button,
   buttonClass,
@@ -104,6 +111,8 @@ export function NewClientScreen() {
   const connectors = useApi(apiRoutes.connectors);
   const [name, setName] = useState("");
   const [timezone, setTimezone] = useState(browserTimezone);
+  // DECISION: English unless the operator picks another; the client admin can change it later.
+  const [language, setLanguage] = useState<Locale>("en");
   const [offered, setOffered] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<ExternalApprover>("client_admin");
   const [adminEmail, setAdminEmail] = useState("");
@@ -130,6 +139,7 @@ export function NewClientScreen() {
           timezone: timezone.trim(),
           connectorsOffered: offered,
           approvals,
+          language,
           ...(adminEmail.trim()
             ? {
                 admin: {
@@ -205,6 +215,24 @@ export function NewClientScreen() {
                   <option key={z} value={z} />
                 ))}
               </datalist>
+            </Field>
+            <Field
+              label="Language"
+              hint="Their portal and what their agents write for them."
+              className="min-w-48"
+              testId="new-client-language"
+            >
+              <Select
+                data-testid="new-client-language"
+                value={language}
+                onChange={(e) => setLanguage(parseLocale(e.target.value) ?? "en")}
+              >
+                {LOCALES.map((l) => (
+                  <option key={l} value={l}>
+                    {LOCALE_NAMES[l]}
+                  </option>
+                ))}
+              </Select>
             </Field>
           </Card>
         </section>

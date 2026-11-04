@@ -1,56 +1,65 @@
 // A client's people and the invite form, shared by the back office's client settings and the
 // portal's Settings (docs/plan.md §1.14). An invite is saved first; the email is reported after,
-// so a failed email still leaves an invite the person can sign in with.
+// so a failed email still leaves an invite the person can sign in with. Words come from the
+// portal's message files (English in the back office, docs/plan.md §1.18).
 import type { InvitableRole, InviteBody, InviteResult, Member } from "@countersign/core";
 import { useState } from "react";
 import { isApiError } from "../api/client";
+import type { PlainKey } from "../i18n/catalog";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { Field, Select, TextInput } from "../ui/forms";
 import { Badge, Button, Card, EmptyState, Tag } from "../ui/primitives";
 
-export const ROLE_LABEL: Record<Member["role"], string> = {
-  client_admin: "Admin",
-  client_user: "User",
-  operator: "Mezonas",
+export const ROLE_LABEL: Record<Member["role"], PlainKey> = {
+  client_admin: "people.role.client_admin",
+  client_user: "people.role.client_user",
+  operator: "people.role.operator",
 };
 
 /** What the invitation email did, in plain words. */
-export function inviteMessage(result: InviteResult): string {
-  const who = result.member.email;
+export function inviteMessage(result: InviteResult, { t }: Pick<I18n, "t"> = EN): string {
+  const email = result.member.email;
   switch (result.email.status) {
     case "sent":
-      return `We emailed ${who} an invitation.`;
+      return t("people.invite.sent", { email });
     case "not_sent":
       return result.email.reason === "already_signed_up"
-        ? `Added ${who}. They've signed in before, so there was nothing to email.`
-        : `Invited ${who}. This environment sends no emails: they can sign in with that address now.`;
+        ? t("people.invite.signedUpBefore", { email })
+        : t("people.invite.noEmails", { email });
     default:
-      return `Invited ${who}, but the email didn't send. Ask them to sign in with that address.`;
+      return t("people.invite.emailFailed", { email });
   }
 }
 
 /** Why an invite was refused, in plain words. */
-export function inviteProblem(error: unknown, surface: "ops" | "portal"): string {
+export function inviteProblem(
+  error: unknown,
+  surface: "ops" | "portal",
+  { t }: Pick<I18n, "t"> = EN,
+): string {
   const code = isApiError(error) ? error.code : null;
   switch (code) {
     case "already_member":
       return surface === "portal"
-        ? "That address already has access."
-        : "That address is already in this client.";
+        ? t("people.problem.hasAccess")
+        : // Back office only, so English.
+          "That address is already in this client.";
     case "other_client":
-      return "That address belongs to another client.";
+      return t("people.problem.otherClient");
     case "is_operator":
-      return "That address belongs to a Mezonas operator.";
+      return t("people.problem.isOperator");
     case "unavailable":
-      return "That address can't be invited here. Ask us and we'll sort it out.";
+      return t("people.problem.unavailable");
     case "invalid_request":
-      return "Enter an email address.";
+      return t("people.problem.noEmail");
     default:
-      return "We couldn't send that invite. Try again.";
+      return t("people.problem.failed");
   }
 }
 
 export function MemberList({ members, testId }: { members: Member[]; testId: string }) {
-  if (members.length === 0) return <EmptyState>Nobody yet. Invite someone below.</EmptyState>;
+  const { t } = useI18n();
+  if (members.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
   return (
     <Card className="overflow-hidden" testId={testId}>
       <ul>
@@ -65,8 +74,8 @@ export function MemberList({ members, testId }: { members: Member[]; testId: str
               {m.name ? <span className="block text-sm text-ink-muted">{m.email}</span> : null}
             </span>
             <span className="flex shrink-0 items-center gap-2">
-              {m.signedIn === false ? <Badge>Invited</Badge> : null}
-              <Tag tone={m.role === "operator" ? "person" : "neutral"}>{ROLE_LABEL[m.role]}</Tag>
+              {m.signedIn === false ? <Badge>{t("people.invited")}</Badge> : null}
+              <Tag tone={m.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[m.role])}</Tag>
             </span>
           </li>
         ))}
@@ -91,10 +100,12 @@ export function InviteForm({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const i18n = useI18n();
+  const { t } = i18n;
 
   async function submit() {
     if (!email.trim()) {
-      setProblem("Enter an email address.");
+      setProblem(t("people.problem.noEmail"));
       return;
     }
     setBusy(true);
@@ -106,11 +117,11 @@ export function InviteForm({
         role,
         ...(name.trim() ? { name: name.trim() } : {}),
       });
-      setDone(inviteMessage(result));
+      setDone(inviteMessage(result, i18n));
       setEmail("");
       setName("");
     } catch (error) {
-      setProblem(inviteProblem(error, surface));
+      setProblem(inviteProblem(error, surface, i18n));
     } finally {
       setBusy(false);
     }
@@ -126,7 +137,7 @@ export function InviteForm({
         }}
       >
         <Field
-          label="Email"
+          label={t("people.email")}
           error={problem ?? undefined}
           className="min-w-64 flex-1"
           testId={`${testId}-email`}
@@ -140,31 +151,28 @@ export function InviteForm({
             onChange={(e) => setEmail(e.target.value)}
           />
         </Field>
-        <Field label="Name (optional)" className="min-w-48 flex-1">
+        <Field label={t("people.name")} className="min-w-48 flex-1">
           <TextInput
             data-testid={`${testId}-name`}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <Field label="Role" className="w-40">
+        <Field label={t("people.role")} className="w-40">
           <Select
             data-testid={`${testId}-role`}
             value={role}
             onChange={(e) => setRole(e.target.value as InvitableRole)}
           >
-            <option value="client_user">User</option>
-            <option value="client_admin">Admin</option>
+            <option value="client_user">{t("people.role.client_user")}</option>
+            <option value="client_admin">{t("people.role.client_admin")}</option>
           </Select>
         </Field>
         <Button type="submit" variant="primary" disabled={busy} data-testid={`${testId}-send`}>
-          Invite
+          {t("people.invite")}
         </Button>
       </form>
-      <p className="mt-3 text-sm text-ink-muted">
-        Admins connect tools, approve changes and invite people. Users see the inbox items given to
-        them, runs and reports.
-      </p>
+      <p className="mt-3 text-sm text-ink-muted">{t("people.rolesHelp")}</p>
       {done ? (
         <p role="status" className="mt-2 text-sm text-ink" data-testid={`${testId}-done`}>
           {done}

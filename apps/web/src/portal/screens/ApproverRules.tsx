@@ -5,14 +5,16 @@
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ApproverRules } from "../../approvals/ApproverRules";
+import { useI18n } from "../../i18n/i18n";
 import { ErrorNotice, SectionLabel } from "../../ui/primitives";
 
 export function PortalApproverRules() {
+  const { t } = useI18n();
   const client = useApiClient();
   const { data, error, reload } = useApi(apiRoutes.portalApproverRules);
   return (
     <section data-testid="portal-approvers">
-      <SectionLabel>Who approves</SectionLabel>
+      <SectionLabel>{t("approvers.title")}</SectionLabel>
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data ? (
         <ApproverRules

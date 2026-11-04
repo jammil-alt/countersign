@@ -19,23 +19,37 @@ export function monthLabel(month: string): string {
   return `${MONTHS[Number(m) - 1] ?? m} ${y}`;
 }
 
-/** "Nov 3, 2026" for "2026-11-03". */
-export function dayLabel(day: string): string {
-  const [y, m, d] = day.split("-");
-  return `${MONTHS[Number(m) - 1] ?? m} ${Number(d)}, ${y}`;
+// A `YYYY-MM-DD` day is a calendar day, not an instant: formatted in UTC so no time zone moves it.
+const asDay = (day: string) => new Date(`${day}T00:00:00.000Z`);
+
+/**
+ * "Nov 3, 2026" for "2026-11-03", in the reader's Intl locale (the portal passes its own; the back
+ * office reads en-US).
+ */
+export function dayLabel(day: string, intl = "en-US"): string {
+  return new Intl.DateTimeFormat(intl, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(asDay(day));
 }
 
-/** "Nov 1 – Nov 3, 2026", or one day. */
-export function periodLabel(from: string, to: string): string {
-  if (from === to) return dayLabel(from);
+/** "Nov 1 – Nov 3, 2026", or one day; the year once when both days share it. */
+export function periodLabel(from: string, to: string, intl = "en-US"): string {
+  if (from === to) return dayLabel(from, intl);
   const sameYear = from.slice(0, 4) === to.slice(0, 4);
-  const start = sameYear ? dayLabel(from).replace(/, \d{4}$/, "") : dayLabel(from);
-  return `${start} – ${dayLabel(to)}`;
+  const start = sameYear
+    ? new Intl.DateTimeFormat(intl, { month: "short", day: "numeric", timeZone: "UTC" }).format(
+        asDay(from),
+      )
+    : dayLabel(from, intl);
+  return `${start} – ${dayLabel(to, intl)}`;
 }
 
-/** Whole counts with thousands separators: "12,345". */
-export function count(n: number): string {
-  return new Intl.NumberFormat("en-US").format(n);
+/** Whole counts with the locale's separators: "12,345", "12.345". */
+export function count(n: number, intl = "en-US"): string {
+  return new Intl.NumberFormat(intl).format(n);
 }
 
 /** "1 run", "3 runs". */

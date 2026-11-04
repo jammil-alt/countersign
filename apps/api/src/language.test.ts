@@ -83,6 +83,30 @@ describe.skipIf(!h)("languages", () => {
     expect(await session(user("a"))).toMatchObject({ effective: "pt-BR", client: "pt-BR" });
   });
 
+  it("a new client can start in its language; unset follows the browser", async () => {
+    const res = await H.call(OPERATOR, "POST", "/api/ops/clients", {
+      name: "Taller Ruiz",
+      language: "es",
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const [row] = await H.t.db
+      .select()
+      .from(tenant)
+      .where(eq(tenant.id, j(res.json).client.id));
+    expect(row?.settings).toMatchObject({ connectors_offered: [], language: "es" });
+    const plain = await H.call(OPERATOR, "POST", "/api/ops/clients", { name: "Plain shop" });
+    const [p] = await H.t.db
+      .select()
+      .from(tenant)
+      .where(eq(tenant.id, j(plain.json).client.id));
+    expect(p?.settings).not.toHaveProperty("language");
+    const bad = await H.call(OPERATOR, "POST", "/api/ops/clients", {
+      name: "Klingon shop",
+      language: "tlh",
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it("refuses languages we don't have, and clients the operator doesn't serve", async () => {
     expect(
       (await H.call(admin("a"), "PUT", "/api/client/language", { language: "es-MX" })).status,

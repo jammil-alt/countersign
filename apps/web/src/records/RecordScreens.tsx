@@ -5,15 +5,15 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
+import { useI18n } from "../i18n/i18n";
 import { EmptyState, ErrorNotice, Loading } from "../ui/primitives";
 import { RecordDetail, type RecordHrefs } from "./RecordDetail";
 
 function NotARecord() {
+  const { t } = useI18n();
   return (
     <EmptyState>
-      <span data-testid="record-not-found">
-        There's no record page for this id. It may be a record of a tool or pack we don't show here.
-      </span>
+      <span data-testid="record-not-found">{t("record.notFound")}</span>
     </EmptyState>
   );
 }
@@ -37,13 +37,14 @@ function RecordBody({
 }
 
 export function PortalRecordScreen() {
+  const { t } = useI18n();
   const { id = "" } = useParams();
   const state = useApi(apiRoutes.portalRecord, { params: { id } });
   return (
     <div className="max-w-6xl">
       <p className="mb-2 text-sm">
         <Link to="/runs" className="text-ink-muted hover:underline">
-          Runs
+          {t("nav.runs")}
         </Link>
       </p>
       <RecordBody

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
@@ -666,6 +667,8 @@ export const opsRoutes = {
       connectorsOffered: z.array(z.string().min(1)).optional(),
       /** Who approves its external actions (default: the client admin). */
       approvals: ExternalApprover.optional(),
+      /** Its default language (plan §1.18); unset follows each reader's browser. */
+      language: Locale.optional(),
       /** Its client admin, invited in the same step. */
       admin: InviteBody.omit({ role: true }).optional(),
     }),

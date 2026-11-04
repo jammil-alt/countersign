@@ -1,6 +1,5 @@
 // The client portal (`/`, client roles): the client's own frame, with no switcher and no building
-// (ARCHITECTURE §15). Overview, Inbox, Runs, Connections and Requests are wired; the rest are
-// placeholders.
+// (ARCHITECTURE §15). Every screen reads in the session's language (docs/plan.md §1.18).
 import type { ReactNode } from "react";
 import { Route, Routes } from "react-router-dom";
 import { apiRoutes } from "../api/routes";

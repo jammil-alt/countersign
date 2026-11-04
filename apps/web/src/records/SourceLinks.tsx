@@ -2,11 +2,12 @@
 // open their record page. Ids that aren't record ids (a sample's "r1") show without a link.
 import { isUuid } from "@countersign/core";
 import { Link } from "react-router-dom";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { Icon } from "../ui/icons";
 
 /** "Record ·3f9a1c": the id's random tail, enough to tell two apart in a list. */
-export function sourceLabel(id: string): string {
-  return isUuid(id) ? `Record ·${id.slice(-6)}` : id;
+export function sourceLabel(id: string, { t }: Pick<I18n, "t"> = EN): string {
+  return isUuid(id) ? t("record.source", { tail: id.slice(-6) }) : id;
 }
 
 export function SourceLinks({
@@ -19,6 +20,7 @@ export function SourceLinks({
   href: (id: string) => string;
   testId?: string;
 }) {
+  const i18n = useI18n();
   if (ids.length === 0) return null;
   return (
     <span data-testid={testId} className="mt-1 flex flex-wrap gap-1.5">
@@ -32,7 +34,7 @@ export function SourceLinks({
             data-testid={`source-${id}`}
           >
             <Icon name="receipt" size={14} className="ds-icon" />
-            {sourceLabel(id)}
+            {sourceLabel(id, i18n)}
           </Link>
         ) : (
           <span key={id} className="mz-receipt cursor-default">
