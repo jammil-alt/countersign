@@ -59,8 +59,8 @@ export const ptBR: Messages = {
 
   // ── Language ──
   "language.label": "Idioma",
-  "language.followClient": "O idioma da sua equipe ({language})",
-  "language.followBrowser": "O idioma do seu navegador ({language})",
+  "language.followClient": "Idioma da equipe",
+  "language.followBrowser": "Idioma do navegador",
   "language.clientDefault": "Idioma de {client}",
   "language.clientDefaultHint": "Todos em {client} leem neste idioma, a menos que escolham outro.",
   "language.clientDefaultNone": "O idioma do navegador de cada pessoa",
@@ -284,7 +284,8 @@ export const ptBR: Messages = {
     "O encaminhamento ainda não está ativado. Seu endereço privado vai aparecer aqui.",
   "forwarding.help":
     "Crie uma regra de encaminhamento no seu e-mail (por exemplo, da caixa de contas a pagar) para este endereço privado. Guardamos os anexos, nunca o texto da mensagem.",
-  "forwarding.counts": "{accepted} recebidos · {dropped} não aceitos",
+  "forwarding.received": { one: "{count} recebido", other: "{count} recebidos" },
+  "forwarding.dropped": { one: "{count} não aceito", other: "{count} não aceitos" },
   "forwarding.lastDrop": "(último {time}: {reason})",
   "forwarding.whoMay": "Quem pode encaminhar",
   "forwarding.adminAdd":

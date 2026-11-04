@@ -111,7 +111,7 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
         {userInitial(session.user)}
       </button>
       {open ? (
-        <div className="absolute right-0 z-30 mt-2 w-64 rounded-md border border-line bg-surface p-4 elevation-pop">
+        <div className="absolute right-0 z-30 mt-2 w-80 rounded-md border border-line bg-surface p-4 elevation-pop">
           <p className="font-medium text-ink">{displayName(session.user)}</p>
           <p className="truncate text-sm text-ink-muted">{session.user.email}</p>
           {/* The back office stays in English (plan §1.18): only the portal offers languages. */}

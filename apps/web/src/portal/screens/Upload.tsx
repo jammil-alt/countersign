@@ -223,7 +223,8 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
             </Button>
           </div>
           <p className="mt-3 text-sm text-ink-muted figures">
-            {t("forwarding.counts", { accepted: f.accepted, dropped: f.dropped })}
+            {t("forwarding.received", { count: f.accepted })} ·{" "}
+            {t("forwarding.dropped", { count: f.dropped })}
             {f.lastDropReason && f.lastDroppedAt
               ? ` ${t("forwarding.lastDrop", {
                   time: shortTime(f.lastDroppedAt, undefined, i18n),

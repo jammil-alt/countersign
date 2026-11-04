@@ -9,7 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { ApiError } from "../api/client";
-import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply } from "../test/fixtures";
+import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../test/fixtures";
 import { CATALOGS, createTranslator, type PluralForms } from "./catalog";
 import { errorText } from "./errors";
 import { intlLocaleFor } from "./format";
@@ -241,7 +241,7 @@ describe("the language picker", () => {
     const mine = screen.getByTestId("language-mine") as HTMLSelectElement;
     // No choice of your own yet: your team's language.
     expect(mine.value).toBe("");
-    expect(mine.options[0]?.text).toBe("El idioma de su equipo (Español)");
+    expect(mine.options[0]?.text).toBe("Idioma del equipo · Español");
     await userEvent.selectOptions(mine, "de");
     expect(bodies).toEqual([{ language: "de" }]);
     expect(await screen.findByRole("heading", { name: "Übersicht" })).toBeInTheDocument();
@@ -282,6 +282,29 @@ describe("before a session and in the back office", () => {
     expect(screen.getByTestId("signin-error")).toHaveTextContent(
       "Diese E-Mail-Adresse wurde nicht zu Mezonas eingeladen.",
     );
+  });
+
+  it("lets the operator set the client's language on the client page", async () => {
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${SANDBOX_DETAIL.client.id}`]: () => SANDBOX_DETAIL,
+      [`GET /api/ops/clients/${SANDBOX_DETAIL.client.id}/feedback`]: () => ({
+        enabled: false,
+        changes: [],
+      }),
+      [`PUT /api/ops/clients/${SANDBOX_DETAIL.client.id}/language`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { client: "es" };
+      },
+    });
+    renderAt(`/ops/clients/${SANDBOX_DETAIL.client.id}`, api);
+    const select = await screen.findByTestId("ops-client-language-select");
+    expect(select).toHaveValue("");
+    await userEvent.selectOptions(select, "es");
+    await waitFor(() => expect(bodies).toEqual([{ language: "es" }]));
+    // The back office itself stays in English.
+    expect(screen.getByText("The client's language")).toBeInTheDocument();
   });
 
   it("keeps the back office in English, whatever the browser reads", async () => {

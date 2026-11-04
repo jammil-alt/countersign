@@ -57,8 +57,8 @@ export const en = {
 
   // ── Language ──
   "language.label": "Language",
-  "language.followClient": "Your team's language ({language})",
-  "language.followBrowser": "Your browser's language ({language})",
+  "language.followClient": "Your team's language",
+  "language.followBrowser": "Your browser's language",
   "language.clientDefault": "Default for {client}",
   "language.clientDefaultHint": "Everyone at {client} reads this, unless they choose their own.",
   "language.clientDefaultNone": "Each person's browser language",
@@ -271,7 +271,8 @@ export const en = {
   "forwarding.off": "Forwarding isn't switched on yet. Your private address will appear here.",
   "forwarding.help":
     "Add a forwarding rule in your email (for example from your accounts payable inbox) to this private address. We keep the attachments, never the message text.",
-  "forwarding.counts": "{accepted} received · {dropped} not accepted",
+  "forwarding.received": { one: "{count} received", other: "{count} received" },
+  "forwarding.dropped": { one: "{count} not accepted", other: "{count} not accepted" },
   "forwarding.lastDrop": "(last {time}: {reason})",
   "forwarding.whoMay": "Who may forward",
   "forwarding.adminAdd":

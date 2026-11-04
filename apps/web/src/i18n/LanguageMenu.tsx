@@ -50,9 +50,8 @@ export function LanguageMenu() {
           }}
         >
           <option value="">
-            {team
-              ? t("language.followClient", { language: LOCALE_NAMES[fallback] })
-              : t("language.followBrowser", { language: LOCALE_NAMES[fallback] })}
+            {team ? t("language.followClient") : t("language.followBrowser")}
+            {` · ${LOCALE_NAMES[fallback]}`}
           </option>
           {LOCALES.map((l) => (
             <option key={l} value={l} lang={l}>

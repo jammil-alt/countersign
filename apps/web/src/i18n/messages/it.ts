@@ -59,8 +59,8 @@ export const it: Messages = {
 
   // ── Language ──
   "language.label": "Lingua",
-  "language.followClient": "La lingua del tuo team ({language})",
-  "language.followBrowser": "La lingua del tuo browser ({language})",
+  "language.followClient": "Lingua del team",
+  "language.followBrowser": "Lingua del browser",
   "language.clientDefault": "Lingua di {client}",
   "language.clientDefaultHint":
     "Tutti in {client} leggono in questa lingua, se non ne scelgono un'altra.",
@@ -283,7 +283,8 @@ export const it: Messages = {
   "forwarding.off": "L'inoltro non è ancora attivo. Il tuo indirizzo privato comparirà qui.",
   "forwarding.help":
     "Crea una regola di inoltro nella tua email (per esempio dalla casella della contabilità fornitori) verso questo indirizzo privato. Teniamo gli allegati, mai il testo del messaggio.",
-  "forwarding.counts": "{accepted} ricevuti · {dropped} non accettati",
+  "forwarding.received": { one: "{count} ricevuto", other: "{count} ricevuti" },
+  "forwarding.dropped": { one: "{count} non accettato", other: "{count} non accettati" },
   "forwarding.lastDrop": "(ultimo {time}: {reason})",
   "forwarding.whoMay": "Chi può inoltrare",
   "forwarding.adminAdd":

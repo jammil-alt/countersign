@@ -59,8 +59,8 @@ export const es: Messages = {
 
   // ── Language ──
   "language.label": "Idioma",
-  "language.followClient": "El idioma de su equipo ({language})",
-  "language.followBrowser": "El idioma de su navegador ({language})",
+  "language.followClient": "Idioma del equipo",
+  "language.followBrowser": "Idioma del navegador",
   "language.clientDefault": "Idioma de {client}",
   "language.clientDefaultHint": "Todos en {client} leen en este idioma, salvo que elijan otro.",
   "language.clientDefaultNone": "El idioma del navegador de cada persona",
@@ -279,7 +279,8 @@ export const es: Messages = {
   "forwarding.off": "El reenvío aún no está activado. Su dirección privada aparecerá aquí.",
   "forwarding.help":
     "Cree una regla de reenvío en su correo (por ejemplo, desde la bandeja de cuentas por pagar) hacia esta dirección privada. Guardamos los adjuntos, nunca el texto del mensaje.",
-  "forwarding.counts": "{accepted} recibidos · {dropped} no aceptados",
+  "forwarding.received": { one: "{count} recibido", other: "{count} recibidos" },
+  "forwarding.dropped": { one: "{count} no aceptado", other: "{count} no aceptados" },
   "forwarding.lastDrop": "(último {time}: {reason})",
   "forwarding.whoMay": "Quién puede reenviar",
   "forwarding.adminAdd":

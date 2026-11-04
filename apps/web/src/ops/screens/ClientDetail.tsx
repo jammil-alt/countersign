@@ -16,6 +16,7 @@ import {
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
+import { ClientLanguageSetting } from "./ClientLanguageSetting";
 
 export function ClientDetailScreen() {
   const { clientId = "" } = useParams();
@@ -44,6 +45,11 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientLanguageSetting
+        clientId={data.client.id}
+        settings={data.client.settings}
+        onSaved={reload}
+      />
       <ClientFeedbackSetting clientId={data.client.id} />
     </div>
   );

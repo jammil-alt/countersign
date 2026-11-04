@@ -59,8 +59,8 @@ export const de: Messages = {
 
   // ── Language ──
   "language.label": "Sprache",
-  "language.followClient": "Sprache Ihres Teams ({language})",
-  "language.followBrowser": "Sprache Ihres Browsers ({language})",
+  "language.followClient": "Sprache des Teams",
+  "language.followBrowser": "Sprache des Browsers",
   "language.clientDefault": "Sprache für {client}",
   "language.clientDefaultHint":
     "Alle bei {client} lesen in dieser Sprache, außer sie wählen eine eigene.",
@@ -286,7 +286,8 @@ export const de: Messages = {
     "Die Weiterleitung ist noch nicht eingeschaltet. Ihre private Adresse erscheint hier.",
   "forwarding.help":
     "Richten Sie in Ihrem E-Mail-Postfach eine Weiterleitungsregel an diese private Adresse ein (zum Beispiel aus dem Postfach der Kreditorenbuchhaltung). Wir behalten die Anhänge, nie den Text der Nachricht.",
-  "forwarding.counts": "{accepted} erhalten · {dropped} nicht angenommen",
+  "forwarding.received": { one: "{count} erhalten", other: "{count} erhalten" },
+  "forwarding.dropped": { one: "{count} nicht angenommen", other: "{count} nicht angenommen" },
   "forwarding.lastDrop": "(zuletzt {time}: {reason})",
   "forwarding.whoMay": "Wer weiterleiten darf",
   "forwarding.adminAdd":

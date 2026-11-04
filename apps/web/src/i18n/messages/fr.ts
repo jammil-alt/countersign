@@ -59,8 +59,8 @@ export const fr: Messages = {
 
   // ── Language ──
   "language.label": "Langue",
-  "language.followClient": "La langue de votre équipe ({language})",
-  "language.followBrowser": "La langue de votre navigateur ({language})",
+  "language.followClient": "Langue de l'équipe",
+  "language.followBrowser": "Langue du navigateur",
   "language.clientDefault": "Langue de {client}",
   "language.clientDefaultHint":
     "Tout le monde chez {client} lit dans cette langue, sauf choix personnel.",
@@ -285,7 +285,8 @@ export const fr: Messages = {
   "forwarding.off": "Le transfert n'est pas encore activé. Votre adresse privée apparaîtra ici.",
   "forwarding.help":
     "Ajoutez une règle de transfert dans votre messagerie (par exemple depuis la boîte de la comptabilité fournisseurs) vers cette adresse privée. Nous gardons les pièces jointes, jamais le texte du message.",
-  "forwarding.counts": "{accepted} reçus · {dropped} refusés",
+  "forwarding.received": { one: "{count} reçu", other: "{count} reçus" },
+  "forwarding.dropped": { one: "{count} refusé", other: "{count} refusés" },
   "forwarding.lastDrop": "(dernier {time} : {reason})",
   "forwarding.whoMay": "Qui peut transférer",
   "forwarding.adminAdd":
