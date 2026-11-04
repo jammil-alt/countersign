@@ -97,6 +97,46 @@ describe.skipIf(!h)("API", () => {
       );
       expect(workos.status).not.toBe(200);
     });
+
+    it("tells the sign-in page which sign-in to show, and sends WorkOS failures back to it", async () => {
+      const ctx = { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as never;
+      const as = (env: Record<string, string>) => (path: string) =>
+        H.app.request(path, {}, { ...H.env, ...env }, ctx);
+
+      const dev = await H.call(null, "GET", "/api/auth/provider");
+      expect(dev.json).toEqual({ provider: "dev", message: null });
+
+      const workos = as({
+        ENVIRONMENT: "staging",
+        AUTH_PROVIDER: "workos",
+        WORKOS_CLIENT_ID: "client_test",
+        WORKOS_API_KEY: "sk_test_key",
+        WORKOS_COOKIE_PASSWORD: "x".repeat(64),
+        APP_ORIGIN: "https://staging.mezonas.test",
+      });
+      expect(await (await workos("/api/auth/provider")).json()).toEqual({
+        provider: "workos",
+        message: null,
+      });
+      const start = await workos("/api/auth/sign-in?return_to=/ops/clients");
+      expect(start.status).toBe(302);
+      expect(start.headers.get("location")).toMatch(/^https:\/\/api\.workos\.com\//);
+      // A callback that can't be verified goes back to the sign-in page with a code, not JSON.
+      const callback = await workos("/api/auth/callback?code=c&state=s");
+      expect(callback.status).toBe(302);
+      expect(callback.headers.get("location")).toBe("/sign-in?error=unauthenticated");
+      const offsite = await workos("/api/auth/sign-in?return_to=https://evil.example");
+      expect(offsite.headers.get("location")).toBe("/sign-in?error=forbidden");
+
+      const broken = as({ ENVIRONMENT: "staging", AUTH_PROVIDER: "workos", WORKOS_CLIENT_ID: "" });
+      const unavailable = (await (await broken("/api/auth/provider")).json()) as {
+        provider: string;
+      };
+      expect(unavailable.provider).toBe("unavailable");
+      const refused = await broken("/api/auth/sign-in");
+      expect(refused.status).toBe(302);
+      expect(refused.headers.get("location")).toBe("/sign-in?error=misconfigured");
+    });
   });
 
   describe("clients", () => {
