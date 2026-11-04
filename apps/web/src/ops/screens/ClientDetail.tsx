@@ -16,6 +16,7 @@ import {
 } from "../../ui/primitives";
 import { summaryBadge } from "../versions";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
+import { ClientTabs } from "./ClientKnowledge";
 
 export function ClientDetailScreen() {
   const { clientId = "" } = useParams();
@@ -34,6 +35,7 @@ export function ClientDetailScreen() {
         title={data.client.name}
         subtitle={`${live} of ${data.agents.length} agents live · ${data.client.timezone}`}
       />
+      <ClientTabs clientId={data.client.id} />
       <SectionLabel>Agents</SectionLabel>
       {data.agents.length === 0 ? (
         <EmptyState>No agents yet. Fork a template into this client to start.</EmptyState>

@@ -9,6 +9,7 @@ import { MergeScreen } from "./merge/MergeScreen";
 import { OpsLayout } from "./OpsLayout";
 import { AgentPage } from "./screens/AgentPage";
 import { ClientDetailScreen } from "./screens/ClientDetail";
+import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
 import { OpsFeedbackScreen } from "./screens/Feedback";
@@ -42,6 +43,7 @@ export default function OpsApp() {
         <Route path="agents/:id/merge" element={<MergeScreen />} />
         <Route path="clients/:clientId" element={<ClientDetailScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
+        <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
         <Route path="runs" element={<OpsRunsScreen />} />
         <Route path="runs/:id" element={<OpsRunScreen />} />
