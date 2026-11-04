@@ -260,6 +260,23 @@ The portal and what agents write for clients come in the client's language. The 
 | Translations | Written with the code, marked for review by a fluent speaker before a client sees them. Documents and invoices are not translated. |
 | Next step (planned, not in stream I) | **Message translation.** Agents read and write in several languages and translate incoming text: a client can keep everything in one working language (e.g. Spanish emails, webhook payloads and thread messages in, English stored beside them) or the reverse for outgoing messages, per client and per contact. The original is always kept (raw records stay immutable, invariant 3); the translation is a tool result with `agent_version_id`, never instructions (invariant 9), and is stored beside the original. |
 
+
+### 1.19 Texts and calls: Twilio, WhatsApp, ElevenLabs (owner, 2026-11-04; planned)
+
+Agents send and receive text messages and make and take phone calls, as tools they are given, drawing on what they know about the client. Planned here; not built yet. The defaults below stand unless the owner changes them (§7).
+
+| Topic | Decision (default) |
+|---|---|
+| Connectors | `twilio`: SMS, phone numbers, and **WhatsApp through Twilio's WhatsApp senders** (one provider, one webhook format, one bill), with voice calls bridged to ElevenLabs. `elevenlabs`: voice agents for live calls (speech in and out, low latency), on the client's Twilio number. Meta's WhatsApp Cloud API directly is the alternative if Twilio's per-message fees matter later. |
+| Whose accounts | Mezonas' own Twilio account with a **subaccount and number per client**, provisioned by the operator; Mezonas' own ElevenLabs account. These are Mezonas' infrastructure (like email sending), not the client's tools, so the client signs in to nothing; a client that already has Twilio can connect its own instead. Usage (messages, minutes) is metered into `usage_daily` and counts against credits (§1.17). |
+| Tools | Reads: `messages.search`, `message.get`, `call.get` (transcript, summary, recording link). Writes, each an external action behind approval: `sms.send`, `whatsapp.send` (templates outside WhatsApp's 24-hour window), `call.place` (a call with a stated purpose, recipient and the agent to speak). Events: `message.received`, `call.completed`, connector event types as `webhook.received` is. |
+| Live calls | A call can't be approved sentence by sentence, so the approval is for **placing the call**: who, why, which agent and what it may do. During the call the voice agent may only use read tools and what the client knows; anything that would change a client's tool is proposed during the call and goes to the inbox after it. Inbound calls and replies to texts follow the same rule as any write: off unless the operator sets the step to run without approval, the matrix allows `auto` and the agent is in `act` mode (invariant 8). |
+| What agents know | A **per-client knowledge base** the agent draws on: the client's documents, FAQs and policies, plus its memory notes, never another client's (invariant 1). Reached through tools (`knowledge.search`), so it is evidence with sources, not instructions. ElevenLabs gets the call's knowledge from our tools at call time, not a copy kept in its account. This is new work: the platform has memory notes and documents, not a knowledge base yet. |
+| Untrusted text | Incoming texts, WhatsApp messages and call transcripts are untrusted data, like email (invariants 9 and 12): tool results only, stored per contact thread, the original kept. |
+| Contacts and consent | A contact record per client (phone, WhatsApp, language, consent and its source, opt-out). Every send checks consent and quiet hours first; STOP and opt-out words are honoured at once; calls say they are an automated assistant and ask before recording. US texting needs A2P 10DLC registration per client number. These rules are checked in code, not left to the model. Needs a migration. |
+| Languages | Texts and calls in the contact's language; translation of incoming messages comes with §1.18's next step. |
+| Order | After the MVP connectors (QuickBooks, Gmail), approver rules and Stripe: contacts and consent, the knowledge base, then Twilio texts and WhatsApp, then calls. |
+
 ---
 
 ## 2. Package layering
@@ -357,8 +374,9 @@ Progress, phase 1 and Track B (2026-11-03):
 
 **Phase 3: Product surfaces and tools, as needed.** Track B built most of the M5–M7 screens (inbox,
 portal connections, templates and client agents, the builder, run views; progress above). Left: reports and usage screens; then
-QuickBooks (M9) and Gmail (M10, now in the MVP), approver rules and Stripe billing (§1.17). Pia and the
-Materials pack (M8) are built separately (ARCHITECTURE v0.9).
+QuickBooks (M9) and Gmail (M10, now in the MVP), approver rules and Stripe billing (§1.17), languages
+(§1.18); then texts and calls (§1.19). Pia and the Materials pack (M8) are built separately
+(ARCHITECTURE v0.9).
 
 ---
 
@@ -584,3 +602,4 @@ Open
 1. Stripe: the base fee is per active agent, with a credit allowance and overage (owner, 2026-11-04). Open: what one credit measures (a run, a step, or model cost), the allowance per agent, whether a client's allowances are pooled across its agents, the prices, and the Stripe account and its keys (saved as network secrets, never in the repo).
 2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
 3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first (owner: tomorrow).
+4. Texts and calls (§1.19): Mezonas-owned Twilio subaccounts per client (default) or each client's own Twilio; WhatsApp through Twilio (default) or Meta directly; which countries first (US texting needs A2P 10DLC registration); Twilio and ElevenLabs accounts and keys; `api.twilio.com` and `api.elevenlabs.io` allowed in the network. Legal review of consent, calling hours, recording consent and AI disclosure for each country before any live client calls.
