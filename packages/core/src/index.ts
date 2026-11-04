@@ -4,11 +4,18 @@
 // Pure: no I/O and no Node/DOM/Workers-only APIs, so it runs in the browser, the Worker and Node.
 // Allowed workspace dependencies: none. See docs/plan.md §2.
 
+export * from "./api/approver-rules";
 export * from "./api/contract";
+export * from "./api/documents";
 export * from "./api/feedback";
 export * from "./api/knowledge";
+export * from "./api/messaging";
+export * from "./api/onboarding";
+export * from "./api/records";
 export * from "./api/requests";
 export * from "./api/routes";
+export * from "./api/usage";
+export * from "./approvals/rules";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {
@@ -27,6 +34,7 @@ export * from "./duration";
 export * from "./ids";
 export * from "./json";
 export * from "./mappers/upload";
+export * from "./messaging/rules";
 export * from "./money";
 export * from "./permissions/decide";
 export * from "./roles";

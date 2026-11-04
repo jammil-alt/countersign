@@ -4,7 +4,7 @@
 // one short transaction scoped to that client (withTenant), never held across a model call.
 
 import type { ConnectionRef } from "@countersign/connectors";
-import type { AgentBundle, JsonObject } from "@countersign/core";
+import type { AgentBundle, ApproverRule, JsonObject } from "@countersign/core";
 import type { ResolvedSkill } from "../registry/skills";
 import type { DocumentsPort, KnowledgePort, PlatformStore, RunMode } from "../tools/types";
 
@@ -19,6 +19,13 @@ export interface PinnedAgent {
   bindings: Record<string, string>;
   /** The client agent's approver override (null: the client's setting). */
   approver: "client_admin" | "operator" | null;
+}
+
+export interface ApprovalRouting {
+  rules: ApproverRule[];
+  revision: number;
+  clientDefault: string | null;
+  members: ReadonlySet<string>;
 }
 
 export interface MemoryNoteRecord {
@@ -37,8 +44,12 @@ export interface RuntimeStore {
   /** The client agent's live memory notes (never another agent's or client's; no test notes). */
   memoryNotes(tenantId: string, agentId: string, limit: number): Promise<MemoryNoteRecord[]>;
   connection(tenantId: string, connectionId: string): Promise<ConnectionRef | null>;
-  /** `tenant.settings.approvals.external_actions`. */
-  clientApprover(tenantId: string): Promise<string | null>;
+  /**
+   * What decides who approves a write, read fresh for every proposal so a client's tightening
+   * applies at once: the client's approver rules (`tenant.settings.approver_rules`), its default
+   * (`tenant.settings.approvals.external_actions`) and its client users' ids.
+   */
+  approvalRouting(tenantId: string): Promise<ApprovalRouting>;
   run(tenantId: string, runId: string): Promise<{ mode: RunMode; agentId: string } | null>;
 }
 
@@ -152,6 +163,8 @@ export interface ExternalActionStore {
     input: ProposeActionInput,
   ): Promise<{ action: ExternalActionRecord; created: boolean }>;
   get(tenantId: string, actionId: string): Promise<ExternalActionRecord | null>;
+  /** The action proposed under this idempotency key, if any (a retried step finds its own). */
+  byKey(tenantId: string, idempotencyKey: string): Promise<ExternalActionRecord | null>;
   /**
    * Moves `approved` → `executing` and returns the action, or returns it as it is (done, failed,
    * executing, proposed, rejected) for the caller to decide.
@@ -165,7 +178,23 @@ export interface ExternalActionStore {
     actionId: string,
     result: { output: unknown; before: unknown },
   ): Promise<ExternalActionRecord>;
-  fail(tenantId: string, actionId: string, error: unknown): Promise<ExternalActionRecord>;
+  /**
+   * Marks the action failed. With `inbox`, an item for a person to look at is opened in the same
+   * transaction (a write that may have happened: UnconfirmedWriteError).
+   */
+  fail(
+    tenantId: string,
+    actionId: string,
+    error: unknown,
+    options?: { inbox?: FailureInboxItem },
+  ): Promise<ExternalActionRecord>;
+}
+
+/** An inbox item opened with a failed action, for the operator to check what happened. */
+export interface FailureInboxItem {
+  title: string;
+  agentId: string | null;
+  payload: JsonObject;
 }
 
 export interface RuntimePorts {

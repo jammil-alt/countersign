@@ -9,7 +9,8 @@ import { ApprovalRequirement } from "./permissions";
 export const Approval = z
   .object({
     required: ApprovalRequirement.default("required"),
-    /** A role (`client_admin`, `operator`) or a user id; else the agent's, else the client's. */
+    /** A role (`client_admin`, `operator`) or a user id, used when none of the client's approver
+     * rules fits; else the agent's, else the client's (docs/plan.md §1.20). */
     approver: z.string().min(1).optional(),
     timeout: Duration.optional(),
     onReject: z.enum(["stop", "continue"]).default("stop"),

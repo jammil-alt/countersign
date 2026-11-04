@@ -3,11 +3,12 @@
 // app built over them with the dev sign-in, the testkit connector and in-memory Workflow
 // instances, and a fake WorkflowStep for driving runs.
 
-import { DEV_USER_HEADER } from "@countersign/auth";
+import { DEV_USER_HEADER, type WorkOSClient } from "@countersign/auth";
 import {
   type Connector,
   createTestkitConnector,
   createUploadConnector,
+  type FetchLike,
   MemoryObjectStore,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
@@ -109,6 +110,10 @@ export interface HarnessOptions {
   env?: Partial<Bindings>;
   /** The Builder's model transport (tests pass a FakeModel). */
   llm?: LlmTransport;
+  /** A fake WorkOS API for the WorkOS sign-in (with `AUTH_PROVIDER: "workos"` in `env`). */
+  workos?: WorkOSClient;
+  /** Outbound HTTP for provisioning routes (e.g. a fake Twilio). */
+  fetch?: FetchLike;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -141,6 +146,8 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     openDb: () => ({ db, close: async () => {} }),
     instances: () => instances,
     ...(options.llm ? { llm: () => options.llm as LlmTransport } : {}),
+    ...(options.workos ? { workos: () => options.workos as WorkOSClient } : {}),
+    ...(options.fetch ? { fetch: () => options.fetch as FetchLike } : {}),
     objects: () => objects,
     extractionTransport: () => extraction.transport,
   });
@@ -180,10 +187,14 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
           method,
           headers: {
             ...(email ? { [DEV_USER_HEADER]: email } : {}),
-            ...(body === undefined ? {} : { "content-type": "application/json" }),
+            ...(body === undefined || typeof body === "string"
+              ? {}
+              : { "content-type": "application/json" }),
             ...headers,
           },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          ...(body === undefined
+            ? {}
+            : { body: typeof body === "string" ? body : JSON.stringify(body) }),
         },
         env,
         executionCtx as unknown as ExecutionContext,

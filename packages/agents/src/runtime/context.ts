@@ -2,6 +2,7 @@
 
 import {
   type ConnectionRef,
+  type ConnectorServices,
   type CredentialsAccessor,
   type Logger,
   memoryCredentials,
@@ -25,6 +26,8 @@ export interface RuntimeDeps {
    * the default has none, which is all `auth: 'none'` connectors need.
    */
   credentials?: (connection: ConnectionRef) => CredentialsAccessor;
+  /** Platform services for connector calls (e.g. contacts and consent); apps/api passes them. */
+  services?: (connection: ConnectionRef) => ConnectorServices;
   logger?: Logger;
   now?: () => Date;
 }
@@ -52,14 +55,20 @@ export function connectionContext(deps: RuntimeDeps, tenantId: string, connectio
     credentials: deps.credentials?.(connection) ?? memoryCredentials(null),
     logger: deps.logger ?? noopLogger,
     now: deps.now ?? (() => new Date()),
+    ...(deps.services ? { services: deps.services(connection) } : {}),
   };
 }
 
 /** `<run id>:<step id>:<index>` (docs/plan.md §1.2 "External actions"). */
 export function idempotencyKey(step: StepContext): string {
-  const index = step.externalIndex.next;
+  const key = nextIdempotencyKey(step);
   step.externalIndex.next += 1;
-  return `${step.runId}:${step.stepId}:${index}`;
+  return key;
+}
+
+/** The key the step's next external call will take, without taking it. */
+export function nextIdempotencyKey(step: StepContext): string {
+  return `${step.runId}:${step.stepId}:${step.externalIndex.next}`;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
