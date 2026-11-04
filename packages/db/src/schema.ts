@@ -1030,6 +1030,82 @@ export const docLine = pgTable(
   ],
 );
 
+// ── Client settings log and feedback ─────────────────────────────────────────────────────────────
+
+/**
+ * Append-only log of the operator's changes to a client's settings that need a reason (today the
+ * feedback switch, `tenant.settings.feedback`).
+ */
+export const tenantChange = pgTable(
+  "tenant_change",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    actorId: uuid("actor_id").references(() => appUser.id),
+    /** E.g. `{ setting: "feedback", from: false, to: true }`. */
+    change: json("change").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("tenant_change_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+export const FEEDBACK_SURFACES = ["ops", "portal"] as const;
+export const FEEDBACK_STATUSES = ["open", "resolved"] as const;
+
+/** Where a pin was dropped, in CSS pixels of the viewport, and what was under it. */
+export interface FeedbackPin {
+  x: number;
+  y: number;
+}
+export interface FeedbackViewport {
+  width: number;
+  height: number;
+}
+
+/**
+ * What people tell us about the product, from the Feedback button: back-office feedback is the
+ * operator's own (`tenant_id` null, visible only in operator sessions); portal feedback belongs to
+ * its client. Read only by operators (`/api/ops/feedback`). The screenshot lives in object storage
+ * under the client's key; the row holds the key, never the bytes.
+ */
+export const feedback = pgTable(
+  "feedback",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    surface: text("surface").$type<(typeof FEEDBACK_SURFACES)[number]>().notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id),
+    comment: text("comment").notNull(),
+    path: text("path").notNull(),
+    viewport: json<FeedbackViewport>("viewport").notNull(),
+    /** Null for "no particular spot". */
+    pin: json<FeedbackPin>("pin"),
+    /** A short description of the element under the pin (e.g. `button "Approve"`). */
+    target: text("target"),
+    screenshotKey: text("screenshot_key"),
+    screenshotBytes: integer("screenshot_bytes"),
+    status: text("status").$type<(typeof FEEDBACK_STATUSES)[number]>().notNull().default("open"),
+    resolvedAt: ts("resolved_at"),
+    resolvedBy: uuid("resolved_by").references(() => appUser.id),
+    resolutionNote: text("resolution_note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("feedback_status_idx").on(t.status, t.createdAt),
+    index("feedback_tenant_idx").on(t.tenantId, t.createdAt),
+    check("feedback_surface_check", oneOf(t.surface, FEEDBACK_SURFACES)),
+    check("feedback_status_check", oneOf(t.status, FEEDBACK_STATUSES)),
+    // Portal feedback always names its client; back-office feedback never does.
+    check(
+      "feedback_surface_tenant_check",
+      sql`(${t.surface} = 'portal') = (${t.tenantId} is not null)`,
+    ),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -1061,6 +1137,8 @@ export const TENANT_TABLES = [
   "document",
   "doc_extraction",
   "doc_line",
+  "tenant_change",
+  "feedback",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -1071,4 +1149,5 @@ export const OPERATOR_TABLES = [
   "agent",
   "agent_version",
   "agent_change",
+  "feedback",
 ] as const satisfies readonly TenantTable[];

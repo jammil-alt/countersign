@@ -147,6 +147,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "document",
       "doc_extraction",
       "doc_line",
+      "tenant_change",
+      "feedback",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
@@ -154,6 +156,7 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);
+    expect(await can("tenant_change", "UPDATE")).toBe(false);
   });
 
   it("default ids to uuid v7, in creation order", async () => {

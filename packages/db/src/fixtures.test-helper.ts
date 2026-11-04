@@ -16,6 +16,7 @@ import {
   document,
   event,
   externalAction,
+  feedback,
   inboxItem,
   membership,
   memoryNote,
@@ -26,6 +27,7 @@ import {
   skillVersion,
   stepRun,
   tenant,
+  tenantChange,
   tenantPack,
   thread,
   toolCall,
@@ -260,6 +262,18 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     })
     .returning();
 
+  await db
+    .insert(tenantChange)
+    .values({ tenantId, change: { setting: "feedback", to: true }, reason: "Beta" });
+  await db.insert(feedback).values({
+    tenantId,
+    surface: "portal",
+    userId: u.id,
+    comment: "This is confusing",
+    path: "/inbox",
+    viewport: { width: 1280, height: 800 },
+  });
+
   return {
     tenantId,
     userId: u.id,
@@ -293,5 +307,17 @@ export async function insertOperatorRows(db: Db): Promise<{ agentVersionId: stri
     .values({ agentId: a.id, version: 1, bundle: BUNDLE, bundleHash: "h", authorType: "operator" })
     .returning();
   await db.insert(agentChange).values({ agentId: a.id, change: { note: "x" } });
+  const [op] = await db
+    .insert(appUser)
+    .values({ email: `operator-${a.id}@example.com`, name: "Operator" })
+    .returning();
+  if (!op) throw new Error("no operator user");
+  await db.insert(feedback).values({
+    surface: "ops",
+    userId: op.id,
+    comment: "Back office",
+    path: "/ops",
+    viewport: { width: 1280, height: 800 },
+  });
   return { agentVersionId: av?.id ?? "" };
 }
