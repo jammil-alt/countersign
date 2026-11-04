@@ -2,7 +2,7 @@
 // the catalog only through these (invariant 2). Each is `none` (reads) or `internal` (the pack's
 // own records); none writes to a client's tool. apps/api adapts them to the tool registry's shape
 // (the pack never imports packages/agents) and hands each call its database and model transport.
-// M8b adds the pricing tools to MATERIALS_TOOLS.
+// The pricing tools (record, check, history, compare vendors, digest) are at the end.
 
 import type { ToolSpec } from "@countersign/core";
 import { type Db, docExtraction, docLine, withTenant } from "@countersign/db";
@@ -15,12 +15,18 @@ import { modelParse } from "./catalog/model";
 import { normalize } from "./catalog/normalize";
 import { MATCH_CONFIDENCE_AUTO } from "./catalog/settings";
 import { createItem, itemView, latestMatch, liveItem, searchCatalog } from "./catalog/store";
+import { checkPrices } from "./pricing/check";
+import { compareVendors, priceHistory, weeklyDigest } from "./pricing/history";
+import { recordPrices } from "./pricing/record";
+import { priceSettingsFrom } from "./pricing/rules";
 import { CATEGORIES, catalogItem } from "./schema";
 
 /** What a pack tool gets for one call: one client, one agent version, one step's settings. */
 export interface PackToolContext {
   tenantId: string;
   agentVersionId: string;
+  /** The run the call belongs to (alerts record it); null outside a run. */
+  runId: string | null;
   mode: "live" | "test";
   /** The settings of the skill the step runs (e.g. `match_confidence_auto`). */
   settings: Readonly<Record<string, unknown>>;
@@ -39,6 +45,7 @@ export interface PackTool {
 export interface ToolContextSource {
   tenantId: string;
   agentVersionId: string;
+  runId?: string | null | undefined;
   mode: "live" | "test";
   settings?: Readonly<Record<string, unknown>> | undefined;
   db: Db;
@@ -65,6 +72,7 @@ export function packToolContext(source: ToolContextSource): PackToolContext {
   return {
     tenantId: source.tenantId,
     agentVersionId: source.agentVersionId,
+    runId: source.runId ?? null,
     mode: source.mode,
     settings: source.settings ?? {},
     db: source.db,
@@ -386,10 +394,220 @@ export const catalogDuplicates = defineTool({
   },
 });
 
+// ── Prices and alerts (ARCHITECTURE §12.4) ───────────────────────────────────────────────────────
+
+const pricingContext = (ctx: PackToolContext) => ({
+  tenantId: ctx.tenantId,
+  agentVersionId: ctx.agentVersionId,
+  runId: ctx.runId,
+  testRun: ctx.mode === "test",
+});
+
+const today = () => new Date().toISOString().slice(0, 10);
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}/);
+
+const LinePriceOut = z.object({
+  docLineId: z.string(),
+  lineNo: z.number(),
+  description: z.string(),
+  catalogItemId: z.string().nullable(),
+  catalogItemName: z.string().nullable(),
+  observationId: z.string().nullable(),
+  unitPriceStd: z.string().nullable(),
+  qtyStd: z.string().nullable(),
+  standardUom: z.string().nullable(),
+  landedUnitPriceStd: z.string().nullable(),
+  skipped: z.string().nullable(),
+});
+
+export const pricesRecord = defineTool({
+  id: "materials.prices.record",
+  description:
+    "Records the price of every matched line of a document's latest reading, in the catalog item's standard unit (freight and surcharges kept apart, as a landed price). Lines not matched yet, or in a unit with no conversion rule, are skipped with the reason.",
+  sideEffect: "internal",
+  summary: "Recorded {{recorded}} prices from {{total}} lines",
+  input: z.object({ documentId: z.uuid() }),
+  output: z.object({
+    documentId: z.string(),
+    extractionId: z.string(),
+    vendorId: z.string(),
+    observedOn: z.string(),
+    total: z.number(),
+    recorded: z.number(),
+    skipped: z.number(),
+    lines: z.array(LinePriceOut),
+    sources: z.array(z.string()),
+  }),
+  run: (input, ctx) => recordPrices(ctx.db, pricingContext(ctx), input),
+});
+
+const AlertOut = z.object({
+  id: z.string().nullable(),
+  kind: z.string(),
+  severity: z.string(),
+  title: z.string(),
+  body: z.string(),
+  catalogItemId: z.string().nullable(),
+  vendorId: z.string(),
+  dollarImpact: z.string().nullable(),
+  evidence: z.array(z.string()),
+  deduped: z.boolean(),
+});
+
+/** Vendor names the step's settings leave out of the check (a client-specific list). */
+export function ignoredVendors(settings: Readonly<Record<string, unknown>>): string[] {
+  const v = settings.ignore_vendors;
+  const list = Array.isArray(v) ? v.map(String) : typeof v === "string" ? v.split(",") : [];
+  return list.map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+export const pricesCheck = defineTool({
+  id: "materials.prices.check",
+  description:
+    "Checks a document's recorded prices against the client's history with the six alert rules (jump, against the 90-day average, vendor spread, creep, new fee, outlier) and raises an alert, with its evidence and dollar impact, for each that fires. One open alert per kind, item and vendor.",
+  sideEffect: "internal",
+  summary: "Checked {{checked}} prices; raised {{raised}} alerts",
+  input: z.object({ documentId: z.uuid() }),
+  output: z.object({
+    documentId: z.string(),
+    checked: z.number(),
+    raised: z.number(),
+    deduped: z.number(),
+    alerts: z.array(AlertOut),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const ignore = ignoredVendors(ctx.settings);
+    const result = await checkPrices(ctx.db, pricingContext(ctx), {
+      documentId: input.documentId,
+      settings: priceSettingsFrom(ctx.settings),
+      ignoreVendors: ignore,
+    });
+    return result;
+  },
+});
+
+export const pricesHistory = defineTool({
+  id: "materials.prices.history",
+  description:
+    "An item's recorded prices, oldest first, in its standard unit, from every vendor or one, over the last `days` (default 180).",
+  sideEffect: "none",
+  input: z.object({
+    catalogItemId: z.uuid(),
+    vendorId: z.uuid().optional(),
+    days: z.number().int().min(1).max(730).optional(),
+  }),
+  output: z.object({
+    observations: z.array(
+      z.object({
+        id: z.string(),
+        vendorId: z.string(),
+        vendorName: z.string(),
+        observedOn: z.string(),
+        unitPriceStd: z.string(),
+        qtyStd: z.string(),
+        standardUom: z.string(),
+        docLineId: z.string().nullable(),
+      }),
+    ),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const observations = await withTenant(ctx.db, ctx.tenantId, (tx) =>
+      priceHistory(tx, ctx.tenantId, { ...input, today: today() }),
+    );
+    return { observations, sources: observations.map((o) => o.id) };
+  },
+});
+
+export const pricesCompareVendors = defineTool({
+  id: "materials.prices.compare_vendors",
+  description:
+    "What each vendor charged for an item over the last `days` (default 90): last and average price, purchases and quantity, cheapest first.",
+  sideEffect: "none",
+  summary: "Compared {{vendors.length}} vendors",
+  input: z.object({
+    catalogItemId: z.uuid(),
+    days: z.number().int().min(1).max(730).optional(),
+  }),
+  output: z.object({
+    vendors: z.array(
+      z.object({
+        vendorId: z.string(),
+        vendorName: z.string(),
+        lastPrice: z.string(),
+        lastOn: z.string(),
+        averagePrice: z.string(),
+        purchases: z.number(),
+        qtyStd: z.string(),
+        standardUom: z.string(),
+      }),
+    ),
+    cheapest: z.string().nullable(),
+    sources: z.array(z.string()),
+  }),
+  run: (input, ctx) =>
+    withTenant(ctx.db, ctx.tenantId, (tx) =>
+      compareVendors(tx, ctx.tenantId, { ...input, today: today() }),
+    ),
+});
+
+export const pricesDigest = defineTool({
+  id: "materials.prices.digest",
+  description:
+    "The week in prices: what changed against the price before, the alerts raised and their dollar impact, as a short message for the client.",
+  sideEffect: "none",
+  summary: "{{prices}} prices this week; {{alerts.length}} alerts",
+  input: z.object({
+    asOf: Day.optional(),
+    days: z.number().int().min(1).max(31).optional(),
+  }),
+  output: z.object({
+    periodStart: z.string(),
+    periodEnd: z.string(),
+    prices: z.number(),
+    changes: z.array(
+      z.object({
+        catalogItemId: z.string(),
+        item: z.string(),
+        vendorId: z.string(),
+        vendor: z.string(),
+        from: z.string(),
+        to: z.string(),
+        changePct: z.string(),
+      }),
+    ),
+    alerts: z.array(
+      z.object({
+        id: z.string(),
+        kind: z.string(),
+        title: z.string(),
+        dollarImpact: z.string().nullable(),
+        status: z.string(),
+      }),
+    ),
+    dollarImpact: z.string(),
+    message: z.string(),
+    sources: z.array(z.string()),
+  }),
+  run: (input, ctx) =>
+    withTenant(ctx.db, ctx.tenantId, (tx) =>
+      weeklyDigest(tx, ctx.tenantId, {
+        days: input.days,
+        today: input.asOf ? input.asOf.slice(0, 10) : today(),
+      }),
+    ),
+});
+
 export const MATERIALS_TOOLS: readonly PackTool[] = [
   catalogSearch,
   catalogCreateItem,
   matchLineTool,
   matchLinesTool,
   catalogDuplicates,
+  pricesRecord,
+  pricesCheck,
+  pricesHistory,
+  pricesCompareVendors,
+  pricesDigest,
 ];

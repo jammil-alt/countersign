@@ -38,6 +38,7 @@ function adapt(tool: PackTool): InternalTool {
         packToolContext({
           tenantId: ctx.tenantId,
           agentVersionId: ctx.agentVersionId,
+          runId: ctx.runId,
           mode: ctx.mode,
           settings: ctx.settings,
           db,
