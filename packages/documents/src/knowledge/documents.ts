@@ -19,6 +19,13 @@ interface Pending {
   extractionId: string | null;
 }
 
+/** "walnut-quote_2.pdf" → "walnut quote 2": the text parser reads a file name as one token. */
+const fileWords = (name: string) =>
+  name
+    .replace(/\.[A-Za-z0-9]{1,5}$/, "")
+    .replace(/[-_.]+/g, " ")
+    .trim();
+
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 // The outer document row, qualified: Drizzle leaves columns of a single-table select unqualified,
@@ -65,7 +72,7 @@ async function documentText(
   doc: Pending,
 ): Promise<{ title: string; passages: string[] }> {
   const parts: string[] = [
-    `File ${doc.filename}, received ${doc.receivedAt.toISOString().slice(0, 10)} (${doc.source}).`,
+    `File ${doc.filename} (${fileWords(doc.filename)}), received ${doc.receivedAt.toISOString().slice(0, 10)} (${doc.source}).`,
   ];
   const subject = str(doc.meta.subject);
   const from = str(doc.meta.from);
