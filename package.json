@@ -16,7 +16,8 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "pnpm -r test",
     "check": "pnpm lint && pnpm lint:deps && pnpm typecheck && pnpm test",
-    "db:up": "docker compose up -d --wait postgres"
+    "db:up": "docker compose up -d --wait postgres",
+    "seed:demo-prices": "pnpm --filter @countersign/pack-materials run seed:demo-prices"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",

@@ -1,0 +1,362 @@
+// Packs on the platform (ARCHITECTURE §12.1, §14; docs/plan.md §1.13): the back office lists the
+// deployment's packs and switches one on for a client (a `tenant_pack` row), which installs the
+// pack's templates once as template v1 rows, published, that the operator edits like any other
+// (invariant 4); forking one into a client stays the usual fork. Pack reports for the portal and,
+// for any client served, the back office, as JSON or CSV; and a pack's review card on an inbox
+// item. Nothing here names a pack: each comes from the platform's registered packs (packs.ts).
+
+import { createTemplate, mayResolve, publish } from "@countersign/agents";
+import { type ClientPack, type PackReviewDecision, type Role, routes } from "@countersign/core";
+import { agent, inboxItem, run, type Tx, tenant, tenantPack } from "@countersign/db";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import type { Hono } from "hono";
+import { type AppEnv, ensureClient, HttpError, mount, notFound, type Services } from "../http";
+import type { RegisteredPack } from "../packs";
+import { portalInboxFilter } from "./portal";
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+function packOf(services: Services, id: string): RegisteredPack {
+  const pack = services.platform.packs.find((p) => p.manifest.id === id);
+  if (!pack) throw notFound("pack");
+  return pack;
+}
+
+const screensOf = (pack: RegisteredPack) =>
+  pack.manifest.screens.map((s) => ({ route: s.route, title: s.title }));
+
+async function enabledPacks(tx: Tx, tenantId: string) {
+  return tx
+    .select({ pack: tenantPack.pack, enabledAt: tenantPack.enabledAt })
+    .from(tenantPack)
+    .where(eq(tenantPack.tenantId, tenantId));
+}
+
+async function clientPacks(tx: Tx, services: Services, tenantId: string): Promise<ClientPack[]> {
+  const on = await enabledPacks(tx, tenantId);
+  return services.platform.packs.map((p) => {
+    const row = on.find((e) => e.pack === p.manifest.id);
+    return {
+      id: p.manifest.id,
+      name: p.manifest.name,
+      description: p.manifest.description,
+      enabled: Boolean(row),
+      enabledAt: row?.enabledAt.toISOString() ?? null,
+      screens: screensOf(p),
+    };
+  });
+}
+
+/** The pack's templates by slug, among the operator's templates (tenant_id null). */
+async function installedTemplates(tx: Tx, slugs: string[]) {
+  if (slugs.length === 0) return [];
+  return tx
+    .select({ id: agent.id, slug: agent.slug })
+    .from(agent)
+    .where(and(isNull(agent.tenantId), eq(agent.kind, "template"), inArray(agent.slug, slugs)));
+}
+
+/**
+ * Installs the pack's templates that aren't there yet: a template v1 by the pack, published so it
+ * can be forked. A template with the same slug already there counts as installed.
+ */
+// DECISION: a pack's templates are installed the first time the pack is switched on for any client
+// (not at deploy), so a deployment that never uses a pack has none of its templates.
+async function installTemplates(
+  tx: Tx,
+  services: Services,
+  pack: RegisteredPack,
+  actorId: string,
+): Promise<{ slug: string; templateId: string }[]> {
+  const have = await installedTemplates(
+    tx,
+    pack.manifest.templates.map((t) => t.slug),
+  );
+  const installed: { slug: string; templateId: string }[] = [];
+  for (const t of pack.manifest.templates) {
+    if (have.some((h) => h.slug === t.slug)) continue;
+    const made = await createTemplate(tx, {
+      slug: t.slug,
+      bundle: t.bundle,
+      authorType: "pack",
+      authorId: actorId,
+      changeNote: `Installed with the ${pack.manifest.name} pack ${pack.manifest.version}`,
+      releaseNote: "First version",
+    });
+    await publish(tx, {
+      agentId: made.agent.id,
+      versionId: made.version.id,
+      actorId,
+      ctx: services.platform.ctx,
+    });
+    installed.push({ slug: t.slug, templateId: made.agent.id });
+  }
+  return installed;
+}
+
+async function reportResponse(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+  packId: string,
+  name: string,
+) {
+  const pack = packOf(services, packId);
+  const on = await enabledPacks(tx, tenantId);
+  if (!on.some((e) => e.pack === packId)) throw notFound("report");
+  const csv = name.endsWith(".csv");
+  const reportName = csv ? name.slice(0, -4) : name;
+  const handler = pack.reports?.[reportName];
+  if (!handler) throw notFound("report");
+  const day = today();
+  if (csv) {
+    const body = await handler.csv(tx, tenantId, day);
+    return new Response(body, {
+      headers: {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${packId}-${reportName}-${day}.csv"`,
+        "cache-control": "no-store",
+      },
+    });
+  }
+  return { report: await handler.json(tx, tenantId, day) };
+}
+
+type InboxRow = typeof inboxItem.$inferSelect;
+
+function reviewKey(item: InboxRow): string | null {
+  const payload = item.payload as Record<string, unknown>;
+  return typeof payload.review === "string" ? payload.review : null;
+}
+
+function reviewHandler(services: Services, key: string) {
+  for (const p of services.platform.packs) {
+    const h = p.reviews?.[key];
+    if (h) return h;
+  }
+  return null;
+}
+
+async function reviewView(
+  tx: Tx,
+  services: Services,
+  item: InboxRow,
+  who: { userId: string; role: Role },
+) {
+  const key = reviewKey(item);
+  const handler = key ? reviewHandler(services, key) : null;
+  if (!key || !handler) throw notFound("review");
+  const data = await handler.load(tx, item.tenantId, item.payload as Record<string, unknown>);
+  return {
+    review: key,
+    status: item.status,
+    canDecide: item.status === "open" && mayResolve(item, who),
+    data,
+  };
+}
+
+async function decide(
+  tx: Tx,
+  services: Services,
+  item: InboxRow,
+  who: { userId: string; role: Role },
+  body: PackReviewDecision,
+) {
+  const key = reviewKey(item);
+  const handler = key ? reviewHandler(services, key) : null;
+  if (!key || !handler) throw notFound("review");
+  if (item.status !== "open") throw new HttpError(409, "not_open", "this item is closed");
+  if (!mayResolve(item, who)) {
+    throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+  }
+  let testRun = false;
+  if (item.runId) {
+    const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
+    testRun = r?.mode === "test";
+  }
+  try {
+    // The decision commits in its own transaction (it records the match and learns the alias);
+    // this request's transaction only read the item.
+    await handler.decide(services.db, {
+      tenantId: item.tenantId,
+      userId: who.userId,
+      payload: item.payload as Record<string, unknown>,
+      decision: body,
+      testRun,
+    });
+  } catch (error) {
+    if (error instanceof Error && /ReviewError|MatchError/.test(error.name)) {
+      throw new HttpError(422, "invalid_decision", error.message);
+    }
+    throw error;
+  }
+  return reviewView(tx, services, item, who);
+}
+
+export function packRouteHandlers(app: Hono<AppEnv>): void {
+  // ── Back office ────────────────────────────────────────────────────────────────────────────────
+  mount(app, routes.opsPacks, async ({ tx, tenantIds, services }) => {
+    const clients =
+      tenantIds.length > 0
+        ? await tx
+            .select({ id: tenant.id, name: tenant.name })
+            .from(tenant)
+            .where(inArray(tenant.id, [...tenantIds]))
+            .orderBy(tenant.name)
+        : [];
+    const on =
+      tenantIds.length > 0
+        ? await tx
+            .select()
+            .from(tenantPack)
+            .where(inArray(tenantPack.tenantId, [...tenantIds]))
+        : [];
+    const packs = [];
+    for (const p of services.platform.packs) {
+      const have = await installedTemplates(
+        tx,
+        p.manifest.templates.map((t) => t.slug),
+      );
+      packs.push({
+        id: p.manifest.id,
+        name: p.manifest.name,
+        version: p.manifest.version,
+        description: p.manifest.description,
+        templates: p.manifest.templates.map((t) => ({
+          slug: t.slug,
+          name: t.bundle.definition.identity.name,
+          templateId: have.find((h) => h.slug === t.slug)?.id ?? null,
+        })),
+        screens: screensOf(p),
+        clients: clients.map((c) => {
+          const row = on.find((r) => r.tenantId === c.id && r.pack === p.manifest.id);
+          return {
+            id: c.id,
+            name: c.name,
+            enabled: Boolean(row),
+            enabledAt: row?.enabledAt.toISOString() ?? null,
+          };
+        }),
+      });
+    }
+    return { packs };
+  });
+
+  mount(app, routes.opsClientPacks, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return { packs: await clientPacks(ctx.tx, ctx.services, ctx.params.id) };
+  });
+
+  mount(app, routes.opsEnableClientPack, async (ctx) => {
+    const { tx, params, services, session } = ctx;
+    ensureClient(ctx, params.id);
+    const pack = packOf(services, params.pack);
+    await tx
+      .insert(tenantPack)
+      .values({ tenantId: params.id, pack: pack.manifest.id, version: pack.manifest.version })
+      .onConflictDoNothing();
+    const installed = await installTemplates(tx, services, pack, session.user.id);
+    const packs = await clientPacks(tx, services, params.id);
+    const view = packs.find((p) => p.id === pack.manifest.id);
+    if (!view) throw notFound("pack");
+    return { pack: view, installed };
+  });
+
+  mount(app, routes.opsClientPackReport, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return reportResponse(ctx.tx, ctx.services, ctx.params.id, ctx.params.pack, ctx.params.report);
+  });
+
+  mount(app, routes.opsClientPackAction, async (ctx) => {
+    const { tx, params, services, session, body } = ctx;
+    ensureClient(ctx, params.id);
+    const pack = packOf(services, params.pack);
+    const on = await enabledPacks(tx, params.id);
+    if (!on.some((e) => e.pack === pack.manifest.id)) throw notFound("pack");
+    const handler = pack.actions?.[params.action];
+    if (!handler) throw notFound("action");
+    const input = handler.input.parse(body);
+    try {
+      // Its own transaction for that one client (the pack's action opens it).
+      return {
+        result: await handler.run(services.db, {
+          tenantId: params.id,
+          userId: session.user.id,
+          input,
+        }),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "MatchError") {
+        throw new HttpError(422, "refused", error.message);
+      }
+      throw error;
+    }
+  });
+
+  async function opsItem(tx: Tx, tenantIds: readonly string[], id: string): Promise<InboxRow> {
+    const [item] = await tx
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.id, id), inArray(inboxItem.tenantId, [...tenantIds])));
+    if (!item) throw notFound("inbox item");
+    return item;
+  }
+
+  mount(app, routes.opsPackReview, async ({ tx, tenantIds, params, services, session, role }) =>
+    reviewView(tx, services, await opsItem(tx, tenantIds, params.id), {
+      userId: session.user.id,
+      role,
+    }),
+  );
+
+  mount(app, routes.opsPackReviewDecide, async (ctx) => {
+    const { tx, tenantIds, params, services, session, role, body } = ctx;
+    const item = await opsItem(tx, tenantIds, params.id);
+    return decide(tx, services, item, { userId: session.user.id, role }, body);
+  });
+
+  // ── Portal ─────────────────────────────────────────────────────────────────────────────────────
+  mount(app, routes.portalPacks, async ({ tx, tenantIds, services }) => ({
+    packs: (await clientPacks(tx, services, tenantIds[0] as string)).filter((p) => p.enabled),
+  }));
+
+  mount(app, routes.portalPackReport, async ({ tx, tenantIds, params, services }) =>
+    reportResponse(tx, services, tenantIds[0] as string, params.pack, params.report),
+  );
+
+  async function portalItem(
+    tx: Tx,
+    tenantId: string,
+    role: Role,
+    userId: string,
+    id: string,
+  ): Promise<InboxRow> {
+    const [item] = await tx
+      .select()
+      .from(inboxItem)
+      .where(
+        and(
+          eq(inboxItem.id, id),
+          eq(inboxItem.tenantId, tenantId),
+          portalInboxFilter(role, userId),
+        ),
+      );
+    if (!item) throw notFound("inbox item");
+    return item;
+  }
+
+  mount(
+    app,
+    routes.portalPackReview,
+    async ({ tx, tenantIds, params, services, session, role }) => {
+      const item = await portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id);
+      return reviewView(tx, services, item, { userId: session.user.id, role });
+    },
+  );
+
+  mount(app, routes.portalPackReviewDecide, async (ctx) => {
+    const { tx, tenantIds, params, services, session, role, body } = ctx;
+    const item = await portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id);
+    return decide(tx, services, item, { userId: session.user.id, role }, body);
+  });
+}

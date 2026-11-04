@@ -27,6 +27,16 @@ It creates `cs_owner` and the `countersign` database, the extensions, runs the m
 
 Without Docker, any Postgres 16 with pgvector works: point the `PG*` variables at it.
 
+For the Materials pack's screens, give the seeded demo client six months of demo prices (about ten
+items from three vendors, with a few alerts; safe to run again):
+
+```bash
+pnpm seed:demo-prices        # after db:seed; reads DIRECT_DATABASE_URL
+```
+
+Then switch the Materials pack on for the demo client in the back office (`/ops/packs`), which also
+installs the Pia template, and open the portal's Reports as the demo client's admin.
+
 ## Every day
 
 ```bash

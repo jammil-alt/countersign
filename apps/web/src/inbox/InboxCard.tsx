@@ -6,6 +6,7 @@ import type { ResolveBody } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
+import { packReviewCard } from "../packs/reviews";
 import { shortTime } from "../runs/format";
 import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
@@ -100,6 +101,7 @@ export function InboxCard({
   waitingOn,
   outcome,
   testId,
+  surface = "portal",
 }: {
   item: InboxCardItem;
   /** "Record keeping · Client A": who asks, for whom. */
@@ -113,6 +115,8 @@ export function InboxCard({
   /** How it was resolved ("Approved by Ana"). */
   outcome?: string | null;
   testId?: string;
+  /** Which inbox shows it: a pack's review card calls that surface's routes. */
+  surface?: "portal" | "ops";
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -129,7 +133,9 @@ export function InboxCard({
         : null;
   const toolName = connector ? connectorName(connector, connectorNames) : null;
   const target = isChange ? changeTarget(item.payload.before, item.payload.input) : null;
-  const facts = isChange ? [] : payloadFacts(item.payload);
+  // A pack's review (e.g. the Materials match review) brings its own card and its own finish.
+  const ReviewCard = isChange ? null : packReviewCard(item.payload);
+  const facts = isChange || ReviewCard ? [] : payloadFacts(item.payload);
 
   async function resolve(body: ResolveInput) {
     if (!onResolve) return;
@@ -174,6 +180,13 @@ export function InboxCard({
 
       {isChange ? (
         <ChangeTables before={item.payload.before} input={item.payload.input} />
+      ) : ReviewCard ? (
+        <ReviewCard
+          itemId={item.id}
+          surface={surface}
+          open={open}
+          onResolve={onResolve ? (body) => resolve(body) : null}
+        />
       ) : facts.length > 0 ? (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
           {facts.map(([k, v]) => (
@@ -185,7 +198,7 @@ export function InboxCard({
         </dl>
       ) : null}
 
-      {item.kind === "request" && open && onResolve ? (
+      {item.kind === "request" && open && onResolve && !ReviewCard ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>
           <span className="text-sm font-medium text-ink">Your answer</span>
           <textarea
@@ -224,7 +237,7 @@ export function InboxCard({
               ? `${outcome}${item.resolvedAt ? ` · ${shortTime(item.resolvedAt)}` : ""}`
               : null}
         </p>
-        {open && onResolve ? (
+        {open && onResolve && !ReviewCard ? (
           <Actions
             kind={item.kind}
             busy={busy}

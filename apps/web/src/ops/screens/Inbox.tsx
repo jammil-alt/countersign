@@ -116,6 +116,7 @@ export function OpsInboxScreen() {
             <InboxCard
               key={item.id}
               item={item}
+              surface="ops"
               context={[
                 agent ? (agent.serviceName ?? agent.name) : null,
                 clients.get(item.tenantId) ?? null,

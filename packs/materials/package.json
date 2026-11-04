@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p .",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "seed:demo-prices": "tsx scripts/seed-demo-prices.ts"
   },
   "dependencies": {
     "@countersign/connectors": "workspace:*",
@@ -22,6 +23,7 @@
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
-    "@types/node": "^22.20.2"
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.15"
   }
 }

@@ -1,5 +1,4 @@
-// The pack's sense types (ARCHITECTURE §12.2) for catalog and matching. M8b adds the price ones
-// (`materials.price.observed`, `materials.price.changed`) to this list.
+// The pack's sense types (ARCHITECTURE §12.2): matching decisions, and prices recorded and changed.
 
 import type { EventTypeSpec } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
@@ -22,6 +21,48 @@ const decisionPayload = (required: string[]) => ({
   required,
   additionalProperties: false,
 });
+
+const decimalString = { type: "string", pattern: "^-?\\d{1,10}(\\.\\d{1,4})?$" } as const;
+
+function pricePayload(extra: string[]) {
+  return {
+    type: "object",
+    properties: {
+      observationId: uuid,
+      catalogItemId: uuid,
+      vendorId: uuid,
+      observedOn: { type: "string", format: "date" },
+      unitPriceStd: decimalString,
+      standardUom: { type: "string" },
+      ...(extra.length > 0
+        ? {
+            previousObservationId: uuid,
+            previousUnitPriceStd: decimalString,
+            changePct: { anyOf: [{ type: "string" }, { type: "null" }] },
+          }
+        : {}),
+    },
+    required: [
+      "observationId",
+      "catalogItemId",
+      "vendorId",
+      "observedOn",
+      "unitPriceStd",
+      "standardUom",
+      ...extra,
+    ],
+    additionalProperties: false,
+  };
+}
+
+const SAMPLE_PRICE = {
+  observationId: "0192f7a0-0000-7000-8000-0000000000a4",
+  catalogItemId: SAMPLE_ITEM,
+  vendorId: "0192f7a0-0000-7000-8000-0000000000a5",
+  observedOn: "2026-10-28",
+  unitPriceStd: "68.5000",
+  standardUom: "sheet",
+};
 
 export const MATERIALS_EVENTS: EventTypeSpec[] = [
   {
@@ -78,6 +119,25 @@ export const MATERIALS_EVENTS: EventTypeSpec[] = [
       decision: "matched",
       method: "human",
       confidence: "1.000",
+    },
+  },
+  {
+    type: "materials.price.observed",
+    description: "A price was recorded for a catalog item, in its standard unit.",
+    subjectType: "price_observation",
+    payload: pricePayload([]),
+    sample: SAMPLE_PRICE,
+  },
+  {
+    type: "materials.price.changed",
+    description: "A vendor's price for a catalog item differs from the last one recorded.",
+    subjectType: "price_observation",
+    payload: pricePayload(["previousObservationId", "previousUnitPriceStd", "changePct"]),
+    sample: {
+      ...SAMPLE_PRICE,
+      previousObservationId: "0192f7a0-0000-7000-8000-0000000000a6",
+      previousUnitPriceStd: "62.5000",
+      changePct: "9.60",
     },
   },
 ];

@@ -8,8 +8,14 @@ import type { PackManifest } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
+  MATERIALS_ACTIONS,
   MATERIALS_HANDLERS,
+  MATERIALS_REPORTS,
+  MATERIALS_REVIEWS,
   materialsManifest,
+  type PackActionHandler,
+  type PackReportHandler,
+  type PackReviewHandler,
   type PackTool,
   packToolContext,
 } from "@countersign/pack-materials";
@@ -17,11 +23,23 @@ import {
 export interface RegisteredPack {
   manifest: PackManifest;
   handlers: Readonly<Record<string, PackTool>>;
+  /** Its client reports by name (`/api/reports/:pack/:report`). */
+  reports?: Readonly<Record<string, PackReportHandler>>;
+  /** Its inbox review cards by the `review` key of an item's payload (e.g. `materials.match`). */
+  reviews?: Readonly<Record<string, PackReviewHandler>>;
+  /** People's actions on a client's pack data from the back office (e.g. a catalog merge). */
+  actions?: Readonly<Record<string, PackActionHandler>>;
 }
 
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
 export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
-  { manifest: materialsManifest, handlers: MATERIALS_HANDLERS },
+  {
+    manifest: materialsManifest,
+    handlers: MATERIALS_HANDLERS,
+    reports: MATERIALS_REPORTS,
+    reviews: MATERIALS_REVIEWS,
+    actions: MATERIALS_ACTIONS,
+  },
 ];
 
 function adapt(tool: PackTool): InternalTool {
@@ -38,6 +56,7 @@ function adapt(tool: PackTool): InternalTool {
         packToolContext({
           tenantId: ctx.tenantId,
           agentVersionId: ctx.agentVersionId,
+          runId: ctx.runId,
           mode: ctx.mode,
           settings: ctx.settings,
           db,

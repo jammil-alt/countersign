@@ -323,7 +323,9 @@ export function requestedClient(c: AppContext): string | null {
 export function mount<R extends RouteSpec>(
   app: Hono<AppEnv>,
   spec: R,
-  handler: (ctx: HandlerCtx<R>) => Promise<Result<R>>,
+  // A handler may answer with a Response of its own (a CSV file); everything else is JSON
+  // checked against the route's response schema.
+  handler: (ctx: HandlerCtx<R>) => Promise<Result<R> | Response>,
 ): void {
   if (spec.auth !== "session") throw new Error(`${spec.path} is public: use mountPublic`);
   const family = routeFamily(spec);
@@ -359,6 +361,10 @@ export function mount<R extends RouteSpec>(
         : withTenant(services.db, portalClient as string, run));
       for (const task of after) {
         await task().catch((error: unknown) => console.error("after-commit task failed", error));
+      }
+      if (output instanceof Response) {
+        for (const cookie of setCookies) output.headers.append("Set-Cookie", cookie);
+        return output;
       }
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
       return respond(c, spec, output);

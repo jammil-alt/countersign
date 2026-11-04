@@ -2,6 +2,11 @@
 // check, so client users never download it (plan §1.2 "Back office and portal in one app"). The
 // workflow builder is a further lazy chunk inside it, loaded when an operator opens a workflow.
 import { Route, Routes } from "react-router-dom";
+import {
+  OpsClientCatalogScreen,
+  OpsClientPriceWatchScreen,
+  OpsPacksScreen,
+} from "../packs/screens";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
@@ -25,7 +30,6 @@ const PLACEHOLDERS: [path: string, title: string][] = [
   ["agents/:id/merge", "Merge"],
   ["skills", "Skills"],
   ["skills/:id", "Skill"],
-  ["packs", "Packs"],
   ["usage", "Usage and cost"],
   ["settings", "Settings"],
 ];
@@ -48,6 +52,15 @@ export default function OpsApp() {
         <Route path="inbox" element={<OpsInboxScreen />} />
         <Route path="requests" element={<OpsRequestsScreen />} />
         <Route path="feedback" element={<OpsFeedbackScreen />} />
+        <Route path="packs" element={<OpsPacksScreen />} />
+        <Route
+          path="clients/:clientId/reports/materials/prices"
+          element={<OpsClientPriceWatchScreen />}
+        />
+        <Route
+          path="clients/:clientId/reports/materials/catalog"
+          element={<OpsClientCatalogScreen />}
+        />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
         <Route path="skills" element={<SkillsScreen />} />

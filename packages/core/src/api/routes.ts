@@ -7,6 +7,7 @@ import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { defineRoute } from "./contract";
 import { feedbackRoutes } from "./feedback";
+import { packRoutes } from "./packs";
 import { requestRoutes } from "./requests";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -1622,6 +1623,7 @@ export const routes = {
   ...opsRoutes,
   ...portalRoutes,
   ...feedbackRoutes,
+  ...packRoutes,
   ...requestRoutes,
 } as const;
 export type Routes = typeof routes;
