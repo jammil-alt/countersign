@@ -118,7 +118,8 @@ describe("portal reports", () => {
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => new Reply(404, {}),
       "GET /api/feedback/status": () => ({ enabled: false }),
-      "GET /api/reports/activity": () => ({ ...LEAKY_REPORT, packs: ["materials"] }),
+      // Materials' reports are registered (wave 1 integration), but this client hasn't the pack.
+      "GET /api/reports/activity": () => ({ ...LEAKY_REPORT, packs: [] }),
     });
     renderAt("/reports/materials/prices", api);
     expect(await screen.findByText("This report isn't available for you.")).toBeInTheDocument();
