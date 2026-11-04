@@ -233,9 +233,11 @@ export function guardBundle(
   }
 
   const skillList: AgentBundle["definition"]["skills"] = [];
+  // Unknown skills a step also asks for are reported once, by the step (below).
+  const unknownListed: string[] = [];
   for (const s of def.skills) {
     if (!knownRef(s.skill)) {
-      gap(`There is no skill "${s.skill}"; it was left out.`);
+      unknownListed.push(s.skill);
       continue;
     }
     const ref = normalRef(s.skill);
@@ -280,6 +282,11 @@ export function guardBundle(
     );
     return { ...bw, workflow: { ...bw.workflow, steps } };
   });
+  for (const ref of unknownListed) {
+    if (!gaps.some((g) => g.includes(`"${ref}"`))) {
+      gap(`There is no skill "${ref}"; it was left out.`);
+    }
+  }
   if (removed > 0)
     note(`${plural(removed, "step")} it asked for can't be built yet; see the gaps.`);
 

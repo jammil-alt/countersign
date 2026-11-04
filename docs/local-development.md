@@ -84,7 +84,7 @@ passing test run of the live version, Activate in Settings; the client admin the
 from the portal inbox. The testkit is in memory: `testkit.record.update` fails on a record it doesn't
 hold, and it forgets everything when the Worker restarts.
 
-There is no screen for writing skills yet; skill steps also need `ANTHROPIC_API_KEY` to run.
+Write skills in Skills → New skill (publish a version, then add it to an agent from the skill's page); skill steps need `ANTHROPIC_API_KEY` to run. The Builder ("My description" on a new agent, "Revise with the Builder" on an agent page) also needs the key; without it the page says it can't reach its model.
 
 ## Status
 
