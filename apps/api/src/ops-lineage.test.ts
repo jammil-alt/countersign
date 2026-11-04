@@ -306,6 +306,7 @@ describe.skipIf(!h)("agent pages API", () => {
         ready: false,
         problems: ["it has no live version: publish one first"],
         requiredConnectors: ["testkit"],
+        testRun: null,
       });
 
       await H.call(OPERATOR, "PATCH", `/api/ops/agents/${agentA}/operation`, {

@@ -5,8 +5,10 @@
 // Allowed workspace dependencies: none. See docs/plan.md §2.
 
 export * from "./api/contract";
+export * from "./api/documents";
 export * from "./api/feedback";
 export * from "./api/onboarding";
+export * from "./api/records";
 export * from "./api/requests";
 export * from "./api/routes";
 export * from "./api/usage";

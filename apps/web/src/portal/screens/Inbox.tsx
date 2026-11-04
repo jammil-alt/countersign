@@ -42,6 +42,7 @@ export function PortalInboxScreen() {
             key={item.id}
             item={item}
             runHref={item.runId ? `/runs/${item.runId}` : null}
+            recordHref={(id) => `/records/${id}`}
             outcome={
               item.status === "resolved"
                 ? item.resolvedBy?.name

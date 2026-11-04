@@ -6,6 +6,7 @@ import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { connectorName, connectorOf } from "../../inbox/change";
+import { SourceLinks } from "../../records/SourceLinks";
 import {
   duration,
   isRunGoing,
@@ -16,7 +17,6 @@ import {
 } from "../../runs/format";
 import { StepMark } from "../../runs/StepMark";
 import { usePoll } from "../../runs/usePoll";
-import { Icon } from "../../ui/icons";
 import {
   AgentAvatar,
   Badge,
@@ -108,20 +108,12 @@ export function PortalRunScreen() {
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
-                      {s.sources.length > 0 ? (
-                        <p
-                          data-testid="portal-run-step-sources"
-                          className="mt-1 flex flex-wrap gap-1.5"
-                        >
-                          {s.sources.map((src) => (
-                            // A Receipt: the record behind the step (not openable yet).
-                            <span key={src} className="mz-receipt cursor-default">
-                              <Icon name="receipt" size={14} className="ds-icon" />
-                              {src}
-                            </span>
-                          ))}
-                        </p>
-                      ) : null}
+                      {/* Receipts: the records behind the step, each opening its page. */}
+                      <SourceLinks
+                        ids={s.sources}
+                        href={(id) => `/records/${id}`}
+                        testId="portal-run-step-sources"
+                      />
                     </div>
                   </li>
                 ))}
