@@ -108,6 +108,34 @@ describe.skipIf(!h)("email forwarding", () => {
     expect(r.skipped.map((s) => s.filename)).toEqual(["statement.xlsx"]);
   });
 
+  it("trusts an allowed From header only when the receiving server says it passed DMARC", async () => {
+    // Someone who learned the address sends from their own domain as the allowed vendor.
+    const vendor = new TextDecoder().decode(eml("from-vendor.eml"));
+    const as = (headers: string[]) =>
+      receiveForwardedEmail(
+        harness.deps(),
+        {
+          from: "spoofer@attacker.example",
+          to: address,
+          raw: new TextEncoder().encode(`${headers.map((h) => `${h}\r\n`).join("")}${vendor}`),
+        },
+        { domain: DOMAIN },
+      );
+    const pass =
+      "Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=keystonehw.example";
+    const fail =
+      "Authentication-Results: mx.cloudflare.net; dmarc=fail header.from=keystonehw.example";
+
+    expect(await as([])).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    expect(await as([fail])).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    // A pass the sender wrote themselves sits below the receiving server's header: not read.
+    expect(await as([fail, pass])).toMatchObject({
+      status: "dropped",
+      reason: "sender_not_allowed",
+    });
+    expect((await as([pass])).status).toBe("accepted");
+  });
+
   it("drops mail from a sender not on the list, and counts it", async () => {
     const before = await stats();
     const r = await receive("unknown-sender.eml", "accounts@unknown-vendor.example");

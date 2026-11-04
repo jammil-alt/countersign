@@ -4,6 +4,7 @@ import { ConnectorRegistry } from "../registry";
 import { parseCsv } from "./csv";
 import {
   addressLabel,
+  dmarcPassDomain,
   documentMimeType,
   forwardingAddress,
   newForwardingSecret,
@@ -11,6 +12,7 @@ import {
   parseForwardingAddress,
   sameAddress,
   senderAllowed,
+  trustedFromHeader,
 } from "./forwarding";
 import { createUploadConnector } from "./manifest";
 
@@ -92,5 +94,33 @@ describe("documentMimeType", () => {
     expect(documentMimeType("application/octet-stream", "Invoice.PDF")).toBe("application/pdf");
     expect(documentMimeType("image/png; name=x", "x")).toBe("image/png");
     expect(documentMimeType("application/zip", "x.zip")).toBe("application/zip");
+  });
+});
+
+describe("DMARC on the From header", () => {
+  it("reads the From domain that passed from the receiving server's Authentication-Results", () => {
+    expect(
+      dmarcPassDomain(
+        "mx.cloudflare.net; dkim=pass header.d=keystone.example; spf=pass smtp.mailfrom=x@y.example; dmarc=pass (p=reject) header.from=Keystone.example",
+      ),
+    ).toBe("keystone.example");
+    expect(
+      dmarcPassDomain("mx.cloudflare.net; dmarc=fail header.from=keystone.example"),
+    ).toBeNull();
+    expect(
+      dmarcPassDomain("mx.cloudflare.net; dmarc=none header.from=keystone.example"),
+    ).toBeNull();
+    expect(
+      dmarcPassDomain("mx.cloudflare.net; spf=pass (dmarc=pass header.from=x.example)"),
+    ).toBeNull();
+    expect(dmarcPassDomain(null)).toBeNull();
+  });
+
+  it("trusts a From address only on the exact domain that passed", () => {
+    expect(trustedFromHeader("billing@keystone.example", "keystone.example")).toBe(true);
+    expect(trustedFromHeader("billing@keystone.example", "evil.example")).toBe(false);
+    expect(trustedFromHeader("billing@mail.keystone.example", "keystone.example")).toBe(false);
+    expect(trustedFromHeader("billing@keystone.example", null)).toBe(false);
+    expect(trustedFromHeader(null, "keystone.example")).toBe(false);
   });
 });

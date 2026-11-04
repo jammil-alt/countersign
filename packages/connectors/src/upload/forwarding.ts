@@ -132,10 +132,11 @@ export function normalizeSender(entry: string): string | null {
  * Whether any of the message's senders is on the list. An entry with `@` matches that address; a
  * bare domain matches that domain and its subdomains.
  */
-// DECISION: a message is accepted when its envelope sender (MAIL FROM) or its From header matches
-// the client's list: a client's own forwarding rule keeps their domain on the envelope, a vendor's
-// mail forwarded by hand keeps the vendor on From. Email Routing's SPF/DKIM checks stand behind
-// both; stricter DMARC alignment is a question for the owner (PR).
+// DECISION: a message is accepted when its envelope sender (MAIL FROM) matches the client's list,
+// or its From header matches and that From domain passed DMARC (`trustedFromHeader`): a client's
+// own forwarding rule keeps their domain on the envelope, a vendor's mail forwarded by hand keeps
+// the vendor on From. An unauthenticated From header is never enough on its own: anyone who learns
+// the address could otherwise send as an allowed vendor (security review, 2026-11-04).
 export function senderAllowed(allowed: readonly string[], senders: readonly string[]): boolean {
   const list = allowed.map(normalizeSender).filter((v): v is string => v !== null);
   for (const raw of senders) {
@@ -152,6 +153,29 @@ export function senderAllowed(allowed: readonly string[], senders: readonly stri
   return false;
 }
 
+/**
+ * The From domain that passed DMARC, read from the topmost Authentication-Results header: the one
+ * the receiving server (Cloudflare Email Routing) adds. Headers further down were written by
+ * whoever sent the message and are never read. Null when there is none or DMARC did not pass.
+ */
+export function dmarcPassDomain(topAuthenticationResults: string | null): string | null {
+  if (!topAuthenticationResults) return null;
+  const text = topAuthenticationResults.replace(/\(.*?\)/g, " ").toLowerCase();
+  for (const clause of text.split(";")) {
+    if (!/(^|\s)dmarc\s*=\s*pass(\s|$)/.test(clause)) continue;
+    const domain = clause.match(/header\.from\s*=\s*([a-z0-9.-]+)/)?.[1];
+    if (domain) return domain;
+  }
+  return null;
+}
+
+/** Whether a From header address may count as a sender: its domain is the one that passed DMARC. */
+export function trustedFromHeader(from: string | null, dmarcDomain: string | null): boolean {
+  if (!from || !dmarcDomain) return false;
+  const domain = from.slice(from.lastIndexOf("@") + 1).toLowerCase();
+  return domain === dmarcDomain;
+}
+
 /** Cloudflare Email Routing's limit for a message handed to a Worker. */
 export const MAX_FORWARDED_BYTES = 25 * 1024 * 1024;
 
@@ -161,6 +185,8 @@ export interface ForwardedHeaders {
   subject: string | null;
   date: string | null;
   messageId: string | null;
+  /** The From domain that passed DMARC per the receiving server, or null (`dmarcPassDomain`). */
+  dmarcPassFrom: string | null;
 }
 
 export interface ForwardedAttachment {
@@ -249,6 +275,9 @@ export async function parseForwardedEmail(raw: Uint8Array): Promise<ForwardedEma
       subject: email.subject ?? null,
       date: email.date ?? null,
       messageId: email.messageId ?? null,
+      dmarcPassFrom: dmarcPassDomain(
+        email.headers.find((h) => h.key === "authentication-results")?.value ?? null,
+      ),
     },
     attachments,
     skipped,

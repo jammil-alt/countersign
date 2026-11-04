@@ -12,6 +12,7 @@ import {
   parseForwardingAddress,
   sameAddress,
   senderAllowed,
+  trustedFromHeader,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import { connection, type Db, withTenant } from "@countersign/db";
@@ -89,7 +90,11 @@ export async function receiveForwardedEmail(
     } catch {
       return drop("unreadable");
     }
-    const senders = [message.from, ...(parsed.headers.from ? [parsed.headers.from] : [])];
+    // The envelope sender always counts; the From header only when its domain passed DMARC.
+    const fromHeader = trustedFromHeader(parsed.headers.from, parsed.headers.dmarcPassFrom)
+      ? [parsed.headers.from as string]
+      : [];
+    const senders = [message.from, ...fromHeader];
     if (!senderAllowed(forwarding.allowedSenders, senders)) return drop("sender_not_allowed");
 
     const meta = {

@@ -363,14 +363,26 @@ export function documentRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: { code: "not_found", message: "link expired or invalid" } }, 404);
     const object = await services.deps.objects(services.env).get(payload.k);
     if (!object) return c.json({ error: { code: "not_found", message: "file not found" } }, 404);
-    const filename = (payload.f || "document").replace(/["\\\r\n]/g, "_");
     return new Response(object.bytes, {
       headers: {
         "content-type": object.info.contentType,
-        "content-disposition": `inline; filename="${filename}"`,
+        "content-disposition": contentDisposition(payload.f || "document"),
         "cache-control": "private, max-age=0, no-store",
         "x-content-type-options": "nosniff",
       },
     });
   });
+}
+
+/**
+ * `inline` with the file's name: a plain ASCII fallback for old clients plus the exact name as
+ * RFC 5987 UTF-8, so a non-Latin-1 name (e.g. a Chinese invoice) is a valid header, not a 500.
+ */
+export function contentDisposition(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_") || "document";
+  const utf8 = encodeURIComponent(name.replace(/[\r\n]/g, "")).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `inline; filename="${ascii}"; filename*=UTF-8''${utf8}`;
 }

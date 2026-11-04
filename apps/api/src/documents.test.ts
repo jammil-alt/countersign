@@ -10,6 +10,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, user } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
+import { contentDisposition } from "./routes/documents";
 
 // biome-ignore lint/suspicious/noExplicitAny: response JSON in assertions
 type J = any;
@@ -235,5 +236,15 @@ describe.skipIf(!h)("documents API", () => {
       ).forwarding;
       expect(f).toMatchObject({ accepted: 1, dropped: 1, lastDropReason: "sender_not_allowed" });
     });
+  });
+});
+
+describe("file links' Content-Disposition", () => {
+  it("is a valid header for any file name, with the exact name in UTF-8", () => {
+    const h = contentDisposition('发票 20418 "final".pdf');
+    expect(() => new Headers({ "content-disposition": h })).not.toThrow();
+    expect(h).toContain(`filename="__ 20418 _final_.pdf"`);
+    expect(h).toContain("filename*=UTF-8''%E5%8F%91%E7%A5%A8%2020418%20%22final%22.pdf");
+    expect(contentDisposition("a\r\nSet-Cookie: x.pdf")).not.toMatch(/[\r\n]/);
   });
 });
