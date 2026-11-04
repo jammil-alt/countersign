@@ -7,11 +7,13 @@ import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { defineRoute } from "./contract";
 import { feedbackRoutes } from "./feedback";
+import { languageRoutes, SessionLanguage } from "./language";
 import { requestRoutes } from "./requests";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
-export const SessionResponse = z.object({
+/** The session without its language (what packages/auth knows on its own). */
+export const SessionBase = z.object({
   user: z.object({ id: z.string(), email: z.string(), name: z.string().nullable() }),
   /** True when the user is an operator (back office). */
   operator: z.boolean(),
@@ -19,6 +21,12 @@ export const SessionResponse = z.object({
   tenants: z.array(z.object({ id: z.string(), name: z.string(), role: Role })),
   /** The client selected now: a portal session's one client, or the operator's switcher choice. */
   activeTenantId: z.string().nullable(),
+});
+export type SessionBase = z.infer<typeof SessionBase>;
+
+export const SessionResponse = SessionBase.extend({
+  /** The language the app reads in, and the choices behind it (docs/plan.md §1.18). */
+  language: SessionLanguage,
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
@@ -1623,5 +1631,6 @@ export const routes = {
   ...portalRoutes,
   ...feedbackRoutes,
   ...requestRoutes,
+  ...languageRoutes,
 } as const;
 export type Routes = typeof routes;

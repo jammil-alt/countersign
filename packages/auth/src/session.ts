@@ -2,7 +2,7 @@
 // a session or a typed refusal. The Hono middleware in apps/api turns a refusal into a response and
 // a session into `app.tenant_ids` (and `app.operator`) for withTenants().
 
-import { isClientRole, isOperatorRole, type Role, type SessionResponse } from "@countersign/core";
+import { isClientRole, isOperatorRole, type Role, type SessionBase } from "@countersign/core";
 import {
   type AuthAdapter,
   type AuthDirectory,
@@ -132,8 +132,11 @@ export function tenantScope(session: Session, family: "ops" | "portal"): TenantS
   return { ok: true, tenantIds: [session.activeTenantId], operator: false };
 }
 
-/** `GET /api/session`'s body (packages/core `SessionResponse`). */
-export function toSessionResponse(session: Session): SessionResponse {
+/**
+ * `GET /api/session`'s body (packages/core `SessionResponse`) without its language, which apps/api
+ * adds from the client's settings and the request (docs/plan.md §1.18).
+ */
+export function toSessionResponse(session: Session): SessionBase {
   return {
     user: { id: session.user.id, email: session.user.email, name: session.user.name },
     operator: session.isOperator,

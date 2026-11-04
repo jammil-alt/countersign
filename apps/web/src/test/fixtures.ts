@@ -14,6 +14,7 @@ export const OPERATOR_SESSION: SessionResponse = {
     { id: "00000000-0000-4000-8000-00000000a002", name: "Demo client", role: "operator" },
   ],
   activeTenantId: null,
+  language: { effective: "en", user: null, client: null },
 };
 
 export const CLIENT_SESSION: SessionResponse = {
@@ -27,6 +28,7 @@ export const CLIENT_SESSION: SessionResponse = {
     { id: "00000000-0000-4000-8000-00000000a002", name: "Demo client", role: "client_admin" },
   ],
   activeTenantId: "00000000-0000-4000-8000-00000000a002",
+  language: { effective: "en", user: null, client: null },
 };
 
 /** A bundle whose workflow has a trigger, skills, an action and a fork with two paths. */

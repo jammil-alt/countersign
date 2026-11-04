@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { JsonSchema, TemplateString, ToolId } from "./common";
+import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { SideEffect, Verb } from "./permissions";
 
 /**
@@ -19,7 +19,7 @@ export const ToolSpec = z
     /** The connector whose connection the tool acts through; required for `external` tools. */
     connector: z.string().min(1).optional(),
     /** Client timeline line over the tool's output, e.g. "Attached {{filename}}". */
-    summary: TemplateString.optional(),
+    summary: LocalizedTemplate.optional(),
   })
   // DECISION: an external tool names its connector explicitly, so the permission gate and the
   // publish check find the connection matrix without guessing from `source`.

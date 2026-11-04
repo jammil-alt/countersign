@@ -63,7 +63,8 @@ export const LOOKUP_SKILL: SkillDefinition = {
     { key: "threshold", label: "Threshold", type: "number", default: 5, clientSpecific: false },
     { key: "vendor_list", label: "Vendors", type: "string", default: "", clientSpecific: true },
   ],
-  summary: "Answered: {{answer}}",
+  // A version per language (docs/plan.md §1.18); runs without a language read English.
+  summary: { en: "Answered: {{answer}}", es: "Respondido: {{answer}}" },
   requiresConnectors: ["testkit"],
   requiresPacks: [],
   producesAlerts: false,

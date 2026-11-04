@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { JsonSchema, SkillId, TemplateString, ToolId } from "./common";
+import { JsonSchema, LocalizedTemplate, SkillId, ToolId } from "./common";
 
 export const SkillSetting = z.object({
   key: z.string().regex(/^[a-z][a-z0-9_]*$/, "snake_case"),
@@ -32,7 +32,7 @@ export const SkillDefinition = z
     output: JsonSchema,
     settings: z.array(SkillSetting).default([]),
     /** Client timeline line over the skill's output (docs/plan.md §1.2 "Client run timeline"). */
-    summary: TemplateString.optional(),
+    summary: LocalizedTemplate.optional(),
     requiresConnectors: z.array(z.string()).default([]),
     requiresPacks: z.array(z.string()).default([]),
     /** Outputs must carry `sources` (CLAUDE.md invariant 10). */

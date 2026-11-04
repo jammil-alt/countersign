@@ -6,6 +6,7 @@
 
 export * from "./api/contract";
 export * from "./api/feedback";
+export * from "./api/language";
 export * from "./api/requests";
 export * from "./api/routes";
 export * from "./bundle/client-specific";
@@ -23,6 +24,8 @@ export * from "./bundle/select";
 export * from "./canonical";
 export * from "./documents/extraction";
 export * from "./duration";
+export * from "./i18n/locale";
+export * from "./i18n/timeline";
 export * from "./ids";
 export * from "./json";
 export * from "./mappers/upload";

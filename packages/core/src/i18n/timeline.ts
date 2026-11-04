@@ -1,0 +1,141 @@
+// The platform's own words on the client timeline (docs/plan.md §1.18), in each language.
+import type { Locale } from "./locale";
+
+/**
+ * What the executor writes after a step's operator-written label on the client timeline, when the
+ * step has no summary of its own: "Check the bill: done". The label stays as the operator wrote it;
+ * durations (`2 days`) and path names are the operator's too.
+ */
+export interface TimelineWords {
+  done: string;
+  failed: string;
+  approved: string;
+  notApproved: string;
+  answered: string;
+  declined: string;
+  waitingForApproval: string;
+  waitingForAnswer: string;
+  needsOperator: string;
+  noAnswerInTime: string;
+  /** The fork's fallback path, which the operator does not name. */
+  otherwise: string;
+  sent: string;
+  stopped: Record<"succeeded" | "failed" | "cancelled", string>;
+  items(n: number): string;
+  waiting(duration: string): string;
+  waited(duration: string): string;
+}
+
+const plural = (locale: Locale, n: number, one: string, other: string) =>
+  `${n} ${new Intl.PluralRules(locale).select(n) === "one" ? one : other}`;
+
+export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
+  en: {
+    done: "done",
+    failed: "failed",
+    approved: "approved",
+    notApproved: "not approved",
+    answered: "answered",
+    declined: "declined",
+    waitingForApproval: "waiting for approval",
+    waitingForAnswer: "waiting for an answer",
+    needsOperator: "needs the operator",
+    noAnswerInTime: "no answer in time",
+    otherwise: "Otherwise",
+    sent: "sent",
+    stopped: { succeeded: "succeeded", failed: "failed", cancelled: "cancelled" },
+    items: (n) => plural("en", n, "item", "items"),
+    waiting: (d) => `waiting ${d}`,
+    waited: (d) => `waited ${d}`,
+  },
+  es: {
+    done: "hecho",
+    failed: "falló",
+    approved: "aprobado",
+    notApproved: "no aprobado",
+    answered: "respondido",
+    declined: "rechazado",
+    waitingForApproval: "esperando aprobación",
+    waitingForAnswer: "esperando una respuesta",
+    needsOperator: "lo revisa nuestro equipo",
+    noAnswerInTime: "sin respuesta a tiempo",
+    otherwise: "En otro caso",
+    sent: "enviado",
+    stopped: { succeeded: "terminado", failed: "falló", cancelled: "cancelado" },
+    items: (n) => plural("es", n, "elemento", "elementos"),
+    waiting: (d) => `esperando ${d}`,
+    waited: (d) => `esperó ${d}`,
+  },
+  fr: {
+    done: "terminé",
+    failed: "échec",
+    approved: "approuvé",
+    notApproved: "non approuvé",
+    answered: "répondu",
+    declined: "refusé",
+    waitingForApproval: "en attente d'approbation",
+    waitingForAnswer: "en attente d'une réponse",
+    needsOperator: "notre équipe s'en occupe",
+    noAnswerInTime: "pas de réponse à temps",
+    otherwise: "Sinon",
+    sent: "envoyé",
+    stopped: { succeeded: "terminé", failed: "échec", cancelled: "annulé" },
+    items: (n) => plural("fr", n, "élément", "éléments"),
+    waiting: (d) => `en attente : ${d}`,
+    waited: (d) => `attendu : ${d}`,
+  },
+  "pt-BR": {
+    done: "concluído",
+    failed: "falhou",
+    approved: "aprovado",
+    notApproved: "não aprovado",
+    answered: "respondido",
+    declined: "recusado",
+    waitingForApproval: "aguardando aprovação",
+    waitingForAnswer: "aguardando uma resposta",
+    needsOperator: "nossa equipe vai verificar",
+    noAnswerInTime: "sem resposta a tempo",
+    otherwise: "Caso contrário",
+    sent: "enviado",
+    stopped: { succeeded: "concluído", failed: "falhou", cancelled: "cancelado" },
+    items: (n) => plural("pt-BR", n, "item", "itens"),
+    waiting: (d) => `aguardando ${d}`,
+    waited: (d) => `aguardou ${d}`,
+  },
+  it: {
+    done: "fatto",
+    failed: "non riuscito",
+    approved: "approvato",
+    notApproved: "non approvato",
+    answered: "risposto",
+    declined: "rifiutato",
+    waitingForApproval: "in attesa di approvazione",
+    waitingForAnswer: "in attesa di una risposta",
+    needsOperator: "se ne occupa il nostro team",
+    noAnswerInTime: "nessuna risposta in tempo",
+    otherwise: "Altrimenti",
+    sent: "inviato",
+    stopped: { succeeded: "completato", failed: "non riuscito", cancelled: "annullato" },
+    items: (n) => plural("it", n, "elemento", "elementi"),
+    waiting: (d) => `in attesa: ${d}`,
+    waited: (d) => `atteso: ${d}`,
+  },
+  de: {
+    done: "erledigt",
+    failed: "fehlgeschlagen",
+    approved: "freigegeben",
+    notApproved: "nicht freigegeben",
+    answered: "beantwortet",
+    declined: "abgelehnt",
+    waitingForApproval: "wartet auf Freigabe",
+    waitingForAnswer: "wartet auf eine Antwort",
+    needsOperator: "unser Team kümmert sich",
+    noAnswerInTime: "keine Antwort rechtzeitig",
+    otherwise: "Sonst",
+    sent: "gesendet",
+    stopped: { succeeded: "abgeschlossen", failed: "fehlgeschlagen", cancelled: "abgebrochen" },
+    items: (n) => plural("de", n, "Eintrag", "Einträge"),
+    waiting: (d) => `wartet: ${d}`,
+    waited: (d) => `gewartet: ${d}`,
+  },
+};
