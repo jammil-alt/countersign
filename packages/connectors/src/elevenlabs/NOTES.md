@@ -48,6 +48,9 @@ The texting notes are in `../twilio/NOTES.md`.
 | Fact | Status |
 |---|---|
 | Place a call: `POST /Accounts/{sid}/Calls.json` with `To`, `From`, `Url`, `Method=POST`, `StatusCallback`, `StatusCallbackMethod=POST`, `Timeout`, `TimeLimit` → 201 with `sid` (CA…), `status` | UNCHECKED |
+| **No idempotency key on call create.** A crash after Twilio placed a call and before we recorded it could place it twice on retry | UNCHECKED whether Twilio accepts an idempotency header. We send none. The call's request (with its time) is recorded before the create, and a re-run with a request but no recorded call never creates again: it reconciles (below) or fails for the operator (docs/plan.md §1.23) |
+| Reconciling an attempt: `GET /Accounts/{sid}/Calls.json?To=<to>&From=<our number>&PageSize=50` → `calls[]` with `sid` (CA…), `to`, `from` (E.164), `status`, `direction` (`outbound-api` for ours), `date_created`, `start_time`, newest first | UNCHECKED: that `To` and `From` filter together, the field names, and the order |
+| A call just created is listed at once, while `queued` or `ringing`, with `date_created` set (RFC 2822) and `start_time` empty | UNCHECKED. We match on `date_created` (falling back to `start_time`), allowing Twilio's clock to be up to two minutes behind ours |
 | The status callback by default fires only on `completed` (final), with `CallStatus` in `completed`, `busy`, `no-answer`, `failed`, `canceled` and `CallDuration` in seconds | UNCHECKED |
 | Point a number's calls at us: `POST /Accounts/{sid}/IncomingPhoneNumbers/{PN}.json` with `VoiceUrl`, `VoiceMethod`, `StatusCallback`, `StatusCallbackMethod`; empty strings clear them | UNCHECKED |
 | Voice webhooks are signed like messaging ones (X-Twilio-Signature, HMAC-SHA1 over the URL as given, query string included, plus sorted POST params) | UNCHECKED for voice. Same algorithm as the texting check |

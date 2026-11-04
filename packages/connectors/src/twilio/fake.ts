@@ -53,6 +53,7 @@ interface FakeCall {
   time_limit: string;
   status: string;
   direction: string;
+  date_created?: string;
 }
 
 const hex32 = (n: number) => n.toString(16).padStart(32, "0");
@@ -263,9 +264,19 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
         time_limit: form.TimeLimit ?? "",
         status: "queued",
         direction: "outbound-api",
+        date_created: rfc2822(now()),
       };
       calls.set(call.sid, call);
       return json(201, call);
+    }
+    if (rest === "/Calls.json" && method === "GET") {
+      const list = [...calls.values()]
+        .filter((x) => x.account_sid === account)
+        .filter((x) => !query.To || x.to === query.To)
+        .filter((x) => !query.From || x.from === query.From)
+        .reverse()
+        .slice(0, Number(query.PageSize ?? 50));
+      return json(200, { calls: list, next_page_uri: null });
     }
     if (release?.[1] && method === "DELETE") {
       const n = numbers.get(release[1]);
@@ -333,6 +344,7 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
         time_limit: "",
         status: "ringing",
         direction: "inbound",
+        date_created: rfc2822(now()),
       });
       const params: Record<string, string> = {
         CallSid: sid,

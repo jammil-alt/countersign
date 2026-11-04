@@ -1,15 +1,15 @@
 // Calls through the Twilio connector, against the fake Twilio and in-memory voice services: the
 // checks a call makes in code before Twilio is called (calls on, a number that calls, consent,
-// quiet hours), one call per idempotency key, `call.answer` refusing calls that weren't answered,
-// and the voice webhooks and TwiML.
+// quiet hours), one call per idempotency key (a call started but never recorded is found, never
+// placed again), `call.answer` refusing calls that weren't answered, and the voice webhooks and TwiML.
 
 import { DEFAULT_PERMISSIONS, type JsonObject } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import type { ConnectionRef, WriteContext } from "../connector";
+import { type ConnectionRef, UnconfirmedWriteError, type WriteContext } from "../connector";
 import { memoryCredentials } from "../credentials-accessor";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
-import type { CallCheck, PlacedCall, VoiceServices } from "../voice/services";
+import type { CallAttempt, CallCheck, PlacedCall, VoiceServices } from "../voice/services";
 import { CALL_ANSWER_TOOL, CALL_GET_TOOL, CALL_PLACE_TOOL } from "../voice/spec";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "./fake";
 import { buyNumber, createSubaccount, createTwilioConnector } from "./index";
@@ -29,7 +29,10 @@ const ORIGIN = "https://app.mezonas.test";
 
 function memoryVoice(over: { block?: CallCheck & { ok: false }; quiet?: boolean } = {}) {
   const placed: (PlacedCall & { key: string })[] = [];
+  const attempts: (CallAttempt & { key: string })[] = [];
   const checks: { ignoreQuietHours?: boolean | undefined }[] = [];
+  /** Throws once from recordPlaced: a crash after Twilio placed the call. */
+  const crash = { onRecord: false };
   let prepared = 0;
   const services: VoiceServices = {
     async checkCall(input) {
@@ -43,8 +46,23 @@ function memoryVoice(over: { block?: CallCheck & { ok: false }; quiet?: boolean 
     async placedFor(key) {
       return placed.find((p) => p.key === key) ?? null;
     },
-    async prepareOutbound() {
+    async attemptFor(key) {
+      return attempts.find((a) => a.key === key) ?? null;
+    },
+    async recordedCallSids(sids) {
+      return sids.filter((sid) => placed.some((p) => p.callSid === sid));
+    },
+    async prepareOutbound(r) {
       prepared += 1;
+      attempts.push({
+        key: r.idempotencyKey,
+        callId: "0190f0c8-0000-7000-8000-0000000000aa",
+        contactId: r.contactId,
+        contactName: "Pat Lee",
+        to: r.to,
+        from: r.from,
+        startedAt: r.now,
+      });
       return {
         callId: "0190f0c8-0000-7000-8000-0000000000aa",
         answerUrl: `${ORIGIN}/api/twilio/${tenant}/voice/answer`,
@@ -53,6 +71,11 @@ function memoryVoice(over: { block?: CallCheck & { ok: false }; quiet?: boolean 
       };
     },
     async recordPlaced(i) {
+      if (crash.onRecord) {
+        crash.onRecord = false;
+        throw new Error("the Worker stopped");
+      }
+      if (placed.some((p) => p.callSid === i.callSid)) return;
       placed.push({
         callSid: i.callSid,
         status: i.status,
@@ -82,7 +105,7 @@ function memoryVoice(over: { block?: CallCheck & { ok: false }; quiet?: boolean 
       return null;
     },
   };
-  return { services, placed, checks, prepared: () => prepared };
+  return { services, placed, attempts, checks, crash, prepared: () => prepared };
 }
 
 async function setup(opts: { callsOn?: boolean } = {}) {
@@ -218,6 +241,92 @@ describe("calls through the twilio connector", () => {
       executeWrite(connector, CALL_PLACE_TOOL, CALL, ctx(voice.services, "run-2:call:0")),
     ).rejects.toThrow(/opted out/);
     expect(twilio.placed()).toHaveLength(1);
+  });
+
+  it("adopts the one call Twilio placed before a crash instead of placing another", async () => {
+    const { twilio, connector, ctx } = await setup();
+    const over: Parameters<typeof memoryVoice>[0] = {};
+    const voice = memoryVoice(over);
+    // Twilio places the call, then the Worker stops before it is recorded.
+    voice.crash.onRecord = true;
+    await expect(
+      executeWrite(connector, CALL_PLACE_TOOL, CALL, ctx(voice.services)),
+    ).rejects.toThrow("the Worker stopped");
+    expect(twilio.placed()).toHaveLength(1);
+    expect(voice.attempts).toEqual([
+      expect.objectContaining({ key: "run-1:call:0", to: PAT, startedAt: NOW }),
+    ]);
+    expect(voice.placed).toHaveLength(0);
+    // Pat opts out meanwhile; the re-run places nothing, finds Twilio's call and adopts it.
+    over.block = { ok: false, block: "opted_out", message: "opted out" };
+    const again = await executeWrite(connector, CALL_PLACE_TOOL, CALL, ctx(voice.services));
+    const sid = [...twilio.calls.values()].at(-1)?.sid;
+    expect(again.output).toMatchObject({ callSid: sid, to: PAT, contactName: "Pat Lee" });
+    expect(again.before).toMatchObject({ contact: { id: "c1", name: "Pat Lee" } });
+    expect(twilio.placed()).toHaveLength(1);
+    expect(voice.prepared()).toBe(1);
+    expect(voice.placed).toEqual([expect.objectContaining({ callSid: sid, key: "run-1:call:0" })]);
+    const lists = twilio.requests.filter(
+      (r) => r.method === "GET" && r.url.includes("/Calls.json?"),
+    );
+    expect(lists).toHaveLength(1);
+    expect(lists[0]?.url).toContain(`To=${encodeURIComponent(PAT)}`);
+  });
+
+  it("never places again after an unrecorded attempt: none or several matches fail for the operator", async () => {
+    const { twilio, sub, connector, ctx } = await setup();
+    const attempt = (key: string): CallAttempt & { key: string } => ({
+      key,
+      callId: "0190f0c8-0000-7000-8000-0000000000bb",
+      contactId: "c1",
+      contactName: "Pat Lee",
+      to: PAT,
+      from: "+15125550101",
+      startedAt: NOW,
+    });
+    // None: the Worker stopped after the request, before Twilio placed anything.
+    const none = memoryVoice();
+    none.attempts.push(attempt("k-none"));
+    const e1 = await executeWrite(
+      connector,
+      CALL_PLACE_TOOL,
+      CALL,
+      ctx(none.services, "k-none"),
+    ).catch((e: unknown) => e);
+    expect(e1).toBeInstanceOf(UnconfirmedWriteError);
+    expect((e1 as Error).message).toContain(
+      "The call to Pat Lee may have been placed; check before trying again",
+    );
+    expect((e1 as UnconfirmedWriteError).details).toMatchObject({ candidates: [], to: PAT });
+
+    // Several: two calls to Pat since the attempt that nobody recorded.
+    const several = memoryVoice();
+    several.attempts.push(attempt("k-several"));
+    for (const n of ["1", "2"]) {
+      const sid = `CA${n.repeat(32)}`;
+      twilio.calls.set(sid, {
+        sid,
+        account_sid: sub.accountSid,
+        from: "+15125550101",
+        to: PAT,
+        url: "",
+        status_callback: "",
+        time_limit: "",
+        status: "completed",
+        direction: "outbound-api",
+        date_created: NOW.toUTCString(),
+      });
+    }
+    const e2 = await executeWrite(
+      connector,
+      CALL_PLACE_TOOL,
+      CALL,
+      ctx(several.services, "k-several"),
+    ).catch((e: unknown) => e);
+    expect(e2).toBeInstanceOf(UnconfirmedWriteError);
+    expect((e2 as Error).message).toContain("2 calls");
+    expect(twilio.placed()).toHaveLength(0);
+    expect(several.prepared() + none.prepared()).toBe(0);
   });
 
   it("marks purpose and opening as fixed inputs on the call tools", () => {

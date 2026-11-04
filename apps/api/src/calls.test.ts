@@ -5,7 +5,8 @@
 // the gate as that agent, and writes and other clients are refused; ElevenLabs' post-call webhook
 // is checked and stored once, with follow-ups to the inbox and `call.completed`; minutes counted
 // once; inbound calls answered by an agent only where its step may run without approval, else
-// voicemail or a forward; nothing crosses clients.
+// voicemail or a forward; nothing crosses clients. An automatic call retried after a crash resumes;
+// one Twilio placed but we never recorded is found, never placed again.
 
 import {
   CALL_ANSWER_TOOL,
@@ -67,8 +68,10 @@ const SAM = "+15555550111";
 const CALLER_X = "+15555550122";
 const FORWARD = "+15555550199";
 
+/** What the connector's calls reach: the fake Twilio, unless a test stands in front of it. */
+let connectorFetch: FetchLike = twilio.fetch;
 const h = await createApiHarness({
-  connectors: () => [createTwilioConnector({ fetch: twilio.fetch })],
+  connectors: () => [createTwilioConnector({ fetch: (url, init) => connectorFetch(url, init) })],
   env: {
     ENCRYPTION_KEY,
     APP_ORIGIN: ORIGIN,
@@ -127,6 +130,35 @@ const CALL_BACK = {
       },
       approval: { required: "required" },
       client: { visible: true, label: "Called back" },
+    },
+  ],
+};
+
+/** Calls the number it is given, without approval (the connection allows `create` on auto). */
+const CALL_NOW = {
+  schemaVersion: 3,
+  trigger: {
+    id: "trg-manual",
+    on: {
+      type: "manual",
+      input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+    },
+  },
+  steps: [
+    {
+      id: "call",
+      name: "Call the customer",
+      kind: "action",
+      tool: CALL_PLACE_TOOL,
+      input: {
+        to: "{{trigger.to}}",
+        purpose: PURPOSE,
+        firstMessage: "I'm calling about your order.",
+        tools: [MESSAGES_SEARCH_TOOL],
+        maxMinutes: 5,
+      },
+      approval: { required: "not_required" },
+      client: { visible: true, label: "Called the customer" },
     },
   ],
 };
@@ -830,6 +862,205 @@ describe.skipIf(!h)("calls through the API", () => {
           .status,
       ).toBe(403);
       expect(reception).not.toBe("");
+    });
+  });
+  describe("an automatic call after a crash", () => {
+    let agentId = "";
+    let patId = "";
+
+    beforeAll(async () => {
+      // Calls go out without approval on this connection.
+      await H.t.db
+        .update(connection)
+        .set({ permissions: { read: "auto", create: "auto", update: "approval", delete: "off" } })
+        .where(eq(connection.id, connectionId));
+      const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${A()}/agents`, {
+        slug: "call-now",
+        bundle: bundle("Dispatcher", CALL_NOW, {
+          mode: "act",
+          extraTools: [CALL_PLACE_TOOL, MESSAGES_SEARCH_TOOL],
+        }),
+      });
+      expect(created.status, JSON.stringify(created.json)).toBe(200);
+      expect(j(created.json).errors ?? [], JSON.stringify(created.json)).toEqual([]);
+      agentId = j(created.json).agent.id;
+      await H.call(OPERATOR, "PATCH", `/api/ops/agents/${agentId}/operation`, {
+        bindings: { twilio: connectionId },
+      });
+      const pub = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
+      );
+      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
+      const [pat] = await H.t.db.select().from(contact).where(eq(contact.phone, PAT));
+      patId = pat?.id ?? "";
+    });
+
+    afterAll(async () => {
+      connectorFetch = twilio.fetch;
+      await H.t.db
+        .update(connection)
+        .set({
+          permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+        })
+        .where(eq(connection.id, connectionId));
+    });
+
+    async function started() {
+      const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/run`, {
+        workflow: "main",
+        input: { to: PAT },
+      });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const params = H.instances.started.get(j(res.json).runId);
+      if (!params) throw new Error("not started");
+      return params;
+    }
+    const runIt = (params: Parameters<typeof executeRun>[1]) =>
+      executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
+    const actionOf = async (runId: string) =>
+      (await H.t.db.select().from(externalAction).where(eq(externalAction.runId, runId)))[0];
+    /** The Worker stopped while the action was executing (the first try's failure is undone). */
+    const leftExecuting = (id: string) =>
+      H.t.db
+        .update(externalAction)
+        .set({ status: "executing", error: null, result: null })
+        .where(eq(externalAction.id, id));
+    const optOut = async (out: boolean) => {
+      const res = out
+        ? await H.call(admin("a"), "POST", `/api/contacts/${patId}/consent`, { action: "opt_out" })
+        : await H.call(OPERATOR, "POST", `/api/ops/clients/${A()}/contacts/${patId}/consent`, {
+            action: "lift_opt_out",
+          });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+    };
+    /** Calls reach Twilio (or not), then the connection is lost: Twilio's answer never arrives. */
+    const lostAnswer =
+      (reachTwilio: boolean): FetchLike =>
+      async (url, init) => {
+        if (init?.method === "POST" && url.endsWith("/Calls.json")) {
+          if (reachTwilio) await twilio.fetch(url, init);
+          throw new Error("the Worker stopped");
+        }
+        return twilio.fetch(url, init);
+      };
+
+    it("resumes when retried: an opt-out since the call doesn't fail it, and nothing is placed twice", async () => {
+      const params = await started();
+      const placed = twilio.placed().length;
+      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(twilio.placed()).toHaveLength(placed + 1);
+      const action = await actionOf(params.runId);
+      expect(action).toMatchObject({ status: "done", approvedBy: null });
+      const sid = (action?.result as { callSid?: string } | undefined)?.callSid;
+
+      await leftExecuting(action?.id ?? "");
+      await optOut(true);
+      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(twilio.placed()).toHaveLength(placed + 1);
+      const again = await actionOf(params.runId);
+      expect(again).toMatchObject({ status: "done", error: null });
+      expect((again?.result as { callSid?: string } | undefined)?.callSid).toBe(sid);
+
+      // A new call to Pat is refused before anything is proposed or placed.
+      const refused = await started();
+      expect((await runIt(refused)).status).toBe("failed");
+      expect(await actionOf(refused.runId)).toBeUndefined();
+      expect(twilio.placed()).toHaveLength(placed + 1);
+      await optOut(false);
+    });
+
+    it("adopts the one call Twilio placed before a crash instead of placing another", async () => {
+      const params = await started();
+      const placed = twilio.placed().length;
+      connectorFetch = lostAnswer(true);
+      expect((await runIt(params)).status).toBe("failed");
+      connectorFetch = twilio.fetch;
+      expect(twilio.placed()).toHaveLength(placed + 1);
+      const callSid = [...twilio.calls.values()].at(-1)?.sid ?? "";
+      const action = await actionOf(params.runId);
+      const requests = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(eq(rawRecord.entityType, "CallRequest"));
+      const request = requests.find(
+        (r) => (r.payload as { idempotencyKey?: string }).idempotencyKey === action?.idempotencyKey,
+      );
+      expect(request?.payload).toMatchObject({ to: PAT, from: number });
+
+      await leftExecuting(action?.id ?? "");
+      await optOut(true);
+      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(twilio.placed()).toHaveLength(placed + 1);
+      const done = await actionOf(params.runId);
+      expect(done).toMatchObject({ status: "done" });
+      expect(done?.result).toMatchObject({ callSid, to: PAT, contactName: "Pat Lee" });
+      // Recorded once, under the request's call id, so Twilio's webhooks for it find it.
+      const stored = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(and(eq(rawRecord.entityType, "Call"), eq(rawRecord.externalId, callSid)));
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.payload).toMatchObject({
+        callId: (request?.payload as { callId?: string } | undefined)?.callId,
+        idempotencyKey: action?.idempotencyKey,
+      });
+      await optOut(false);
+    });
+
+    it("never places again when it can't tell: none or several matches fail for the operator to check", async () => {
+      for (const reachTwilio of [false, true]) {
+        const params = await started();
+        const placed = twilio.placed().length;
+        connectorFetch = lostAnswer(reachTwilio);
+        expect((await runIt(params)).status).toBe("failed");
+        connectorFetch = twilio.fetch;
+        if (reachTwilio) {
+          // Someone also called Pat from the client's number: two calls nobody recorded.
+          const first = [...twilio.calls.values()].at(-1);
+          if (!first) throw new Error("no call");
+          const twin = `CA${"7".repeat(32)}`;
+          twilio.calls.set(twin, { ...first, sid: twin });
+        }
+        const action = await actionOf(params.runId);
+        await leftExecuting(action?.id ?? "");
+
+        const r = await runIt(params);
+        expect(r.status).toBe("failed");
+        expect(JSON.stringify(r)).toContain("may have been placed; check before trying again");
+        expect(twilio.placed()).toHaveLength(placed + (reachTwilio ? 1 : 0));
+        const failed = await actionOf(params.runId);
+        expect(failed?.status).toBe("failed");
+        const items = await H.t.db
+          .select()
+          .from(inboxItem)
+          .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review")));
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+          assigneeRole: "operator",
+          subjectType: "external_action",
+          subjectId: failed?.id,
+          agentId,
+          title: "The call to Pat Lee may have been placed",
+        });
+        expect(items[0]?.payload).toMatchObject({
+          to: PAT,
+          candidates: reachTwilio ? [expect.any(String), expect.any(String)] : [],
+        });
+        // The client never sees it; a replay changes nothing.
+        const portal = await H.call(admin("a"), "GET", "/api/inbox");
+        expect(JSON.stringify(portal.json)).not.toContain(items[0]?.id ?? "-");
+        expect((await runIt(params)).status).toBe("failed");
+        expect(twilio.placed()).toHaveLength(placed + (reachTwilio ? 1 : 0));
+        expect(
+          await H.t.db
+            .select()
+            .from(inboxItem)
+            .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review"))),
+        ).toHaveLength(1);
+      }
     });
   });
 });

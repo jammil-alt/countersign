@@ -22,11 +22,12 @@ import {
   contact,
   type Db,
   externalAction,
+  rawRecord,
   run,
   tenant,
   withTenant,
 } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { findContactByNumber, getContact, messagingSettings } from "../messaging/contacts";
 import type { Platform } from "../platform";
 import { ensureVoiceAgent, type VoiceDeps, voiceAgentConfig } from "./answer";
@@ -103,6 +104,52 @@ export function dbVoiceServices(
           contactId: p.contactId,
           contactName: who?.name ?? p.to,
         };
+      });
+    },
+
+    attemptFor(idempotencyKey) {
+      return withTenant(db, tenantId, async (tx) => {
+        // The call's request is its attempt: stored before Twilio is called (prepareOutbound).
+        const [row] = await findByPayload(
+          tx,
+          tenantId,
+          CALL_ENTITIES.request,
+          "idempotencyKey",
+          idempotencyKey,
+        );
+        if (!row) return null;
+        const p = row.payload as unknown as CallRequestPayload;
+        // Not getContact: the attempt is returned even if its contact was removed since.
+        const [who] = await tx
+          .select({ name: contact.name })
+          .from(contact)
+          .where(and(eq(contact.id, p.contactId), eq(contact.tenantId, tenantId)));
+        return {
+          callId: p.callId,
+          contactId: p.contactId,
+          contactName: who?.name ?? p.to,
+          to: p.to,
+          from: p.from,
+          startedAt: new Date(p.requestedAt),
+        };
+      });
+    },
+
+    recordedCallSids(sids) {
+      if (sids.length === 0) return Promise.resolve([]);
+      return withTenant(db, tenantId, async (tx) => {
+        const rows = await tx
+          .select({ sid: rawRecord.externalId })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, CALL_ENTITIES.call),
+              inArray(rawRecord.externalId, [...sids]),
+            ),
+          );
+        return rows.map((r) => r.sid);
       });
     },
 

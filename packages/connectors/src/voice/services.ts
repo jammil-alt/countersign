@@ -1,6 +1,6 @@
 // What a calling connector (Twilio's voice) asks of the platform for one client: may this person be
 // called now (consent to calls, opt-out, quiet hours: checked in code before any call), was this
-// call already placed (a re-run after a crash), get a call ready (its voice agent from the agent's
+// call already placed or started (a re-run after a crash), get a call ready (its voice agent from the agent's
 // version, its webhooks), record it once placed, and read a call back. apps/api implements it over
 // the client's contacts and raw records inside withTenant; the connector never reads the database.
 
@@ -28,6 +28,20 @@ export interface PlacedCall {
   /** Who was called, as recorded then (a re-run returns the call without checking again). */
   contactId: string;
   contactName: string;
+}
+
+/**
+ * A call that was started: its request (prepareOutbound), recorded with its time before Twilio is
+ * called, so a re-run after a crash knows Twilio may have placed it (docs/plan.md §1.23).
+ */
+export interface CallAttempt {
+  /** Our id for the call (the request's). */
+  callId: string;
+  contactId: string;
+  contactName: string;
+  to: string;
+  from: string;
+  startedAt: Date;
 }
 
 export interface OutboundCallRequest {
@@ -64,7 +78,14 @@ export interface VoiceServices {
   checkCall(input: CallCheckInput): Promise<CallCheck>;
   /** The call already placed under this key, if any. */
   placedFor(idempotencyKey: string): Promise<PlacedCall | null>;
-  /** Gets the call's voice agent and webhooks ready. Refuses when calls aren't set up. */
+  /** The call started under this key (its request), if any, whether or not it was placed. */
+  attemptFor(idempotencyKey: string): Promise<CallAttempt | null>;
+  /** Which of these call SIDs are recorded already, under any key. */
+  recordedCallSids(sids: readonly string[]): Promise<string[]>;
+  /**
+   * Gets the call's voice agent and webhooks ready and records its request (the attempt, with its
+   * time), before Twilio is called. Refuses when calls aren't set up.
+   */
   prepareOutbound(request: OutboundCallRequest): Promise<PreparedCall>;
   /** Stores the call Twilio accepted, once (by call id), in the contact's thread. */
   recordPlaced(input: {

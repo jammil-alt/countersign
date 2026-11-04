@@ -82,6 +82,34 @@ export async function placeCall(
   return { sid: c.sid, status: c.status ?? "queued" };
 }
 
+const ListedCall = z.object({
+  sid: z.string(),
+  to: z.string().nullish(),
+  from: z.string().nullish(),
+  status: z.string().nullish(),
+  direction: z.string().nullish(),
+  date_created: z.string().nullish(),
+  start_time: z.string().nullish(),
+});
+export type ListedCall = z.infer<typeof ListedCall>;
+
+/**
+ * Twilio's recent calls from `from` to `to`, newest first (one page): what a re-run looks through
+ * for a call it may have placed before a crash.
+ */
+export async function listCalls(
+  fetch: FetchLike,
+  auth: TwilioAuth,
+  input: { to: string; from: string },
+): Promise<ListedCall[]> {
+  const body = z.object({ calls: z.array(ListedCall).default([]) }).parse(
+    await twilioRequest(fetch, auth, "GET", `${accountUrl(auth.accountSid)}/Calls.json`, {
+      query: { To: input.to, From: input.from, PageSize: "50" },
+    }),
+  );
+  return body.calls;
+}
+
 /** Points a number's incoming calls (and their final status) at us, or back to nothing. */
 export async function setNumberVoice(
   fetch: FetchLike,

@@ -9,11 +9,17 @@ import {
   defineWriteTool,
   type ToolContext,
   type ToolDefinition,
+  UnconfirmedWriteError,
   type WriteContext,
 } from "../connector";
 import type { FetchLike } from "../http";
 import type { SendContact } from "../messaging/services";
-import { CallBlockedError, type PlacedCall, type VoiceServices } from "../voice/services";
+import {
+  type CallAttempt,
+  CallBlockedError,
+  type PlacedCall,
+  type VoiceServices,
+} from "../voice/services";
 import {
   CALL_ANSWER_TOOL,
   CALL_GET_TOOL,
@@ -29,7 +35,7 @@ import {
   VOICE_FIXED_INPUTS,
 } from "../voice/spec";
 import { TwilioError } from "./api";
-import { placeCall, readVoiceConfig, type TwilioVoiceConfig } from "./voice";
+import { listCalls, placeCall, readVoiceConfig, type TwilioVoiceConfig } from "./voice";
 
 function voiceOf(ctx: ToolContext): VoiceServices {
   const v = ctx.services?.voice;
@@ -89,6 +95,89 @@ async function placedUnder(ctx: ToolContext): Promise<PlacedCall | null> {
   return key ? voiceOf(ctx).placedFor(key) : null;
 }
 
+/**
+ * The call started under the action's key, when `before` runs as part of executing it; null when
+ * drawing the approval card.
+ */
+async function attemptUnder(ctx: ToolContext): Promise<CallAttempt | null> {
+  const key = (ctx as Partial<WriteContext>).idempotencyKey;
+  return key ? voiceOf(ctx).attemptFor(key) : null;
+}
+
+/** How far Twilio's clock (`date_created`) may be behind ours when matching an attempt. */
+const RECONCILE_SKEW_MS = 2 * 60_000;
+const CALL_SID = /^CA[0-9a-f]{32}$/;
+
+/**
+ * A re-run of a call that was started but never recorded as placed: Twilio may have placed it
+ * before the crash. Nothing is placed again. The candidates are Twilio's recent calls from our
+ * number to the contact since the attempt, less those recorded already: exactly one is adopted as
+ * this call (recorded under the attempt's call id, so its webhooks find it); none or several fail
+ * the action for the operator to check (UnconfirmedWriteError).
+ */
+async function reconcileCall(
+  fetch: FetchLike,
+  auth: { accountSid: string; authToken: string },
+  ctx: WriteContext,
+  voice: VoiceServices,
+  attempt: CallAttempt,
+) {
+  const listed = await listCalls(fetch, auth, { to: attempt.to, from: attempt.from });
+  const since = attempt.startedAt.getTime() - RECONCILE_SKEW_MS;
+  const candidates = listed.filter((c) => {
+    // `date_created` is set when Twilio accepts a call (`start_time` is empty while it is queued).
+    const created = Date.parse(c.date_created ?? c.start_time ?? "");
+    return (
+      CALL_SID.test(c.sid) &&
+      (c.direction ?? "").startsWith("outbound") &&
+      c.to === attempt.to &&
+      c.from === attempt.from &&
+      !Number.isNaN(created) &&
+      created >= since
+    );
+  });
+  const recorded = new Set(await voice.recordedCallSids(candidates.map((c) => c.sid)));
+  const unrecorded = candidates.filter((c) => !recorded.has(c.sid));
+  const startedAt = attempt.startedAt.toISOString();
+  const found = unrecorded.length === 1 ? unrecorded[0] : undefined;
+  if (!found) {
+    throw new UnconfirmedWriteError(
+      `The call to ${attempt.contactName} may have been placed`,
+      unrecorded.length === 0
+        ? `we started it at ${startedAt} and have no record of it, and Twilio lists no call to ${attempt.to} since then that we haven't recorded`
+        : `we started it at ${startedAt} and have no record of it, and Twilio lists ${unrecorded.length} calls to ${attempt.to} since then that we haven't recorded, so we can't tell which it was`,
+      {
+        to: attempt.to,
+        from: attempt.from,
+        contactId: attempt.contactId,
+        callId: attempt.callId,
+        startedAt,
+        candidates: unrecorded.map((c) => c.sid),
+      },
+    );
+  }
+  ctx.logger.info("adopted a call Twilio placed before a crash", {});
+  const status = found.status ?? "queued";
+  await voice.recordPlaced({
+    callId: attempt.callId,
+    callSid: found.sid,
+    status,
+    connectionId: ctx.connection.id,
+    contactId: attempt.contactId,
+    to: attempt.to,
+    from: attempt.from,
+    idempotencyKey: ctx.idempotencyKey,
+    at: attempt.startedAt,
+  });
+  return {
+    callSid: found.sid,
+    status,
+    to: attempt.to,
+    from: attempt.from,
+    contactName: attempt.contactName,
+  };
+}
+
 /** The tools, with the connector's injected fetch and Twilio auth. */
 export function callTools(
   doFetch: () => FetchLike,
@@ -106,11 +195,11 @@ export function callTools(
       output: CallPlaceOutput,
       beforeSchema: CallPlaceBefore,
       async before(input, ctx) {
-        // Executing (the action's key is set): a call already placed under it is described as
-        // placed, without the checks, as `run` returns it (see there).
-        const placed = await placedUnder(ctx);
-        const { contact, from } = placed
-          ? { contact: { id: placed.contactId, name: placed.contactName }, from: placed.from }
+        // Executing (the action's key is set): a call already placed or started under it is
+        // described as it was, without the checks, as `run` returns or reconciles it (see there).
+        const prior = (await placedUnder(ctx)) ?? (await attemptUnder(ctx));
+        const { contact, from } = prior
+          ? { contact: { id: prior.contactId, name: prior.contactName }, from: prior.from }
           : await checkCall(ctx, input.to, { forPlacing: false });
         return {
           contact: { id: contact.id, name: contact.name },
@@ -137,8 +226,17 @@ export function callTools(
             contactName: already.contactName,
           };
         }
+        // Started but never recorded as placed: Twilio may have rung the contact. Look for the
+        // call rather than place another.
+        const attempt = await voice.attemptFor(ctx.idempotencyKey);
+        if (attempt) return reconcileCall(doFetch(), await authOf(ctx), ctx, voice, attempt);
+
         const { contact, from } = await checkCall(ctx, input.to, { forPlacing: true });
         const { to, ...settings } = input;
+        // DECISION: at most once. Twilio's call create takes no idempotency key (NOTES.md), so the
+        // call's request is recorded, with its time, before Twilio is called (prepareOutbound). A
+        // re-run that finds a request and no call never places again: it adopts the one matching
+        // call Twilio lists, or fails the action for the operator to check (docs/plan.md §1.23).
         const prepared = await voice.prepareOutbound({
           idempotencyKey: ctx.idempotencyKey,
           connectionId: ctx.connection.id,
