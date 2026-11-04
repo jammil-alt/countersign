@@ -27,6 +27,8 @@ export interface RuntimeDeps {
   credentials?: (connection: ConnectionRef) => CredentialsAccessor;
   logger?: Logger;
   now?: () => Date;
+  /** Passed through to pack tools as `ToolInvocation.services` (apps/api: db and transport). */
+  services?: Readonly<Record<string, unknown>>;
 }
 
 /** One step of one run, for one client agent version. */
@@ -41,6 +43,8 @@ export interface StepContext {
   /** The step's approval setting; absent means required (approval is on by default). */
   approval?: Approval | undefined;
   threadId?: string | undefined;
+  /** The resolved settings of the skill the step runs, handed to its tools. */
+  settings?: Readonly<Record<string, unknown>> | undefined;
   /** Counts external calls in this step, for `<run id>:<step id>:<index>` keys. */
   externalIndex: { next: number };
 }
