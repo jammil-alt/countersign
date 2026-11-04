@@ -15,6 +15,7 @@ import {
   agentChange,
   agentVersion,
   connectionChange,
+  contactChange,
   docExtraction,
   docLine,
   document,
@@ -144,8 +145,8 @@ describe.skipIf(!online)("immutability", () => {
     );
   });
 
-  it("connection_change and agent_change are append-only", async () => {
-    for (const table of [connectionChange, agentChange]) {
+  it("connection_change, agent_change and contact_change are append-only", async () => {
+    for (const table of [connectionChange, agentChange, contactChange]) {
       expect(await errorCode(t.db.update(table).set({ change: { edited: true } }))).toBe(
         RESTRICT_VIOLATION,
       );
