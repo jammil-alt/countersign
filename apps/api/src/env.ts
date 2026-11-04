@@ -15,6 +15,9 @@ export interface Secrets {
   /** Zoho API console: a Server-based application with multi-DC on (ARCHITECTURE §6.7). */
   ZOHO_CLIENT_ID?: string;
   ZOHO_CLIENT_SECRET?: string;
+  /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;

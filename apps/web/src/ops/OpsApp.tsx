@@ -14,6 +14,7 @@ import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
 import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
+import { OpsMessagingScreen } from "./screens/Messaging";
 import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
@@ -45,6 +46,7 @@ export default function OpsApp() {
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
         <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
+        <Route path="clients/:clientId/messaging" element={<OpsMessagingScreen />} />
         <Route path="runs" element={<OpsRunsScreen />} />
         <Route path="runs/:id" element={<OpsRunScreen />} />
         <Route path="inbox" element={<OpsInboxScreen />} />

@@ -2,6 +2,7 @@
 
 import {
   type ConnectionRef,
+  type ConnectorServices,
   type CredentialsAccessor,
   type Logger,
   memoryCredentials,
@@ -25,6 +26,8 @@ export interface RuntimeDeps {
    * the default has none, which is all `auth: 'none'` connectors need.
    */
   credentials?: (connection: ConnectionRef) => CredentialsAccessor;
+  /** Platform services for connector calls (e.g. contacts and consent); apps/api passes them. */
+  services?: (connection: ConnectionRef) => ConnectorServices;
   logger?: Logger;
   now?: () => Date;
 }
@@ -52,6 +55,7 @@ export function connectionContext(deps: RuntimeDeps, tenantId: string, connectio
     credentials: deps.credentials?.(connection) ?? memoryCredentials(null),
     logger: deps.logger ?? noopLogger,
     now: deps.now ?? (() => new Date()),
+    ...(deps.services ? { services: deps.services(connection) } : {}),
   };
 }
 
