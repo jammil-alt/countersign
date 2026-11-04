@@ -6,7 +6,7 @@
 import type { ConnectionRef } from "@countersign/connectors";
 import type { AgentBundle, JsonObject } from "@countersign/core";
 import type { ResolvedSkill } from "../registry/skills";
-import type { DocumentsPort, PlatformStore, RunMode } from "../tools/types";
+import type { DocumentsPort, KnowledgePort, PlatformStore, RunMode } from "../tools/types";
 
 export interface PinnedAgent {
   agentId: string;
@@ -175,4 +175,6 @@ export interface RuntimePorts {
   platform: PlatformStore;
   /** The documents capability for `docs.*` tools; absent: those tools fail with a reason. */
   documents?: DocumentsPort;
+  /** The client's knowledge base for `knowledge.search`; absent: that tool fails with a reason. */
+  knowledge?: KnowledgePort;
 }
