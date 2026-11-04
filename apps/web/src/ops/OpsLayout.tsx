@@ -34,6 +34,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
             <div className="flex flex-col gap-0.5">
               <SidebarLink to={base ?? "/ops"} label="Home" end testId="ops-nav-home" />
               <SidebarLink to="/ops/inbox" label="Inbox" testId="ops-nav-inbox" />
+              <SidebarLink to="/ops/requests" label="Requests" testId="ops-nav-requests" />
               {base ? (
                 <SidebarLink
                   to={`${base}/documents`}
@@ -55,6 +56,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                 testId="ops-nav-connections"
               />
               <SidebarLink to="/ops/runs" label="Runs" testId="ops-nav-runs" />
+              <SidebarLink to="/ops/usage" label="Usage" testId="ops-nav-usage" />
               <SidebarLink to="/ops/feedback" label="Feedback" testId="ops-nav-feedback" />
               <SidebarLink
                 to={base ? `${base}/settings` : "/ops/settings"}
