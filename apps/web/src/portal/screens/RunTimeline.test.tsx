@@ -26,7 +26,7 @@ const LEAKY_TIMELINE = {
       label: "Corrected the record",
       status: "succeeded",
       summary: "Updated record r1",
-      sources: ["r1"],
+      sources: ["r1", "00000000-0000-4000-8000-0000000f5001"],
       startedAt: "2026-11-03T10:00:10.000Z",
       finishedAt: "2026-11-03T10:00:20.000Z",
       costUsd: "0.0400",
@@ -96,6 +96,10 @@ describe("portal run timeline", () => {
     expect(
       within(steps[0] as HTMLElement).getByTestId("portal-run-step-sources"),
     ).toHaveTextContent("r1");
+    // A record id opens the client's record page.
+    expect(
+      within(steps[0] as HTMLElement).getByTestId("source-00000000-0000-4000-8000-0000000f5001"),
+    ).toHaveAttribute("href", "/records/00000000-0000-4000-8000-0000000f5001");
     // A step without a summary says its status instead.
     expect(steps[1]).toHaveTextContent("Confirm");
     expect(steps[1]).toHaveTextContent("Done");

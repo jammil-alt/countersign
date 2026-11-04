@@ -18,6 +18,7 @@ import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
+import { recordRouteHandlers } from "./routes/records";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
 import { usageRouteHandlers } from "./routes/usage";
@@ -42,6 +43,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   hookRoutes(app);
   documentRoutes(app);
   feedbackRouteHandlers(app);
+  recordRouteHandlers(app);
   requestRouteHandlers(app);
   packRouteHandlers(app);
   onboardingRouteHandlers(app);

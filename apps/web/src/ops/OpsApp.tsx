@@ -7,6 +7,7 @@ import {
   OpsClientPriceWatchScreen,
   OpsPacksScreen,
 } from "../packs/screens";
+import { OpsRecordScreen } from "../records/RecordScreens";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
@@ -17,6 +18,7 @@ import { ClientDetailScreen } from "./screens/ClientDetail";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
+import { OpsDocumentScreen, OpsDocumentsScreen } from "./screens/Documents";
 import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
 import { NewClientScreen } from "./screens/NewClient";
@@ -50,6 +52,9 @@ export default function OpsApp() {
         <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
+        <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
+        <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />
+        <Route path="clients/:clientId/records/:recordId" element={<OpsRecordScreen />} />
         <Route path="runs" element={<OpsRunsScreen />} />
         <Route path="runs/:id" element={<OpsRunScreen />} />
         <Route path="inbox" element={<OpsInboxScreen />} />

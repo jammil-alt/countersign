@@ -83,6 +83,7 @@ async function clientSummaries(tx: Tx, ids: readonly string[]) {
     createdAt: t.createdAt.toISOString(),
     agents: agents.find((a) => a.tenantId === t.id)?.n ?? 0,
     openInbox: open.find((o) => o.tenantId === t.id)?.n ?? 0,
+    sandbox: isSandbox(t.settings as Record<string, unknown>),
   }));
 }
 
