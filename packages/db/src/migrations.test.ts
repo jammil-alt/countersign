@@ -24,12 +24,18 @@ const journal = JSON.parse(
 describe("migration journal", () => {
   const entries = journal.entries;
 
-  it("lists idx 0..n-1 with numbered, unique tags", () => {
+  // DECISION: parallel streams reserve migration numbers ahead (docs/plan.md §1.21), so a branch's
+  // journal may skip numbers; tags must still be numbered, unique and in ascending order.
+  it("lists idx 0..n-1 with numbered, unique, ascending tags", () => {
     expect(entries.map((e) => e.idx)).toEqual(entries.map((_, i) => i));
     expect(new Set(entries.map((e) => e.tag)).size).toBe(entries.length);
-    entries.forEach((e, i) => {
-      expect(e.tag.startsWith(String(i).padStart(4, "0"))).toBe(true);
+    const numbers = entries.map((e) => {
+      expect(e.tag).toMatch(/^\d{4}_/);
+      return Number(e.tag.slice(0, 4));
     });
+    for (let i = 1; i < numbers.length; i++) {
+      expect(numbers[i]).toBeGreaterThan(numbers[i - 1] ?? -1);
+    }
   });
 
   // Drizzle's migrator applies only entries whose `when` is later than the last applied one, so an
@@ -149,9 +155,12 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "doc_line",
       "tenant_change",
       "feedback",
+      "knowledge_entry",
+      "knowledge_entry_version",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    expect(await can("knowledge_entry_version", "UPDATE")).toBe(false);
     expect(await can("connection_change", "UPDATE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);

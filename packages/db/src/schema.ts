@@ -14,6 +14,7 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   date,
   foreignKey,
   index,
@@ -1106,6 +1107,135 @@ export const feedback = pgTable(
   ],
 );
 
+// ── Knowledge base ───────────────────────────────────────────────────────────────────────────────
+
+export const KNOWLEDGE_ENTRY_KINDS = ["faq", "policy"] as const;
+export const KNOWLEDGE_ENTRY_STATUSES = ["active", "archived"] as const;
+export const KNOWLEDGE_AUTHOR_ROLES = ["operator", "client_admin"] as const;
+export const KNOWLEDGE_SOURCE_TYPES = ["entry", "document"] as const;
+
+/** Postgres full-text search vectors; written with `to_tsvector(...)` in SQL, never parsed here. */
+const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
+
+/**
+ * A client's FAQ or policy (docs/plan.md §1.21), written by the operator or the client admin. The
+ * row is the entry's current state (its latest version number, archived or not); what it says
+ * lives in its versions.
+ */
+export const knowledgeEntry = pgTable(
+  "knowledge_entry",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    kind: text("kind").$type<(typeof KNOWLEDGE_ENTRY_KINDS)[number]>().notNull(),
+    status: text("status")
+      .$type<(typeof KNOWLEDGE_ENTRY_STATUSES)[number]>()
+      .notNull()
+      .default("active"),
+    /** The latest version's number (`knowledge_entry_version.version`). */
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("knowledge_entry_id_tenant_key").on(t.id, t.tenantId),
+    index("knowledge_entry_tenant_idx").on(t.tenantId, t.status),
+    check("knowledge_entry_kind_check", oneOf(t.kind, KNOWLEDGE_ENTRY_KINDS)),
+    check("knowledge_entry_status_check", oneOf(t.status, KNOWLEDGE_ENTRY_STATUSES)),
+  ],
+);
+
+/**
+ * Every saved state of an entry, in order: its title and text, archived or not, and who saved it.
+ * Immutable (trigger): an edit or an archive inserts the next version, so this is the audit trail.
+ */
+export const knowledgeEntryVersion = pgTable(
+  "knowledge_entry_version",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    entryId: uuid("entry_id").notNull(),
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    status: text("status").$type<(typeof KNOWLEDGE_ENTRY_STATUSES)[number]>().notNull(),
+    authorId: uuid("author_id").references(() => appUser.id),
+    authorRole: text("author_role").$type<(typeof KNOWLEDGE_AUTHOR_ROLES)[number]>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("knowledge_entry_version_id_tenant_key").on(t.id, t.tenantId),
+    unique("knowledge_entry_version_key").on(t.entryId, t.version),
+    foreignKey({
+      name: "knowledge_entry_version_entry_fk",
+      columns: [t.entryId, t.tenantId],
+      foreignColumns: [knowledgeEntry.id, knowledgeEntry.tenantId],
+    }),
+    check("knowledge_entry_version_status_check", oneOf(t.status, KNOWLEDGE_ENTRY_STATUSES)),
+    check("knowledge_entry_version_role_check", oneOf(t.authorRole, KNOWLEDGE_AUTHOR_ROLES)),
+    check("knowledge_entry_version_number_check", sql`${t.version} >= 1`),
+  ],
+);
+
+/**
+ * The searchable index: passages of an entry's current version, or of a document (its name and
+ * latest extraction). Derived from those records and rebuilt when they change, so rows are
+ * replaced, not versioned. `config` is the text-search configuration the passage was indexed
+ * with (from the client's language).
+ */
+export const knowledgeChunk = pgTable(
+  "knowledge_chunk",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    sourceType: text("source_type").$type<(typeof KNOWLEDGE_SOURCE_TYPES)[number]>().notNull(),
+    entryId: uuid("entry_id"),
+    entryVersionId: uuid("entry_version_id"),
+    documentId: uuid("document_id"),
+    /** The extraction the passage was read from; null for a document not read yet. */
+    extractionId: uuid("extraction_id"),
+    chunkNo: integer("chunk_no").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    config: text("config").notNull().default("english"),
+    tsv: tsvector("tsv").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "knowledge_chunk_entry_fk",
+      columns: [t.entryId, t.tenantId],
+      foreignColumns: [knowledgeEntry.id, knowledgeEntry.tenantId],
+    }),
+    foreignKey({
+      name: "knowledge_chunk_entry_version_fk",
+      columns: [t.entryVersionId, t.tenantId],
+      foreignColumns: [knowledgeEntryVersion.id, knowledgeEntryVersion.tenantId],
+    }),
+    foreignKey({
+      name: "knowledge_chunk_document_fk",
+      columns: [t.documentId, t.tenantId],
+      foreignColumns: [document.id, document.tenantId],
+    }),
+    foreignKey({
+      name: "knowledge_chunk_extraction_fk",
+      columns: [t.extractionId, t.tenantId],
+      foreignColumns: [docExtraction.id, docExtraction.tenantId],
+    }),
+    index("knowledge_chunk_tsv_idx").using("gin", t.tsv),
+    index("knowledge_chunk_entry_idx").on(t.entryId),
+    index("knowledge_chunk_document_idx").on(t.documentId),
+    index("knowledge_chunk_tenant_idx").on(t.tenantId),
+    check("knowledge_chunk_source_check", oneOf(t.sourceType, KNOWLEDGE_SOURCE_TYPES)),
+    // An entry's passage names its entry and version; a document's passage its document.
+    check(
+      "knowledge_chunk_source_ids_check",
+      sql`(${t.sourceType} = 'entry' and ${t.entryId} is not null and ${t.entryVersionId} is not null and ${t.documentId} is null) or (${t.sourceType} = 'document' and ${t.documentId} is not null and ${t.entryId} is null)`,
+    ),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -1139,6 +1269,9 @@ export const TENANT_TABLES = [
   "doc_line",
   "tenant_change",
   "feedback",
+  "knowledge_entry",
+  "knowledge_entry_version",
+  "knowledge_chunk",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

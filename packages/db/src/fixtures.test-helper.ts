@@ -3,6 +3,7 @@
 // same rows through cs_worker's eyes.
 
 import type { AgentBundle } from "@countersign/core";
+import { sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   agent,
@@ -18,6 +19,9 @@ import {
   externalAction,
   feedback,
   inboxItem,
+  knowledgeChunk,
+  knowledgeEntry,
+  knowledgeEntryVersion,
   membership,
   memoryNote,
   message,
@@ -272,6 +276,36 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     comment: "This is confusing",
     path: "/inbox",
     viewport: { width: 1280, height: 800 },
+  });
+
+  const [ke] = await db
+    .insert(knowledgeEntry)
+    .values({ tenantId, kind: "faq", createdBy: u.id })
+    .returning();
+  if (!ke) throw new Error("no knowledge entry");
+  const [kv] = await db
+    .insert(knowledgeEntryVersion)
+    .values({
+      tenantId,
+      entryId: ke.id,
+      version: 1,
+      title: "Opening hours",
+      body: "We open at 8am.",
+      status: "active",
+      authorId: u.id,
+      authorRole: "client_admin",
+    })
+    .returning();
+  if (!kv) throw new Error("no knowledge entry version");
+  await db.insert(knowledgeChunk).values({
+    tenantId,
+    sourceType: "entry",
+    entryId: ke.id,
+    entryVersionId: kv.id,
+    chunkNo: 0,
+    title: "Opening hours",
+    body: "We open at 8am.",
+    tsv: sql`to_tsvector('english', 'Opening hours We open at 8am.')`,
   });
 
   return {
