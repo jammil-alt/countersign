@@ -1485,7 +1485,7 @@ ENCRYPTION_KEY                         # 32 bytes base64; wraps each client's da
 BROWSER (Browser Run binding), CODES (service binding → apps/mfa)   # v0.10
 AGENT_EMAIL_DOMAIN                     # e.g. agents.<domain>, routed to apps/mfa by Email Routing
 # apps/mfa only: MFA_ENCRYPTION_KEY (32 bytes base64), MFA_TWILIO_ACCOUNT_SID, MFA_TWILIO_AUTH_TOKEN,
-#   IDENTITY (Durable Object binding), AGENT_EMAIL_DOMAIN, MFA_ORIGIN
+#   IDENTITY and DIRECTORY (Durable Object bindings), AGENT_EMAIL_DOMAIN, MFA_ORIGIN, MFA_DAILY_CAP
 QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI, QBO_ENV=sandbox|production, QBO_WEBHOOK_VERIFIER
 EMAIL_FORWARDING_DOMAIN                # e.g. in.<domain>, routed to the Worker by Cloudflare Email Routing
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI   # after the MVP (Gmail)

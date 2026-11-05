@@ -1,0 +1,25 @@
+{
+  "name": "@countersign/mfa",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The code service (Worker mezonas-codes): agent identities, second-factor codes handed once to a login in progress. Imports @countersign/core only.",
+  "scripts": {
+    "typecheck": "wrangler types && tsc -p .",
+    "test": "vitest run --passWithNoTests && vitest run --config vitest.workers.config.ts",
+    "dev": "wrangler dev",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@countersign/core": "workspace:*",
+    "hono": "^4.13.7",
+    "postal-mime": "^4.2.0",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^22.20.2",
+    "vitest": "^4.1.11",
+    "wrangler": "4.131.0"
+  }
+}

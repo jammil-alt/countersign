@@ -33,6 +33,8 @@ export interface DispatchDeps {
    * send); without it, replies still end reach-outs but nothing escalates.
    */
   reachTick?: (tenantId: string, at: Date) => Promise<unknown>;
+  /** The code service's alerts for one client become inbox items; absent without `CODES`. */
+  codesTick?: (tenantId: string, at: Date) => Promise<unknown>;
 }
 
 /** A client's agents with their live bundles: what the router chooses from. */
@@ -174,6 +176,7 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
         );
       }
       if (deps.reachTick) await deps.reachTick(client.id, scheduledTime);
+      if (deps.codesTick) await deps.codesTick(client.id, scheduledTime);
     } catch (error) {
       console.error(`cron for client ${client.id} failed`, error);
     }

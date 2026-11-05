@@ -3,11 +3,14 @@
 // 1. a package may import only the @countersign/* packages listed in its package.json;
 // 2. inside packages/agents, only src/registry/ and src/log/ may import @countersign/db;
 // 3. platform packages (packages/*) never depend on a pack (packs/*);
-// 4. a pack depends only on the platform packages in PACK_ALLOWED.
+// 4. a pack depends only on the platform packages in PACK_ALLOWED;
+// 5. apps/mfa (the code service, its own Worker) depends on @countersign/core only, and nothing
+//    depends on it: apps/api reaches it only through a service binding (plan §1.26).
+// Pass a directory to check another tree (scripts/check-deps.test.mjs does).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = process.argv[2] ? resolve(process.argv[2]) : new URL("..", import.meta.url).pathname;
 const PACK_ALLOWED = new Set([
   "@countersign/core",
   "@countersign/db",
@@ -18,6 +21,17 @@ const PACK_ALLOWED = new Set([
 ]);
 const IMPORT_RE = /(?:from\s+|import\s*\(\s*|import\s+)['"](@countersign\/[a-z-]+)/g;
 const AGENTS_DB_ALLOWED = ["packages/agents/src/registry/", "packages/agents/src/log/"];
+/** Apps held to a fixed set of workspace dependencies. */
+const APP_ALLOWED = { "apps/mfa": new Set(["@countersign/core"]) };
+/**
+ * Apps whose runtime dependencies are a fixed list: the code service keeps no database, storage or
+ * other client, so adding one is a decision made here, in review.
+ */
+const APP_RUNTIME_ALLOWED = {
+  "apps/mfa": new Set(["@countersign/core", "hono", "postal-mime", "zod"]),
+};
+/** Packages no other workspace package may depend on. */
+const NO_DEPENDENTS = new Set(["@countersign/mfa"]);
 
 function* files(dir) {
   if (!existsSync(dir)) return;
@@ -44,6 +58,23 @@ for (const dir of pkgDirs) {
     for (const dep of workspaceDeps.filter((d) => d.startsWith("@countersign/pack-"))) {
       errors.push(`${dir}/package.json: platform package depends on pack ${dep}`);
     }
+  }
+  const appAllowed = APP_ALLOWED[dir];
+  if (appAllowed) {
+    for (const dep of workspaceDeps.filter((d) => !appAllowed.has(d))) {
+      errors.push(
+        `${dir}/package.json: may depend only on ${[...appAllowed].join(", ")}, not ${dep}`,
+      );
+    }
+  }
+  const runtimeAllowed = APP_RUNTIME_ALLOWED[dir];
+  if (runtimeAllowed) {
+    for (const dep of Object.keys(pkg.dependencies ?? {}).filter((d) => !runtimeAllowed.has(d))) {
+      errors.push(`${dir}/package.json: ${dep} is not an allowed runtime dependency here`);
+    }
+  }
+  for (const dep of workspaceDeps.filter((d) => NO_DEPENDENTS.has(d) && d !== pkg.name)) {
+    errors.push(`${dir}/package.json: depends on ${dep}, which is reached only by service binding`);
   }
   if (dir.startsWith("packs")) {
     for (const dep of workspaceDeps.filter((d) => !PACK_ALLOWED.has(d))) {
