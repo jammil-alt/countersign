@@ -149,7 +149,6 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "app_user",
       "vendor",
       "transaction",
-      "transaction_line",
       "document",
       "doc_extraction",
       "doc_line",
@@ -189,6 +188,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     }
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
+    // A synced transaction's lines mirror the tool's current lines (0015, QuickBooks sync); the
+    // versions behind them stay in raw_record.
+    expect(await can("transaction_line", "DELETE")).toBe(true);
   });
 
   it("force RLS on the operator-only tables, with policies on app.operator alone", async () => {
