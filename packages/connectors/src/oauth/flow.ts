@@ -1,5 +1,5 @@
 import type { ConnectionGrant, Connector } from "../connector";
-import type { CredentialBinding, CredentialCipher, CredentialEnvelope } from "../credentials";
+import type { CredentialBinding, CredentialEnvelope, CredentialSealer } from "../credentials";
 import { createOAuthState, type OAuthStateFailure, verifyOAuthState } from "./state";
 
 /**
@@ -56,7 +56,8 @@ export async function completeAuthorization(input: {
   connectionId: string;
   redirectUri: string;
   stateSecret: string | Uint8Array;
-  cipher: CredentialCipher;
+  /** Encrypts under the client's own key (envelope v2). */
+  cipher: CredentialSealer;
   now?: Date;
 }): Promise<{ grant: Omit<ConnectionGrant, "credentials">; credentials: CredentialEnvelope }> {
   const { connector, params } = input;

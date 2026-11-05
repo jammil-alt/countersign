@@ -139,7 +139,13 @@ export function canSignIn(
   if (connector.manifest.auth === "oauth2") {
     return Boolean(connector.authorize) && connector.isConfigured?.() !== false;
   }
-  return false;
+  // API-key connectors with a credential form: the client admin enters the key (Access page).
+  return hasCredentialForm(connector);
+}
+
+/** An API-key connector whose credentials the client admin enters (docs/plan.md §1.26). */
+export function hasCredentialForm(connector: Pick<Connector, "manifest"> | undefined): boolean {
+  return connector?.manifest.auth === "api_key" && Boolean(connector.manifest.credentialFields);
 }
 
 export async function portalConnections(
@@ -154,6 +160,7 @@ export async function portalConnections(
     description: string;
     icon: string | null;
     available: boolean;
+    credentialForm: boolean;
     connection: {
       id: string;
       status: string;
@@ -197,6 +204,7 @@ export async function portalConnections(
       description: manifest?.description ?? "",
       icon: manifest?.icon ?? null,
       available: canSignIn(platform.connectors.get(id)),
+      credentialForm: hasCredentialForm(platform.connectors.get(id)),
       connection: c && {
         id: c.id,
         status: c.status,

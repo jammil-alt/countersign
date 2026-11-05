@@ -57,6 +57,11 @@ jobs:
       # The code service's own Twilio subaccount (plan §1.26), not the clients' messaging account.
       MFA_TWILIO_ACCOUNT_SID: ${{ secrets.MFA_TWILIO_ACCOUNT_SID }}
       MFA_TWILIO_AUTH_TOKEN: ${{ secrets.MFA_TWILIO_AUTH_TOKEN }}
+      # Zoho CRM and Podio (plan §1.9): each connector stays "Not available yet" until its keys exist.
+      ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+      ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+      PODIO_CLIENT_ID: ${{ secrets.PODIO_CLIENT_ID }}
+      PODIO_CLIENT_SECRET: ${{ secrets.PODIO_CLIENT_SECRET }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -218,16 +223,23 @@ jobs:
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; fi
           if [ -n "${OPENAI_API_KEY:-}" ]; then put OPENAI_API_KEY "$OPENAI_API_KEY"; fi
           for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
-            RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
+            RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
+            ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET; do
             if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
           done
           # Generated once inside Cloudflare and never shown or stored anywhere else. If the list of
           # existing secrets can't be read, this step fails (set -e) rather than risk replacing
           # ENCRYPTION_KEY, which would make stored connection credentials unreadable.
           existing=$(pnpm exec wrangler secret list --env "$env_name" --format json | jq -r '.[].name')
-          for name in ENCRYPTION_KEY WORKOS_COOKIE_PASSWORD; do
+          # OAUTH_STATE_SECRET signs OAuth sign-ins in progress (Zoho, Podio); replacing it only breaks
+          # sign-ins that are under way.
+          for name in ENCRYPTION_KEY WORKOS_COOKIE_PASSWORD OAUTH_STATE_SECRET; do
             if grep -qx "$name" <<<"$existing"; then echo "$name already set"; continue; fi
-            if [ "$name" = ENCRYPTION_KEY ]; then value=$(openssl rand -base64 32); else value=$(openssl rand -hex 32); fi
+            case "$name" in
+              ENCRYPTION_KEY) value=$(openssl rand -base64 32) ;;
+              OAUTH_STATE_SECRET) value=$(openssl rand -base64 48) ;;
+              *) value=$(openssl rand -hex 32) ;;
+            esac
             echo "::add-mask::$value"
             put "$name" "$value"
           done

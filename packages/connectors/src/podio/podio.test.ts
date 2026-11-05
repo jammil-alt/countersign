@@ -1,7 +1,7 @@
 import { DEFAULT_PERMISSIONS, type JsonObject } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import type { WriteContext } from "../connector";
-import { CredentialCipher, generateEncryptionKey } from "../credentials";
+import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { memoryCredentials } from "../credentials-accessor";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
@@ -94,7 +94,9 @@ describe("podio connector", () => {
     });
     expect(begun.redirectUrl.startsWith("https://podio.com/oauth/authorize?")).toBe(true);
     expect(begun.redirectUrl).toContain(`redirect_uri=${encodeURIComponent(redirectUri)}`);
-    const cipher = await CredentialCipher.create({ current: generateEncryptionKey() });
+    const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
+      memoryTenantKeys(),
+    );
     const done = await completeAuthorization({
       connector,
       params: { code: "fixture-code", state: begun.state },

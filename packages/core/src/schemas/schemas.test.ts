@@ -87,6 +87,26 @@ describe("refinements", () => {
     expect(r.error?.issues[0]?.path).toEqual(["tools", 1, "source"]);
   });
 
+  it("takes credential fields only on API-key connectors, with unique names", () => {
+    const m = {
+      id: "acme",
+      name: "Acme",
+      description: "",
+      icon: "acme",
+      auth: "api_key",
+      entities: [],
+      tools: [],
+      credentialFields: [
+        { name: "username", label: "Username", secret: false },
+        { name: "apiKey", label: "API key", secret: true },
+      ],
+    };
+    expect(ConnectorManifest.safeParse(m).success).toBe(true);
+    expect(ConnectorManifest.safeParse({ ...m, auth: "oauth2" }).success).toBe(false);
+    const twice = [...m.credentialFields, { name: "apiKey", label: "Again", secret: true }];
+    expect(ConnectorManifest.safeParse({ ...m, credentialFields: twice }).success).toBe(false);
+  });
+
   it("checks a pack's tools and events are named for it", () => {
     const p = {
       id: "demo",

@@ -16,6 +16,7 @@ const CONNECTED = {
     description: "Leads, contacts, accounts and deals.",
     icon: null,
     available: true,
+    credentialForm: false,
     connection: null,
   },
 };
