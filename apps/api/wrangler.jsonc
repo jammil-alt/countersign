@@ -51,7 +51,8 @@
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
   // Resource names match .github/workflows/bootstrap.yml; domains are on the mezonas.com zone
-  // (docs/operations.md, "Environments").
+  // (docs/operations.md, "Environments"). `CODES` (the code service, apps/mfa) is bound in the
+  // deployed environments only: locally it is absent and the code service is off.
   "env": {
     "staging": {
       "name": "mezonas-staging",
@@ -62,6 +63,10 @@
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas-staging" }],
       "workflows": [
         { "name": "mezonas-staging-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+      ],
+      // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
+      "services": [
+        { "binding": "CODES", "service": "mezonas-codes-staging", "entrypoint": "Codes" }
       ],
       "vars": {
         "ENVIRONMENT": "staging",
@@ -82,6 +87,7 @@
       "workflows": [
         { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
       ],
+      "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
       "vars": {
         "ENVIRONMENT": "production",
         "AUTH_PROVIDER": "workos",
