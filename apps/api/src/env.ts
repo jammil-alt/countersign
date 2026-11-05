@@ -1,6 +1,8 @@
 // The Worker's environment: the bindings and vars wrangler.jsonc declares (the generated `Env`),
 // plus the secrets, which never appear in wrangler.jsonc and so are not in the generated type.
 
+import type { CodesService } from "@countersign/core";
+
 export interface Secrets {
   WORKOS_API_KEY?: string;
   WORKOS_COOKIE_PASSWORD?: string;
@@ -57,4 +59,15 @@ export interface Vars {
   DEPLOYED_SHA?: string;
 }
 
-export type Bindings = Omit<Env, keyof Vars> & Vars & Secrets;
+/**
+ * Bindings not (yet) in wrangler.jsonc everywhere. `CODES` is the code service (apps/mfa,
+ * Worker `mezonas-codes`), reached only by this service binding; unset, it is off.
+ */
+export interface OptionalBindings {
+  CODES?: CodesService;
+}
+
+export type Bindings = Omit<Env, keyof Vars | keyof OptionalBindings> &
+  Vars &
+  Secrets &
+  OptionalBindings;

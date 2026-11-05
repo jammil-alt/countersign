@@ -1,0 +1,9 @@
+# Copy to apps/mfa/.dev.vars (gitignored) for `wrangler dev`. Deployed values are Worker secrets set
+# by deploy.yml (docs/operations.md), never this file.
+
+# 32 bytes, base64: openssl rand -base64 32. Encrypts authenticator secrets and held codes.
+MFA_ENCRYPTION_KEY=
+# The codes Twilio subaccount (not a client's messaging subaccount). Empty: adding a phone number
+# answers not_configured and inbound texts are refused.
+MFA_TWILIO_ACCOUNT_SID=
+MFA_TWILIO_AUTH_TOKEN=

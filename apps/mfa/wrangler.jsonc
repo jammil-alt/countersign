@@ -1,0 +1,86 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // The code service (ARCHITECTURE §6.9, docs/plan.md §1.26). A Worker of its own, with its own key
+  // (MFA_ENCRYPTION_KEY), its own Durable Object storage and its own Twilio subaccount. It has no
+  // Hyperdrive, no R2 and none of apps/api's secrets. apps/api reaches its RPC only through the
+  // `CODES` service binding (entrypoint `Codes`); its only public routes are Twilio's signed inbound
+  // texts (POST /twilio/sms/:identityId) and the `email()` handler for AGENT_EMAIL_DOMAIN.
+  //
+  // Top level = local development only (`wrangler dev`, the Workers tests). deploy.yml always passes
+  // --env=staging or --env=production.
+  "name": "mezonas-codes-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Nothing public but the custom domain below: no workers.dev or preview URLs.
+  "workers_dev": false,
+  "preview_urls": false,
+  // apps/api's wrangler dev is on 8787.
+  "dev": { "port": 8788 },
+
+  // One Identity object per agent identity (named by its id); one Directory object per client
+  // (named by the client id) listing that client's identities. SQLite-backed storage.
+  "durable_objects": {
+    "bindings": [
+      { "name": "IDENTITY", "class_name": "Identity" },
+      { "name": "DIRECTORY", "class_name": "Directory" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Identity", "Directory"] }],
+
+  // Non-secret configuration. Secrets (MFA_ENCRYPTION_KEY, MFA_TWILIO_ACCOUNT_SID,
+  // MFA_TWILIO_AUTH_TOKEN) are set by deploy.yml, or in apps/mfa/.dev.vars locally, never here.
+  "vars": {
+    "ENVIRONMENT": "development",
+    // Agent addresses are agent-<identity id>@AGENT_EMAIL_DOMAIN.
+    "AGENT_EMAIL_DOMAIN": "agents.localhost",
+    // The public origin Twilio calls; the webhook signature is checked over MFA_ORIGIN + path.
+    "MFA_ORIGIN": "http://localhost:8788",
+    // Code requests per identity per UTC day.
+    "MFA_DAILY_CAP": "20"
+  },
+
+  // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
+  // PLACEHOLDER domains until the owner confirms them (docs/operations.md, "The code service").
+  "env": {
+    "staging": {
+      "name": "mezonas-codes-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "codes-staging.mezonas.com", "custom_domain": true }],
+      "durable_objects": {
+        "bindings": [
+          { "name": "IDENTITY", "class_name": "Identity" },
+          { "name": "DIRECTORY", "class_name": "Directory" }
+        ]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Identity", "Directory"] }],
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "AGENT_EMAIL_DOMAIN": "agents-staging.mezonas.com",
+        "MFA_ORIGIN": "https://codes-staging.mezonas.com",
+        "MFA_DAILY_CAP": "20"
+      }
+    },
+    "production": {
+      "name": "mezonas-codes",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "codes.mezonas.com", "custom_domain": true }],
+      "durable_objects": {
+        "bindings": [
+          { "name": "IDENTITY", "class_name": "Identity" },
+          { "name": "DIRECTORY", "class_name": "Directory" }
+        ]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Identity", "Directory"] }],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "AGENT_EMAIL_DOMAIN": "agents.mezonas.com",
+        "MFA_ORIGIN": "https://codes.mezonas.com",
+        "MFA_DAILY_CAP": "20"
+      }
+    }
+  }
+}

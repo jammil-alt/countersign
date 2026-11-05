@@ -4,6 +4,8 @@
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import { billingTick } from "./billing/jobs";
+import { raiseCodeAlerts } from "./codes/alerts";
+import { codesFor } from "./codes/client";
 import type { Bindings } from "./env";
 import {
   type AppDeps,
@@ -98,6 +100,7 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     }
     const instances = deps.instances(env);
     const platform = deps.platform(env);
+    const codes = codesFor(env);
     await cronTick(
       {
         db,
@@ -108,6 +111,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
             tenantId,
             at,
           ),
+        ...(codes
+          ? { codesTick: (tenantId: string, at: Date) => raiseCodeAlerts(db, codes, tenantId, at) }
+          : {}),
       },
       scheduledTime,
     );
