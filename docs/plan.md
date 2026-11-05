@@ -947,15 +947,15 @@ Tests: mappers on `fixtures/qbo/*`; webhook signature; token refresh rotation; s
 
 **Done when** a sandbox company syncs, a Bill flows through intake, and approving in the portal itemizes its lines (total unchanged) and attaches the invoice in the sandbox. **MVP exit** (§3) follows on the shop's production QuickBooks.
 
-### M10: Gmail (after the MVP)
+### M10: Gmail (send only; owner, 2026-11-05)
 
-First, check Google's current documentation: scope classifications for `gmail.readonly`, `gmail.labels` and `gmail.compose`; OAuth app verification and the security assessment for restricted scopes; the user cap and warning for unverified apps; refresh-token expiry for apps in "testing" status; `history.list` retention; quotas. Record the findings and the chosen route (verified app, or domain-wide delegation for Workspace clients) in `packages/connectors/src/gmail/NOTES.md`.
+No restricted scopes, so no CASA (ARCHITECTURE §6.4). Reading mail stays with forwarding (§1.6, built).
 
-Work: OAuth (authorize, callback, encrypted tokens, refresh); the connection's ingestion query (operator-set, default per ARCHITECTURE §6.4) and its editor on `/connections`; sync per §1.2 (history polling, expiry fallback, attachments as documents, dedupe by sha256, link to transactions with the sender domain as a signal); read tools `gmail.message.search`, `gmail.message.get`, `gmail.attachment.get`; write tools `gmail.draft.create`, `gmail.label.apply` behind approval; the Gmail step in `docs.find-support`; disconnect revokes the token and stops sync. The Pia template gains the Gmail draft and label steps as a new version; each client's Pia gets it as a template update the operator merges when ready.
+Work: OAuth with scope `gmail.send` only (authorize, callback, tokens in the vault, refresh, disconnect revokes); the `gmail.send` tool behind approval, used by reach out (§1.25) as an email channel; replies arrive through the client's forwarding address. Google's standard review: the public site's homepage and privacy policy (§1.29), domain verification (done 2026-11-05), a demo video, the scope's reason. Record what Google's current docs say about `gmail.send` (classification, review, quotas) in `packages/connectors/src/gmail/NOTES.md`.
 
-Tests: sync against recorded Gmail API fixtures (`fixtures/gmail/`): only query matches are stored, bodies are not; history expiry falls back to search; attachments dedupe; draft and label tools only run after approval and run once; email body text reaches agents only inside tool results.
+Tests: the send tool only runs after approval and runs once (idempotency key); the token never reaches a response; disconnect revokes.
 
-**Done when** a test mailbox connects, an emailed invoice is found for its QBO transaction and flows through intake, and an approved `gmail.draft.create` appears in the mailbox's drafts.
+**Done when** a test mailbox connects with `gmail.send` only, an approved reach-out email is sent from it, and its reply arrives through forwarding.
 
 ### M11: Usage, reports, notifications, end-to-end
 
@@ -1046,5 +1046,6 @@ Open
 2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
 3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first (owner: tomorrow).
 5. Reach out (§1.25): answered (2026-11-04): agents get their own channels (a Gmail of their own, Resend, or a person's Gmail; Twilio numbers), and the operator and the client admin both edit people and conditions. Open: a Resend account and its key; Google's send scope added to the Gmail review.
+7. Gmail (owner, 2026-11-05): answered. No CASA: `gmail.send` only, reading by forwarding (ARCHITECTURE §6.4, M10). Remove `gmail.readonly`, `gmail.labels` and `gmail.compose` from the Google consent screen. Google project `mezonas`, OAuth client "Mezonas web" created; `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are in the GitHub staging environment; mezonas.com verified in Search Console. Verification waits for the public site.
 6. Access (§1.26, owner 2026-11-05: build it): open: the agent email domain (default `agents.mezonas.com`, routed to `apps/mfa` by Cloudflare Email Routing); the codes Twilio subaccount; the first real low-tier site for the pilot; legal review of agent accounts on third-party sites, with the review of calls and texts; `developers.cloudflare.com` allowed in the session's network to check Browser Run's limits (handoff time limit, whether recordings capture typed input, Live View link access).
 4. Texts and calls (§1.19): WhatsApp through Twilio first, then Meta directly so clients can use their own number (owner, 2026-11-04); register Mezonas as a Meta Tech Provider ahead of the Meta step. Open: Mezonas-owned Twilio subaccounts per client (default) or each client's own Twilio; which countries first (US texting needs A2P 10DLC registration); Twilio and ElevenLabs accounts and keys; `api.twilio.com`, `graph.facebook.com` and `api.elevenlabs.io` allowed in the network. Legal review of consent, calling hours, recording consent and AI disclosure for each country before any live client calls.
