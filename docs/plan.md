@@ -688,6 +688,21 @@ Decisions made while building the supervisor (2026-11-05; built without a migrat
 | Client words | The client admin's item is built by the platform, never by the model: a title and plain steps per finding kind, in the client's language (core's `i18n/supervisor.ts`, six languages, using the portal's own labels: Connections, Reconnect, Access). Its payload holds only the fingerprint and the finding's kind, steps and counts. The model's triage note goes only to the operator's item, with the details (agent, version, step, error, connection) and sources. A contract test in apps/api and the agents tests check that the client's item and the portal's responses carry none of it. |
 | Daily check | Deterministic (no model): `supervisor.daily-check` reads the four health views, reports failed live runs of the last 24 hours, connections that need a person and client items waiting longer than `tenant.settings.supervisor.waitingHours` (default 48), then writes the summary as a `health.checked` event (counts and sources only; a test run writes none). A failure in that day that a person has already closed is not reported again; a still-open one is counted and reminded when due. The portal's overview shows the latest one and the open findings; the back office's client page shows the same with every finding of both audiences. |
 | The template | `supervisor.v1.json`: three workflows (`run-failed` and `connection-needs-attention`: triage with the model, then report; `daily-check` at `0 8 * * *` in the client's timezone), mode `suggest_only`, memory off, budget 8 steps and $0.30. No step can write to a client's tool, so there is no approval to set. The operator adds it from the client page (fork of the template's live version, published, slug `supervisor`, service name "Account check"; a client that has one keeps it) or ticks it at onboarding (on by default); it is test-run and activated like any agent. |
+### 1.29 Public site (owner, 2026-11-05)
+
+The public site at `mezonas.com` (`apps/site`), separate from the app.
+
+| Topic | Decision |
+|---|---|
+| Purpose | Tell visitors what Mezonas is, and meet Google's OAuth verification for Gmail: a live homepage on our verified domain that describes the app, with a privacy policy on the same domain linked from it. It also publishes the terms of service and the subprocessors list. |
+| Pages | `/` (landing, with "Terms and policies" at the bottom), `/terms`, `/privacy`, `/subprocessors`, and a 404. |
+| Build | Plain HTML and CSS: `apps/site/build.mjs` (Node, no dependencies) wraps each page in one layout and copies the design system's CSS, fonts and logos. No framework, no client-side code, no analytics, no cookies. A framework or bundler would add nothing to four pages of text. // DECISION |
+| Layering | `apps/site` depends only on `@countersign/design-system` (a dev dependency, its files), has no runtime dependencies, and nothing depends on it (`scripts/check-deps.mjs`). // DECISION |
+| Gmail scope | The privacy policy says we ask Google only for `gmail.send` and read no mailbox through Google; mail reaches us by forwarding (§6.5 of ARCHITECTURE). Owner, 2026-11-05: no CASA. A test keeps any other Gmail scope out of the policy. |
+| Facts | Every statement in the privacy policy and on the subprocessors page is taken from the code and `docs/operations.md`; what isn't settled is a placeholder. Keep them true when the platform changes (`apps/site/README.md`, "Keeping it true"). |
+| Placeholders | `[Legal entity name]`, `[address]`, `[contact email]`, `[privacy contact email]`, `[state]`, `[to confirm with each provider]` (model providers' retention and training terms), `[deletion period]`, `[backup retention period]`, `[transfer safeguards to confirm]`. Legal pages show "Draft for legal review" while any remain. The legal text is a draft for the owner's lawyer. |
+| Deploy | Its own Worker, `mezonas-site`, on `mezonas.com` and `www.mezonas.com`, in a separate PR (`claude/site-deploy`) held until the owner has removed the apex parking records in Cloudflare DNS (`docs/operations.md`). The site must be live before Google verification is submitted. |
+
 ---
 
 ## 2. Package layering
@@ -705,6 +720,7 @@ apps/api ─▶ workflows ─▶ agents ─▶ documents ─▶ connectors ─�
    └─▶ packs/materials ─▶ documents, connectors, llm, senses, db, core   (never agents or workflows)
 apps/web ─▶ core                    (route contract, schemas, workflow validation; HTTP to apps/api)
 apps/mfa ─▶ core                    (the code service, §1.26: its own Worker; apps/api reaches it only by service binding)
+apps/site ─▶ design-system          (the public site, §1.29: static files only)
 ```
 
 | Package | Workspace deps |
@@ -723,6 +739,7 @@ apps/mfa ─▶ core                    (the code service, §1.26: its own Worke
 | `apps/api` | any |
 | `apps/web` | core |
 | `apps/mfa` | core |
+| `apps/site` | design-system (files only) |
 
 \* only from `agents/src/registry/` and `agents/src/log/` (see §1.2).
 
