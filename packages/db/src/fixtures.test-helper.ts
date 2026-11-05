@@ -3,7 +3,7 @@
 // same rows through cs_worker's eyes.
 
 import type { AgentBundle } from "@countersign/core";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   accessRelease,
@@ -31,6 +31,8 @@ import {
   membership,
   memoryNote,
   message,
+  organization,
+  organizationChange,
   rawRecord,
   reachOut,
   run,
@@ -256,6 +258,18 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .insert(vendor)
     .values({ tenantId, name: "Acme Lumber", normalizedName: "acme lumber" })
     .returning();
+  const [org] = await db
+    .insert(organization)
+    .values({ tenantId, name: "Acme Lumber", kinds: ["vendor"], vendorId: v?.id ?? null })
+    .returning();
+  if (!org) throw new Error("no organization");
+  await db
+    .insert(organizationChange)
+    .values({ tenantId, organizationId: org.id, change: { created: true } });
+  await db
+    .update(contact)
+    .set({ organizationId: org.id, relationship: "vendor" })
+    .where(eq(contact.id, ct.id));
   const [tx] = await db
     .insert(transaction)
     .values({
