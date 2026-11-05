@@ -63,10 +63,11 @@ const DETAIL = {
   },
 };
 
-function renderAt(path: string) {
+function renderAt(path: string, sandbox = false) {
+  let documents = [SUMMARY];
   const api = fakeApi({
     "GET /api/session": () => OPERATOR_SESSION,
-    [`GET /api/ops/clients/${CLIENT}/documents`]: () => ({ documents: [SUMMARY] }),
+    [`GET /api/ops/clients/${CLIENT}/documents`]: () => ({ documents, sandbox }),
     [`GET /api/ops/clients/${CLIENT}/documents/${DOC}`]: () => DETAIL,
   });
   render(
@@ -76,7 +77,11 @@ function renderAt(path: string) {
       </AppProviders>
     </MemoryRouter>,
   );
-  return api;
+  return Object.assign(api, {
+    setDocuments: (next: (typeof SUMMARY)[]) => {
+      documents = next;
+    },
+  });
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -101,8 +106,61 @@ describe("back-office documents", () => {
       "href",
       `/ops/clients/${CLIENT}/records/${TXN}`,
     );
+    // A real client uploads or forwards its own: no upload here.
+    expect(screen.queryByTestId("ops-sandbox-upload")).not.toBeInTheDocument();
     await userEvent.setup().click(within(row).getByRole("link", { name: "Invoice 20418" }));
     expect(await screen.findByTestId("ops-document-status")).toHaveTextContent("Needs review");
+  }, 20_000);
+
+  it("uploads the Sandbox's documents through the back office's route, and lists them", async () => {
+    const api = renderAt(`/ops/clients/${CLIENT}/documents`, true);
+    api.setDocuments([]);
+    const sentTo: string[] = [];
+    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      sentTo.push(String(input));
+      expect(init?.body).toBeInstanceOf(FormData);
+      api.setDocuments([{ ...SUMMARY, source: "upload" }]);
+      return Response.json({
+        results: [
+          {
+            filename: "northline-20418.pdf",
+            kind: "document",
+            document: { ...SUMMARY, source: "upload" },
+            created: true,
+            purchases: null,
+            error: null,
+          },
+          {
+            filename: "again.pdf",
+            kind: "document",
+            document: { ...SUMMARY, source: "upload" },
+            created: false,
+            purchases: null,
+            error: null,
+          },
+        ],
+      });
+    });
+    const area = await screen.findByTestId("ops-sandbox-upload", {}, { timeout: 10_000 });
+    expect(area).toHaveTextContent("you upload its invoices here");
+    expect(screen.getByText("No documents yet. Upload an invoice above.")).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .upload(screen.getByTestId("ops-upload-input"), [
+        new File(["%PDF"], "northline-20418.pdf", { type: "application/pdf" }),
+        new File(["%PDF"], "again.pdf", { type: "application/pdf" }),
+      ]);
+    const results = await screen.findByTestId("ops-upload-results");
+    expect(sentTo).toEqual([`/api/ops/clients/${CLIENT}/uploads`]);
+    expect(results).toHaveTextContent("Received");
+    expect(results).toHaveTextContent("Already here: we keep one copy.");
+    expect(within(results).getByRole("link", { name: "northline-20418.pdf" })).toHaveAttribute(
+      "href",
+      `/ops/clients/${CLIENT}/documents/${DOC}`,
+    );
+    // The list reloads with the new document.
+    expect(await screen.findByTestId(`ops-document-row-${DOC}`)).toHaveTextContent("Uploaded");
+    fetched.mockRestore();
   }, 20_000);
 
   it("shows the reading, its problems and the purchase, and opens a fresh link", async () => {

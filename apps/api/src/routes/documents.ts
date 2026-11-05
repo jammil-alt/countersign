@@ -20,7 +20,14 @@ import {
   updateForwarding,
 } from "@countersign/connectors";
 import { type ExtractedHeader, routes } from "@countersign/core";
-import { docExtraction, document, type Tx, tenant, withTenant } from "@countersign/db";
+import {
+  docExtraction,
+  document,
+  narrowToTenant,
+  type Tx,
+  tenant,
+  withTenant,
+} from "@countersign/db";
 import {
   DocumentError,
   type DocumentRow,
@@ -33,10 +40,19 @@ import { createLlmClient } from "@countersign/llm";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services } from "../http";
+import {
+  type AppContext,
+  type AppEnv,
+  type HandlerCtx,
+  HttpError,
+  mount,
+  notFound,
+  type Services,
+} from "../http";
 import { reportHandled } from "../observability/report";
 import { dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
+import { sandboxClient } from "./ops-clients";
 
 /** At most this many files in one upload request. */
 export const MAX_UPLOAD_FILES = 20;
@@ -212,111 +228,133 @@ export async function recentDocuments(tx: Tx, tenantId: string, limit: number) {
   return docs.map((d) => documentSummary(d, latest.get(d.id) ?? null));
 }
 
-export function documentRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.portalUploads, async ({ c, tx, tenantIds, session, services, defer }) => {
-    const tenantId = tenantIds[0] as string;
-    let form: FormData;
-    try {
-      form = await c.req.formData();
-    } catch {
-      throw new HttpError(400, "invalid_request", "send the files as multipart/form-data");
-    }
-    const files = form.getAll("files").filter((f): f is File => typeof f !== "string");
-    if (files.length === 0) throw new HttpError(400, "invalid_request", "no files in `files`");
-    if (files.length > MAX_UPLOAD_FILES) {
-      throw new HttpError(400, "invalid_request", `at most ${MAX_UPLOAD_FILES} files at once`);
-    }
-    const content = contentOf(services);
-    const conn = await ensureUploadConnection(tx, tenantId);
-    const events: EventRow[] = [];
-    const extract: string[] = [];
-    const results = [];
-    for (const file of files) {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const base = {
-        filename: file.name,
-        document: null,
-        created: false,
-        purchases: null,
-        error: null,
-      };
-      if (isCsv(file)) {
-        try {
-          const r = await importPurchasesCsv(tx, {
+/**
+ * An upload into one client (multipart, field `files`), through its built-in upload connection:
+ * the portal's for its client, the back office's for the Sandbox. A file already stored (the same
+ * sha256) comes back as it is, `created` false: not read again, no event.
+ */
+async function receiveUploads(
+  ctx: Pick<HandlerCtx<typeof routes.portalUploads>, "c" | "tx" | "session" | "services" | "defer">,
+  tenantId: string,
+) {
+  const { c, tx, session, services, defer } = ctx;
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    throw new HttpError(400, "invalid_request", "send the files as multipart/form-data");
+  }
+  const files = form.getAll("files").filter((f): f is File => typeof f !== "string");
+  if (files.length === 0) throw new HttpError(400, "invalid_request", "no files in `files`");
+  if (files.length > MAX_UPLOAD_FILES) {
+    throw new HttpError(400, "invalid_request", `at most ${MAX_UPLOAD_FILES} files at once`);
+  }
+  const content = contentOf(services);
+  const conn = await ensureUploadConnection(tx, tenantId);
+  const events: EventRow[] = [];
+  const extract: string[] = [];
+  const results = [];
+  for (const file of files) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const base = {
+      filename: file.name,
+      document: null,
+      created: false,
+      purchases: null,
+      error: null,
+    };
+    if (isCsv(file)) {
+      try {
+        const r = await importPurchasesCsv(tx, {
+          tenantId,
+          connectionId: conn.id,
+          filename: file.name,
+          bytes,
+        });
+        for (const t of r.created) {
+          const row = await emit(tx, {
             tenantId,
-            connectionId: conn.id,
-            filename: file.name,
-            bytes,
-          });
-          for (const t of r.created) {
-            const row = await emit(tx, {
-              tenantId,
-              type: "transaction.created",
-              subjectId: t.id,
-              payload: {
-                transactionId: t.id,
-                source: t.connector,
-                vendorId: t.vendorId,
-                total: { amount: t.total, currency: t.currency },
-                txnDate: t.txnDate,
-              },
-            });
-            if (row) events.push(row);
-          }
-          results.push({
-            ...base,
-            kind: "purchases" as const,
-            created: r.created.length > 0,
-            purchases: {
-              rows: r.rows,
-              created: r.created.length,
-              duplicates: r.duplicates,
-              errors: r.errors,
+            type: "transaction.created",
+            subjectId: t.id,
+            payload: {
+              transactionId: t.id,
+              source: t.connector,
+              vendorId: t.vendorId,
+              total: { amount: t.total, currency: t.currency },
+              txnDate: t.txnDate,
             },
           });
-        } catch (error) {
-          if (!(error instanceof PurchasesCsvError)) throw error;
-          results.push({ ...base, kind: "refused" as const, error: error.message });
+          if (row) events.push(row);
         }
-        continue;
-      }
-      const mimeType = documentMimeType(file.type, file.name);
-      if (!isDocumentType(mimeType)) {
         results.push({
           ...base,
-          kind: "refused" as const,
-          error: "Upload PDFs, images (PNG, JPEG, GIF, WebP) or a CSV of purchases.",
-        });
-        continue;
-      }
-      try {
-        const stored = await storeDocument(tx, content, {
-          tenantId,
-          source: "upload",
-          connectionId: conn.id,
-          bytes,
-          filename: file.name,
-          mimeType,
-          meta: { uploadedBy: session.user.id },
-        });
-        if (stored.event) events.push(stored.event);
-        if (stored.created) extract.push(stored.document.id);
-        results.push({
-          ...base,
-          kind: "document" as const,
-          document: documentSummary(stored.document, null),
-          created: stored.created,
+          kind: "purchases" as const,
+          created: r.created.length > 0,
+          purchases: {
+            rows: r.rows,
+            created: r.created.length,
+            duplicates: r.duplicates,
+            errors: r.errors,
+          },
         });
       } catch (error) {
-        if (!(error instanceof DocumentError)) throw error;
+        if (!(error instanceof PurchasesCsvError)) throw error;
         results.push({ ...base, kind: "refused" as const, error: error.message });
       }
+      continue;
     }
-    if (events.length > 0) {
-      defer(() => dispatchEvents({ db: services.db, instances: services.instances }, events));
+    const mimeType = documentMimeType(file.type, file.name);
+    if (!isDocumentType(mimeType)) {
+      results.push({
+        ...base,
+        kind: "refused" as const,
+        error: "Upload PDFs, images (PNG, JPEG, GIF, WebP) or a CSV of purchases.",
+      });
+      continue;
     }
-    if (extract.length > 0) defer(() => extractInBackground(services, tenantId, extract));
-    return { results };
+    try {
+      const stored = await storeDocument(tx, content, {
+        tenantId,
+        source: "upload",
+        connectionId: conn.id,
+        bytes,
+        filename: file.name,
+        mimeType,
+        meta: { uploadedBy: session.user.id },
+      });
+      if (stored.event) events.push(stored.event);
+      if (stored.created) extract.push(stored.document.id);
+      results.push({
+        ...base,
+        kind: "document" as const,
+        document: documentSummary(stored.document, null),
+        created: stored.created,
+      });
+    } catch (error) {
+      if (!(error instanceof DocumentError)) throw error;
+      results.push({ ...base, kind: "refused" as const, error: error.message });
+    }
+  }
+  if (events.length > 0) {
+    defer(() => dispatchEvents({ db: services.db, instances: services.instances }, events));
+  }
+  if (extract.length > 0) defer(() => extractInBackground(services, tenantId, extract));
+  return { results };
+}
+
+export function documentRoutes(app: Hono<AppEnv>): void {
+  mount(app, routes.portalUploads, async (ctx) => receiveUploads(ctx, ctx.tenantIds[0] as string));
+
+  // DECISION: the operator uploads documents only to the Sandbox client, which has no client
+  // people to do it (docs/plan.md §1.16), with the portal's upload as it is; in a real client the
+  // client uploads or forwards (403 `not_sandbox` here). It acts with withTenant's scope.
+  mount(app, routes.opsSandboxUploads, async (ctx) => {
+    const t = await sandboxClient(
+      ctx,
+      ctx.params.id,
+      "only the Sandbox client's documents are uploaded from the back office",
+    );
+    return narrowToTenant(ctx.tx, t.id, (tx) => receiveUploads({ ...ctx, tx }, t.id));
   });
 
   mount(app, routes.portalDocuments, async ({ tx, tenantIds, query }) => ({

@@ -447,6 +447,24 @@ export const UploadResult = z.object({
   error: z.string().nullable(),
 });
 
+/**
+ * One of a client's recent events, offered as a test run's trigger payload (docs/plan.md §1.16
+ * "Test-run payloads"): its payload as emitted, and a plain label for the picker.
+ */
+export const RecentEvent = z.object({
+  id: z.string(),
+  type: z.string(),
+  createdAt: Timestamp,
+  payload: z.record(z.string(), z.unknown()),
+  /** What it is about: a document's file name, a purchase's date, or the payload's plain fields. */
+  label: z.string(),
+  /** A document's extracted vendor, or a purchase's vendor, when the event names one. */
+  vendorName: z.string().nullable(),
+  /** A document's extracted total, or a purchase's total. */
+  total: z.object({ amount: z.string(), currency: z.string() }).nullable(),
+});
+export type RecentEvent = z.infer<typeof RecentEvent>;
+
 export const ForwardingView = z.object({
   /** False until the deployment has a forwarding domain (EMAIL_FORWARDING_DOMAIN). */
   available: z.boolean(),
@@ -808,6 +826,16 @@ export const opsRoutes = {
     params: IdParams,
     body: GmailTestSendBody,
     response: z.object({ to: z.string(), sentAt: Timestamp }),
+  }),
+  opsSandboxUploads: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/uploads",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions (403 not_sandbox in any other client)",
+    params: IdParams,
+    response: z.object({ results: z.array(UploadResult) }),
   }),
   opsSandboxAuthorizeCallback: defineRoute({
     method: "POST",
@@ -1201,6 +1229,20 @@ export const opsRoutes = {
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
+  }),
+  opsClientEvents: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/events",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A client's most recent events of one type, newest first, to use as a test run's trigger payload (never a test run's)",
+    params: IdParams,
+    query: z.object({
+      type: z.string().trim().min(1).max(200),
+      limit: z.coerce.number().int().min(1).max(50).optional(),
+    }),
+    response: z.object({ events: z.array(RecentEvent) }),
   }),
   opsValidateWorkflow: defineRoute({
     method: "POST",

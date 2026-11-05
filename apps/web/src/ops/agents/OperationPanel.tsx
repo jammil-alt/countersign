@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+
 import { isRunGoing } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import {
@@ -20,6 +21,14 @@ import {
   type Tone,
 } from "../../ui/primitives";
 import { GrantsPanel } from "./GrantsPanel";
+import {
+  type PayloadSource,
+  PayloadSourceSelect,
+  payloadFor,
+  samplePayload,
+  triggerEventType,
+  useRecentEvents,
+} from "./TestPayload";
 import {
   detailMessages,
   errorText,
@@ -275,9 +284,22 @@ function TestRun({
   const workflows = liveBundle?.workflows ?? [];
   const [workflow, setWorkflow] = useState(workflows[0]?.slug ?? "");
   const [payload, setPayload] = useState("{}");
+  const [source, setSource] = useState<PayloadSource>("manual");
   const [started, setStarted] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const action = useAction();
+  const catalog = useApi(apiRoutes.opsEventCatalog);
+  const chosen = workflows.find((w) => w.slug === workflow)?.workflow ?? null;
+  const eventType = triggerEventType(chosen);
+  const sample = chosen && catalog.data ? samplePayload(chosen, catalog.data.events) : undefined;
+  // A client agent test-runs on its own client's data: its recent events are that client's.
+  const recent = useRecentEvents(agent.tenantId, eventType);
+
+  function choose(next: PayloadSource) {
+    setSource(next);
+    const filled = payloadFor(next, sample, recent.data?.events ?? []);
+    if (filled !== null) setPayload(filled);
+  }
 
   if (!live || !liveBundle) {
     return (
@@ -319,12 +341,17 @@ function TestRun({
         Test run of the live version v{live.version} on this client's data. It never changes the
         client's tools: what it would do is recorded as proposed.
       </p>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[220px_1fr] md:items-end">
         <Field label="Workflow">
           <Select
             data-testid="agent-test-run-workflow-select"
             value={workflow}
-            onChange={(e) => setWorkflow(e.target.value)}
+            onChange={(e) => {
+              setWorkflow(e.target.value);
+              // Another workflow's trigger: its own sample and events.
+              setSource("manual");
+              setPayload("{}");
+            }}
           >
             {workflows.map((w) => (
               <option key={w.slug} value={w.slug}>
@@ -333,12 +360,29 @@ function TestRun({
             ))}
           </Select>
         </Field>
+        <Field label="Input from">
+          <PayloadSourceSelect
+            testId="agent-test-run-source"
+            value={source}
+            hasSample={sample !== undefined}
+            eventType={eventType}
+            recent={recent}
+            onChange={choose}
+          />
+        </Field>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
         <Field label="Input (JSON)" error={parseError ?? undefined}>
-          <TextInput
+          <TextArea
             data-testid="agent-test-run-payload-input"
             className="font-mono text-sm"
+            rows={source === "manual" ? 2 : 6}
             value={payload}
-            onChange={(e) => setPayload(e.target.value)}
+            onChange={(e) => {
+              setPayload(e.target.value);
+              // Edited by hand, it is no longer the sample or the event as emitted.
+              setSource("manual");
+            }}
           />
         </Field>
         <Button
