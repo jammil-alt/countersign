@@ -34,6 +34,7 @@ import { dbVoiceServices } from "../calls/services";
 import type { Platform } from "../platform";
 import { dbEmailServices } from "../reach/email";
 import {
+  contactLanguage,
   contactThread,
   findContactByNumber,
   getContact,
@@ -100,7 +101,8 @@ export function dbMessagingServices(db: Db, connection: ConnectionRef): Messagin
         }
         return {
           ok: true as const,
-          contact: { id: c.id, name: c.name, language: c.language },
+          // The language to write to them in (§1.27): theirs, their organization's, the client's.
+          contact: { id: c.id, name: c.name, language: (await contactLanguage(tx, c)).language },
           lastInboundAt: await lastInboundAt(tx, tenantId, input.channel, input.to),
         };
       });

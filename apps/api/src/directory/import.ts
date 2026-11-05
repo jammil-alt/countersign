@@ -324,7 +324,7 @@ function planPerson(
       after: org ? org.row.name : `${r.organization} (new)`,
     });
   }
-  const changesAddress = ["email", "phone", "whatsapp"].some((f) => f in patch);
+  const changesAddress = ["email", "phone", "whatsapp", "language"].some((f) => f in patch);
   const newRef =
     r.externalId && found.row.externalRefs?.[source] !== r.externalId ? r.externalId : null;
   return {
@@ -353,6 +353,7 @@ function planOrganization(
     email: r.email,
     phone: r.phone,
     address: r.address,
+    language: r.language,
     notes: r.notes,
   };
   if (!found) {
@@ -376,7 +377,8 @@ function planOrganization(
     action: changes.length || newRef ? "update" : "same",
     match: { id: found.row.id, name: found.row.name, by: found.by },
     changes,
-    changesAddress: false,
+    // An organization's language is its people's when they have none of their own.
+    changesAddress: "language" in patch,
     problems: [],
     organizationPatch: patch,
   };
@@ -577,6 +579,7 @@ export async function applyImport(
             ...(r.email ? { email: r.email } : {}),
             ...(r.phone ? { phone: r.phone } : {}),
             ...(r.address ? { address: r.address } : {}),
+            ...(r.language ? { language: r.language } : {}),
             ...(r.notes ? { notes: r.notes } : {}),
           },
           actorId,

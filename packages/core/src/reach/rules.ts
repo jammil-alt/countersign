@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { CALL_LANGUAGES, type CallLanguage, callLanguage } from "../calls/rules";
+import { CALL_LANGUAGES, type CallLanguage } from "../calls/rules";
+import { languageFor } from "../directory/language";
 import { Duration, parseDuration } from "../duration";
 import {
   type ContactConsent,
@@ -368,7 +369,7 @@ export function reachLanguage(
   contactLanguage: string | null | undefined,
   clientLanguage: string | null | undefined,
 ): ReachLanguage {
-  return callLanguage(contactLanguage, clientLanguage);
+  return languageFor({ person: contactLanguage, client: clientLanguage }).language;
 }
 
 /** One open reach-out per contact and subject: its sources, else its purpose. */

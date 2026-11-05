@@ -30,7 +30,8 @@ const pat = {
   whatsapp: null,
   email: "pat@birch.example.com",
   language: null,
-  organization: { id: BIRCH, name: "Birch & Co" },
+  organization: { id: BIRCH, name: "Birch & Co", language: "es" },
+  languageUsed: { language: "es", from: "organization", organization: "Birch & Co" },
   title: "Sales rep",
   relationship: "vendor",
   source: "manual",
@@ -49,6 +50,8 @@ const birch = (over: Record<string, unknown> = {}) => ({
   email: null,
   phone: null,
   address: null,
+  language: "es",
+  languageUsed: { language: "es", from: "person" },
   notes: null,
   externalRefs: {},
   vendor: null,
@@ -117,6 +120,10 @@ describe("portal directory", () => {
     const card = await screen.findByTestId(`directory-person-${PAT}`);
     expect(within(card).getByText("Sales rep · Birch & Co")).toBeInTheDocument();
     expect(within(card).getByText("Vendor")).toBeInTheDocument();
+    // Pat has no language of their own: Birch's is used, and the card says so.
+    expect(screen.getByTestId(`directory-person-${PAT}-language`)).toHaveTextContent(
+      "Uses: Spanish (from Birch & Co)",
+    );
     expect(screen.getByTestId("portal-nav-directory")).toBeInTheDocument();
 
     await userEvent.type(screen.getByTestId("directory-search"), "birch");
@@ -127,8 +134,11 @@ describe("portal directory", () => {
     await userEvent.click(screen.getByTestId("directory-tab-organizations"));
     await userEvent.type(screen.getByTestId("directory-org-new-name"), "Oak Mill");
     await userEvent.click(screen.getByTestId("directory-org-new-kind-vendor"));
+    await userEvent.selectOptions(screen.getByTestId("directory-org-new-language"), "fr");
     await userEvent.click(screen.getByTestId("directory-org-new-save"));
-    await waitFor(() => expect(sent).toEqual([{ name: "Oak Mill", kinds: ["vendor"] }]));
+    await waitFor(() =>
+      expect(sent).toEqual([{ name: "Oak Mill", kinds: ["vendor"], language: "fr" }]),
+    );
 
     await userEvent.click(await screen.findByTestId(`directory-org-${BIRCH}-link`));
     expect(await screen.findByTestId(`directory-org-${BIRCH}-vendor`)).toHaveTextContent(
@@ -235,7 +245,7 @@ describe("portal directory", () => {
       within(card).getByText("pat@birch.example.com → pat.lee@birch.example.com"),
     ).toBeVisible();
     expect(screen.getByTestId(`directory-suggestion-${SUGGESTION}-address`)).toHaveTextContent(
-      "Changes where messages go",
+      "Changes how messages reach them",
     );
     await userEvent.click(screen.getByTestId(`directory-suggestion-${SUGGESTION}-accept`));
     await waitFor(() => expect(decided).toEqual([{ decision: "approve" }]));
@@ -276,6 +286,9 @@ describe("portal directory", () => {
     const card = await screen.findByTestId(`directory-person-${PAT}`);
     expect(screen.getByTestId("directory-tab-organizations")).toHaveTextContent("Organizaciones");
     expect(within(card).getByText("Proveedor")).toBeVisible();
+    expect(screen.getByTestId(`directory-person-${PAT}-language`)).toHaveTextContent(
+      "Usa: español (de Birch & Co)",
+    );
   });
 });
 

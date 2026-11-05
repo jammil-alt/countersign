@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { EmailAddress } from "../api/messaging";
+import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { RoleName } from "../reach/rules";
 import {
@@ -16,6 +17,7 @@ import {
   OrganizationKind,
   Relationship,
 } from "./kinds";
+import { LanguageSource, LanguageUsed } from "./language";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 
@@ -66,6 +68,8 @@ export const OrganizationCreate = z.strictObject({
   email: EmailAddress.optional(),
   phone: PhoneText.optional(),
   address: OrganizationAddress.optional(),
+  /** The language to write to its people in when they have none of their own. */
+  language: Locale.optional(),
   notes: z.string().trim().max(ORGANIZATION_NOTES_MAX).optional(),
 });
 export type OrganizationCreateInput = z.input<typeof OrganizationCreate>;
@@ -78,6 +82,7 @@ export const OrganizationPatch = z
     email: EmailAddress.nullable().optional(),
     phone: PhoneText.nullable().optional(),
     address: OrganizationAddress.nullable().optional(),
+    language: Locale.nullable().optional(),
     notes: z.string().trim().max(ORGANIZATION_NOTES_MAX).nullable().optional(),
   })
   .refine((p) => Object.keys(p).length > 0, "change at least one field");
@@ -91,6 +96,10 @@ export const Organization = z.object({
   email: z.string().nullable(),
   phone: z.string().nullable(),
   address: OrganizationAddress.nullable(),
+  /** Its own language, or null. */
+  language: z.string().nullable(),
+  /** What its people without a language of their own get: its own, else yours. */
+  languageUsed: LanguageUsed,
   notes: z.string().nullable(),
   externalRefs: ExternalRefs,
   /** The `vendor` record this organization is, with its name. */
@@ -133,12 +142,17 @@ export const DirectoryPersonHit = z.object({
   name: z.string(),
   title: z.string().nullable(),
   relationship: Relationship.nullable(),
-  organization: z.object({ id: z.string(), name: z.string() }).nullable(),
+  organization: z
+    .object({ id: z.string(), name: z.string(), language: z.string().nullable() })
+    .nullable(),
   email: z.string().nullable(),
   phone: z.string().nullable(),
   whatsapp: z.string().nullable(),
   roles: z.array(z.string()),
-  language: z.string().nullable(),
+  /** The language to write to them in: theirs, else their organization's, else the client's. */
+  language: Locale,
+  /** Where that language came from. */
+  languageFrom: LanguageSource,
   /** Opted out of every channel: never reached, whatever an agent wants. */
   optedOut: z.boolean(),
   score: z.number(),
@@ -153,6 +167,8 @@ export const DirectoryOrganizationHit = z.object({
   website: z.string().nullable(),
   email: z.string().nullable(),
   phone: z.string().nullable(),
+  /** Its own language, or null (its people then get the client's). */
+  language: z.string().nullable(),
   vendorId: z.string().nullable(),
   people: z.number().int(),
   score: z.number(),
@@ -214,6 +230,7 @@ export const SuggestedPerson = z.strictObject({
   /** An organization already in the directory. */
   organizationId: Id.optional(),
   roles: z.array(RoleName).max(10).optional(),
+  language: Locale.optional(),
   notes: z.string().trim().max(2000).optional(),
 });
 export type SuggestedPerson = z.infer<typeof SuggestedPerson>;
@@ -224,6 +241,7 @@ export const SuggestedOrganization = z.strictObject({
   website: Website.optional(),
   email: EmailAddress.optional(),
   phone: PhoneText.optional(),
+  language: Locale.optional(),
   notes: z.string().trim().max(ORGANIZATION_NOTES_MAX).optional(),
 });
 export type SuggestedOrganization = z.infer<typeof SuggestedOrganization>;
@@ -264,13 +282,18 @@ export const DirectorySuggestOutput = z.object({
 });
 export type DirectorySuggestOutput = z.infer<typeof DirectorySuggestOutput>;
 
-/** Whether a change would change where messages go: an email, phone or WhatsApp number. */
+/**
+ * Whether a change would change where or how messages reach people: a person's email, phone,
+ * WhatsApp number or language, or an organization's language (its people's, when they have none).
+ */
 export function suggestionChangesAddress(change: DirectorySuggestionChange): boolean {
+  if (change.action === "update_organization") return change.changes.language !== undefined;
   if (change.action !== "update_person") return false;
   return (
     change.changes.email !== undefined ||
     change.changes.phone !== undefined ||
-    change.changes.whatsapp !== undefined
+    change.changes.whatsapp !== undefined ||
+    change.changes.language !== undefined
   );
 }
 
@@ -313,10 +336,7 @@ export const PersonImportRow = z.strictObject({
   /** The organization by name: found in the directory, or added. */
   organization: z.string().trim().min(1).max(ORGANIZATION_NAME_MAX).optional(),
   roles: z.array(RoleName).max(10).optional(),
-  language: z
-    .string()
-    .regex(/^[a-z]{2}(-[A-Z]{2})?$/)
-    .optional(),
+  language: Locale.optional(),
   notes: z.string().trim().max(2000).optional(),
   /** The id in the connected tool it came from. */
   externalId: z.string().min(1).max(100).optional(),
@@ -330,6 +350,7 @@ export const OrganizationImportRow = z.strictObject({
   email: EmailAddress.optional(),
   phone: PhoneText.optional(),
   address: OrganizationAddress.optional(),
+  language: Locale.optional(),
   notes: z.string().trim().max(ORGANIZATION_NOTES_MAX).optional(),
   externalId: z.string().min(1).max(100).optional(),
 });
@@ -354,7 +375,7 @@ export const ImportPreviewRow = z.object({
   changes: z.array(
     z.object({ field: z.string(), before: z.unknown().nullable(), after: z.unknown().nullable() }),
   ),
-  /** Whether it would change an existing person's email or phone. */
+  /** Whether it would change an existing person's email, phone or language. */
   changesAddress: z.boolean(),
   problems: z.array(z.string()),
 });

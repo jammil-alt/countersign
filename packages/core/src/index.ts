@@ -41,6 +41,7 @@ export * from "./calls/rules";
 export * from "./canonical";
 export * from "./codes/service";
 export * from "./directory/kinds";
+export * from "./directory/language";
 export * from "./directory/rows";
 export * from "./directory/schemas";
 export * from "./directory/search";

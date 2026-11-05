@@ -4,19 +4,21 @@
 // in the caller's client-scoped transaction and also filters by tenant_id (invariant 1).
 
 import {
+  clientLanguage,
   type DirectoryGetInput,
   type DirectoryGetOutput,
   type DirectoryOrganizationHit,
   type DirectoryPersonHit,
   type DirectorySearchInput,
   type DirectorySearchOutput,
+  languageFor,
   type OrganizationKind,
   type Relationship,
   rankEntries,
 } from "@countersign/core";
 import { and, asc, count, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "./client";
-import { contact, organization, vendor } from "./schema";
+import { contact, organization, tenant, vendor } from "./schema";
 
 export type ContactRow = typeof contact.$inferSelect;
 export type OrganizationRow = typeof organization.$inferSelect;
@@ -37,7 +39,25 @@ export interface DirectoryFilters {
 
 export interface PersonWithOrganization {
   person: ContactRow;
-  organization: { id: string; name: string } | null;
+  organization: { id: string; name: string; language: string | null } | null;
+}
+
+/** The client's default language (`tenant.settings.language`), or null. */
+export async function clientLanguageOf(tx: Tx, tenantId: string): Promise<string | null> {
+  const [t] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  return clientLanguage(t?.settings as Record<string, unknown> | null) ?? null;
+}
+
+/** The language to write to a person in (core's `languageFor`): theirs, their organization's, the client's. */
+export function personLanguageOf(p: PersonWithOrganization, client: string | null) {
+  return languageFor({
+    person: p.person.language,
+    organization: p.organization,
+    client,
+  });
 }
 
 export async function directoryPeople(
@@ -57,7 +77,12 @@ export async function directoryPeople(
     where.push(sql`${organization.kinds} @> array[${filters.kind}]::text[]`);
   }
   const rows = await tx
-    .select({ person: contact, orgId: organization.id, orgName: organization.name })
+    .select({
+      person: contact,
+      orgId: organization.id,
+      orgName: organization.name,
+      orgLanguage: organization.language,
+    })
     .from(contact)
     .leftJoin(
       organization,
@@ -68,7 +93,8 @@ export async function directoryPeople(
     .limit(DIRECTORY_READ_MAX);
   return rows.map((r) => ({
     person: r.person,
-    organization: r.orgId && r.orgName ? { id: r.orgId, name: r.orgName } : null,
+    organization:
+      r.orgId && r.orgName ? { id: r.orgId, name: r.orgName, language: r.orgLanguage } : null,
   }));
 }
 
@@ -162,8 +188,13 @@ export function rankOrganizations(
   ).map((r) => ({ item: r.entry.item, score: r.score }));
 }
 
-export function personHit(p: PersonWithOrganization, score: number): DirectoryPersonHit {
+export function personHit(
+  p: PersonWithOrganization,
+  score: number,
+  client: string | null,
+): DirectoryPersonHit {
   const c = p.person;
+  const used = personLanguageOf(p, client);
   return {
     type: "person",
     id: c.id,
@@ -175,7 +206,8 @@ export function personHit(p: PersonWithOrganization, score: number): DirectoryPe
     phone: c.phone,
     whatsapp: c.whatsapp,
     roles: c.roles ?? [],
-    language: c.language,
+    language: used.language,
+    languageFrom: used.from,
     optedOut: c.optedOutAt !== null,
     score,
   };
@@ -194,6 +226,7 @@ export function organizationHit(
     website: r.website,
     email: r.email,
     phone: r.phone,
+    language: r.language,
     vendorId: r.vendorId,
     people: o.people,
     score,
@@ -207,6 +240,7 @@ export async function searchDirectory(
   input: DirectorySearchInput,
 ): Promise<DirectorySearchOutput> {
   const wantPeople = input.type !== "organization";
+  const client = await clientLanguageOf(tx, tenantId);
   // A relationship, role or organization filter is about people only.
   const wantOrgs =
     input.type !== "person" &&
@@ -223,7 +257,7 @@ export async function searchDirectory(
         }),
         input.query,
         input.limit,
-      ).map((r) => personHit(r.item, r.score))
+      ).map((r) => personHit(r.item, r.score, client))
     : [];
   const orgs = wantOrgs
     ? rankOrganizations(
@@ -250,10 +284,11 @@ export async function getDirectoryEntry(
   input: DirectoryGetInput,
 ): Promise<DirectoryGetOutput> {
   const none: DirectoryGetOutput = { found: false, person: null, organization: null, sources: [] };
+  const client = await clientLanguageOf(tx, tenantId);
   if (input.type === "person") {
     const [found] = await directoryPeople(tx, tenantId, { ids: [input.id] });
     if (!found) return none;
-    const { score: _s, ...hit } = personHit(found, 0);
+    const { score: _s, ...hit } = personHit(found, 0, client);
     return {
       found: true,
       person: {
@@ -278,7 +313,7 @@ export async function getDirectoryEntry(
       notes: org.organization.notes,
       address: org.organization.address ?? null,
       people: people.map((p) => {
-        const { score: _ps, ...ph } = personHit(p, 0);
+        const { score: _ps, ...ph } = personHit(p, 0, client);
         return ph;
       }),
     },

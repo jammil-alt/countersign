@@ -5,6 +5,7 @@
 
 import { findOrCreateVendor } from "@countersign/connectors";
 import {
+  languageFor,
   normalizePhone,
   type Organization,
   type OrganizationAddress,
@@ -13,6 +14,7 @@ import {
   type OrganizationPatchInput,
 } from "@countersign/core";
 import {
+  clientLanguageOf,
   directoryOrganizations,
   type OrganizationRow,
   type OrganizationWithCounts,
@@ -23,7 +25,10 @@ import {
 import { and, eq, ne, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 
-export function organizationView(o: OrganizationWithCounts): Organization {
+export function organizationView(
+  o: OrganizationWithCounts,
+  client: string | null = null,
+): Organization {
   const r = o.organization;
   return {
     id: r.id,
@@ -33,6 +38,8 @@ export function organizationView(o: OrganizationWithCounts): Organization {
     email: r.email,
     phone: r.phone,
     address: (r.address as OrganizationAddress | null) ?? null,
+    language: r.language,
+    languageUsed: languageFor({ organization: r, client }),
     notes: r.notes,
     externalRefs: r.externalRefs ?? {},
     vendor: o.vendor,
@@ -46,7 +53,7 @@ export function organizationView(o: OrganizationWithCounts): Organization {
 export async function organizationOut(tx: Tx, tenantId: string, id: string): Promise<Organization> {
   const [o] = await directoryOrganizations(tx, tenantId, { ids: [id] });
   if (!o) throw notFound("organization");
-  return organizationView(o);
+  return organizationView(o, await clientLanguageOf(tx, tenantId));
 }
 
 export async function getOrganization(
@@ -131,6 +138,7 @@ export async function createOrganization(
       email: input.email ?? null,
       phone: orgPhone(input.phone),
       address: input.address ?? null,
+      language: input.language ?? null,
       notes: input.notes?.trim() || null,
       externalRefs: origin.externalRefs ?? {},
       source: origin.source ?? "manual",
@@ -162,6 +170,7 @@ export async function updateOrganization(
     email: patch.email === undefined ? row.email : patch.email,
     phone: patch.phone === undefined ? row.phone : orgPhone(patch.phone),
     address: patch.address === undefined ? row.address : patch.address,
+    language: patch.language === undefined ? row.language : patch.language,
     notes: patch.notes === undefined ? row.notes : patch.notes?.trim() || null,
     externalRefs:
       extra.externalRefs === undefined

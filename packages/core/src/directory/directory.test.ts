@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ContactCreate, ContactPatch } from "../api/messaging";
+import { languageFor, supportedLanguage } from "./language";
 import {
   directoryRowsFromCsv,
   kindsFrom,
@@ -282,5 +283,72 @@ describe("directory import rows", () => {
         externalId: "42",
       },
     });
+  });
+});
+
+describe("the language to write to a person in", () => {
+  it("is the person's, else their organization's, else the client's, else English", () => {
+    const org = { language: "fr", name: "Acme Corp" };
+    expect(languageFor({ person: "es", organization: org, client: "de" })).toEqual({
+      language: "es",
+      from: "person",
+    });
+    expect(languageFor({ person: null, organization: org, client: "de" })).toEqual({
+      language: "fr",
+      from: "organization",
+      organization: "Acme Corp",
+    });
+    expect(languageFor({ person: null, organization: { language: null }, client: "de" })).toEqual({
+      language: "de",
+      from: "client",
+    });
+    expect(languageFor({})).toEqual({ language: "en", from: "default" });
+  });
+
+  it("reads regional tags saved before as their language and skips ones we don't have", () => {
+    expect(supportedLanguage("pt-BR")).toBe("pt-BR");
+    expect(supportedLanguage("es-MX")).toBe("es");
+    expect(supportedLanguage("pt")).toBe("pt-BR");
+    expect(supportedLanguage("ja")).toBeNull();
+    // A contact saved with `ja` gets the organization's language.
+    expect(
+      languageFor({ person: "ja", organization: { language: "it", name: "Pine" }, client: "de" })
+        .language,
+    ).toBe("it");
+  });
+
+  it("only the six languages are accepted on new contacts, organizations and suggestions", () => {
+    expect(ContactCreate.safeParse({ name: "Pat", email: "p@x.com", language: "ja" }).success).toBe(
+      false,
+    );
+    expect(
+      ContactCreate.safeParse({ name: "Pat", email: "p@x.com", language: "pt-BR" }).success,
+    ).toBe(true);
+    expect(OrganizationCreate.safeParse({ name: "Acme", language: "es-MX" }).success).toBe(false);
+    expect(OrganizationPatch.parse({ language: null })).toEqual({ language: null });
+  });
+
+  it("a suggested language change is flagged like an address change", () => {
+    expect(
+      suggestionChangesAddress({
+        action: "update_person",
+        contactId: ID,
+        changes: { language: "es" },
+      }),
+    ).toBe(true);
+    expect(
+      suggestionChangesAddress({
+        action: "update_organization",
+        organizationId: ID,
+        changes: { language: "fr" },
+      }),
+    ).toBe(true);
+    expect(
+      suggestionChangesAddress({
+        action: "update_organization",
+        organizationId: ID,
+        changes: { notes: "x" },
+      }),
+    ).toBe(false);
   });
 });

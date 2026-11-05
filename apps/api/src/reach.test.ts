@@ -593,6 +593,60 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(twilio.placed()).toHaveLength(1);
   });
 
+  it("writes in the organization's language to a person with none of their own (directory, §1.27)", async () => {
+    // Lou has no language; the client's is English; Lou's organization reads Spanish.
+    const LOU = "+15555550177";
+    const org = await H.call(admin("a"), "POST", "/api/directory/organizations", {
+      name: "Roble Maderas",
+      language: "es",
+    });
+    expect(org.status, JSON.stringify(org.json)).toBe(200);
+    const made = await H.call(admin("a"), "POST", "/api/contacts", {
+      name: "Lou Roble",
+      phone: LOU,
+      roles: ["purchaser"],
+      organizationId: j(org.json).organization.id,
+      consent: { channels: ["sms"], source: "signed the service agreement" },
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const lou = j(made.json).contact;
+    expect(lou.languageUsed).toEqual({
+      language: "es",
+      from: "organization",
+      organization: "Roble Maderas",
+    });
+    const bind = (id: string) =>
+      H.call(admin("a"), "PUT", `/api/people/${agentId}`, {
+        people: { purchaser: { contactIds: [id], conditions: { escalateAfter: "1 hour" } } },
+      });
+    expect((await bind(lou.id)).status).toBe(200);
+    const params = await startRun("PO-2001");
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      if (type.startsWith("inbox-")) {
+        return approveItem(type, (item) => {
+          expect(item.payload.reachOut).toMatchObject({
+            contact: { id: lou.id },
+            language: "es",
+            message: "¿Confirma la entrega del viernes? Responda SÍ o NO.",
+          });
+        });
+      }
+      if (type.startsWith("reachout-")) {
+        expect(textsTo(LOU).map((m) => m.body)).toEqual([
+          "¿Confirma la entrega del viernes? Responda SÍ o NO.",
+        ]);
+        await textIn(LOU, "Sí");
+        return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+      }
+      throw new Error(`unexpected wait ${type}`);
+    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    // Pat is the purchaser again for the tests below.
+    expect((await bind(pat)).status).toBe(200);
+  });
+
   it("routes the plan's approval by the client's approver rules", async () => {
     // A rule on the plan's first send (a text) names the client user (docs/plan.md §1.20, §1.25).
     const rulesPath = `/api/ops/clients/${A()}/approver-rules`;

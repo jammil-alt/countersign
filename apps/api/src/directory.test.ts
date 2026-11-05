@@ -413,6 +413,83 @@ describe.skipIf(!h)("directory routes", () => {
     expect(lou).toMatchObject({ source: "agent", organizationId: birch.id, consent: {} });
   });
 
+  it("a suggested language, the person's or their organization's, applies only on acceptance", async () => {
+    const port = dbDirectoryPort(H.db);
+    // Lou (added above, no language) gets Birch's language once Birch has one, by acceptance.
+    const org = await port.suggest(A(), {
+      agentId,
+      agentVersionId: "v",
+      runId: "r7",
+      test: false,
+      suggestion: {
+        suggestion: {
+          action: "update_organization",
+          organizationId: birch.id,
+          changes: { language: "es" },
+        },
+        reason: "Their invoices are in Spanish.",
+        sources: [],
+      },
+    });
+    const [lou] = await H.t.db
+      .select()
+      .from(contact)
+      .where(and(eq(contact.tenantId, A()), eq(contact.email, "lou@birch.example.com")));
+    const view = async () =>
+      (
+        (await call(admin("a"), "GET", "/api/directory?q=lou")).json as {
+          people: (Person & { languageUsed: Json })[];
+        }
+      ).people[0]?.languageUsed;
+    expect(await view()).toEqual({ language: "en", from: "default" });
+    const items = (
+      (await call(admin("a"), "GET", "/api/directory/suggestions")).json as { items: Json[] }
+    ).items;
+    expect(items.find((i) => i.id === org.inboxItemId)).toMatchObject({ changesAddress: true });
+    expect(
+      (
+        await call(admin("a"), "POST", `/api/directory/suggestions/${org.inboxItemId}`, {
+          decision: "approve",
+        })
+      ).status,
+    ).toBe(200);
+    expect(await view()).toEqual({
+      language: "es",
+      from: "organization",
+      organization: "Birch & Co",
+    });
+
+    // The person's own language wins, again only once accepted.
+    const own = await port.suggest(A(), {
+      agentId,
+      agentVersionId: "v",
+      runId: "r8",
+      test: false,
+      suggestion: {
+        suggestion: {
+          action: "update_person",
+          contactId: lou?.id ?? "",
+          changes: { language: "fr" },
+        },
+        reason: "Lou wrote back in French.",
+        sources: [],
+      },
+    });
+    expect(await view()).toMatchObject({ language: "es" });
+    await call(admin("a"), "POST", `/api/directory/suggestions/${own.inboxItemId}`, {
+      decision: "approve",
+    });
+    expect(await view()).toEqual({ language: "fr", from: "person" });
+    const logs = await H.t.db
+      .select()
+      .from(contactChange)
+      .where(eq(contactChange.contactId, lou?.id ?? ""));
+    expect(logs.at(-1)?.change).toMatchObject({
+      suggestion: own.inboxItemId,
+      changed: { language: { before: null, after: "fr" } },
+    });
+  });
+
   it("a test run's suggestion is checked but makes nothing; a suggestion about another client's person is refused", async () => {
     const port = dbDirectoryPort(H.db);
     const test = await port.suggest(A(), {

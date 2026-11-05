@@ -16,6 +16,10 @@ import {
   type ImportApplyBody,
   type ImportPreview,
   type ImportResult,
+  type LanguageUsed,
+  LOCALE_NAMES,
+  LOCALES,
+  type Locale,
   ORGANIZATION_KINDS,
   type Organization,
   type OrganizationCreateInput,
@@ -104,6 +108,33 @@ export function directoryValue(value: unknown, i18n: I18n): string {
     return i18n.t(RELATIONSHIP_KEY[value as Relationship]);
   }
   return String(value);
+}
+
+/** A language by its name in the reader's language: "Spanish", "Spanisch". */
+export function languageName(code: string, i18n: I18n): string {
+  try {
+    return new Intl.DisplayNames([i18n.intl], { type: "language" }).of(code) ?? code;
+  } catch {
+    return LOCALE_NAMES[code as Locale] ?? code;
+  }
+}
+
+/** "Uses: Spanish (from Acme Corp)": the language agents write in, and where it comes from. */
+export function languageUsedText(used: LanguageUsed, i18n: I18n): string {
+  const language = languageName(used.language, i18n);
+  switch (used.from) {
+    case "person":
+      return i18n.t("directory.language.uses", { language });
+    case "organization":
+      return i18n.t("directory.language.fromOrganization", {
+        language,
+        organization: used.organization ?? "—",
+      });
+    case "client":
+      return i18n.t("directory.language.fromClient", { language });
+    default:
+      return i18n.t("directory.language.fromDefault", { language });
+  }
 }
 
 /** The routes for one surface, so the rest of the panel doesn't care which it is on. */
@@ -318,7 +349,8 @@ function People({
   canEdit: boolean;
   onChanged: () => void;
 }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [editing, setEditing] = useState<string | null>(null);
   const orgs = useApi(
     api.ops ? apiRoutes.opsDirectory : apiRoutes.portalDirectory,
@@ -347,6 +379,14 @@ function People({
                     <span className="block text-sm text-ink-muted">
                       {[p.email, p.phone, p.whatsapp].filter(Boolean).join(" · ")}
                     </span>
+                    {p.languageUsed ? (
+                      <span
+                        className="block text-sm text-ink-muted"
+                        data-testid={`directory-person-${p.id}-language`}
+                      >
+                        {languageUsedText(p.languageUsed, i18n)}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {p.relationship ? <Badge>{t(RELATIONSHIP_KEY[p.relationship])}</Badge> : null}
@@ -420,6 +460,11 @@ function PersonForm({
   const [title, setTitle] = useState(person?.title ?? "");
   const [relationship, setRelationship] = useState<Relationship | "">(person?.relationship ?? "");
   const [organizationId, setOrganizationId] = useState(person?.organization?.id ?? "");
+  const [language, setLanguage] = useState<Locale | "">(
+    (LOCALES as readonly string[]).includes(person?.language ?? "")
+      ? (person?.language as Locale)
+      : "",
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const prefix = person ? `directory-person-${person.id}-form` : "directory-person-new";
@@ -440,6 +485,7 @@ function PersonForm({
           title: title.trim() || null,
           relationship: relationship || null,
           organizationId: organizationId || null,
+          language: language || null,
         }
       : {
           name: name.trim(),
@@ -448,6 +494,7 @@ function PersonForm({
           ...(title.trim() ? { title: title.trim() } : {}),
           ...(relationship ? { relationship } : {}),
           ...(organizationId ? { organizationId } : {}),
+          ...(language ? { language } : {}),
         };
     try {
       await onSubmit(body);
@@ -458,6 +505,7 @@ function PersonForm({
         setTitle("");
         setRelationship("");
         setOrganizationId("");
+        setLanguage("");
         setMessage(t("directory.person.added"));
       }
     } catch (error) {
@@ -527,6 +575,20 @@ function PersonForm({
           ))}
         </Select>
       </Field>
+      <Field label={t("directory.field.language")} hint={t("directory.language.personHint")}>
+        <Select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value as Locale | "")}
+          data-testid={`${prefix}-language`}
+        >
+          <option value="">{t("directory.language.inherit")}</option>
+          {LOCALES.map((l) => (
+            <option key={l} value={l}>
+              {languageName(l, i18n)}
+            </option>
+          ))}
+        </Select>
+      </Field>
       {person && (email.trim() || null) !== person.email ? (
         <p className="text-sm text-ink-muted">{t("directory.person.addressNote")}</p>
       ) : null}
@@ -590,6 +652,12 @@ function Organizations({
                     </span>
                     <span className="block text-sm text-ink-muted">
                       {t("directory.org.people", { count: o.people })}
+                    </span>
+                    <span
+                      className="block text-sm text-ink-muted"
+                      data-testid={`directory-org-${o.id}-language`}
+                    >
+                      {languageUsedText(o.languageUsed, i18n)}
                     </span>
                     {o.notes ? <p className="mt-1 text-sm text-ink">{o.notes}</p> : null}
                   </div>
@@ -687,6 +755,9 @@ function OrganizationForm({
   const [email, setEmail] = useState(organization?.email ?? "");
   const [phone, setPhone] = useState(organization?.phone ?? "");
   const [notes, setNotes] = useState(organization?.notes ?? "");
+  const [language, setLanguage] = useState<Locale | "">(
+    (organization?.language as Locale | null) ?? "",
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const prefix = organization ? `directory-org-${organization.id}-form` : "directory-org-new";
@@ -703,6 +774,7 @@ function OrganizationForm({
           email: email.trim() || null,
           phone: phone.trim() || null,
           notes: notes.trim() || null,
+          language: language || null,
         }
       : {
           name: name.trim(),
@@ -711,6 +783,7 @@ function OrganizationForm({
           ...(email.trim() ? { email: email.trim() } : {}),
           ...(phone.trim() ? { phone: phone.trim() } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
+          ...(language ? { language } : {}),
         };
     try {
       await onSubmit(body);
@@ -721,6 +794,7 @@ function OrganizationForm({
         setEmail("");
         setPhone("");
         setNotes("");
+        setLanguage("");
         setMessage(t("directory.org.added"));
       }
     } catch (error) {
@@ -770,6 +844,20 @@ function OrganizationForm({
       </Field>
       <Field label={t("directory.field.phone")}>
         <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} />
+      </Field>
+      <Field label={t("directory.field.language")} hint={t("directory.language.orgHint")}>
+        <Select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value as Locale | "")}
+          data-testid={`${prefix}-language`}
+        >
+          <option value="">{t("directory.language.yours")}</option>
+          {LOCALES.map((l) => (
+            <option key={l} value={l}>
+              {languageName(l, i18n)}
+            </option>
+          ))}
+        </Select>
       </Field>
       <Field label={t("directory.field.notes")}>
         <TextArea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />

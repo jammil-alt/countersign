@@ -7,6 +7,7 @@
 import type { z } from "zod";
 import { normalizeHeader } from "../mappers/upload";
 import type { ORGANIZATION_KINDS, Relationship } from "./kinds";
+import { supportedLanguage } from "./language";
 import {
   type DirectoryImportKind,
   type OrganizationAddress,
@@ -139,8 +140,15 @@ const ORGANIZATION_COLUMNS = {
   region: ["state", "region", "province", "county"],
   postalCode: ["zip", "zip code", "postal code", "postcode"],
   country: ["country"],
+  language: ["language", "lang"],
   notes: ["notes", "note", "comments", "description"],
 } as const;
+
+/** A language as people write it (`es`, `es-MX`, `pt`); one we don't have stays as written and fails. */
+function languageCell(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  return supportedLanguage(text) ?? text;
+}
 
 function columnIndex(headers: readonly string[], names: readonly string[]): number {
   const normalized = headers.map(normalizeHeader);
@@ -206,7 +214,7 @@ export function directoryRowsFromCsv(
             relationship: relationship ?? undefined,
             organization: cell(r, c.organization),
             roles: roles.length ? roles : undefined,
-            language: cell(r, c.language),
+            language: languageCell(cell(r, c.language)),
             notes: cell(r, c.notes),
           },
           problems,
@@ -237,6 +245,7 @@ export function directoryRowsFromCsv(
           email: cell(r, c.email)?.toLowerCase(),
           phone: cell(r, c.phone),
           address: Object.keys(address).length ? address : undefined,
+          language: languageCell(cell(r, c.language)),
           notes: cell(r, c.notes),
         },
         problems,

@@ -93,7 +93,7 @@ describe.skipIf(!harness)("directory tools in the runtime", () => {
     await withTenant(h.db, h.A.tenantId, async (tx) => {
       const [org] = await tx
         .insert(organization)
-        .values({ tenantId: h.A.tenantId, name: "Birch & Co", kinds: ["vendor"] })
+        .values({ tenantId: h.A.tenantId, name: "Birch & Co", kinds: ["vendor"], language: "es" })
         .returning();
       birchId = org?.id ?? "";
       const [pat] = await tx
@@ -148,6 +148,13 @@ describe.skipIf(!harness)("directory tools in the runtime", () => {
       ["person", "Pat Lee"],
     ]);
     expect(out.sources.sort()).toEqual([birchId, patId].sort());
+    // Pat has no language: the agent is told to write in Birch's.
+    expect(out.results.find((r) => r.type === "person")).toMatchObject({
+      language: "es",
+      languageFrom: "organization",
+      organization: { id: birchId, name: "Birch & Co", language: "es" },
+    });
+    expect(out.results.find((r) => r.type === "organization")).toMatchObject({ language: "es" });
     expect(result.summary).toBe("Found 2 in the directory");
     const role = await run("A", "directory.lookup", { role: "vendor rep" });
     const byRole = DirectorySearchOutput.parse(role.status === "succeeded" ? role.output : null);

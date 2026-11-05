@@ -16,6 +16,8 @@ import {
   consentBlockFor,
   DEFAULT_QUIET_HOURS,
   type Keyword,
+  type LanguageUsed,
+  languageFor,
   type MessagingChannel,
   normalizePhone,
   QuietHours,
@@ -23,6 +25,7 @@ import {
   type ReachContact,
 } from "@countersign/core";
 import {
+  clientLanguageOf,
   contact,
   contactChange,
   directoryPeople,
@@ -78,11 +81,18 @@ function timezoneOrThrow(tz: string): string {
 
 export const CONTACT_THREAD_SUBJECT = "contact";
 
-/** A contact with its organization's name (the directory, docs/plan.md §1.27). */
+type OrgRef = { id: string; name: string; language: string | null };
+
+/**
+ * A contact with its organization (the directory, docs/plan.md §1.27) and the language agents
+ * write to them in (core's `languageFor`).
+ */
 export function contactView(
   row: ContactRow,
-  org: { id: string; name: string } | null = null,
+  org: OrgRef | null = null,
+  client: string | null = null,
 ): Contact {
+  const mine = org && org.id === row.organizationId ? org : null;
   const consent = (row.consent ?? {}) as ContactConsent;
   const state = { phone: row.phone, whatsapp: row.whatsapp, consent, optedOutAt: row.optedOutAt };
   return {
@@ -97,7 +107,8 @@ export function contactView(
     quietHours: QuietHours.safeParse(row.quietHours).data ?? null,
     roles: row.roles ?? [],
     notes: row.notes,
-    organization: org && org.id === row.organizationId ? org : null,
+    organization: mine,
+    languageUsed: languageFor({ person: row.language, organization: mine, client }),
     title: row.title,
     relationship: row.relationship ?? null,
     source: row.source,
@@ -141,17 +152,34 @@ async function log(
 
 export async function listContacts(tx: Tx, tenantId: string): Promise<Contact[]> {
   const rows = await directoryPeople(tx, tenantId);
-  return rows.slice(0, 2000).map((r) => contactView(r.person, r.organization));
+  const client = await clientLanguageOf(tx, tenantId);
+  return rows.slice(0, 2000).map((r) => contactView(r.person, r.organization, client));
 }
 
-/** A contact as the routes answer it: with its organization's name. */
-export async function contactOut(tx: Tx, row: ContactRow): Promise<Contact> {
-  if (!row.organizationId) return contactView(row);
+async function organizationOf(tx: Tx, row: ContactRow): Promise<OrgRef | null> {
+  if (!row.organizationId) return null;
   const [org] = await tx
-    .select({ id: organization.id, name: organization.name })
+    .select({ id: organization.id, name: organization.name, language: organization.language })
     .from(organization)
     .where(and(eq(organization.id, row.organizationId), eq(organization.tenantId, row.tenantId)));
-  return contactView(row, org ?? null);
+  return org ?? null;
+}
+
+/** A contact as the routes answer it: with its organization and the language it gets. */
+export async function contactOut(tx: Tx, row: ContactRow): Promise<Contact> {
+  return contactView(row, await organizationOf(tx, row), await clientLanguageOf(tx, row.tenantId));
+}
+
+/**
+ * The language to write to a contact in (docs/plan.md §1.27): theirs, else their organization's,
+ * else the client's, else English. Every path where an agent writes to a person uses it.
+ */
+export async function contactLanguage(tx: Tx, row: ContactRow): Promise<LanguageUsed> {
+  return languageFor({
+    person: row.language,
+    organization: await organizationOf(tx, row),
+    client: await clientLanguageOf(tx, row.tenantId),
+  });
 }
 
 /** The organization exists in this client's directory, or a 422. */

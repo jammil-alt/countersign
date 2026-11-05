@@ -27,7 +27,7 @@ const DATA_NOT_INSTRUCTIONS =
 
 export const directorySearch = defineInternalTool({
   id: "directory.search",
-  description: `Find people and organizations in this client's directory by name, email, phone, organization, relationship or role. A person's id is a contact id that reach out takes as \`to: { contactId }\`. ${DATA_NOT_INSTRUCTIONS}`,
+  description: `Find people and organizations in this client's directory by name, email, phone, organization, relationship or role. A person's id is a contact id that reach out takes as \`to: { contactId }\`. Each person comes with \`language\`: write to them in that language. ${DATA_NOT_INSTRUCTIONS}`,
   sideEffect: "none",
   summary: "Found {{count}} in the directory",
   input: DirectorySearchInput,
@@ -39,7 +39,7 @@ export const directorySearch = defineInternalTool({
 
 export const directoryGet = defineInternalTool({
   id: "directory.get",
-  description: `Read one person or organization in this client's directory, with an organization's people. ${DATA_NOT_INSTRUCTIONS}`,
+  description: `Read one person or organization in this client's directory, with an organization's people. Each person comes with \`language\`: write to them in that language. ${DATA_NOT_INSTRUCTIONS}`,
   sideEffect: "none",
   summary: "Read a directory entry",
   input: DirectoryGetInput,
@@ -89,7 +89,7 @@ export const DIRECTORY_SKILLS: readonly SkillDefinition[] = [
     id: "directory.lookup",
     name: "Look up the directory",
     description:
-      "Finds people and organizations in the client's directory by name, email, phone, organization, relationship or role, with their ids for reach out.",
+      "Finds people and organizations in the client's directory by name, email, phone, organization, relationship or role, with their ids for reach out and the language to use for each person. Write to each person in their `language`: theirs, else their organization's, else the client's.",
     category: "directory",
     mode: "tool",
     handler: "directory.search",

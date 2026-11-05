@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { DIRECTORY_TITLE_MAX, Relationship } from "../directory/kinds";
+import { LanguageUsed } from "../directory/language";
+import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import {
   CONSENT_SOURCE_MAX,
@@ -21,8 +23,13 @@ const OPS = ["operator"] as const;
 const CLIENT_ADMIN = ["client_admin"] as const;
 
 export const CONTACT_NAME_MAX = 120;
-/** BCP 47 like the portal's languages (`es`, `pt-BR`). */
-const Language = z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/, "a language code like es or pt-BR");
+/**
+ * One of the six languages agents write in (docs/plan.md §1.18, §1.27).
+ */
+// DECISION: contacts used to accept any `xx` or `xx-YY` tag; new values must be one of the six.
+// Values stored before are kept and read through `supportedLanguage` (a regional tag reads as its
+// language, anything else falls through to the organization's or the client's).
+const Language = Locale;
 
 // ── Contacts ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -119,7 +126,12 @@ export const Contact = z.object({
   roles: z.array(z.string()).optional(),
   notes: z.string().nullable().optional(),
   /** The directory (docs/plan.md §1.27). */
-  organization: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
+  organization: z
+    .object({ id: z.string(), name: z.string(), language: z.string().nullable().optional() })
+    .nullable()
+    .optional(),
+  /** The language agents write to them in: theirs, else their organization's, else yours. */
+  languageUsed: LanguageUsed.optional(),
   title: z.string().nullable().optional(),
   relationship: Relationship.nullable().optional(),
   /** `manual`, `csv`, `agent` or a connector; null: added before the directory. */

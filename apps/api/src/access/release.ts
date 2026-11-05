@@ -39,6 +39,7 @@ import {
   isPlainObject,
   type LiveRelease,
   type Locale,
+  languageFor,
   maskEmail,
   maskPhone,
   normalizeCode,
@@ -54,7 +55,6 @@ import {
   type ReleaseView,
   type ReleaseWindow,
   releaseCovers,
-  releaseLocale,
   releaseMessage,
   releaseOf,
   releaseSettingProblem,
@@ -74,6 +74,7 @@ import {
   type Db,
   inboxItem,
   membership,
+  organization,
   run,
   stepRun,
   type Tx,
@@ -249,6 +250,28 @@ async function textableContact(tx: Tx, tenantId: string, email: string) {
 
 async function textablePhone(tx: Tx, tenantId: string, email: string): Promise<string | null> {
   return (await textableContact(tx, tenantId, email))?.phone ?? null;
+}
+
+/** The person's entry in the client's directory (a contact with their email), with its organization. */
+async function directoryEntryOf(tx: Tx, tenantId: string, email: string) {
+  const [row] = await tx
+    .select({
+      language: contact.language,
+      orgName: organization.name,
+      orgLanguage: organization.language,
+    })
+    .from(contact)
+    .leftJoin(
+      organization,
+      and(eq(organization.id, contact.organizationId), eq(organization.tenantId, contact.tenantId)),
+    )
+    .where(and(eq(contact.tenantId, tenantId), eq(contact.email, email.trim().toLowerCase())))
+    .limit(1);
+  if (!row) return null;
+  return {
+    language: row.language,
+    organization: row.orgName ? { name: row.orgName, language: row.orgLanguage } : null,
+  };
 }
 
 async function clientPerson(tx: Tx, tenantId: string, personId: string) {
@@ -651,11 +674,17 @@ async function requestContext(
     .select({ settings: tenant.settings })
     .from(tenant)
     .where(eq(tenant.id, tenantId));
-  // DECISION: the code message is written in the person's language (their own choice, else the
-  // client's default, else English), from core's RELEASE_WORDS: the Worker writes it, and the
-  // portal's message files are in the web bundle, which apps/api doesn't import (§1.18's pattern
-  // for the timeline words).
-  const locale = releaseLocale(userLanguage(t?.settings, person.id), clientLanguage(t?.settings));
+  // DECISION: the code message is written in the person's language, from core's RELEASE_WORDS:
+  // the Worker writes it, and the portal's message files are in the web bundle, which apps/api
+  // doesn't import (§1.18's pattern for the timeline words). The language is core's
+  // `languageFor` (§1.27): the person's own (their portal choice, else their directory entry's,
+  // found by their email), else their organization's, else the client's default, else English.
+  const entry = await directoryEntryOf(tx, tenantId, person.email);
+  const locale = languageFor({
+    person: userLanguage(t?.settings, person.id) ?? entry?.language,
+    organization: entry?.organization ?? null,
+    client: clientLanguage(t?.settings),
+  }).language;
   return { conn, setting, person, agentRow, test: r.mode === "test", locale };
 }
 

@@ -44,7 +44,6 @@ import {
   type ReachOutOutput,
   type ReachPlan,
   type ReachReply,
-  reachLanguage,
   reachSubject,
   routeApproval,
   type Urgency,
@@ -72,6 +71,7 @@ import type {
 import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import {
   type ContactRow,
+  contactLanguage,
   contactThread,
   reachContactOf,
   type ThreadMessageBody,
@@ -272,10 +272,6 @@ interface Loaded {
   channels: Map<ReachChannel, { id: string; connector: string; create: string }>;
 }
 
-function clientLanguage(settings: unknown): string | null {
-  const l = (settings as { language?: unknown } | null)?.language;
-  return typeof l === "string" ? l : null;
-}
 function clientQuietHours(settings: unknown) {
   const q = QuietHours.safeParse(
     (settings as { messaging?: { quietHours?: unknown } } | null)?.messaging?.quietHours,
@@ -672,7 +668,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
           req.approval.required === "not_required" &&
           definition.permissions.mode === "act" &&
           plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto");
-        const language = reachLanguage(who.language, clientLanguage(tenantRow.settings));
+        // The person's language, else their organization's, else the client's (§1.27).
+        const language = (await contactLanguage(tx, who)).language;
         const stored: StoredPlan = {
           channels: plan.channels,
           escalateAfter: plan.escalateAfter,

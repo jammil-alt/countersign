@@ -362,7 +362,7 @@ describe("contacts: reach-out details", () => {
           email: "pat@shop.example",
           phone: "+15555550100",
           whatsapp: null,
-          language: null,
+          // The language is sent only when it changed.
           preferredChannels: ["whatsapp", "voice"],
           timezone: "America/Chicago",
           quietHours: null,

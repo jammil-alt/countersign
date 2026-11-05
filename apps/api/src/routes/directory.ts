@@ -11,6 +11,7 @@ import {
   routes,
 } from "@countersign/core";
 import {
+  clientLanguageOf,
   directoryOrganizations,
   directoryPeople,
   inboxItem,
@@ -48,6 +49,7 @@ export async function directoryList(
   q: DirectoryListQuery,
 ): Promise<DirectoryList> {
   const wantPeople = q.type !== "organization";
+  const client = await clientLanguageOf(tx, tenantId);
   const wantOrgs =
     q.type !== "person" &&
     q.relationship === undefined &&
@@ -63,14 +65,14 @@ export async function directoryList(
         }),
         q.q,
         DIRECTORY_LIST_MAX,
-      ).map((r) => contactView(r.item.person, r.item.organization))
+      ).map((r) => contactView(r.item.person, r.item.organization, client))
     : [];
   const organizations = wantOrgs
     ? rankOrganizations(
         await directoryOrganizations(tx, tenantId, { kind: q.kind }),
         q.q,
         DIRECTORY_LIST_MAX,
-      ).map((r) => organizationView(r.item))
+      ).map((r) => organizationView(r.item, client))
     : [];
   return { people, organizations, pendingSuggestions: await openSuggestionCount(tx, tenantId) };
 }
