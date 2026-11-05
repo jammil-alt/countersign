@@ -20,6 +20,7 @@ import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
 import { type AppDeps, type AppEnv, errorResponse, HttpError, mount, notFound } from "../http";
+import { reportHandled } from "../observability/report";
 import {
   type QboSyncInstances,
   type QboSyncParams,
@@ -93,7 +94,7 @@ export async function qboCronTick(
       const r = await startQboSync(instances, { ...c, reason: "cron" }, at);
       if (r.started) started += 1;
     } catch (error) {
-      console.error(`qbo sync for connection ${c.connectionId} did not start`, error);
+      reportHandled("qbo sync did not start", error, { connector: "qbo" });
     }
   }
   return started;

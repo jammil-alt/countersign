@@ -34,6 +34,7 @@ import { type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services } from "../http";
+import { reportHandled } from "../observability/report";
 import { dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
 
@@ -104,7 +105,7 @@ export async function extractInBackground(
       await extractDocument({ db: services.db, content, llm }, { tenantId, documentId });
       await withTenant(services.db, tenantId, (tx) => linkToTransaction(tx, tenantId, documentId));
     } catch (error) {
-      console.error(`extracting document ${documentId} failed`, error);
+      reportHandled("extracting a document failed", error, { kind: "extraction" });
     }
   }
 }
