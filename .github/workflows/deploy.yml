@@ -2,8 +2,9 @@ name: Deploy
 
 # main → staging on every push (docs-only pushes ride along with the next deploy). Production by a
 # `v*` tag or a manual run. Each deploy runs the full check, migrates the target's Neon branch as
-# cs_owner, then `wrangler deploy` from apps/api. Inert until the secrets in docs/operations.md §1
-# exist, and until apps/api has a wrangler.jsonc (M0).
+# cs_owner, deploys the code service (apps/mfa, Worker mezonas-codes) and its secrets, then
+# `wrangler deploy` from apps/api, whose `CODES` service binding needs the code service to exist.
+# Inert until the secrets in docs/operations.md §1 exist, and until apps/api has a wrangler.jsonc (M0).
 
 on:
   push:
@@ -53,6 +54,9 @@ jobs:
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      # The code service's own Twilio subaccount (plan §1.26), not the clients' messaging account.
+      MFA_TWILIO_ACCOUNT_SID: ${{ secrets.MFA_TWILIO_ACCOUNT_SID }}
+      MFA_TWILIO_AUTH_TOKEN: ${{ secrets.MFA_TWILIO_AUTH_TOKEN }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -96,6 +100,40 @@ jobs:
             --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
           echo "::add-mask::$url"
           DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db run --if-present db:migrate
+
+      # The code service (apps/mfa, ARCHITECTURE §6.9) first: apps/api's `CODES` service binding
+      # points at it. Its own Worker, Durable Objects and secrets; never apps/api's.
+      - name: Deploy the code service
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
+          pnpm --filter @countersign/mfa exec wrangler deploy "$env_flag"
+
+      - name: Code service secrets
+        if: steps.ready.outputs.ready == 'true'
+        working-directory: apps/mfa
+        run: |
+          set -euo pipefail
+          env_name=$([ "$TARGET" = production ] && echo production || echo staging)
+          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; echo "set $1"; }
+          # The codes Twilio subaccount: copied on every deploy when set, so a rotated token takes
+          # effect. Unset: adding a phone number answers not_configured and inbound texts are refused.
+          for name in MFA_TWILIO_ACCOUNT_SID MFA_TWILIO_AUTH_TOKEN; do
+            if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
+          done
+          # Generated once inside Cloudflare and never shown or stored anywhere else, as ENCRYPTION_KEY
+          # is for apps/api. If the list of existing secrets can't be read, this step fails (set -e)
+          # rather than risk replacing MFA_ENCRYPTION_KEY, which would make every stored
+          # authenticator secret unreadable.
+          existing=$(pnpm exec wrangler secret list --env "$env_name" --format json | jq -r '.[].name')
+          if grep -qx MFA_ENCRYPTION_KEY <<<"$existing"; then
+            echo "MFA_ENCRYPTION_KEY already set"
+          else
+            value=$(openssl rand -base64 32)
+            echo "::add-mask::$value"
+            put MFA_ENCRYPTION_KEY "$value"
+          fi
 
       # Error tracking (apps/web/src/observability.ts): the browser's Sentry DSN and the commit as
       # its release. The DSN is not a secret (it ships in the page); a repository variable or a
