@@ -128,7 +128,7 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
       const url = `${QBO_API_BASE[environment]}/v3/company/${realm.data}/companyinfo/${realm.data}?${formEncode({ minorversion: options.minorVersion ?? QBO_MINOR_VERSION })}`;
       const res = await doFetch()(url, {
         headers: { authorization: `Bearer ${answer.access_token}`, accept: "application/json" },
-        redirect: "error",
+        redirect: "manual",
         signal: timeoutSignal(15_000),
       });
       let info: { CompanyInfo?: { CompanyName?: unknown; Country?: unknown } } = {};
@@ -169,7 +169,7 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
           accept: "application/json",
         },
         body: JSON.stringify({ token }),
-        redirect: "error",
+        redirect: "manual",
         signal: timeoutSignal(15_000),
       });
       if (!res.ok) throw new Error(`Intuit answered ${res.status} to the revoke`);

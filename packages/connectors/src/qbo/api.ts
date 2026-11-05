@@ -212,7 +212,7 @@ export async function qboTokenCall(
       accept: "application/json",
     },
     body: formEncode(fields),
-    redirect: "error",
+    redirect: "manual",
     signal: timeoutSignal(15_000),
   });
   const text = await res.text();
@@ -406,7 +406,7 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
                 ...(body ? { "content-type": body.type } : {}),
               },
               ...(body ? { body: body.data } : {}),
-              redirect: "error",
+              redirect: "manual",
               signal: timeoutSignal(30_000),
             }),
           (r) => r.status === 401,
@@ -531,7 +531,7 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
       // The link is presigned: no token goes with it.
       const file = await opts.fetch(link.url.href, {
         method: "GET",
-        redirect: "error",
+        redirect: "manual",
         signal: timeoutSignal(60_000),
       });
       if (!file.ok || !file.arrayBuffer) {

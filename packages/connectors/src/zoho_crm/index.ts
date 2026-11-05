@@ -230,7 +230,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body: formEncode(fields),
-      redirect: "error",
+      redirect: "manual",
       signal: timeoutSignal(15_000),
     });
     const text = await res.text();
@@ -314,7 +314,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
             ...(body === undefined ? {} : { "content-type": "application/json" }),
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-          redirect: "error",
+          redirect: "manual",
           signal: timeoutSignal(20_000),
         });
       },
@@ -423,7 +423,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
           authorization: `Zoho-oauthtoken ${answer.access_token}`,
           accept: "application/json",
         },
-        redirect: "error",
+        redirect: "manual",
         signal: timeoutSignal(15_000),
       });
       const org = z
@@ -461,7 +461,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       if (!creds.success || !creds.data.refreshToken) return;
       await doFetch()(
         `${creds.data.accountsServer}/oauth/v2/token/revoke?${formEncode({ token: creds.data.refreshToken })}`,
-        { method: "POST", redirect: "error", signal: timeoutSignal(15_000) },
+        { method: "POST", redirect: "manual", signal: timeoutSignal(15_000) },
       );
     },
 

@@ -189,7 +189,7 @@ export function createGmailConnector(options: GmailOptions = {}): Connector {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body: formEncode(fields),
-      redirect: "error",
+      redirect: "manual",
       signal: timeoutSignal(15_000),
     });
     let body: unknown;
@@ -249,7 +249,7 @@ export function createGmailConnector(options: GmailOptions = {}): Connector {
             accept: "application/json",
           },
           body: JSON.stringify({ raw }),
-          redirect: "error",
+          redirect: "manual",
           signal: timeoutSignal(30_000),
         }),
       (r) => r.status === 401,
@@ -357,7 +357,7 @@ export function createGmailConnector(options: GmailOptions = {}): Connector {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: formEncode({ token }),
-        redirect: "error",
+        redirect: "manual",
         signal: timeoutSignal(15_000),
       });
       // 400 invalid_token: already revoked (the person removed us in their Google account).
