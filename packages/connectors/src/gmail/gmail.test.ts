@@ -19,10 +19,12 @@ import {
   createGmailConnector,
   GMAIL_SEND_SCOPE,
   GMAIL_SEND_TOOL,
+  GmailNoAddressError,
   GOOGLE_AUTH_URL,
   GOOGLE_REVOKE_URL,
   GOOGLE_TOKEN_URL,
   idTokenAddress,
+  isGmailConnector,
 } from "./index";
 import { buildPlainMessage, encodedWords, headerText, MimeError, mailbox } from "./mime";
 
@@ -394,6 +396,58 @@ describe("gmail.send", () => {
       /Gmail refused the email \(400\)/,
     );
     expect(recorded).toHaveLength(0);
+  });
+});
+
+describe("the person's own test email", () => {
+  const TEST = { subject: "Mezonas test email", text: "This is a test from Mezonas.", key: "k1" };
+
+  async function setup(connection: ConnectionRef = CONN) {
+    const { connector, grant, google } = await signIn();
+    const ctx = {
+      tenantId: CONN.tenantId,
+      connection,
+      credentials: memoryCredentials(grant.credentials),
+      logger: noopLogger,
+      now: () => NOW,
+    };
+    return { connector, google, ctx };
+  }
+
+  it("is not a tool: no agent can reach it", async () => {
+    const { connector } = await setup();
+    expect(isGmailConnector(connector)).toBe(true);
+    expect(Object.keys(connector.tools)).toEqual([GMAIL_SEND_TOOL]);
+    expect(connector.manifest.tools.map((t) => t.id)).toEqual([GMAIL_SEND_TOOL]);
+  });
+
+  it("sends one plain email from the connected mailbox to itself, and nowhere else", async () => {
+    const { connector, google, ctx } = await setup();
+    const out = await connector.sendToSelf(ctx, TEST);
+    expect(out).toMatchObject({ to: "pat.lee@gmail.test", id: google.sent[0]?.id });
+    expect(google.sent).toHaveLength(1);
+    const parsed = await PostalMime.parse(utf8(google.sent[0]?.message ?? ""));
+    expect(parsed.from?.address).toBe("pat.lee@gmail.test");
+    expect((parsed.to ?? []).map((a) => a.address)).toEqual(["pat.lee@gmail.test"]);
+    expect(parsed.replyTo ?? []).toEqual([]);
+    expect(parsed.subject).toBe(TEST.subject);
+    expect(parsed.text?.trim()).toBe(TEST.text);
+    expect(parsed.messageId).toBe("<test.k1.mezonas@gmail.test>");
+  });
+
+  it("refuses a connection with no stored address, or one the tokens don't belong to", async () => {
+    for (const externalAccountId of [null, "", "someone@else.test"]) {
+      const { connector, google, ctx } = await setup({ ...CONN, externalAccountId });
+      await expect(connector.sendToSelf(ctx, TEST)).rejects.toBeInstanceOf(GmailNoAddressError);
+      expect(google.sent).toHaveLength(0);
+    }
+  });
+
+  it("refreshes an expired access token as a send does", async () => {
+    const { connector, google, ctx } = await setup();
+    google.expireAccessTokens();
+    await connector.sendToSelf(ctx, TEST);
+    expect(google.sent).toHaveLength(1);
   });
 });
 

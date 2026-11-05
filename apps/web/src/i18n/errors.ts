@@ -41,6 +41,8 @@ const CODE_KEYS: Record<string, PlainKey> = {
   connector_failed: "error.connector_failed",
   not_importable: "error.not_importable",
   contact_exists: "error.contact_exists",
+  rate_limited: "error.rate_limited",
+  no_address: "error.no_address",
 };
 
 /**

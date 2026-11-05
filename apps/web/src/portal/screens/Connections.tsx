@@ -2,7 +2,8 @@
 // tools the operator offered this client, which are connected, and what agents may do in each.
 // The client admin signs in to each tool here, disconnects, and may tighten permissions (never
 // loosen); a client user sees all of it read-only, except a person's own account (Gmail), which
-// they may connect themselves and disconnect if they connected it.
+// they may connect themselves and disconnect if they connected it. Whoever may disconnect a
+// connected Gmail may also send a test email from it to itself (plan §1.31).
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -98,7 +99,7 @@ export function PortalConnectionsScreen() {
                   <ConnectedCard
                     key={c.connector}
                     item={c}
-                    canDisconnect={
+                    canManage={
                       isAdmin || (c.personal === true && c.connection?.connectedByYou === true)
                     }
                     onDisconnect={(id) =>
@@ -182,13 +183,58 @@ export function PortalConnectionsScreen() {
   );
 }
 
+/**
+ * "Send a test email" on a connected Gmail: one email from the mailbox to itself (the API picks
+ * the address; nothing here can name another), then where it went, or the plain error.
+ */
+function GmailTestSend() {
+  const api = useApiClient();
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  async function send() {
+    setBusy(true);
+    setError(null);
+    setSentTo(null);
+    try {
+      const res = await api.call(apiRoutes.portalGmailTestSend, { body: {} });
+      setSentTo(res.to);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button data-testid="portal-gmail-test-send" disabled={busy} onClick={() => void send()}>
+        {busy ? t("common.sending") : t("connections.gmail.testSend")}
+      </Button>
+      {sentTo || error ? (
+        <div className="basis-full">
+          {sentTo ? (
+            <p role="status" data-testid="portal-gmail-test-sent" className="text-sm text-positive">
+              {t("connections.gmail.testSent", { address: sentTo })}
+            </p>
+          ) : null}
+          {error ? <ErrorNotice error={error} /> : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function ConnectedCard({
   item,
-  canDisconnect,
+  canManage,
   onDisconnect,
 }: {
   item: Offered;
-  canDisconnect: boolean;
+  /** The client admin, or the person who connected their own account (Gmail). */
+  canManage: boolean;
   onDisconnect: (connectionId: string) => Promise<void>;
 }) {
   const i18n = useI18n();
@@ -244,7 +290,10 @@ function ConnectedCard({
         >
           {t("connections.permissions")}
         </Button>
-        {canDisconnect && !confirming ? (
+        {item.connector === "gmail" && conn.status === "connected" && canManage ? (
+          <GmailTestSend />
+        ) : null}
+        {canManage && !confirming ? (
           <Button
             data-testid="portal-connection-disconnect-start"
             variant="ghost"

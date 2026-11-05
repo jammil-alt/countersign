@@ -49,6 +49,7 @@ export * from "./directory/schemas";
 export * from "./directory/search";
 export * from "./documents/extraction";
 export * from "./duration";
+export * from "./i18n/gmail-test";
 export * from "./i18n/locale";
 export * from "./i18n/release";
 export * from "./i18n/supervisor";

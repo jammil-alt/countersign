@@ -59,6 +59,8 @@ export const es: Messages = {
     "La herramienta conectada no respondió. Inténtelo de nuevo en un momento.",
   "error.not_importable": "El directorio importa desde Zoho CRM o Podio.",
   "error.contact_exists": "Alguien del directorio ya tiene ese correo o ese número.",
+  "error.rate_limited": "Espere un minuto e inténtelo de nuevo.",
+  "error.no_address": "No sabemos la dirección de esta cuenta. Vuelva a conectarla.",
 
   // ── Shell ──
   "shell.navigation": "Navegación",
@@ -248,6 +250,9 @@ export const es: Messages = {
   "connections.adminCanConnect": "Su administrador puede conectarla.",
   "connections.enterKey": "Ingresar su acceso",
   "connections.gmail.description": "Envíe correos desde su Gmail. No podemos leer su buzón.",
+  "connections.gmail.testSend": "Enviar un correo de prueba",
+  "connections.gmail.testSent":
+    "Enviado a {address}. Revise la carpeta Enviados y la bandeja de entrada de ese buzón.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Sin conectar",
   "connection.status.disconnected": "Desconectada",

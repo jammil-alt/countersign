@@ -5,7 +5,8 @@
 // connects a tool on a client's behalf and never sees credentials. The one exception is the Sandbox
 // client, the operator's own test client: the operator connects its no-sign-in tools here, and signs
 // in to its offered OAuth tools with their own account (the provider returns to
-// `/ops/connections/:connector/callback`).
+// `/ops/connections/:connector/callback`). The Sandbox's connected Gmail also sends a test email
+// to itself from here (plan §1.31).
 import { connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -75,6 +76,21 @@ export function OpsConnectionsScreen() {
                   connection={c}
                   name={names[c.connector] ?? c.connector}
                   usedBy={data.usedBy[c.id] ?? []}
+                  testEmail={
+                    data.sandbox && c.connector === "gmail" && c.status === "connected"
+                      ? clientId
+                      : null
+                  }
+                  {...(data.sandbox && c.status !== "disconnected"
+                    ? {
+                        onDisconnect: async () => {
+                          await api.call(apiRoutes.opsSandboxDisconnect, {
+                            params: { id: clientId, connectionId: c.id },
+                          });
+                          reload();
+                        },
+                      }
+                    : {})}
                   onSaveConfig={async (config) => {
                     await api.call(apiRoutes.opsUpdateConnection, {
                       params: { id: c.id },
@@ -134,17 +150,86 @@ export function OpsConnectionsScreen() {
   );
 }
 
+/**
+ * The Sandbox's connected Gmail: one test email from the mailbox to itself (the API picks the
+ * address; nothing here can name another), then where it went, or the plain error.
+ */
+function GmailTestSend({ clientId }: { clientId: string }) {
+  const api = useApiClient();
+  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [problem, setProblem] = useState<unknown>(null);
+
+  async function send() {
+    setBusy(true);
+    setProblem(null);
+    setSentTo(null);
+    try {
+      const res = await api.call(apiRoutes.opsSandboxGmailTestSend, {
+        params: { id: clientId },
+        body: {},
+      });
+      setSentTo(res.to);
+    } catch (e) {
+      setProblem(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button data-testid="ops-gmail-test-send" disabled={busy} onClick={() => void send()}>
+        {busy ? "Sending…" : "Send a test email"}
+      </Button>
+      {sentTo || problem ? (
+        <div className="basis-full">
+          {sentTo ? (
+            <p role="status" data-testid="ops-gmail-test-sent" className="text-sm text-positive">
+              Sent to {sentTo}. Check that mailbox's Sent folder and inbox.
+            </p>
+          ) : null}
+          {problem ? <ErrorNotice error={problem} /> : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function ConnectionCard({
   connection: c,
   name,
   usedBy,
+  testEmail,
+  onDisconnect,
   onSaveConfig,
 }: {
   connection: Data["connections"][number];
   name: string;
   usedBy: { id: string; name: string }[];
+  /** The Sandbox client's id when its connected Gmail may send a test email; else null. */
+  testEmail: string | null;
+  /** The Sandbox only: the operator disconnects what they connected (after a confirm step). */
+  onDisconnect?: () => Promise<void>;
   onSaveConfig: (config: Record<string, unknown>) => Promise<void>;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectProblem, setDisconnectProblem] = useState<unknown>(null);
+
+  async function disconnect() {
+    if (!onDisconnect) return;
+    setDisconnecting(true);
+    setDisconnectProblem(null);
+    try {
+      await onDisconnect();
+      setConfirming(false);
+    } catch (e) {
+      setDisconnectProblem(e);
+    } finally {
+      setDisconnecting(false);
+    }
+  }
   const saved = JSON.stringify(c.config, null, 2);
   // The company's name, as the portal shows it; the account id (a QuickBooks realm) under it.
   const accountName = connectionAccountName(c.config);
@@ -248,6 +333,7 @@ function ConnectionCard({
           <Button data-testid="ops-connection-config-edit" onClick={() => setEditing(true)}>
             Configuration
           </Button>
+          {testEmail ? <GmailTestSend clientId={testEmail} /> : null}
           {c.lastSyncAt ? (
             <Link
               to={`/ops/clients/${c.tenantId}/records?source=${c.id}`}
@@ -257,8 +343,46 @@ function ConnectionCard({
               See what it synced
             </Link>
           ) : null}
+          {onDisconnect && !confirming ? (
+            <Button
+              data-testid="ops-connection-disconnect-start"
+              variant="ghost"
+              onClick={() => setConfirming(true)}
+            >
+              Disconnect
+            </Button>
+          ) : null}
         </div>
       )}
+      {onDisconnect && confirming ? (
+        <div className="ds-banner mt-3 block" data-testid="ops-connection-disconnect-confirm-box">
+          <p>
+            Agents stop using {name} until you connect it again. Its sign-in, if it has one, is
+            revoked at {name} and dropped.
+          </p>
+          {disconnectProblem ? <ErrorNotice error={disconnectProblem} /> : null}
+          <div className="mt-2 flex gap-2">
+            <Button
+              data-testid="ops-connection-disconnect-confirm"
+              variant="primary"
+              disabled={disconnecting}
+              onClick={() => void disconnect()}
+            >
+              {disconnecting ? "Disconnecting…" : "Disconnect"}
+            </Button>
+            <Button
+              data-testid="ops-connection-disconnect-cancel"
+              variant="ghost"
+              onClick={() => {
+                setConfirming(false);
+                setDisconnectProblem(null);
+              }}
+            >
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

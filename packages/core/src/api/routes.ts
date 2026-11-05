@@ -398,6 +398,9 @@ export const PortalConnection = z.object({
     .nullable(),
 });
 
+/** The Gmail test email's body: empty. The recipient is never an input. */
+export const GmailTestSendBody = z.strictObject({});
+
 /** A webhook connection as its client admin sees it: hook URLs carry their secret tokens. */
 export const PortalWebhookSetup = z.object({
   hooks: z.array(
@@ -784,6 +787,27 @@ export const opsRoutes = {
       "Start the operator's own sign-in to an OAuth tool of the Sandbox client: answers where the provider's sign-in starts (403 not_sandbox in any other client)",
     params: z.object({ id: ApiId, connector: ConnectorId }),
     response: z.object({ redirectUrl: z.string() }),
+  }),
+  opsSandboxDisconnect: defineRoute({
+    method: "DELETE",
+    path: "/api/ops/clients/:id/connections/:connectionId",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Disconnect a tool in the Sandbox client: the grant is revoked at the provider and the credentials dropped (403 not_sandbox in any other client)",
+    params: z.object({ id: ApiId, connectionId: ApiId }),
+    response: z.object({ connection: OpsConnection }),
+  }),
+  opsSandboxGmailTestSend: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/connections/gmail/test-send",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Send one test email from the Sandbox client's connected Gmail to that same mailbox; at most one a minute (403 not_sandbox in any other client)",
+    params: IdParams,
+    body: GmailTestSendBody,
+    response: z.object({ to: z.string(), sentAt: Timestamp }),
   }),
   opsSandboxAuthorizeCallback: defineRoute({
     method: "POST",
@@ -1622,6 +1646,18 @@ export const portalRoutes = {
     summary: "Disconnect a tool: agents can no longer use it; its permissions are kept",
     params: IdParams,
     response: z.object({ connection: PortalConnection }),
+  }),
+  portalGmailTestSend: defineRoute({
+    method: "POST",
+    path: "/api/connections/gmail/test-send",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "Send one test email from the connected Gmail to that same mailbox (the client admin, or the person who connected it); at most one a minute",
+    // Nothing to choose: the recipient is always the connection's own address. Strict, so a body
+    // that tries to name one (or anything else) is refused.
+    body: GmailTestSendBody,
+    response: z.object({ to: z.string(), sentAt: Timestamp }),
   }),
 } as const;
 

@@ -175,7 +175,42 @@ function messageIdFor(idempotencyKey: string, from: string): string {
   return `<${idempotencyKey.replace(/[^A-Za-z0-9.-]/g, ".")}.mezonas@${domain}>`;
 }
 
-export function createGmailConnector(options: GmailOptions = {}): Connector {
+/** A connection with no address of its own: we don't know whom to send to, so nothing is sent. */
+export class GmailNoAddressError extends Error {
+  constructor() {
+    super("we don't know this mailbox's address; connect Gmail again");
+    this.name = "GmailNoAddressError";
+  }
+}
+
+/** The person's own test email: the words only. The recipient is never an input. */
+export interface GmailSelfTest {
+  subject: string;
+  text: string;
+  /** A fresh key for our Message-ID. */
+  key: string;
+}
+
+export interface GmailConnector extends Connector {
+  /**
+   * Sends one plain-text email from the connected mailbox to that same mailbox: a person checking
+   * their own connection (the portal's "Send a test email"). Not a tool, so no agent can call it.
+   * The address is the connection's own and must match the one kept with the tokens.
+   */
+  sendToSelf(
+    ctx: ConnectionContext,
+    email: GmailSelfTest,
+  ): Promise<{ id: string; threadId: string | null; to: string }>;
+}
+
+export function isGmailConnector(c: Connector | undefined): c is GmailConnector {
+  return (
+    c?.manifest.id === GMAIL_CONNECTOR_ID &&
+    typeof (c as Partial<GmailConnector>).sendToSelf === "function"
+  );
+}
+
+export function createGmailConnector(options: GmailOptions = {}): GmailConnector {
   const doFetch = (): FetchLike => options.fetch ?? globalFetch();
   const configured = Boolean(options.clientId && options.clientSecret);
 
@@ -235,7 +270,7 @@ export function createGmailConnector(options: GmailOptions = {}): Connector {
 
   /** `users.messages.send`, with one refresh and retry if the access token is refused. */
   async function send(
-    ctx: ToolContext,
+    ctx: ConnectionContext,
     raw: string,
   ): Promise<{ id: string; threadId: string | null }> {
     const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
@@ -274,7 +309,30 @@ export function createGmailConnector(options: GmailOptions = {}): Connector {
     return { id: ok.data.id, threadId: ok.data.threadId ?? null };
   }
 
-  return defineConnector({
+  async function sendToSelf(ctx: ConnectionContext, email: GmailSelfTest) {
+    const stored = ctx.connection.externalAccountId?.trim().toLowerCase();
+    if (!stored) throw new GmailNoAddressError();
+    const creds = GmailCredentials.safeParse(await ctx.credentials.get());
+    if (!creds.success)
+      throw new ReconnectRequiredError("the Gmail connection has no valid sign-in");
+    // DECISION: the tokens' own address must be the stored one, so the test can only go to the
+    // mailbox that signed in (Gmail sends as the token's account whatever From says).
+    if (creds.data.address.trim().toLowerCase() !== stored) throw new GmailNoAddressError();
+    const raw = gmailRaw(
+      buildPlainMessage({
+        from: { address: stored },
+        to: stored,
+        subject: email.subject,
+        text: email.text,
+        messageId: messageIdFor(`test.${email.key}`, stored),
+        date: ctx.now(),
+      }),
+    );
+    const res = await send(ctx, raw);
+    return { ...res, to: stored };
+  }
+
+  const connector = defineConnector({
     id: GMAIL_CONNECTOR_ID,
     name: "Gmail",
     description: "Send email from your Gmail. We can't read your mailbox.",
@@ -465,4 +523,5 @@ export function createGmailConnector(options: GmailOptions = {}): Connector {
       }),
     ],
   });
+  return Object.assign(connector, { sendToSelf });
 }

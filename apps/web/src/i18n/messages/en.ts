@@ -55,6 +55,8 @@ export const en = {
   "error.connector_failed": "The connected tool didn't answer. Try again in a moment.",
   "error.not_importable": "The directory imports from Zoho CRM or Podio.",
   "error.contact_exists": "Someone in the directory already has that email address or number.",
+  "error.rate_limited": "Wait a minute and try again.",
+  "error.no_address": "We don't know this account's address. Connect it again.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -242,6 +244,8 @@ export const en = {
   "connections.adminCanConnect": "Your admin can connect it.",
   "connections.enterKey": "Enter its login",
   "connections.gmail.description": "Send email from your Gmail. We can't read your mailbox.",
+  "connections.gmail.testSend": "Send a test email",
+  "connections.gmail.testSent": "Sent to {address}. Check that mailbox's Sent folder and inbox.",
   "connection.status.connected": "Connected",
   "connection.status.pending": "Not connected",
   "connection.status.disconnected": "Disconnected",

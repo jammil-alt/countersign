@@ -58,6 +58,8 @@ export const fr: Messages = {
   "error.connector_failed": "L'outil connecté n'a pas répondu. Réessayez dans un instant.",
   "error.not_importable": "L'annuaire importe depuis Zoho CRM ou Podio.",
   "error.contact_exists": "Quelqu'un dans l'annuaire a déjà cette adresse e-mail ou ce numéro.",
+  "error.rate_limited": "Attendez une minute et réessayez.",
+  "error.no_address": "Nous ne connaissons pas l'adresse de ce compte. Connectez-le à nouveau.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -254,6 +256,9 @@ export const fr: Messages = {
   "connections.enterKey": "Saisir ses identifiants",
   "connections.gmail.description":
     "Envoyez des e-mails depuis votre Gmail. Nous ne pouvons pas lire votre boîte mail.",
+  "connections.gmail.testSend": "Envoyer un e-mail de test",
+  "connections.gmail.testSent":
+    "Envoyé à {address}. Vérifiez le dossier Messages envoyés et la boîte de réception de cette adresse.",
   "connection.status.connected": "Connecté",
   "connection.status.pending": "Non connecté",
   "connection.status.disconnected": "Déconnecté",

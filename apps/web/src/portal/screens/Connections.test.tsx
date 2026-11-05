@@ -104,3 +104,62 @@ describe("Gmail on the Connections page", () => {
     expect(within(mine).getByTestId("portal-connection-disconnect-start")).toBeTruthy();
   });
 });
+
+describe("Send a test email on the Gmail card", () => {
+  it("sends with an empty body and says where it went", async () => {
+    const api = renderAs("client_user", "en", [gmail({ connectedByYou: true })]);
+    const bodies: unknown[] = [];
+    api.on("POST /api/connections/gmail/test-send", ({ init }) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return { to: "pat.lee@gmail.test", sentAt: "2026-11-05T10:00:00.000Z" };
+    });
+    const card = await screen.findByTestId("portal-connection-gmail");
+    const button = within(card).getByTestId("portal-gmail-test-send");
+    expect(button.textContent).toBe("Send a test email");
+    expect(button.className).toContain("ds-btn--secondary");
+    await userEvent.click(button);
+    const sent = await within(card).findByTestId("portal-gmail-test-sent");
+    expect(sent.textContent).toBe(
+      "Sent to pat.lee@gmail.test. Check that mailbox's Sent folder and inbox.",
+    );
+    expect(sent.getAttribute("role")).toBe("status");
+    expect(bodies).toEqual([{}]);
+  });
+
+  it("shows the plain error, in the reader's language", async () => {
+    const api = renderAs("client_admin", "es", [gmail({ connectedByYou: false })]);
+    api.on(
+      "POST /api/connections/gmail/test-send",
+      () =>
+        new Reply(429, {
+          error: {
+            code: "rate_limited",
+            message: "we sent a test email less than a minute ago; wait a minute and try again",
+          },
+        }),
+    );
+    const card = await screen.findByTestId("portal-connection-gmail");
+    const button = within(card).getByTestId("portal-gmail-test-send");
+    expect(button.textContent).toBe("Enviar un correo de prueba");
+    await userEvent.click(button);
+    const alert = await within(card).findByRole("alert");
+    expect(alert.textContent).toContain("Espere un minuto e inténtelo de nuevo.");
+    expect(within(card).queryByTestId("portal-gmail-test-sent")).toBeNull();
+  });
+
+  it("is only for the client admin and the person who connected it, and only while connected", async () => {
+    renderAs("client_user", "en", [gmail({ connectedByYou: false })]);
+    const theirs = await screen.findByTestId("portal-connection-gmail");
+    expect(within(theirs).queryByTestId("portal-gmail-test-send")).toBeNull();
+  });
+
+  it("isn't offered on a disconnected Gmail", async () => {
+    const off = gmail({ connectedByYou: true });
+    renderAs("client_admin", "en", [
+      { ...off, connection: { ...off.connection, status: "disconnected" } },
+    ]);
+    const card = await screen.findByTestId("portal-connection-gmail");
+    expect(within(card).getByTestId("portal-connection-connect")).toBeTruthy();
+    expect(screen.queryByTestId("portal-gmail-test-send")).toBeNull();
+  });
+});

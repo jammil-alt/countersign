@@ -19,7 +19,7 @@ import {
   fakeQbo,
 } from "@countersign/connectors/testing";
 import { connection, connectionChange, membership, tenant } from "@countersign/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -307,5 +307,84 @@ describe.skipIf(!h)("the operator's sign-in in the Sandbox client", () => {
       .from(connectionChange)
       .where(eq(connectionChange.connectionId, id));
     expect(changes.map((c) => (c.change as { by: string }).by)).toEqual(["client"]);
+  });
+
+  // docs/plan.md §1.31: the operator disconnects what they connected in the Sandbox, as the portal
+  // does (revoked at the provider, credentials dropped), recorded `by: operator`.
+  it("disconnects the Sandbox's Gmail and QuickBooks, revoking at the provider; nowhere else", async () => {
+    const rows = await H.t.db.select().from(connection).where(eq(connection.tenantId, sandbox));
+    const gmail = rows.find((r) => r.connector === "gmail");
+    const quickbooks = rows.find((r) => r.connector === "qbo");
+    if (!gmail || !quickbooks) throw new Error("the Sandbox's connections are missing");
+    const disconnect = (who: string, clientId: string, id: string) =>
+      H.call(who, "DELETE", `/api/ops/clients/${clientId}/connections/${id}`);
+
+    // Client A's own QuickBooks (connected from the portal above): not the operator's to drop.
+    const [real] = await H.t.db
+      .select()
+      .from(connection)
+      .where(and(eq(connection.tenantId, H.A.tenantId), eq(connection.connector, "qbo")));
+    if (!real) throw new Error("client A has no QuickBooks");
+    const refused = await disconnect(OPERATOR, H.A.tenantId, real.id);
+    expect(refused.status).toBe(403);
+    expect(j(refused.json).error.code).toBe("not_sandbox");
+    // Client roles, and another client's connection under the Sandbox's path.
+    for (const who of [admin("a"), user("a")]) {
+      expect((await disconnect(who, sandbox, gmail.id)).status, who).toBe(403);
+    }
+    expect((await disconnect(OPERATOR, sandbox, real.id)).status).toBe(404);
+    const [stillThere] = await H.t.db.select().from(connection).where(eq(connection.id, real.id));
+    expect(stillThere?.status).toBe("connected");
+    expect(stillThere?.credentialsEncrypted).not.toBeNull();
+
+    const googleRevoked = google.revoked().length;
+    const offGmail = await disconnect(OPERATOR, sandbox, gmail.id);
+    expect(offGmail.status, JSON.stringify(offGmail.json)).toBe(200);
+    expect(j(offGmail.json).connection).toMatchObject({ id: gmail.id, status: "disconnected" });
+    expect(google.revoked()).toHaveLength(googleRevoked + 1);
+
+    const qboRevoked = qbo.revoked.length;
+    const offQbo = await disconnect(OPERATOR, sandbox, quickbooks.id);
+    expect(offQbo.status, JSON.stringify(offQbo.json)).toBe(200);
+    expect(qbo.revoked.length).toBe(qboRevoked + 1);
+
+    for (const id of [gmail.id, quickbooks.id]) {
+      const [row] = await H.t.db.select().from(connection).where(eq(connection.id, id));
+      expect(row).toMatchObject({ status: "disconnected", credentialsEncrypted: null });
+      const changes = await H.t.db
+        .select()
+        .from(connectionChange)
+        .where(eq(connectionChange.connectionId, id))
+        .orderBy(connectionChange.createdAt);
+      expect(changes.at(-1)?.actorId).toBe(H.operator);
+      expect(changes.at(-1)?.change).toEqual({
+        kind: "status",
+        by: "operator",
+        before: "connected",
+        after: "disconnected",
+      });
+    }
+    // Again: nothing more to do, and nothing more recorded.
+    const count = (
+      await H.t.db
+        .select()
+        .from(connectionChange)
+        .where(eq(connectionChange.connectionId, gmail.id))
+    ).length;
+    expect((await disconnect(OPERATOR, sandbox, gmail.id)).status).toBe(200);
+    expect(
+      await H.t.db
+        .select()
+        .from(connectionChange)
+        .where(eq(connectionChange.connectionId, gmail.id)),
+    ).toHaveLength(count);
+    // A disconnected Gmail sends no test email.
+    const test = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/clients/${sandbox}/connections/gmail/test-send`,
+      {},
+    );
+    expect(test.status).toBe(409);
   });
 });

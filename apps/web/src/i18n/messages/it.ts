@@ -58,6 +58,8 @@ export const it: Messages = {
   "error.connector_failed": "Lo strumento collegato non ha risposto. Riprovi tra un momento.",
   "error.not_importable": "La rubrica importa da Zoho CRM o Podio.",
   "error.contact_exists": "Qualcuno nella rubrica ha già questo indirizzo email o numero.",
+  "error.rate_limited": "Attendi un minuto e riprova.",
+  "error.no_address": "Non conosciamo l'indirizzo di questo account. Collegalo di nuovo.",
 
   // ── Shell ──
   "shell.navigation": "Navigazione",
@@ -251,6 +253,9 @@ export const it: Messages = {
   "connections.enterKey": "Inserisci le credenziali",
   "connections.gmail.description":
     "Invia email dal tuo Gmail. Non possiamo leggere la tua casella di posta.",
+  "connections.gmail.testSend": "Invia un'email di prova",
+  "connections.gmail.testSent":
+    "Inviata a {address}. Controlla la cartella Inviati e la posta in arrivo di quella casella.",
   "connection.status.connected": "Collegato",
   "connection.status.pending": "Non collegato",
   "connection.status.disconnected": "Scollegato",

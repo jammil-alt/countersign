@@ -59,6 +59,8 @@ export const de: Messages = {
     "Das verbundene Tool hat nicht geantwortet. Versuchen Sie es gleich noch einmal.",
   "error.not_importable": "Das Verzeichnis importiert aus Zoho CRM oder Podio.",
   "error.contact_exists": "Jemand im Verzeichnis hat diese E-Mail-Adresse oder Nummer schon.",
+  "error.rate_limited": "Warten Sie eine Minute und versuchen Sie es erneut.",
+  "error.no_address": "Wir kennen die Adresse dieses Kontos nicht. Verbinden Sie es erneut.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -255,6 +257,9 @@ export const de: Messages = {
   "connections.enterKey": "Zugangsdaten eingeben",
   "connections.gmail.description":
     "Senden Sie E-Mails aus Ihrem Gmail. Ihr Postfach können wir nicht lesen.",
+  "connections.gmail.testSend": "Test-E-Mail senden",
+  "connections.gmail.testSent":
+    "Gesendet an {address}. Prüfen Sie den Ordner „Gesendet“ und den Posteingang dieses Postfachs.",
   "connection.status.connected": "Verbunden",
   "connection.status.pending": "Nicht verbunden",
   "connection.status.disconnected": "Getrennt",
