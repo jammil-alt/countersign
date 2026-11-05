@@ -1,9 +1,18 @@
-# Mezonas — Architecture v0.10
+# Mezonas — Architecture v0.11
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
 
+> **v0.11 (2026-11-05, owner):** **A directory per client and a supervisor agent.** Each client has
+> one **directory** of the people and organizations its agents work with (employees, contractors,
+> customers, vendors, partners), filled by hand, by CSV, from connected tools, or from agents'
+> suggestions that the client admin accepts; every agent of that client reads it. A **supervisor** (a
+> platform template forked into each client) watches the client's runs, connections, website logins,
+> codes and waiting approvals, reads the client's agents' state and can ask them questions without
+> writing anything, and reports: to the client admin in plain steps, to the operator with the
+> details. It changes nothing itself. Changed: §1, §9.7, §11, §16; `docs/plan.md` §1.27, §1.28.
+>
 > **v0.10 (2026-11-05, owner):** **Access: a vault per client, grants per agent, a separate code
 > service, and browser logins.** Agents may sign in to a client's websites on their own, through a
 > **dedicated agent account** whose login the client admin enters into the client's **vault**; the
@@ -239,6 +248,14 @@ In:
   that sign in to sites the operator allows, by risk tier, as a dedicated agent account; optional
   **human release** of any vault item with a one-time code to a named person (§6.9, §6.10,
   `docs/plan.md` §1.26)
+- **Directory** (v0.11): one per client: people (contacts, with title, relationship and organization)
+  and organizations (vendors, customers, partners, the client itself); edited by the client admin and
+  the operator, imported by CSV or from connected tools, suggested by agents and accepted by the
+  client admin; read by every agent of the client through `directory.*` tools (`docs/plan.md` §1.27)
+- **Supervisor** (v0.11): a platform template forked into each client that watches runs, connections,
+  logins, codes and waiting approvals, reads its fellow agents' state and asks them questions without
+  writing, and reports to the client admin (plain steps) and the operator (details); it changes
+  nothing itself (`docs/plan.md` §1.28)
 
 Out (designed for, not built):
 - Client self-serve building;
