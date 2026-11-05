@@ -321,6 +321,97 @@ describe("emailed codes", () => {
   });
 });
 
+describe("email codes off (EMAIL_CODES, the default in wrangler.jsonc)", () => {
+  /** Runs `fn` with this identity's object reading EMAIL_CODES=off, then puts it back. */
+  async function withEmailCodesOff<T>(identityId: string, fn: () => Promise<T>): Promise<T> {
+    const swap = (value: string) =>
+      runInDurableObject(stub(identityId), (instance) => {
+        const o = instance as unknown as { env: Record<string, unknown> };
+        o.env = { ...o.env, EMAIL_CODES: value };
+      });
+    await swap("off");
+    try {
+      return await fn();
+    } finally {
+      await swap("on");
+    }
+  }
+
+  it("refuses to open an email wait, and still opens text and authenticator waits", async () => {
+    const id = await newIdentity();
+    await codes.setAuthenticator({
+      tenantId: TENANT,
+      identityId: id.id,
+      siteKey: "acme",
+      otpauthUri: "otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+    });
+    await withEmailCodesOff(id.id, async () => {
+      const r = await codes.openWait({
+        tenantId: TENANT,
+        identityId: id.id,
+        siteKey: "acme",
+        channel: "email",
+        sender: "@acme.example",
+        pattern: "code is (\\d{6})",
+      });
+      expect(r).toEqual({
+        ok: false,
+        error: { code: "not_configured", message: "email codes are off until verified" },
+      });
+      const totpWait = await codes.openWait({
+        tenantId: TENANT,
+        identityId: id.id,
+        siteKey: "acme",
+        channel: "totp",
+      });
+      expect(totpWait.ok).toBe(true);
+    });
+  });
+
+  it("never fills a wait from email, but still raises an alert", async () => {
+    const id = await newIdentity();
+    // Opened while on; the email arrives while off.
+    const wait = await openEmailWait(id.id);
+    const since = new Date(Date.now() - 1000).toISOString();
+    const outcome = await withEmailCodesOff(id.id, () =>
+      handleEmail(
+        email({
+          to: id.email,
+          from: "no-reply@acme.example",
+          subject: "Sign in",
+          text: "Your code is 314159.",
+        }),
+        env,
+      ),
+    );
+    expect(outcome).toBe("alert");
+    const r = await codes.claim({ tenantId: TENANT, identityId: id.id, waitId: wait.waitId });
+    expect(r).toMatchObject({ ok: true, value: { status: "pending" } });
+    const listed = await codes.alerts({ tenantId: TENANT, since });
+    expect(
+      listed.ok && listed.value.alerts.filter((a) => a.identityId === id.id).map((a) => a.kind),
+    ).toEqual(["unsolicited_code"]);
+    expect(await rawStorage(id.id)).not.toContain("314159");
+  });
+
+  it("fills the same wait once switched on", async () => {
+    const id = await newIdentity();
+    const wait = await openEmailWait(id.id);
+    const outcome = await handleEmail(
+      email({
+        to: id.email,
+        from: "no-reply@acme.example",
+        subject: "Sign in",
+        text: "Your code is 271828.",
+      }),
+      env,
+    );
+    expect(outcome).toBe("matched");
+    const r = await codes.claim({ tenantId: TENANT, identityId: id.id, waitId: wait.waitId });
+    expect(r).toEqual({ ok: true, value: { status: "code", code: "271828" } });
+  });
+});
+
 describe("daily cap", () => {
   it("refuses code requests past the cap (3 in these tests)", async () => {
     const id = await newIdentity();

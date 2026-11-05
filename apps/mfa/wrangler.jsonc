@@ -38,7 +38,10 @@
     // The public origin Twilio calls; the webhook signature is checked over MFA_ORIGIN + path.
     "MFA_ORIGIN": "http://localhost:8788",
     // Code requests per identity per UTC day.
-    "MFA_DAILY_CAP": "20"
+    "MFA_DAILY_CAP": "20",
+    // `on` lets emailed codes fill waits. Off until Cloudflare's authentication headers are verified
+    // for this environment (NOTES.md, "Turning email codes on"); while off, email only raises alerts.
+    "EMAIL_CODES": "off"
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
@@ -60,7 +63,8 @@
         "ENVIRONMENT": "staging",
         "AGENT_EMAIL_DOMAIN": "agents.staging.mezonas.com",
         "MFA_ORIGIN": "https://codes-staging.mezonas.com",
-        "MFA_DAILY_CAP": "20"
+        "MFA_DAILY_CAP": "20",
+        "EMAIL_CODES": "off"
       }
     },
     "production": {
@@ -79,7 +83,8 @@
         "ENVIRONMENT": "production",
         "AGENT_EMAIL_DOMAIN": "agents.mezonas.com",
         "MFA_ORIGIN": "https://codes.mezonas.com",
-        "MFA_DAILY_CAP": "20"
+        "MFA_DAILY_CAP": "20",
+        "EMAIL_CODES": "off"
       }
     }
   }

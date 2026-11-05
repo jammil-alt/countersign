@@ -16,6 +16,9 @@ export default defineConfig({
           MFA_TWILIO_ACCOUNT_SID: "AC00000000000000000000000000000000",
           MFA_TWILIO_AUTH_TOKEN: "test-auth-token",
           MFA_DAILY_CAP: "3",
+          // wrangler.jsonc keeps email codes off everywhere; most tests here exercise them on, and
+          // codes.runtime.test.ts switches one identity's object back to off for the off state.
+          EMAIL_CODES: "on",
         },
       },
     }),
