@@ -288,6 +288,38 @@ export const de: Messages = {
   "vault.tightenNote":
     "Sie können verschärfen, was ein Agent darf. Nur wir können es wieder lockern.",
   "vault.saveAccess": "Zugriff speichern",
+  "vault.browser.setupTitle": "Website-Anmeldungen",
+  "vault.browser.setupHint":
+    "Unsere Agenten können sich mit einem Konto, das Sie für sie anlegen, bei diesen Websites anmelden. Wir melden uns an, nie der Agent, und er sieht nie das Passwort oder einen Code.",
+  "vault.browser.tier.low": "Geringes Risiko",
+  "vault.browser.tier.medium": "Mittleres Risiko",
+  "vault.browser.tier.high": "Hohes Risiko",
+  "vault.browser.tier.blocked": "Gesperrt",
+  "vault.browser.tierHelp.low":
+    "Wir melden uns selbst an. Änderungen brauchen Ihre Freigabe, außer Sie erlauben sie.",
+  "vault.browser.tierHelp.medium": "Wir melden uns selbst an. Jede Änderung braucht eine Freigabe.",
+  "vault.browser.tierHelp.high": "Eine Person meldet sich an. Das ist noch nicht verfügbar.",
+  "vault.browser.tierHelp.blocked": "Agenten melden sich bei dieser Website nie an.",
+  "vault.browser.confirm":
+    "Das Konto, das wir für den Agenten anlegen, gehört uns, und die Nutzungsbedingungen der Website erlauben automatisierten Zugriff.",
+  "vault.browser.authenticator": "Einrichtungslink des Authenticators",
+  "vault.browser.authenticatorHint":
+    "Der otpauth://-Link, den die Website zeigt, wenn Sie für das Konto des Agenten eine Authenticator-App einschalten.",
+  "vault.browser.setUp": "Einrichten",
+  "vault.browser.identity": "E-Mail des Agentenkontos",
+  "vault.browser.identityPhone": "Telefon des Agentenkontos",
+  "vault.browser.identityHint":
+    "Legen Sie das Konto des Agenten auf der Website mit dieser Adresse und der kleinsten Rolle an, die die Arbeit erlaubt. Seine Anmeldecodes kommen zu uns.",
+  "vault.browser.signIns": "Anmeldungen heute: {count} von {limit}",
+  "vault.browser.stopped":
+    "Die Anmeldungen ruhen, bis jemand das Konto des Agenten prüft: {reason}. Geben Sie die Anmeldedaten erneut ein, um fortzufahren.",
+  "vault.browser.stricter": "Strenger machen",
+  "vault.browser.noWrites": "Keine Änderungen auf dieser Website",
+  "vault.browser.personSignIn": "Eine Person meldet sich an",
+  "vault.browser.stricterNote":
+    "Sie können eine Website-Anmeldung strenger machen. Nur wir können sie wieder lockern.",
+  "vault.browser.saveStricter": "Speichern",
+  "vault.browser.version": "Website-Version {version}",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · Einrichtung",

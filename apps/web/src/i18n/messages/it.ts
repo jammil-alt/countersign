@@ -286,6 +286,38 @@ export const it: Messages = {
   "vault.tightenNote":
     "Puoi restringere ciò che un agente può fare. Solo noi possiamo allargarlo di nuovo.",
   "vault.saveAccess": "Salva l'accesso",
+  "vault.browser.setupTitle": "Accessi ai siti web",
+  "vault.browser.setupHint":
+    "I nostri agenti possono accedere a questi siti con un account che crei per loro. Accediamo noi, mai l'agente, che non vede mai la password né un codice.",
+  "vault.browser.tier.low": "Rischio basso",
+  "vault.browser.tier.medium": "Rischio medio",
+  "vault.browser.tier.high": "Rischio alto",
+  "vault.browser.tier.blocked": "Bloccato",
+  "vault.browser.tierHelp.low":
+    "Accediamo da soli. Le modifiche richiedono la tua approvazione, a meno che tu non le consenta.",
+  "vault.browser.tierHelp.medium": "Accediamo da soli. Ogni modifica richiede approvazione.",
+  "vault.browser.tierHelp.high": "Accede una persona. Non è ancora disponibile.",
+  "vault.browser.tierHelp.blocked": "Gli agenti non accedono mai a questo sito.",
+  "vault.browser.confirm":
+    "L'account che creiamo per l'agente è nostro e i termini del sito consentono l'accesso automatizzato.",
+  "vault.browser.authenticator": "Link di configurazione dell'autenticatore",
+  "vault.browser.authenticatorHint":
+    "Il link otpauth:// che il sito mostra quando attivi un'app di autenticazione per l'account dell'agente.",
+  "vault.browser.setUp": "Configura",
+  "vault.browser.identity": "Email dell'account dell'agente",
+  "vault.browser.identityPhone": "Telefono dell'account dell'agente",
+  "vault.browser.identityHint":
+    "Crea l'account dell'agente sul sito con questo indirizzo e il ruolo più ristretto che basta. I suoi codici di accesso arrivano a noi.",
+  "vault.browser.signIns": "Accessi di oggi: {count} su {limit}",
+  "vault.browser.stopped":
+    "Gli accessi sono fermi finché qualcuno non controlla l'account dell'agente: {reason}. Inserisci di nuovo le credenziali per ripartire.",
+  "vault.browser.stricter": "Rendilo più rigido",
+  "vault.browser.noWrites": "Nessuna modifica su questo sito",
+  "vault.browser.personSignIn": "Accede una persona",
+  "vault.browser.stricterNote":
+    "Puoi rendere più rigido un accesso a un sito. Solo noi possiamo allentarlo di nuovo.",
+  "vault.browser.saveStricter": "Salva",
+  "vault.browser.version": "Versione del sito {version}",
 
   // ── Webhooks ──
   "webhook.section": "Webhook · configurazione",
