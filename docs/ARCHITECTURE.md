@@ -594,27 +594,28 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 - Upload CSV of purchases (date, vendor, amount, memo) → `raw_record(connector='upload')` → transactions.
 - The demo path when QBO is not connected.
 
-### 6.4 Gmail (after the MVP)
+### 6.4 Gmail (send only; owner, 2026-11-05)
 
-- OAuth 2.0 with Google, granted by the client for one mailbox (a shared `invoices@` / `ap@` box is the
-  usual case; a person's mailbox works too). Scopes: `gmail.readonly` (search and read),
-  `gmail.labels` (create and apply labels), `gmail.compose` (create drafts). Tokens encrypted like QBO's.
-  Verify current scope classifications and Google's app verification rules before launch (§20).
-- **What is ingested is narrow:** each connection has a Gmail search query set by the operator (default:
-  messages with PDF or image attachments from the last 90 days, from vendor addresses/domains known in
-  `vendor` plus any added by the operator, or carrying a chosen label). Only matching messages are
-  synced: headers and snippet to `raw_record(entity_type='Message')`, attachments to `document(source=
-  'email')`. Bodies are fetched on demand through a tool, never bulk-stored.
-- Incremental sync: `users.history.list` from the stored `historyId` every 5 minutes (cron), falling back
-  to a bounded search when the history id has expired. Push notifications (Pub/Sub `watch`) later.
-- Matching: email attachments are linked to transactions like uploads (vendor + total + date), with the
-  sender domain as an extra vendor signal.
-- **Tools, read** (`none`): `gmail.message.search` (query within the connection's scope),
-  `gmail.message.get` (headers, body text, attachment list), `gmail.attachment.get` (stores the file as a
-  document).
-- **Tools, write** (`external`, approval required): `gmail.draft.create` (e.g. ask a purchaser or vendor
-  for a missing invoice; a person sends it from Gmail), `gmail.label.apply` (e.g. label processed
-  invoices). Sending is out of v1 scope.
+> **Decision (owner, 2026-11-05): no restricted Gmail scopes, so no CASA security assessment.**
+> `gmail.readonly` and `gmail.compose` are restricted scopes: a public app needs Google's full
+> verification plus a yearly CASA assessment. Mezonas asks for **`gmail.send` only** (a sensitive scope:
+> Google's standard review, no CASA). **Reading mail is done by forwarding** (§6.5): the client forwards,
+> or sets a Gmail filter to auto-forward, the messages agents need (invoices, receipts, replies) to its
+> private Mezonas address. Google Workspace clients who want in-mailbox search can later grant
+> domain-wide delegation from their own admin console, which needs no public verification. The read,
+> label and draft design below is kept for that later step and is not built now.
+
+- OAuth 2.0 with Google, granted by the client for one person's or a shared mailbox, scope `gmail.send`
+  only. Tokens encrypted in the vault (§6.9).
+- **Tool, write** (`external`, approval required): `gmail.send` (reach out, §1.25 of the plan): sends a
+  message the client's approver has seen, from that mailbox; replies come back through forwarding.
+- Google's review needs a live homepage and privacy policy on mezonas.com (the Limited Use statement),
+  domain verification (done 2026-11-05), a demo video and a reason for the scope.
+
+Later, only if a client needs it (restricted scopes, CASA or Workspace delegation):
+- `gmail.readonly` search and read, `gmail.labels`, `gmail.compose` drafts, with a narrow ingestion
+  query: only matching messages synced (headers and snippet to `raw_record(entity_type='Message')`,
+  attachments to `document(source='email')`), bodies fetched on demand, history polling every 5 minutes.
 - Email content is untrusted input (§16): bodies and attachments reach agents only as tool results.
 
 ---
