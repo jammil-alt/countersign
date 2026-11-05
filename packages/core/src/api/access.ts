@@ -4,6 +4,7 @@ import { GrantLimits } from "../permissions/grants";
 import { RELEASE_STATUSES, ReleaseChannel, ReleaseWindow } from "../permissions/release";
 import { CREDENTIAL_VALUE_MAX, CredentialField } from "../schemas/connector";
 import { PermissionLevel, Verb } from "../schemas/permissions";
+import { BrowserSiteOffer, BrowserVaultInfo } from "./browser";
 import { defineRoute } from "./contract";
 
 // Access, phase 1 (ARCHITECTURE §6.9, docs/plan.md §1.26): the client's vault (every connection,
@@ -26,7 +27,7 @@ export const VerbLevels = z.object({
 });
 export type VerbLevels = z.infer<typeof VerbLevels>;
 
-/** What a vault item is. Browser logins arrive in phase 3. */
+/** What a vault item is: a sign-in, an API key, a browser login (phase 3) or built in. */
 export const VaultKind = z.enum(["oauth", "api_key", "browser", "built_in"]);
 export type VaultKind = z.infer<typeof VaultKind>;
 
@@ -165,6 +166,8 @@ export const VaultItem = z.object({
   tools: z.array(AccessTool),
   /** Every client agent bound to it. */
   agents: z.array(AgentAccess),
+  /** Browser logins only: the site, its tier and the client's stricter settings. */
+  browser: BrowserVaultInfo.nullable().default(null),
   /** Human release: whether a person must release it, and the releases live now. */
   release: ReleaseView,
 });
@@ -182,6 +185,8 @@ export type VaultSetup = z.infer<typeof VaultSetup>;
 export const PortalAccessView = z.object({
   items: z.array(VaultItem),
   setup: z.array(VaultSetup),
+  /** Sites a browser login can be set up on (the client admin, when browser logins are offered). */
+  browserSites: z.array(BrowserSiteOffer).default([]),
   /** Whether this person may tighten grants and enter credentials (the client admin). */
   canEdit: z.boolean(),
   /** Who can be named to release a vault item (the client admin's view only; else empty). */
@@ -192,6 +197,14 @@ export type PortalAccessView = z.infer<typeof PortalAccessView>;
 /** Values entered for a connector's credential fields: every field, each time (write-only). */
 export const SetCredentials = z.strictObject({
   values: z.record(z.string(), z.string().max(CREDENTIAL_VALUE_MAX)),
+  /**
+   * Which connection, for a connector a client may have several of (browser logins, one per
+   * site). Absent: the client's one connection of that connector.
+   */
+  connectionId: z
+    .string()
+    .refine((v) => isUuid(v), "not an id")
+    .optional(),
 });
 export type SetCredentials = z.infer<typeof SetCredentials>;
 

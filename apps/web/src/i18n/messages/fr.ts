@@ -290,6 +290,39 @@ export const fr: Messages = {
   "vault.tightenNote":
     "Vous pouvez restreindre ce qu'un agent peut faire. Seuls nous pouvons l'assouplir à nouveau.",
   "vault.saveAccess": "Enregistrer l'accès",
+  "vault.browser.setupTitle": "Connexions à des sites web",
+  "vault.browser.setupHint":
+    "Nos agents peuvent se connecter à ces sites avec un compte que vous créez pour eux. C'est nous qui nous connectons, jamais l'agent, et il ne voit jamais le mot de passe ni un code.",
+  "vault.browser.tier.low": "Risque faible",
+  "vault.browser.tier.medium": "Risque moyen",
+  "vault.browser.tier.high": "Risque élevé",
+  "vault.browser.tier.blocked": "Bloqué",
+  "vault.browser.tierHelp.low":
+    "Nous nous connectons seuls. Les modifications demandent votre accord, sauf si vous les autorisez.",
+  "vault.browser.tierHelp.medium":
+    "Nous nous connectons seuls. Chaque modification demande un accord.",
+  "vault.browser.tierHelp.high": "Une personne se connecte. Ce n'est pas encore disponible.",
+  "vault.browser.tierHelp.blocked": "Les agents ne se connectent jamais à ce site.",
+  "vault.browser.confirm":
+    "Le compte que nous créons pour l'agent nous appartient, et les conditions du site autorisent l'accès automatisé.",
+  "vault.browser.authenticator": "Lien de configuration de l'authentificateur",
+  "vault.browser.authenticatorHint":
+    "Le lien otpauth:// que le site affiche quand vous activez une application d'authentification pour le compte de l'agent.",
+  "vault.browser.setUp": "Configurer",
+  "vault.browser.identity": "E-mail du compte de l'agent",
+  "vault.browser.identityPhone": "Téléphone du compte de l'agent",
+  "vault.browser.identityHint":
+    "Créez le compte de l'agent sur le site avec cette adresse et le rôle le plus restreint qui suffit. Ses codes de connexion nous arrivent.",
+  "vault.browser.signIns": "Connexions aujourd'hui : {count} sur {limit}",
+  "vault.browser.stopped":
+    "Les connexions sont arrêtées jusqu'à ce que quelqu'un vérifie le compte de l'agent : {reason}. Saisissez à nouveau l'identifiant pour reprendre.",
+  "vault.browser.stricter": "Rendre plus strict",
+  "vault.browser.noWrites": "Aucune modification sur ce site",
+  "vault.browser.personSignIn": "Une personne se connecte",
+  "vault.browser.stricterNote":
+    "Vous pouvez rendre une connexion à un site plus stricte. Seuls nous pouvons l'assouplir à nouveau.",
+  "vault.browser.saveStricter": "Enregistrer",
+  "vault.browser.version": "Version du site {version}",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuration",

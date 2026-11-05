@@ -7,6 +7,7 @@
 export * from "./api/access";
 export * from "./api/approver-rules";
 export * from "./api/billing";
+export * from "./api/browser";
 export * from "./api/calls";
 export * from "./api/contract";
 export * from "./api/documents";
@@ -22,6 +23,7 @@ export * from "./api/routes";
 export * from "./api/usage";
 export * from "./approvals/rules";
 export * from "./billing";
+export * from "./browser/site";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {

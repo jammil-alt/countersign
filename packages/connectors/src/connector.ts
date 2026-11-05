@@ -8,6 +8,7 @@ import {
   type Verb,
 } from "@countersign/core";
 import { z } from "zod";
+import type { BrowserServices } from "./browser/services";
 import type { CredentialsAccessor } from "./credentials-accessor";
 import type { Logger } from "./logger";
 import type { MessagingServices } from "./messaging/services";
@@ -48,6 +49,8 @@ export interface ConnectorServices {
   voice?: VoiceServices;
   /** Contacts and consent for email sends (resend/index.ts). */
   email?: EmailServices;
+  /** The catalogue, a browser, codes and documents, for browser logins (browser/services.ts). */
+  browser?: BrowserServices;
 }
 
 /** Everything a connector call runs with: one client, one connection. */

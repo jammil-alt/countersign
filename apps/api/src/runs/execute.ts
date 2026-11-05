@@ -32,7 +32,10 @@ import {
 } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
+import { browserRunOpener } from "../browser/driver";
+import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
+import { codesFor } from "../codes/client";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
@@ -60,6 +63,8 @@ export interface RunDeps {
   release?: ReleaseDeps;
   /** The clock for release waits (tests move it); default the system clock. */
   now?: () => Date;
+  /** Browser Run, the code service and storage, for browser logins (`browser.*`). */
+  browser?: BrowserDeps;
 }
 
 /**
@@ -126,14 +131,15 @@ export function runDepsFromEnv(
   env: Bindings,
   base: { db: Db; platform: Platform; instances?: RunInstances },
 ): RunDeps {
+  const content = new ContentStore(new R2ObjectStore(env.ARTIFACTS));
+  const open = browserRunOpener(env);
   return {
     ...base,
     transport: workerTransport(env),
     voice: voiceDepsFromEnv(env),
-    documents: {
-      content: new ContentStore(new R2ObjectStore(env.ARTIFACTS)),
-      signer: signerFor(env, env.APP_ORIGIN ?? ""),
-    },
+    documents: { content, signer: signerFor(env, env.APP_ORIGIN ?? "") },
+    // Browser logins: Browser Run when bound (BROWSER), codes when bound (CODES).
+    browser: { ...(open ? { open } : {}), codes: codesFor(env), content },
     ...(env.ENCRYPTION_KEY
       ? { credentials: credentialsFor(base.db, credentialKeysFromEnv(env)) }
       : {}),
@@ -172,12 +178,26 @@ export function runtimeFor(
     transport: deps.transport,
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
     ...(deps.now ? { now: deps.now } : {}),
-    // Contacts and consent for messaging connectors, scoped to the connection's client.
-    services: connectorServicesFor(
+    // Contacts and consent for messaging connectors, scoped to the connection's client; the
+    // catalogue, a browser, codes and documents for browser logins.
+    services: withBrowser(
+      connectorServicesFor(
+        db,
+        deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+      ),
       db,
-      deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+      deps.browser,
     ),
   };
+}
+
+function withBrowser(
+  base: NonNullable<RuntimeDeps["services"]>,
+  db: Db,
+  browser: BrowserDeps | undefined,
+): NonNullable<RuntimeDeps["services"]> {
+  if (!browser) return base;
+  return (conn) => ({ ...base(conn), browser: dbBrowserServices(db, conn, browser) });
 }
 
 /** The reach-out service outside a run (the cron's escalation). */

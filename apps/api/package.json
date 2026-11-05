@@ -11,6 +11,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@cloudflare/playwright": "1.3.6",
     "@countersign/agents": "workspace:*",
     "@countersign/auth": "workspace:*",
     "@countersign/connectors": "workspace:*",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@types/node": "^22.20.2",
+    "playwright": "1.63.0",
     "vitest": "^4.1.11",
     "wrangler": "4.131.0"
   }

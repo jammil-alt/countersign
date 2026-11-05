@@ -276,6 +276,38 @@ export const en = {
   "vault.keepAccess": "Keep access",
   "vault.tightenNote": "You can tighten what an agent may do. Only we can loosen it again.",
   "vault.saveAccess": "Save access",
+  "vault.browser.setupTitle": "Website logins",
+  "vault.browser.setupHint":
+    "Our agents can sign in to these websites with an account you make for them. We sign in, never the agent, and it never sees the password or a code.",
+  "vault.browser.tier.low": "Low risk",
+  "vault.browser.tier.medium": "Medium risk",
+  "vault.browser.tier.high": "High risk",
+  "vault.browser.tier.blocked": "Blocked",
+  "vault.browser.tierHelp.low":
+    "We sign in on our own. Changes need your approval unless you allow them.",
+  "vault.browser.tierHelp.medium": "We sign in on our own. Every change needs approval.",
+  "vault.browser.tierHelp.high": "A person signs in. This is not available yet.",
+  "vault.browser.tierHelp.blocked": "Agents never sign in to this site.",
+  "vault.browser.confirm":
+    "We own the account we make for the agent, and the site's terms allow automated access.",
+  "vault.browser.authenticator": "Authenticator setup link",
+  "vault.browser.authenticatorHint":
+    "The otpauth:// link the site shows when you turn on an authenticator app for the agent's account.",
+  "vault.browser.setUp": "Set up",
+  "vault.browser.identity": "Agent account email",
+  "vault.browser.identityPhone": "Agent account phone",
+  "vault.browser.identityHint":
+    "Make the agent's account on the site with this address and the smallest role that does the job. Its sign-in codes come to us.",
+  "vault.browser.signIns": "Sign-ins today: {count} of {limit}",
+  "vault.browser.stopped":
+    "Sign-ins are stopped until someone checks the agent's account: {reason}. Enter the login again to start.",
+  "vault.browser.stricter": "Make it stricter",
+  "vault.browser.noWrites": "No changes on this site",
+  "vault.browser.personSignIn": "A person signs in",
+  "vault.browser.stricterNote":
+    "You can make a website login stricter. Only we can loosen it again.",
+  "vault.browser.saveStricter": "Save",
+  "vault.browser.version": "Site version {version}",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · set up",

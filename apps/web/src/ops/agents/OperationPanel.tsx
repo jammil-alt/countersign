@@ -386,7 +386,19 @@ function ServiceForm({
   const [bindings, setBindings] = useState<Record<string, string>>(agent.bindings);
   const [saved, setSaved] = useState(false);
   const action = useAction();
-  const connectors = [...new Set([...required, ...Object.keys(agent.bindings)])].sort();
+  // Connections told apart by a site (website logins) bind by `<connector>:<site>`, one row each
+  // (docs/plan.md §1.26 "Binding browser sites"); every other connector binds by its id.
+  const keyOf = (x: Connection) =>
+    typeof x.config.site === "string" ? `${x.connector}:${x.config.site}` : x.connector;
+  const connectors = [
+    ...new Set([
+      ...required.flatMap((c) => {
+        const sited = connections.filter((x) => x.connector === c && keyOf(x) !== c);
+        return sited.length > 0 ? sited.map(keyOf) : [c];
+      }),
+      ...Object.keys(agent.bindings),
+    ]),
+  ].sort();
 
   async function save() {
     setSaved(false);
@@ -454,7 +466,7 @@ function ServiceForm({
         ) : (
           <div className="flex flex-col gap-2">
             {connectors.map((c) => {
-              const options = connections.filter((x) => x.connector === c);
+              const options = connections.filter((x) => keyOf(x) === c);
               return (
                 <div
                   key={c}
@@ -462,7 +474,9 @@ function ServiceForm({
                 >
                   <span className="flex items-center gap-2 text-base text-ink">
                     {c}
-                    {required.includes(c) ? <Badge tone="neutral">Needed</Badge> : null}
+                    {required.includes(c.split(":")[0] ?? c) ? (
+                      <Badge tone="neutral">Needed</Badge>
+                    ) : null}
                   </span>
                   <Select
                     data-testid={`agent-operation-binding-${c}-select`}

@@ -4,7 +4,7 @@
 
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type Tx, withOperator, withTenant, withTenants } from "./client";
+import { readOperatorCatalogue, type Tx, withOperator, withTenant, withTenants } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
 import { browserSite, browserSiteVersion, OPERATOR_ONLY_TABLES } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
@@ -156,5 +156,31 @@ describe.skipIf(!online)("browser_site and browser_site_version", () => {
         t.db.insert(browserSiteVersion).values({ siteId, version: 0, profile: PROFILE }),
       ),
     ).toBe(CHECK_VIOLATION);
+  });
+
+  it("readOperatorCatalogue: inside a client's transaction, the catalogue and no client rows, then back", async () => {
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      expect(await count(tx, "browser_site")).toBe(0);
+      const ownBefore = await count(tx, "connection");
+      expect(ownBefore).toBeGreaterThan(0);
+      const inside = await readOperatorCatalogue(tx, async (inner) => ({
+        sites: await count(inner, "browser_site"),
+        versions: await count(inner, "browser_site_version"),
+        connections: await count(inner, "connection"),
+      }));
+      expect(inside).toEqual({ sites: 1, versions: 1, connections: 0 });
+      // Back to the client's scope.
+      expect(await count(tx, "browser_site")).toBe(0);
+      expect(await count(tx, "connection")).toBe(ownBefore);
+    });
+    // Put back even when the read fails.
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await readOperatorCatalogue(tx, async () => {
+        throw new Error("boom");
+      }).catch(() => undefined);
+      expect(await count(tx, "browser_site")).toBe(0);
+    });
   });
 });
