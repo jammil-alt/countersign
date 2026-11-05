@@ -70,7 +70,7 @@ async function request(
         ...(json === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(json === undefined ? {} : { body: JSON.stringify(json) }),
-      redirect: "error",
+      redirect: "manual",
       signal: timeoutSignal(TIMEOUT_MS),
     });
   } catch (error) {

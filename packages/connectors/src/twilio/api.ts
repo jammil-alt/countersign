@@ -61,7 +61,7 @@ export async function twilioRequest(
         ...(opts.form ? { "content-type": "application/x-www-form-urlencoded" } : {}),
       },
       ...(opts.form ? { body: formEncode(opts.form) } : {}),
-      redirect: "error",
+      redirect: "manual",
       signal: timeoutSignal(TIMEOUT_MS),
     });
   } catch (error) {
