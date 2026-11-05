@@ -155,6 +155,32 @@ describe.skipIf(!online)("row-level security, as cs_worker", () => {
     expect(updated).toBe(0);
   });
 
+  it("deletes transaction lines in the client's own scope only", async () => {
+    // Synced lines mirror the tool's current lines (0015); deleting B's from A matches nothing.
+    const deleted = await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      const rows = await tx.execute(
+        sql`delete from transaction_line where tenant_id = ${B.tenantId} returning id`,
+      );
+      return rows.length;
+    });
+    expect(deleted).toBe(0);
+    const left = await withTenant(t.db, B.tenantId, async (tx) => {
+      await asWorker(tx);
+      return (await tenantIdsIn(tx, "transaction_line")).length;
+    });
+    expect(left).toBeGreaterThan(0);
+    // Transactions themselves are still never deleted.
+    expect(
+      await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(sql`delete from transaction where tenant_id = ${A.tenantId}`);
+        }),
+      ),
+    ).toBe(INSUFFICIENT_PRIVILEGE);
+  });
+
   it("the settings last for the transaction only", async () => {
     const read = (tx: Tx) =>
       tx.execute<{ ids: string | null; op: string | null }>(sql`
