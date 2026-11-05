@@ -198,3 +198,13 @@ describe("portal layout", () => {
     expect(api.calls).toContain("POST /api/auth/sign-out");
   });
 });
+
+describe("tabTitle", () => {
+  it("leads with what is waiting, then the place, then Mezonas", async () => {
+    const { tabTitle } = await import("./Shell");
+    expect(tabTitle("Back office", undefined)).toBe("Back office · Mezonas");
+    expect(tabTitle("Harbor Millwork", 3)).toBe("(3) Harbor Millwork · Mezonas");
+    expect(tabTitle("Harbor Millwork", 0)).toBe("Harbor Millwork · Mezonas");
+    expect(tabTitle(null, undefined)).toBe("Mezonas");
+  });
+});

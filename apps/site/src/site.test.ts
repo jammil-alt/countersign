@@ -107,7 +107,7 @@ describe("pages", () => {
       expect(title).toMatch(/Mezonas/);
       expect(description.length).toBeGreaterThan(50);
       expect(html).toContain(`<meta name="description" content="${description}">`);
-      expect(html).toContain('rel="icon" href="/design-system/logos/favicon.svg"');
+      expect(html).toContain('rel="icon" href="/design-system/logos/mezonas-app-icon.svg"');
       for (const tag of ["<header", "<nav", '<main id="main"', "<footer"]) {
         expect(html).toContain(tag);
       }
