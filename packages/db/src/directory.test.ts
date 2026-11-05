@@ -107,6 +107,12 @@ describe.skipIf(!online)("the directory's tables", () => {
     if (!orgB) throw new Error("no organization");
     expect(
       await errorCode(
+        t.db.insert(organization).values({ tenantId: A.tenantId, name: "Odd", language: "ja" }),
+      ),
+    ).toBe(CHECK_VIOLATION);
+    await t.db.insert(organization).values({ tenantId: A.tenantId, name: "Habla", language: "es" });
+    expect(
+      await errorCode(
         t.db.insert(contact).values({
           tenantId: A.tenantId,
           name: "Sam Cross",
@@ -117,7 +123,7 @@ describe.skipIf(!online)("the directory's tables", () => {
     ).toBe(FOREIGN_KEY_VIOLATION);
   });
 
-  it("checks kinds, relationships and sources", async () => {
+  it("checks kinds, relationships, sources and an organization's language", async () => {
     expect(
       await errorCode(
         t.db

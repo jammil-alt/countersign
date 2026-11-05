@@ -1,5 +1,5 @@
 {
-  "id": "b881239f-bc4a-4eb2-bc99-950132a93915",
+  "id": "3a4c18f5-33c0-4a33-a8d9-a86dc635a84e",
   "prevId": "35166cdf-d60c-4302-9c75-66735cbbd2ce",
   "version": "7",
   "dialect": "postgresql",
@@ -4904,6 +4904,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "notes": {
           "name": "notes",
           "type": "text",
@@ -5045,6 +5051,10 @@
         "organization_source_check": {
           "name": "organization_source_check",
           "value": "\"organization\".\"source\" ~ '^[a-z][a-z0-9_]{0,39}$'"
+        },
+        "organization_language_check": {
+          "name": "organization_language_check",
+          "value": "\"organization\".\"language\" is null or \"organization\".\"language\" in ('en', 'es', 'fr', 'pt-BR', 'it', 'de')"
         }
       },
       "isRLSEnabled": false
