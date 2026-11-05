@@ -163,6 +163,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "billing_usage_report",
       "billing_event",
       "reach_out",
+      "tenant_key",
+      "agent_grant",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }

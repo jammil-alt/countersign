@@ -8,6 +8,7 @@ import type { Db } from "./client";
 import {
   agent,
   agentChange,
+  agentGrant,
   agentVersion,
   appUser,
   billingEvent,
@@ -37,6 +38,7 @@ import {
   stepRun,
   tenant,
   tenantChange,
+  tenantKey,
   tenantPack,
   thread,
   toolCall,
@@ -83,6 +85,7 @@ const SKILL_DEFINITION = {
 export interface ClientFixture {
   tenantId: string;
   userId: string;
+  connectionId: string;
   agentId: string;
   agentVersionId: string;
   skillVersionId: string;
@@ -158,6 +161,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .returning();
   if (!av) throw new Error("no agent version");
   await db.insert(agentChange).values({ tenantId, agentId: a.id, change: { runStatus: "active" } });
+  await db.insert(agentGrant).values({
+    tenantId,
+    agentId: a.id,
+    connectionId: c.id,
+    limits: { verbs: { create: "off" } },
+  });
+  await db.insert(tenantKey).values({
+    tenantId,
+    wrappedKey: { v: 1, alg: "A256GCM", kid: "0000000000000000", iv: "aXY=", ct: "Y3Q=" },
+  });
 
   const [r] = await db
     .insert(run)
@@ -355,6 +368,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   return {
     tenantId,
     userId: u.id,
+    connectionId: c.id,
     agentId: a.id,
     agentVersionId: av.id,
     skillVersionId: sv?.id ?? "",

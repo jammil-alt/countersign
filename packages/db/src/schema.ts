@@ -1566,6 +1566,96 @@ export const billingEvent = pgTable(
   (t) => [index("billing_event_tenant_idx").on(t.tenantId, t.createdAt)],
 );
 
+// ── Access: client data keys and agent grants (docs/plan.md §1.26) ──────────────────────────────
+
+export const TENANT_KEY_STATUSES = ["active", "retired", "destroyed"] as const;
+
+/**
+ * A client's data key, which encrypts that client's connection secrets (credential envelope v2).
+ * Stored only wrapped: AES-256-GCM under the deployment's `ENCRYPTION_KEY`, with the client id as
+ * additional data, as `{ v, alg, kid, iv, ct }` (`kid` names the master key, so a master key
+ * rotation knows which rows to re-wrap). One `active` key per client, created on first use.
+ * Destroying a key wipes `wrapped_key`: everything it encrypted is unreadable from then on.
+ */
+// DECISION: `wrapped_key` is jsonb in the shape of the v1 credential envelope rather than bytea, so
+// the master key's id travels with it and the column reads like `credentials_encrypted`.
+export const tenantKey = pgTable(
+  "tenant_key",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** Null once destroyed. */
+    wrappedKey: json<WrappedTenantKey>("wrapped_key"),
+    status: text("status")
+      .$type<(typeof TENANT_KEY_STATUSES)[number]>()
+      .notNull()
+      .default("active"),
+    createdAt: createdAt(),
+    retiredAt: ts("retired_at"),
+  },
+  (t) => [
+    unique("tenant_key_id_tenant_key").on(t.id, t.tenantId),
+    uniqueIndex("tenant_key_active_key").on(t.tenantId).where(sql`${t.status} = 'active'`),
+    check("tenant_key_status_check", oneOf(t.status, TENANT_KEY_STATUSES)),
+    check(
+      "tenant_key_destroyed_check",
+      sql`(${t.status} = 'destroyed') = (${t.wrappedKey} is null)`,
+    ),
+  ],
+);
+
+/** A client data key wrapped by a master key (see `tenant_key`). */
+export interface WrappedTenantKey {
+  v: 1;
+  alg: "A256GCM";
+  /** The master key's id (derived from the key, as credential envelopes v1 name it). */
+  kid: string;
+  iv: string;
+  ct: string;
+}
+
+/**
+ * What one client agent may do through one bound connection, narrowing the binding (docs/plan.md
+ * §1.26 "Grants"). No row means no narrowing. Validated by core's `GrantLimits`.
+ */
+export interface AgentGrantLimits {
+  verbs?: Partial<Record<"read" | "create" | "update" | "delete", "auto" | "approval" | "off">>;
+  tools?: string[];
+}
+
+/**
+ * A client agent's grant on one connection: the binding is the grant, and a row only narrows it
+ * (a ceiling per verb, a subset of the connector's tools). Every change is an `agent_change` row.
+ */
+export const agentGrant = pgTable(
+  "agent_grant",
+  {
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    limits: json<AgentGrantLimits>("limits").notNull().default({}),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    primaryKey({ name: "agent_grant_pkey", columns: [t.agentId, t.connectionId] }),
+    index("agent_grant_connection_idx").on(t.tenantId, t.connectionId),
+    foreignKey({
+      name: "agent_grant_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "agent_grant_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -1608,6 +1698,8 @@ export const TENANT_TABLES = [
   "billing_usage_report",
   "billing_event",
   "reach_out",
+  "tenant_key",
+  "agent_grant",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
