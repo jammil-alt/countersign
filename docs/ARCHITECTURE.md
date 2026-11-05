@@ -236,7 +236,8 @@ In:
 - **Access** (v0.10): a **vault** per client (every connection, API key and browser login, encrypted
   with the client's own key, secrets write-only); **grants** that narrow what each agent may do with
   each connection bound to it; a separate **code service** for second factors; **browser connections**
-  that sign in to sites the operator allows, by risk tier, as a dedicated agent account (§6.9, §6.10,
+  that sign in to sites the operator allows, by risk tier, as a dedicated agent account; optional
+  **human release** of any vault item with a one-time code to a named person (§6.9, §6.10,
   `docs/plan.md` §1.26)
 
 Out (designed for, not built):
@@ -722,6 +723,17 @@ account. Links in messages are never followed. Email codes count only when the m
 DKIM and DMARC. Each identity has a daily cap on code requests. Only `apps/api` can call the service,
 through a service binding; its only public routes are Twilio's signed inbound webhook and the email
 handler.
+
+**Human release (optional, owner 2026-11-05).** Any vault item can require a person to release it
+before an agent uses it. Off by default; when on, the connection names one person (a user of the client
+with a verified phone or email), the channel (text or email) and the release window (one run, or up to
+24 hours). The first time a run needs the connection without a valid release, the step pauses and we
+send that person a one-time 6-digit code; they enter it in the portal or reply to the message with it,
+and the agent goes on. The code proves possession of the person's phone or inbox, not only a portal
+session. Codes are stored hashed, last 10 minutes, allow 5 tries and work once; the agent never sees
+one. No release by the end of the wait fails the step ("access not released"). The client admin turns it
+on or off and picks the person; the operator can turn it on, never off. Every request, release, failed
+try and revoke is logged, and the Access page shows live releases with a Revoke button.
 
 ### 6.10 Browser connections (owner, 2026-11-05)
 
@@ -1473,7 +1485,7 @@ ENCRYPTION_KEY                         # 32 bytes base64; wraps each client's da
 BROWSER (Browser Run binding), CODES (service binding → apps/mfa)   # v0.10
 AGENT_EMAIL_DOMAIN                     # e.g. agents.<domain>, routed to apps/mfa by Email Routing
 # apps/mfa only: MFA_ENCRYPTION_KEY (32 bytes base64), MFA_TWILIO_ACCOUNT_SID, MFA_TWILIO_AUTH_TOKEN,
-#   IDENTITY (Durable Object binding), AGENT_EMAIL_DOMAIN, MFA_ORIGIN
+#   IDENTITY and DIRECTORY (Durable Object bindings), AGENT_EMAIL_DOMAIN, MFA_ORIGIN, MFA_DAILY_CAP
 QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI, QBO_ENV=sandbox|production, QBO_WEBHOOK_VERIFIER
 EMAIL_FORWARDING_DOMAIN                # e.g. in.<domain>, routed to the Worker by Cloudflare Email Routing
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI   # after the MVP (Gmail)

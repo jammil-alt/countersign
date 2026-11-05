@@ -22,6 +22,9 @@ Mezonas is the product name and the name of every public resource; `countersign`
 | Hyperdrive | `mezonas-db-staging` → `staging` as `cs_worker` | `mezonas-db` → `main` as `cs_worker` |
 | R2 bucket | `mezonas-staging` | `mezonas` |
 | Email forwarding | `in.staging.mezonas.com` | `in.mezonas.com` |
+| Code service Worker (apps/mfa) | `mezonas-codes-staging` | `mezonas-codes` |
+| Code service address (Twilio's webhooks only) | `https://codes-staging.mezonas.com` | `https://codes.mezonas.com` |
+| Agent email (code service) | `agents.staging.mezonas.com` | `agents.mezonas.com` |
 | WorkOS | staging environment | production environment |
 
 `apps/api/wrangler.jsonc`'s top level is local development only (dev sign-in) and is never deployed:
@@ -90,10 +93,55 @@ After the first run: save the project id from the run summary as the repository 
    - Check: the portal's Connections page shows the client's address; mail from an allowed sender with
      a PDF shows up under Recent documents as "Forwarded"; the Worker logs `forwarded email dropped:
      <reason>` for the rest. Messages over 25 MB are dropped (Email Routing's limit).
-4. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
+4. **The code service** (Access phase 2, `apps/mfa`; ARCHITECTURE §6.9). See the checklist under
+   "The code service" below.
+5. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
    `https://staging.mezonas.com/api/auth/callback` and `https://app.mezonas.com/api/auth/callback`;
    Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
+
+### The code service (Access phase 2)
+
+A Worker of its own (`apps/mfa`) that receives second-factor codes for agents' accounts on other
+sites and hands each one, once, to a sign-in in progress. It has its own key, its own Durable Object
+storage and its own Twilio subaccount; apps/api reaches it only through the `CODES` service binding.
+`deploy.yml` deploys it before apps/api, creates its Durable Objects (migration `v1`) and its custom
+domain, and generates `MFA_ENCRYPTION_KEY` once. What a person does, per environment:
+
+- [ ] **Confirm the names.** The domains in the table above are placeholders until the owner
+      confirms them (`apps/mfa/wrangler.jsonc`, `vars` and `routes`). Make sure no DNS record already
+      uses `codes-staging.mezonas.com`, `codes.mezonas.com` or the `agents` subdomains.
+- [ ] **Deploy once** (a push to `main` for staging), so the Worker exists before the next steps.
+- [ ] **Email Routing for the agent domain.** Cloudflare → `mezonas.com` → Email → Email Routing: add
+      the subdomain (`agents.staging.mezonas.com` / `agents.mezonas.com`) and let Cloudflare add its MX
+      and SPF records. Routing rules → **Catch-all address** for that subdomain → **Send to a Worker** →
+      `mezonas-codes-staging` / `mezonas-codes`. Every identity's address is `agent-<12 characters>@`
+      that subdomain; the Worker drops anything else, without a bounce.
+- [ ] **The codes Twilio subaccount.** In Mezonas' Twilio account, create a subaccount for codes per
+      environment (e.g. "Mezonas codes (staging)"), separate from the subaccounts clients text from.
+      Put its own Account SID and Auth Token in the GitHub environment as `MFA_TWILIO_ACCOUNT_SID` and
+      `MFA_TWILIO_AUTH_TOKEN`, then redeploy. Numbers are bought by the service only when an identity
+      needs one (US local numbers, a monthly cost each) and released when the identity is deleted.
+      Without these secrets, email and authenticator codes still work; adding a phone answers
+      `not_configured`.
+- [ ] **Check the assumptions** in `apps/mfa/NOTES.md`, "To verify", with real messages: an email
+      from a domain with DMARC to an identity's address should log `email.received` with `spf`,
+      `dkim` and `dmarc` all true (Workers logs of the code service); a text to an identity's number
+      should log `sms.received`. Logs never contain codes.
+- [ ] **Email codes stay off until verified.** `EMAIL_CODES` is `off` in `apps/mfa/wrangler.jsonc`
+      for every environment: emailed codes never fill a wait and an email wait answers "email codes
+      are off until verified" (texts and authenticator codes work). To turn them on for an
+      environment, follow `apps/mfa/NOTES.md`, "Turning email codes on":
+      1. a genuine message from a domain with DMARC logs `spf`, `dkim` and `dmarc` all true;
+      2. a message sent with a forged `Authentication-Results: mx.cloudflare.net; spf=pass;
+         dkim=pass; dmarc=pass header.from=<domain>` header at the top, from a domain that fails
+         DMARC for that sender, logs `dmarc` false and fills no wait;
+      3. only then set `"EMAIL_CODES": "on"` in that environment's `vars`, in a reviewed PR, and
+         note the date and who checked in `docs/plan.md` §1.26. If step 2 passes as authentic,
+         leave it off.
+- Nothing else by hand: there is no database, bucket or Hyperdrive for the code service, and
+  `MFA_ENCRYPTION_KEY` is never set by a person. Replacing it would make stored authenticator secrets
+  unreadable (rotation is not built yet; `apps/mfa/NOTES.md`).
 
 ### Intuit (QuickBooks Online, from M9)
 
@@ -130,6 +178,11 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   new key as `ENCRYPTION_KEY` and the old one as `ENCRYPTION_KEY_PREVIOUS`; the hourly cron re-wraps
   every client key and re-encrypts any v1 credentials; drop the old key once no `tenant_key` row's
   `wrapped_key->>'kid'` and no v1 envelope names it.
+- The code service (`mezonas-codes-staging` / `mezonas-codes`) gets its own secrets, in its own
+  step before apps/api deploys: `MFA_TWILIO_ACCOUNT_SID` and `MFA_TWILIO_AUTH_TOKEN` (the codes
+  subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
+  inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
+  these, and the code service never has apps/api's.
 - Later: `QBO_*` and `GOOGLE_*` when those connectors are built, the same way.
 - Needed by the Zoho CRM connector (stream G, 2026-11-04): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
@@ -175,6 +228,7 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
 | Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio) |
+| Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
 ### Error tracking (Sentry)
@@ -225,7 +279,9 @@ approves writes (client admin by default, or the operator).
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
-  migrates the target's Neon branch as `cs_owner`, builds `apps/web` and runs `wrangler deploy`.
+  migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
+  secrets, builds `apps/web` and runs `wrangler deploy` for apps/api (whose `CODES` binding needs the
+  code service deployed first).
 
 ## 3. Migrations
 
