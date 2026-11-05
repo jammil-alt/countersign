@@ -9,6 +9,7 @@ import { BROWSER_CONNECTOR_ID, connectionDefaults } from "@countersign/connector
 import {
   BrowserConnectionConfig,
   type BrowserSiteProfile,
+  canonicalJson,
   routes,
   stricterLoosening,
   uuidv7,
@@ -92,7 +93,7 @@ export function browserRoutes(app: Hono<AppEnv>): void {
       .where(eq(browserSiteVersion.siteId, site.id))
       .orderBy(desc(browserSiteVersion.version))
       .limit(1);
-    if (last && JSON.stringify(last.profile) === JSON.stringify(body.profile)) {
+    if (last && canonicalJson(last.profile) === canonicalJson(body.profile)) {
       throw new HttpError(409, "no_op", "nothing changed from the current version");
     }
     // Versions are only ever added (immutable, invariant 3); connections keep theirs.
