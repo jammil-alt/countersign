@@ -256,6 +256,11 @@ In:
   and organizations (vendors, customers, partners, the client itself); edited by the client admin and
   the operator, imported by CSV or from connected tools, suggested by agents and accepted by the
   client admin; read by every agent of the client through `directory.*` tools (`docs/plan.md` §1.27)
+- **Built for HIPAA, SOC 2 and PCI DSS** (owner, 2026-11-05): an append-only audit log of every
+  request, sign-in and refusal, with an access review; 30-minute idle and 12-hour session limits;
+  security headers; a per-client **HIPAA mode** that sends the client's data only to vendors with a
+  signed BAA; card numbers never stored; retiring a client and purging its data. Certification,
+  BAAs and policies come later (`docs/plan.md` §1.35)
 - **Supervisor** (v0.11): a platform template forked into each client that watches runs, connections,
   logins, codes and waiting approvals, reads its fellow agents' state and asks them questions without
   writing, and reports to the client admin (plain steps) and the operator (details); it changes
@@ -1497,6 +1502,17 @@ candidates side by side with attribute diffs highlighted; actions Match / New it
 - Email: only messages matching the connection's query are synced; bodies are fetched on demand, not
   stored in bulk; disconnecting revokes the token and stops sync. Gmail writes are drafts and labels
   only in v1, each approved.
+- **Compliance (owner, 2026-11-05; `docs/plan.md` §1.35):** every request to a session route,
+  sign-in, sign-out and refusal writes an `audit_event` row (who, what, which client, ids, IP,
+  user agent; never content), append-only and kept 6 years; operators read it and an access review
+  at `/ops/audit`. Sessions end after 30 minutes without the person's own activity and 12 hours
+  after sign-in; MFA is required in WorkOS. Every response carries security headers (`no-store`,
+  CSP, HSTS, no framing). A client in **HIPAA mode** sends data only to vendors listed in
+  `BAA_PROCESSORS`: offering a connector, a tool call and a model call that need any other vendor
+  are refused. Card numbers are replaced with `[card ending 1234]` before documents, texts or error
+  reports are stored; Mezonas never takes card data (Stripe-hosted invoices). Retiring a client
+  ends its access at once; its files are deleted 30 days later and its rows by the owner's
+  `db:purge-client`. CI never copies client data.
 - Prompt-injection hygiene: email bodies, document text and vendor descriptions are passed as data in tool results,
   never concatenated into instructions. Operator-written skill instructions run only with the tools the
   skill lists. Agents cannot change their own permissions.
@@ -1511,6 +1527,7 @@ ANTHROPIC_API_KEY
 RUN_WORKFLOW, QBO_SYNC (Workflow bindings), ARTIFACTS (R2 binding)
 STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY   # R2 S3 API, for signed URLs
 ENCRYPTION_KEY                         # 32 bytes base64; wraps each client's data key (§6.9)
+BAA_PROCESSORS                         # vendors with a signed BAA (HIPAA mode, §16); wrangler.jsonc
 BROWSER (Browser Run binding), CODES (service binding → apps/mfa)   # v0.10
 AGENT_EMAIL_DOMAIN                     # e.g. agents.<domain>, routed to apps/mfa by Email Routing
 # apps/mfa only: MFA_ENCRYPTION_KEY (32 bytes base64), MFA_TWILIO_ACCOUNT_SID, MFA_TWILIO_AUTH_TOKEN,

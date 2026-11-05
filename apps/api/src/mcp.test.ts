@@ -3,7 +3,7 @@
 // issuer, unknown user, not an operator), the operator's client scope, each tool's shape, the
 // screenshot as an image block, the untrusted-data fence, the two-step resolve and the audit trail.
 
-import { appUser, feedback } from "@countersign/db";
+import { appUser, auditEvent, feedback } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -829,5 +829,20 @@ describe.skipIf(!h)("MCP server", () => {
       }),
     ]);
     expect(discoveries).toBeGreaterThan(0);
+  });
+
+  it("writes the audit log too: a back-office read through MCP is an audit_event row (§1.35)", async () => {
+    await tool(opToken, "client_get", { client: H.A.tenantId });
+    const rows = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(eq(auditEvent.action, "mcp GET /api/ops/clients/:id"));
+    expect(rows.at(-1)).toMatchObject({
+      tenantId: H.A.tenantId,
+      actorUserId: H.operator,
+      actorRole: "operator",
+      outcome: "ok",
+      target: { id: H.A.tenantId },
+    });
   });
 });

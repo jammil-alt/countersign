@@ -6,6 +6,7 @@ import { isOperatorRole, routes } from "@countersign/core";
 import { appUser, userMemberships } from "@countersign/db";
 import { asc } from "drizzle-orm";
 import type { Hono } from "hono";
+import { auditAlone } from "../audit";
 import { authDirectory } from "../auth";
 import {
   type AppContext,
@@ -91,12 +92,54 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
     if (!choice.ok || !choice.workos) return c.json({ error: { code: "not_found" } }, 404);
     const r = await choice.workos.callback(c.req.raw, new Date());
     sendCookies(c, r.setCookies);
-    if (!r.ok) return c.redirect(signInFailure(r.reason ?? r.code), 302);
+    const db = c.get("req").services().db;
+    if (!r.ok) {
+      await auditAlone(db, c, {
+        tenantId: null,
+        actorKind: "anonymous",
+        action: "session.sign_in",
+        outcome: "refused",
+        httpStatus: r.status,
+        target: { reason: r.reason ?? r.code },
+      });
+      return c.redirect(signInFailure(r.reason ?? r.code), 302);
+    }
+    if (r.signedIn) {
+      const user = await authDirectory(db).user(r.signedIn.userId);
+      await auditAlone(db, c, {
+        tenantId: null,
+        actorKind: "user",
+        actorUserId: r.signedIn.userId,
+        actorEmail: user?.email ?? null,
+        action: "session.sign_in",
+        outcome: "ok",
+        httpStatus: 302,
+        target: r.signedIn.method ? { method: r.signedIn.method } : {},
+      });
+    }
     return c.redirect(r.redirectTo, 302);
   });
 
   mountPublic(app, routes.signOut, async ({ c, services }) => {
     const choice = services.auth();
+    // Who is signing out, if anyone: read before the cookie is cleared.
+    if (choice.ok) {
+      const who = await getSession(c.req.raw, {
+        adapter: choice.adapter,
+        directory: authDirectory(services.db),
+      }).catch(() => null);
+      if (who?.ok) {
+        await auditAlone(services.db, c, {
+          tenantId: null,
+          actorKind: "user",
+          actorUserId: who.session.user.id,
+          actorEmail: who.session.user.email,
+          action: "session.sign_out",
+          outcome: "ok",
+          httpStatus: 200,
+        });
+      }
+    }
     if (choice.ok && choice.workos) {
       const r = await choice.workos.signOut(c.req.raw);
       sendCookies(c, r.setCookies);
@@ -111,6 +154,16 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
     if (!choice.ok || !choice.dev) throw notFound("the dev sign-in");
     const user = await authDirectory(services.db).userByEmail(body.email);
     if (!user) throw notFound(`seeded user ${body.email}`);
+    await auditAlone(services.db, c, {
+      tenantId: null,
+      actorKind: "user",
+      actorUserId: user.id,
+      actorEmail: user.email,
+      action: "session.sign_in",
+      outcome: "ok",
+      httpStatus: 200,
+      target: { method: "dev" },
+    });
     sendCookies(c, [choice.dev.signIn(body.email)]);
     return { ok: true as const };
   });

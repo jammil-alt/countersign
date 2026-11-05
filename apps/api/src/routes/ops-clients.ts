@@ -3,7 +3,13 @@
 
 import type { Approver } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
-import { routes } from "@countersign/core";
+import {
+  complianceOf,
+  parseCoveredProcessors,
+  processingRefusal,
+  processorsForOffer,
+  routes,
+} from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -354,6 +360,21 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     }
     const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
     if (!t) throw notFound("client");
+    if (t.retiredAt) throw new HttpError(409, "retired", "this client is retired");
+    // HIPAA mode (docs/plan.md §1.35): a connector that sends data to a vendor without a signed BAA
+    // is never offered. Already offered ones stay offered only if they were covered when HIPAA mode
+    // was turned on (it can't be turned on otherwise).
+    const profile = complianceOf(t.settings);
+    const covered = parseCoveredProcessors(services.env.BAA_PROCESSORS);
+    for (const id of offered) {
+      const refusal = processingRefusal(
+        profile,
+        covered,
+        processorsForOffer(id),
+        `The ${id} connector`,
+      );
+      if (refusal) throw new HttpError(409, "hipaa", refusal);
+    }
     // DECISION: withdrawing an offer leaves an existing connection as it is (the client still sees
     // and can disconnect it); it only stops new sign-ins.
     await tx

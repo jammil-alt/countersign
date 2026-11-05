@@ -10,6 +10,7 @@ import {
   InvoiceExtraction as InvoiceExtractionSchema,
   isExtractable,
   RECORD_INVOICE_TOOL,
+  redactCardNumbersDeep,
   toNumeric,
 } from "@countersign/core";
 import { type Db, docExtraction, docLine, document, inboxItem, withTenant } from "@countersign/db";
@@ -185,7 +186,8 @@ export async function extractDocument(
     throw error;
   }
   await input.onCall?.(answer.record);
-  const x = answer.value;
+  // A card number printed on a document is never stored (PCI DSS 3.3, docs/plan.md §1.35).
+  const x = redactCardNumbersDeep(answer.value);
   const check = validateTotals(x);
   const status = check.ok ? "extracted" : "needs_review";
   const model = answer.record.model;

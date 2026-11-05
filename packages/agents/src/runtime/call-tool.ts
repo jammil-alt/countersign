@@ -94,7 +94,15 @@ export async function callTool(
   });
   let outcome: ToolOutcome;
   try {
-    outcome = await dispatch(deps, step, tool, call.input);
+    // Refused by the platform's policy (e.g. HIPAA mode): logged like any refused call.
+    const refusal = await deps.policy?.refuseTool({
+      tenantId: step.tenantId,
+      toolId: call.toolId,
+      connectorId: tool.kind === "connector" ? tool.connector.manifest.id : null,
+    });
+    outcome = refusal
+      ? { status: "refused", reason: refusal }
+      : await dispatch(deps, step, tool, call.input);
   } catch (error) {
     outcome = { status: "failed", error: errorText(error) };
   }
