@@ -5,6 +5,7 @@
 
 import { ContentStore, MAX_FORWARDED_BYTES } from "@countersign/connectors";
 import { type ForwardingOutcome, receiveForwardedEmail } from "@countersign/documents";
+import { receiveReleaseEmail, wakeRelease } from "./access/release";
 import type { Bindings } from "./env";
 import { type AppDeps, defaultDeps, type Services } from "./http";
 import { forwardingAddress, receiveReachOutReply, wakeAll } from "./reach/replies";
@@ -41,6 +42,17 @@ export async function handleEmail(
       message.rawSize > MAX_FORWARDED_BYTES
         ? new Uint8Array(0)
         : new Uint8Array(await new Response(message.raw).arrayBuffer());
+    // A reply to a human release email (its `+rel…` tag) carries a code: consumed here, never
+    // forwarded or stored (docs/plan.md §1.26).
+    const release = await receiveReleaseEmail(
+      { db, secrets: env },
+      { from: message.from, to: message.to, raw },
+      { domain, now: new Date() },
+    );
+    if (release) {
+      await wakeRelease(deps.instances(env), release.wake);
+      return { status: "dropped", tenantId: release.tenantId, reason: "unknown_address" };
+    }
     // A reply to a reach-out email (its tagged reply-to address) ends that reach-out; it is not
     // forwarded mail.
     const reply = await receiveReachOutReply(

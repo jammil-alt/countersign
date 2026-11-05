@@ -75,6 +75,8 @@ export interface StepWait {
   timeout: Duration;
   /** Whatever the port needs to look it up again (e.g. the reach-out's id). */
   state?: unknown;
+  /** What it waits for, for the timeline: a reply (default) or a person's release code. */
+  reason?: "reply" | "release";
 }
 
 export interface WaitRequest {

@@ -31,6 +31,7 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
+import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
@@ -52,6 +53,13 @@ export interface RunDeps {
   documents?: { content: ContentStore; signer?: UrlSigner | null };
   /** ElevenLabs, the public origin and outbound HTTP, for calls (`call.place`). */
   voice?: VoiceDeps;
+  /**
+   * Human release (docs/plan.md §1.26): codes and how they are sent. Absent: a connection that
+   * needs a release refuses every call (fails closed).
+   */
+  release?: ReleaseDeps;
+  /** The clock for release waits (tests move it); default the system clock. */
+  now?: () => Date;
 }
 
 /**
@@ -129,6 +137,7 @@ export function runDepsFromEnv(
     ...(env.ENCRYPTION_KEY
       ? { credentials: credentialsFor(base.db, credentialKeysFromEnv(env)) }
       : {}),
+    release: releaseDepsFromEnv(env, base),
   };
 }
 
@@ -154,11 +163,15 @@ export function runtimeFor(
         testRun: options.testRun === true,
       }),
       ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
+      ...(deps.release
+        ? { release: dbReleasePort(deps.now ? { ...deps.release, now: deps.now } : deps.release) }
+        : {}),
     }),
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,
     transport: deps.transport,
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
+    ...(deps.now ? { now: deps.now } : {}),
     // Contacts and consent for messaging connectors, scoped to the connection's client.
     services: connectorServicesFor(
       db,
@@ -250,6 +263,7 @@ export async function executeRun(
     agent: agentPort(
       runtime,
       reachPort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
+      { db },
     ),
     inbox: dbInboxPort(db, info),
     notify: threadNotifyPort(runtime),

@@ -29,6 +29,7 @@ import { agent, connection, connectionChange, type Tx, tenant } from "@countersi
 import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { releasePeople, releaseView } from "../access/release";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import type { Platform } from "../platform";
 import { connectionCredentials } from "../secrets";
@@ -145,6 +146,11 @@ export async function vaultItems(
     .from(agent)
     .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.status, "active")));
   const grants = await grantsOfClient(tx, tenantId);
+  const now = new Date();
+  const releases = new Map<string, Awaited<ReturnType<typeof releaseView>>>();
+  for (const row of rows) {
+    releases.set(row.id, await releaseView(tx, tenantId, row, { names: options.names, now }));
+  }
   return rows.map((row) => {
     const connector = platform.connectors.get(row.connector);
     const manifest = connector?.manifest;
@@ -172,11 +178,12 @@ export async function vaultItems(
           options.names === "service" ? (a.serviceName ?? a.name) : a.name,
         ),
       ),
+      release: releases.get(row.id) as Awaited<ReturnType<typeof releaseView>>,
     };
   });
 }
 
-async function vaultItem(tx: Tx, tenantId: string, platform: Platform, id: string) {
+export async function vaultItem(tx: Tx, tenantId: string, platform: Platform, id: string) {
   const [item] = await vaultItems(tx, tenantId, platform, { names: "service", only: id });
   if (!item) throw notFound("connection");
   return item;
@@ -245,6 +252,7 @@ async function opsGrant(
     matrix: matrixOf(row),
     tools: toolsOf(manifest),
     access: access(a, row, grant, a.name),
+    release: await releaseView(tx, row.tenantId, row, { names: "agent", now: new Date() }),
   };
 }
 
@@ -275,6 +283,7 @@ export function accessRoutes(app: Hono<AppEnv>): void {
       items: await vaultItems(tx, tenantId, services.platform, { names: "service" }),
       setup: canEdit ? await vaultSetup(tx, tenantId, services.platform) : [],
       canEdit,
+      people: canEdit ? await releasePeople(tx, tenantId) : [],
     };
   });
 

@@ -11,7 +11,13 @@ import {
   runAgent,
   type StepContext,
 } from "@countersign/agents";
-import { isPlainObject, type JsonObject, parseSkillRef, REACH_OUT_SKILL } from "@countersign/core";
+import {
+  DEFAULT_APPROVAL,
+  isPlainObject,
+  type JsonObject,
+  parseSkillRef,
+  REACH_OUT_SKILL,
+} from "@countersign/core";
 import { type Db, inboxItem, stepRun, withTenant } from "@countersign/db";
 import type {
   AgentPort,
@@ -23,6 +29,13 @@ import type {
 } from "@countersign/workflows";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import {
+  afterReleaseWait,
+  releaseWaitDone,
+  releaseWaitOf,
+  releaseWaitOutcome,
+  stepInputOf,
+} from "../access/release";
 import { toRunResolution } from "../inbox";
 import { type ReachPort, reachOutState } from "../reach/service";
 
@@ -102,8 +115,14 @@ function firstWaiting(state: PendingState, after = -1): StepOutcome | null {
 // DECISION: the reach-out is a built-in skill the API carries out (it needs contacts, waits and the
 // cron), routed here by its id; without the service (no database) it fails rather than run as a
 // plain tool.
-export function agentPort(deps: RuntimeDeps, reach?: ReachPort): AgentPort {
-  return {
+export function agentPort(
+  deps: RuntimeDeps,
+  reach?: ReachPort,
+  /** The database, for steps that wait on a person's release (docs/plan.md §1.26). */
+  release?: { db: Db },
+): AgentPort {
+  const now = () => deps.now?.() ?? new Date();
+  const port: AgentPort = {
     async runSkill(request) {
       const { run, step, nodeId, stepRunId, input, approval } = request;
       if (parseSkillRef(step.skill).id === REACH_OUT_SKILL) {
@@ -144,6 +163,8 @@ export function agentPort(deps: RuntimeDeps, reach?: ReachPort): AgentPort {
             firstWaiting(state) ?? { kind: "failed", error: "a change waits with no approval card" }
           );
         }
+        case "awaiting_release":
+          return releaseWaitOutcome(r, null, now());
         case "escalated":
           return { kind: "escalated", reason: r.reason, inboxItemId: r.inboxItemId };
         case "failed":
@@ -182,6 +203,8 @@ export function agentPort(deps: RuntimeDeps, reach?: ReachPort): AgentPort {
               output: null,
             }) ?? { kind: "failed", error: "a change waits with no approval card" }
           );
+        case "awaiting_release":
+          return releaseWaitOutcome(o, null, now());
         case "refused":
           return { kind: "failed", error: `refused: ${o.reason}` };
         case "failed":
@@ -190,11 +213,32 @@ export function agentPort(deps: RuntimeDeps, reach?: ReachPort): AgentPort {
     },
 
     async waitDone(request) {
+      const waiting = releaseWaitOf(request.wait.state);
+      if (waiting) {
+        if (!release) return true;
+        return releaseWaitDone(release.db, request.run.tenantId, waiting, now());
+      }
       if (!reach) return true;
       return reach.waitDone(request);
     },
 
     async afterWait(request) {
+      const waiting = releaseWaitOf(request.wait.state);
+      if (waiting) {
+        // DECISION: once released, the step runs again from the start with the input it first ran
+        // with (its step_run row), in this durable step; the gate then finds the release.
+        if (!release) return { kind: "failed", error: "access_not_released: nothing to wait with" };
+        const { tenantId } = request.run;
+        const after = await afterReleaseWait(release.db, tenantId, waiting, now());
+        if (after.kind === "failed") return { kind: "failed", error: after.error };
+        if (after.kind === "wait") return after.outcome;
+        const input = await stepInputOf(release.db, tenantId, request.stepRunId);
+        const { step } = request;
+        const again = { ...request, input };
+        return step.kind === "skill"
+          ? port.runSkill({ ...again, step, approval: step.approval ?? DEFAULT_APPROVAL })
+          : port.runAction({ ...again, step, approval: step.approval });
+      }
       if (!reach) return { kind: "failed", error: "nothing to wait for" };
       return reach.afterWait(request);
     },
@@ -217,6 +261,7 @@ export function agentPort(deps: RuntimeDeps, reach?: ReachPort): AgentPort {
       return firstWaiting(state, index) ?? { kind: "done", output: state.output ?? null };
     },
   };
+  return port;
 }
 
 /** Person steps' inbox items. */

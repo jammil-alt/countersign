@@ -202,6 +202,41 @@ export interface FailureInboxItem {
   payload: JsonObject;
 }
 
+/** One call that needs a vault item released by a person (docs/plan.md §1.26 "Human release"). */
+export interface ReleaseAsk {
+  connection: ConnectionRef;
+  agentId: string;
+  runId: string;
+  stepRunId: string;
+  /** The tool the agent tried, for the person's inbox item. */
+  toolId: string;
+  test: boolean;
+}
+
+/** A request made: the code went out and the person's inbox item is open. */
+export interface ReleaseRequested {
+  releaseId: string;
+  inboxItemId: string;
+}
+
+/**
+ * Human release (apps/api implements it over the database, the client's messaging and Mezonas'
+ * sending). The runtime asks only whether a release covers a call and, when none does, for a new
+ * request; it never sees a code.
+ */
+export interface ReleasePort {
+  /** Whether a live release lets this agent use the connection in this run now. */
+  covers(
+    tenantId: string,
+    ask: Omit<ReleaseAsk, "stepRunId" | "toolId" | "test">,
+  ): Promise<boolean>;
+  /**
+   * Voids this connection, agent and run's older pending request, sends a new code to the person
+   * the setting names and opens their inbox item. `refused` when no code can be sent.
+   */
+  request(tenantId: string, ask: ReleaseAsk): Promise<ReleaseRequested | { refused: string }>;
+}
+
 export interface RuntimePorts {
   store: RuntimeStore;
   log: RunLog;
@@ -211,4 +246,9 @@ export interface RuntimePorts {
   documents?: DocumentsPort;
   /** The client's knowledge base for `knowledge.search`; absent: that tool fails with a reason. */
   knowledge?: KnowledgePort;
+  /**
+   * Human release; absent: a connection that needs one refuses every call (fails closed), as in a
+   * voice call's tool, which can't wait for a code.
+   */
+  release?: ReleasePort;
 }

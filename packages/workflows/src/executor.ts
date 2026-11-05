@@ -230,7 +230,10 @@ class Executor {
         };
         break;
       case "waiting":
-        update = { status: "waiting", summary: `${clientLabel(step)}: waiting for a reply` };
+        update = {
+          status: "waiting",
+          summary: `${clientLabel(step)}: ${done.wait.reason === "release" ? this.words.waitingForRelease : "waiting for a reply"}`,
+        };
         break;
       case "escalated":
         update = {

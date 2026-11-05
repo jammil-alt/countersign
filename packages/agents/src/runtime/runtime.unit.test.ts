@@ -11,7 +11,8 @@ import { SkillCatalog } from "../registry/skills";
 import { ToolRegistry, ToolRegistryError } from "../registry/tools";
 import { inboxCreate, PLATFORM_TOOLS } from "../tools/platform";
 import { defineInternalTool } from "../tools/types";
-import { resolveApprover } from "./context";
+import { releaseGate } from "./call-tool";
+import { type RuntimeDeps, resolveApprover, type StepContext } from "./context";
 import { checkAgainst, objectSchema } from "./json-schema";
 import { toolName } from "./run-agent";
 
@@ -140,5 +141,75 @@ describe("schemas", () => {
     expect(checkAgainst({}, "anything").ok).toBe(true);
     expect(objectSchema({ type: "string" })).toMatchObject({ type: "object" });
     expect(toolName("testkit.record.query")).toBe("testkit__record__query");
+  });
+});
+
+describe("the human release gate", () => {
+  const PERSON = "01a1a29f-2195-7f01-b490-3e9a675c8770";
+  const conn = (release?: unknown) => ({
+    id: "c1",
+    tenantId: "t1",
+    connector: "testkit",
+    status: "connected" as const,
+    externalAccountId: null,
+    config: release === undefined ? {} : { release: release as never },
+    permissions: {},
+  });
+  const step = {
+    tenantId: "t1",
+    runId: "r1",
+    stepRunId: "s1",
+    mode: "test",
+    agent: { agentId: "a1" },
+  };
+  const on = { mode: "code", personId: PERSON, channel: "email", window: "run" };
+  function deps(covers: boolean | null) {
+    const asked: unknown[] = [];
+    const d = {
+      ports: {
+        ...(covers === null
+          ? {}
+          : {
+              release: {
+                covers: async () => covers,
+                request: async (_t: string, ask: unknown) => {
+                  asked.push(ask);
+                  return { releaseId: "rel1", inboxItemId: "in1" };
+                },
+              },
+            }),
+      },
+    } as unknown as RuntimeDeps;
+    return { d, asked };
+  }
+  const gate = (d: RuntimeDeps, c: ReturnType<typeof conn>) =>
+    releaseGate(d, step as unknown as StepContext, c, TESTKIT_UPDATE_TOOL);
+
+  it("lets calls through when release is off", async () => {
+    expect(await gate(deps(false).d, conn())).toBeNull();
+    expect(await gate(deps(null).d, conn({ mode: "off" }))).toBeNull();
+  });
+
+  it("asks for a release when none covers the call, test runs too", async () => {
+    const { d, asked } = deps(false);
+    expect(await gate(d, conn(on))).toEqual({
+      status: "awaiting_release",
+      releaseId: "rel1",
+      inboxItemId: "in1",
+      connectionId: "c1",
+    });
+    expect(asked).toMatchObject([{ agentId: "a1", runId: "r1", test: true }]);
+  });
+
+  it("goes on under a live release", async () => {
+    expect(await gate(deps(true).d, conn(on))).toBeNull();
+  });
+
+  it("fails closed: no port, nobody named, or a setting that no longer parses", async () => {
+    expect(await gate(deps(null).d, conn(on))).toMatchObject({ status: "refused" });
+    expect(await gate(deps(true).d, conn({ mode: "code" }))).toMatchObject({ status: "refused" });
+    expect(await gate(deps(true).d, conn({ mode: "code", window: { hours: 99 } }))).toMatchObject({
+      status: "refused",
+    });
   });
 });

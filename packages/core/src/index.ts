@@ -47,6 +47,7 @@ export * from "./messaging/rules";
 export * from "./money";
 export * from "./permissions/decide";
 export * from "./permissions/grants";
+export * from "./permissions/release";
 export * from "./reach/rules";
 export * from "./roles";
 export * from "./rules/compile";

@@ -2,7 +2,7 @@
 
 import type { Db } from "@countersign/db";
 import { dbRuntimeStore } from "../registry/runtime-store";
-import type { RuntimePorts } from "../runtime/ports";
+import type { ReleasePort, RuntimePorts } from "../runtime/ports";
 import { type DbDocumentsOptions, dbDocumentsPort } from "./documents-port";
 import { dbExternalActions, type Emit } from "./external-actions";
 import { dbKnowledgePort } from "./knowledge-port";
@@ -14,6 +14,8 @@ export interface DbPortsOptions {
   emit?: Emit;
   /** The documents capability for `docs.*` tools (object storage, the model transport, a signer). */
   documents?: DbDocumentsOptions;
+  /** Human release, from apps/api (it sends codes); absent: connections that need one refuse. */
+  release?: ReleasePort;
 }
 
 export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePorts {
@@ -24,5 +26,6 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     platform: dbPlatformStore(db),
     knowledge: dbKnowledgePort(db),
     ...(options.documents ? { documents: dbDocumentsPort(db, options.documents) } : {}),
+    ...(options.release ? { release: options.release } : {}),
   };
 }
