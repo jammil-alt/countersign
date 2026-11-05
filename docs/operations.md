@@ -97,10 +97,10 @@ After the first run: save the project id from the run summary as the repository 
    "The code service" below.
 5. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
    `https://staging.mezonas.com/api/auth/callback` and `https://app.mezonas.com/api/auth/callback`;
-   in each environment's Redirects, the app homepage URL (`https://staging.mezonas.com`,
-   `https://app.mezonas.com`) and the sign-out redirect (the same address with a trailing `/`, which
-   sign-out sends as `return_to`; without it WorkOS shows `app-homepage-url-not-found` after
-   signing out); Worker secrets `WORKOS_CLIENT_ID`,
+   on each environment's application, a default **Sign-out URI** (`https://staging.mezonas.com/`,
+   `https://app.mezonas.com/`), which sign-out sends as `return_to`; without it WorkOS shows
+   `app-homepage-url-not-found` after signing out (the old app homepage URL is only a deprecated
+   fallback); Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
 
 ### The code service (Access phase 2)
