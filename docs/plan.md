@@ -517,6 +517,29 @@ Built on `claude/reach-out` (based on `claude/voice-calls`). Facts about Resend 
 
 ---
 
+### 1.26 Access: the vault, grants, the code service and browser logins (owner, 2026-11-05; design)
+
+The owner wants agents to sign in to websites and work on their own, with access segregated: a vault per
+client, second factors kept apart, and each agent given only the tools it needs (ARCHITECTURE v0.10,
+§6.9, §6.10). Built in three phases (M12), each its own PRs; migrations first, in their own PRs.
+
+| Topic | Decision |
+|---|---|
+| Vault = connections | A vault item is a `connection` row: OAuth connections, API-key connections (`auth: 'api_key'`) and browser logins (connector `browser`). No second store: bindings, the permission matrix, status, the portal's Connections page and disconnect already work on connections. // DECISION |
+| Client data keys (phase 1, migration 0011) | `tenant_key` (tenant table, RLS forced): `id` (uuid v7, the key id), `tenant_id`, `wrapped_key` (the 32-byte data key, AES-256-GCM under `ENCRYPTION_KEY`, additional data = the client id), `status` (`active`, `retired`, `destroyed`), `created_at`, `retired_at`. One `active` key per client, created on first use. Envelope v2 `{v: 2, alg, kid: tenant_key.id, iv, ct}` with the same binding to client and connection as v1; v1 envelopes still decrypt; new writes are always v2; the cron re-encrypts a bounded batch of v1 rows each hour until none are left. Master key rotation re-wraps `tenant_key` rows (`CredentialCipher.rotate` gains a rewrap). Destroying a client's key is an operator action only on a retired client; it wipes `wrapped_key` and sets `destroyed`. |
+| Write-only secrets | No route returns a secret; read models say only what is set (`{username: "agent@client.com", password: "set", updatedAt}`; usernames are not secret). API-key connectors declare their fields in the manifest (`credentialFields`: name, label, secret or not); the portal shows a form for them. The client admin enters secrets; the operator's screens never offer the field. |
+| Grants (phase 1, migration 0011) | `agent_grant` (tenant table): `tenant_id`, `agent_id`, `connection_id`, `limits` (`{verbs?: {read?, create?, update?, delete?: 'auto' \| 'approval' \| 'off'}, tools?: string[]}`), `updated_by`, `updated_at`; unique (`agent_id`, `connection_id`). The binding is the grant; a row only narrows it, and no row means no narrowing, so today's agents keep working unchanged. Effective verb = the strictest of the connection's matrix and the grant's verb; then the step's approval and the agent's mode as today (`decideToolCall` takes the grant). A tool outside `limits.tools` is refused like an unbound connector. Operator: set any limit up to the matrix. Client admin: only tighten, and revoke (verbs all `off`). Each change is an `agent_change` row (`kind: 'grant'`, before and after). |
+| Access page (portal) | `/access` for the client admin: every vault item, what it is (connection, API key, browser login, with the site's tier), whether its secret is set, and each agent that can use it with what; tighten or revoke per agent; disconnect. The back office shows the same on the client page and the agent page, where the operator binds and sets grants. |
+| The code service (phase 2) | `apps/mfa`, a Worker deployed separately (`mezonas-codes`), with `MFA_ENCRYPTION_KEY` (generated once by the deploy job, like `ENCRYPTION_KEY`), a Durable Object per identity (SQLite storage), and no access to Neon, R2 or `apps/api`'s secrets. RPC entry point (service binding `CODES` in `apps/api`, a `WorkerEntrypoint`): `createIdentity({tenantId, label})`, `identity(id)`, `setAuthenticator({identityId, siteKey, otpauthUri})`, `openWait({identityId, siteKey, channel: 'sms' \| 'email' \| 'totp', sender, pattern, ttlSeconds ≤ 300})`, `claim(waitId)` → `{status: 'code', code} \| 'pending' \| 'expired'`, `alerts({since})`, `deleteIdentity(id)`. Every call carries the tenant id and is refused for an identity of another client. Public routes: Twilio's inbound SMS webhook (signature checked with the codes subaccount's token) and the `email()` handler for `AGENT_EMAIL_DOMAIN` (postal-mime; SPF, DKIM and DMARC must pass). Messages live only until claimed or 10 minutes; logs keep metadata, never codes. Cap: 20 code requests per identity per day (setting). An unsolicited code or a reset-looking message becomes an alert; `apps/api`'s cron reads `alerts` and raises inbox items for the operator and the client admin. |
+| Agent identities | Email `agent-<short id>@<AGENT_EMAIL_DOMAIN>`; a phone number only when a site sends codes by text, bought by the code service in its own Twilio subaccount (`MFA_TWILIO_*`), separate from clients' messaging subaccounts. A browser connection's config names its identity (`identityId`, not secret). |
+| Browser sites (phase 3, migration 0012) | `browser_site` and `browser_site_version` (operator tables, `tenant_id` null, visible only to operator sessions, versions immutable like skills): `slug`, `name`, `tier` (`low`, `medium`, `high`, `blocked`), `login` (`url`, `origins`, selectors for username, password and submit, `secondFactor`: `none`, `totp`, `sms` or `email` with `sender` and `pattern`, `signedIn` check by URL pattern or selector), `signOut`, `allow` and `block` URL patterns (the platform's blocked defaults always apply), `notes` (terms checked, by whom). A client's browser connection names the site and pins the version it was set up on; the client can make it stricter (sign-in by a person only, or no writes), never looser. |
+| Binding browser sites | Bindings are keyed by connector; browser connections bind by site: the key is `browser:<site slug>`, and browser tools take `site` in their input. Connector manifests gain an optional `bindingKey(input)`; the runtime uses it when present (no special case for `browser` in `packages/agents`). // DECISION |
+| Browser driver | `packages/connectors/src/browser/` talks to a `BrowserDriver` interface (open page, go to, fill, click, read text, read tables, download, cookies, close). `apps/api` implements it on the Browser Run binding (`BROWSER`, `@cloudflare/playwright`); tests implement it on local Playwright against fixture pages served by the test. Sign-in, sign-out and URL checks are code in the connector; the model gets only `browser.page.read` (text and tables of an allowed URL, password fields removed), `browser.file.download` (into documents, as uploads are) and, after the pilot, `browser.form.submit` (external, behind approval, the page's fields before as its before state). |
+| Sessions and stops | One browser per step, closed at its end. Low tier: the session's cookies may be saved encrypted in the connection's credentials and reused until they fail. Two failed sign-ins set the connection to `needs_attention` and stop further sign-ins; a CAPTCHA, an unexpected page or a new-device check fails the step with a reason and raises an inbox item. Caps: sign-ins per connection per day (default 10) and optional hours, checked in code. Screenshots after sign-in only, kept with the step as evidence. High-tier sites: no autonomous sign-in; a person signs in through Browser Run's human handoff, which comes after the pilot. |
+| Pilot | A fixture supplier portal in tests (low tier, emailed codes); then one real low-tier site the owner names, read and download only. |
+
+---
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -531,6 +554,7 @@ apps/api ─▶ workflows ─▶ agents ─▶ documents ─▶ connectors ─�
    ├─▶ auth ─▶ db
    └─▶ packs/materials ─▶ documents, connectors, llm, senses, db, core   (never agents or workflows)
 apps/web ─▶ core                    (route contract, schemas, workflow validation; HTTP to apps/api)
+apps/mfa ─▶ core                    (the code service, §1.26: its own Worker; apps/api reaches it only by service binding)
 ```
 
 | Package | Workspace deps |
@@ -548,6 +572,7 @@ apps/web ─▶ core                    (route contract, schemas, workflow valid
 | `packs/materials` | documents, connectors, llm, senses, db, core |
 | `apps/api` | any |
 | `apps/web` | core |
+| `apps/mfa` | core |
 
 \* only from `agents/src/registry/` and `agents/src/log/` (see §1.2).
 
@@ -617,6 +642,7 @@ Progress, phase 1 and Track B (2026-11-03):
 | Track B's open items (2026-11-04) | Done (§1.16): record pages for sources in both surfaces (transaction, raw record, vendor; documents and extractions open the document page) linked from the portal timeline, the back-office run view and inbox items; the activation check polls a running test run; template test runs on a chosen served client (test copy there, never written, hidden from its portal), test copies bound to their client's connections; the back office's documents list and page with 5-minute links. API tests over a throwaway database (isolation for both surfaces, a test run on another client end to end) and screen tests. Open: nothing in scope; `/remind` and `/command` parsing were left out |
 | Approver rules (2026-11-04) | Done (§1.20): ordered per-client rules (connector, tool, verb, an amount over a threshold in one currency, the client agent → the client admin, a role, a named person or the operator), evaluated in core and read fresh by the gate for every proposal (rules, then the step's and agent's approver, then the client's default, then the client admin); `ToolSpec.amount`; the back office's "Who approves" section with Try it; the portal's stricter-only editor on Connections, enforced on the server (403 `loosening`); every save logged in `tenant_change`; no migration. Open: the portal section's strings for the languages stream; a walk in Chromium; amounts on real connectors' tools (QuickBooks) |
 | Stream J: Stripe billing (2026-11-04) | Done (§1.24), on staging (2026-11-04): migration 0009 (own PR #34); credit conversion over usage measures; the Stripe client, webhook checks and fake; quantity sync on activate, pause and retire and hourly; the daily usage report, idempotent per client, period and day; `/ops/billing` and the client page's Billing section; the portal's `/billing` for client admins. Tests use the fake Stripe only. Open: everything marked UNCHECKED in `stripe/NOTES.md`; the Stripe account, meter, prices and webhook endpoint; `STRIPE_*` in `deploy.yml`; real prices and allowance; the `messages` and `call_seconds` columns (texts and calls branches, they bill once merged); whether paused agents and test runs are billed |
+| Access (M12, 2026-11-05) | Planned (§1.26): phase 1 client data keys, write-only secrets and grants (migration 0011, own PR); phase 2 the code service `apps/mfa` (deploy change in its own PR); phase 3 browser connections (migration 0012, own PR), piloted read-only on a fixture site, then a real low-tier site. |
 
 **Phase 2: Cloud.** Bootstrap workflow, deploy spike, staging (M0's deploy spike, `docs/operations.md`).
 
@@ -790,6 +816,20 @@ Tests: Playwright e2e: the operator creates a client, forks Pia into it and cust
 
 Status (stream M11, 2026-11-04): usage and reports built (§1.15): the rollup (documents, every day a run touched, the hourly sweep), `/api/ops/usage` and `/ops/usage`, `/api/reports/activity` and the portal's `/reports` with a slot for pack reports, `/api/services/:id` and the Service page. Not yet: notification emails, links from every alert and external action to its run, first-run guidance, the e2e.
 
+### M12: Access (vault, grants, code service, browser connections)
+
+ARCHITECTURE v0.10, §1.26. Phase 1: `tenant_key`, envelope v2 and the hourly re-encryption; `agent_grant`
+and the effective verb; `credentialFields` and the write-only forms; the portal's `/access` and the back
+office's grants. Phase 2: `apps/mfa` (identities, waits, claim once, SMS and email intake, authenticator
+codes, caps, alerts) and the `CODES` binding. Phase 3: `browser_site` and its versions, browser connections,
+the `BrowserDriver`, sign-in and sign-out by code, `browser.page.read` and `browser.file.download`, caps and
+stops.
+
+Done when: an agent with a read-only grant signs in to a low-tier fixture site as its agent account, with
+an emailed code from the code service, downloads an invoice as a document and signs out; the model's
+transcript contains neither the password nor the code; a second agent without the binding is refused;
+a code that arrives with no wait open raises an alert and is never handed out.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -855,4 +895,5 @@ Open
 2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
 3. Intuit: a QuickBooks developer app (`QBO_*`), and `developer.intuit.com` allowed in the session's network so M9 can check the docs first (owner: tomorrow).
 5. Reach out (§1.25): answered (2026-11-04): agents get their own channels (a Gmail of their own, Resend, or a person's Gmail; Twilio numbers), and the operator and the client admin both edit people and conditions. Open: a Resend account and its key; Google's send scope added to the Gmail review.
+6. Access (§1.26, owner 2026-11-05: build it): open: the agent email domain (default `agents.mezonas.com`, routed to `apps/mfa` by Cloudflare Email Routing); the codes Twilio subaccount; the first real low-tier site for the pilot; legal review of agent accounts on third-party sites, with the review of calls and texts; `developers.cloudflare.com` allowed in the session's network to check Browser Run's limits (handoff time limit, whether recordings capture typed input, Live View link access).
 4. Texts and calls (§1.19): WhatsApp through Twilio first, then Meta directly so clients can use their own number (owner, 2026-11-04); register Mezonas as a Meta Tech Provider ahead of the Meta step. Open: Mezonas-owned Twilio subaccounts per client (default) or each client's own Twilio; which countries first (US texting needs A2P 10DLC registration); Twilio and ElevenLabs accounts and keys; `api.twilio.com`, `graph.facebook.com` and `api.elevenlabs.io` allowed in the network. Legal review of consent, calling hours, recording consent and AI disclosure for each country before any live client calls.
