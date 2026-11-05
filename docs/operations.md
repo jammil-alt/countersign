@@ -36,8 +36,8 @@ site's (see "The public site" below), and other records on the zone (e.g. `datum
 untouched.
 App on `app.mezonas.com`, staging on `staging.mezonas.com` (owner, 2026-11-03).
 
-CI's own throwaway Neon branches are named `ci-run<id>-<attempt>`, copied from `main` and deleted
-when the run ends.
+CI's own throwaway Neon branches are named `ci-run<id>-<attempt>`, copied from `main` **schema
+only** (no rows: client data never reaches a CI runner) and deleted when the run ends.
 
 ## 1. What a person must create
 
@@ -552,7 +552,14 @@ and, after approval, itemizes the bill, attaches the invoice and notes it in the
   marking a PR ready runs the check.
 - **`checks.yml`**: install, Biome lint, layering check, typecheck, then tests against a Postgres 16 +
   pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`). With the Neon settings present,
-  it also copies `main` to a throwaway branch, applies the migrations to it, and deletes it.
+  it also copies `main`'s schema (never its data) to a throwaway branch, applies the migrations to it,
+  and deletes it. A migration that only fails on real rows (a new `not null` on old data) is caught
+  by the deploy's own migration, which runs in a transaction before the Worker deploys.
+- **`codeql.yml`**: CodeQL's security queries on ready pull requests, pushes to `main` and weekly.
+  Findings are under Security → Code scanning.
+- **Dependabot** (`.github/dependabot.yml`): security updates as GitHub learns of them; npm and
+  Actions version updates weekly, grouped. Turn on Dependabot alerts and security updates, and
+  secret scanning with push protection, in the repository's Settings → Code security.
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then

@@ -13,14 +13,15 @@ name: Checks
 #  - A Postgres 16 + pgvector service container (the same image as docker-compose.yml), set up with
 #    Neon's roles by scripts/setup-postgres.sh, is what the tests run against (fast: no network round
 #    trips). The runner's own Postgres has no pgvector package, so it isn't used.
-#  - A throwaway Neon branch copied from `main` checks that migrations apply to production's real
-#    schema and data. Skipped until the NEON_API_KEY secret and NEON_PROJECT_ID variable exist.
+#  - A throwaway, schema-only Neon branch of `main` checks that migrations apply to production's real
+#    schema. Schema only: no client data (it may hold health or card data) ever reaches a runner.
+#    Skipped until the NEON_API_KEY secret and NEON_PROJECT_ID variable exist.
 
 on:
   workflow_call:
     inputs:
       neon-parent:
-        description: Neon branch the throwaway branch is copied from.
+        description: Neon branch whose schema (never its data) the throwaway branch is copied from.
         type: string
         default: main
       scope:
@@ -155,14 +156,15 @@ jobs:
         run: |
           set -euo pipefail
           npx --yes "$NEONCTL" branches create --project-id "$NEON_PROJECT_ID" \
-            --name "$NEON_BRANCH" --parent '${{ inputs.neon-parent }}' --output json > /dev/null
+            --name "$NEON_BRANCH" --parent '${{ inputs.neon-parent }}' --schema-only \
+            --output json > /dev/null
           echo "created=true" >> "$GITHUB_OUTPUT"
           url=$(npx --yes "$NEONCTL" connection-string "$NEON_BRANCH" \
             --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
           echo "::add-mask::$url"
           echo "NEON_DATABASE_URL=$url" >> "$GITHUB_ENV"
 
-      - name: Migrations apply to a copy of production
+      - name: Migrations apply to production's schema
         if: env.NEON_DATABASE_URL != ''
         run: DIRECT_DATABASE_URL="$NEON_DATABASE_URL" pnpm --filter @countersign/db run --if-present db:migrate
 
