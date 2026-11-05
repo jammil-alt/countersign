@@ -1,12 +1,14 @@
-// `/ops/billing` (docs/plan.md §1.24): Mezonas' billing settings (unit costs per usage measure, the
-// allowance per agent, the Stripe prices) and each client's period so far: base fee, allowance,
-// credits used, overage, and what the work cost us (operator only; the portal never sees cost).
+// `/ops/billing` (docs/plan.md §1.32): we work out each client's bill and Stripe sends it. The
+// statements to review (adjust, send, void, or send every draft), each client's month so far with
+// what it cost us (operator only; the portal never sees cost), template prices, and the settings:
+// the default price and credits, the price of an extra credit, auto-send, days until due and the
+// unit costs that turn usage into credits.
 import type { BillingSettings, OpsBilling, UnitCost } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
-import { credits, price } from "../../billing/parts";
+import { price } from "../../billing/parts";
 import { Field, TextInput } from "../../ui/forms";
 import {
   Badge,
@@ -20,6 +22,14 @@ import {
 } from "../../ui/primitives";
 import { cost, count, periodLabel } from "../../usage/format";
 import { Notice, Select, useAction } from "../agents/ui";
+import { OpsStatementCard } from "./BillingStatement";
+
+export const SOURCE_LABEL = {
+  override: "Own price",
+  template: "Template's price",
+  platform: "Platform agent, free",
+  default: "Default price",
+} as const;
 
 export function OpsBillingScreen() {
   const { data, error, loading, reload } = useApi(apiRoutes.opsBilling);
@@ -27,14 +37,16 @@ export function OpsBillingScreen() {
     <div>
       <PageHeader
         title="Billing"
-        subtitle="What each client pays: a base fee per active agent with an allowance of credits, then extra credits. One credit is one cent of what the work cost us."
+        subtitle="We work out each client's bill: a monthly price per agent with credits included, then extra credits. Stripe sends the invoice and takes payment. One credit is one cent of what the work cost us."
       />
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data ? (
         <>
           <StripeStatus data={data} />
-          <ClientsTable data={data} onChange={reload} />
+          <ToReview data={data} onChange={reload} />
+          <ClientsTable data={data} />
+          <TemplatePrices data={data} />
           <SettingsForm data={data} onSaved={reload} />
         </>
       ) : null}
@@ -49,33 +61,87 @@ function StripeStatus({ data }: { data: OpsBilling }) {
       <Notice tone="neutral" testId="ops-billing-stripe-status">
         {data.stripeConfigured
           ? "Stripe's webhook secret is not set, so paid and failed invoices won't show here yet."
-          : "Stripe is not connected yet: set STRIPE_SECRET_KEY to set clients up and report usage."}
+          : "Stripe is not connected yet: set STRIPE_SECRET_KEY to set clients up and send statements."}
       </Notice>
     </div>
   );
 }
 
-function ClientsTable({ data, onChange }: { data: OpsBilling; onChange: () => void }) {
+function ToReview({ data, onChange }: { data: OpsBilling; onChange: () => void }) {
   const action = useAction();
-  const [settingUp, setSettingUp] = useState<string | null>(null);
-  const ready =
-    data.stripeConfigured && data.settings.basePriceId !== null && data.settings.overagePriceId;
+  const [result, setResult] = useState<string | null>(null);
+  const drafts = data.toReview.filter((s) => s.status === "draft");
 
-  async function setUp(id: string) {
-    setSettingUp(id);
-    const out = await action.call(apiRoutes.opsBillingSetup, { params: { id }, body: {} });
-    setSettingUp(null);
-    if (out.ok) onChange();
+  async function sendAll() {
+    setResult(null);
+    const out = await action.call(apiRoutes.opsSendDrafts);
+    if (!out.ok) return;
+    const sent = out.data.results.filter((r) => !r.error).length;
+    const failed = out.data.results.length - sent;
+    setResult(
+      failed > 0
+        ? `${sent} sent, ${failed} stopped. Each says why below.`
+        : `${sent} ${sent === 1 ? "statement" : "statements"} sent.`,
+    );
+    onChange();
   }
 
   return (
-    <section className="mb-8">
-      <SectionLabel>Clients this period</SectionLabel>
+    <section className="mb-8" data-testid="ops-billing-review">
+      <SectionLabel
+        action={
+          drafts.length > 0 ? (
+            <Button
+              size="sm"
+              variant="primary"
+              data-testid="ops-billing-send-all"
+              disabled={action.busy || !data.stripeConfigured}
+              onClick={() => void sendAll()}
+            >
+              {action.busy ? "Sending…" : `Send all drafts (${drafts.length})`}
+            </Button>
+          ) : null
+        }
+      >
+        Statements to review
+      </SectionLabel>
+      {result ? (
+        <div className="mb-3">
+          <Notice tone="positive" testId="ops-billing-send-all-result">
+            {result}
+          </Notice>
+        </div>
+      ) : null}
       {action.error ? (
         <div className="mb-3">
           <ErrorNotice error={action.error} />
         </div>
       ) : null}
+      {data.toReview.length === 0 ? (
+        <EmptyState>
+          Nothing to review. Each client's statement for a month is built on the 1st of the next.
+        </EmptyState>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {data.toReview.map((s) => (
+            <OpsStatementCard
+              key={s.id}
+              statement={s}
+              showClient
+              stripeConfigured={data.stripeConfigured}
+              onChanged={onChange}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ClientsTable({ data }: { data: OpsBilling }) {
+  return (
+    <section className="mb-8">
+      <SectionLabel>This month so far</SectionLabel>
       {data.clients.length === 0 ? (
         <EmptyState>No clients yet.</EmptyState>
       ) : (
@@ -85,58 +151,101 @@ function ClientsTable({ data, onChange }: { data: OpsBilling; onChange: () => vo
               <tr className="dt-cols">
                 <th>Client</th>
                 <th className="n">Agents</th>
-                <th className="n">Base</th>
+                <th className="n">So far</th>
                 <th className="n">Credits used</th>
-                <th className="n">Allowance</th>
+                <th className="n">Included</th>
                 <th className="n">Extra</th>
                 <th className="n">Our cost</th>
                 <th>Billing</th>
               </tr>
             </thead>
             <tbody>
-              {data.clients.map((c) => (
-                <tr key={c.id} data-testid={`ops-billing-row-${c.id}`}>
-                  <td>
-                    <span className="flex flex-col py-1">
-                      <Link
-                        to={`/ops/clients/${c.id}`}
-                        className="font-medium text-ink hover:underline"
-                      >
-                        {c.name}
-                      </Link>
-                      <span className="text-sm text-ink-muted">
-                        {periodLabel(c.period.start, c.period.through)}
-                      </span>
-                    </span>
-                  </td>
-                  <td className="n">{count(c.activeAgents)}</td>
-                  <td className="n">{c.base ? price(c.base) : "–"}</td>
-                  <td className="n text-ink">{count(c.creditsUsed)}</td>
-                  <td className="n">{count(c.allowance)}</td>
-                  <td className="n">{count(c.overageCredits)}</td>
-                  <td className="n">{cost(c.costUsd)}</td>
-                  <td>
-                    {c.setUp ? (
-                      <span className="flex items-center gap-2">
-                        <Badge
-                          tone={c.lastInvoice?.status === "payment_failed" ? "risk" : "positive"}
+              {data.clients.map((c) => {
+                const m = c.monthSoFar;
+                return (
+                  <tr key={c.id} data-testid={`ops-billing-row-${c.id}`}>
+                    <td>
+                      <span className="flex flex-col py-1">
+                        <Link
+                          to={`/ops/clients/${c.id}`}
+                          className="font-medium text-ink hover:underline"
                         >
-                          {c.lastInvoice?.status === "payment_failed" ? "Payment failed" : "Billed"}
-                        </Badge>
+                          {c.name}
+                        </Link>
+                        <span className="text-sm text-ink-muted">
+                          {periodLabel(m.period.start, m.period.through)}
+                        </span>
                       </span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        data-testid={`ops-billing-setup-${c.id}`}
-                        disabled={!ready || action.busy}
-                        title={ready ? undefined : "Connect Stripe and save both prices first"}
-                        onClick={() => void setUp(c.id)}
-                      >
-                        {settingUp === c.id ? "Setting up…" : "Set up billing"}
-                      </Button>
-                    )}
+                    </td>
+                    <td className="n">{count(c.activeAgents)}</td>
+                    <td className="n text-ink">{price(m.total)}</td>
+                    <td className="n">{count(m.creditsUsed)}</td>
+                    <td className="n">{count(m.creditsIncluded)}</td>
+                    <td className="n">{count(m.extraCredits)}</td>
+                    <td className="n">{cost(c.costUsd)}</td>
+                    <td>
+                      {c.setUp ? (
+                        c.latestStatement?.status === "payment_failed" ? (
+                          <Badge tone="risk">Payment failed</Badge>
+                        ) : (
+                          <Badge tone="positive">Billed</Badge>
+                        )
+                      ) : (
+                        <Link
+                          to={`/ops/clients/${c.id}`}
+                          className="ds-btn ds-btn--link text-sm"
+                          data-testid={`ops-billing-setup-${c.id}`}
+                        >
+                          Set up on its page
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TemplatePrices({ data }: { data: OpsBilling }) {
+  return (
+    <section className="mb-8">
+      <SectionLabel>Template prices</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted">
+        A client agent takes its own price if it has one, else its template's, else the default.
+        Change a template's price on its Settings tab; it applies from the next day recorded.
+      </p>
+      {data.templates.length === 0 ? (
+        <EmptyState>No templates yet.</EmptyState>
+      ) : (
+        <div className="dt overflow-x-auto">
+          <table data-testid="ops-billing-templates">
+            <thead>
+              <tr className="dt-cols">
+                <th>Template</th>
+                <th className="n">A month</th>
+                <th className="n">Credits included</th>
+                <th>From</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.templates.map((t) => (
+                <tr key={t.id} data-testid={`ops-billing-template-${t.slug}`}>
+                  <td>
+                    <Link
+                      to={`/ops/templates/${t.slug}/settings`}
+                      className="font-medium text-ink hover:underline"
+                    >
+                      {t.name}
+                    </Link>
                   </td>
+                  <td className="n text-ink">{price(t.effective.monthlyPrice)}</td>
+                  <td className="n">{count(t.effective.includedCredits)}</td>
+                  <td className="text-sm text-ink-muted">{SOURCE_LABEL[t.effective.source]}</td>
                 </tr>
               ))}
             </tbody>
@@ -149,36 +258,47 @@ function ClientsTable({ data, onChange }: { data: OpsBilling; onChange: () => vo
 
 /** The form's own copy of the settings: numbers as typed, checked when saved. */
 interface Draft {
-  allowance: string;
-  basePriceId: string;
-  overagePriceId: string;
-  meterEventName: string;
+  defaultAgentPrice: string;
+  defaultIncludedCredits: string;
+  creditPrice: string;
+  autoSend: boolean;
   daysUntilDue: string;
   unitCosts: { measure: string; unitCost: string; perUnits: string }[];
 }
 
 function draftOf(s: OpsBilling["settings"]): Draft {
   return {
-    allowance: String(s.allowanceCreditsPerAgent),
-    basePriceId: s.basePriceId ?? "",
-    overagePriceId: s.overagePriceId ?? "",
-    meterEventName: s.meterEventName,
+    defaultAgentPrice: s.defaultAgentPrice,
+    defaultIncludedCredits: String(s.defaultIncludedCredits),
+    creditPrice: s.creditPrice,
+    autoSend: s.autoSend,
     daysUntilDue: String(s.daysUntilDue),
     unitCosts: s.unitCosts.map((u) => ({ ...u, perUnits: String(u.perUnits) })),
   };
 }
 
 const WHOLE = /^\d{1,9}$/;
+const DOLLARS = /^\d{1,10}(\.\d{1,4})?$/;
 
 /** The settings from the form, or what is wrong with them. */
 export function settingsFromDraft(d: Draft): { settings: BillingSettings } | { problem: string } {
-  if (!WHOLE.test(d.allowance)) return { problem: "The allowance is a whole number of credits." };
+  const agentPrice = d.defaultAgentPrice.trim().replace(/^\$/, "");
+  const creditPrice = d.creditPrice.trim().replace(/^\$/, "");
+  if (!DOLLARS.test(agentPrice)) {
+    return { problem: "The default agent price is a dollar amount with up to 4 places." };
+  }
+  if (!WHOLE.test(d.defaultIncludedCredits)) {
+    return { problem: "The credits included are a whole number." };
+  }
+  if (!DOLLARS.test(creditPrice)) {
+    return { problem: "The price of an extra credit is a dollar amount with up to 4 places." };
+  }
   if (!WHOLE.test(d.daysUntilDue) || Number(d.daysUntilDue) < 1 || Number(d.daysUntilDue) > 365) {
     return { problem: "Days until due is a whole number from 1 to 365." };
   }
   const unitCosts: UnitCost[] = [];
   for (const u of d.unitCosts) {
-    if (!/^\d{1,10}(\.\d{1,4})?$/.test(u.unitCost.trim())) {
+    if (!DOLLARS.test(u.unitCost.trim())) {
       return { problem: `The unit cost of ${u.measure} is a dollar amount with up to 4 places.` };
     }
     if (!WHOLE.test(u.perUnits) || Number(u.perUnits) < 1) {
@@ -192,10 +312,10 @@ export function settingsFromDraft(d: Draft): { settings: BillingSettings } | { p
   }
   return {
     settings: {
-      allowanceCreditsPerAgent: Number(d.allowance),
-      basePriceId: d.basePriceId.trim() || null,
-      overagePriceId: d.overagePriceId.trim() || null,
-      meterEventName: d.meterEventName.trim(),
+      defaultAgentPrice: agentPrice,
+      defaultIncludedCredits: Number(d.defaultIncludedCredits),
+      creditPrice,
+      autoSend: d.autoSend,
       daysUntilDue: Number(d.daysUntilDue),
       unitCosts,
     },
@@ -208,9 +328,8 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
   const [saved, setSaved] = useState(false);
   const action = useAction();
   // Re-fill the form only when the saved settings change by value, not on every reload: a refresh
-  // after another client's set-up or sync returns equal settings and must keep unsaved edits. This
-  // is done while rendering, not in an effect: an effect also ran after the first render, and when
-  // the operator's first keystroke came before React ran it, the re-fill landed on top of the edit.
+  // after a statement is sent returns equal settings and must keep unsaved edits. Done while
+  // rendering, not in an effect, so a first keystroke never races the re-fill.
   const savedSettings = JSON.stringify(data.settings);
   const [filledFrom, setFilledFrom] = useState(savedSettings);
   if (filledFrom !== savedSettings) {
@@ -242,37 +361,43 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
     }
   }
 
-  const s = data.settings;
   return (
     <section data-testid="ops-billing-settings">
       <SectionLabel>Settings</SectionLabel>
       <Card className="flex flex-col gap-6 p-5">
         <p className="text-sm text-ink-muted">
-          These are placeholders until prices are set. Prices live in Stripe; we keep their ids and
-          check them when you save.
-          {s.baseFee ? (
-            <>
-              {" "}
-              Now: <span className="text-ink">{price(s.baseFee)}</span> a month per active agent
-              {s.overagePrice ? (
-                <>
-                  , extra credits <span className="text-ink">{price(s.overagePrice)}</span> each
-                </>
-              ) : null}
-              .
-            </>
-          ) : null}
+          These are placeholders until prices are set. Prices apply from the next day recorded; a
+          month's statement keeps the prices each day had.
         </p>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field
-            label="Credits included per active agent, each month"
-            hint="Pooled across a client's agents"
+            label="Default agent price, a month (USD)"
+            hint="For an agent with no price of its own or from its template"
           >
+            <TextInput
+              data-testid="ops-billing-agent-price"
+              inputMode="decimal"
+              value={draft.defaultAgentPrice}
+              onChange={(e) => set({ defaultAgentPrice: e.target.value })}
+            />
+          </Field>
+          <Field label="Default credits included, a month" hint="Pooled across a client's agents">
             <TextInput
               data-testid="ops-billing-allowance"
               inputMode="numeric"
-              value={draft.allowance}
-              onChange={(e) => set({ allowance: e.target.value })}
+              value={draft.defaultIncludedCredits}
+              onChange={(e) => set({ defaultIncludedCredits: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Price of an extra credit (USD)"
+            hint="For each credit past what a client's agents include"
+          >
+            <TextInput
+              data-testid="ops-billing-credit-price"
+              inputMode="decimal"
+              value={draft.creditPrice}
+              onChange={(e) => set({ creditPrice: e.target.value })}
             />
           </Field>
           <Field
@@ -286,28 +411,22 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
               onChange={(e) => set({ daysUntilDue: e.target.value })}
             />
           </Field>
-          <Field label="Base fee price" hint="A monthly licensed price in Stripe (price_…)">
-            <TextInput
-              data-testid="ops-billing-base-price"
-              value={draft.basePriceId}
-              onChange={(e) => set({ basePriceId: e.target.value })}
-            />
-          </Field>
-          <Field label="Extra credit price" hint="A monthly metered price on the credits meter">
-            <TextInput
-              data-testid="ops-billing-overage-price"
-              value={draft.overagePriceId}
-              onChange={(e) => set({ overagePriceId: e.target.value })}
-            />
-          </Field>
-          <Field label="Meter event name" hint="The Stripe billing meter's event name">
-            <TextInput
-              data-testid="ops-billing-meter"
-              value={draft.meterEventName}
-              onChange={(e) => set({ meterEventName: e.target.value })}
-            />
-          </Field>
         </div>
+        <label className="flex items-start gap-2 text-sm text-ink">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 accent-slate"
+            data-testid="ops-billing-auto-send"
+            checked={draft.autoSend}
+            onChange={(e) => set({ autoSend: e.target.checked })}
+          />
+          <span>
+            Send each month's statements as soon as they are built
+            <span className="block text-ink-muted">
+              Off: they wait here as drafts for you to check, adjust and send.
+            </span>
+          </span>
+        </label>
 
         <div>
           <h3 className="mb-1 font-medium text-ink">Unit costs</h3>
@@ -435,11 +554,4 @@ function AddMeasure({
       </Button>
     </div>
   );
-}
-
-/** Words for a client's period, shared with the client page. */
-export function periodWords(c: { creditsUsed: number; allowance: number; overageCredits: number }) {
-  return c.overageCredits > 0
-    ? `${credits(c.creditsUsed)} used, ${credits(c.overageCredits)} over the allowance`
-    : `${credits(c.creditsUsed)} used of ${credits(c.allowance)}`;
 }
