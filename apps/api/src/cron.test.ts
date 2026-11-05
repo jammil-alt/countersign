@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "./env";
 import { defaultDeps } from "./http";
 
-const cronTick = vi.hoisted(() => vi.fn(async () => {}));
+const cronTick = vi.hoisted(() => vi.fn(async (_deps: unknown, _at: Date) => {}));
 vi.mock("./runs/dispatch", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./runs/dispatch")>()),
   cronTick,
