@@ -11,6 +11,7 @@ import {
   extractDocument,
   findSupport,
   getDocument,
+  matchBill,
 } from "@countersign/documents";
 import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
 import type { DocumentForTool, DocumentsPort } from "../tools/types";
@@ -114,6 +115,10 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
       return withTenant(db, tenantId, (tx) =>
         findSupport(tx, tenantId, input.transactionId, { testRun: input.testRun }),
       );
+    },
+
+    matchBill(tenantId, input) {
+      return withTenant(db, tenantId, (tx) => matchBill(tx, tenantId, input));
     },
   };
 }

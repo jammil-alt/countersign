@@ -13,9 +13,10 @@ import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } fr
 const online = await databaseAvailable();
 
 describe("seed files", () => {
-  it("hold the four platform templates, each a valid bundle", async () => {
+  it("hold the five platform templates, each a valid bundle", async () => {
     const templates = await loadSeedTemplates();
     expect(templates.map((t) => t.slug)).toEqual([
+      "bill-clerk",
       "builder",
       "coordinator",
       "document-clerk",
@@ -54,10 +55,10 @@ describe.skipIf(!online)("seed", () => {
     return row;
   };
 
-  it("inserts the operator, two clients and four live templates; twice is the same as once", async () => {
+  it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 4, versions: 4 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 5 });
 
     const second = await seed(t.db);
     expect(second).toEqual(first);
@@ -73,6 +74,7 @@ describe.skipIf(!online)("seed", () => {
       .from(agent)
       .orderBy(agent.slug);
     expect(templates.map((r) => r.slug)).toEqual([
+      "bill-clerk",
       "builder",
       "coordinator",
       "document-clerk",
@@ -120,6 +122,6 @@ describe.skipIf(!online)("seed", () => {
       await asWorker(tx);
       return tx.select({ id: agent.id }).from(agent).where(isNull(agent.tenantId));
     });
-    expect(asOperator).toHaveLength(4);
+    expect(asOperator).toHaveLength(5);
   });
 });

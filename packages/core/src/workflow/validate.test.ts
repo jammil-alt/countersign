@@ -151,6 +151,17 @@ describe("one failing fixture per rule", () => {
       { stepId: "s1", field: "input.documentId" },
     ],
     [
+      "a notice's sources reference what is in scope",
+      "template_scope",
+      (w) => {
+        (fork(w).otherwise.steps[0] as { sources?: string[] }).sources = [
+          "{{steps.s1.output.documentId}}",
+          "{{steps.s7.output.attachableId}}",
+        ];
+      },
+      { stepId: "s4", field: "sources.1" },
+    ],
+    [
       "no reference into a fork path after the join",
       "template_scope",
       (w) => {

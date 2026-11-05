@@ -40,6 +40,7 @@ import { QBO_SIGNATURE_HEADER, verifyQboWebhook } from "./webhook";
 
 export * from "./api";
 export * from "./records";
+export * from "./skills";
 export * from "./sync";
 export * from "./tools";
 export * from "./webhook";
