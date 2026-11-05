@@ -234,7 +234,7 @@ describe("legal pages", () => {
   it("marks every placeholder and lists each one in the README", () => {
     const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
     const all = new Set(pages.flatMap((p) => p.placeholders));
-    expect(all.size).toBeGreaterThan(0);
+    // None are left since the owner filled them in (2026-11-05); any new one must be listed.
     for (const ph of all) expect(readme, ph).toContain(ph);
     for (const p of pages) {
       // Every bracketed item in the text is wrapped so it shows highlighted.

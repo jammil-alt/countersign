@@ -43,18 +43,11 @@ mark or "AI-powered".
 
 The legal text is a draft for the owner's lawyer, not legal advice. The company is Twelve
 Thirty-Four Consulting LLC (the name on the owner's Twilio compliance profile; its EIN is not
-published). These are left in brackets, highlighted on the page:
-
-| Placeholder | Where | What goes there |
-|---|---|---|
-| `[address]` | `/terms` (contact), `/privacy` (contact) | Its postal address |
-| `[contact email]` | `/` (contact), `/terms` (contact), `/sms-terms` (help) | The address clients, prospects and people who get texts write to |
-| `[privacy contact email]` | `/privacy` (rights, contact), `/subprocessors` (questions) | The address for privacy requests |
-| `[state]` | `/terms` (governing law) | The state whose law governs, and whose courts hear disputes |
-| `[to confirm with each provider]` | `/privacy` (AI model processing) | Whether Anthropic and OpenAI keep API data, for how long, and whether they may train on it, under the terms we accepted |
-| `[deletion period]` | `/privacy` (retention) | How long after the end of service, or a request, we take to delete a client's data |
-| `[backup retention period]` | `/privacy` (retention) | How long database backups keep deleted data (Neon's restore window as configured) |
-| `[transfer safeguards to confirm]` | `/privacy` (international transfers) | The mechanism for moving data between countries, such as standard contractual clauses |
+published). The owner filled in the bracketed placeholders on 2026-11-05: contact and privacy
+email, the postal address, Texas law, deletion within 30 days and backups expiring within a further
+30 days. The AI providers' API data terms (no training, limited retention for misuse checks) and the
+international transfer safeguards (providers' data processing terms, standard contractual clauses)
+are written from the providers' published commercial terms and are for the lawyer to confirm.
 
 Also for the owner and the lawyer to confirm (stated as draft terms, not placeholders): 30 days'
 notice for changes to the terms and to the subprocessor list, 30 days' notice to end the service
