@@ -29,8 +29,9 @@ Mezonas is the product name and the name of every public resource; `countersign`
 
 `apps/api/wrangler.jsonc`'s top level is local development only (dev sign-in) and is never deployed:
 `deploy.yml` always passes `--env=staging` or `--env=production`. The custom domains are created by
-`wrangler deploy` (`custom_domain: true`); the apex `mezonas.com` stays free for a marketing site, and
-other records on the zone (e.g. `datum.mezonas.com`) are untouched.
+`wrangler deploy` (`custom_domain: true`); the apex `mezonas.com` and `www.mezonas.com` are the public
+site's (see "The public site" below), and other records on the zone (e.g. `datum.mezonas.com`) are
+untouched.
 App on `app.mezonas.com`, staging on `staging.mezonas.com` (owner, 2026-11-03).
 
 CI's own throwaway Neon branches are named `ci-run<id>-<attempt>`, copied from `main` and deleted
@@ -99,6 +100,51 @@ After the first run: save the project id from the run summary as the repository 
    `https://staging.mezonas.com/api/auth/callback` and `https://app.mezonas.com/api/auth/callback`;
    Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
+
+### The public site (mezonas.com)
+
+`apps/site` (`docs/plan.md` §1.29): the landing page, terms, privacy policy and subprocessors, as
+static files on the Worker **`mezonas-site`** (`apps/site/wrangler.jsonc`: assets only, no code).
+There is one site for staging and production: `deploy.yml`'s `site` job builds it and runs
+`wrangler deploy` on every push to `main` (and on a manual run from `main`), never from a `v*` tag.
+It needs only the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token
+already has Workers Scripts edit, Workers Routes edit and DNS edit on `mezonas.com`.
+
+`wrangler deploy` attaches the custom domains `mezonas.com` and `www.mezonas.com` and creates their
+DNS records and certificates itself. It cannot attach a name another DNS record already holds, so
+the first deploy fails until the parking records are gone.
+
+DNS today (owner, 2026-11-05): DNS for `mezonas.com` is in Cloudflare (nameservers
+`coen.ns.cloudflare.com` and `lady.ns.cloudflare.com`); GoDaddy is only the registrar, with no
+forwarding. The parked page comes from two proxied apex `A` records in Cloudflare,
+`15.197.148.33` and `3.33.130.190`, and `www.mezonas.com` is a `CNAME` to `mezonas.com`.
+
+What the owner does, once:
+
+- [ ] **Delete three records.** Cloudflare → `mezonas.com` → DNS → Records: delete
+      `A mezonas.com 15.197.148.33`, `A mezonas.com 3.33.130.190` and `CNAME www → mezonas.com`.
+      Nothing else.
+- [ ] **Keep everything else**, in particular: the apex `TXT google-site-verification=…` (Search
+      Console verification, now verified; removing it unverifies the domain), the `_domainconnect`
+      `CNAME`, `staging.mezonas.com` (Worker `mezonas-staging`), `codes-staging` (the code service),
+      and the Worker routes `chore-admin`, `chore-tracker`, `datum` and `dev.datum`, which belong to
+      other projects and must not be touched. `app.mezonas.com` has no record yet (the production
+      app is not deployed).
+- [ ] **Deploy.** Merge the deploy PR (`claude/site-deploy`), or, if it is already merged, re-run
+      the `site` job of the latest Deploy run on `main` (Actions → Deploy → the run → Re-run failed
+      jobs). The custom domains create their own records; they show in DNS as type "Worker".
+- [ ] **Check** `https://mezonas.com`, `/terms`, `/privacy`, `/subprocessors` and
+      `https://www.mezonas.com`.
+- [ ] **Then submit Google's verification.** The site must be live first: Google checks the
+      homepage and its privacy policy link on the verified domain. Homepage `https://mezonas.com`,
+      privacy policy `https://mezonas.com/privacy`, terms `https://mezonas.com/terms`. Fill in the
+      legal pages' placeholders before submitting (`apps/site/README.md`); while any remain, those
+      pages say "Draft for legal review".
+
+`www` serves the same pages, each with a canonical link to the apex, since a Worker with no code
+can't redirect by host. To make `www` a redirect instead (optional): Cloudflare → `mezonas.com` →
+Rules → Redirect Rules → template "Redirect from WWW to root" (301, keep the path); Redirect Rules
+run before the Worker.
 
 ### The code service (Access phase 2)
 
@@ -338,7 +384,8 @@ To stop it, pause the agent. Its findings stay in the inbox until someone marks 
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
   secrets, builds `apps/web` and runs `wrangler deploy` for apps/api (whose `CODES` binding needs the
-  code service deployed first).
+  code service deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
+  `main` only.
 
 ## 3. Migrations
 

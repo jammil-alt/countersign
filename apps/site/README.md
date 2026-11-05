@@ -27,6 +27,11 @@ pnpm --filter @countersign/site build   # writes apps/site/dist
 pnpm --filter @countersign/site test    # builds into a temp folder and checks it
 ```
 
+`pnpm --filter @countersign/site dev` builds the site and serves it with `wrangler dev`, as the
+Worker `mezonas-site` serves it (`wrangler.jsonc`: static assets only, `/terms` from `terms.html`,
+`404.html` for anything else). It deploys from `main` (`deploy.yml`, job `site`); the custom
+domains and the DNS steps are in `docs/operations.md`, "The public site".
+
 Each page starts with its front matter in an HTML comment: `title`, `description`, and
 `legal: true` for the legal pages. A legal page with a placeholder left shows the "Draft for legal
 review" note at the top; it disappears when the last placeholder on that page is filled in.

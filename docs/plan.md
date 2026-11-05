@@ -701,7 +701,9 @@ The public site at `mezonas.com` (`apps/site`), separate from the app.
 | Gmail scope | The privacy policy says we ask Google only for `gmail.send` and read no mailbox through Google; mail reaches us by forwarding (§6.5 of ARCHITECTURE). Owner, 2026-11-05: no CASA. A test keeps any other Gmail scope out of the policy. |
 | Facts | Every statement in the privacy policy and on the subprocessors page is taken from the code and `docs/operations.md`; what isn't settled is a placeholder. Keep them true when the platform changes (`apps/site/README.md`, "Keeping it true"). |
 | Placeholders | `[Legal entity name]`, `[address]`, `[contact email]`, `[privacy contact email]`, `[state]`, `[to confirm with each provider]` (model providers' retention and training terms), `[deletion period]`, `[backup retention period]`, `[transfer safeguards to confirm]`. Legal pages show "Draft for legal review" while any remain. The legal text is a draft for the owner's lawyer. |
-| Deploy | Its own Worker, `mezonas-site`, on `mezonas.com` and `www.mezonas.com`, in a separate PR (`claude/site-deploy`) held until the owner has removed the apex parking records in Cloudflare DNS (`docs/operations.md`). The site must be live before Google verification is submitted. |
+| Deploy | Its own Worker, `mezonas-site` (assets only), on the custom domains `mezonas.com` and `www.mezonas.com`, in a separate PR (`claude/site-deploy`) held until the owner has removed the apex parking records in Cloudflare DNS (`docs/operations.md`, "The public site"). The site must be live before Google verification is submitted. |
+| One site, from main | The site is public and the same everywhere, so `deploy.yml`'s own `site` job deploys it on pushes to `main` (and manual runs from `main`), never from a tag, with only the Cloudflare secrets; a failure there never holds up the app's deploy. // DECISION |
+| `www` | Serves the same pages with a canonical link to the apex rather than redirecting: a host redirect needs Worker code or a zone rule, and the site has no code. A Redirect Rule (www → apex) can be added in the dashboard at any time. // DECISION |
 
 ---
 
