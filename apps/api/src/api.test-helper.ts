@@ -24,6 +24,7 @@ import { createApp } from "./app";
 import type { Bindings } from "./env";
 import type { AppEnv } from "./http";
 import { createPlatform, type Platform } from "./platform";
+import type { QboSyncInstances } from "./qbo/instances";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
 
@@ -119,6 +120,8 @@ export interface HarnessOptions {
   stripe?: StripeClient;
   /** Platform skills beside the built-in ones (e.g. an agent-mode skill over a connector's tools). */
   skills?: SkillDefinition[];
+  /** QuickBooks syncs (in-memory instances); none by default. */
+  qboSync?: QboSyncInstances;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -157,6 +160,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     objects: () => objects,
     extractionTransport: () => extraction.transport,
     stripe: () => options.stripe ?? null,
+    qboSync: () => options.qboSync ?? null,
   });
   const env = {
     ENVIRONMENT: "development",

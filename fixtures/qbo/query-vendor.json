@@ -1,0 +1,58 @@
+{
+  "QueryResponse": {
+    "Vendor": [
+      {
+        "Id": "56",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-12T10:00:00-08:00",
+          "LastUpdatedTime": "2026-01-12T10:00:00-08:00"
+        },
+        "DisplayName": "Northwest Plywood Supply",
+        "CompanyName": "Northwest Plywood Supply, Inc.",
+        "PrintOnCheckName": "Northwest Plywood Supply Inc",
+        "PrimaryEmailAddr": { "Address": "ar@nwplywood.example" },
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Balance": 1352.75,
+        "Vendor1099": false
+      },
+      {
+        "Id": "57",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-02-03T10:00:00-08:00",
+          "LastUpdatedTime": "2026-06-18T14:22:00-07:00"
+        },
+        "DisplayName": "Cascade Hardwoods",
+        "CompanyName": "Cascade Hardwoods LLC",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Balance": 916.25,
+        "Vendor1099": false
+      },
+      {
+        "Id": "58",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-03-09T10:00:00-08:00",
+          "LastUpdatedTime": "2026-03-09T10:00:00-08:00"
+        },
+        "DisplayName": "Pacific Hardware & Finishes",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Balance": 0,
+        "Vendor1099": false
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 3
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

@@ -1,0 +1,163 @@
+// QuickBooks Online's routes (plan M9, ARCHITECTURE §6.2, §14). The paths are the ones registered
+// with the Intuit app (docs/operations.md, "Intuit"):
+// - `GET /api/connections/qbo/callback`: Intuit sends the client back here after signing in. The
+//   generic forwarder in ./connections.ts (shared with Gmail) hands the parameters on to the
+//   portal's callback page, which finishes the sign-in (POST /api/connections/qbo/callback).
+// - `POST /api/connections/qbo/webhook`: Intuit's signed notifications. Checked, then a sync is
+//   started for each connection to a company it names; nothing is processed inline.
+// - `POST /api/ops/connections/:id/sync`: the operator starts a sync now.
+// The cron starts a sync of every connected QuickBooks every 15 minutes (qboCronTick).
+
+import {
+  parseQboWebhook,
+  QBO_CONNECTOR_ID,
+  QBO_SIGNATURE_HEADER,
+  QBO_WEBHOOK_MAX_BYTES,
+} from "@countersign/connectors";
+import { routes } from "@countersign/core";
+import { connection, type Db, tenant, withTenant } from "@countersign/db";
+import { and, eq } from "drizzle-orm";
+import type { Hono } from "hono";
+import type { Bindings } from "../env";
+import { type AppDeps, type AppEnv, errorResponse, HttpError, mount, notFound } from "../http";
+import {
+  type QboSyncInstances,
+  type QboSyncParams,
+  qboSyncInstanceId,
+  qboSyncInstances,
+} from "../qbo/instances";
+import { qboConnectorOf } from "../qbo/sync";
+
+/** The deployment's QboSyncWorkflow (tests pass memory instances); null where it isn't bound. */
+export function qboSyncFor(deps: AppDeps, env: Bindings): QboSyncInstances | null {
+  if (deps.qboSync) return deps.qboSync(env);
+  return env.QBO_SYNC ? qboSyncInstances(env.QBO_SYNC) : null;
+}
+
+/** Starts a sync of one connection now (one per minute slot); null where sync isn't bound. */
+export async function startQboSync(
+  instances: QboSyncInstances | null,
+  params: QboSyncParams,
+  at = new Date(),
+): Promise<{ started: boolean; instanceId: string | null }> {
+  if (!instances) return { started: false, instanceId: null };
+  const id = qboSyncInstanceId(params.connectionId, params.reason, at);
+  const result = await instances.start(id, params);
+  return { started: result === "started", instanceId: id };
+}
+
+/**
+ * The connected QuickBooks connections to a company, across clients.
+ */
+// DECISION: the webhook finds a company's connections by looking in each client in turn (each in
+// its own withTenant), not through a global index: no table outside RLS learns which client uses
+// which company, and the number of clients is small. A global lookup is the follow-up if it grows.
+export async function qboConnectionsFor(
+  db: Db,
+  realmId: string | null,
+): Promise<{ tenantId: string; connectionId: string }[]> {
+  const clients = await db.select({ id: tenant.id }).from(tenant);
+  const out: { tenantId: string; connectionId: string }[] = [];
+  for (const client of clients) {
+    const rows = await withTenant(db, client.id, (tx) =>
+      tx
+        .select({ id: connection.id })
+        .from(connection)
+        .where(
+          and(
+            eq(connection.tenantId, client.id),
+            eq(connection.connector, QBO_CONNECTOR_ID),
+            eq(connection.status, "connected"),
+            ...(realmId === null ? [] : [eq(connection.externalAccountId, realmId)]),
+          ),
+        ),
+    );
+    for (const r of rows) out.push({ tenantId: client.id, connectionId: r.id });
+  }
+  return out;
+}
+
+/** The cron's minute within each quarter hour for QuickBooks syncs (4, 19, 34, 49). */
+export const QBO_CRON_MINUTE = 4;
+
+/** Every 15 minutes: a sync of every connected QuickBooks (CDC since its last sync). */
+export async function qboCronTick(
+  db: Db,
+  instances: QboSyncInstances | null,
+  at: Date,
+): Promise<number> {
+  if (!instances || at.getUTCMinutes() % 15 !== QBO_CRON_MINUTE) return 0;
+  let started = 0;
+  for (const c of await qboConnectionsFor(db, null)) {
+    try {
+      const r = await startQboSync(instances, { ...c, reason: "cron" }, at);
+      if (r.started) started += 1;
+    } catch (error) {
+      console.error(`qbo sync for connection ${c.connectionId} did not start`, error);
+    }
+  }
+  return started;
+}
+
+async function readBody(req: Request, limit: number): Promise<Uint8Array | null> {
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (declared > limit) return null;
+  const bytes = new Uint8Array(await req.arrayBuffer());
+  return bytes.length > limit ? null : bytes;
+}
+
+export function qboRoutes(app: Hono<AppEnv>): void {
+  app.post(routes.qboWebhook.path, async (c) => {
+    try {
+      const services = c.get("req").services();
+      const connector = qboConnectorOf(services.platform);
+      if (!connector || !c.env.QBO_WEBHOOK_VERIFIER) {
+        throw new HttpError(503, "not_configured", "QuickBooks webhooks are not set up here");
+      }
+      const body = await readBody(c.req.raw, QBO_WEBHOOK_MAX_BYTES);
+      if (!body) throw new HttpError(413, "too_large", "QuickBooks notifications are smaller");
+      const signature = c.req.header(QBO_SIGNATURE_HEADER) ?? "";
+      if (!(await connector.verifyWebhook?.({ [QBO_SIGNATURE_HEADER]: signature }, body))) {
+        throw new HttpError(401, "invalid_signature", "the signature does not match");
+      }
+      let json: unknown;
+      try {
+        json = JSON.parse(new TextDecoder().decode(body));
+      } catch {
+        throw new HttpError(400, "invalid_request", "the body is not JSON");
+      }
+      const companies = parseQboWebhook(json);
+      if (!companies) throw new HttpError(400, "invalid_request", "not a QuickBooks notification");
+      const instances = qboSyncFor(services.deps, services.env);
+      let syncs = 0;
+      for (const { realmId } of companies) {
+        for (const conn of await qboConnectionsFor(services.db, realmId)) {
+          const r = await startQboSync(instances, { ...conn, reason: "webhook" });
+          if (r.started) syncs += 1;
+        }
+      }
+      return c.json(routes.qboWebhook.response.parse({ syncs }));
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  mount(app, routes.opsConnectionSync, async ({ tx, params, tenantIds, services }) => {
+    const [row] = await tx.select().from(connection).where(eq(connection.id, params.id));
+    if (!row || !tenantIds.includes(row.tenantId)) throw notFound("connection");
+    if (row.connector !== QBO_CONNECTOR_ID) {
+      throw new HttpError(409, "not_syncable", "only QuickBooks connections sync");
+    }
+    if (row.status !== "connected") {
+      throw new HttpError(409, "not_connected", `the connection is ${row.status}`);
+    }
+    const instances = qboSyncFor(services.deps, services.env);
+    if (!instances)
+      throw new HttpError(503, "not_configured", "QuickBooks sync is not set up here");
+    return startQboSync(instances, {
+      tenantId: row.tenantId,
+      connectionId: row.id,
+      reason: "operator",
+    });
+  });
+}

@@ -38,6 +38,7 @@ import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
+import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
 import { releaseRoutes } from "./routes/release";
@@ -67,6 +68,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsMergeRoutes(app);
   supervisorRouteHandlers(app);
   portalRouteHandlers(app);
+  qboRoutes(app);
   connectionRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
@@ -124,6 +126,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           : {}),
       },
       scheduledTime,
+    );
+    // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
+    await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
+      console.error("qbo sync tick failed", error),
     );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
