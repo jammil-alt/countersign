@@ -44,7 +44,7 @@ mark or "AI-powered".
 The legal text is a draft for the owner's lawyer, not legal advice. The company is Twelve
 Thirty-Four Consulting LLC (the name on the owner's Twilio compliance profile; its EIN is not
 published). The owner filled in the bracketed placeholders on 2026-11-05: contact and privacy
-email, the postal address, Texas law, deletion within 30 days and backups expiring within a further
+email, the location (Dallas, Texas; no street address, owner 2026-11-05), Texas law, deletion within 30 days and backups expiring within a further
 30 days. The AI providers' API data terms (no training, limited retention for misuse checks) and the
 international transfer safeguards (providers' data processing terms, standard contractual clauses)
 are written from the providers' published commercial terms and are for the lawyer to confirm.
