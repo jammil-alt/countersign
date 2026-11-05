@@ -26,5 +26,22 @@ describe("runCron", () => {
     expect(cronTick).toHaveBeenCalledTimes(1);
     expect(cronTick.mock.calls[0]?.[0]).toHaveProperty("reachTick");
     expect(close).toHaveBeenCalledOnce();
+    // No CODES binding: no code service step.
+    expect(cronTick.mock.calls[0]?.[0]).not.toHaveProperty("codesTick");
+  });
+
+  it("adds the code service's alerts step in the same single call when CODES is bound", async () => {
+    cronTick.mockClear();
+    const deps = {
+      ...defaultDeps,
+      openDb: () => ({ db: {}, close: async () => {} }),
+      instances: () => ({}),
+      platform: () => ({}),
+    } as unknown as typeof defaultDeps;
+    const env = { CODES: {} } as unknown as Bindings;
+    await runCron(env, new Date("2026-11-05T10:03:00Z"), deps);
+    expect(cronTick).toHaveBeenCalledTimes(1);
+    expect(cronTick.mock.calls[0]?.[0]).toHaveProperty("reachTick");
+    expect(cronTick.mock.calls[0]?.[0]).toHaveProperty("codesTick");
   });
 });
