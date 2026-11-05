@@ -7,6 +7,7 @@ import { findOrCreateVendor } from "@countersign/connectors";
 import {
   languageFor,
   normalizePhone,
+  normalizeVendorName,
   type Organization,
   type OrganizationAddress,
   type OrganizationCreateInput,
@@ -21,6 +22,7 @@ import {
   organization,
   organizationChange,
   type Tx,
+  vendor,
 } from "@countersign/db";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
@@ -108,6 +110,46 @@ export async function sameName(
   return row ?? null;
 }
 
+/**
+ * Links a vendor organization to the client's vendor record whose normalized name is exactly its
+ * own, when that record exists and no other organization has it. Makes no vendor record.
+ */
+// DECISION (coordinator, 2026-11-05): on create and import, a vendor organization links itself
+// only on an exact normalized-name match (not an alias, never a new record); every other link is
+// the person's "Link to its vendor record".
+async function autoLinkVendor(
+  tx: Tx,
+  row: OrganizationRow,
+  actorId: string | null,
+): Promise<OrganizationRow> {
+  if (row.vendorId || !(row.kinds ?? []).includes("vendor")) return row;
+  const key = normalizeVendorName(row.name);
+  if (!key) return row;
+  const [v] = await tx
+    .select({ id: vendor.id, name: vendor.name })
+    .from(vendor)
+    .where(and(eq(vendor.tenantId, row.tenantId), eq(vendor.normalizedName, key)));
+  if (!v) return row;
+  const [taken] = await tx
+    .select({ id: organization.id })
+    .from(organization)
+    .where(and(eq(organization.tenantId, row.tenantId), eq(organization.vendorId, v.id)));
+  if (taken) return row;
+  const [linked] = await tx
+    .update(organization)
+    .set({ vendorId: v.id })
+    .where(and(eq(organization.id, row.id), eq(organization.tenantId, row.tenantId)))
+    .returning();
+  if (!linked) return row;
+  await logOrganization(tx, row.tenantId, row.id, actorId, {
+    kind: "vendor_linked",
+    vendorId: v.id,
+    vendorName: v.name,
+    automatic: true,
+  });
+  return linked;
+}
+
 export interface OrganizationOrigin {
   source?: string;
   externalRefs?: Record<string, string>;
@@ -151,7 +193,7 @@ export async function createOrganization(
     from: row.source,
     ...(origin.log ?? {}),
   });
-  return row;
+  return autoLinkVendor(tx, row, actorId);
 }
 
 export async function updateOrganization(
@@ -160,7 +202,12 @@ export async function updateOrganization(
   id: string,
   patch: OrganizationPatchInput,
   actorId: string | null,
-  extra: { log?: Record<string, unknown>; externalRefs?: Record<string, string> } = {},
+  extra: {
+    log?: Record<string, unknown>;
+    externalRefs?: Record<string, string>;
+    /** An import: a vendor organization links itself on an exact name match. */
+    autoLinkVendor?: boolean;
+  } = {},
 ): Promise<OrganizationRow> {
   const row = await getOrganization(tx, tenantId, id);
   const next = {
@@ -193,7 +240,9 @@ export async function updateOrganization(
       changed[k] = { before: row[k] ?? null, after: next[k] ?? null };
     }
   }
-  if (Object.keys(changed).length === 0) return row;
+  if (Object.keys(changed).length === 0) {
+    return extra.autoLinkVendor ? autoLinkVendor(tx, row, actorId) : row;
+  }
   const [updated] = await tx
     .update(organization)
     .set(next)
@@ -205,7 +254,7 @@ export async function updateOrganization(
     changed,
     ...(extra.log ?? {}),
   });
-  return updated;
+  return extra.autoLinkVendor ? autoLinkVendor(tx, updated, actorId) : updated;
 }
 
 const UNIQUE_VIOLATION = "23505";

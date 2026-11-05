@@ -188,6 +188,56 @@ describe.skipIf(!h)("directory routes", () => {
     expect((await H.t.db.select().from(vendor).where(eq(vendor.tenantId, A()))).length).toBe(1);
   });
 
+  it("links a vendor organization by itself on an exact name match, on create and import", async () => {
+    await H.t.db.insert(vendor).values([
+      { tenantId: A(), name: "Elm Supply Inc.", normalizedName: "elm supply" },
+      { tenantId: A(), name: "Ash Timber", normalizedName: "ash timber" },
+      { tenantId: A(), name: "Maple", normalizedName: "maple" },
+    ]);
+    const vendorCount = async () =>
+      (await H.t.db.select().from(vendor).where(eq(vendor.tenantId, A()))).length;
+    const before = await vendorCount();
+    const create = async (body: Json) =>
+      (
+        (await call(admin("a"), "POST", "/api/directory/organizations", body)).json as {
+          organization: Org;
+        }
+      ).organization;
+    // "Elm Supply, LLC" normalizes to "elm supply": linked, nothing made.
+    expect((await create({ name: "Elm Supply, LLC", kinds: ["vendor"] })).vendor).toMatchObject({
+      name: "Elm Supply Inc.",
+    });
+    // Not exact: left for a person to link.
+    expect((await create({ name: "Elm Supplies", kinds: ["vendor"] })).vendor).toBeNull();
+    // Not a vendor organization: not linked.
+    expect((await create({ name: "Ash Timber", kinds: ["customer"] })).vendor).toBeNull();
+    expect(await vendorCount()).toBe(before);
+    const [log] = (
+      await H.t.db.select().from(organizationChange).where(eq(organizationChange.tenantId, A()))
+    ).filter((c) => (c.change as Json).automatic === true);
+    expect(log?.change).toMatchObject({ kind: "vendor_linked", vendorName: "Elm Supply Inc." });
+
+    // An import: a new vendor organization links; an existing one that becomes a vendor links too.
+    await create({ name: "Maple" });
+    const csv = "Company,Type\nAsh Timber,Vendor\nMaple,Vendor\nBirch Hollow,Vendor\n";
+    const applied = await call(admin("a"), "POST", "/api/directory/import/apply", {
+      source: "csv",
+      kind: "organizations",
+      csv,
+    });
+    expect(applied.status, JSON.stringify(applied.json)).toBe(200);
+    const orgs = (
+      (await call(admin("a"), "GET", "/api/directory?type=organization")).json as {
+        organizations: Org[];
+      }
+    ).organizations;
+    const byName = (n: string) => orgs.find((o) => o.name === n);
+    expect(byName("Ash Timber")?.vendor).toMatchObject({ name: "Ash Timber" });
+    expect(byName("Maple")?.vendor).toMatchObject({ name: "Maple" });
+    expect(byName("Birch Hollow")?.vendor).toBeNull();
+    expect(await vendorCount()).toBe(before);
+  });
+
   it("previews a CSV of people, then applies the chosen rows with a result per row", async () => {
     const csv = [
       "Name,Email,Phone,Company,Relationship,Title",

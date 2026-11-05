@@ -564,6 +564,7 @@ export async function applyImport(
             actorId,
             {
               log,
+              autoLinkVendor: true,
               ...(refs ? { externalRefs: refs } : {}),
             },
           );
