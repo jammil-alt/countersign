@@ -251,6 +251,32 @@ export interface Connector {
     ref: AttachmentRef,
   ): Promise<{ bytes: Uint8Array; mime: string; filename: string }>;
   verifyWebhook?(headers: Record<string, string>, body: Uint8Array): Promise<boolean>;
+  /**
+   * Which binding a tool call uses, from its input (docs/plan.md §1.26 "Binding browser sites"):
+   * agents' bindings are keyed by connector id, and a connector whose connections are told apart
+   * by something in the input (a browser site: `browser:<site slug>`) names the key here. Absent:
+   * the connector id. The key must be the connector id or start with `<connector id>:`; null (or a
+   * key that doesn't) refuses the call like an unbound connector.
+   */
+  bindingKey?(input: unknown): string | null;
+}
+
+/**
+ * The binding key a call to `connector` uses with this input: its `bindingKey` hook's answer, kept
+ * within the connector's own keys, or the connector id. Null refuses the call.
+ */
+export function bindingKeyFor(connector: Connector, input: unknown): string | null {
+  const id = connector.manifest.id;
+  if (!connector.bindingKey) return id;
+  let key: string | null;
+  try {
+    key = connector.bindingKey(input);
+  } catch {
+    return null;
+  }
+  // A connector never reaches another connector's binding through its hook.
+  if (key === null || (key !== id && !key.startsWith(`${id}:`))) return null;
+  return key;
 }
 
 export class ConnectorDefinitionError extends Error {
@@ -302,6 +328,7 @@ export function defineConnector(
     defaultPermissions,
     events,
     sharedNamespaces,
+    credentialFields,
     tools,
     ...hooks
   } = def;
@@ -322,6 +349,7 @@ export function defineConnector(
     ...(defaultPermissions === undefined ? {} : { defaultPermissions }),
     ...(events === undefined ? {} : { events }),
     ...(sharedNamespaces === undefined ? {} : { sharedNamespaces }),
+    ...(credentialFields === undefined ? {} : { credentialFields }),
   });
   if (!parsed.success) {
     problems.push(

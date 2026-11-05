@@ -19,6 +19,7 @@ import {
   SectionLabel,
   type Tone,
 } from "../../ui/primitives";
+import { GrantsPanel } from "./GrantsPanel";
 import {
   detailMessages,
   errorText,
@@ -66,6 +67,7 @@ export function OperationPanel({
   // 2 s (the run page's rate, plan §1.2 "Live updates"), so it turns ready when the run passes.
   const testRun = activation.data?.testRun ?? null;
   usePoll(activation.reload, testRun ? isRunGoing(testRun.status) : false, 2_000);
+  const [grantsVersion, setGrantsVersion] = useState(0);
   return (
     <div className="flex flex-col gap-5">
       <StatusCard
@@ -86,8 +88,11 @@ export function OperationPanel({
         onSaved={() => {
           activation.reload();
           onChanged();
+          setGrantsVersion((n) => n + 1);
         }}
       />
+      {/* Remounted after a binding change, so it lists what the agent is bound to now. */}
+      <GrantsPanel key={`${agent.id}:${grantsVersion}`} agentId={agent.id} />
     </div>
   );
 }

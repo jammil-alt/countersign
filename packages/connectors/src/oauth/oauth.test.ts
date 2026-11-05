@@ -1,7 +1,7 @@
 import type { JsonObject } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { defineConnector } from "../connector";
-import { CredentialCipher, generateEncryptionKey } from "../credentials";
+import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { memoryCredentials } from "../credentials-accessor";
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from "../runtime";
 import { beginAuthorization, completeAuthorization, type OAuthCallbackError } from "./flow";
@@ -220,7 +220,9 @@ describe("authorization flow", () => {
   const connectionId = "0190f0c8-0000-7000-8000-0000000000cc";
 
   it("signs a state, exchanges the code and encrypts the credentials", async () => {
-    const cipher = await CredentialCipher.create({ current: generateEncryptionKey() });
+    const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
+      memoryTenantKeys(),
+    );
     const begun = await beginAuthorization({
       connector,
       ...session,
@@ -247,7 +249,9 @@ describe("authorization flow", () => {
   });
 
   it("refuses a callback from another session, a provider error or a missing state", async () => {
-    const cipher = await CredentialCipher.create({ current: generateEncryptionKey() });
+    const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
+      memoryTenantKeys(),
+    );
     const { state } = await createOAuthState(
       { ...who, connector: "fakeoauth" },
       { secret, now: t0 },

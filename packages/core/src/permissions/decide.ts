@@ -7,6 +7,7 @@ import {
   type SideEffect,
   type Verb,
 } from "../schemas/permissions";
+import { effectiveMatrix, type GrantLimits } from "./grants";
 
 export type WriteDecision = "run" | "approval" | "refused";
 
@@ -47,23 +48,28 @@ export function decideWrite(input: DecideWriteInput): WriteDecision {
 /**
  * The gate for any tool call. `none` tools are reads through a connection (or no connection);
  * `internal` tools write the platform's own records and run; `external` tools go through
- * decideWrite.
+ * decideWrite. With the agent's grant on the connection, each verb's ceiling is the stricter of
+ * the matrix and the grant (docs/plan.md §1.26): a read-only grant refuses a write the matrix
+ * allows.
  */
 export function decideToolCall(input: {
   sideEffect: SideEffect;
   verb: Verb;
   matrix?: Partial<PermissionMatrix> | undefined;
+  /** The agent's grant on the connection; null or absent = no narrowing. */
+  grant?: GrantLimits | null | undefined;
   stepApproval?: ApprovalRequirement | undefined;
   agentMode: AgentMode;
 }): WriteDecision {
   if (input.sideEffect === "internal") return "run";
+  const matrix = input.grant ? effectiveMatrix(input.matrix, input.grant) : input.matrix;
   if (input.sideEffect === "none") {
-    if (input.matrix === undefined) return "run";
-    return levelFor(input.matrix, "read") === "off" ? "refused" : "run";
+    if (matrix === undefined) return "run";
+    return levelFor(matrix, "read") === "off" ? "refused" : "run";
   }
   return decideWrite({
     verb: input.verb,
-    matrix: input.matrix,
+    matrix,
     stepApproval: input.stepApproval,
     agentMode: input.agentMode,
   });

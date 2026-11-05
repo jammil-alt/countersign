@@ -18,7 +18,7 @@ import type { Hono } from "hono";
 import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
-import { cipherFor, connectionCredentials } from "../secrets";
+import { connectionCredentials, vaultFor } from "../secrets";
 import { offeredConnectors } from "./ops-clients";
 import { canSignIn, portalConnections } from "./portal";
 
@@ -101,7 +101,7 @@ async function connectorOut(tx: Tx, tenantId: string, platform: Platform, connec
   return out;
 }
 
-async function offeredTo(tx: Tx, tenantId: string, connectorId: string): Promise<void> {
+export async function offeredTo(tx: Tx, tenantId: string, connectorId: string): Promise<void> {
   const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
   if (!t) throw notFound("client");
   if (!offeredConnectors(t.settings).includes(connectorId)) throw notFound("connector");
@@ -209,7 +209,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
         connectionId: id,
         redirectUri: oauthRedirectUri(c, services.env, params.connector),
         stateSecret: stateSecret(services.env),
-        cipher: await cipherFor(services.env),
+        cipher: await vaultFor(tx, services.env),
       });
     } catch (error) {
       if (error instanceof OAuthCallbackError) {
@@ -286,9 +286,11 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
           console.warn(`revoking ${row.connector} for connection ${row.id} failed`, error);
         }
       }
+      // The vault's read model of the credentials goes with them (docs/plan.md §1.26).
+      const { vault: _vault, ...config } = row.config as Record<string, unknown>;
       await tx
         .update(connection)
-        .set({ status: "disconnected", credentialsEncrypted: null })
+        .set({ status: "disconnected", credentialsEncrypted: null, config })
         .where(and(eq(connection.id, row.id), eq(connection.tenantId, tenantId)));
       await tx.insert(connectionChange).values({
         tenantId,

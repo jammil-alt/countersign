@@ -29,6 +29,9 @@ const CODE_KEYS: Record<string, PlainKey> = {
   invalid_state: "error.invalid_state",
   feedback_off: "error.feedback_off",
   not_configured: "error.not_configured",
+  loosening: "error.loosening",
+  invalid_credentials: "error.invalid_credentials",
+  invalid_grant: "error.invalid_grant",
   adapter_disabled: "error.not_configured",
   misconfigured: "error.not_configured",
 };

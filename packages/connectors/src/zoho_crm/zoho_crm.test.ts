@@ -1,7 +1,7 @@
 import { DEFAULT_PERMISSIONS, type JsonObject } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import type { WriteContext } from "../connector";
-import { CredentialCipher, generateEncryptionKey } from "../credentials";
+import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { memoryCredentials } from "../credentials-accessor";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
@@ -100,7 +100,9 @@ describe("zoho_crm connector", () => {
     expect(begun.redirectUrl).toContain(`state=${encodeURIComponent(begun.state)}`);
     expect(begun.redirectUrl).toContain(encodeURIComponent("ZohoCRM.modules.leads.READ"));
 
-    const cipher = await CredentialCipher.create({ current: generateEncryptionKey() });
+    const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
+      memoryTenantKeys(),
+    );
     const done = await completeAuthorization({
       connector,
       params: {

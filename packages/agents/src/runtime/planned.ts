@@ -8,6 +8,7 @@ import { captureBefore } from "@countersign/connectors";
 import {
   decideToolCall,
   fixedInputProblem,
+  grantAllowsTool,
   type JsonObject,
   type ReachLanguage,
 } from "@countersign/core";
@@ -96,18 +97,27 @@ async function plannedDispatch(
   if (!conn || conn.connector !== tool.connector.manifest.id) {
     return { status: "refused", reason: `no ${tool.connector.manifest.id} connection is bound` };
   }
-  // The matrix holds at every attempt: `off` refuses even inside an approved plan.
+  // The matrix and the agent's grant hold at every attempt: `off` refuses even inside an approved
+  // plan (docs/plan.md §1.26).
+  const grant = await deps.ports.store.grant(step.tenantId, step.agent.agentId, conn.id);
+  if (!grantAllowsTool(grant, tool.spec.id)) {
+    return {
+      status: "refused",
+      reason: `${call.toolId} is not in this agent's access to the ${conn.connector} connection`,
+    };
+  }
   const decision = decideToolCall({
     sideEffect: "external",
     verb: tool.spec.verb,
     matrix: conn.permissions,
+    grant,
     stepApproval: "not_required",
     agentMode: "act",
   });
   if (decision === "refused") {
     return {
       status: "refused",
-      reason: `${tool.spec.verb} is off on the ${conn.connector} connection`,
+      reason: `${tool.spec.verb} is off for this agent on the ${conn.connector} connection`,
     };
   }
   const ctx = connectionContext(deps, step.tenantId, conn);

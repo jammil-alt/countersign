@@ -70,8 +70,19 @@ export function buildPath(path: string, params: Record<string, string | number> 
 export const FORBIDDEN_PORTAL_FIELD =
   /^(bundle|definition|instructions|prompts?|systemPrompt|cost|costUsd|cost_usd|modelCost|tokensIn|tokensOut|tokens_in|tokens_out)$/i;
 
-/** Property names anywhere in a response schema that match FORBIDDEN_PORTAL_FIELD. */
-export function forbiddenPortalFields(schema: z.ZodType): string[] {
+/**
+ * Field names no response may carry, on any surface (CLAUDE.md invariant 13: secrets are
+ * write-only): stored credentials, wrapped keys, passwords, API keys and tokens. Read models say
+ * only whether a secret is set.
+ */
+// DECISION: the rule is by field name, like FORBIDDEN_PORTAL_FIELD, and the API tests also look for
+// a stored secret's value in every response; the webhook setup's `signingSecret` (Mezonas' own
+// signing key, shown to the client who pastes it into Zapier) predates it and is left as it is.
+export const FORBIDDEN_SECRET_FIELD =
+  /^(credentials|credentialsEncrypted|credentials_encrypted|wrappedKey|wrapped_key|password|apiKey|api_key|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|otpauthUri)$/i;
+
+/** Property names anywhere in a schema that match `pattern`. */
+function fieldsMatching(schema: z.ZodType, pattern: RegExp): string[] {
   const json = z.toJSONSchema(schema, { io: "output", unrepresentable: "any" });
   const found = new Set<string>();
   const visit = (node: unknown) => {
@@ -82,7 +93,7 @@ export function forbiddenPortalFields(schema: z.ZodType): string[] {
     if (!isPlainObject(node)) return;
     if (isPlainObject(node.properties)) {
       for (const [k, v] of Object.entries(node.properties)) {
-        if (FORBIDDEN_PORTAL_FIELD.test(k)) found.add(k);
+        if (pattern.test(k)) found.add(k);
         visit(v);
       }
     }
@@ -92,9 +103,20 @@ export function forbiddenPortalFields(schema: z.ZodType): string[] {
   return [...found];
 }
 
+/** Property names anywhere in a response schema that match FORBIDDEN_SECRET_FIELD. */
+export function secretResponseFields(schema: z.ZodType): string[] {
+  return fieldsMatching(schema, FORBIDDEN_SECRET_FIELD);
+}
+
+/** Property names anywhere in a response schema that match FORBIDDEN_PORTAL_FIELD. */
+export function forbiddenPortalFields(schema: z.ZodType): string[] {
+  return fieldsMatching(schema, FORBIDDEN_PORTAL_FIELD);
+}
+
 /**
- * The two contract rules (docs/plan.md §1.2): every `/api/ops` route is operator-only, and no
- * portal route's response carries bundles, instructions, prompts or cost. Returns problems found.
+ * The contract rules (docs/plan.md §1.2, §1.26): every `/api/ops` route is operator-only, no
+ * portal route's response carries bundles, instructions, prompts or cost, and no route's response
+ * carries a secret. Returns problems found.
  */
 export function checkRouteContract(routes: Record<string, RouteSpec>): string[] {
   const problems: string[] = [];
@@ -108,6 +130,10 @@ export function checkRouteContract(routes: Record<string, RouteSpec>): string[] 
       if (bad.length > 0) {
         problems.push(`${name} (${r.method} ${r.path}): portal response has ${bad.join(", ")}`);
       }
+    }
+    const secrets = secretResponseFields(r.response);
+    if (secrets.length > 0) {
+      problems.push(`${name} (${r.method} ${r.path}): response has ${secrets.join(", ")}`);
     }
     if (r.auth === "public" && r.roles.length > 0) {
       problems.push(`${name}: a public route lists roles`);

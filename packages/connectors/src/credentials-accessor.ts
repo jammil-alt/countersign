@@ -1,9 +1,9 @@
 import type { JsonObject } from "@countersign/core";
 import {
   type CredentialBinding,
-  type CredentialCipher,
   type CredentialEnvelope,
   CredentialError,
+  type CredentialSealer,
 } from "./credentials";
 
 /**
@@ -23,7 +23,8 @@ export interface CredentialsAccessor {
  * are cached for the life of the accessor (one run step), not beyond.
  */
 export function encryptedCredentials(opts: {
-  cipher: CredentialCipher;
+  /** The vault cipher (the client's own key; v1 envelopes still open). */
+  cipher: CredentialSealer;
   binding: CredentialBinding;
   load: () => Promise<unknown>;
   save: (envelope: CredentialEnvelope) => Promise<void>;

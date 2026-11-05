@@ -11,6 +11,7 @@
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
+  bindingConnector,
   bundleHash,
   type EventTypeSpec,
   isExternalTool,
@@ -191,9 +192,9 @@ export async function boundMatrices(
     .select()
     .from(connection)
     .where(and(eq(connection.tenantId, row.tenantId), inArray(connection.id, ids)));
-  for (const [connector, id] of Object.entries(row.bindings)) {
-    const c = rows.find((r) => r.id === id && r.connector === connector);
-    if (c) out[connector] = c.permissions;
+  for (const [key, id] of Object.entries(row.bindings)) {
+    const c = rows.find((r) => r.id === id && r.connector === bindingConnector(key));
+    if (c) out[key] = c.permissions;
   }
   return out;
 }
@@ -587,7 +588,10 @@ export async function updateOperational(
           .from(connection)
           .where(and(eq(connection.tenantId, row.tenantId), inArray(connection.id, ids)))
       : [];
-    for (const [connector, id] of Object.entries(patch.bindings)) {
+    for (const [key, id] of Object.entries(patch.bindings)) {
+      // DECISION: a binding key is a connector id or `<connector>:<name>` (a connector's
+      // `bindingKey`, docs/plan.md §1.26); either way it binds a connection of that connector.
+      const connector = bindingConnector(key);
       if (!rows.some((c) => c.id === id && c.connector === connector)) {
         throw new AgentsError(
           "invalid_state",

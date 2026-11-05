@@ -16,7 +16,8 @@ export type AgentsErrorCode =
   | "unknown_skill"
   | "unknown_tool"
   | "not_assignee"
-  | "test_run";
+  | "test_run"
+  | "invalid_grant";
 
 export class AgentsError extends Error {
   override name = "AgentsError";

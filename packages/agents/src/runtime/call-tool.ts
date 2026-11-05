@@ -2,12 +2,14 @@
 // tool-mode skills and the executor's `action` steps alike, so every call is logged and gated the
 // same way.
 
-import { captureBefore, runReadTool } from "@countersign/connectors";
+import { bindingKeyFor, captureBefore, runReadTool } from "@countersign/connectors";
 import {
   changeFacts,
   decideToolCall,
   fixedInputProblem,
+  grantAllowsTool,
   type JsonObject,
+  levelFor,
   routeApproval,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
@@ -140,21 +142,38 @@ async function dispatch(
   }
 
   const connectorId = tool.connector.manifest.id;
-  const connectionId = step.agent.bindings[connectorId];
+  // Bindings are keyed by connector, or by what the connector's `bindingKey` reads from the input
+  // (a browser site, docs/plan.md §1.26); no special case for any connector here.
+  const binding = bindingKeyFor(tool.connector, input);
+  const connectionId = binding ? step.agent.bindings[binding] : undefined;
   // Read fresh on every call: a client's tightening applies at once, even mid-run (§1.2).
   const conn = connectionId ? await deps.ports.store.connection(step.tenantId, connectionId) : null;
   if (!conn) return { status: "refused", reason: `no ${connectorId} connection is bound` };
+  // The agent's grant narrows the binding: a tool outside its subset is refused like an unbound
+  // connector, and each verb's ceiling is the stricter of the matrix and the grant.
+  const grant = await deps.ports.store.grant(step.tenantId, step.agent.agentId, conn.id);
+  if (!grantAllowsTool(grant, tool.spec.id)) {
+    return {
+      status: "refused",
+      reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
+    };
+  }
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
     verb: tool.spec.verb,
     matrix: conn.permissions,
+    grant,
     stepApproval: step.approval?.required,
     agentMode: mode,
   });
   if (decision === "refused") {
+    const verb = tool.spec.sideEffect === "none" ? "read" : tool.spec.verb;
     return {
       status: "refused",
-      reason: `${tool.spec.verb} is off on the ${connectorId} connection`,
+      reason:
+        levelFor(conn.permissions, verb) === "off"
+          ? `${tool.spec.verb} is off on the ${connectorId} connection`
+          : `${tool.spec.verb} is off in this agent's access to the ${connectorId} connection`,
     };
   }
   const ctx = connectionContext(deps, step.tenantId, conn);
