@@ -1134,6 +1134,8 @@ export const feedback = pgTable(
 /** What an organization is to the client; several are allowed (a vendor that is also a customer). */
 export const ORGANIZATION_KINDS = ["vendor", "customer", "partner", "own", "other"] as const;
 export type OrganizationKind = (typeof ORGANIZATION_KINDS)[number];
+/** The languages agents write in (core's LOCALES, docs/plan.md §1.18). */
+export const ORGANIZATION_LANGUAGES = ["en", "es", "fr", "pt-BR", "it", "de"] as const;
 /** What a person is to the client. */
 export const CONTACT_RELATIONSHIPS = [
   "employee",
@@ -1174,6 +1176,11 @@ export const organization = pgTable(
     /** E.164 where it can be read as one; else as given. */
     phone: text("phone"),
     address: json<OrganizationAddress>("address"),
+    /**
+     * The language to write to its people in when they have none of their own (`en`, `es`, `fr`,
+     * `pt-BR`, `it`, `de`); null: the client's.
+     */
+    language: text("language"),
     notes: text("notes"),
     /** Ids in connected tools, e.g. `{ zoho_crm: "4150868000000224005" }`. */
     externalRefs: json<Record<string, string>>("external_refs").notNull().default({}),
@@ -1202,6 +1209,10 @@ export const organization = pgTable(
       sql`${t.kinds} <@ array[${sql.raw(ORGANIZATION_KINDS.map((k) => `'${k}'`).join(", "))}]::text[]`,
     ),
     check("organization_source_check", sql`${t.source} ~ '^[a-z][a-z0-9_]{0,39}$'`),
+    check(
+      "organization_language_check",
+      sql`${t.language} is null or ${oneOf(t.language, ORGANIZATION_LANGUAGES)}`,
+    ),
   ],
 );
 
