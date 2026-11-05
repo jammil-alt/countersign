@@ -128,6 +128,17 @@ domain, and generates `MFA_ENCRYPTION_KEY` once. What a person does, per environ
       from a domain with DMARC to an identity's address should log `email.received` with `spf`,
       `dkim` and `dmarc` all true (Workers logs of the code service); a text to an identity's number
       should log `sms.received`. Logs never contain codes.
+- [ ] **Email codes stay off until verified.** `EMAIL_CODES` is `off` in `apps/mfa/wrangler.jsonc`
+      for every environment: emailed codes never fill a wait and an email wait answers "email codes
+      are off until verified" (texts and authenticator codes work). To turn them on for an
+      environment, follow `apps/mfa/NOTES.md`, "Turning email codes on":
+      1. a genuine message from a domain with DMARC logs `spf`, `dkim` and `dmarc` all true;
+      2. a message sent with a forged `Authentication-Results: mx.cloudflare.net; spf=pass;
+         dkim=pass; dmarc=pass header.from=<domain>` header at the top, from a domain that fails
+         DMARC for that sender, logs `dmarc` false and fills no wait;
+      3. only then set `"EMAIL_CODES": "on"` in that environment's `vars`, in a reviewed PR, and
+         note the date and who checked in `docs/plan.md` §1.26. If step 2 passes as authentic,
+         leave it off.
 - Nothing else by hand: there is no database, bucket or Hyperdrive for the code service, and
   `MFA_ENCRYPTION_KEY` is never set by a person. Replacing it would make stored authenticator secrets
   unreadable (rotation is not built yet; `apps/mfa/NOTES.md`).
