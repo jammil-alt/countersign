@@ -94,10 +94,6 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
 export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps = defaultDeps) {
   const { db, close } = deps.openDb(env);
   try {
-    await cronTick({ db, instances: deps.instances(env) }, scheduledTime);
-    if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
-    }
     const instances = deps.instances(env);
     const platform = deps.platform(env);
     const codes = codesFor(env);
@@ -117,6 +113,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       },
       scheduledTime,
     );
+    if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
+      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
+    }
   } finally {
     await close();
   }
