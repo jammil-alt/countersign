@@ -278,6 +278,11 @@ export const OpsConnectorInfo = z.object({
   description: z.string(),
   icon: z.string().nullable(),
   auth: z.string(),
+  /**
+   * Whether this deployment can connect it: an OAuth connector needs its client id and the state
+   * secret; one needing no sign-in always can ("Not available yet" otherwise).
+   */
+  available: z.boolean(),
   tools: z.array(
     z.object({
       id: z.string(),
@@ -286,6 +291,17 @@ export const OpsConnectorInfo = z.object({
       sideEffect: z.string(),
     }),
   ),
+});
+
+/** A connector id in a path. */
+const ConnectorId = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/);
+
+/**
+ * A provider's callback parameters as the callback page received them (code, state and the rest),
+ * posted once in the session that started the sign-in: the portal's or the back office's.
+ */
+export const OAuthCallbackBody = z.strictObject({
+  params: z.record(z.string(), z.string().max(4096)),
 });
 
 const AgentBody = z.strictObject({
@@ -750,8 +766,29 @@ export const opsRoutes = {
     roles: OPS,
     summary:
       "Connect a tool in the Sandbox client (only there: in a real client, the client signs in)",
-    params: z.object({ id: ApiId, connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    params: z.object({ id: ApiId, connector: ConnectorId }),
     response: z.object({ connection: OpsConnection }),
+  }),
+  opsSandboxAuthorize: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/connections/:connector/authorize",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Start the operator's own sign-in to an OAuth tool of the Sandbox client: answers where the provider's sign-in starts (403 not_sandbox in any other client)",
+    params: z.object({ id: ApiId, connector: ConnectorId }),
+    response: z.object({ redirectUrl: z.string() }),
+  }),
+  opsSandboxAuthorizeCallback: defineRoute({
+    method: "POST",
+    path: "/api/ops/connections/:connector/callback",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Finish the operator's sign-in to a Sandbox tool: the provider's parameters, checked against the signed state (its client, user and back-office origin)",
+    params: z.object({ connector: ConnectorId }),
+    body: OAuthCallbackBody,
+    response: z.object({ clientId: z.string(), connection: OpsConnection }),
   }),
   opsOfferConnectors: defineRoute({
     method: "PUT",
@@ -1475,7 +1512,7 @@ export const portalRoutes = {
     roles: ["client_admin", "client_user"],
     summary:
       "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
-    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    params: z.object({ connector: ConnectorId }),
     response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
   }),
   portalAuthorizeCallback: defineRoute({
@@ -1485,8 +1522,8 @@ export const portalRoutes = {
     roles: ["client_admin", "client_user"],
     summary:
       "Finish signing in to a tool: the provider's callback parameters, checked against the state",
-    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
-    body: z.strictObject({ params: z.record(z.string(), z.string().max(4096)) }),
+    params: z.object({ connector: ConnectorId }),
+    body: OAuthCallbackBody,
     response: z.object({ connection: PortalConnection }),
   }),
   portalWebhook: defineRoute({

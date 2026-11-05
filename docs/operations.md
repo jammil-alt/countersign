@@ -182,6 +182,9 @@ Done by the owner (2026-11-05):
   `http://localhost:8787/api/connections/qbo/callback`. That route (the same forwarder Gmail uses)
   passes Intuit's parameters to the portal page `/connections/qbo/callback`, which finishes the
   sign-in in the client admin's session.
+- The operator's own sign-in to the Sandbox client (plan §1.5, to connect the sandbox company above)
+  uses the same redirect URIs: the forwarder sends a signed back-office state to
+  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho or Podio.
 - Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
   Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
   (every 15 minutes, and on any webhook).

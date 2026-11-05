@@ -46,6 +46,9 @@ export function AppRoutes() {
   );
 }
 
+/** A tool's sign-in callback page in the portal (`/connections/:connector/callback`). */
+const PORTAL_CALLBACK = /^\/connections\/[a-z0-9][a-z0-9_-]*\/callback$/;
+
 /**
  * Signed out → sign-in (and back here after). Operators belong in /ops and client users in the
  * portal; the API enforces roles on every route, this only sends each to their own surface.
@@ -76,7 +79,15 @@ function RequireSession({ surface, children }: { surface: "ops" | "portal"; chil
   // DECISION: an operator opening a portal URL goes to the back office; seeing the portal as a
   // client sees it ("view as client") is not in v1 scope.
   if (surface === "ops" && !state.session.operator) return <Navigate to="/" replace />;
-  if (surface === "portal" && state.session.operator) return <Navigate to="/ops" replace />;
+  if (surface === "portal" && state.session.operator) {
+    // DECISION: a provider registered with the portal's callback page (Zoho, Podio) returns the
+    // operator's Sandbox sign-in there; it goes on, parameters and all, to the back office's page,
+    // whose API route checks the signed state. Client users' sign-ins are untouched.
+    if (PORTAL_CALLBACK.test(location.pathname)) {
+      return <Navigate to={`/ops${location.pathname}${location.search}`} replace />;
+    }
+    return <Navigate to="/ops" replace />;
+  }
   return <>{children}</>;
 }
 

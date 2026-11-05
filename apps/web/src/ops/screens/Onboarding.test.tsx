@@ -64,6 +64,7 @@ const connections = {
       description: "Files you upload or forward",
       icon: null,
       auth: "none",
+      available: true,
       tools: [],
     },
   ],

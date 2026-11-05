@@ -5,7 +5,7 @@ import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../cr
 import { memoryCredentials } from "../credentials-accessor";
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from "../runtime";
 import { beginAuthorization, completeAuthorization, type OAuthCallbackError } from "./flow";
-import { createOAuthState, OAUTH_STATE_TTL_MS, verifyOAuthState } from "./state";
+import { createOAuthState, OAUTH_STATE_TTL_MS, readOAuthState, verifyOAuthState } from "./state";
 import {
   needsRefresh,
   type OAuthTokens,
@@ -95,6 +95,54 @@ describe("OAuth state", () => {
 
   it("refuses a short secret", async () => {
     await expect(createOAuthState(who, { secret: "short" })).rejects.toThrow(/32 bytes/);
+  });
+
+  it("keeps a portal state's payload as it was: no origin field", async () => {
+    const { state, claims } = await createOAuthState(who, { secret, now: t0 });
+    const payload = JSON.parse(fromUtf8(fromBase64Url(state.split(".")[0] ?? "")));
+    expect(Object.keys(payload).sort()).toEqual(["c", "exp", "iat", "n", "t", "u", "v"]);
+    expect(claims.origin).toBe("portal");
+  });
+
+  it("binds the origin: a back-office state completes only in the back office", async () => {
+    const ops = { ...who, origin: "ops" as const };
+    const { state, claims } = await createOAuthState(ops, { secret, now: t0 });
+    expect(claims.origin).toBe("ops");
+    expect(await verifyOAuthState(state, ops, { secret, now: t0 })).toEqual({ ok: true, claims });
+    expect(await verifyOAuthState(state, who, { secret, now: t0 })).toEqual({
+      ok: false,
+      reason: "mismatch",
+    });
+    const portal = await createOAuthState(who, { secret, now: t0 });
+    expect(await verifyOAuthState(portal.state, ops, { secret, now: t0 })).toEqual({
+      ok: false,
+      reason: "mismatch",
+    });
+  });
+
+  it("reads a state without a session only once its signature holds", async () => {
+    const { state, claims } = await createOAuthState(
+      { ...who, origin: "ops" },
+      { secret, now: t0, ttlMs: 60_000 },
+    );
+    expect(await readOAuthState(state, { secret, now: t0 })).toEqual({ ok: true, claims });
+    // An unsigned "ops" claim is not believed.
+    const [payload, sig] = state.split(".") as [string, string];
+    const portal = await createOAuthState(who, { secret, now: t0 });
+    const [portalPayload] = portal.state.split(".") as [string];
+    const raised = toBase64Url(
+      utf8(JSON.stringify({ ...JSON.parse(fromUtf8(fromBase64Url(portalPayload))), o: "ops" })),
+    );
+    expect(await readOAuthState(`${raised}.${portal.state.split(".")[1]}`, { secret })).toEqual({
+      ok: false,
+      reason: "signature",
+    });
+    expect(await readOAuthState(`${payload}.${sig}`, { secret: `${secret}-x` })).toMatchObject({
+      reason: "signature",
+    });
+    expect(
+      await readOAuthState(state, { secret, now: new Date(t0.getTime() + 60_000) }),
+    ).toMatchObject({ ok: false, reason: "expired" });
   });
 });
 
