@@ -12,6 +12,11 @@ import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
 import { identifyForErrors } from "../observability";
+import { idleTooLong, watchInput } from "./activity";
+
+// DECISION: the app checks for idleness every 30 seconds; the API refuses an idle session anyway,
+// this only signs the browser out cleanly instead of failing its next call.
+const IDLE_CHECK_MS = 30_000;
 
 export type SessionState =
   | { status: "loading" }
@@ -69,6 +74,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Signed in: count the person's input, and sign out after 30 minutes without any (§1.35).
+  const signedIn = state.status === "signed_in";
+  useEffect(() => {
+    if (!signedIn || typeof window === "undefined") return;
+    const stop = watchInput(window);
+    const timer = setInterval(() => {
+      if (idleTooLong()) void signOut();
+    }, IDLE_CHECK_MS);
+    return () => {
+      stop();
+      clearInterval(timer);
+    };
+  }, [signedIn, signOut]);
 
   const value = useMemo(() => ({ state, refresh, signOut }), [state, refresh, signOut]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
