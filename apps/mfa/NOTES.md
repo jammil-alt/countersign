@@ -12,7 +12,7 @@ each item before the first real identity is set up.
 
 | Assumption | Where it matters |
 |---|---|
-| Email Routing can route a whole subdomain (`agents.mezonas.com`, `agents-staging.mezonas.com`) to a Worker with a catch-all rule, and the Worker sees the original recipient in `message.to`. | `handleEmail` reads the identity from `message.to` (`agent-<id>@<domain>`). |
+| Email Routing can route a whole subdomain (`agents.mezonas.com`, `agents.staging.mezonas.com`) to a Worker with a catch-all rule, and the Worker sees the original recipient in `message.to`. | `handleEmail` reads the identity from `message.to` (`agent-<id>@<domain>`). |
 | Cloudflare adds its authentication verdicts as a header **above** every header the sender wrote, before the Worker sees `message.raw`. The topmost `Authentication-Results` or `ARC-Authentication-Results` header is Cloudflare's. | `readAuthentication` reads only the topmost of those two headers. If Cloudflare adds neither, the topmost one could be the sender's own (forged): every message would then need to fail, which is what happens unless the forged header also uses Cloudflare's authserv-id. Confirm with a real message. |
 | That header's authserv-id is `mx.cloudflare.net` (the same assumption as apps/api's forwarding, `packages/connectors/src/upload/forwarding.ts`). | `TRUSTED_AUTHSERV_ID` in `src/email.ts`. Any other id means "not authenticated". |
 | The header carries `spf=pass`, `dkim=pass` and `dmarc=pass … header.from=<domain>` in RFC 8601 form; `ARC-Authentication-Results` starts with `i=<n>;`. | All three must pass, and DMARC's `header.from` must be the From address's domain. |

@@ -58,7 +58,7 @@
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Identity", "Directory"] }],
       "vars": {
         "ENVIRONMENT": "staging",
-        "AGENT_EMAIL_DOMAIN": "agents-staging.mezonas.com",
+        "AGENT_EMAIL_DOMAIN": "agents.staging.mezonas.com",
         "MFA_ORIGIN": "https://codes-staging.mezonas.com",
         "MFA_DAILY_CAP": "20"
       }

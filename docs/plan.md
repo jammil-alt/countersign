@@ -554,7 +554,7 @@ client, second factors kept apart, and each agent given only the tools it needs 
 | Authenticators | `otpauth://totp/` only; SHA1, SHA256 or SHA512; 6 to 8 digits; period 15 to 120 seconds. The code is computed at claim time. // DECISION |
 | Inbox items | apps/api's cron reads each client's alerts (when `CODES` is bound) and makes two `review` items per alert, one `assignee_role: 'operator'` and one `'client_admin'`, with `subject_type: 'code_alert'` and the alert's id as subject; no migration. Each read starts five minutes before the newest alert already raised (30 days back the first time) and skips alerts that already have their items. // DECISION |
 | Layering | `scripts/check-deps.mjs`: `apps/mfa` may depend on `@countersign/core` only, its runtime dependencies are a fixed list (core, hono, postal-mime, zod), and no package may depend on `@countersign/mfa`. Tested by `scripts/check-deps.test.mjs`, run with `pnpm lint:deps`. // DECISION |
-| Domains | Placeholders until the owner confirms: `codes-staging.mezonas.com` and `codes.mezonas.com` (Twilio's webhooks), `agents-staging.mezonas.com` and `agents.mezonas.com` (agent email). |
+| Domains | Placeholders until the owner confirms: `codes-staging.mezonas.com` and `codes.mezonas.com` (Twilio's webhooks; one level under the zone, so the zone's certificate covers them), `agents.staging.mezonas.com` and `agents.mezonas.com` (agent email, like `in.staging.mezonas.com` for forwarding). |
 
 ---
 
