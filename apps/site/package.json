@@ -1,0 +1,17 @@
+{
+  "name": "@countersign/site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The public site at mezonas.com: landing page, terms, privacy policy and subprocessors. Static HTML and CSS built from the design system's CSS, fonts and logos; imports nothing from the platform.",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@countersign/design-system": "workspace:*",
+    "@types/node": "^22.20.2",
+    "vitest": "^5.0.0"
+  }
+}
