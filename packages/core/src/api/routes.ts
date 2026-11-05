@@ -21,6 +21,7 @@ import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
+import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -680,6 +681,8 @@ export const opsRoutes = {
       language: Locale.optional(),
       /** Its client admin, invited in the same step. */
       admin: InviteBody.omit({ role: true }).optional(),
+      /** Add the supervisor (docs/plan.md §1.28) as a draft to test and activate. */
+      supervisor: z.boolean().optional(),
     }),
     response: z.object({ client: ClientSummary, admin: InviteResult.nullable() }),
   }),
@@ -1366,6 +1369,8 @@ export const portalRoutes = {
       services: z.array(ServiceSummary),
       needsYou: z.object({ inbox: z.number().int() }),
       recentRuns: z.array(PortalRunSummary),
+      /** The supervisor's latest summary and its open findings for the client admin (§1.28). */
+      health: PortalHealth.default({ summary: null, findings: [] }),
     }),
   }),
   portalInbox: defineRoute({
@@ -1629,5 +1634,6 @@ export const routes = {
   ...reachRoutes,
   ...accessRoutes,
   ...browserRoutes,
+  ...supervisorRoutes,
 } as const;
 export type Routes = typeof routes;

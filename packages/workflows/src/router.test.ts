@@ -50,6 +50,21 @@ const doc = (tenantId = CLIENT_A, payload: unknown = { filename: "a.pdf", source
 });
 
 describe("routeEvent", () => {
+  it("never starts an agent on its own run's failure", async () => {
+    const onFailed = { type: "event", event: "run.failed" };
+    const watcher = agent({ liveBundle: bundle([{ slug: "on-failure", on: onFailed }]) });
+    const worker = agent({ liveBundle: bundle([{ slug: "work", on: onDoc }]) });
+    const failed = (agentId: string) => ({
+      id: EVENT_ID,
+      tenantId: CLIENT_A,
+      type: "run.failed",
+      payload: { agentId, runId: uuid() },
+    });
+    // The worker's failure starts the watcher; the watcher's own failure starts nothing.
+    expect((await routeEvent(failed(worker.id), [watcher, worker])).runs).toHaveLength(1);
+    expect((await routeEvent(failed(watcher.id), [watcher, worker])).runs).toHaveLength(0);
+  });
+
   it("starts only the event's own client's active agents", async () => {
     const mine = agent({ liveBundle: bundle([{ slug: "intake", on: onDoc }]) });
     const other = agent({

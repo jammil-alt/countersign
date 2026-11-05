@@ -8,11 +8,11 @@ import {
   memoryCredentials,
   noopLogger,
 } from "@countersign/connectors";
-import type { Approval, JsonObject } from "@countersign/core";
+import type { Approval, JsonObject, Locale } from "@countersign/core";
 import type { LlmTransport } from "@countersign/llm";
 import type { SkillCatalog } from "../registry/skills";
 import type { ToolRegistry } from "../registry/tools";
-import type { RunMode } from "../tools/types";
+import type { AskAnswer, AskInput, RunMode } from "../tools/types";
 import type { PinnedAgent, RuntimePorts } from "./ports";
 
 export interface RuntimeDeps {
@@ -52,6 +52,15 @@ export interface StepContext {
   threadId?: string | undefined;
   /** Counts external calls in this step, for `<run id>:<step id>:<index>` keys. */
   externalIndex: { next: number };
+  /**
+   * An asked agent (`agents.ask`, docs/plan.md §1.28): only tools that read (`sideEffect: none`)
+   * run, and a connection that needs a person's release refuses rather than asks for one.
+   */
+  readOnly?: boolean | undefined;
+  /** How this step asks another agent of the client; absent inside an ask and in action steps. */
+  ask?: ((input: AskInput) => Promise<AskAnswer>) | undefined;
+  /** The client's language, for tools that write words a client reads. */
+  language?: Locale | undefined;
 }
 
 export function connectionContext(deps: RuntimeDeps, tenantId: string, connection: ConnectionRef) {

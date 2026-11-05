@@ -43,6 +43,7 @@ import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
 import type { Platform } from "../platform";
 import { dispatchEvents } from "../runs/dispatch";
 import { matrixEdit } from "./mappers";
+import { latestHealthSummary, portalFindings } from "./supervisor";
 
 type ConnectionRow = typeof connection.$inferSelect;
 
@@ -258,6 +259,10 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       })),
       needsYou: { inbox: open.length },
       recentRuns: await runSummaries(tx, tenantId, [], 5),
+      health: {
+        summary: await latestHealthSummary(tx, tenantId),
+        findings: await portalFindings(tx, tenantId, role, session.user.id),
+      },
     };
   });
 

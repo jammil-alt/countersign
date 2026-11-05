@@ -231,6 +231,8 @@ describe("new client", () => {
       screen.getByTestId("new-client-admin-email"),
       "owner@cabinets.example.com",
     );
+    // The supervisor is offered, ticked (docs/plan.md §1.28).
+    expect(screen.getByTestId("new-client-supervisor")).toBeChecked();
     await userEvent.click(screen.getByTestId("new-client-create"));
 
     const created = await screen.findByTestId("ops-client-created");
@@ -243,6 +245,7 @@ describe("new client", () => {
         connectorsOffered: ["upload"],
         approvals: "operator",
         language: "es",
+        supervisor: true,
         admin: { email: "owner@cabinets.example.com" },
       },
     ]);

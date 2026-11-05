@@ -101,6 +101,17 @@ function* triggersOf<T extends TriggerOn["type"]>(
   }
 }
 
+/** Events that report on one agent's own run, with the agent's id in `payload.agentId`. */
+export const OWN_RUN_EVENTS: ReadonlySet<string> = new Set(["run.failed"]);
+
+// DECISION: the loop guard is in the router and covers every agent, rather than a filter each
+// workflow must remember: a `run.failed` about agent X never starts X.
+function aboutOwnRun(event: RoutableEvent, agentId: string): boolean {
+  if (!OWN_RUN_EVENTS.has(event.type)) return false;
+  const payload = event.payload as { agentId?: unknown } | null;
+  return payload?.agentId === agentId;
+}
+
 /**
  * The runs an event starts: every enabled workflow, in the live version of each runnable agent of
  * the event's own client, whose trigger names the event type and whose filter matches.
@@ -114,6 +125,9 @@ export async function routeEvent(
   for (const agent of agents) {
     // A client's event starts only that client's agents, whatever the caller passed in.
     if (!isRunnable(agent) || agent.tenantId !== event.tenantId) continue;
+    // An agent is never started by its own run's failure: one that watches failures (the
+    // supervisor, docs/plan.md §1.28) and then fails itself can't loop.
+    if (aboutOwnRun(event, agent.id)) continue;
     for (const { slug, triggerId, on } of triggersOf(agent, "event")) {
       if (on.event !== event.type) continue;
       if (on.filter) {

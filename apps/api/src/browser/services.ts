@@ -11,9 +11,15 @@ import type {
   ConnectionRef,
   ContentStore,
 } from "@countersign/connectors";
-import { BrowserConnectionState, type JsonObject } from "@countersign/core";
+import {
+  BrowserConnectionState,
+  FINGERPRINT_KEY,
+  findingFingerprint,
+  type JsonObject,
+} from "@countersign/core";
 import { connection, connectionChange, type Db, inboxItem, withTenant } from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
+import { emit } from "@countersign/senses";
 import { and, eq, sql } from "drizzle-orm";
 import type { CodesClient } from "../codes/client";
 import { pinnedSite } from "./sites";
@@ -82,6 +88,9 @@ export function dbBrowserServices(db: Db, conn: ConnectionRef, deps: BrowserDeps
               after: "error",
             },
           });
+          // The supervisor's fingerprint for this issue (docs/plan.md §1.28): its report finds
+          // these items open and adds none of its own.
+          const fingerprint = findingFingerprint({ kind: "login_stopped", connectionId: conn.id });
           for (const role of ["operator", "client_admin"] as const) {
             await tx.insert(inboxItem).values({
               tenantId,
@@ -91,6 +100,7 @@ export function dbBrowserServices(db: Db, conn: ConnectionRef, deps: BrowserDeps
               assigneeRole: role,
               title: "A website sign-in stopped and needs a person".slice(0, 200),
               payload: {
+                [FINGERPRINT_KEY]: fingerprint,
                 kind: BROWSER_STOP_SUBJECT,
                 connectionId: conn.id,
                 site: String((conn.config as Record<string, unknown>).site ?? ""),
@@ -100,6 +110,20 @@ export function dbBrowserServices(db: Db, conn: ConnectionRef, deps: BrowserDeps
               },
             });
           }
+          // In the stop's own transaction (the outbox pattern); the dispatcher or the cron sends it.
+          await emit(tx, {
+            tenantId,
+            type: "connection.needs_attention",
+            subjectType: "connection",
+            subjectId: conn.id,
+            payload: {
+              connectionId: conn.id,
+              connector: conn.connector,
+              reason: "login_stopped",
+              detail: reason.slice(0, 500),
+              sourceId: null,
+            },
+          });
         }),
     },
     storeDocument: (file) =>

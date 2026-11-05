@@ -19,6 +19,7 @@ import { summaryBadge } from "../versions";
 import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientBillingSection } from "./ClientBilling";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
+import { ClientHealthSection } from "./ClientHealth";
 import { ClientTabs } from "./ClientKnowledge";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
 
@@ -59,6 +60,7 @@ export function ClientDetailScreen() {
           ))}
         </div>
       )}
+      <ClientHealthSection clientId={data.client.id} onChanged={reload} />
       <ClientLanguageSetting
         clientId={data.client.id}
         settings={data.client.settings}

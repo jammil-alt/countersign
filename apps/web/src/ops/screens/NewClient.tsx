@@ -1,6 +1,7 @@
 // `/ops/clients/new`: onboarding a client (ARCHITECTURE §15): its name, timezone and language, the tools it
-// is offered, who approves changes to its tools, and its admin, invited in the same step. Then the
-// client's settings page, which says what became of the invitation email.
+// is offered, who approves changes to its tools, its admin, invited in the same step, and the
+// supervisor (docs/plan.md §1.28), offered by default. Then the client's settings page, which says
+// what became of the invitation email.
 import {
   type ExternalApprover,
   type InviteResult,
@@ -117,6 +118,8 @@ export function NewClientScreen() {
   const [approvals, setApprovals] = useState<ExternalApprover>("client_admin");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
+  // DECISION: onboarding offers the supervisor ticked; it arrives as a draft to test and activate.
+  const [supervisor, setSupervisor] = useState(true);
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<{
     name?: string;
@@ -140,6 +143,7 @@ export function NewClientScreen() {
           connectorsOffered: offered,
           approvals,
           language,
+          supervisor,
           ...(adminEmail.trim()
             ? {
                 admin: {
@@ -307,6 +311,29 @@ export function NewClientScreen() {
                 onChange={(e) => setAdminName(e.target.value)}
               />
             </Field>
+          </Card>
+        </section>
+
+        <section>
+          <SectionLabel>Supervisor</SectionLabel>
+          <Card>
+            <label className="flex cursor-pointer items-start gap-3 px-4 py-3">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-slate"
+                data-testid="new-client-supervisor"
+                checked={supervisor}
+                onChange={() => setSupervisor((v) => !v)}
+              />
+              <span className="min-w-0">
+                <span className="block font-medium text-ink">Add the supervisor</span>
+                <span className="block text-sm text-ink-muted">
+                  It watches their runs, connections and waiting items, and tells their admin in
+                  plain steps and us with the details. It changes nothing itself. You test and
+                  activate it like any agent.
+                </span>
+              </span>
+            </label>
           </Card>
         </section>
 
