@@ -1,0 +1,19 @@
+{
+  "CompanyInfo": {
+    "Id": "1",
+    "SyncToken": "4",
+    "domain": "QBO",
+    "sparse": false,
+    "CompanyName": "Harbor Millwork (sandbox)",
+    "LegalName": "Harbor Millwork LLC",
+    "Country": "US",
+    "Email": { "Address": "office@harbormillwork.example" },
+    "FiscalYearStartMonth": "January",
+    "SupportedLanguages": "en",
+    "MetaData": {
+      "CreateTime": "2026-01-12T09:00:00-08:00",
+      "LastUpdatedTime": "2026-10-01T09:00:00-07:00"
+    }
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

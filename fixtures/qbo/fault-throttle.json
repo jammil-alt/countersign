@@ -1,0 +1,13 @@
+{
+  "Fault": {
+    "Error": [
+      {
+        "Message": "message=ThrottleExceeded; errorCode=003001; statusCode=429",
+        "Detail": "The request limit was reached.",
+        "code": "3001"
+      }
+    ],
+    "type": "SERVICE"
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

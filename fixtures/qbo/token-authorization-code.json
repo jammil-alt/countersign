@@ -1,0 +1,7 @@
+{
+  "token_type": "bearer",
+  "access_token": "eyJlbmMiOiJBMTI4Q0JDLUhTMjU2IiwiYWxnIjoiZGlyIn0..fixture-access-1",
+  "refresh_token": "AB11799999999fixtureRefresh1",
+  "expires_in": 3600,
+  "x_refresh_token_expires_in": 8726400
+}

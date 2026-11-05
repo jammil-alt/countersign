@@ -19,6 +19,7 @@ import {
   createBrowserConnector,
   createGmailConnector,
   createPodioConnector,
+  createQboConnector,
   createResendConnector,
   createTestkitConnector,
   createTwilioConnector,
@@ -111,6 +112,11 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
 }
 
+/** QBO_ENV, read leniently: anything but `production` is the sandbox. */
+export function qboEnvironment(env: Pick<Bindings, "QBO_ENV">): "sandbox" | "production" {
+  return env.QBO_ENV?.trim().toLowerCase() === "production" ? "production" : "sandbox";
+}
+
 export function isProductionEnv(env: Pick<Bindings, "ENVIRONMENT">): boolean {
   return env.ENVIRONMENT?.trim().toLowerCase() === "production";
 }
@@ -128,6 +134,10 @@ let cached: { key: string; platform: Platform } | undefined;
 // to find and change.
 type OAuthEnvKey =
   | "OAUTH_STATE_SECRET"
+  | "QBO_CLIENT_ID"
+  | "QBO_CLIENT_SECRET"
+  | "QBO_WEBHOOK_VERIFIER"
+  | "QBO_ENV"
   | "ZOHO_CLIENT_ID"
   | "ZOHO_CLIENT_SECRET"
   | "PODIO_CLIENT_ID"
@@ -145,6 +155,9 @@ export function platformFor(
     env.OAUTH_STATE_SECRET ? "state" : "-",
     env.ZOHO_CLIENT_ID ?? "-",
     env.PODIO_CLIENT_ID ?? "-",
+    env.QBO_CLIENT_ID ?? "-",
+    qboEnvironment(env),
+    env.QBO_WEBHOOK_VERIFIER ? "qbo-hook" : "-",
     env.GOOGLE_CLIENT_ID ?? "-",
   ].join(":");
   if (cached?.key !== key) {
@@ -171,12 +184,20 @@ export function deploymentConnectors(
   const podioReady = Boolean(
     env.PODIO_CLIENT_ID && env.PODIO_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
+  const qboReady = Boolean(env.QBO_CLIENT_ID && env.QBO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
   const googleReady = Boolean(
     env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
   return [
     // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
     createUploadConnector(),
+    // QuickBooks Online (plan M9): offered and built with everywhere; signs in once QBO_CLIENT_ID,
+    // QBO_CLIENT_SECRET and OAUTH_STATE_SECRET are set. QBO_ENV picks sandbox or production.
+    createQboConnector({
+      ...(qboReady ? { clientId: env.QBO_CLIENT_ID, clientSecret: env.QBO_CLIENT_SECRET } : {}),
+      environment: qboEnvironment(env),
+      webhookVerifier: env.QBO_WEBHOOK_VERIFIER,
+    }),
     createWebhookConnector(),
     createZohoCrmConnector(
       zohoReady ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : {},

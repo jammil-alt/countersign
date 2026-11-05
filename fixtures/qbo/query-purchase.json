@@ -1,0 +1,97 @@
+{
+  "QueryResponse": {
+    "Purchase": [
+      {
+        "Id": "201",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-29T12:30:00-07:00",
+          "LastUpdatedTime": "2026-10-29T12:30:00-07:00"
+        },
+        "TxnDate": "2026-10-29",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "PrivateNote": "Hinges for Henderson",
+        "PaymentType": "CreditCard",
+        "Credit": false,
+        "AccountRef": { "value": "35", "name": "Chase Ink 4421" },
+        "EntityRef": { "value": "58", "name": "Pacific Hardware & Finishes", "type": "Vendor" },
+        "Line": [
+          {
+            "Id": "1",
+            "Description": "Card charge",
+            "Amount": 214.6,
+            "DetailType": "AccountBasedExpenseLineDetail",
+            "AccountBasedExpenseLineDetail": {
+              "AccountRef": { "value": "80", "name": "Job Materials" },
+              "BillableStatus": "NotBillable",
+              "TaxCodeRef": { "value": "NON" }
+            }
+          }
+        ],
+        "TotalAmt": 214.6
+      },
+      {
+        "Id": "202",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-11-01T08:05:00-07:00",
+          "LastUpdatedTime": "2026-11-01T08:07:31-07:00"
+        },
+        "DocNumber": "1042",
+        "TxnDate": "2026-11-01",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "PaymentType": "Check",
+        "AccountRef": { "value": "34", "name": "Business Checking" },
+        "EntityRef": { "value": "56", "name": "Northwest Plywood Supply", "type": "Vendor" },
+        "Line": [
+          {
+            "Id": "1",
+            "Description": "Edge banding, will call",
+            "Amount": 48.1,
+            "DetailType": "AccountBasedExpenseLineDetail",
+            "AccountBasedExpenseLineDetail": {
+              "AccountRef": { "value": "80", "name": "Job Materials" },
+              "BillableStatus": "NotBillable"
+            }
+          }
+        ],
+        "TotalAmt": 48.1
+      },
+      {
+        "Id": "203",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-11-02T10:15:00-07:00",
+          "LastUpdatedTime": "2026-11-02T10:15:00-07:00"
+        },
+        "TxnDate": "2026-11-02",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "PrivateNote": "Returned 10 hinges",
+        "PaymentType": "CreditCard",
+        "Credit": true,
+        "AccountRef": { "value": "35", "name": "Chase Ink 4421" },
+        "EntityRef": { "value": "58", "name": "Pacific Hardware & Finishes", "type": "Vendor" },
+        "Line": [
+          {
+            "Id": "1",
+            "Amount": 32,
+            "DetailType": "AccountBasedExpenseLineDetail",
+            "AccountBasedExpenseLineDetail": {
+              "AccountRef": { "value": "80", "name": "Job Materials" }
+            }
+          }
+        ],
+        "TotalAmt": 32
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 3
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

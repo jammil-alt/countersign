@@ -1,0 +1,38 @@
+{
+  "QueryResponse": {
+    "VendorCredit": [
+      {
+        "Id": "301",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-31T11:00:00-07:00",
+          "LastUpdatedTime": "2026-10-31T11:00:00-07:00"
+        },
+        "DocNumber": "CM-118",
+        "TxnDate": "2026-10-31",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "VendorRef": { "value": "57", "name": "Cascade Hardwoods" },
+        "APAccountRef": { "value": "33", "name": "Accounts Payable (A/P)" },
+        "Line": [
+          {
+            "Id": "1",
+            "Description": "Short shipment credit",
+            "Amount": 45,
+            "DetailType": "AccountBasedExpenseLineDetail",
+            "AccountBasedExpenseLineDetail": {
+              "AccountRef": { "value": "80", "name": "Job Materials" },
+              "BillableStatus": "NotBillable"
+            }
+          }
+        ],
+        "TotalAmt": 45,
+        "Balance": 45
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 1
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

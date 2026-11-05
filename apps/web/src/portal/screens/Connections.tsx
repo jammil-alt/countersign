@@ -205,7 +205,7 @@ function ConnectedCard({
         <div className="min-w-0">
           <p className="font-medium text-ink">{item.name}</p>
           <p className="text-sm text-ink-muted">
-            {conn.externalAccountId ?? descriptionOf(item, i18n)}
+            {conn.accountName ?? conn.externalAccountId ?? descriptionOf(item, i18n)}
           </p>
         </div>
       </div>

@@ -19,6 +19,7 @@ import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
@@ -363,6 +364,8 @@ export const PortalConnection = z.object({
       id: z.string(),
       status: z.string(),
       externalAccountId: z.string().nullable(),
+      /** The account's name in the tool (e.g. the QuickBooks company), when the connector gives one. */
+      accountName: z.string().nullable(),
       lastSyncAt: NullableTimestamp,
       permissions: ConnectionMatrix,
       access: z.array(ToolAccessSchema),
@@ -1644,5 +1647,6 @@ export const routes = {
   ...browserRoutes,
   ...directoryRoutes,
   ...supervisorRoutes,
+  ...qboRoutes,
 } as const;
 export type Routes = typeof routes;

@@ -25,6 +25,7 @@ function gmail(connection: null | { connectedByYou: boolean }) {
       id: GMAIL_CONN,
       status: "connected",
       externalAccountId: "pat.lee@gmail.test",
+      accountName: null,
       lastSyncAt: null,
       permissions: matrix,
       access: [],

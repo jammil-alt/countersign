@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Connector framework (manifest, tools), webhook/ and zoho_crm/ connectors, the testkit, object storage",
+  "description": "Connector framework (manifest, tools), the connectors (qbo, webhook, zoho_crm, …), the testkit, object storage",
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts"

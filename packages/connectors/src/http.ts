@@ -17,6 +17,8 @@ export interface HttpResponseLike {
   readonly ok: boolean;
   readonly headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /** The body as bytes (a downloaded file); fakes may leave it out where nothing is binary. */
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
 export type FetchLike = (url: string, init?: HttpRequestInit) => Promise<HttpResponseLike>;
