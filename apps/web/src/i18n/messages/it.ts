@@ -894,7 +894,7 @@ export const it: Messages = {
     "La fatturazione non è ancora attiva. Ti avvisiamo prima della prima fattura.",
   "billing.paymentProblem":
     "Il tuo ultimo pagamento non è andato a buon fine. Apri la fattura qui sotto per pagarla.",
-  "billing.included": "Inclusi ogni mese",
+  "billing.included": "Inclusi finora",
   "billing.creditUnit": { one: "credito", other: "crediti" },
   "billing.shared": "Condivisi da tutti i tuoi servizi",
   "billing.extra": "Crediti extra",

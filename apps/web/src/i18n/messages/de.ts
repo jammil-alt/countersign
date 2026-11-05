@@ -908,7 +908,7 @@ export const de: Messages = {
     "Die Abrechnung ist noch nicht eingerichtet. Wir melden uns vor Ihrer ersten Rechnung.",
   "billing.paymentProblem":
     "Ihre letzte Zahlung ist nicht durchgegangen. Öffnen Sie die Rechnung unten, um sie zu bezahlen.",
-  "billing.included": "Jeden Monat enthalten",
+  "billing.included": "Bisher enthalten",
   "billing.creditUnit": { one: "Credit", other: "Credits" },
   "billing.shared": "Für alle Ihre Services gemeinsam",
   "billing.extra": "Zusätzliche Credits",

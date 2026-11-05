@@ -145,7 +145,7 @@ function ClientsTable({ data }: { data: OpsBilling }) {
       {data.clients.length === 0 ? (
         <EmptyState>No clients yet.</EmptyState>
       ) : (
-        <div className="dt overflow-x-auto">
+        <div className="dt dt-ana overflow-x-auto">
           <table data-testid="ops-billing-clients">
             <thead>
               <tr className="dt-cols">
@@ -222,7 +222,7 @@ function TemplatePrices({ data }: { data: OpsBilling }) {
       {data.templates.length === 0 ? (
         <EmptyState>No templates yet.</EmptyState>
       ) : (
-        <div className="dt overflow-x-auto">
+        <div className="dt dt-ana overflow-x-auto">
           <table data-testid="ops-billing-templates">
             <thead>
               <tr className="dt-cols">
@@ -434,7 +434,7 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
             What one unit of each usage measure costs us, in dollars. A measure without a unit cost
             is not billed.
           </p>
-          <div className="dt overflow-x-auto">
+          <div className="dt dt-ana overflow-x-auto">
             <table data-testid="ops-billing-unit-costs">
               <thead>
                 <tr className="dt-cols">

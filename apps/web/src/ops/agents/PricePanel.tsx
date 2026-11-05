@@ -86,7 +86,7 @@ export function PricePanel({ agent }: { agent: AgentSummary }) {
   return (
     <Card className="flex flex-col gap-4 p-5" testId="agent-price">
       <div>
-        <h2 className="mb-1 type-subheading text-ink">Price</h2>
+        <SectionLabel>Price</SectionLabel>
         <p className="text-sm text-ink-muted">
           {client
             ? "What this client pays for this agent each month, prorated by the days it is active, and the credits it brings to the client's pool."

@@ -891,7 +891,7 @@ export const ptBR: Messages = {
     "O faturamento ainda não está configurado. Avisaremos você antes da primeira fatura.",
   "billing.paymentProblem":
     "Seu último pagamento não foi aprovado. Abra a fatura abaixo para pagá-la.",
-  "billing.included": "Incluídos todo mês",
+  "billing.included": "Incluídos até agora",
   "billing.creditUnit": { one: "crédito", other: "créditos" },
   "billing.shared": "Compartilhados por todos os seus serviços",
   "billing.extra": "Créditos extras",

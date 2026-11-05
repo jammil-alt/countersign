@@ -901,7 +901,7 @@ export const fr: Messages = {
     "La facturation n'est pas encore configurée. Nous vous préviendrons avant votre première facture.",
   "billing.paymentProblem":
     "Votre dernier paiement n'est pas passé. Ouvrez la facture ci-dessous pour la régler.",
-  "billing.included": "Inclus chaque mois",
+  "billing.included": "Inclus jusqu'ici",
   "billing.creditUnit": { one: "crédit", other: "crédits" },
   "billing.shared": "Partagés par tous vos services",
   "billing.extra": "Crédits supplémentaires",

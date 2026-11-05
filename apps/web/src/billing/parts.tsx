@@ -183,7 +183,7 @@ export function StatementLines({
   const i18n = useI18n();
   const { t } = i18n;
   return (
-    <div className="dt overflow-x-auto">
+    <div className="dt dt-ana overflow-x-auto">
       <table data-testid={testId}>
         <thead>
           <tr className="dt-cols">

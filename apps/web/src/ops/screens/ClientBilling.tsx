@@ -99,7 +99,7 @@ export function ClientBillingSection({ clientId }: { clientId: string }) {
             {data.agents.length === 0 ? (
               <p className="text-sm text-ink-muted">No agents yet.</p>
             ) : (
-              <div className="dt overflow-x-auto">
+              <div className="dt dt-ana overflow-x-auto">
                 <table data-testid="ops-client-billing-agents">
                   <thead>
                     <tr className="dt-cols">

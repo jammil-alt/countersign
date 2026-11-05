@@ -890,7 +890,7 @@ export const es: Messages = {
   "billing.notSetUp":
     "La facturación aún no está configurada. Le avisaremos antes de su primera factura.",
   "billing.paymentProblem": "Su último pago no se completó. Abra la factura de abajo para pagarla.",
-  "billing.included": "Incluidos cada mes",
+  "billing.included": "Incluidos hasta ahora",
   "billing.creditUnit": { one: "crédito", other: "créditos" },
   "billing.shared": "Compartidos por todos sus servicios",
   "billing.extra": "Créditos adicionales",

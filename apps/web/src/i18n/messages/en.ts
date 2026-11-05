@@ -863,7 +863,7 @@ export const en = {
   "billing.notSetUp": "Billing is not set up yet. We'll let you know before your first invoice.",
   "billing.paymentProblem":
     "Your last payment didn't go through. Open the invoice below to pay it.",
-  "billing.included": "Included each month",
+  "billing.included": "Included so far",
   "billing.creditUnit": { one: "credit", other: "credits" },
   "billing.shared": "Shared by all your services",
   "billing.extra": "Extra credits",
