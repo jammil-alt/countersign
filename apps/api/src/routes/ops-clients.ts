@@ -37,11 +37,34 @@ import {
   opsToolCall,
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
+import { canSignIn } from "./portal";
 import { addSupervisor } from "./supervisor";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
 export function isSandbox(settings: Record<string, unknown>): boolean {
   return settings.sandbox === true;
+}
+
+/**
+ * The Sandbox client, for the routes that connect its tools from the back office: 404 unless this
+ * operator serves the client, 403 `not_sandbox` for any other client.
+ */
+// DECISION: the operator connects tools only in the Sandbox client, their own test client with no
+// client users (docs/plan.md §1.5): its no-sign-in tools, and since 2026-11-05 its OAuth tools with
+// the operator's own sign-in. In a real client the client signs in from the portal, and the
+// operator never connects on their behalf (ARCHITECTURE §6.1).
+export async function sandboxClient(ctx: { tx: Tx; tenantIds: readonly string[] }, id: string) {
+  ensureClient(ctx, id);
+  const [t] = await ctx.tx.select().from(tenant).where(eq(tenant.id, id));
+  if (!t) throw notFound("client");
+  if (!isSandbox(t.settings)) {
+    throw new HttpError(
+      403,
+      "not_sandbox",
+      "only the Sandbox client's tools are connected from the back office",
+    );
+  }
+  return t;
 }
 
 /** `tenant.settings.connectors_offered`, as connector ids. */
@@ -248,6 +271,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         description: c.manifest.description,
         icon: c.manifest.icon ?? null,
         auth: c.manifest.auth,
+        available: canSignIn(c),
         tools: c.manifest.tools.map((tool) => ({
           id: tool.id,
           description: tool.description,
@@ -262,19 +286,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsConnectSandbox, async (ctx) => {
     const { tx, params, services, session } = ctx;
-    ensureClient(ctx, params.id);
-    const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
-    if (!t) throw notFound("client");
-    // DECISION: the operator connects tools only in the Sandbox client, their own test client with
-    // no client users (docs/plan.md §1.5). In a real client the client signs in from the portal,
-    // and the operator never connects on their behalf (ARCHITECTURE §6.1).
-    if (!isSandbox(t.settings)) {
-      throw new HttpError(
-        403,
-        "not_sandbox",
-        "only the Sandbox client's tools are connected from the back office",
-      );
-    }
+    const t = await sandboxClient(ctx, params.id);
     const id = await connectNoAuth(tx, {
       tenantId: t.id,
       connector: params.connector,

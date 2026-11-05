@@ -17,10 +17,17 @@ import {
  */
 // DECISION: a stateless signed token, not a stored row: nothing to clean up, and the binding to the
 // session user already blocks CSRF. The nonce is returned so a caller can also make it single-use.
+/**
+ * Where the sign-in started: the client portal, or the back office (the operator signing in to a
+ * tool of the Sandbox client, docs/plan.md §1.5). The callback forwards and checks on it.
+ */
+export type OAuthOrigin = "portal" | "ops";
+
 export interface OAuthStateClaims {
   tenantId: string;
   connector: string;
   userId: string;
+  origin: OAuthOrigin;
   /** Random, base64url. */
   nonce: string;
   /** Unix seconds. */
@@ -36,6 +43,8 @@ const Payload = z.object({
   n: z.string().min(1),
   iat: z.number().int(),
   exp: z.number().int(),
+  /** Set only for the back office; a portal state has no `o`, as before. */
+  o: z.literal("ops").optional(),
 });
 
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -55,8 +64,18 @@ async function key(secret: string | Uint8Array) {
   return hmacKey(raw);
 }
 
+export interface OAuthStateBinding {
+  tenantId: string;
+  connector: string;
+  userId: string;
+  /** Default `portal`. */
+  origin?: OAuthOrigin;
+}
+
+// DECISION: the origin is an optional `o: "ops"` in the same v1 payload, so a portal state is
+// byte-for-byte the shape it was, and a portal sign-in in flight across a deploy still verifies.
 export async function createOAuthState(
-  binding: { tenantId: string; connector: string; userId: string },
+  binding: OAuthStateBinding,
   opts: StateKeyOptions & { ttlMs?: number },
 ): Promise<{ state: string; claims: OAuthStateClaims }> {
   const now = Math.floor((opts.now ?? new Date()).getTime() / 1000);
@@ -65,6 +84,7 @@ export async function createOAuthState(
     tenantId: binding.tenantId,
     connector: binding.connector,
     userId: binding.userId,
+    origin: binding.origin ?? "portal",
     nonce: toBase64Url(randomBytes(16)),
     issuedAt: now,
     expiresAt: now + ttl,
@@ -79,6 +99,7 @@ export async function createOAuthState(
         n: claims.nonce,
         iat: claims.issuedAt,
         exp: claims.expiresAt,
+        ...(claims.origin === "ops" ? { o: "ops" } : {}),
       }),
     ),
   );
@@ -93,12 +114,12 @@ export type OAuthStateResult =
   | { ok: false; reason: OAuthStateFailure };
 
 /**
- * Checks the signature first (nothing in an unsigned payload is trusted), then expiry, then that
- * the state belongs to this client, connector and user.
+ * Reads a state without a session to check it against: the signature first (nothing in an unsigned
+ * payload is trusted), then the payload, then expiry. The callback forwarder uses it to tell a
+ * back-office sign-in from a portal one; the callback routes use `verifyOAuthState`.
  */
-export async function verifyOAuthState(
+export async function readOAuthState(
   state: string,
-  expected: { tenantId: string; connector: string; userId: string },
   opts: StateKeyOptions,
 ): Promise<OAuthStateResult> {
   const parts = state.split(".");
@@ -129,22 +150,40 @@ export async function verifyOAuthState(
   }
   const now = Math.floor((opts.now ?? new Date()).getTime() / 1000);
   if (now >= parsed.exp || parsed.iat > now + CLOCK_SKEW_S) return { ok: false, reason: "expired" };
-  if (
-    parsed.t !== expected.tenantId ||
-    parsed.c !== expected.connector ||
-    parsed.u !== expected.userId
-  ) {
-    return { ok: false, reason: "mismatch" };
-  }
   return {
     ok: true,
     claims: {
       tenantId: parsed.t,
       connector: parsed.c,
       userId: parsed.u,
+      origin: parsed.o ?? "portal",
       nonce: parsed.n,
       issuedAt: parsed.iat,
       expiresAt: parsed.exp,
     },
   };
+}
+
+/**
+ * Checks the signature first (nothing in an unsigned payload is trusted), then expiry, then that
+ * the state belongs to this client, connector, user and origin (default the portal), so a state
+ * started in the back office never completes in the portal, nor the other way round.
+ */
+export async function verifyOAuthState(
+  state: string,
+  expected: OAuthStateBinding,
+  opts: StateKeyOptions,
+): Promise<OAuthStateResult> {
+  const read = await readOAuthState(state, opts);
+  if (!read.ok) return read;
+  const { claims } = read;
+  if (
+    claims.tenantId !== expected.tenantId ||
+    claims.connector !== expected.connector ||
+    claims.userId !== expected.userId ||
+    claims.origin !== (expected.origin ?? "portal")
+  ) {
+    return { ok: false, reason: "mismatch" };
+  }
+  return read;
 }

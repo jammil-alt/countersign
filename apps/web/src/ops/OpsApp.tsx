@@ -23,6 +23,7 @@ import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
 import { OpsMessagingScreen } from "./screens/Messaging";
 import { NewClientScreen } from "./screens/NewClient";
+import { OpsOAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
 import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
@@ -63,6 +64,7 @@ function OpsBackOffice() {
         <Route path="clients/:clientId" element={<ClientDetailScreen />} />
         <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
+        <Route path="connections/:connector/callback" element={<OpsOAuthCallbackScreen />} />
         <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
         <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />

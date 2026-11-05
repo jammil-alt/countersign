@@ -3,7 +3,9 @@
 // state and who uses them, the permission matrix (the operator may loosen as well as tighten) and
 // each connection's configuration. The client signs in from the portal; the operator never
 // connects a tool on a client's behalf and never sees credentials. The one exception is the Sandbox
-// client, the operator's own test client, whose no-sign-in tools the operator connects here.
+// client, the operator's own test client: the operator connects its no-sign-in tools here, and signs
+// in to its offered OAuth tools with their own account (the provider returns to
+// `/ops/connections/:connector/callback`).
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -110,6 +112,13 @@ export function OpsConnectionsScreen() {
           onConnect={async (connector) => {
             await api.call(apiRoutes.opsConnectSandbox, { params: { id: clientId, connector } });
             reload();
+          }}
+          onSignIn={async (connector) => {
+            const res = await api.call(apiRoutes.opsSandboxAuthorize, {
+              params: { id: clientId, connector },
+            });
+            // The provider's sign-in, then back to the back office's callback page.
+            window.location.assign(res.redirectUrl);
           }}
           onSave={async (offered) => {
             await api.call(apiRoutes.opsOfferConnectors, {
@@ -234,12 +243,15 @@ function Offering({
   data,
   onSave,
   onConnect,
+  onSignIn,
 }: {
   clientId: string;
   data: Data;
   onSave: (offered: string[]) => Promise<void>;
-  /** The Sandbox only: the operator connects its tools (no-sign-in connectors today). */
+  /** The Sandbox only: the operator connects a connector that needs no sign-in. */
   onConnect: (connector: string) => Promise<void>;
+  /** The Sandbox only: the operator signs in to an offered OAuth connector themselves. */
+  onSignIn: (connector: string) => Promise<void>;
 }) {
   const known = data.offered.filter((id) => data.connectors.some((c) => c.id === id));
   const unknown = data.offered.filter((id) => !known.includes(id));
@@ -285,23 +297,31 @@ function Offering({
                     {c.auth === "none" ? "no sign-in needed" : `signs in with ${c.auth}`}
                   </span>
                 </label>
-                {data.sandbox && c.auth === "none" ? (
+                {data.sandbox &&
+                (c.auth === "none" || (c.auth === "oauth2" && known.includes(c.id))) ? (
                   connected.has(c.id) ? (
                     <Badge tone="positive">Connected</Badge>
-                  ) : (
+                  ) : c.available ? (
                     <Button
                       data-testid={`ops-connections-connect-${c.id}`}
                       disabled={busy}
                       onClick={() => {
                         setBusy(true);
                         setProblem(null);
-                        onConnect(c.id)
+                        (c.auth === "none" ? onConnect(c.id) : onSignIn(c.id))
                           .catch(setProblem)
                           .finally(() => setBusy(false));
                       }}
                     >
                       Connect
                     </Button>
+                  ) : (
+                    <span
+                      data-testid={`ops-connections-unavailable-${c.id}`}
+                      className="shrink-0 text-sm text-ink-muted"
+                    >
+                      Not available yet
+                    </span>
                   )
                 ) : null}
               </li>
