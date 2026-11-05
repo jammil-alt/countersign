@@ -165,6 +165,7 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "reach_out",
       "tenant_key",
       "agent_grant",
+      "access_release",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
