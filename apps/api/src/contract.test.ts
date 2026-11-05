@@ -119,6 +119,21 @@ describe.skipIf(!h)("route contract (running app)", () => {
     }
   });
 
+  // docs/plan.md §1.31: the operator disconnects tools in the Sandbox client only.
+  it("refuses the back office's disconnect outside the Sandbox, and to client roles", async () => {
+    const path = buildPath(routes.opsSandboxDisconnect.path, {
+      id: harness.A.tenantId,
+      connectionId: harness.A.connectionId,
+    });
+    const real = await harness.call(OPERATOR, "DELETE", path);
+    expect(real.status).toBe(403);
+    expect((real.json as { error: { code: string } }).error.code).toBe("not_sandbox");
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "DELETE", path)).status, who).toBe(403);
+    }
+    expect((await harness.call(null, "DELETE", path)).status).toBe(401);
+  });
+
   // docs/plan.md §1.31: the back office's Gmail test email is for the Sandbox client only.
   it("refuses the back office's Gmail test email outside the Sandbox, and to client roles", async () => {
     const path = buildPath(routes.opsSandboxGmailTestSend.path, { id: harness.A.tenantId });

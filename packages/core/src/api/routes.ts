@@ -788,6 +788,16 @@ export const opsRoutes = {
     params: z.object({ id: ApiId, connector: ConnectorId }),
     response: z.object({ redirectUrl: z.string() }),
   }),
+  opsSandboxDisconnect: defineRoute({
+    method: "DELETE",
+    path: "/api/ops/clients/:id/connections/:connectionId",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Disconnect a tool in the Sandbox client: the grant is revoked at the provider and the credentials dropped (403 not_sandbox in any other client)",
+    params: z.object({ id: ApiId, connectionId: ApiId }),
+    response: z.object({ connection: OpsConnection }),
+  }),
   opsSandboxGmailTestSend: defineRoute({
     method: "POST",
     path: "/api/ops/clients/:id/connections/gmail/test-send",

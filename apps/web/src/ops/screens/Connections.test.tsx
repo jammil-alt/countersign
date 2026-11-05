@@ -2,7 +2,7 @@
 // connects a no-sign-in tool, signs in to an offered OAuth tool with their own account (the API
 // answers where the provider's sign-in starts), sees "Not available yet" for one this deployment
 // can't sign in to, and no Connect at all in a real client.
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -263,6 +263,66 @@ describe("ops connections: the Sandbox client", () => {
     renderAt(`/ops/clients/${DEMO}/connections`, api);
     const card = await screen.findByTestId(`ops-connection-${GMAIL}`);
     expect(within(card).queryByTestId("ops-gmail-test-send")).toBeNull();
+  });
+
+  it("disconnects a Sandbox tool after a confirm step, and offers no Disconnect in a real client", async () => {
+    const QBO = "00000000-0000-4000-8000-0000000000f1";
+    const row = (tenantId: string, status = "connected") => ({
+      id: QBO,
+      tenantId,
+      connector: "qbo",
+      status,
+      externalAccountId: "9341458640918607",
+      config: {},
+      permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+      lastSyncAt: null,
+      connectedBy: OPERATOR_SESSION.user.id,
+      createdAt: "2026-11-05T18:00:00.000Z",
+    });
+    let status = "connected";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
+      [`GET /api/ops/clients/${SANDBOX}/connections`]: () =>
+        connections({ offered: ["qbo"], connections: [row(SANDBOX, status)] }),
+      [`DELETE /api/ops/clients/${SANDBOX}/connections/${QBO}`]: () => {
+        status = "disconnected";
+        return { connection: row(SANDBOX, status) };
+      },
+    });
+    const view = renderAt(`/ops/clients/${SANDBOX}/connections`, api);
+    const card = await screen.findByTestId(`ops-connection-${QBO}`);
+    const user = userEvent.setup();
+
+    // Cancel first: nothing is called.
+    await user.click(within(card).getByTestId("ops-connection-disconnect-start"));
+    expect(within(card).getByTestId("ops-connection-disconnect-confirm-box")).toHaveTextContent(
+      "Agents stop using QuickBooks Online until you connect it again.",
+    );
+    await user.click(within(card).getByTestId("ops-connection-disconnect-cancel"));
+    expect(api.calls).not.toContain(`DELETE /api/ops/clients/${SANDBOX}/connections/${QBO}`);
+
+    await user.click(within(card).getByTestId("ops-connection-disconnect-start"));
+    await user.click(within(card).getByTestId("ops-connection-disconnect-confirm"));
+    expect(api.calls).toContain(`DELETE /api/ops/clients/${SANDBOX}/connections/${QBO}`);
+    // Reloaded as disconnected: no Disconnect left.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId(`ops-connection-${QBO}`)).queryByTestId(
+          "ops-connection-disconnect-start",
+        ),
+      ).toBeNull(),
+    );
+    view.unmount();
+
+    const real = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}/connections`]: () =>
+        connections({ sandbox: false, offered: ["qbo"], connections: [row(DEMO)] }),
+    });
+    renderAt(`/ops/clients/${DEMO}/connections`, real);
+    const theirs = await screen.findByTestId(`ops-connection-${QBO}`);
+    expect(within(theirs).queryByTestId("ops-connection-disconnect-start")).toBeNull();
   });
 
   it("offers no Connect in a real client", async () => {

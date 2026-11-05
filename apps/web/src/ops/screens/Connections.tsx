@@ -81,6 +81,16 @@ export function OpsConnectionsScreen() {
                       ? clientId
                       : null
                   }
+                  {...(data.sandbox && c.status !== "disconnected"
+                    ? {
+                        onDisconnect: async () => {
+                          await api.call(apiRoutes.opsSandboxDisconnect, {
+                            params: { id: clientId, connectionId: c.id },
+                          });
+                          reload();
+                        },
+                      }
+                    : {})}
                   onSaveConfig={async (config) => {
                     await api.call(apiRoutes.opsUpdateConnection, {
                       params: { id: c.id },
@@ -191,6 +201,7 @@ function ConnectionCard({
   name,
   usedBy,
   testEmail,
+  onDisconnect,
   onSaveConfig,
 }: {
   connection: Data["connections"][number];
@@ -198,8 +209,27 @@ function ConnectionCard({
   usedBy: { id: string; name: string }[];
   /** The Sandbox client's id when its connected Gmail may send a test email; else null. */
   testEmail: string | null;
+  /** The Sandbox only: the operator disconnects what they connected (after a confirm step). */
+  onDisconnect?: () => Promise<void>;
   onSaveConfig: (config: Record<string, unknown>) => Promise<void>;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectProblem, setDisconnectProblem] = useState<unknown>(null);
+
+  async function disconnect() {
+    if (!onDisconnect) return;
+    setDisconnecting(true);
+    setDisconnectProblem(null);
+    try {
+      await onDisconnect();
+      setConfirming(false);
+    } catch (e) {
+      setDisconnectProblem(e);
+    } finally {
+      setDisconnecting(false);
+    }
+  }
   const saved = JSON.stringify(c.config, null, 2);
   // The company's name, as the portal shows it; the account id (a QuickBooks realm) under it.
   const accountName = connectionAccountName(c.config);
@@ -313,8 +343,46 @@ function ConnectionCard({
               See what it synced
             </Link>
           ) : null}
+          {onDisconnect && !confirming ? (
+            <Button
+              data-testid="ops-connection-disconnect-start"
+              variant="ghost"
+              onClick={() => setConfirming(true)}
+            >
+              Disconnect
+            </Button>
+          ) : null}
         </div>
       )}
+      {onDisconnect && confirming ? (
+        <div className="ds-banner mt-3 block" data-testid="ops-connection-disconnect-confirm-box">
+          <p>
+            Agents stop using {name} until you connect it again. Its sign-in, if it has one, is
+            revoked at {name} and dropped.
+          </p>
+          {disconnectProblem ? <ErrorNotice error={disconnectProblem} /> : null}
+          <div className="mt-2 flex gap-2">
+            <Button
+              data-testid="ops-connection-disconnect-confirm"
+              variant="primary"
+              disabled={disconnecting}
+              onClick={() => void disconnect()}
+            >
+              {disconnecting ? "Disconnecting…" : "Disconnect"}
+            </Button>
+            <Button
+              data-testid="ops-connection-disconnect-cancel"
+              variant="ghost"
+              onClick={() => {
+                setConfirming(false);
+                setDisconnectProblem(null);
+              }}
+            >
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

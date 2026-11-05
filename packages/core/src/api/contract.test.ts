@@ -117,6 +117,18 @@ describe("route contract", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps the back office's disconnect to operators, for the Sandbox client", () => {
+    const r = routes.opsSandboxDisconnect;
+    expect(r).toMatchObject({
+      method: "DELETE",
+      path: "/api/ops/clients/:id/connections/:connectionId",
+      roles: ["operator"],
+    });
+    expect(routeFamily(r)).toBe("ops");
+    expect(r.summary).toMatch(/not_sandbox/);
+    expect(r.params?.safeParse({ id: "x", connectionId: "y" }).success).toBe(false);
+  });
+
   it("knows the families and fills path parameters", () => {
     expect(routeFamily({ path: "/api/ops/runs" })).toBe("ops");
     expect(routeFamily({ path: "/api/runs" })).toBe("portal");

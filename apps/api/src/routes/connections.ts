@@ -232,6 +232,50 @@ function refOf(row: ConnectionRow): ConnectionRef {
 
 type ConnectionRow = typeof connection.$inferSelect;
 
+/**
+ * Disconnects a connection: the provider's grant is revoked, the credentials go, and the change is
+ * recorded with who made it. The row, its matrix and its history stay (bindings keep pointing at
+ * it, so reconnecting puts the agents back to work). Already disconnected: nothing happens.
+ */
+async function disconnect(
+  tx: Tx,
+  services: Services,
+  row: ConnectionRow,
+  who: { actorId: string; by: "client" | "operator" },
+): Promise<void> {
+  if (row.status === "disconnected") return;
+  const { tenantId } = row;
+  // DECISION: the grant is revoked at the provider first (Connector.revoke), best effort: a
+  // provider that is down must not keep the client from disconnecting, and the stored
+  // credentials are dropped either way.
+  const connector = services.platform.connectors.get(row.connector);
+  if (connector?.revoke && row.credentialsEncrypted && services.env.ENCRYPTION_KEY) {
+    try {
+      await connector.revoke({
+        tenantId,
+        connection: refOf(row),
+        credentials: await connectionCredentials(tx, services.env, row),
+        logger: noopLogger,
+        now: () => new Date(),
+      });
+    } catch (error) {
+      console.warn(`revoking ${row.connector} for connection ${row.id} failed`, error);
+    }
+  }
+  // The vault's read model of the credentials goes with them (docs/plan.md §1.26).
+  const { vault: _vault, ...config } = row.config as Record<string, unknown>;
+  await tx
+    .update(connection)
+    .set({ status: "disconnected", credentialsEncrypted: null, config })
+    .where(and(eq(connection.id, row.id), eq(connection.tenantId, tenantId)));
+  await tx.insert(connectionChange).values({
+    tenantId,
+    connectionId: row.id,
+    actorId: who.actorId,
+    change: { kind: "status", by: who.by, before: row.status, after: "disconnected" },
+  });
+}
+
 /** `connection_change.change.kind` of a Gmail test email the person sent to their own mailbox. */
 export const GMAIL_TEST_CHANGE = "gmail_test_email";
 
@@ -462,39 +506,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
       ) {
         throw new HttpError(403, "forbidden", "your admin disconnects this tool");
       }
-      if (row.status !== "disconnected") {
-        // The credentials go; the row, its matrix and its history stay (bindings keep pointing at
-        // it, so reconnecting puts the agents back to work).
-        // DECISION: the grant is revoked at the provider first (Connector.revoke), best effort: a
-        // provider that is down must not keep the client from disconnecting, and the stored
-        // credentials are dropped either way.
-        const connector = services.platform.connectors.get(row.connector);
-        if (connector?.revoke && row.credentialsEncrypted && services.env.ENCRYPTION_KEY) {
-          try {
-            await connector.revoke({
-              tenantId,
-              connection: refOf(row),
-              credentials: await connectionCredentials(tx, services.env, row),
-              logger: noopLogger,
-              now: () => new Date(),
-            });
-          } catch (error) {
-            console.warn(`revoking ${row.connector} for connection ${row.id} failed`, error);
-          }
-        }
-        // The vault's read model of the credentials goes with them (docs/plan.md §1.26).
-        const { vault: _vault, ...config } = row.config as Record<string, unknown>;
-        await tx
-          .update(connection)
-          .set({ status: "disconnected", credentialsEncrypted: null, config })
-          .where(and(eq(connection.id, row.id), eq(connection.tenantId, tenantId)));
-        await tx.insert(connectionChange).values({
-          tenantId,
-          connectionId: row.id,
-          actorId: session.user.id,
-          change: { kind: "status", by: "client", before: row.status, after: "disconnected" },
-        });
-      }
+      await disconnect(tx, services, row, { actorId: session.user.id, by: "client" });
       return {
         connection: await connectionOut(tx, tenantId, services.platform, row.id, session.user.id),
       };
@@ -590,6 +602,27 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
   // DECISION: the operator sends the same test email from the Sandbox client's Gmail, which they
   // connected themselves (Google's verification video is recorded there), with the same rules; any
   // other client is 403 `not_sandbox`. The back office reads English, so the email is in English.
+  // DECISION: the operator disconnects what they connected in the Sandbox client (OAuth tools such
+  // as Gmail, QuickBooks, Zoho CRM and Podio, and no-sign-in tools), with the portal's disconnect:
+  // revoke at the provider, drop the credentials, record it `by: operator`. In a real client only
+  // the client disconnects (403 `not_sandbox` here).
+  mount(app, routes.opsSandboxDisconnect, async (ctx) => {
+    const { tx, params, services, session } = ctx;
+    const t = await sandboxClient(ctx, params.id);
+    const [row] = await tx
+      .select()
+      .from(connection)
+      .where(and(eq(connection.id, params.connectionId), eq(connection.tenantId, t.id)));
+    if (!row) throw notFound("connection");
+    await disconnect(tx, services, row, { actorId: session.user.id, by: "operator" });
+    const [after] = await tx
+      .select()
+      .from(connection)
+      .where(and(eq(connection.id, row.id), eq(connection.tenantId, t.id)));
+    if (!after) throw notFound("connection");
+    return { connection: opsConnection(after) };
+  });
+
   mount(app, routes.opsSandboxGmailTestSend, async (ctx) => {
     const t = await sandboxClient(ctx, ctx.params.id);
     return sendGmailTest(ctx.tx, ctx.services, {
