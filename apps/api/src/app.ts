@@ -96,15 +96,6 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
 export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps = defaultDeps) {
   const { db, close } = deps.openDb(env);
   try {
-    await cronTick({ db, instances: deps.instances(env) }, scheduledTime);
-    if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
-      // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
-      // here waits for the next hour; it never holds up the runs below.
-      await vaultTick(db, env).catch((error: unknown) =>
-        console.error("vault upkeep failed", error),
-      );
-    }
     const instances = deps.instances(env);
     const platform = deps.platform(env);
     await cronTick(
@@ -120,6 +111,14 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       },
       scheduledTime,
     );
+    if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
+      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
+      // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
+      // here waits for the next hour; it never holds up the next tick.
+      await vaultTick(db, env).catch((error: unknown) =>
+        console.error("vault upkeep failed", error),
+      );
+    }
   } finally {
     await close();
   }
