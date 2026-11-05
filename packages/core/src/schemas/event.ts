@@ -27,5 +27,9 @@ export const PLATFORM_EVENT_TYPES = [
   "external_action.failed",
   "alert.raised",
   "schedule.tick",
+  // The supervisor (docs/plan.md §1.28): payloads in ../supervisor/health.ts.
+  "run.failed",
+  "connection.needs_attention",
+  "health.checked",
 ] as const;
 export type PlatformEventType = (typeof PLATFORM_EVENT_TYPES)[number];

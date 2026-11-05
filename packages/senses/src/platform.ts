@@ -2,7 +2,14 @@
 // and the few fields a trigger filter is likely to test. Anything larger is read through tools
 // from the record the event points at.
 
-import { DecimalString, type EventTypeSpec, type PlatformEventType } from "@countersign/core";
+import {
+  ConnectionNeedsAttentionPayload,
+  DecimalString,
+  type EventTypeSpec,
+  HealthSummary,
+  type PlatformEventType,
+  RunFailedPayload,
+} from "@countersign/core";
 import { z } from "zod";
 
 const Id = z.uuid();
@@ -186,6 +193,46 @@ export const PLATFORM_EVENTS = {
     description: "A scheduled time came round.",
     payload: ScheduleTickPayload,
     sample: { scheduledAt: "2026-11-03T14:00:00.000Z" },
+  },
+  // The supervisor's (docs/plan.md §1.28); payloads are validated by core's schemas.
+  "run.failed": {
+    description: "A live run of one of the client's agents failed.",
+    subjectType: "run",
+    payload: RunFailedPayload,
+    sample: {
+      runId: SAMPLE_ID,
+      agentId: SAMPLE_ID_2,
+      agentVersionId: "0192f7a0-0000-7000-8000-000000000003",
+      workflowSlug: "check-bills",
+      stepId: "extract",
+      error: "the testkit connection is not bound",
+    },
+  },
+  "connection.needs_attention": {
+    description:
+      "A connection needs a person: a sign-in expired or was revoked, a sync failed, a website login stopped, or a code alert.",
+    subjectType: "connection",
+    payload: ConnectionNeedsAttentionPayload,
+    sample: {
+      connectionId: SAMPLE_ID,
+      connector: "zoho_crm",
+      reason: "signin_expired",
+      detail: "Zoho CRM refused the refresh",
+      sourceId: null,
+    },
+  },
+  "health.checked": {
+    description: "The supervisor's daily health check finished, with its summary.",
+    payload: HealthSummary,
+    sample: {
+      checkedAt: "2026-11-05T08:00:00.000Z",
+      runs: { total: 12, failed: 1 },
+      connections: { total: 3, needsAttention: 0 },
+      waiting: { count: 2, oldestHours: 5 },
+      agents: { active: 3, paused: 0 },
+      openFindings: 1,
+      sources: [SAMPLE_ID],
+    },
   },
 } as const satisfies Record<PlatformEventType, PlatformEventDef>;
 
