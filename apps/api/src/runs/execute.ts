@@ -11,6 +11,7 @@ import {
   credentialKeysFromEnv,
   encryptedCredentials,
   R2ObjectStore,
+  tenantKeysInDb,
   type UrlSigner,
 } from "@countersign/connectors";
 import type { Locale, Workflow } from "@countersign/core";
@@ -71,7 +72,11 @@ export function workerTransport(
   });
 }
 
-/** Encrypted connection credentials, decrypted only when a connector asks for them. */
+/**
+ * Encrypted connection credentials, decrypted only when a connector asks for them: under the
+ * client's own key (v2; v1 rows still open), each read and write a short transaction for that
+ * client, never held across a model call.
+ */
 export function credentialsFor(
   db: Db,
   keys: CredentialKeys,
@@ -82,7 +87,7 @@ export function credentialsFor(
     const open = async () => {
       cipher ??= CredentialCipher.create(keys);
       inner ??= encryptedCredentials({
-        cipher: await cipher,
+        cipher: (await cipher).forClients(tenantKeysInDb(db)),
         binding: { tenantId: conn.tenantId, connectionId: conn.id },
         load: () =>
           withTenant(db, conn.tenantId, async (tx) => {

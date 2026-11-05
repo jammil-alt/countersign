@@ -657,3 +657,64 @@ for (const locale of ["es", "de"] as const) {
     });
   });
 }
+
+describe("the access page in Spanish and German", () => {
+  const CONN = "00000000-0000-4000-8000-0000000c0101";
+  const item = {
+    connectionId: CONN,
+    connector: "acme",
+    name: "Acme supplies",
+    kind: "api_key",
+    status: "connected",
+    externalAccountId: null,
+    secret: {
+      set: true,
+      fields: [
+        {
+          name: "username",
+          label: "Username",
+          secret: false,
+          hint: null,
+          set: true,
+          value: "agent@demo.example.com",
+        },
+        { name: "password", label: "Password", secret: true, hint: null, set: true, value: null },
+      ],
+      updatedAt: "2026-11-05T10:00:00.000Z",
+    },
+    credentialForm: true,
+    matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
+    tools: [{ id: "acme.price.get", description: "Read a price", verb: "read" }],
+    agents: [
+      {
+        agentId: AGENT,
+        name: "Compras",
+        limits: { verbs: { create: "off" } },
+        effective: { read: "auto", create: "off", update: "approval", delete: "off" },
+        tools: null,
+        revoked: false,
+        updatedAt: null,
+      },
+    ],
+  };
+
+  it.each([
+    ["es", "Accesos", "Secreto guardado", "Todas las herramientas", "Restringir"],
+    ["de", "Zugriff", "Geheimnis gespeichert", "Alle Werkzeuge", "Verschärfen"],
+  ] as const)(
+    "in %s: the vault's words, the client's names as written",
+    async (locale, title, secret, all, tighten) => {
+      const api = portalApi(locale, {
+        "GET /api/access": () => ({ items: [item], setup: [], canEdit: true }),
+      });
+      renderAt("/access", api);
+      const card = await screen.findByTestId("vault-item-acme");
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(title);
+      expect(within(card).getByTestId("vault-secret-state")).toHaveTextContent(secret);
+      expect(card).toHaveTextContent("Compras");
+      expect(card).toHaveTextContent("agent@demo.example.com");
+      expect(card).toHaveTextContent(all);
+      expect(within(card).getByTestId("vault-agent-tighten")).toHaveTextContent(tighten);
+    },
+  );
+});

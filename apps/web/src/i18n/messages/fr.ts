@@ -47,6 +47,9 @@ export const fr: Messages = {
   "error.invalid_state": "Ce n'est pas possible pour le moment.",
   "error.feedback_off": "Les retours ne sont pas activés pour vous.",
   "error.not_configured": "Ceci n'est pas encore configuré sur ce site.",
+  "error.loosening": "Seuls nous pouvons assouplir ceci. Vous pouvez le restreindre.",
+  "error.invalid_credentials": "Remplissez tous les champs.",
+  "error.invalid_grant": "Cet accès n'est pas possible pour cet outil.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -78,6 +81,7 @@ export const fr: Messages = {
   "nav.contacts": "Contacts",
   "nav.billing": "Facturation",
   "nav.people": "Personnes",
+  "nav.access": "Accès",
   "page.service": "Service",
 
   // ── Overview ──
@@ -216,6 +220,7 @@ export const fr: Messages = {
   "connections.reconnect": "Reconnecter",
   "connections.connect": "Connecter",
   "connections.adminCanConnect": "Votre administrateur peut le connecter.",
+  "connections.enterKey": "Saisir ses identifiants",
   "connection.status.connected": "Connecté",
   "connection.status.pending": "Non connecté",
   "connection.status.disconnected": "Déconnecté",
@@ -246,6 +251,45 @@ export const fr: Messages = {
   "callback.subtitle": "Fin de la connexion à votre outil.",
   "callback.back": "Retour aux connexions",
   "callback.connecting": "Connexion…",
+
+  // ── Access (the vault and agents' access) ──
+  "vault.title": "Accès",
+  "vault.subtitle":
+    "Chaque accès à vos outils, si son secret est enregistré, et quels agents peuvent l'utiliser.",
+  "vault.setupTitle": "Configurer",
+  "vault.setupHint":
+    "Saisissez les identifiants de chaque outil. Nous les chiffrons avec votre propre clé. Personne ne peut les relire, nous compris.",
+  "vault.itemsTitle": "Votre coffre · {count}",
+  "vault.none": "Votre coffre est encore vide.",
+  "vault.connectionsLink": "Connecter un outil",
+  "vault.kind.oauth": "Connecté à votre compte",
+  "vault.kind.api_key": "Clé d'API",
+  "vault.kind.browser": "Identifiants d'un site web",
+  "vault.kind.built_in": "Intégré",
+  "vault.secretSet": "Secret enregistré",
+  "vault.secretNotSet": "Aucun secret enregistré",
+  "vault.fieldSet": "Renseigné",
+  "vault.fieldNotSet": "Non renseigné",
+  "vault.updated": "Mis à jour {time}",
+  "vault.enterKey": "Saisir les identifiants",
+  "vault.replaceKey": "Remplacer les identifiants",
+  "vault.saveKey": "Enregistrer",
+  "vault.keyNote":
+    "Remplissez tous les champs. Vous pouvez remplacer ou supprimer ce que vous saisissez, mais personne ne pourra le revoir.",
+  "vault.agentsTitle": "Agents qui peuvent l'utiliser",
+  "vault.noAgents": "Aucun agent ne l'utilise encore.",
+  "vault.tools": "Outils",
+  "vault.allTools": "Tous les outils",
+  "vault.someTools": { one: "{count} outil sur {total}", other: "{count} outils sur {total}" },
+  "vault.revoked": "Révoqué",
+  "vault.tighten": "Restreindre",
+  "vault.revoke": "Révoquer",
+  "vault.revokeWarning":
+    "{agent} cesse aussitôt d'utiliser {tool}. Seuls nous pouvons lui rendre l'accès.",
+  "vault.keepAccess": "Garder l'accès",
+  "vault.tightenNote":
+    "Vous pouvez restreindre ce qu'un agent peut faire. Seuls nous pouvons l'assouplir à nouveau.",
+  "vault.saveAccess": "Enregistrer l'accès",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuration",

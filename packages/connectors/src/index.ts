@@ -29,6 +29,7 @@ export * from "./storage/object-store";
 export * from "./storage/r2";
 export * from "./storage/signed-url";
 export * from "./stripe/index";
+export * from "./tenant-keys";
 export * from "./testkit/index";
 export * from "./twilio/index";
 export * from "./upload/index";

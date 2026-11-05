@@ -3,6 +3,7 @@
 // The client admin signs in to each tool here, disconnects, and may tighten permissions (never
 // loosen); a client user sees all of it read-only.
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -15,6 +16,7 @@ import { useSession } from "../../session/session";
 import {
   Badge,
   Button,
+  buttonClass,
   Card,
   EmptyState,
   ErrorNotice,
@@ -290,6 +292,19 @@ function AvailableCard({
       <div className="mt-auto pt-4">
         {!item.available ? (
           <Badge testId="portal-connection-unavailable">{t("connections.notAvailable")}</Badge>
+        ) : item.credentialForm ? (
+          // API-key tools: the login is entered on the Access page (write-only).
+          isAdmin ? (
+            <Link
+              data-testid="portal-connection-enter-key"
+              to="/access"
+              className={buttonClass("secondary", "w-full justify-center")}
+            >
+              {t("connections.enterKey")}
+            </Link>
+          ) : (
+            <p className="text-sm text-ink-muted">{t("connections.adminCanConnect")}</p>
+          )
         ) : isAdmin ? (
           <Button
             data-testid="portal-connection-connect"

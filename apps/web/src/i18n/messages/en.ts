@@ -45,6 +45,9 @@ export const en = {
   "error.invalid_state": "That can't be done right now.",
   "error.feedback_off": "Feedback isn't switched on for you.",
   "error.not_configured": "This isn't set up on this site yet.",
+  "error.loosening": "Only we can loosen this. You can tighten it.",
+  "error.invalid_credentials": "Fill in every field.",
+  "error.invalid_grant": "That access isn't possible for this tool.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -75,6 +78,7 @@ export const en = {
   "nav.contacts": "Contacts",
   "nav.billing": "Billing",
   "nav.people": "People",
+  "nav.access": "Access",
   "page.service": "Service",
 
   // ── Overview ──
@@ -206,6 +210,7 @@ export const en = {
   "connections.reconnect": "Reconnect",
   "connections.connect": "Connect",
   "connections.adminCanConnect": "Your admin can connect it.",
+  "connections.enterKey": "Enter its login",
   "connection.status.connected": "Connected",
   "connection.status.pending": "Not connected",
   "connection.status.disconnected": "Disconnected",
@@ -234,6 +239,43 @@ export const en = {
   "callback.subtitle": "Finishing the sign-in to your tool.",
   "callback.back": "Back to Connections",
   "callback.connecting": "Connecting…",
+
+  // ── Access (the vault and agents' access) ──
+  "vault.title": "Access",
+  "vault.subtitle":
+    "Every way into your tools, whether its secret is stored, and which agents can use it.",
+  "vault.setupTitle": "Set up",
+  "vault.setupHint":
+    "Enter the login for each tool. We store it encrypted with your own key. Nobody can read it back, us included.",
+  "vault.itemsTitle": "Your vault · {count}",
+  "vault.none": "Nothing in your vault yet.",
+  "vault.connectionsLink": "Connect a tool",
+  "vault.kind.oauth": "Signed in to your account",
+  "vault.kind.api_key": "API key",
+  "vault.kind.browser": "Website login",
+  "vault.kind.built_in": "Built in",
+  "vault.secretSet": "Secret stored",
+  "vault.secretNotSet": "No secret stored",
+  "vault.fieldSet": "Set",
+  "vault.fieldNotSet": "Not set",
+  "vault.updated": "Updated {time}",
+  "vault.enterKey": "Enter the login",
+  "vault.replaceKey": "Replace the login",
+  "vault.saveKey": "Save",
+  "vault.keyNote":
+    "Fill in every field. You can replace or remove what you enter, but nobody can see it again.",
+  "vault.agentsTitle": "Agents that can use it",
+  "vault.noAgents": "No agent uses it yet.",
+  "vault.tools": "Tools",
+  "vault.allTools": "All tools",
+  "vault.someTools": { one: "{count} of {total} tools", other: "{count} of {total} tools" },
+  "vault.revoked": "Revoked",
+  "vault.tighten": "Tighten",
+  "vault.revoke": "Revoke",
+  "vault.revokeWarning": "{agent} stops using {tool} at once. Only we can give the access back.",
+  "vault.keepAccess": "Keep access",
+  "vault.tightenNote": "You can tighten what an agent may do. Only we can loosen it again.",
+  "vault.saveAccess": "Save access",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · set up",

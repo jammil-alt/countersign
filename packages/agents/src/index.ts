@@ -16,6 +16,7 @@ export * from "./log/ports";
 export * from "./log/run-log";
 export * from "./log/usage";
 export * from "./registry/agents";
+export * from "./registry/grants";
 export * from "./registry/lineage";
 export * from "./registry/people";
 export * from "./registry/runtime-store";

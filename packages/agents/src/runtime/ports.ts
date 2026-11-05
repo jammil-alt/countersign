@@ -4,7 +4,7 @@
 // one short transaction scoped to that client (withTenant), never held across a model call.
 
 import type { ConnectionRef } from "@countersign/connectors";
-import type { AgentBundle, ApproverRule, JsonObject } from "@countersign/core";
+import type { AgentBundle, ApproverRule, GrantLimits, JsonObject } from "@countersign/core";
 import type { ResolvedSkill } from "../registry/skills";
 import type { DocumentsPort, KnowledgePort, PlatformStore, RunMode } from "../tools/types";
 
@@ -44,6 +44,11 @@ export interface RuntimeStore {
   /** The client agent's live memory notes (never another agent's or client's; no test notes). */
   memoryNotes(tenantId: string, agentId: string, limit: number): Promise<MemoryNoteRecord[]>;
   connection(tenantId: string, connectionId: string): Promise<ConnectionRef | null>;
+  /**
+   * The client agent's grant on a connection (docs/plan.md §1.26), read fresh for every call so a
+   * client's tightening or revoke applies at once; null = no narrowing.
+   */
+  grant(tenantId: string, agentId: string, connectionId: string): Promise<GrantLimits | null>;
   /**
    * What decides who approves a write, read fresh for every proposal so a client's tightening
    * applies at once: the client's approver rules (`tenant.settings.approver_rules`), its default

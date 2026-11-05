@@ -1619,8 +1619,12 @@ export interface WrappedTenantKey {
  * §1.26 "Grants"). No row means no narrowing. Validated by core's `GrantLimits`.
  */
 export interface AgentGrantLimits {
-  verbs?: Partial<Record<"read" | "create" | "update" | "delete", "auto" | "approval" | "off">>;
-  tools?: string[];
+  verbs?:
+    | {
+        [verb in "read" | "create" | "update" | "delete"]?: "auto" | "approval" | "off" | undefined;
+      }
+    | undefined;
+  tools?: string[] | undefined;
 }
 
 /**

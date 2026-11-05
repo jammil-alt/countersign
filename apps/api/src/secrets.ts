@@ -1,13 +1,16 @@
-// Connection credentials from routes (OAuth callbacks, webhook setup, inbound hooks): encrypted
-// with the deployment's ENCRYPTION_KEY, bound to the client and the connection, read and written
-// inside the request's transaction. Responses never carry them except where a route exists to
-// show the client its own secret (the webhook setup).
+// Connection credentials from routes (OAuth callbacks, webhook setup, inbound hooks, the portal's
+// credential form): encrypted with the client's own data key (envelope v2, docs/plan.md §1.26),
+// itself wrapped by the deployment's ENCRYPTION_KEY, bound to the client and the connection, read
+// and written inside the request's transaction. Responses never carry them except where a route
+// exists to show the client its own signing secret (the webhook setup).
 
 import {
   CredentialCipher,
   type CredentialsAccessor,
   credentialKeysFromEnv,
   encryptedCredentials,
+  tenantKeysIn,
+  type VaultCipher,
 } from "@countersign/connectors";
 import { connection, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
@@ -30,13 +33,21 @@ export function cipherFor(env: Pick<Bindings, "ENCRYPTION_KEY" | "ENCRYPTION_KEY
   return c;
 }
 
+/** The vault cipher in `tx` (scoped to the client it encrypts for): the client's own key. */
+export async function vaultFor(
+  tx: Tx,
+  env: Pick<Bindings, "ENCRYPTION_KEY" | "ENCRYPTION_KEY_PREVIOUS">,
+): Promise<VaultCipher> {
+  return (await cipherFor(env)).forClients(tenantKeysIn(tx));
+}
+
 /** One connection's credentials, in `tx`. */
 export async function connectionCredentials(
   tx: Tx,
   env: Pick<Bindings, "ENCRYPTION_KEY" | "ENCRYPTION_KEY_PREVIOUS">,
   row: { id: string; tenantId: string },
 ): Promise<CredentialsAccessor> {
-  const cipher = await cipherFor(env);
+  const cipher = await vaultFor(tx, env);
   const where = and(eq(connection.id, row.id), eq(connection.tenantId, row.tenantId));
   return encryptedCredentials({
     cipher,

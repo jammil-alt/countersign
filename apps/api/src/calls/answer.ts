@@ -5,6 +5,7 @@
 // operator set it to `not_required`, the connection's matrix allows `auto` for create and the agent
 // is in `act` mode (invariant 8). Otherwise the call is forwarded or goes to voicemail.
 
+import { grantOf } from "@countersign/agents";
 import {
   CALL_ANSWER_TOOL,
   CALL_RECEIVED_EVENT,
@@ -29,6 +30,7 @@ import {
   type CallLanguage,
   decideToolCall,
   fixedInputProblem,
+  grantAllowsTool,
   type InboundDecision,
   openingLine,
   type PermissionMatrix,
@@ -268,14 +270,28 @@ export async function planInbound(
       `${answering.agentName}'s answering step takes its purpose or opening from a template`,
     );
   }
+  // The answering agent's grant on the connection narrows it too (docs/plan.md §1.26).
+  const grant = await grantOf(tx, {
+    tenantId: input.tenantId,
+    agentId: answering.agentId,
+    connectionId: input.connectionId,
+  });
+  if (!grantAllowsTool(grant?.limits, CALL_ANSWER_TOOL)) {
+    return fallback(
+      `${answering.agentName}'s access to the Twilio connection leaves out answering calls`,
+    );
+  }
   const decision = decideToolCall({
     sideEffect: "external",
     verb: "create",
     matrix: input.permissions,
+    grant: grant?.limits ?? null,
     stepApproval: answering.step.approval?.required,
     agentMode: answering.bundle.definition.permissions.mode,
   });
-  if (decision === "refused") return fallback("creating is off on the client's Twilio connection");
+  if (decision === "refused") {
+    return fallback(`creating is off for ${answering.agentName} on the client's Twilio connection`);
+  }
   if (decision !== "run") {
     return fallback(
       `${answering.agentName}'s answering step needs approval, the connection doesn't allow it to run by itself, or the agent only suggests`,
