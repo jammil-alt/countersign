@@ -20,5 +20,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    // Screen tests render whole routes, lazy chunks included, and type into forms key by key. Alone
+    // they take a second or two; with every package's tests running at once on a CI runner, a few
+    // pass Vitest's 5 s default (WorkflowBuilder, Onboarding, App). 20 s still catches a hang.
+    testTimeout: 20_000,
   },
 });
