@@ -1651,25 +1651,38 @@ export const BILLING_REPORT_STATUSES = ["pending", "sent", "failed", "none"] as 
 
 /**
  * Mezonas' own billing settings: one row (`id` = 1), global, written only from `/api/ops/billing`.
- * The base fee and overage price are snapshots of the Stripe prices, taken when the ids are saved.
+ * Since §1.32 Mezonas works out each bill itself: the default agent price and included credits,
+ * the price of an extra credit, auto-send and the days until due. The Stripe price ids, meter name
+ * and price snapshots are from §1.24's subscriptions and are no longer read (kept, unused).
  */
 export const billingSetting = pgTable(
   "billing_setting",
   {
     id: integer("id").primaryKey().default(1),
-    /** Credits each active client agent includes per month; a client's agents pool theirs. */
+    /**
+     * Credits an agent includes each month when neither the client agent nor its template sets
+     * them (§1.32's default; it was §1.24's allowance per active agent). Pooled per client.
+     */
     allowanceCreditsPerAgent: integer("allowance_credits_per_agent").notNull(),
-    /** Stripe price of the monthly base fee (licensed, quantity = active client agents). */
+    /** Unused since §1.32 (Stripe prices). */
     basePriceId: text("base_price_id"),
-    /** Stripe price per overage credit (metered, on the meter below). */
+    /** Unused since §1.32 (Stripe prices). */
     overagePriceId: text("overage_price_id"),
-    /** The Stripe billing meter's event name the overage is reported to. */
+    /** Unused since §1.32 (Stripe billing meter). */
     meterEventName: text("meter_event_name").notNull(),
     /** Invoices are sent (not charged to a card on file) and due this many days after. */
     daysUntilDue: integer("days_until_due").notNull().default(30),
+    /** Unused since §1.32 (Stripe price snapshots). */
     baseFee: money("base_fee"),
+    /** Unused since §1.32 (Stripe price snapshots). */
     overagePrice: money("overage_price"),
     currency: currency(),
+    /** The monthly price of an agent with no price of its own or from its template. */
+    defaultAgentPrice: money("default_agent_price").notNull().default("250.0000"),
+    /** The price of one credit beyond a client's pooled allowance. */
+    creditPrice: money("credit_price").notNull().default("0.0200"),
+    /** Send each month's statements to Stripe as soon as they are built (off: the operator sends). */
+    autoSend: boolean("auto_send").notNull().default(false),
     updatedAt: ts("updated_at").notNull().defaultNow(),
     updatedBy: uuid("updated_by").references(() => appUser.id),
   },
@@ -1677,6 +1690,10 @@ export const billingSetting = pgTable(
     check("billing_setting_singleton_check", sql`${t.id} = 1`),
     check("billing_setting_allowance_check", sql`${t.allowanceCreditsPerAgent} >= 0`),
     check("billing_setting_days_until_due_check", sql`${t.daysUntilDue} between 1 and 365`),
+    check(
+      "billing_setting_prices_check",
+      sql`${t.defaultAgentPrice} >= 0 and ${t.creditPrice} >= 0`,
+    ),
   ],
 );
 
@@ -1759,6 +1776,208 @@ export const billingEvent = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("billing_event_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+// ── Billing statements (docs/plan.md §1.32) ──────────────────────────────────────────────────────
+// Mezonas works out each client's bill; Stripe only holds the customer and the invoice, sends it
+// and takes payment. Prices live here: a template's default, a client agent's override, the global
+// default. Each hourly pass records which agents were active that day, with the price snapshotted;
+// on the 1st the month's statement is built from those days and the credits used.
+
+export const BILLING_PRICE_SOURCES = ["override", "template", "platform", "default"] as const;
+export const BILLING_STATEMENT_STATUSES = [
+  "draft",
+  "sent",
+  "paid",
+  "payment_failed",
+  "void",
+  "nothing_due",
+] as const;
+export const BILLING_LINE_KINDS = ["agent", "usage", "adjustment"] as const;
+
+/**
+ * A template's monthly price and included credits: the default for every client agent forked from
+ * it. Global like the unit costs: every session reads it, operator sessions write it.
+ */
+export const billingTemplatePrice = pgTable(
+  "billing_template_price",
+  {
+    templateId: uuid("template_id")
+      .primaryKey()
+      .references(() => agent.id),
+    monthlyPrice: money("monthly_price").notNull(),
+    includedCredits: integer("included_credits").notNull(),
+    currency: currency(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+  },
+  (t) => [
+    check(
+      "billing_template_price_amounts_check",
+      sql`${t.monthlyPrice} >= 0 and ${t.includedCredits} >= 0`,
+    ),
+  ],
+);
+
+/**
+ * A client agent's own price, over its template's: set by the operator with a note. Changes in
+ * place; every change is also written to `agent_change`.
+ */
+export const billingAgentPrice = pgTable(
+  "billing_agent_price",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").notNull(),
+    monthlyPrice: money("monthly_price").notNull(),
+    includedCredits: integer("included_credits").notNull(),
+    currency: currency(),
+    note: text("note").notNull(),
+    setBy: uuid("set_by").references(() => appUser.id),
+    setAt: ts("set_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("billing_agent_price_agent_key").on(t.tenantId, t.agentId),
+    foreignKey({
+      name: "billing_agent_price_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    check(
+      "billing_agent_price_amounts_check",
+      sql`${t.monthlyPrice} >= 0 and ${t.includedCredits} >= 0`,
+    ),
+    check("billing_agent_price_note_check", sql`length(trim(${t.note})) > 0`),
+  ],
+);
+
+/**
+ * One day (UTC) a client agent was active at an hourly pass, with the price and credits it had
+ * then (the first seen that day sticks). What statements are built from. Never updated or deleted.
+ */
+export const billingAgentDay = pgTable(
+  "billing_agent_day",
+  {
+    tenantId: tenantId(),
+    day: date("day").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    /** The name the client knows it by (service name, else agent name), as it was that day. */
+    agentName: text("agent_name").notNull(),
+    monthlyPrice: money("monthly_price").notNull(),
+    includedCredits: integer("included_credits").notNull(),
+    currency: currency(),
+    priceSource: text("price_source").$type<(typeof BILLING_PRICE_SOURCES)[number]>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.day, t.agentId] }),
+    foreignKey({
+      name: "billing_agent_day_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    check("billing_agent_day_source_check", oneOf(t.priceSource, BILLING_PRICE_SOURCES)),
+    check(
+      "billing_agent_day_amounts_check",
+      sql`${t.monthlyPrice} >= 0 and ${t.includedCredits} >= 0`,
+    ),
+  ],
+);
+
+/**
+ * A client's statement for one calendar month (UTC): Mezonas' record of the bill. Its lines are in
+ * `billing_statement_line`. One per client and month. A draft's total follows its adjustments;
+ * once its send has started, only the status, Stripe's ids and links, and their times change.
+ */
+export const billingStatement = pgTable(
+  "billing_statement",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** The month's first day. */
+    period: date("period").notNull(),
+    periodEnd: date("period_end").notNull(),
+    daysInMonth: integer("days_in_month").notNull(),
+    status: text("status").$type<(typeof BILLING_STATEMENT_STATUSES)[number]>().notNull(),
+    currency: currency(),
+    total: usd("total"),
+    creditsUsed: integer("credits_used").notNull(),
+    /** The pooled allowance: each agent's credits × its billed days ÷ days in the month. */
+    creditsIncluded: integer("credits_included").notNull(),
+    extraCredits: integer("extra_credits").notNull(),
+    creditPrice: money("credit_price").notNull(),
+    stripeInvoiceId: text("stripe_invoice_id"),
+    stripeInvoiceNumber: text("stripe_invoice_number"),
+    hostedInvoiceUrl: text("hosted_invoice_url"),
+    invoicePdfUrl: text("invoice_pdf_url"),
+    dueAt: ts("due_at"),
+    finalizedAt: ts("finalized_at"),
+    sentAt: ts("sent_at"),
+    sentBy: uuid("sent_by").references(() => appUser.id),
+    paidAt: ts("paid_at"),
+    voidedAt: ts("voided_at"),
+    voidedBy: uuid("voided_by").references(() => appUser.id),
+    /** Why the last send stopped; cleared when a send finishes. */
+    sendError: text("send_error"),
+    /** The `created` time of the last Stripe event applied, so older events change nothing. */
+    stripeEventAt: ts("stripe_event_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("billing_statement_period_key").on(t.tenantId, t.period),
+    unique("billing_statement_id_tenant_key").on(t.id, t.tenantId),
+    index("billing_statement_invoice_idx").on(t.stripeInvoiceId),
+    index("billing_statement_status_idx").on(t.tenantId, t.status),
+    check("billing_statement_status_check", oneOf(t.status, BILLING_STATEMENT_STATUSES)),
+    check(
+      "billing_statement_counts_check",
+      sql`${t.creditsUsed} >= 0 and ${t.creditsIncluded} >= 0 and ${t.extraCredits} >= 0 and ${t.creditPrice} >= 0 and ${t.daysInMonth} between 28 and 31`,
+    ),
+  ],
+);
+
+/**
+ * One line of a statement: an agent's prorated price, the extra usage, or an operator's
+ * adjustment (positive or negative). Amounts are rounded to cents. Lines are inserted while the
+ * statement is a draft; afterwards only Stripe's invoice item id is set, once.
+ */
+export const billingStatementLine = pgTable(
+  "billing_statement_line",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    statementId: uuid("statement_id").notNull(),
+    position: integer("position").notNull(),
+    kind: text("kind").$type<(typeof BILLING_LINE_KINDS)[number]>().notNull(),
+    agentId: uuid("agent_id"),
+    description: text("description").notNull(),
+    amount: money("amount").notNull(),
+    currency: currency(),
+    /** How the amount was worked out (days, prices, credits) as decimal strings and integers. */
+    detail: json("detail").notNull().default({}),
+    stripeInvoiceItemId: text("stripe_invoice_item_id"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "billing_statement_line_statement_fk",
+      columns: [t.statementId, t.tenantId],
+      foreignColumns: [billingStatement.id, billingStatement.tenantId],
+    }),
+    foreignKey({
+      name: "billing_statement_line_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    index("billing_statement_line_statement_idx").on(t.statementId, t.position),
+    check("billing_statement_line_kind_check", oneOf(t.kind, BILLING_LINE_KINDS)),
+    check(
+      "billing_statement_line_agent_check",
+      sql`(${t.kind} = 'agent') = (${t.agentId} is not null)`,
+    ),
+  ],
 );
 
 // ── Access: client data keys and agent grants (docs/plan.md §1.26) ──────────────────────────────
@@ -1977,6 +2196,10 @@ export const TENANT_TABLES = [
   "access_release",
   "organization",
   "organization_change",
+  "billing_agent_price",
+  "billing_agent_day",
+  "billing_statement",
+  "billing_statement_line",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
