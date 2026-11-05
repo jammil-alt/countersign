@@ -1,9 +1,21 @@
-# Mezonas — Architecture v0.8
+# Mezonas — Architecture v0.10
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
 
+> **v0.10 (2026-11-05, owner):** **Access: a vault per client, grants per agent, a separate code
+> service, and browser logins.** Agents may sign in to a client's websites on their own, through a
+> **dedicated agent account** whose login the client admin enters into the client's **vault**; the
+> operator never sees it and agents never hold it (our code signs in, not the model). Every way into a
+> client's tools (OAuth connections, API keys, browser logins) is a vault item encrypted with **that
+> client's own key**; every agent reaches only the items bound to it, within **grant** limits set per
+> agent. Second factors (codes by text or email, authenticator secrets) live in a **separate code
+> service**, its own Worker with its own key and storage, which hands a code once to a login in progress.
+> Sites are allowed by the operator with a **risk tier**; banks, payments, email accounts and identity
+> providers are never signed in to by an agent. Changed: §1, §3, §6.9 and §6.10 (new), §16, §17, §18
+> (M12), §20; CLAUDE.md invariant 8 and a new invariant 13.
+>
 > **v0.9 (2026-11-04, owner):** **Pia and the millwork shop are built separately**, outside this plan
 > (the Materials pack, M8, stays in its own branches and is not merged here). The MVP is the platform
 > with its tools: **Gmail moves into the MVP** (start Google's app verification now and measure how long
@@ -221,6 +233,11 @@ In:
 - **Languages** (v0.9): the portal and agents' client-facing text in English, Spanish, French,
   Portuguese (Brazil), Italian and German, per client with a per-user choice; the back office stays in
   English. Next: agents translating incoming and outgoing messages (`docs/plan.md` §1.18)
+- **Access** (v0.10): a **vault** per client (every connection, API key and browser login, encrypted
+  with the client's own key, secrets write-only); **grants** that narrow what each agent may do with
+  each connection bound to it; a separate **code service** for second factors; **browser connections**
+  that sign in to sites the operator allows, by risk tier, as a dedicated agent account (§6.9, §6.10,
+  `docs/plan.md` §1.26)
 
 Out (designed for, not built):
 - Client self-serve building;
@@ -269,6 +286,9 @@ pnpm monorepo.
   /api                 Hono Worker: /api routes, auth, static assets, Workflow classes, cron;
                        registers connectors and packs
   /web                 React + Vite app: back office (incl. the workflow builder) and client portal, typed API client
+  /mfa                 The code service (v0.10, §6.9): a separate Worker with its own key and Durable Object
+                       storage; receives second-factor codes by text and email and hands each one once to a
+                       login in progress; reached by apps/api only through a service binding; imports core only
 /packages              the platform: never imports a pack
   /core                Domain types and Zod schemas (AgentBundle, AgentDefinition, SkillDefinition,
                        Workflow, ToolSpec, ConnectorManifest, PackManifest), workflow validation,
@@ -664,6 +684,85 @@ Connector `podio` (the tool first noted as "poladio"), OAuth 2.0. Facts checked 
   state: the changed fields' values; refused if the item's revision moved), `podio.comment.create`,
   `podio.task.create`. Delete is off.
 - Rate limits answer 420; the call fails as retryable. Sync and Podio hooks are follow-ups.
+
+### 6.9 Access: the client's vault, grants and the code service (owner, 2026-11-05)
+
+**The vault.** Everything that lets an agent into a client's tools is a **vault item**, stored as a
+`connection`: OAuth connections (as today), API keys (`auth: 'api_key'`, entered once in the portal) and
+browser logins (§6.10). Secrets are encrypted with **the client's own data key**: each client has a
+key, generated when first needed and stored only wrapped by the master `ENCRYPTION_KEY` (`tenant_key`).
+A credential envelope names the client key it was written with and stays bound to its client and
+connection (§16). Rotating the master key re-wraps client keys only; destroying a client's key makes
+everything it encrypted unreadable at once (for retiring a client). Secrets are **write-only**: the
+client admin enters them, no screen or route returns them, and they can only be replaced or removed.
+The operator never sees a client's secret.
+
+**Grants.** A client agent reaches a vault item only through its **binding** (as today: the operator
+binds one connection per connector, or per site for browser connections). A binding may carry **grant
+limits**: a ceiling per verb (`auto`, `approval`, `off`) and, optionally, the subset of the connector's
+tools the agent may call. What a call may do is the strictest of: the connection's matrix, the agent's
+grant, the step's approval setting and the agent's mode. So one QuickBooks connection can serve an
+intake agent that only reads and a billing agent that creates bills with approval, and an agent with no
+binding cannot reach QuickBooks at all. The operator sets and loosens grants; the client admin sees every
+agent's access on the portal's **Access** page and can tighten or revoke a grant at once (invariant 8's
+rule: only the operator loosens). Every change is an `agent_change` row.
+
+**The code service** (`apps/mfa`). Second factors never live with passwords. A separate Worker, with
+its own encryption key, its own Durable Object storage (no database shared with `apps/api`) and its own
+secrets, holds the client's **agent identities**: per identity an email address on Mezonas' agent domain
+(`AGENT_EMAIL_DOMAIN`, Cloudflare Email Routing → the code service) and optionally a phone number in a
+Twilio subaccount kept for codes, plus any authenticator (TOTP) secrets. The client's tool admin creates
+the agent account in their tool with that address and number. A login in progress (our code, §6.10)
+**opens a wait** for one identity, one site, the expected sender and the code's pattern, for a few
+minutes; the service reads the code out of the matching message with that pattern (never a model),
+hands it **once** to the login that asked, closes the wait and deletes the message. Anything that
+arrives outside a wait is never handed out: an unexpected code or a password-reset message is held and
+raises an **alert** to the operator and the client admin, since it means someone else is trying that
+account. Links in messages are never followed. Email codes count only when the message passes SPF,
+DKIM and DMARC. Each identity has a daily cap on code requests. Only `apps/api` can call the service,
+through a service binding; its only public routes are Twilio's signed inbound webhook and the email
+handler.
+
+### 6.10 Browser connections (owner, 2026-11-05)
+
+For tools with no API, an agent may work in the website itself, on **Cloudflare Browser Run**, signed in
+as a **dedicated agent account** (never a person's own login) that the client creates with the
+smallest role that does the job.
+
+**Sites.** The operator keeps a catalogue of allowed sites (`browser_site`, versioned like skills): the
+login page and the origins credentials may be typed into, the login steps, how to recognise the
+signed-in page, how to sign out, the pages agents may open and the pages they never open (on every site:
+settings, passwords, users and permissions, billing and payment, deletion), how second-factor codes
+arrive, and a **risk tier**:
+
+| Tier | Examples | Agent signs in on its own | Writes |
+|---|---|---|---|
+| low | supplier portals, price lists, invoice downloads, shipment tracking | yes | approval by default; `auto` allowed by the matrix as for any connection |
+| medium | ordering portals, CRMs without an API | yes | always approved |
+| high | payroll, tax portals, health records, insurance | no: a person signs in through Browser Run's human handoff | always approved |
+| blocked | banks, payments, crypto, email accounts, identity providers, password managers | never | never |
+
+The tier comes from four questions: can the site move money, change access or reset accounts, does it
+hold regulated data, and does it have an API (then we use the API). A client can make a site stricter
+for itself, never looser.
+
+**Signing in.** A browser connection is a vault item: the username and password of the agent account,
+entered by the client admin, plus the identity in the code service for its second factor. Our code signs
+in, not the model: it opens the login page, checks the address against the site's login origins (no
+match, nothing typed), types the credentials, asks the code service for the code, and checks the
+signed-in page. Session recording is off during sign-in. The model then works through browser tools
+(read a page or table, download a file as a document, and, later, submit a form as an external action
+behind approval); page text is data (invariant 9), password fields are removed from what it reads, it
+cannot run scripts in the page and it can only open the site's allowed pages. At the end our code signs
+out and the browser is destroyed. Low-tier sites may keep the session, encrypted in the vault, to skip
+the next sign-in.
+
+**Stops.** A CAPTCHA, an "unusual activity" or new-device check, or any unexpected page stops the run
+and asks a person; two failed sign-ins disable the connection so the client's account is never locked.
+Each connection has a daily cap on sign-ins and optional hours. Each session records the pages visited,
+the actions and screenshots; the client sees a plain summary in the run timeline and can disconnect, which
+deletes the stored login and session at once. The client confirms it owns the account and that the
+site's terms allow automated access; the operator checks the terms before allowing a site.
 
 ## 7. Documents capability
 
@@ -1328,7 +1427,15 @@ candidates side by side with attribute diffs highlighted; actions Match / New it
 
 ## 16. Security and audit
 
-- Secrets in env; connector tokens encrypted at rest; signed URLs for documents (5 min).
+- Secrets in env; signed URLs for documents (5 min).
+- **Access (v0.10, §6.9, §6.10):** connection secrets (OAuth tokens, API keys, browser logins and
+  sessions) are encrypted with the client's own data key, itself wrapped by `ENCRYPTION_KEY`; each
+  ciphertext is bound to its client and connection. Secrets are write-only; the operator never sees
+  them; agents never hold them (tool code gets them for one step; the model sees only tool results).
+  Agents reach only the connections bound to them, within their grants. Second factors live in the
+  separate code service and are handed out once, to a login in progress. Browser sign-in is done by
+  code on pinned login origins, on sites the operator allows by risk tier; banks, payments, email
+  accounts and identity providers are never signed in to by an agent.
 - RLS on every tenant table, keyed on `app.tenant_ids` (§4). Workflows, cron and the senses dispatcher
   run with no request session and set exactly one client id. Operator sessions get only the clients
   they serve.
@@ -1362,7 +1469,11 @@ HYPERDRIVE (binding → Neon), DIRECT_DATABASE_URL (migrations)
 ANTHROPIC_API_KEY
 RUN_WORKFLOW, QBO_SYNC (Workflow bindings), ARTIFACTS (R2 binding)
 STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY   # R2 S3 API, for signed URLs
-ENCRYPTION_KEY                         # 32 bytes base64
+ENCRYPTION_KEY                         # 32 bytes base64; wraps each client's data key (§6.9)
+BROWSER (Browser Run binding), CODES (service binding → apps/mfa)   # v0.10
+AGENT_EMAIL_DOMAIN                     # e.g. agents.<domain>, routed to apps/mfa by Email Routing
+# apps/mfa only: MFA_ENCRYPTION_KEY (32 bytes base64), MFA_TWILIO_ACCOUNT_SID, MFA_TWILIO_AUTH_TOKEN,
+#   IDENTITY (Durable Object binding), AGENT_EMAIL_DOMAIN, MFA_ORIGIN
 QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI, QBO_ENV=sandbox|production, QBO_WEBHOOK_VERIFIER
 EMAIL_FORWARDING_DOMAIN                # e.g. in.<domain>, routed to the Worker by Cloudflare Email Routing
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI   # after the MVP (Gmail)
@@ -1390,6 +1501,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M9 | QBO connector: OAuth, sync, CDC, attachables, webhooks, read tools, the MVP write tools (itemize lines, attach invoice) with per-step approval | Sandbox company syncs; a Bill flows through intake; approving in the portal itemizes its lines (total unchanged) and attaches the invoice in the sandbox; **MVP done** when the same works on the shop's production QuickBooks |
 | M10 | (after the MVP) Gmail connector: OAuth, scoped sync (query + history), attachments as documents, read tools, draft and label tools behind approval; Gmail step in `docs.find-support` | A test mailbox connects; an emailed invoice is found for its QBO transaction and flows through intake; an approved `gmail.draft.create` appears in the mailbox's drafts |
 | M11 | Usage and cost views (per client, agent, template), activity report, notification emails, polish, Playwright e2e | e2e: the operator forks Pia into a new client and customizes her, the client connects and uploads an invoice, approves in the portal, sees the report; the operator publishes a Pia template update and merges it into that client |
+| M12 | Access (v0.10): client data keys and write-only secrets; grants per binding and the portal's Access page; the code service (`apps/mfa`); browser connections with the site catalogue and risk tiers, sign-in by code, read and download tools | An agent with a read-only grant signs in to a low-tier fixture site as its agent account, with a code from the code service, downloads an invoice as a document and signs out; the model never sees the password or the code; a second agent without the binding cannot reach the site |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
@@ -1442,6 +1554,9 @@ Decided:
   and versioned per client, linked to its template version; updates are reviewed three-way merges;
   promotion moves client changes back (v0.6).
 - One version = the whole agent bundle (definition + workflows + settings) (v0.6).
+- Access: a vault per client with its own key, grants per agent binding, a separate code service for
+  second factors, and browser logins as dedicated agent accounts on operator-allowed sites by risk tier
+  (v0.10, §6.9, §6.10).
 
 Open:
 - Gmail and Google's app verification: Gmail read scopes are restricted, so a public app needs Google's
