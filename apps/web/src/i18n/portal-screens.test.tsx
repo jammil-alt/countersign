@@ -448,29 +448,55 @@ const knowledgeRoutes = {
 const billingRoutes = {
   "GET /api/billing": () => ({
     setUp: true,
-    plan: { agents: 2, baseFee: eur("250.0000"), monthly: eur("500.0000") },
-    period: { start: "2026-11-01", end: "2026-11-30", through: "2026-11-04" },
-    allowance: 4000,
-    creditsUsed: 4312,
-    extraCredits: 312,
-    extraCreditPrice: eur("0.0150"),
+    monthSoFar: {
+      period: { start: "2026-11-01", end: "2026-11-30", through: "2026-11-04" },
+      daysInMonth: 30,
+      lines: [
+        {
+          id: null,
+          kind: "agent",
+          agentId: AGENT,
+          description: "Orders desk",
+          amount: eur("40.0000"),
+          days: 4,
+          prices: [{ monthlyPrice: eur("300.0000"), days: 4 }],
+        },
+        {
+          id: null,
+          kind: "usage",
+          agentId: null,
+          description: "Extra usage",
+          amount: eur("4.6800"),
+          days: null,
+          prices: [],
+        },
+      ],
+      creditsUsed: 4312,
+      creditsIncluded: 4000,
+      extraCredits: 312,
+      creditPrice: eur("0.0150"),
+      total: eur("44.6800"),
+    },
     paymentProblem: true,
-    invoices: [
+    statements: [
       {
-        id: "in_1",
-        number: "MZ-0001",
-        status: "open",
+        id: "s1",
+        period: { start: "2026-10-01", end: "2026-10-31" },
+        status: "sent",
         total: eur("265.0000"),
-        amountDue: eur("265.0000"),
-        createdAt: "2026-11-01T00:00:00.000Z",
-        periodStart: "2026-10-01T00:00:00.000Z",
-        periodEnd: "2026-11-01T00:00:00.000Z",
-        dueAt: null,
+        creditsUsed: 0,
+        creditsIncluded: 4000,
+        extraCredits: 0,
+        creditPrice: eur("0.0150"),
+        lines: [],
+        invoiceNumber: "MZ-0001",
         hostedInvoiceUrl: "https://invoice.stripe.com/i/acct/in_1",
         pdfUrl: "https://pay.stripe.com/invoice/acct/in_1/pdf",
+        dueAt: "2026-12-01T00:00:00.000Z",
+        sentAt: "2026-11-01T00:07:00.000Z",
+        paidAt: null,
       },
     ],
-    invoicesUnavailable: false,
   }),
 };
 
@@ -524,13 +550,19 @@ const WORDS = {
     question: "Pregunta",
     filterAll: "Todas, con las archivadas",
     billing: "Facturación",
-    plan: ["500,00 €", "al mes"],
-    planNote: "2 servicios × 250,00 €",
+    soFar: "44,68 €",
     allowance: ["4000", "créditos"],
     extra: "0,015 € cada uno, en su próxima factura",
     meter: "4312 de 4000 créditos usados · 312 créditos por encima de lo incluido",
     period: "1 nov – 4 nov 2026",
-    invoice: ["1 nov 2026", "265,00 €", "Por pagar", "Ver y pagar"],
+    month: [
+      "300,00 € al mes · 4 de 30 días",
+      "40,00 €",
+      "Uso adicional",
+      "312 créditos por encima de los 4000 incluidos (4312 usados), 0,015 € cada uno",
+      "Total hasta ahora",
+    ],
+    invoice: ["octubre de 2026", "Vence el 1 dic 2026", "265,00 €", "Por pagar", "Ver y pagar"],
     payment: "Su último pago no se completó.",
     people: "Personas",
     required: "Obligatorio: nadie todavía",
@@ -559,13 +591,25 @@ const WORDS = {
     question: "Frage",
     filterAll: "Alle, mit archivierten",
     billing: "Abrechnung",
-    plan: ["500,00 €", "pro Monat"],
-    planNote: "2 Services × 250,00 €",
+    soFar: "44,68 €",
     allowance: ["4.000", "Credits"],
     extra: "0,015 € pro Stück, auf Ihrer nächsten Rechnung",
     meter: "4.312 von 4.000 Credits verbraucht · 312 Credits über dem Kontingent",
     period: "1. Nov. – 4. Nov. 2026",
-    invoice: ["1. Nov. 2026", "265,00 €", "Zu bezahlen", "Ansehen und bezahlen"],
+    month: [
+      "300,00 € pro Monat · 4 von 30 Tagen",
+      "40,00 €",
+      "Zusätzliche Nutzung",
+      "312 Credits über den 4.000 enthaltenen (4.312 verbraucht), je 0,015 €",
+      "Gesamt bis jetzt",
+    ],
+    invoice: [
+      "Oktober 2026",
+      "Fällig am 1. Dez. 2026",
+      "265,00 €",
+      "Zu bezahlen",
+      "Ansehen und bezahlen",
+    ],
     payment: "Ihre letzte Zahlung ist nicht durchgegangen.",
     people: "Personen",
     required: "Erforderlich: noch niemand",
@@ -624,17 +668,17 @@ for (const locale of ["es", "de"] as const) {
     it("shows billing with prices and credits through Intl", async () => {
       renderAt("/billing", portalApi(locale, billingRoutes));
       expect(await screen.findByRole("heading", { name: w.billing })).toBeInTheDocument();
-      const plan = await screen.findByTestId("portal-billing-plan");
-      for (const text of w.plan) expect(plan).toHaveTextContent(text);
-      expect(plan).toHaveTextContent(w.planNote);
+      expect(await screen.findByTestId("portal-billing-so-far")).toHaveTextContent(w.soFar);
       for (const text of w.allowance) {
         expect(screen.getByTestId("portal-billing-allowance")).toHaveTextContent(text);
       }
       expect(screen.getByTestId("portal-billing-extra")).toHaveTextContent(w.extra);
       expect(screen.getByTestId("portal-billing-meter")).toHaveTextContent(w.meter);
-      expect(screen.getByText(new RegExp(`^${w.period}\\.`))).toBeInTheDocument();
-      const row = screen.getByTestId("portal-billing-invoices-row-in_1");
-      for (const text of w.invoice) expect(row).toHaveTextContent(text);
+      expect(screen.getAllByText(new RegExp(`^${w.period}\\.`)).length).toBeGreaterThan(0);
+      const month = screen.getByTestId("portal-billing-month");
+      for (const text of w.month) expect(month).toHaveTextContent(text);
+      const card = screen.getByTestId("portal-billing-statement-s1");
+      for (const text of w.invoice) expect(card).toHaveTextContent(text);
       expect(screen.getByTestId("portal-billing-payment-problem")).toHaveTextContent(w.payment);
     });
 

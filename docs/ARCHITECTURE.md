@@ -30,9 +30,9 @@
 > with its tools: **Gmail moves into the MVP** (start Google's app verification now and measure how long
 > it takes), and **QuickBooks Online** ships its reads plus the planned writes (attach a document,
 > itemize lines with the total unchanged, update memo, update purchase cost), each behind approval.
-> **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing through
-> Stripe** comes into v1: a monthly base fee per active agent with a credit allowance, then usage
-> beyond it. **Languages:** the portal and agents' client-facing text in six languages (§1); translating
+> **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing** comes into
+> v1: a monthly price per agent with included credits, then usage beyond them, worked out by Mezonas
+> and invoiced through Stripe (§1.32 of the plan). **Languages:** the portal and agents' client-facing text in six languages (§1); translating
 > messages comes next. **Texts and calls:** Twilio (SMS, voice, numbers, WhatsApp), then WhatsApp via Meta, and ElevenLabs connectors
 > (§1). Changed: §1 (MVP and v1 scope), §6.2,
 > §9.5, §20.
@@ -228,8 +228,12 @@ In:
   export), run timeline, inbox, connections, requests, users and notification settings
 - **Approver rules** (v0.9): per client, set by the operator, tightened by the client admin; they name
   who approves each change (`docs/plan.md` §1.17)
-- **Billing** (v0.9): Stripe customers per client; a monthly base fee per active agent that includes a
-  credit allowance, then metered usage from `usage_daily` beyond it, invoiced by Stripe
+- **Billing** (v0.9; reworked 2026-11-05, `docs/plan.md` §1.32): Mezonas works out each client's bill.
+  Each agent has a monthly price that includes credits: the client agent's own price, else its
+  template's, else the default. Prices are prorated by the days the agent was active, the credits
+  are pooled, and extra credits are billed at a credit price, all from `usage_daily`. A monthly
+  statement is kept per client. Stripe only holds the customer and the invoice: it sends the
+  invoice, takes payment and tells us the outcome
 - ~~Materials pack~~: built separately from this plan (v0.9)
 - **Texts and calls** (v0.9): **Twilio** (SMS, voice, phone numbers and WhatsApp first), then
   **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
@@ -1595,8 +1599,8 @@ Open:
   "testing" status its refresh tokens expire after 7 days. Check the current rules at M10 and choose:
   verify the app, or (for Google Workspace clients) domain-wide delegation granted by the client's admin.
 - Whether to add sending email (approved) after drafts, and Gmail push notifications instead of polling.
-- Billing: usage is metered per client from v1; how clients are charged (per agent, per month, usage)
-  decides what the back office invoices later.
+- Billing: decided (`docs/plan.md` §1.32). Open: real prices, and whether a client agent's own test
+  runs are billed.
 - From the owner's design, not yet in scope: Google Drive (appears connected in the screens), Ramp,
   bank, Outlook, HubSpot (Slack: later, owner); a header command bar ("Ask an agent, or type / for a
   command"); the Invoice intake, Collections follow-up and Card receipts agents.

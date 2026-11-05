@@ -1,29 +1,38 @@
-// What a client has used in a billing period (docs/plan.md §1.24): the `usage_daily` rollup priced
-// with the operator's unit costs, rounded up per day into credits, against the pooled allowance of
-// its active client agents. Read inside the caller's transaction, so the same code serves the
-// back office (operator scope), the portal (one client) and the daily job (one client).
+// What a client is billed (docs/plan.md §1.24, §1.32): the `usage_daily` rollup priced with the
+// operator's unit costs and rounded up per day into credits; each client agent's price (its own,
+// its template's, the platform's $0 for the supervisor, or the default); and the days each agent
+// was active, recorded hourly with the price it had. Read inside the caller's transaction, so the
+// same code serves the back office (operator scope), the portal (one client) and the cron (one
+// client).
 
 import {
-  allowanceFor,
+  type AgentPrice,
+  type BilledDay,
+  type BuiltStatement,
   billingPeriod,
+  buildStatement,
   costAmount,
   type MeasureTotals,
-  overageCredits,
+  PLATFORM_FREE_TEMPLATE_SLUGS,
+  type PricePoint,
   periodCredits,
   readTenantBilling,
+  resolveAgentPrice,
   type TenantBilling,
   type UnitCost,
 } from "@countersign/core";
 import {
   agent,
+  billingAgentDay,
+  billingAgentPrice,
   billingSetting,
+  billingTemplatePrice,
   billingUnitCost,
-  billingUsageReport,
   type Tx,
   tenant,
   usageDaily,
 } from "@countersign/db";
-import { and, eq, getTableColumns, gte, lte, type SQL, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, gte, inArray, isNull, lte, type SQL, sql } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 
 export type BillingSettingRow = typeof billingSetting.$inferSelect;
@@ -48,17 +57,25 @@ export async function loadBillingConfig(tx: Pick<Tx, "select">): Promise<Billing
   };
 }
 
+/** The defaults an agent with no price of its own or from its template gets. */
+export function defaultPrice(config: BillingConfig): PricePoint {
+  return {
+    monthlyPrice: config.settings.defaultAgentPrice,
+    includedCredits: config.settings.allowanceCreditsPerAgent,
+  };
+}
+
 // ── Measures: usage_daily's columns ─────────────────────────────────────────────────────────────
 
 /** The rollup table, or (in tests) a stand-in with more measure columns. */
-export type UsageTable = PgTable & { tenantId: PgColumn; day: PgColumn };
+export type UsageTable = PgTable & { tenantId: PgColumn; day: PgColumn; agentId: PgColumn };
 
 const KEY_COLUMNS = new Set(["tenant_id", "day", "agent_id"]);
 
 /**
  * Every measure `usage_daily` has: each column but the key, by its SQL name. A column added by a
- * later migration (`messages`, `call_seconds`) is a measure as soon as the schema has it, and is
- * billed once it has a unit cost: no code names a measure.
+ * later migration is a measure as soon as the schema has it, and is billed once it has a unit
+ * cost: no code names a measure.
  */
 // DECISION: credit conversion is generic over measures (measure name = usage_daily column name →
 // unit cost setting), so texts, calls and any later tool are billable without a new rule.
@@ -70,7 +87,12 @@ export function usageMeasures(
     .map((c) => ({ measure: c.name, column: c }));
 }
 
-/** A client's per-day totals of the priced measures between two days (inclusive). */
+/**
+ * A client's per-day totals of the priced measures between two days (inclusive), leaving out test
+ * copies' usage (template test runs run as test copies, separate agents).
+ */
+// DECISION: a client agent's own test runs share its usage_daily rows and can't be told apart, so
+// they are still billed (open for the owner, plan §1.32); test copies' usage is not.
 export async function dailyTotals(
   tx: Tx,
   input: { tenantId: string; from: string; to: string; unitCosts: readonly UnitCost[] },
@@ -78,7 +100,7 @@ export async function dailyTotals(
 ): Promise<{ day: string; totals: MeasureTotals }[]> {
   const priced = new Set(input.unitCosts.map((u) => u.measure));
   const cols = usageMeasures(table).filter((m) => priced.has(m.measure));
-  if (cols.length === 0) return [];
+  if (cols.length === 0 || input.from > input.to) return [];
   // Sums come back as numeric text: nothing passes through a JS float.
   const fields: Record<string, SQL<string>> = { day: sql<string>`${table.day}::text` };
   cols.forEach((c, i) => {
@@ -88,7 +110,12 @@ export async function dailyTotals(
     .select(fields)
     .from(table)
     .where(
-      and(eq(table.tenantId, input.tenantId), gte(table.day, input.from), lte(table.day, input.to)),
+      and(
+        eq(table.tenantId, input.tenantId),
+        gte(table.day, input.from),
+        lte(table.day, input.to),
+        sql`${table.agentId} not in (select ${agent.id} from ${agent} where ${agent.tenantId} = ${input.tenantId} and ${agent.testCopy})`,
+      ),
     )
     .groupBy(table.day)) as Record<string, string>[];
   return rows.map((r) => ({
@@ -97,14 +124,79 @@ export async function dailyTotals(
   }));
 }
 
-// ── Agents ───────────────────────────────────────────────────────────────────────────────────────
+/** Credits a client used between two days (inclusive), and what that work cost us. */
+export async function creditsBetween(
+  tx: Tx,
+  input: { tenantId: string; from: string; to: string; config: BillingConfig },
+  table?: UsageTable,
+): Promise<{ credits: number; cost: string }> {
+  const days = await dailyTotals(
+    tx,
+    { tenantId: input.tenantId, from: input.from, to: input.to, unitCosts: input.config.unitCosts },
+    table,
+  );
+  const priced = periodCredits(days, input.config.unitCosts);
+  return { credits: priced.credits, cost: costAmount(priced.cost) };
+}
 
-/** A client's billed agents: client agents running now (not paused, retired, drafts or copies). */
-// DECISION: the base fee counts client agents whose run status is `active` (owner: "per active
-// client agent"); a paused agent is not billed until it is activated again.
-export async function activeAgentCount(tx: Tx, tenantId: string): Promise<number> {
-  const [row] = await tx
-    .select({ n: sql<string>`count(*)::text` })
+// ── Prices ───────────────────────────────────────────────────────────────────────────────────────
+
+/** Template prices (global) and which templates are the platform's own (free unless priced). */
+export interface Pricing {
+  defaults: PricePoint;
+  templates: Map<string, PricePoint>;
+  /** Template id → slug, for the platform's templates (the supervisor). */
+  platform: Map<string, string>;
+}
+
+/**
+ * Loads what prices a client agent. The platform's templates are template rows (tenant_id null),
+ * which only an operator scope reads: pass one in `operatorTx` (the cron opens one; a back-office
+ * request is one).
+ */
+export async function loadPricing(tx: Tx, operatorTx: Tx, config: BillingConfig): Promise<Pricing> {
+  const rows = await tx.select().from(billingTemplatePrice);
+  const platform = await operatorTx
+    .select({ id: agent.id, slug: agent.slug })
+    .from(agent)
+    .where(and(isNull(agent.tenantId), inArray(agent.slug, [...PLATFORM_FREE_TEMPLATE_SLUGS])));
+  return {
+    defaults: defaultPrice(config),
+    templates: new Map(
+      rows.map((r) => [
+        r.templateId,
+        { monthlyPrice: r.monthlyPrice, includedCredits: r.includedCredits },
+      ]),
+    ),
+    platform: new Map(platform.map((p) => [p.id, p.slug])),
+  };
+}
+
+export type AgentRow = typeof agent.$inferSelect;
+export type OverrideRow = typeof billingAgentPrice.$inferSelect;
+
+/** A client agent's price from what `pricing` and its override say. */
+export function priceOf(a: AgentRow, override: OverrideRow | null, pricing: Pricing): AgentPrice {
+  return resolveAgentPrice({
+    override: override
+      ? { monthlyPrice: override.monthlyPrice, includedCredits: override.includedCredits }
+      : null,
+    template: a.templateId ? (pricing.templates.get(a.templateId) ?? null) : null,
+    templateSlug: a.templateId ? (pricing.platform.get(a.templateId) ?? null) : null,
+    defaults: pricing.defaults,
+  });
+}
+
+/** The name a client knows an agent by: its service name, else its name. */
+export const agentLabel = (a: AgentRow): string => a.serviceName ?? a.name;
+
+/** A client's agents (not test copies, not discarded), with their overrides. */
+export async function clientAgents(
+  tx: Tx,
+  tenantId: string,
+): Promise<{ agent: AgentRow; override: OverrideRow | null }[]> {
+  const rows = await tx
+    .select()
     .from(agent)
     .where(
       and(
@@ -112,10 +204,120 @@ export async function activeAgentCount(tx: Tx, tenantId: string): Promise<number
         eq(agent.kind, "client"),
         eq(agent.testCopy, false),
         eq(agent.status, "active"),
-        eq(agent.runStatus, "active"),
+      ),
+    )
+    .orderBy(agent.name);
+  const overrides = await tx
+    .select()
+    .from(billingAgentPrice)
+    .where(eq(billingAgentPrice.tenantId, tenantId));
+  const byAgent = new Map(overrides.map((o) => [o.agentId, o]));
+  return rows.map((a) => ({ agent: a, override: byAgent.get(a.id) ?? null }));
+}
+
+/** Billed: a client agent running now (not paused, retired, a draft or a test copy). */
+// DECISION: an agent is billed for a day when its run status is `active` at an hourly pass;
+// paused and retired days are not billed (plan §1.32).
+export const isActive = (a: AgentRow): boolean => a.status === "active" && a.runStatus === "active";
+
+// ── The days agents were active ─────────────────────────────────────────────────────────────────
+
+/**
+ * Records today's row for each active client agent, with its price and credits now. The first
+ * price seen in a day sticks (`on conflict do nothing`). Returns the rows it added.
+ */
+export async function recordAgentDays(
+  tx: Tx,
+  input: { tenantId: string; day: string; pricing: Pricing },
+): Promise<number> {
+  const agents = (await clientAgents(tx, input.tenantId)).filter((r) => isActive(r.agent));
+  if (agents.length === 0) return 0;
+  const added = await tx
+    .insert(billingAgentDay)
+    .values(
+      agents.map(({ agent: a, override }) => {
+        const p = priceOf(a, override, input.pricing);
+        return {
+          tenantId: input.tenantId,
+          day: input.day,
+          agentId: a.id,
+          agentName: agentLabel(a),
+          monthlyPrice: p.monthlyPrice,
+          includedCredits: p.includedCredits,
+          priceSource: p.source,
+        };
+      }),
+    )
+    .onConflictDoNothing()
+    .returning({ agentId: billingAgentDay.agentId });
+  return added.length;
+}
+
+/** The days a client's agents were billed in a month, up to `through`. */
+export async function billedDays(
+  tx: Tx,
+  input: { tenantId: string; period: string; through?: string },
+): Promise<BilledDay[]> {
+  const { start, end } = billingPeriod(input.period);
+  const rows = await tx
+    .select()
+    .from(billingAgentDay)
+    .where(
+      and(
+        eq(billingAgentDay.tenantId, input.tenantId),
+        gte(billingAgentDay.day, start),
+        lte(billingAgentDay.day, input.through && input.through < end ? input.through : end),
       ),
     );
-  return Number(row?.n ?? "0");
+  return rows.map((r) => ({
+    agentId: r.agentId,
+    agentName: r.agentName,
+    day: r.day,
+    monthlyPrice: r.monthlyPrice,
+    includedCredits: r.includedCredits,
+  }));
+}
+
+/** The first day usage is billed for a client: the later of the month's start and its set-up. */
+export function usageFrom(period: string, billing: TenantBilling | null): string {
+  const start = billingPeriod(period).start;
+  const setUp = billing?.setUpAt?.slice(0, 10);
+  return setUp && setUp > start ? setUp : start;
+}
+
+/**
+ * A month worked out from the days recorded and the credits used up to `through`: the month so
+ * far, or (through its last day) the statement as it would be built.
+ */
+export async function monthFor(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    period: string;
+    through: string;
+    config: BillingConfig;
+    billing: TenantBilling | null;
+  },
+  table?: UsageTable,
+): Promise<{ built: BuiltStatement; cost: string }> {
+  const days = await billedDays(tx, input);
+  const used = await creditsBetween(
+    tx,
+    {
+      tenantId: input.tenantId,
+      from: usageFrom(input.period, input.billing),
+      to: input.through,
+      config: input.config,
+    },
+    table,
+  );
+  const built = buildStatement({
+    period: input.period,
+    days,
+    creditsUsed: used.credits,
+    creditPrice: input.config.settings.creditPrice,
+  });
+  return { built, cost: used.cost };
 }
 
 // ── A client's billing record ───────────────────────────────────────────────────────────────────
@@ -143,50 +345,4 @@ export async function patchTenantBilling(
       settings: sql`jsonb_set(${tenant.settings}, '{billing}', coalesce(${tenant.settings} -> 'billing', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`,
     })
     .where(eq(tenant.id, tenantId));
-}
-
-// ── The period ───────────────────────────────────────────────────────────────────────────────────
-
-export interface ClientPeriod {
-  period: { start: string; end: string; through: string };
-  activeAgents: number;
-  allowance: number;
-  credits: number;
-  overage: number;
-  /** What the period's work cost us through `through`, as priced (numeric(14,4) text). */
-  cost: string;
-  /** Overage credits reported (or being reported) to Stripe this period. */
-  reported: number;
-}
-
-/** A client's billing period through a day: credits, allowance, overage, what was reported. */
-export async function clientPeriod(
-  tx: Tx,
-  input: { tenantId: string; through: string; config: BillingConfig },
-  table: UsageTable = usageDaily,
-): Promise<ClientPeriod> {
-  const { start, end } = billingPeriod(input.through);
-  const days = await dailyTotals(
-    tx,
-    { tenantId: input.tenantId, from: start, to: input.through, unitCosts: input.config.unitCosts },
-    table,
-  );
-  const priced = periodCredits(days, input.config.unitCosts);
-  const activeAgents = await activeAgentCount(tx, input.tenantId);
-  const allowance = allowanceFor(activeAgents, input.config.settings.allowanceCreditsPerAgent);
-  const [reported] = await tx
-    .select({ n: sql<string>`coalesce(sum(${billingUsageReport.quantity}), 0)::text` })
-    .from(billingUsageReport)
-    .where(
-      and(eq(billingUsageReport.tenantId, input.tenantId), eq(billingUsageReport.period, start)),
-    );
-  return {
-    period: { start, end, through: input.through },
-    activeAgents,
-    allowance,
-    credits: priced.credits,
-    overage: overageCredits(priced.credits, allowance),
-    cost: costAmount(priced.cost),
-    reported: Number(reported?.n ?? "0"),
-  };
 }

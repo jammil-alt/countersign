@@ -38,6 +38,7 @@ import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
 import { OperationPanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
+import { PricePanel } from "./PricePanel";
 import { Notice, notifyAgentsChanged } from "./ui";
 import { VersionsTab } from "./VersionsTab";
 
@@ -397,6 +398,8 @@ function SettingsTab({
           onChanged={onChanged}
         />
       ) : null}
+
+      {!agent.testCopy && agent.status === "active" ? <PricePanel agent={agent} /> : null}
 
       <div>
         <h2 className="mb-1 type-subheading text-ink">Definition</h2>

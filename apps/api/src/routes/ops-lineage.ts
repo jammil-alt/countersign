@@ -32,7 +32,6 @@ import { agent, run, skill, skillVersion, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
-import { syncQuantityLater } from "./billing";
 import { agentSummary, versionSummary } from "./mappers";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
@@ -163,8 +162,6 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
     const updated = await retire(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
-    // A retired agent is no longer in the base fee (billing).
-    syncQuantityLater(ctx, updated.tenantId);
     return { agent: agentSummary(updated) };
   });
 

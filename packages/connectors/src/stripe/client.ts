@@ -1,4 +1,4 @@
-// A small Stripe API client for Mezonas' own billing (docs/plan.md §1.17, §1.24). Billing is our
+// A small Stripe API client for Mezonas' own billing (docs/plan.md §1.17, §1.32). Billing is our
 // infrastructure, not a client's tool: there is no connector manifest and no agent tool here, and
 // agents never reach it. `fetch` is injected (FetchLike); tests use `fakeStripe` from
 // `@countersign/connectors/testing`. Endpoint, field and event names are recorded in ./NOTES.md,
@@ -100,42 +100,6 @@ export const StripeCustomer = z.object({
 });
 export type StripeCustomer = z.infer<typeof StripeCustomer>;
 
-export const StripePrice = z.object({
-  id: z.string(),
-  active: z.boolean().optional(),
-  currency: z.string(),
-  unit_amount: z.number().int().nullish(),
-  unit_amount_decimal: z.string().nullish(),
-  recurring: z
-    .object({
-      interval: z.string(),
-      usage_type: z.string().nullish(),
-      meter: z.string().nullish(),
-    })
-    .nullish(),
-});
-export type StripePrice = z.infer<typeof StripePrice>;
-
-const SubscriptionItem = z.object({
-  id: z.string(),
-  quantity: z.number().int().nullish(),
-  price: z.object({ id: z.string() }),
-});
-
-export const StripeSubscription = z.object({
-  id: z.string(),
-  customer: z.string(),
-  status: z.string(),
-  items: z.object({ data: z.array(SubscriptionItem) }),
-  metadata: Metadata,
-});
-export type StripeSubscription = z.infer<typeof StripeSubscription>;
-
-export const StripeMeterEvent = z.object({
-  identifier: z.string(),
-  event_name: z.string(),
-});
-
 export const StripeInvoice = z.object({
   id: z.string(),
   customer: z.string().nullish(),
@@ -146,15 +110,20 @@ export const StripeInvoice = z.object({
   amount_due: z.number().int(),
   amount_paid: z.number().int().optional(),
   created: z.number().int(),
-  period_start: z.number().int().nullish(),
-  period_end: z.number().int().nullish(),
   due_date: z.number().int().nullish(),
   hosted_invoice_url: z.string().nullish(),
   invoice_pdf: z.string().nullish(),
+  metadata: Metadata,
 });
 export type StripeInvoice = z.infer<typeof StripeInvoice>;
 
-const InvoiceList = z.object({ data: z.array(StripeInvoice), has_more: z.boolean().optional() });
+export const StripeInvoiceItem = z.object({
+  id: z.string(),
+  invoice: z.string().nullish(),
+  amount: z.number().int(),
+  currency: z.string(),
+});
+export type StripeInvoiceItem = z.infer<typeof StripeInvoiceItem>;
 
 const ErrorBody = z.object({
   error: z.object({
@@ -175,40 +144,47 @@ export interface StripeClientOptions {
   timeoutMs?: number;
 }
 
-export interface CreateSubscriptionInput {
+export interface CreateInvoiceInput {
   customerId: string;
-  basePriceId: string;
-  quantity: number;
-  overagePriceId: string;
-  /** Unix seconds: the 1st of next month, so periods are calendar months. */
-  billingCycleAnchor: number;
+  /** Lowercase ISO code, e.g. `usd`. */
+  currency: string;
   daysUntilDue: number;
+  description: string;
   metadata: Record<string, string>;
 }
 
+export interface CreateInvoiceItemInput {
+  customerId: string;
+  invoiceId: string;
+  /** Integer, in the currency's smallest unit (cents); negative for a credit. */
+  amount: number;
+  currency: string;
+  description: string;
+  /** Unix seconds: the service period shown on the invoice. */
+  period: { start: number; end: number };
+  metadata: Record<string, string>;
+}
+
+/**
+ * Stripe as Mezonas uses it (docs/plan.md §1.32): customers and invoices only. Mezonas works out
+ * each bill; Stripe sends it, takes payment and tells us the outcome.
+ */
 export interface StripeClient {
   createCustomer(
     input: { name: string; email?: string; metadata: Record<string, string> },
     idempotencyKey: string,
   ): Promise<StripeCustomer>;
   updateCustomer(id: string, input: { name?: string; email?: string }): Promise<StripeCustomer>;
-  getPrice(id: string): Promise<StripePrice>;
-  createSubscription(
-    input: CreateSubscriptionInput,
+  /** A draft invoice that is sent (not charged), advanced by us, with only the items we add. */
+  createInvoice(input: CreateInvoiceInput, idempotencyKey: string): Promise<StripeInvoice>;
+  /** One line on a draft invoice. */
+  createInvoiceItem(
+    input: CreateInvoiceItemInput,
     idempotencyKey: string,
-  ): Promise<StripeSubscription>;
-  getSubscription(id: string): Promise<StripeSubscription>;
-  /** Sets a licensed item's quantity (absolute, so repeating it is harmless). */
-  setItemQuantity(itemId: string, quantity: number): Promise<{ id: string; quantity: number }>;
-  /** Reports usage to a billing meter; `identifier` is also the idempotency key. */
-  createMeterEvent(input: {
-    eventName: string;
-    customerId: string;
-    value: number;
-    identifier: string;
-    timestamp: number;
-  }): Promise<{ identifier: string }>;
-  listInvoices(customerId: string, limit?: number): Promise<StripeInvoice[]>;
+  ): Promise<StripeInvoiceItem>;
+  finalizeInvoice(id: string, idempotencyKey: string): Promise<StripeInvoice>;
+  /** Emails the finalized invoice to the customer, with its hosted page. */
+  sendInvoice(id: string, idempotencyKey: string): Promise<StripeInvoice>;
   getInvoice(id: string): Promise<StripeInvoice>;
 }
 
@@ -284,82 +260,67 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
         name: input.name,
         email: input.email,
       }),
-    getPrice: (priceId) => request(StripePrice, "GET", `/v1/prices/${id(priceId)}`),
-    createSubscription: (input, key) =>
+    createInvoice: (input, key) =>
       request(
-        StripeSubscription,
+        StripeInvoice,
         "POST",
-        "/v1/subscriptions",
+        "/v1/invoices",
         {
           customer: input.customerId,
-          // The metered overage item takes no quantity (Stripe counts its meter's events).
-          items: [
-            { price: input.basePriceId, quantity: input.quantity },
-            { price: input.overagePriceId },
-          ],
-          billing_cycle_anchor: input.billingCycleAnchor,
-          proration_behavior: "create_prorations",
+          currency: input.currency.toLowerCase(),
           // DECISION: invoices are sent (hosted page, PDF, email from Stripe), not charged to a
           // card on file: v1 has no card collection flow, and clients pay by the hosted link.
           collection_method: "send_invoice",
           days_until_due: input.daysUntilDue,
+          // We finalize and send it ourselves, step by step (plan §1.32).
+          auto_advance: false,
+          // Only the items we add to this invoice, never a customer's other pending items.
+          pending_invoice_items_behavior: "exclude",
+          description: input.description,
           metadata: input.metadata,
         },
         key,
       ),
-    getSubscription: (subId) =>
-      request(StripeSubscription, "GET", `/v1/subscriptions/${id(subId)}`),
-    setItemQuantity: async (itemId, quantity) => {
-      const item = await request(SubscriptionItem, "POST", `/v1/subscription_items/${id(itemId)}`, {
-        quantity,
-        proration_behavior: "create_prorations",
-      });
-      return { id: item.id, quantity: item.quantity ?? quantity };
-    },
-    createMeterEvent: (input) =>
+    createInvoiceItem: (input, key) =>
       request(
-        StripeMeterEvent,
+        StripeInvoiceItem,
         "POST",
-        "/v1/billing/meter_events",
+        "/v1/invoiceitems",
         {
-          event_name: input.eventName,
-          payload: { stripe_customer_id: input.customerId, value: String(input.value) },
-          identifier: input.identifier,
-          timestamp: input.timestamp,
+          customer: input.customerId,
+          invoice: input.invoiceId,
+          amount: input.amount,
+          currency: input.currency.toLowerCase(),
+          description: input.description,
+          period: { start: input.period.start, end: input.period.end },
+          metadata: input.metadata,
         },
-        input.identifier,
+        key,
       ),
-    listInvoices: async (customerId, limit = 24) =>
-      (
-        await request(InvoiceList, "GET", "/v1/invoices", {
-          customer: customerId,
-          limit: Math.min(Math.max(limit, 1), 100),
-        })
-      ).data,
+    finalizeInvoice: (invoiceId, key) =>
+      request(
+        StripeInvoice,
+        "POST",
+        `/v1/invoices/${id(invoiceId)}/finalize`,
+        { auto_advance: false },
+        key,
+      ),
+    sendInvoice: (invoiceId, key) =>
+      request(StripeInvoice, "POST", `/v1/invoices/${id(invoiceId)}/send`, {}, key),
     getInvoice: (invoiceId) => request(StripeInvoice, "GET", `/v1/invoices/${id(invoiceId)}`),
   };
 }
 
-/** An invoice for the screens: amounts as Money, times as ISO strings, the hosted links. */
-export function invoiceView(i: StripeInvoice) {
-  const iso = (s: number | null | undefined) => (s ? new Date(s * 1000).toISOString() : null);
-  return {
-    id: i.id,
-    number: i.number ?? null,
-    status: i.status ?? null,
-    total: fromMinorUnits(i.total, i.currency),
-    amountDue: fromMinorUnits(i.amount_due, i.currency),
-    createdAt: new Date(i.created * 1000).toISOString(),
-    periodStart: iso(i.period_start),
-    periodEnd: iso(i.period_end),
-    dueAt: iso(i.due_date),
-    hostedInvoiceUrl: i.hosted_invoice_url ?? null,
-    pdfUrl: i.invoice_pdf ?? null,
-  };
-}
-
-/** A price's amount per unit as Money (`unit_amount_decimal` first: it allows fractions of a cent). */
-export function priceAmount(p: StripePrice): Money | null {
-  const amount = p.unit_amount_decimal ?? p.unit_amount ?? null;
-  return amount === null ? null : fromMinorUnits(amount, p.currency);
+/** Money in a currency's smallest unit (an integer), from a decimal amount: `12.3400` USD → 1234. */
+export function toMinorUnits(amount: Money): number {
+  const c = amount.currency.toLowerCase();
+  const minor = ZERO_DECIMAL.has(c)
+    ? new Decimal(amount.amount)
+    : new Decimal(amount.amount).times(100);
+  if (!minor.isInteger()) {
+    throw new RangeError(
+      `${amount.amount} ${amount.currency} is not a whole number of minor units`,
+    );
+  }
+  return minor.toNumber();
 }
