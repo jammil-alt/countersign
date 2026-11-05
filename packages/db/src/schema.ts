@@ -1311,6 +1311,67 @@ export const reachOut = pgTable(
   ],
 );
 
+// ── Browser sites (docs/plan.md §1.26, phase 3) ────────────────────────────────────────────────
+
+export const BROWSER_TIERS = ["low", "medium", "high", "blocked"] as const;
+
+/**
+ * The operator's catalogue of websites agents may sign in to (ARCHITECTURE §6.10). Operator only:
+ * no client owns a site, and only operator sessions read or write it (row-level security on
+ * `app.operator`). The tier is live: changing it applies to every connection on the site at once.
+ * The login steps and URL rules are versioned in `browser_site_version`.
+ */
+// DECISION: no `tenant_id` column. A site never belongs to a client, and the RLS policy is the
+// templates' `tenant_id IS NULL AND app_is_operator()` reduced to `app_is_operator()`; a column that
+// is always null would only make the table look like a client's.
+export const browserSite = pgTable(
+  "browser_site",
+  {
+    id: id(),
+    /** Stable name in binding keys (`browser:<slug>`) and in client connections. */
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    tier: text("tier").$type<(typeof BROWSER_TIERS)[number]>().notNull(),
+    /** Who checked the site's terms allow automated access, and when; why this tier. */
+    notes: text("notes").notNull().default(""),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    check("browser_site_tier_check", oneOf(t.tier, BROWSER_TIERS)),
+    check("browser_site_slug_check", sql`${t.slug} ~ '^[a-z0-9][a-z0-9-]{0,62}$'`),
+  ],
+);
+
+/**
+ * One version of a site's profile: login page and origins, selectors, second factor, signed-in
+ * check, sign-out, allowed and blocked pages (core's `BrowserSiteProfile`). Immutable and never
+ * deleted (trigger); a client's browser connection pins the version it was set up on.
+ */
+export const browserSiteVersion = pgTable(
+  "browser_site_version",
+  {
+    id: id(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => browserSite.id),
+    version: integer("version").notNull(),
+    profile: json("profile").notNull(),
+    changeNote: text("change_note"),
+    authorId: uuid("author_id").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("browser_site_version_site_version_key").on(t.siteId, t.version),
+    check("browser_site_version_version_check", sql`${t.version} >= 1`),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -1716,3 +1777,6 @@ export const OPERATOR_TABLES = [
   "agent_change",
   "feedback",
 ] as const satisfies readonly TenantTable[];
+
+/** Global tables only operator sessions may read or write (row-level security on `app.operator`). */
+export const OPERATOR_ONLY_TABLES = ["browser_site", "browser_site_version"] as const;

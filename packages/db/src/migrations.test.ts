@@ -8,7 +8,7 @@ import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
-import { OPERATOR_TABLES, TENANT_TABLES } from "./schema";
+import { OPERATOR_ONLY_TABLES, OPERATOR_TABLES, TENANT_TABLES } from "./schema";
 import {
   createTestDatabase,
   databaseAvailable,
@@ -176,6 +176,33 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);
     expect(await can("tenant_change", "UPDATE")).toBe(false);
+    // The browser site catalogue (0012): sites change in place, versions are only inserted.
+    for (const table of OPERATOR_ONLY_TABLES) {
+      expect(await can(table, "SELECT"), `${table} SELECT`).toBe(true);
+      expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+      expect(await can(table, "TRUNCATE"), `${table} TRUNCATE`).toBe(false);
+    }
+    expect(await can("browser_site", "UPDATE")).toBe(true);
+    expect(await can("browser_site_version", "UPDATE")).toBe(false);
+  });
+
+  it("force RLS on the operator-only tables, with policies on app.operator alone", async () => {
+    const rows = await t.db.$client<
+      { relname: string; rls: boolean; forced: boolean; quals: string }[]
+    >`
+      select c.relname, c.relrowsecurity as rls, c.relforcerowsecurity as forced,
+        (select string_agg(pg_get_expr(p.polqual, p.polrelid), ' | ') from pg_policy p
+         where p.polrelid = c.oid) as quals
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+      where c.relname in ${t.db.$client([...OPERATOR_ONLY_TABLES])}
+      order by c.relname`;
+    expect(rows.map((r) => r.relname)).toEqual([...OPERATOR_ONLY_TABLES].sort());
+    for (const r of rows) {
+      expect(r.rls && r.forced, `${r.relname} forces RLS`).toBe(true);
+      expect(r.quals, r.relname).toBe("app_is_operator()");
+    }
   });
 
   it("seed the billing settings and let only operator sessions change them", async () => {
