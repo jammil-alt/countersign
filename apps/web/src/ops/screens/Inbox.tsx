@@ -1,5 +1,6 @@
 // `/ops/inbox` (ARCHITECTURE §11, §15): the operator inbox (items assigned to the operator:
-// delegated approvals, escalations, budget hits, test runs' questions) and, under "All clients",
+// delegated approvals, escalations, budget hits, test runs' questions, and every item of the
+// Sandbox, which has no client people) and, under "All clients",
 // every item in the clients served. The operator resolves only what is theirs; a client's own
 // approvals show who they wait on. Resolving resumes the waiting run.
 import type { OpsAgentRef } from "@countersign/core";

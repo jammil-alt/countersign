@@ -20,7 +20,7 @@ import {
   toolCall,
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, count, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
@@ -68,6 +68,18 @@ export async function sandboxClient(ctx: { tx: Tx; tenantIds: readonly string[] 
   return t;
 }
 
+/** Which of these clients is the Sandbox, read from their settings. */
+async function sandboxIds(tx: Tx, tenantIds: readonly string[]): Promise<Set<string>> {
+  const ids = [...new Set(tenantIds)];
+  const rows = ids.length
+    ? await tx
+        .select({ id: tenant.id, settings: tenant.settings })
+        .from(tenant)
+        .where(inArray(tenant.id, ids))
+    : [];
+  return new Set(rows.filter((t) => isSandbox(t.settings)).map((t) => t.id));
+}
+
 /**
  * The signed-in operator as the one resolving these clients' inbox items, per client. In the
  * Sandbox they resolve every item (packages/agents' `mayResolve`); which client is the Sandbox is
@@ -78,14 +90,7 @@ export async function operatorApprovers(
   userId: string,
   tenantIds: readonly string[],
 ): Promise<(tenantId: string) => Approver> {
-  const ids = [...new Set(tenantIds)];
-  const rows = ids.length
-    ? await tx
-        .select({ id: tenant.id, settings: tenant.settings })
-        .from(tenant)
-        .where(inArray(tenant.id, ids))
-    : [];
-  const sandboxes = new Set(rows.filter((t) => isSandbox(t.settings)).map((t) => t.id));
+  const sandboxes = await sandboxIds(tx, tenantIds);
   return (tenantId) => ({
     userId,
     role: "operator",
@@ -488,7 +493,15 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       eq(inboxItem.status, query.status),
     ];
     if (query.client) where.push(eq(inboxItem.tenantId, query.client));
-    if (query.assigned === "operator") where.push(eq(inboxItem.assigneeRole, "operator"));
+    if (query.assigned === "operator") {
+      // DECISION: "Assigned to you" also lists every item of the Sandbox, which the operator
+      // resolves whoever it is assigned to (docs/plan.md §1.5 "Sandbox inbox").
+      const sandboxes = [...(await sandboxIds(tx, ctx.tenantIds))];
+      const mine = eq(inboxItem.assigneeRole, "operator");
+      where.push(
+        sandboxes.length ? (or(mine, inArray(inboxItem.tenantId, sandboxes)) as SQL) : mine,
+      );
+    }
     const rows = await tx
       .select()
       .from(inboxItem)

@@ -2,7 +2,8 @@
 // has no client people, so on a live run the operator resolves every item there (the client
 // admin's approval of a change, a person step) and the run resumes; in a real client the same items
 // stay the client's (403 `not_assignee`), and a client that delegated its approvals to the operator
-// behaves as before. `resolvableByOperator` says the same on every back-office inbox item.
+// behaves as before. `resolvableByOperator` says the same on every back-office inbox item, and the
+// default "Assigned to you" list shows the Sandbox's items.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { externalAction, inboxItem, membership, tenant } from "@countersign/db";
@@ -62,13 +63,18 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
     };
   };
 
-  /** The operator's view of an item: the inbox list's and the run view's flag. */
+  /**
+   * The operator's view of an item: the flag in the "All clients" list and in the run view, and
+   * whether the default "Assigned to you" list shows it.
+   */
   async function flags(item: Item) {
     const list = j((await H.call(OPERATOR, "GET", "/api/ops/inbox?assigned=all")).json).items;
     const listed = list.find((i: { id: string }) => i.id === item.id);
     const view = j((await H.call(OPERATOR, "GET", `/api/ops/runs/${item.runId}`)).json).inbox;
     const inRun = view.find((i: { id: string }) => i.id === item.id);
-    return [listed?.resolvableByOperator, inRun?.resolvableByOperator];
+    const mine = j((await H.call(OPERATOR, "GET", "/api/ops/inbox")).json).items;
+    const assigned = mine.some((i: { id: string }) => i.id === item.id);
+    return [listed?.resolvableByOperator, inRun?.resolvableByOperator, assigned];
   }
 
   /** A live client agent from the template in this client, bound, test-run and activated. */
@@ -162,8 +168,8 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
     expect(outcome).toEqual({ status: "succeeded" });
     // Both items were the client admin's, and the operator's to resolve in the Sandbox.
     expect(seen).toEqual([
-      { kind: "external_action", assigneeRole: "client_admin", flags: [true, true] },
-      { kind: "approval", assigneeRole: "client_admin", flags: [true, true] },
+      { kind: "external_action", assigneeRole: "client_admin", flags: [true, true, true] },
+      { kind: "approval", assigneeRole: "client_admin", flags: [true, true, true] },
     ]);
     // Recorded as the operator; the change was made once.
     const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, runId));
@@ -204,8 +210,8 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
     });
     expect(outcome).toEqual({ status: "succeeded" });
     expect(seen).toEqual([
-      { kind: "external_action", flags: [false, false] },
-      { kind: "approval", flags: [false, false] },
+      { kind: "external_action", flags: [false, false, false] },
+      { kind: "approval", flags: [false, false, false] },
     ]);
     expect(H.backend.get(H.A.connectionId, "r1")?.amount).toBe("12.00");
   });
@@ -231,8 +237,8 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
     });
     expect(outcome).toEqual({ status: "succeeded" });
     expect(seen).toEqual([
-      { kind: "external_action", assigneeRole: "operator", flags: [true, true] },
-      { kind: "approval", assigneeRole: "client_admin", flags: [false, false] },
+      { kind: "external_action", assigneeRole: "operator", flags: [true, true, true] },
+      { kind: "approval", assigneeRole: "client_admin", flags: [false, false, false] },
     ]);
     expect(H.backend.get(H.B.connectionId, "r1")?.amount).toBe("12.00");
   });
