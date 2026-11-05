@@ -11,6 +11,7 @@ import {
   grantAllowsTool,
   type JsonObject,
   type ReachLanguage,
+  releaseOf,
 } from "@countersign/core";
 import { createLlmClient } from "@countersign/llm";
 import { z } from "zod";
@@ -119,6 +120,22 @@ async function plannedDispatch(
       status: "refused",
       reason: `${tool.spec.verb} is off for this agent on the ${conn.connector} connection`,
     };
+  }
+  // Human release holds here too (docs/plan.md §1.26), but an attempt can't wait for a code: it
+  // goes only under a live release, else it is refused like an `off` verb.
+  // DECISION: reach-out attempts and call answering never ask for a release themselves.
+  if (releaseOf(conn.config).mode === "code") {
+    const covered = await deps.ports.release?.covers(step.tenantId, {
+      connection: conn,
+      agentId: step.agent.agentId,
+      runId: step.runId,
+    });
+    if (!covered) {
+      return {
+        status: "refused",
+        reason: `the ${conn.connector} connection needs a person to release it first`,
+      };
+    }
   }
   const ctx = connectionContext(deps, step.tenantId, conn);
   const captured = await captureBefore(tool.connector, tool.spec.id, call.input, ctx);

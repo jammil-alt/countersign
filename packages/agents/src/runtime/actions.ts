@@ -3,6 +3,7 @@
 // action's idempotency key, after the approval resolved (or at once on the automatic path).
 
 import { executeWrite, UnconfirmedWriteError } from "@countersign/connectors";
+import { releaseOf } from "@countersign/core";
 import { AgentsError, notFound } from "../errors";
 import { connectionContext, type RuntimeDeps } from "./context";
 import type { ExternalActionRecord } from "./ports";
@@ -41,6 +42,20 @@ export async function executeAction(
     const run = await store.run(input.tenantId, found.runId);
     if (run?.mode === "test") {
       throw new AgentsError("test_run", "test runs never execute external actions");
+    }
+  }
+  // Human release holds at execution too (docs/plan.md §1.26): an approved write runs only under a
+  // live release for its agent, connection and run. An approval is not a release, and nothing here
+  // asks for one: without it the write fails.
+  // DECISION: the check is made before the action is claimed, so a refused write never starts.
+  if (found.status === "approved" || found.status === "executing") {
+    const refused = await releaseRefusal(deps, input.tenantId, found);
+    if (refused) {
+      const failed = await actions.fail(input.tenantId, found.id, {
+        message: refused,
+        release: true,
+      });
+      return { status: "failed", action: failed, error: refused };
     }
   }
   const { action, claimed } = await actions.claim(input.tenantId, input.actionId);
@@ -116,4 +131,26 @@ export async function executeAction(
     const failed = await actions.fail(input.tenantId, action.id, { message: message(error) });
     return { status: "failed", action: failed, error: message(error) };
   }
+}
+
+/** Why an approved write may not run now for want of a release, or null. */
+async function releaseRefusal(
+  deps: RuntimeDeps,
+  tenantId: string,
+  action: ExternalActionRecord,
+): Promise<string | null> {
+  const conn = await deps.ports.store.connection(tenantId, action.connectionId);
+  if (!conn || releaseOf(conn.config).mode !== "code") return null;
+  const run = action.runId ? await deps.ports.store.run(tenantId, action.runId) : null;
+  const covered =
+    run && action.runId
+      ? await deps.ports.release?.covers(tenantId, {
+          connection: conn,
+          agentId: run.agentId,
+          runId: action.runId,
+        })
+      : false;
+  return covered
+    ? null
+    : `the ${conn.connector} connection needs a person to release it, and no release is live`;
 }

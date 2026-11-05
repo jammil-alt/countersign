@@ -38,6 +38,7 @@ import {
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
+import { releaseCoversTx } from "../access/release";
 import type { Bindings } from "../env";
 import type { Platform } from "../platform";
 import { findRecord, storeOnce } from "./store";
@@ -248,8 +249,11 @@ export async function planInbound(
     tenantId: string;
     connectionId: string;
     permissions: Partial<PermissionMatrix>;
+    /** The connection's config: its human release setting (docs/plan.md §1.26). */
+    config: unknown;
     forwardTo: string | null;
     voice: VoiceDeps;
+    now?: Date;
   },
 ): Promise<InboundPlan> {
   const answering = await answeringStep(tx, input.tenantId, input.connectionId);
@@ -279,6 +283,19 @@ export async function planInbound(
   if (!grantAllowsTool(grant?.limits, CALL_ANSWER_TOOL)) {
     return fallback(
       `${answering.agentName}'s access to the Twilio connection leaves out answering calls`,
+    );
+  }
+  // Human release: a ringing call can't wait for a person's code, so an agent answers only under a
+  // release already live for it on this connection (an hours release: there is no run yet).
+  const released = await releaseCoversTx(tx, input.tenantId, {
+    connection: { id: input.connectionId, config: input.config },
+    agentId: answering.agentId,
+    runId: null,
+    now: input.now ?? new Date(),
+  });
+  if (!released) {
+    return fallback(
+      `the client's Twilio connection needs a person to release it before ${answering.agentName} answers, and no release is live`,
     );
   }
   const decision = decideToolCall({

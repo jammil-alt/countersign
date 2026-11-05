@@ -32,6 +32,7 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
+import { ReleaseSection } from "./AccessRelease";
 
 type View = ResponseOf<typeof apiRoutes.portalAccess>;
 type Item = View["items"][number];
@@ -126,6 +127,7 @@ export function PortalAccessScreen() {
                     key={item.connectionId}
                     item={item}
                     canEdit={data.canEdit}
+                    people={data.people}
                     onChanged={reload}
                   />
                 ))}
@@ -461,10 +463,12 @@ function CredentialForm({
 function VaultCard({
   item,
   canEdit,
+  people,
   onChanged,
 }: {
   item: Item;
   canEdit: boolean;
+  people: View["people"];
   onChanged: () => void;
 }) {
   const i18n = useI18n();
@@ -581,6 +585,8 @@ function VaultCard({
           </div>
         )}
       </div>
+
+      <ReleaseSection item={item} people={people} canEdit={canEdit} onChanged={onChanged} />
 
       {error ? (
         <div className="mt-3">

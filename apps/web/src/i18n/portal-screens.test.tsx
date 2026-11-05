@@ -696,16 +696,39 @@ describe("the access page in Spanish and German", () => {
         updatedAt: null,
       },
     ],
+    release: {
+      mode: "code",
+      person: { id: AGENT, name: "Ana Ruiz" },
+      channel: "sms",
+      window: { hours: 4 },
+      sentTo: "•••0142",
+      updatedAt: null,
+      live: [],
+    },
   };
 
   it.each([
-    ["es", "Accesos", "Secreto guardado", "Todas las herramientas", "Restringir"],
-    ["de", "Zugriff", "Geheimnis gespeichert", "Alle Werkzeuge", "Verschärfen"],
+    [
+      "es",
+      "Accesos",
+      "Secreto guardado",
+      "Todas las herramientas",
+      "Restringir",
+      "Ana Ruiz lo libera con un código por SMS, durante 4 horas.",
+    ],
+    [
+      "de",
+      "Zugriff",
+      "Geheimnis gespeichert",
+      "Alle Werkzeuge",
+      "Verschärfen",
+      "Ana Ruiz gibt es mit einem Code per SMS frei, für 4 Stunden.",
+    ],
   ] as const)(
     "in %s: the vault's words, the client's names as written",
-    async (locale, title, secret, all, tighten) => {
+    async (locale, title, secret, all, tighten, release) => {
       const api = portalApi(locale, {
-        "GET /api/access": () => ({ items: [item], setup: [], canEdit: true }),
+        "GET /api/access": () => ({ items: [item], setup: [], canEdit: true, people: [] }),
       });
       renderAt("/access", api);
       const card = await screen.findByTestId("vault-item-acme");
@@ -715,6 +738,7 @@ describe("the access page in Spanish and German", () => {
       expect(card).toHaveTextContent("agent@demo.example.com");
       expect(card).toHaveTextContent(all);
       expect(within(card).getByTestId("vault-agent-tighten")).toHaveTextContent(tighten);
+      expect(within(card).getByTestId("release-summary")).toHaveTextContent(release);
     },
   );
 });

@@ -2,7 +2,12 @@
 // tool-mode skills and the executor's `action` steps alike, so every call is logged and gated the
 // same way.
 
-import { bindingKeyFor, captureBefore, runReadTool } from "@countersign/connectors";
+import {
+  bindingKeyFor,
+  type ConnectionRef,
+  captureBefore,
+  runReadTool,
+} from "@countersign/connectors";
 import {
   changeFacts,
   decideToolCall,
@@ -10,6 +15,8 @@ import {
   grantAllowsTool,
   type JsonObject,
   levelFor,
+  releaseOf,
+  releaseSettingProblem,
   routeApproval,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
@@ -30,6 +37,11 @@ export type ToolOutcome =
   | { status: "awaiting_approval"; actionId: string; inboxItemId: string | null; before: unknown }
   /** Test runs: the write was recorded as proposed and will never run. */
   | { status: "would_have_done"; actionId: string; before: unknown }
+  /**
+   * The connection needs a person to release it (docs/plan.md §1.26): a code went to them and their
+   * inbox item is open. The step waits; once released, it runs again from the start.
+   */
+  | { status: "awaiting_release"; releaseId: string; inboxItemId: string; connectionId: string }
   | { status: "refused"; reason: string }
   | { status: "failed"; error: string };
 
@@ -41,6 +53,9 @@ const LOG_STATUS: Record<ToolOutcome["status"], ToolCallStatus> = {
   done: "succeeded",
   awaiting_approval: "awaiting_approval",
   would_have_done: "awaiting_approval",
+  // DECISION: tool_call has no release status; a call waiting for a release is logged as
+  // waiting (`awaiting_approval`) with `{status: "awaiting_release", releaseId}` as its output.
+  awaiting_release: "awaiting_approval",
   refused: "refused",
   failed: "failed",
 };
@@ -86,7 +101,9 @@ export async function callTool(
           ? { refused: outcome.reason }
           : outcome.status === "failed"
             ? { error: outcome.error }
-            : { status: outcome.status },
+            : outcome.status === "awaiting_release"
+              ? { status: outcome.status, releaseId: outcome.releaseId }
+              : { status: outcome.status },
     durationMs: Date.now() - started,
     externalActionId: actionId ?? null,
   });
@@ -176,6 +193,11 @@ async function dispatch(
           : `${tool.spec.verb} is off in this agent's access to the ${connectorId} connection`,
     };
   }
+  // Human release (docs/plan.md §1.26): a connection that needs a person's release is used only
+  // under a live release; without one the step asks the person for a code and waits. Test runs
+  // too: a test reads the client's real data.
+  const waiting = await releaseGate(deps, step, conn, tool.spec.id);
+  if (waiting) return waiting;
   const ctx = connectionContext(deps, step.tenantId, conn);
   if (tool.spec.sideEffect !== "external") {
     const r = await runReadTool(tool.connector, tool.spec.id, input, ctx);
@@ -240,6 +262,47 @@ async function dispatch(
       : null,
   });
   return settle(deps, step, action);
+}
+
+/**
+ * Null when the call may go on: the connection needs no release, or a live release covers this
+ * agent in this run. Otherwise the request (a code sent, an inbox item) or why none could be made.
+ */
+export async function releaseGate(
+  deps: RuntimeDeps,
+  step: StepContext,
+  conn: ConnectionRef,
+  toolId: string,
+): Promise<Extract<ToolOutcome, { status: "awaiting_release" | "refused" }> | null> {
+  const setting = releaseOf(conn.config);
+  if (setting.mode !== "code") return null;
+  const name = conn.connector;
+  const problem = releaseSettingProblem(setting);
+  if (problem) return { status: "refused", reason: `${name}: ${problem}` };
+  const port = deps.ports.release;
+  // DECISION: without the release port (a voice call's tools) a connection that needs a release
+  // refuses: nothing there can wait for a person's code.
+  if (!port) {
+    return {
+      status: "refused",
+      reason: `the ${name} connection needs a person to release it, and that can't be asked for here`,
+    };
+  }
+  const ask = { connection: conn, agentId: step.agent.agentId, runId: step.runId };
+  if (await port.covers(step.tenantId, ask)) return null;
+  const requested = await port.request(step.tenantId, {
+    ...ask,
+    stepRunId: step.stepRunId,
+    toolId,
+    test: step.mode === "test",
+  });
+  if ("refused" in requested) return { status: "refused", reason: requested.refused };
+  return {
+    status: "awaiting_release",
+    releaseId: requested.releaseId,
+    inboxItemId: requested.inboxItemId,
+    connectionId: conn.id,
+  };
 }
 
 /**

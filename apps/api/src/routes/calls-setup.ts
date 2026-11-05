@@ -62,6 +62,7 @@ async function setupOf(c: AppContext, tx: Tx, services: Services, tenantId: stri
           tenantId,
           connectionId: row.id,
           permissions: row.permissions as Partial<PermissionMatrix>,
+          config: row.config,
           forwardTo: voice.forwardTo,
           voice: voiceDeps,
         })

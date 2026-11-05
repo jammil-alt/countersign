@@ -33,6 +33,7 @@ import { agent, connection, connectionChange, type Tx, tenant } from "@countersi
 import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { releasePeople, releaseView } from "../access/release";
 import { type CatalogueSite, catalogueForClient, offers } from "../browser/sites";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import type { Platform } from "../platform";
@@ -182,6 +183,10 @@ export async function vaultItems(
   const browserRows = rows.filter((r) => r.connector === BROWSER_CONNECTOR_ID);
   const sites = browserRows.length > 0 ? await catalogueForClient(tx) : [];
   const now = new Date();
+  const releases = new Map<string, Awaited<ReturnType<typeof releaseView>>>();
+  for (const row of rows) {
+    releases.set(row.id, await releaseView(tx, tenantId, row, { names: options.names, now }));
+  }
   return rows.map((row) => {
     const connector = platform.connectors.get(row.connector);
     const manifest = connector?.manifest;
@@ -219,11 +224,12 @@ export async function vaultItems(
         ),
       ),
       browser,
+      release: releases.get(row.id) as Awaited<ReturnType<typeof releaseView>>,
     };
   });
 }
 
-async function vaultItem(tx: Tx, tenantId: string, platform: Platform, id: string) {
+export async function vaultItem(tx: Tx, tenantId: string, platform: Platform, id: string) {
   const [item] = await vaultItems(tx, tenantId, platform, { names: "service", only: id });
   if (!item) throw notFound("connection");
   return item;
@@ -305,6 +311,7 @@ async function opsGrant(
     matrix: matrixOf(row),
     tools: toolsOf(manifest),
     access: access(a, row, grant, a.name),
+    release: await releaseView(tx, row.tenantId, row, { names: "agent", now: new Date() }),
   };
 }
 
@@ -336,6 +343,7 @@ export function accessRoutes(app: Hono<AppEnv>): void {
       setup: canEdit ? await vaultSetup(tx, tenantId, services.platform) : [],
       browserSites: canEdit ? await browserSiteOffers(tx, tenantId) : [],
       canEdit,
+      people: canEdit ? await releasePeople(tx, tenantId) : [],
     };
   });
 

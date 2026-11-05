@@ -11,6 +11,7 @@ import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses
 import { type InboxResolution, inboxEventType } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import type { z } from "zod";
+import { refuseGenericResolve } from "./access/release";
 import { HttpError, notFound } from "./http";
 import { senseEmitter } from "./runs/dispatch";
 
@@ -57,6 +58,8 @@ export function toRunResolution(item: Pick<InboxRow, "resolution" | "resolvedBy"
 
 export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<ResolveOutcome> {
   const item = await lockItem(tx, input.tenantId, input.itemId);
+  // A request for a code is resolved only by its code (docs/plan.md §1.26), never by a click.
+  refuseGenericResolve(item);
   const { decision, answer, note } = input.body;
   if (item.kind === "change_request") {
     // A client's request is resolved in the requests queue, where its outcome and links are kept.

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { GrantLimits } from "../permissions/grants";
+import { RELEASE_STATUSES, ReleaseChannel, ReleaseWindow } from "../permissions/release";
 import { CREDENTIAL_VALUE_MAX, CredentialField } from "../schemas/connector";
 import { PermissionLevel, Verb } from "../schemas/permissions";
 import { BrowserSiteOffer, BrowserVaultInfo } from "./browser";
@@ -69,6 +70,88 @@ export const VaultSecretState = z.object({
   updatedAt: z.string().nullable(),
 });
 
+// ── Human release (phase 4) ─────────────────────────────────────────────────────────────────────
+
+/** A person of the client who can release a vault item, and how a code can reach them. */
+export const ReleasePerson = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  /** Their sign-in address, masked. */
+  email: z.string(),
+  /** Whether a text can reach them (a contact with their address, a phone and text consent). */
+  canText: z.boolean(),
+});
+export type ReleasePerson = z.infer<typeof ReleasePerson>;
+
+/** A release that lets an agent through now. */
+export const LiveRelease = z.object({
+  id: z.string(),
+  connectionId: z.string(),
+  agentId: z.string(),
+  agentName: z.string(),
+  person: z.object({ id: z.string(), name: z.string().nullable() }),
+  channel: ReleaseChannel,
+  /** Set for a `run` release: the run it covers. */
+  runId: z.string().nullable(),
+  releasedAt: z.string(),
+  /** Null for a `run` release (it lasts as long as that run). */
+  validUntil: z.string().nullable(),
+});
+export type LiveRelease = z.infer<typeof LiveRelease>;
+
+/** A vault item's human release setting, as both surfaces show it. Never a code or a hash. */
+export const ReleaseView = z.object({
+  mode: z.enum(["off", "code"]),
+  person: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  channel: ReleaseChannel,
+  window: ReleaseWindow,
+  /** Where texts go, masked; null for email. */
+  sentTo: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  live: z.array(LiveRelease),
+});
+export type ReleaseView = z.infer<typeof ReleaseView>;
+
+/** Turn human release on (with a person, a channel and a window) or off. */
+export const SetRelease = z
+  .strictObject({
+    mode: z.enum(["off", "code"]),
+    personId: Id.optional(),
+    channel: ReleaseChannel.optional(),
+    window: ReleaseWindow.optional(),
+  })
+  .refine((v) => v.mode === "off" || (v.personId && v.channel && v.window), {
+    message: "turning human release on needs a person, a channel and a window",
+  });
+export type SetRelease = z.infer<typeof SetRelease>;
+
+/** A request for a code, as the person sees it from their inbox item. */
+export const ReleaseRequestView = z.object({
+  inboxItemId: z.string(),
+  status: z.enum(RELEASE_STATUSES),
+  agentName: z.string(),
+  toolName: z.string(),
+  channel: ReleaseChannel,
+  /** Where the code went, masked. */
+  sentTo: z.string(),
+  expiresAt: z.string(),
+  triesLeft: z.number().int(),
+  resendsLeft: z.number().int(),
+  /** Whether the person looking is the one who can enter the code. */
+  mine: z.boolean(),
+});
+export type ReleaseRequestView = z.infer<typeof ReleaseRequestView>;
+
+/** A code as the person types it: six digits (spaces and dashes are dropped). */
+export const EnterReleaseCode = z.strictObject({
+  code: z
+    .string()
+    .max(20)
+    .transform((v) => v.replace(/[\s-]/g, ""))
+    .refine((v) => /^\d{6}$/.test(v), "a code is six digits"),
+});
+export type EnterReleaseCode = z.infer<typeof EnterReleaseCode>;
+
 export const VaultItem = z.object({
   connectionId: z.string(),
   connector: z.string(),
@@ -85,6 +168,8 @@ export const VaultItem = z.object({
   agents: z.array(AgentAccess),
   /** Browser logins only: the site, its tier and the client's stricter settings. */
   browser: BrowserVaultInfo.nullable().default(null),
+  /** Human release: whether a person must release it, and the releases live now. */
+  release: ReleaseView,
 });
 export type VaultItem = z.infer<typeof VaultItem>;
 
@@ -104,6 +189,8 @@ export const PortalAccessView = z.object({
   browserSites: z.array(BrowserSiteOffer).default([]),
   /** Whether this person may tighten grants and enter credentials (the client admin). */
   canEdit: z.boolean(),
+  /** Who can be named to release a vault item (the client admin's view only; else empty). */
+  people: z.array(ReleasePerson),
 });
 export type PortalAccessView = z.infer<typeof PortalAccessView>;
 
@@ -136,8 +223,12 @@ export const OpsAgentGrant = z.object({
   matrix: VerbLevels,
   tools: z.array(AccessTool),
   access: AgentAccess,
+  /** The connection's human release setting: the operator may turn it on, never off. */
+  release: ReleaseView,
 });
 export type OpsAgentGrant = z.infer<typeof OpsAgentGrant>;
+
+const InboxParam = z.object({ id: Id });
 
 const ConnectorParam = z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) });
 
@@ -171,6 +262,87 @@ export const accessRoutes = {
     params: ConnectorParam,
     body: SetCredentials,
     response: z.object({ item: VaultItem }),
+  }),
+  portalSetRelease: defineRoute({
+    method: "PUT",
+    path: "/api/access/connections/:connectionId/release",
+    auth: "session",
+    roles: ["client_admin"],
+    summary:
+      "Turn human release of a vault item on or off, with the person, the channel and the window",
+    params: z.object({ connectionId: Id }),
+    body: SetRelease,
+    response: z.object({ item: VaultItem }),
+  }),
+  portalReleases: defineRoute({
+    method: "GET",
+    path: "/api/access/releases",
+    auth: "session",
+    roles: CLIENT,
+    summary: "Releases that let an agent use a vault item now",
+    response: z.object({ releases: z.array(LiveRelease) }),
+  }),
+  portalRevokeRelease: defineRoute({
+    method: "POST",
+    path: "/api/access/releases/:id/revoke",
+    auth: "session",
+    roles: ["client_admin"],
+    summary: "Revoke a live release: the agent needs a new code before it uses the item again",
+    params: z.object({ id: Id }),
+    response: z.object({ item: VaultItem }),
+  }),
+  portalReleaseRequest: defineRoute({
+    method: "GET",
+    path: "/api/access/requests/:id",
+    auth: "session",
+    roles: CLIENT,
+    summary: "A request for a code, by its inbox item: where the code went and what is left",
+    params: InboxParam,
+    response: z.object({ request: ReleaseRequestView }),
+  }),
+  portalEnterReleaseCode: defineRoute({
+    method: "POST",
+    path: "/api/access/requests/:id/code",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "Enter the code we sent (only the person it went to); a wrong code uses one of 5 tries",
+    params: InboxParam,
+    body: EnterReleaseCode,
+    response: z.object({
+      request: ReleaseRequestView,
+      /** What the code did: released, wrong (a try used), expired, or nothing (closed). */
+      result: z.enum(["released", "wrong", "expired", "closed"]),
+    }),
+  }),
+  portalResendReleaseCode: defineRoute({
+    method: "POST",
+    path: "/api/access/requests/:id/resend",
+    auth: "session",
+    roles: CLIENT,
+    summary: "Send a new code (only the person it went to; at most 3 times while the step waits)",
+    params: InboxParam,
+    response: z.object({ request: ReleaseRequestView }),
+  }),
+  opsRelease: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:clientId/connections/:connectionId/release",
+    auth: "session",
+    roles: OPS,
+    summary: "A vault item's human release setting and the people who can be named",
+    params: z.object({ clientId: Id, connectionId: Id }),
+    response: z.object({ release: ReleaseView, people: z.array(ReleasePerson) }),
+  }),
+  opsSetRelease: defineRoute({
+    method: "PUT",
+    path: "/api/ops/clients/:clientId/connections/:connectionId/release",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Turn human release of a vault item on (403 to turn it off or change it: that is the client admin's)",
+    params: z.object({ clientId: Id, connectionId: Id }),
+    body: SetRelease,
+    response: z.object({ release: ReleaseView }),
   }),
   opsAgentGrants: defineRoute({
     method: "GET",

@@ -3,7 +3,7 @@
 // limits here only narrow it: a ceiling per verb, up to the connection's matrix, and optionally a
 // subset of the connector's tools. We may loosen what we set; the client admin can only tighten or
 // revoke from the portal. Secrets are never shown here, only whether one is stored.
-import type { GrantLimits, PermissionLevel } from "@countersign/core";
+import type { GrantLimits, PermissionLevel, ReleaseWindow } from "@countersign/core";
 import { useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -27,7 +27,14 @@ const KIND_TEXT: Record<Grant["kind"], string> = {
   built_in: "Built in",
 };
 
-export function GrantsPanel({ agentId }: { agentId: string }) {
+export function GrantsPanel({
+  agentId,
+  clientId = null,
+}: {
+  agentId: string;
+  /** The agent's client, to turn human release on (none: shown read-only). */
+  clientId?: string | null;
+}) {
   const grants = useApi(apiRoutes.opsAgentGrants, { params: { id: agentId } });
   return (
     <Card className="p-5" testId="agent-grants">
@@ -47,6 +54,7 @@ export function GrantsPanel({ agentId }: { agentId: string }) {
           <GrantRow
             key={`${g.connectionId}:${g.access.updatedAt ?? ""}`}
             agentId={agentId}
+            clientId={clientId}
             grant={g}
             onSaved={grants.reload}
           />
@@ -58,10 +66,12 @@ export function GrantsPanel({ agentId }: { agentId: string }) {
 
 function GrantRow({
   agentId,
+  clientId,
   grant,
   onSaved,
 }: {
   agentId: string;
+  clientId: string | null;
   grant: Grant;
   onSaved: () => void;
 }) {
@@ -191,6 +201,8 @@ function GrantRow({
         </div>
       ) : null}
 
+      <ReleaseOps grant={grant} clientId={clientId} onSaved={onSaved} />
+
       {saved ? (
         <div className="mt-3">
           <Notice tone="positive" testId="agent-grant-saved">
@@ -215,6 +227,146 @@ function GrantRow({
           {action.busy ? "Saving…" : "Save access"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+const HOURS = [1, 2, 4, 8, 12, 24] as const;
+
+function windowText(window: ReleaseWindow): string {
+  if (window === "run") return "one run";
+  return window.hours === 1 ? "1 hour" : `${window.hours} hours`;
+}
+
+/**
+ * Human release (docs/plan.md §1.26): read-only here, with "Turn on" while it is off. Only the
+ * client admin turns it off or changes who releases it; we can only turn it on.
+ */
+function ReleaseOps({
+  grant,
+  clientId,
+  onSaved,
+}: {
+  grant: Grant;
+  clientId: string | null;
+  onSaved: () => void;
+}) {
+  const { release } = grant;
+  const [open, setOpen] = useState(false);
+  const people = useApi(
+    apiRoutes.opsRelease,
+    open && clientId ? { params: { clientId, connectionId: grant.connectionId } } : null,
+  );
+  const [personId, setPersonId] = useState("");
+  const [channel, setChannel] = useState<"sms" | "email">("email");
+  const [hours, setHours] = useState(0);
+  const action = useAction();
+  const list = people.data?.people ?? [];
+  const person = list.find((p) => p.id === (personId || list[0]?.id));
+  const on = release.mode === "code";
+
+  async function turnOn() {
+    if (!clientId || !person) return;
+    const res = await action.call(apiRoutes.opsSetRelease, {
+      params: { clientId, connectionId: grant.connectionId },
+      body: {
+        mode: "code",
+        personId: person.id,
+        channel,
+        window: hours === 0 ? "run" : { hours },
+      },
+    });
+    if (res.ok) {
+      setOpen(false);
+      onSaved();
+    }
+  }
+
+  return (
+    <div
+      className="mt-3 rounded-md border border-line p-3"
+      data-testid={`agent-grant-${grant.connector}-release`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-ink">Human release</p>
+        <Badge tone={on ? "person" : "neutral"}>{on ? "On" : "Off"}</Badge>
+      </div>
+      <p className="mt-1 text-sm text-ink-muted">
+        {on && release.person
+          ? `${release.person.name ?? "A client person"} releases it with a code by ${release.channel === "sms" ? "text" : "email"}, for ${windowText(release.window)}. ${release.live.length} live now. Only the client admin can change it or turn it off.`
+          : "Off: agents use this connection without a person's code. We can turn it on; only the client admin turns it off."}
+      </p>
+      {!on && clientId && !open ? (
+        <div className="mt-2">
+          <Button
+            size="sm"
+            data-testid={`agent-grant-${grant.connector}-release-on`}
+            onClick={() => setOpen(true)}
+          >
+            Turn on
+          </Button>
+        </div>
+      ) : null}
+      {open ? (
+        <div className="mt-3 flex flex-col gap-2">
+          {people.loading && !people.data ? <Loading /> : null}
+          {people.error ? <ErrorNotice error={people.error} onRetry={people.reload} /> : null}
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            <Select
+              data-testid="release-person"
+              value={person?.id ?? ""}
+              onChange={(e) => setPersonId(e.target.value)}
+            >
+              {list.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name ? `${p.name} · ${p.email}` : p.email}
+                </option>
+              ))}
+            </Select>
+            <Select
+              data-testid="release-channel"
+              value={channel}
+              onChange={(e) => setChannel(e.target.value as "sms" | "email")}
+            >
+              <option value="email">By email</option>
+              <option value="sms" disabled={person ? !person.canText : true}>
+                By text
+              </option>
+            </Select>
+            <Select
+              data-testid="release-window"
+              value={String(hours)}
+              onChange={(e) => setHours(Number(e.target.value))}
+            >
+              <option value="0">For one run</option>
+              {HOURS.map((h) => (
+                <option key={h} value={String(h)}>
+                  For {h === 1 ? "1 hour" : `${h} hours`}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {action.error ? (
+            <Notice tone="warning" testId="agent-grant-release-error">
+              {errorText(action.error)}
+            </Notice>
+          ) : null}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="primary"
+              data-testid="release-save"
+              disabled={!person || action.busy}
+              onClick={() => void turnOn()}
+            >
+              Turn on
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

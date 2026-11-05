@@ -30,9 +30,10 @@ import {
 import { routes, TWIML_EMPTY } from "@countersign/core";
 import { connection, message, rawRecord, type Tx, withTenant } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
+import { consumeTextReply, type Wake, wakeRelease } from "../access/release";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import {
   applyKeyword,
@@ -46,6 +47,8 @@ import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
 
 const Params = z.object({ tenantId: z.uuid() });
+/** An inbound text consumed by a human release: kept without its text, once per SID. */
+const RELEASE_REPLY_ENTITY = "ReleaseReply";
 const MAX_BYTES = 64 * 1024;
 
 const refuse = () => new HttpError(403, "forbidden", "unknown client or bad signature");
@@ -115,11 +118,55 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       const services = c.get("req").services();
       const now = new Date();
       const collect: EventRow[] = [];
+      let released: Wake | null = null;
       await withTenant(services.db, tenantId, async (tx) => {
         const { row, config } = await verified(tx, c, tenantId, form, "messages");
         const msg = parseInbound(form);
         if (!msg) throw new HttpError(400, "invalid_body", "not a Twilio message");
         if (!config.numbers.some((n) => n.phoneNumber === msg.to)) throw refuse();
+        // A code for a pending human release is consumed before anything is stored: no raw
+        // record of its text, no thread line, no event, so no agent or person reads it there
+        // (docs/plan.md §1.26). A marker without the text keeps Twilio's retries from reading it
+        // as a new message.
+        const [seen] = await tx
+          .select({ id: rawRecord.id })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, row.id),
+              inArray(rawRecord.entityType, [TWILIO_MESSAGE_ENTITY, RELEASE_REPLY_ENTITY]),
+              eq(rawRecord.externalId, msg.sid),
+            ),
+          )
+          .limit(1);
+        if (seen) return;
+        if (msg.channel === "sms") {
+          const reply = await consumeTextReply(
+            tx,
+            { secrets: services.env },
+            {
+              tenantId,
+              from: msg.from,
+              text: msg.text,
+              now,
+            },
+          );
+          if (reply.consumed) {
+            await tx.insert(rawRecord).values({
+              tenantId,
+              connectionId: row.id,
+              connector: TWILIO_CONNECTOR_ID,
+              entityType: RELEASE_REPLY_ENTITY,
+              externalId: msg.sid,
+              externalVersion: null,
+              payload: { direction: "in", channel: msg.channel, from: msg.from, to: msg.to },
+              syncedAt: now,
+            });
+            released = reply.wake;
+            return;
+          }
+        }
         const [stored] = await tx
           .insert(rawRecord)
           .values({
@@ -213,6 +260,8 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
           dispatchEvents({ db: services.db, instances: services.instances }, collect),
         );
       }
+      const wake = released;
+      if (wake) await wakeRelease(services.instances, wake);
       return twiml(c);
     } catch (error) {
       return errorResponse(c, error);

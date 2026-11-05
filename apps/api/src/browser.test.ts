@@ -16,6 +16,7 @@ import {
   FakeSupplierPortal,
   generateEncryptionKey,
 } from "@countersign/connectors";
+import { FAKE_RESEND_MAIN, fakeResend } from "@countersign/connectors/testing";
 import {
   AgentBundle,
   type AgentBundleInput,
@@ -36,6 +37,7 @@ import {
 import { FakeModel, type FakeTurn } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { releaseDepsFromEnv } from "./access/release";
 import {
   type ApiHarness,
   admin,
@@ -531,6 +533,91 @@ describe.skipIf(!h)("browser connections through the API", () => {
         ["refused", { refused: "no browser connection is bound" }],
       ]);
       expect(driver.opened).toBe(opened);
+    });
+
+    it("needs a person's release before signing in when the website login asks for one", async () => {
+      // Human release (§1.26 phase 4) on the website login: the client admin names herself.
+      const on = await H.call(
+        admin("a"),
+        "PUT",
+        `/api/access/connections/${connectionId}/release`,
+        {
+          mode: "code",
+          personId: H.A.admin,
+          channel: "email",
+          window: "run",
+        },
+      );
+      expect(on.status, JSON.stringify(on.json)).toBe(200);
+      const view = await H.call(admin("a"), "GET", "/api/access");
+      const login = j(view.json).items.find(
+        (i: { connectionId: string }) => i.connectionId === connectionId,
+      );
+      expect(login.kind).toBe("browser");
+      expect(login.release).toMatchObject({ mode: "code", person: { id: H.A.admin } });
+
+      const resend = fakeResend();
+      const releaseDeps = releaseDepsFromEnv(
+        {
+          ...H.env,
+          RESEND_API_KEY: FAKE_RESEND_MAIN.apiKey,
+          RESEND_FALLBACK_DOMAIN: "mail.mezonas.test",
+        } as Bindings,
+        { db: H.db, platform: H.platform, instances: H.instances, fetch: resend.fetch },
+      );
+      const read = { site: "supplier", url: `${ORIGIN}/invoices` };
+      const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${clerk}/run`, {
+        workflow: "main",
+      });
+      const params = H.instances.started.get(j(res.json).runId);
+      if (!params) throw new Error("not started");
+      const opened = driver.opened;
+      const signIns = portal.signIns;
+      const step = new FakeWorkflowStep(async (_name, type) => {
+        // Nothing opened a browser, signed in or reused a kept session before the release.
+        expect(driver.opened).toBe(opened);
+        expect(portal.signIns).toBe(signIns);
+        const code = /(\d{6})\./.exec(resend.emails.at(-1)?.text ?? "")?.[1];
+        if (!code) throw new Error("no code emailed");
+        const items = j((await H.call(admin("a"), "GET", "/api/inbox")).json).items;
+        const item = items.find((i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type);
+        const entered = await H.call(admin("a"), "POST", `/api/access/requests/${item.id}/code`, {
+          code,
+        });
+        expect(j(entered.json).result).toBe("released");
+        return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+      });
+      const model = new FakeModel([
+        { toolUse: { name: "browser__page__read", input: read } },
+        // The step runs again once released; the model starts over.
+        { toolUse: { name: "browser__page__read", input: read } },
+        { toolUse: { name: "finish", input: { answer: "Read the invoices" } } },
+      ]);
+      const result = await executeRun(
+        { ...deps(model), release: releaseDeps },
+        params,
+        cloudflareStepRunner(step),
+      );
+      expect(result).toEqual({ status: "succeeded" });
+      expect(step.waits).toHaveLength(1);
+      expect(portal.signIns).toBe(signIns + 1);
+
+      // Without the release port (no way to ask), a login that needs one never opens a browser.
+      const again = await runOnce(clerk, [
+        { toolUse: { name: "browser__page__read", input: read } },
+        { toolUse: { name: "finish", input: { answer: "Could not read" } } },
+      ]);
+      expect(again.result).toEqual({ status: "succeeded" });
+      expect(portal.signIns).toBe(signIns + 1);
+      const off = await H.call(
+        admin("a"),
+        "PUT",
+        `/api/access/connections/${connectionId}/release`,
+        {
+          mode: "off",
+        },
+      );
+      expect(off.status).toBe(200);
     });
 
     it("stops after two failed sign-ins and needs a person; entering the login again starts it", async () => {

@@ -96,6 +96,16 @@ export type AgentResult =
       sources: string[];
       pendingActions: PendingAction[];
     })
+  /**
+   * A connection the step used needs a person's release (docs/plan.md §1.26): the step stopped at
+   * that call and runs again from the start once released (proposed writes are found by their keys).
+   */
+  | (ResultBase & {
+      status: "awaiting_release";
+      releaseId: string;
+      inboxItemId: string;
+      connectionId: string;
+    })
   | (ResultBase & {
       status: "escalated";
       reason: "max_steps" | "max_cost";
@@ -321,6 +331,27 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     };
   };
 
+  // DECISION: a step that meets a connection needing a release stops there and runs again from the
+  // start once it is released, rather than keep the model's conversation across the wait: it is
+  // the same as a retried step (writes it proposed are found by their keys), and nothing the
+  // model saw before the wait is carried over.
+  const awaitRelease = async (
+    o: Extract<ToolOutcome, { status: "awaiting_release" }>,
+  ): Promise<AgentResult> => {
+    await log.finishStepRun(input.tenantId, stepRunId, {
+      status: "waiting",
+      output: { awaitingRelease: { connectionId: o.connectionId, inboxItemId: o.inboxItemId } },
+      summary: null,
+    });
+    return {
+      ...totals(),
+      status: "awaiting_release",
+      releaseId: o.releaseId,
+      inboxItemId: o.inboxItemId,
+      connectionId: o.connectionId,
+    };
+  };
+
   // 2. Tool mode: the handler, through the gate.
   if (def.mode === "tool") {
     if (!def.handler) return fail(`skill ${def.id} has no handler`);
@@ -330,6 +361,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       allowed,
     });
     track(o);
+    if (o.status === "awaiting_release") return awaitRelease(o);
     if (o.status === "refused") return fail(`refused: ${o.reason}`);
     if (o.status === "failed") return fail(o.error);
     if (o.status !== "done") return finish(null);
@@ -508,6 +540,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
         ? await callTool(deps, step, { toolId, input: use.input, allowed })
         : { status: "refused", reason: `no tool ${use.name}` };
       track(o);
+      // The model never learns of the wait: the step stops here and starts over once released.
+      if (o.status === "awaiting_release") return awaitRelease(o);
       results.push({
         type: "tool_result",
         tool_use_id: use.id,

@@ -12,6 +12,16 @@ const DEMO = CLIENT_SESSION.activeTenantId as string;
 const CONN = "00000000-0000-4000-8000-0000000c0001";
 const AGENT = "00000000-0000-4000-8000-0000000a0001";
 
+const RELEASE_OFF = {
+  mode: "off",
+  person: null,
+  channel: "email",
+  window: "run",
+  sentTo: null,
+  updatedAt: null,
+  live: [],
+};
+
 const overview = {
   client: { id: DEMO, name: "Demo client" },
   services: [],
@@ -66,6 +76,7 @@ function vault(limits: Record<string, unknown> = {}) {
         updatedAt: null,
       },
     ],
+    release: RELEASE_OFF,
   };
 }
 
@@ -84,7 +95,7 @@ describe("portal access page", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true, people: [] }),
     });
     renderAt(api);
     const card = await screen.findByTestId("vault-item-acme");
@@ -102,7 +113,7 @@ describe("portal access page", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true, people: [] }),
       [`PUT /api/access/agents/${AGENT}/connections/${CONN}`]: ({ init }) => {
         puts.push(JSON.parse(String(init.body)));
         return { item: vault({ verbs: { create: "off" }, tools: ["acme.price.get"] }) };
@@ -129,7 +140,7 @@ describe("portal access page", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true, people: [] }),
       [`PUT /api/access/agents/${AGENT}/connections/${CONN}`]: ({ init }) => {
         puts.push(JSON.parse(String(init.body)));
         return { item: vault() };
@@ -165,6 +176,7 @@ describe("portal access page", () => {
           },
         ],
         canEdit: true,
+        people: [],
       }),
       "PUT /api/connections/acme/credentials": ({ init }) => {
         puts.push(JSON.parse(String(init.body)));
@@ -195,7 +207,7 @@ describe("portal access page", () => {
         tenants: [{ id: DEMO, name: "Demo client", role: "client_user" }],
       }),
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: false }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: false, people: [] }),
     });
     renderAt(api);
     const card = await screen.findByTestId("vault-item-acme");
@@ -265,6 +277,7 @@ describe("portal access page", () => {
             { slug: "orders", name: "Ordering portal", tier: "medium", secondFactor: "totp" },
           ],
           canEdit: true,
+          people: [],
         }),
         "POST /api/access/browser": ({ init }) => {
           posts.push(JSON.parse(String(init.body)));
@@ -298,7 +311,12 @@ describe("portal access page", () => {
       const api = fakeApi({
         "GET /api/session": () => CLIENT_SESSION,
         "GET /api/overview": () => overview,
-        "GET /api/access": () => ({ items: [browserItem()], setup: [], canEdit: true }),
+        "GET /api/access": () => ({
+          items: [browserItem()],
+          setup: [],
+          canEdit: true,
+          people: [],
+        }),
         "PUT /api/connections/browser/credentials": ({ init }) => {
           puts.push(JSON.parse(String(init.body)));
           return { item: browserItem() };
@@ -324,6 +342,55 @@ describe("portal access page", () => {
       });
     });
 
+    it("shows and sets human release for a website login, as for other vault items", async () => {
+      const puts: unknown[] = [];
+      const on = {
+        mode: "code",
+        person: { id: "00000000-0000-4000-8000-0000000b0001", name: "Ana Ruiz" },
+        channel: "email",
+        window: { hours: 2 },
+        sentTo: null,
+        updatedAt: "2026-11-05T10:00:00.000Z",
+        live: [],
+      };
+      const api = fakeApi({
+        "GET /api/session": () => CLIENT_SESSION,
+        "GET /api/overview": () => overview,
+        "GET /api/access": () => ({
+          items: [{ ...browserItem(), release: puts.length > 0 ? on : browserItem().release }],
+          setup: [],
+          canEdit: true,
+          people: [
+            {
+              id: "00000000-0000-4000-8000-0000000b0001",
+              name: "Ana Ruiz",
+              email: "a•••@demo.example.com",
+              canText: false,
+            },
+          ],
+        }),
+        [`PUT /api/access/connections/${BROWSER_CONN}/release`]: ({ init }) => {
+          puts.push(JSON.parse(String(init.body)));
+          return { item: { ...browserItem(), release: on } };
+        },
+      });
+      renderAt(api);
+      const card = await screen.findByTestId("vault-item-browser-supplier");
+      const section = within(card).getByTestId("release-section");
+      expect(section).toHaveTextContent("Off: agents use it without asking anyone first.");
+      await userEvent.click(within(section).getByTestId("release-edit"));
+      await userEvent.selectOptions(within(section).getByTestId("release-channel"), "email");
+      await userEvent.selectOptions(within(section).getByTestId("release-window"), "2");
+      await userEvent.click(within(section).getByTestId("release-save"));
+      await waitFor(() => expect(puts).toHaveLength(1));
+      expect(puts[0]).toMatchObject({ mode: "code", channel: "email", window: { hours: 2 } });
+      await waitFor(() =>
+        expect(within(card).getByTestId("release-summary")).toHaveTextContent(
+          "Ana Ruiz releases it with a code by email, for 2 hours.",
+        ),
+      );
+    });
+
     it("makes a login stricter; what is on stays on", async () => {
       const puts: unknown[] = [];
       const api = fakeApi({
@@ -338,6 +405,7 @@ describe("portal access page", () => {
           ],
           setup: [],
           canEdit: true,
+          people: [],
         }),
         [`PUT /api/access/browser/${BROWSER_CONN}`]: ({ init }) => {
           puts.push(JSON.parse(String(init.body)));

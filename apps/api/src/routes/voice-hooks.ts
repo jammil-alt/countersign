@@ -40,6 +40,7 @@ import { type EventRow, emit } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
+import { coverOnlyReleasePort } from "../access/release";
 import {
   CALL_ENTITIES,
   type CallPayload,
@@ -208,7 +209,11 @@ export function voiceHookRoutes(app: Hono<AppEnv>): void {
         throw new HttpError(403, "read_only", "on a call the agent can only look things up");
       }
 
-      const base = createDbPorts(services.db, { emit: senseEmitter(services.platform.events) });
+      // A live release lets the call's tools through; nothing on a call asks for one (§1.26).
+      const base = createDbPorts(services.db, {
+        emit: senseEmitter(services.platform.events),
+        release: coverOnlyReleasePort({ db: services.db }),
+      });
       const ports = { ...base, log: callToolLog(base.log, scope, (r) => store(r)) };
       const runtime: RuntimeDeps = {
         ports,
