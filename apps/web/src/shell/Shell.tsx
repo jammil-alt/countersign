@@ -14,9 +14,19 @@ import { Count, cx } from "../ui/primitives";
 /** The product's name wherever a person reads it. */
 export const PLATFORM_NAME = PRODUCT_NAME;
 
+/**
+ * The browser tab's text: what needs you first, then where you are, then Mezonas, so a tab still
+ * says something when it's narrow. "(3) Harbor Millwork · Mezonas", "Back office · Mezonas".
+ */
+export function tabTitle(place: string | null, waiting: number | undefined): string {
+  const text = place ? `${place} · ${PLATFORM_NAME}` : PLATFORM_NAME;
+  return waiting ? `(${waiting}) ${text}` : text;
+}
+
 export function AppShell({
   surface,
   home,
+  place,
   context,
   inboxTo,
   inboxCount,
@@ -25,6 +35,8 @@ export function AppShell({
 }: {
   surface: "ops" | "portal";
   home: string;
+  /** Where this is, for the tab's text: "Back office", or the client's name in the portal. */
+  place: string | null;
   context: ReactNode;
   inboxTo: string;
   inboxCount?: number | undefined;
@@ -32,6 +44,9 @@ export function AppShell({
   children: ReactNode;
 }) {
   const { t } = useI18n();
+  useEffect(() => {
+    document.title = tabTitle(place, inboxCount);
+  }, [place, inboxCount]);
   return (
     <div data-testid={`shell-${surface}`} className="flex min-h-screen flex-col bg-paper">
       <header className="ds-header sticky top-0 z-20 gap-5">

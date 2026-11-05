@@ -27,6 +27,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
       <AppShell
         surface="ops"
         home="/ops"
+        place="Back office"
         context={<ClientSwitcher selected={clientId} />}
         inboxTo="/ops/inbox"
         sidebar={

@@ -46,6 +46,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       <AppShell
         surface="portal"
         home="/"
+        place={client?.name ?? null}
         context={
           <span data-testid="portal-client-name" className="text-sm font-medium text-ink">
             {client?.name ?? t("shell.noClient")}
