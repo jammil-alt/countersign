@@ -5,7 +5,25 @@
 import { z } from "zod";
 import { CurrencyCode, dec, toNumeric } from "../money";
 
-/** What any connector's mapper produces for a transaction (QBO's join in M9). */
+/** One expense line of a transaction (QBO's account and item lines). */
+export interface TransactionLineInput {
+  lineNo: number;
+  detailType: "account" | "item";
+  /** The line's id in the connected tool. */
+  externalLineId: string | null;
+  /** The account's or item's name, as people read it; the ids beside them. */
+  accountRef: string | null;
+  accountId: string | null;
+  itemRef: string | null;
+  itemId: string | null;
+  description: string | null;
+  /** numeric(14,4) strings. */
+  qty: string | null;
+  unitPrice: string | null;
+  amount: string;
+}
+
+/** What any connector's mapper produces for a transaction (upload, QBO). */
 export interface TransactionInput {
   kind: "purchase" | "bill" | "vendor_credit";
   connector: string;
@@ -19,6 +37,12 @@ export interface TransactionInput {
   memo: string | null;
   purchaserRef: string | null;
   paymentType: string | null;
+  /** The vendor's id in the connected tool, when it has one. */
+  vendorExternalId?: string | null;
+  /** Expense lines, where the tool has them (QBO); absent for a CSV row. */
+  lines?: TransactionLineInput[];
+  /** Kept on `transaction.ext` (e.g. `{ qbo: { docNumber, syncToken } }`). */
+  ext?: Record<string, unknown>;
 }
 
 /** One CSV row as stored: the cells by normalized header, plus where it came from. */

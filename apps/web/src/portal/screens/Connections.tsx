@@ -190,7 +190,9 @@ function ConnectedCard({
         <ConnectorMark name={item.name} />
         <div className="min-w-0">
           <p className="font-medium text-ink">{item.name}</p>
-          <p className="text-sm text-ink-muted">{conn.externalAccountId ?? item.description}</p>
+          <p className="text-sm text-ink-muted">
+            {conn.accountName ?? conn.externalAccountId ?? item.description}
+          </p>
         </div>
       </div>
       <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">

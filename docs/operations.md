@@ -174,10 +174,36 @@ in by our code (docs/plan.md §1.26). The code is deployed with apps/api; what a
 
 ### Intuit (QuickBooks Online, from M9)
 
-1. An Intuit developer app with the `com.intuit.quickbooks.accounting` scope, a sandbox company, and
-   redirect URIs `https://<domain>/api/connections/qbo/callback` per environment.
-2. Worker secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`; vars `QBO_ENV`,
-   `QBO_REDIRECT_URI`. Production keys need Intuit's app review.
+Done by the owner (2026-11-05):
+
+- Intuit developer app **"Mezonas"**, development keys (sandbox companies only).
+- Scope `com.intuit.quickbooks.accounting` only.
+- Redirect URIs `https://staging.mezonas.com/api/connections/qbo/callback` and
+  `http://localhost:8787/api/connections/qbo/callback`. That route forwards Intuit's parameters to the
+  portal page `/connections/qbo/callback`, which finishes the sign-in in the client admin's session.
+- Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
+  Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
+  (every 15 minutes, and on any webhook).
+- Sandbox company: realm `9341458640918607` (QBO Plus, US).
+- GitHub staging secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`.
+
+Still to do:
+
+1. Load the three secrets into the Worker from `deploy.yml` (the owner's separate PR), the same way as
+   the Zoho and Podio ones. QuickBooks also needs `OAUTH_STATE_SECRET` and `ENCRYPTION_KEY`, which
+   staging has. Until the client id and secret are set, the portal shows QuickBooks as "not
+   available yet"; without the verifier the webhook answers 503.
+2. `QBO_ENV` is a var in `wrangler.jsonc`: `sandbox` locally and on staging, `production` in
+   production. There is no `QBO_REDIRECT_URI`: the redirect URI is `APP_ORIGIN` +
+   `/api/connections/qbo/callback`.
+3. The sync runs as its own Workflow, `QboSyncWorkflow` (binding `QBO_SYNC`; `mezonas-staging-qbo-sync`
+   on staging). Wrangler creates it on the next deploy; nothing to do by hand.
+4. Offer QuickBooks to the Sandbox client in the back office, sign in from its portal with the
+   sandbox company, and walk the "against the sandbox company" list in
+   `packages/connectors/src/qbo/NOTES.md`.
+5. Production: Intuit's app review for production keys, then the production redirect URI
+   `https://app.mezonas.com/api/connections/qbo/callback` and webhook
+   `https://app.mezonas.com/api/connections/qbo/webhook`, and the production secrets.
 
 ### Google (Gmail, from M10)
 
@@ -214,7 +240,7 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
   inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
   these, and the code service never has apps/api's.
-- Later: `QBO_*` and `GOOGLE_*` when those connectors are built, the same way.
+- Later: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (M9, built) and `GOOGLE_*`, the same way.
 - Needed by the Zoho CRM connector (stream G, 2026-11-04): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only

@@ -149,6 +149,12 @@ export function hasCredentialForm(connector: Pick<Connector, "manifest"> | undef
   return connector?.manifest.auth === "api_key" && Boolean(connector.manifest.credentialFields);
 }
 
+/** `config.accountName`, which a connector may set at sign-in (QuickBooks: the company's name). */
+function accountNameOf(config: unknown): string | null {
+  const v = isPlainObject(config) ? config.accountName : undefined;
+  return typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null;
+}
+
 export async function portalConnections(
   tx: Tx,
   tenantId: string,
@@ -166,6 +172,7 @@ export async function portalConnections(
       id: string;
       status: string;
       externalAccountId: string | null;
+      accountName: string | null;
       lastSyncAt: string | null;
       permissions: ReturnType<typeof normalizeMatrix>;
       access: ReturnType<typeof describeAccess>;
@@ -210,6 +217,7 @@ export async function portalConnections(
         id: c.id,
         status: c.status,
         externalAccountId: c.externalAccountId,
+        accountName: accountNameOf(c.config),
         lastSyncAt: iso(c.lastSyncAt),
         permissions: normalizeMatrix(c.permissions),
         access: manifest ? describeAccess(manifest, c.permissions) : [],

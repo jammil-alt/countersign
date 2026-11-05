@@ -18,6 +18,11 @@ export interface Secrets {
   /** Zoho API console: a Server-based application with multi-DC on (ARCHITECTURE §6.7). */
   ZOHO_CLIENT_ID?: string;
   ZOHO_CLIENT_SECRET?: string;
+  /** The Intuit app "Mezonas" (QuickBooks Online, ARCHITECTURE §6.2): OAuth client and secret. */
+  QBO_CLIENT_ID?: string;
+  QBO_CLIENT_SECRET?: string;
+  /** The Intuit app's webhook verifier token: signs `intuit-signature` (HMAC-SHA256). */
+  QBO_WEBHOOK_VERIFIER?: string;
   /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
@@ -54,6 +59,8 @@ export interface Vars {
   LLM_MODE?: string;
   /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
   EMAIL_FORWARDING_DOMAIN?: string;
+  /** `sandbox` (default) or `production`: which QuickBooks the qbo connector talks to. */
+  QBO_ENV?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */
@@ -67,6 +74,8 @@ export interface Vars {
  */
 export interface OptionalBindings {
   CODES?: CodesService;
+  /** QboSyncWorkflow: one instance per QuickBooks sync (cron, webhook, "sync now"). */
+  QBO_SYNC?: Workflow;
   BROWSER?: BrowserWorker;
 }
 
