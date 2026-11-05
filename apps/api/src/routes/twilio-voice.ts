@@ -67,6 +67,7 @@ import {
 } from "../calls/store";
 import { type AppEnv, errorResponse, HttpError, type Services } from "../http";
 import { contactLanguage, createContact, findContactByNumber } from "../messaging/contacts";
+import { reportHandled } from "../observability/report";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
 
@@ -302,7 +303,7 @@ export function twilioVoiceRoutes(app: Hono<AppEnv>): void {
                 voice: voiceDeps,
               });
             } catch (error) {
-              console.error("voice agent could not be made", error);
+              reportHandled("voice agent could not be made", error, { kind: "voice" });
               payload.decision = voice.forwardTo ? "forward" : "voicemail";
               payload.reason = "the voice agent couldn't be reached";
             }
@@ -377,7 +378,7 @@ export function twilioVoiceRoutes(app: Hono<AppEnv>): void {
         } catch (error) {
           // DECISION: if ElevenLabs can't take a call that rang in, the caller still reaches
           // voicemail (or the forward), rather than silence.
-          console.error("call hand-over failed", error);
+          reportHandled("call hand-over failed", error, { kind: "voice" });
           return fallbackTwiml(
             { decision: voice.forwardTo ? "forward" : "voicemail" },
             {
@@ -441,7 +442,7 @@ export function twilioVoiceRoutes(app: Hono<AppEnv>): void {
             contactName: "",
           });
         } catch (error) {
-          console.error("call hand-over failed", error);
+          reportHandled("call hand-over failed", error, { kind: "voice" });
           const lang = callLanguage(p.language);
           return sayAndHangUpTwiml(callWords(lang, client.name).sorry, lang);
         }

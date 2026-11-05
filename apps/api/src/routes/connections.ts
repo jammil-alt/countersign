@@ -24,6 +24,7 @@ import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services } from "../http";
+import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { connectionCredentials, vaultFor } from "../secrets";
 import { opsConnection } from "./mappers";
@@ -272,7 +273,7 @@ async function finishSignIn(
       throw new HttpError(422, "sign_in_refused", error.message);
     }
     if (error instanceof HttpError) throw error;
-    console.error(`sign-in to ${connectorId} failed`, error);
+    reportHandled(`sign-in to ${connectorId} failed`, error, { connector: connectorId });
     throw new HttpError(
       502,
       "sign_in_failed",
