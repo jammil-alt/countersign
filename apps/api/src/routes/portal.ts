@@ -15,6 +15,7 @@ import {
 } from "@countersign/connectors";
 import {
   clientLabel,
+  connectionAccountName,
   findStep,
   isClientVisible,
   isPlainObject,
@@ -149,12 +150,6 @@ export function hasCredentialForm(connector: Pick<Connector, "manifest"> | undef
   return connector?.manifest.auth === "api_key" && Boolean(connector.manifest.credentialFields);
 }
 
-/** `config.accountName`, which a connector may set at sign-in (QuickBooks: the company's name). */
-function accountNameOf(config: unknown): string | null {
-  const v = isPlainObject(config) ? config.accountName : undefined;
-  return typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null;
-}
-
 /**
  * Connectors for a person's own account: a client user may sign in to theirs (and disconnect what
  * they connected), not only the client admin (ARCHITECTURE §6.4, plan M10).
@@ -230,7 +225,7 @@ export async function portalConnections(
         id: c.id,
         status: c.status,
         externalAccountId: c.externalAccountId,
-        accountName: accountNameOf(c.config),
+        accountName: connectionAccountName(c.config),
         lastSyncAt: iso(c.lastSyncAt),
         permissions: normalizeMatrix(c.permissions),
         access: manifest ? describeAccess(manifest, c.permissions) : [],

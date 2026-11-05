@@ -1,6 +1,7 @@
 // Record pages (docs/plan.md §1.16): what a source id names (invariant 10), for the portal (its own
-// client) and the back office (one served client at a time), plus the back office's view of a
-// client's documents through the documents routes' views and 5-minute links. Every query names
+// client) and the back office (one served client at a time), plus the back office's lists of a
+// client's records (./record-list) and documents, through the documents routes' views and 5-minute
+// links. Every query names
 // the client as well as relying on RLS (invariant 1).
 
 import { routes, VENDOR_RECENT_TRANSACTIONS } from "@countersign/core";
@@ -17,6 +18,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, iso, mount, notFound } from "../http";
 import { documentDetail, recentDocuments } from "./documents";
+import { listRecords } from "./record-list";
 
 type TxnRow = typeof transaction.$inferSelect;
 
@@ -182,6 +184,11 @@ export function recordRouteHandlers(app: Hono<AppEnv>): void {
     const record = await findRecord(ctx.tx, ctx.params.id, ctx.params.recordId);
     if (!record) throw notFound("record");
     return { record };
+  });
+
+  mount(app, routes.opsClientRecords, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return listRecords(ctx.tx, ctx.services.platform, ctx.params.id, ctx.query);
   });
 
   mount(app, routes.opsClientDocuments, async (ctx) => {
