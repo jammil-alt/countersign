@@ -79,9 +79,7 @@ export function OpsRunScreen() {
   // The records each step's output cites (invariant 10), linked to their pages.
   const sources = new Map(data.steps.map((s) => [s.id, sourcesOf(s.output)]));
   const items = new Map(data.inbox.map((i) => [i.id, i]));
-  const waitingOnYou = data.inbox.filter(
-    (i) => i.status === "open" && operatorMayResolve(i, session.user.id),
-  );
+  const waitingOnYou = data.inbox.filter((i) => i.status === "open" && operatorMayResolve(i));
   // Person steps' items (questions, approvals) are answered in place, beside the changes.
   const personItems = data.inbox.filter((i) => i.kind !== "external_action" && i.status === "open");
   const clientName = session.tenants.find((t) => t.id === run.tenantId)?.name ?? "client";
@@ -203,7 +201,6 @@ export function OpsRunScreen() {
                 action={a}
                 item={a.inboxItemId ? (items.get(a.inboxItemId) ?? null) : null}
                 testRun={run.mode === "test"}
-                userId={session.user.id}
                 onResolve={resolve}
               />
             ))
@@ -217,9 +214,7 @@ export function OpsRunScreen() {
                   item={i}
                   testId={`ops-run-item-${i.id}`}
                   recordHref={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
-                  onResolve={
-                    operatorMayResolve(i, session.user.id) ? (body) => resolve(i.id, body) : null
-                  }
+                  onResolve={operatorMayResolve(i) ? (body) => resolve(i.id, body) : null}
                   waitingOn="Waiting on the client. Only they can answer it."
                 />
               ))}
@@ -270,20 +265,18 @@ function ActionPanel({
   action,
   item,
   testRun,
-  userId,
   onResolve,
 }: {
   action: Action;
   item: Item | null;
   testRun: boolean;
-  userId: string;
   onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
 }) {
   const badge = actionBadge(action, testRun);
   const connector = connectorName(connectorOf(action.tool));
   const target = changeTarget(action.before, action.input);
   const waiting = action.status === "proposed" && item?.status === "open";
-  const mine = item ? operatorMayResolve(item, userId) : false;
+  const mine = item ? operatorMayResolve(item) : false;
   return (
     <Card testId={`ops-run-action-${action.id}`} className="overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">

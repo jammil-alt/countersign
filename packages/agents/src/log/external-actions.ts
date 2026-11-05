@@ -229,6 +229,11 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
 export interface Approver {
   userId: string;
   role: "operator" | "client_admin" | "client_user";
+  /**
+   * The operator, resolving an item of the Sandbox client (`tenant.settings.sandbox`). Set only by
+   * the server from the item's client, never from a request.
+   */
+  sandbox?: boolean;
 }
 
 export interface ResolveExternalActionInput {
@@ -254,6 +259,10 @@ export function mayResolve(
   item: Pick<typeof inboxItem.$inferSelect, "assigneeUserId" | "assigneeRole">,
   by: Approver,
 ): boolean {
+  // DECISION: the Sandbox client is the operator's own test client and has no client people, so
+  // there the operator resolves every item, whoever it is assigned to (docs/plan.md §1.5). Real
+  // clients are unchanged: the operator resolves only what is assigned or delegated to them.
+  if (by.role === "operator" && by.sandbox === true) return true;
   if (item.assigneeUserId) return item.assigneeUserId === by.userId;
   switch (item.assigneeRole) {
     case "operator":

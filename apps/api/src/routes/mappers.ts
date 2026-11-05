@@ -1,6 +1,11 @@
 // Rows → response shapes. Dates become ISO strings; permission matrices are filled with defaults.
 
-import type { AgentRow, AgentVersionRow } from "@countersign/agents";
+import {
+  type AgentRow,
+  type AgentVersionRow,
+  type Approver,
+  mayResolve,
+} from "@countersign/agents";
 import { normalizeMatrix } from "@countersign/connectors";
 import type { PermissionMatrix } from "@countersign/core";
 import type {
@@ -147,7 +152,8 @@ export function opsAction(a: ActionRow) {
   };
 }
 
-export function opsInboxItem(i: InboxRow) {
+/** An inbox item for the back office; `operator` is the signed-in operator in the item's client. */
+export function opsInboxItem(i: InboxRow, operator: Approver) {
   return {
     id: i.id,
     tenantId: i.tenantId,
@@ -166,6 +172,7 @@ export function opsInboxItem(i: InboxRow) {
     dueAt: iso(i.dueAt),
     createdAt: i.createdAt.toISOString(),
     resolvedAt: iso(i.resolvedAt),
+    resolvableByOperator: mayResolve(i, operator),
   };
 }
 

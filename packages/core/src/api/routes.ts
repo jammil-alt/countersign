@@ -259,6 +259,12 @@ export const OpsInboxItem = z.object({
   dueAt: NullableTimestamp,
   createdAt: Timestamp,
   resolvedAt: NullableTimestamp,
+  /**
+   * Whether the signed-in operator may resolve the item: theirs (assigned or delegated to the
+   * operator, or to them by name), or any item of the Sandbox client (docs/plan.md §1.5). The
+   * server decides; the back office only reads it.
+   */
+  resolvableByOperator: z.boolean(),
 });
 
 /** The client agent a run or inbox item belongs to, for the back office's lists (Track B). */
