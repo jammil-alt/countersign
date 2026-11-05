@@ -213,7 +213,7 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
         method,
         headers,
         ...(method === "POST" ? { body: form } : {}),
-        redirect: "error",
+        redirect: "manual",
         signal: timeoutSignal(options.timeoutMs ?? 20_000),
       });
     } catch (error) {
