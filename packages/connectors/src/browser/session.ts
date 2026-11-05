@@ -7,6 +7,7 @@ import {
   BROWSER_MAX_FAILURES,
   type BrowserConnectionConfig,
   type BrowserConnectionState,
+  browserSiteHosts,
   BrowserConnectionConfig as ConfigSchema,
   checkBrowserUrl,
   emptyBrowserState,
@@ -159,7 +160,7 @@ export async function withBrowserSession<T>(
     if (!cap.ok) throw new BrowserRefused(cap.reason);
   }
 
-  const tab = await services.open();
+  const tab = await services.open({ hosts: browserSiteHosts(site.profile) });
   if (!tab) throw new BrowserRefused("browser sessions are not available in this deployment");
   let signedIn = false;
   let tried = false;

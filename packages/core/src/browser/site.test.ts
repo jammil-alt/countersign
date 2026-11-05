@@ -47,7 +47,7 @@ describe("site profiles", () => {
 
   it("refuse a login page off its origins, plain http to a real host and loose allow patterns", () => {
     const bad = (patch: (p: BrowserSiteProfileInput) => void) => {
-      const p = structuredClone(PROFILE);
+      const p = JSON.parse(JSON.stringify(PROFILE)) as BrowserSiteProfileInput;
       patch(p);
       return BrowserSiteProfile.safeParse(p).success;
     };

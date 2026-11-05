@@ -170,6 +170,7 @@ export class FakeCodesService implements CodesService {
     }
     this.alertsRaised.push({
       id: fakeUuid(),
+      tenantId: identity.tenantId,
       identityId: identity.id,
       identityLabel: identity.label,
       kind: "unsolicited_code",
@@ -177,7 +178,7 @@ export class FakeCodesService implements CodesService {
       sender: from,
       receivedAt: new Date(this.now()).toISOString(),
       createdAt: new Date(this.now()).toISOString(),
-    } as CodeAlert);
+    });
     return null;
   }
 }

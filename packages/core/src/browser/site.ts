@@ -327,6 +327,18 @@ export const BrowserSiteProfile = z
     allow: z.array(AllowPattern).min(1).max(50),
     /** Pages agents never open, beside the platform's defaults (BROWSER_DEFAULT_BLOCKED). */
     block: z.array(UrlPattern).max(50).default([]),
+    /**
+     * Other hosts the site's pages load from (a CDN, an asset host). The browser reaches only the
+     * site's own hosts, these and common CDNs; nothing is ever typed or read on them.
+     */
+    hosts: z
+      .array(
+        z
+          .string()
+          .regex(/^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/, "a host name such as cdn.example.com"),
+      )
+      .max(20)
+      .default([]),
     /** Keep the session between sign-ins (low tier only, encrypted in the vault). */
     session: z.strictObject({ keep: z.boolean().default(false) }).default({ keep: false }),
     /** For the operator: terms checked, by whom, anything odd about the site. */
@@ -355,6 +367,24 @@ export type BrowserSiteProfileInput = z.input<typeof BrowserSiteProfile>;
 export const BrowserSiteSlug = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "lowercase letters, digits and dashes");
+
+/**
+ * The host names a site's browser may reach: its login origins, its allowed pages, its sign-out
+ * page and the profile's extra hosts (Browser Run's guardrails take bare host names).
+ */
+export function browserSiteHosts(profile: BrowserSiteProfile): string[] {
+  const hosts = new Set<string>();
+  const add = (url: string) => {
+    const h = parseUrl(url)?.hostname;
+    if (h) hosts.add(h);
+  };
+  for (const o of profile.login.origins) add(o);
+  add(profile.login.url);
+  if (profile.signOut.url) add(profile.signOut.url);
+  for (const p of profile.allow) add(p.replace(/\*.*$/, ""));
+  for (const h of profile.hosts) hosts.add(h);
+  return [...hosts];
+}
 
 /** A site as a run needs it: the live tier and the pinned version's profile. */
 export interface PinnedBrowserSite {

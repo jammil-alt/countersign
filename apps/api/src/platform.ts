@@ -14,6 +14,7 @@ import {
 import {
   type Connector,
   ConnectorRegistry,
+  createBrowserConnector,
   createPodioConnector,
   createResendConnector,
   createTestkitConnector,
@@ -126,10 +127,13 @@ type OAuthEnvKey =
   | "PODIO_CLIENT_ID"
   | "PODIO_CLIENT_SECRET";
 
-export function platformFor(env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey>): Platform {
+export function platformFor(
+  env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
+): Platform {
   const production = isProductionEnv(env);
   const key = [
     production ? "production" : "other",
+    env.BROWSER ? "browser" : "-",
     env.OAUTH_STATE_SECRET ? "state" : "-",
     env.ZOHO_CLIENT_ID ?? "-",
     env.PODIO_CLIENT_ID ?? "-",
@@ -151,7 +155,7 @@ export function platformFor(env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey>): P
 // can be offered and built with; each signs in only once its client id and secret and
 // OAUTH_STATE_SECRET are all set (the portal shows "not available yet" until then).
 export function deploymentConnectors(
-  env: Pick<Bindings, OAuthEnvKey>,
+  env: Pick<Bindings, OAuthEnvKey | "BROWSER">,
   production: boolean,
 ): Connector[] {
   const zohoReady = Boolean(env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
@@ -174,6 +178,9 @@ export function deploymentConnectors(
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),
+    // Website logins (docs/plan.md §1.26): registered everywhere, so sites can be offered and
+    // built with; agents sign in only where Browser Run is bound (BROWSER).
+    createBrowserConnector({ available: Boolean(env.BROWSER) }),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

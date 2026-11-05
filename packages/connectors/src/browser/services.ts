@@ -59,8 +59,11 @@ export interface BrowserSessionRecord {
 export interface BrowserServices {
   /** The connection's pinned site version and the site's live tier; null if gone. */
   site(ref: { slug: string; versionId: string }): Promise<PinnedBrowserSite | null>;
-  /** A fresh browser with one tab; null when this deployment has none (no Browser Run). */
-  open(): Promise<BrowserTab | null>;
+  /**
+   * A fresh browser with one tab, reaching only these hosts where the browser can be held to them
+   * (Browser Run's guardrails); null when this deployment has no browser.
+   */
+  open(options: { hosts: string[] }): Promise<BrowserTab | null>;
   /** The code service; null where it is not bound. */
   codes: BrowserCodesPort | null;
   /** The connection's sign-in counters and stop. */

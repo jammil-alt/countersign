@@ -1,6 +1,7 @@
 // The Worker's environment: the bindings and vars wrangler.jsonc declares (the generated `Env`),
 // plus the secrets, which never appear in wrangler.jsonc and so are not in the generated type.
 
+import type { BrowserWorker } from "@cloudflare/playwright";
 import type { CodesService } from "@countersign/core";
 
 export interface Secrets {
@@ -61,10 +62,12 @@ export interface Vars {
 
 /**
  * Bindings not (yet) in wrangler.jsonc everywhere. `CODES` is the code service (apps/mfa,
- * Worker `mezonas-codes`), reached only by this service binding; unset, it is off.
+ * Worker `mezonas-codes`), reached only by this service binding; unset, it is off. `BROWSER` is
+ * Cloudflare Browser Run, for browser logins (docs/plan.md §1.26); unset, they are not available.
  */
 export interface OptionalBindings {
   CODES?: CodesService;
+  BROWSER?: BrowserWorker;
 }
 
 export type Bindings = Omit<Env, keyof Vars | keyof OptionalBindings> &
