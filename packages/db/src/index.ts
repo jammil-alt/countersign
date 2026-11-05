@@ -9,6 +9,7 @@ export {
   closeDb,
   createDb,
   type Db,
+  narrowToTenant,
   readOperatorCatalogue,
   type Schema,
   ScopeError,

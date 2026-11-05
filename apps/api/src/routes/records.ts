@@ -10,6 +10,7 @@ import {
   document,
   rawRecord,
   type Tx,
+  tenant,
   transaction,
   transactionLine,
   vendor,
@@ -18,6 +19,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, iso, mount, notFound } from "../http";
 import { documentDetail, recentDocuments } from "./documents";
+import { isSandbox } from "./ops-clients";
 import { listRecords } from "./record-list";
 
 type TxnRow = typeof transaction.$inferSelect;
@@ -193,7 +195,15 @@ export function recordRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsClientDocuments, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return { documents: await recentDocuments(ctx.tx, ctx.params.id, ctx.query.limit ?? 50) };
+    const [t] = await ctx.tx
+      .select({ settings: tenant.settings })
+      .from(tenant)
+      .where(eq(tenant.id, ctx.params.id));
+    if (!t) throw notFound("client");
+    return {
+      documents: await recentDocuments(ctx.tx, ctx.params.id, ctx.query.limit ?? 50),
+      sandbox: isSandbox(t.settings),
+    };
   });
 
   mount(app, routes.opsClientDocument, async (ctx) => {

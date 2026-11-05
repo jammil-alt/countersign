@@ -1,12 +1,15 @@
 // `/ops/clients/:clientId/documents` and `…/documents/:documentId`: the back office's view of a
 // client's documents (plan §1.16): the ones that arrived (uploaded, forwarded, from its tools),
 // newest first, and each document as the client sees it, with a fresh 5-minute link to the
-// original each time it is opened.
+// original each time it is opened. In the Sandbox client, which has no client people, the operator
+// uploads its documents here with the portal's upload.
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
+import { sandboxUploadPath, uploadFiles } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
 import { documentStatus, money, sourceLabel } from "../../portal/documents";
+import { DropZone } from "../../portal/screens/Upload";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
@@ -33,9 +36,25 @@ export function OpsDocumentsScreen() {
       />
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+      {data?.sandbox ? (
+        <section className="mb-6 max-w-xl" data-testid="ops-sandbox-upload">
+          <p className="mb-2 text-sm text-ink-muted">
+            Your test client has no client people, so you upload its invoices here. Once read, each
+            one can be picked as a test run's input.
+          </p>
+          <DropZone
+            testId="ops-upload"
+            upload={(files) => uploadFiles(files, undefined, sandboxUploadPath(clientId))}
+            documentHref={(id) => `${base}/documents/${id}`}
+            onUploaded={reload}
+          />
+        </section>
+      ) : null}
       {data && data.documents.length === 0 ? (
         <EmptyState>
-          No documents yet. They arrive when the client uploads or forwards an invoice.
+          {data.sandbox
+            ? "No documents yet. Upload an invoice above."
+            : "No documents yet. They arrive when the client uploads or forwards an invoice."}
         </EmptyState>
       ) : null}
       {data && data.documents.length > 0 ? (

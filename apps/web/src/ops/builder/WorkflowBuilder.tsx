@@ -42,6 +42,14 @@ import {
 } from "../../ui/primitives";
 import { slugify } from "../agents/definition-form";
 import {
+  type PayloadSource,
+  PayloadSourceSelect,
+  payloadFor,
+  samplePayload,
+  triggerEventType,
+  useRecentEvents,
+} from "../agents/TestPayload";
+import {
   detailMessages,
   errorText,
   Field,
@@ -217,27 +225,6 @@ interface Saved {
   version: number;
   status: string;
   canon: string;
-}
-
-function samplePayload(workflow: Workflow, data: BuilderData): unknown {
-  const on = workflow.trigger.on;
-  switch (on.type) {
-    case "event":
-      return data.events.find((e) => e.type === on.event)?.sample ?? {};
-    case "schedule":
-      return { scheduledAt: new Date().toISOString() };
-    case "command":
-      return { args: "" };
-    case "manual": {
-      const props = (on.input.properties ?? {}) as Record<string, { type?: unknown }>;
-      return Object.fromEntries(
-        Object.entries(props).map(([k, p]) => [
-          k,
-          p.type === "number" || p.type === "integer" ? 0 : p.type === "boolean" ? false : "",
-        ]),
-      );
-    }
-  }
 }
 
 function BuilderBody(
@@ -590,7 +577,8 @@ function BuilderBody(
           agent={agent}
           workflowName={entry.name}
           slug={slug}
-          sample={samplePayload(workflow, data)}
+          sample={samplePayload(workflow, data.events)}
+          eventType={triggerEventType(workflow)}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {
@@ -1024,6 +1012,7 @@ function TestRunPanel({
   workflowName,
   slug,
   sample,
+  eventType,
   busy,
   run,
   onClose,
@@ -1031,18 +1020,29 @@ function TestRunPanel({
   agent: AgentSummary;
   workflowName: string;
   slug: string;
+  /** The trigger's sample payload; undefined when its event type has none. */
   sample: unknown;
+  /** The trigger's event type, for "Use a recent event"; null for other triggers. */
+  eventType: string | null;
   busy: boolean;
   /** `clientId`: a template's chosen client (none: the Sandbox). */
   run(payload: unknown, clientId: string | null): Promise<string | null>;
   onClose(): void;
 }) {
-  const sampleText = JSON.stringify(sample, null, 2);
+  const hasSample = sample !== undefined;
+  const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "{}";
   const isTemplate = agent.kind === "template";
   // A template can run on the Sandbox's fixture data or on a client the operator serves.
   const clients = useApi(apiRoutes.opsClients, isTemplate ? {} : null);
   const [clientId, setClientId] = useState("");
-  const [source, setSource] = useState<"sample" | "manual">("sample");
+  // Recent events come from the client the run will read: the agent's own, or the template's
+  // chosen client (the Sandbox when none is chosen).
+  const eventsClient = isTemplate
+    ? clientId || (clients.data?.clients.find((c) => c.sandbox)?.id ?? null)
+    : agent.tenantId;
+  const recent = useRecentEvents(eventsClient, eventType);
+  const firstSource: PayloadSource = hasSample ? "sample" : "manual";
+  const [source, setSource] = useState<PayloadSource>(firstSource);
   const [text, setText] = useState(sampleText);
   const [problem, setProblem] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
@@ -1071,7 +1071,14 @@ function TestRunPanel({
           data-testid="builder-test-client"
           value={clientId}
           className="max-w-xs"
-          onChange={(e) => setClientId(e.target.value)}
+          onChange={(e) => {
+            setClientId(e.target.value);
+            // Another client's events are not this one's: back to the first source.
+            if (source.startsWith("event:")) {
+              setSource(firstSource);
+              setText(sampleText);
+            }
+          }}
         >
           <option value="">The Sandbox client (fixture data)</option>
           {(clients.data?.clients ?? [])
@@ -1083,20 +1090,19 @@ function TestRunPanel({
             ))}
         </SmallSelect>
       ) : null}
-      <SmallSelect
-        aria-label="Payload"
-        data-testid="builder-test-source"
+      <PayloadSourceSelect
+        testId="builder-test-source"
         value={source}
-        className="max-w-xs"
-        onChange={(e) => {
-          const v = e.target.value as "sample" | "manual";
+        className="h-9 max-w-md text-sm"
+        hasSample={hasSample}
+        eventType={eventType}
+        recent={recent}
+        onChange={(v) => {
           setSource(v);
-          if (v === "sample") setText(sampleText);
+          const filled = payloadFor(v, sample, recent.data?.events ?? []);
+          if (filled !== null) setText(filled);
         }}
-      >
-        <option value="sample">Sample trigger payload</option>
-        <option value="manual">Manual input</option>
-      </SmallSelect>
+      />
       <TextArea
         aria-label="Trigger payload (JSON)"
         data-testid="builder-test-payload"
@@ -1104,7 +1110,11 @@ function TestRunPanel({
         value={text}
         readOnly={source === "sample"}
         className="font-mono text-xs"
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          // Edited by hand, it is no longer the event's payload as emitted.
+          if (source !== "manual") setSource("manual");
+        }}
       />
       {problem ? <p className="text-sm text-risk">{problem}</p> : null}
       <div className="flex items-center justify-between gap-3">

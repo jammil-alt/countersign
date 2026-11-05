@@ -297,6 +297,27 @@ function connection(update: PermissionMatrix["update"]) {
   };
 }
 
+/** A recent `transaction.created` of a client, as GET /api/ops/clients/:id/events answers. */
+const eventId = (n: string) => `00000000-0000-4000-8000-0000000e00${n.slice(1).padStart(2, "0")}`;
+const eventPayload = (n: string) => ({
+  transactionId: `00000000-0000-4000-8000-0000000b00${n.slice(1).padStart(2, "0")}`,
+  source: "upload",
+  vendorId: null,
+  total: { amount: "1250.0000", currency: "USD" },
+  txnDate: "2026-11-02",
+});
+function recentEvent(n: string, vendorName: string) {
+  return {
+    id: eventId(n),
+    type: "transaction.created",
+    createdAt: "2026-11-04T10:00:00.000Z",
+    payload: eventPayload(n),
+    label: "Purchase dated 2026-11-02",
+    vendorName,
+    total: { amount: "1250.0000", currency: "USD" },
+  };
+}
+
 interface Setup {
   agent?: Partial<AgentSummary>;
   bundle?: AgentBundle;
@@ -778,6 +799,86 @@ describe("WorkflowBuilder", () => {
     await user.click(screen.getByTestId("builder-test-run-start"));
     await waitFor(() => expect(sent).toHaveLength(2));
     expect(sent[1]?.body).toMatchObject({ clientId: "00000000-0000-4000-8000-00000000c001" });
+  });
+
+  it("test-runs with one of the client's recent events of the trigger's type", async () => {
+    const { api, sent } = setup();
+    const asked: string[] = [];
+    api.on(`GET /api/ops/clients/${CLIENT_ID}/events`, ({ url }) => {
+      asked.push(url.searchParams.get("type") ?? "");
+      return { events: [recentEvent("e1", "Oak & Co"), recentEvent("e2", "Maple Mill")] };
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-test-run"));
+    const source = screen.getByTestId("builder-test-source");
+    await within(source).findByText(/Oak & Co/);
+    expect(asked).toEqual(["transaction.created"]);
+    // The sample stays first; the events are labelled with what they are about.
+    const options = within(source)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options[0]).toBe("Sample trigger payload");
+    expect(options[1]).toMatch(/^Purchase dated 2026-11-02 · Oak & Co · \$1,250\.00 · /);
+    expect(options.at(-1)).toBe("Manual input");
+    expect(within(source).getByRole("group")).toHaveAttribute("label", "Use a recent event");
+
+    await user.selectOptions(source, `event:${eventId("e2")}`);
+    expect(
+      JSON.parse(String((screen.getByTestId("builder-test-payload") as HTMLTextAreaElement).value)),
+    ).toEqual(eventPayload("e2"));
+    await user.click(screen.getByTestId("builder-test-run-start"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.body).toEqual({ workflow: "new-bill", payload: eventPayload("e2") });
+  });
+
+  it("lists a template's recent events from the Sandbox, or from the client chosen", async () => {
+    const { api } = setup({ agent: { kind: "template", tenantId: null, bindings: {} } });
+    const MILLWORK = "00000000-0000-4000-8000-00000000c001";
+    const SANDBOX = "00000000-0000-4000-8000-00000000c002";
+    const client = (id: string, name: string, sandbox: boolean) => ({
+      id,
+      name,
+      timezone: "America/Chicago",
+      createdAt: "2026-11-01T00:00:00.000Z",
+      agents: 0,
+      openInbox: 0,
+      sandbox,
+    });
+    api.on("GET /api/ops/clients", () => ({
+      clients: [client(MILLWORK, "Millwork demo", false), client(SANDBOX, "Sandbox", true)],
+    }));
+    api.on(`GET /api/ops/clients/${SANDBOX}/events`, () => ({
+      events: [recentEvent("e1", "Sandbox Supply")],
+    }));
+    api.on(`GET /api/ops/clients/${MILLWORK}/events`, () => ({
+      events: [recentEvent("e3", "Millwork Lumber")],
+    }));
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-test-run"));
+    const source = screen.getByTestId("builder-test-source");
+    await within(source).findByText(/Sandbox Supply/);
+    expect(within(source).queryByText(/Millwork Lumber/)).not.toBeInTheDocument();
+    await user.selectOptions(source, `event:${eventId("e1")}`);
+
+    await user.selectOptions(screen.getByTestId("builder-test-client"), MILLWORK);
+    await within(source).findByText(/Millwork Lumber/);
+    expect(within(source).queryByText(/Sandbox Supply/)).not.toBeInTheDocument();
+    // The Sandbox's event is not the chosen client's: back to the sample.
+    expect(source).toHaveValue("sample");
+    expect(screen.getByTestId("builder-test-payload")).toHaveValue(
+      JSON.stringify({ billId: "b-1", total: 120 }, null, 2),
+    );
+  });
+
+  it("says when the client has no recent events of the trigger's type", async () => {
+    const { api } = setup();
+    api.on(`GET /api/ops/clients/${CLIENT_ID}/events`, () => ({ events: [] }));
+    await ready();
+    await userEvent.setup().click(screen.getByTestId("builder-test-run"));
+    const source = screen.getByTestId("builder-test-source");
+    expect(await within(source).findByText("No transaction.created events yet")).toBeDisabled();
   });
 
   it("adds a workflow and switches to it, keeping the other's edits", async () => {

@@ -47,24 +47,23 @@ export function isSandbox(settings: Record<string, unknown>): boolean {
 }
 
 /**
- * The Sandbox client, for the routes that connect its tools from the back office: 404 unless this
- * operator serves the client, 403 `not_sandbox` for any other client.
+ * The Sandbox client, for the routes that act in it from the back office as its client would
+ * (connect its tools, upload its documents): 404 unless this operator serves the client, 403
+ * `not_sandbox` for any other client.
  */
 // DECISION: the operator connects tools only in the Sandbox client, their own test client with no
 // client users (docs/plan.md §1.5): its no-sign-in tools, and since 2026-11-05 its OAuth tools with
 // the operator's own sign-in. In a real client the client signs in from the portal, and the
 // operator never connects on their behalf (ARCHITECTURE §6.1).
-export async function sandboxClient(ctx: { tx: Tx; tenantIds: readonly string[] }, id: string) {
+export async function sandboxClient(
+  ctx: { tx: Tx; tenantIds: readonly string[] },
+  id: string,
+  refusal = "only the Sandbox client's tools are connected from the back office",
+) {
   ensureClient(ctx, id);
   const [t] = await ctx.tx.select().from(tenant).where(eq(tenant.id, id));
   if (!t) throw notFound("client");
-  if (!isSandbox(t.settings)) {
-    throw new HttpError(
-      403,
-      "not_sandbox",
-      "only the Sandbox client's tools are connected from the back office",
-    );
-  }
+  if (!isSandbox(t.settings)) throw new HttpError(403, "not_sandbox", refusal);
   return t;
 }
 

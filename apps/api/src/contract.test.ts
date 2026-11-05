@@ -134,6 +134,34 @@ describe.skipIf(!h)("route contract (running app)", () => {
     expect((await harness.call(null, "DELETE", path)).status).toBe(401);
   });
 
+  // docs/plan.md §1.16 "The Sandbox's uploads": the back office uploads to the Sandbox only.
+  it("refuses the back office's upload outside the Sandbox, and to client roles", async () => {
+    const path = buildPath(routes.opsSandboxUploads.path, { id: harness.A.tenantId });
+    const real = await harness.call(OPERATOR, "POST", path);
+    expect(real.status).toBe(403);
+    expect((real.json as { error: { code: string } }).error.code).toBe("not_sandbox");
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "POST", path)).status, who).toBe(403);
+    }
+    expect((await harness.call(null, "POST", path)).status).toBe(401);
+    // The portal's own upload is the client's: the operator acting as client A is refused.
+    const portal = await harness.call(OPERATOR, "POST", routes.portalUploads.path, undefined, {
+      "x-countersign-client": harness.A.tenantId,
+    });
+    expect(portal.status).toBe(403);
+  });
+
+  // The test-run payload picker reads one served client's events, operator-only.
+  it("refuses a client's recent events to client roles and outside the clients served", async () => {
+    const path = `${buildPath(routes.opsClientEvents.path, { id: harness.A.tenantId })}?type=document.extracted`;
+    expect((await harness.call(OPERATOR, "GET", path)).status).toBe(200);
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "GET", path)).status, who).toBe(403);
+    }
+    const other = `${buildPath(routes.opsClientEvents.path, { id: harness.C.tenantId })}?type=document.extracted`;
+    expect((await harness.call(OPERATOR, "GET", other)).status).toBe(404);
+  });
+
   // docs/plan.md §1.31: the back office's Gmail test email is for the Sandbox client only.
   it("refuses the back office's Gmail test email outside the Sandbox, and to client roles", async () => {
     const path = buildPath(routes.opsSandboxGmailTestSend.path, { id: harness.A.tenantId });

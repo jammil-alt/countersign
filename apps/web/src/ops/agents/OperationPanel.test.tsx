@@ -1,7 +1,8 @@
 // The activation check follows a running test run (plan §1.16): while the live version's latest
 // test run is going it says so and polls, and turns ready when the run passes, without a reload.
-// Starting a test run from the panel makes it look again at once.
-import { render, screen, waitFor } from "@testing-library/react";
+// Starting a test run from the panel makes it look again at once. The test run's input is typed,
+// the trigger's sample, or one of this client's recent events of the trigger's type.
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -97,5 +98,94 @@ describe("activation and a running test run", () => {
     );
     await waitFor(() => expect(checks()).toBeGreaterThanOrEqual(2));
     expect(await screen.findByTestId("agent-activation-test-running")).toBeInTheDocument();
+  });
+});
+
+describe("the test run's input", () => {
+  const DOC = "00000000-0000-4000-8000-0000000a8001";
+  const EXTRACTION = "00000000-0000-4000-8000-0000000a8003";
+  const payload = { documentId: DOC, extractionId: EXTRACTION, lineCount: 4, totalsValid: true };
+  const BUNDLE = {
+    ...FORK_BUNDLE,
+    workflows: FORK_BUNDLE.workflows.map((w) => ({
+      ...w,
+      workflow: {
+        ...w.workflow,
+        trigger: { id: "t1", on: { type: "event", event: "document.extracted" } },
+      },
+    })),
+  } as typeof FORK_BUNDLE;
+
+  it("fills the input with the sample or one of this client's recent events, and runs it", async () => {
+    const asked: string[] = [];
+    let sent: unknown = null;
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT.id}/activation`]: () => activation(null),
+      "GET /api/ops/catalog/events": () => ({
+        events: [
+          {
+            type: "document.extracted",
+            description: "A document's lines and totals were extracted.",
+            subjectType: "document",
+            payload: { type: "object" },
+            sample: {
+              documentId: "sample",
+              extractionId: "sample",
+              lineCount: 12,
+              totalsValid: true,
+            },
+          },
+        ],
+      }),
+      [`GET /api/ops/clients/${AGENT.tenantId}/events`]: ({ url }) => {
+        asked.push(url.searchParams.get("type") ?? "");
+        return {
+          events: [
+            {
+              id: "00000000-0000-4000-8000-0000000e0001",
+              type: "document.extracted",
+              createdAt: "2026-11-04T10:00:00.000Z",
+              payload,
+              label: "northline-20418.pdf",
+              vendorName: "Northline Panel Supply",
+              total: { amount: "9742.3500", currency: "USD" },
+            },
+          ],
+        };
+      },
+      [`POST /api/ops/agents/${AGENT.id}/versions/${LIVE.id}/test-run`]: ({ init }) => {
+        sent = JSON.parse(String(init.body));
+        return { runId: RUN, agentId: AGENT.id, versionId: LIVE.id };
+      },
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <MemoryRouter>
+          <OperationPanel
+            agent={AGENT}
+            connections={[]}
+            live={LIVE}
+            liveBundle={BUNDLE}
+            onChanged={() => {}}
+          />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+    const source = await screen.findByTestId("agent-test-run-source");
+    const option = await within(source).findByText(
+      /^northline-20418\.pdf · Northline Panel Supply · \$9,742\.35 · /,
+    );
+    expect(asked).toEqual(["document.extracted"]);
+    const user = userEvent.setup();
+    const input = screen.getByTestId("agent-test-run-payload-input");
+    expect(input).toHaveValue("{}");
+
+    await user.selectOptions(source, "sample");
+    expect(JSON.parse((input as HTMLTextAreaElement).value)).toMatchObject({ lineCount: 12 });
+
+    await user.selectOptions(source, option.getAttribute("value") ?? "");
+    expect(JSON.parse((input as HTMLTextAreaElement).value)).toEqual(payload);
+    await user.click(screen.getByTestId("agent-test-run-start"));
+    await waitFor(() => expect(sent).toEqual({ workflow: "new-bill", payload }));
   });
 });

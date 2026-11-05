@@ -272,7 +272,11 @@ export const recordRoutes = {
     summary: "A client's documents, newest first: uploaded, forwarded and from its tools",
     params: z.object({ id: Id }),
     query: z.object({ limit: z.coerce.number().int().min(1).max(200).optional() }),
-    response: z.object({ documents: z.array(DocumentSummary) }),
+    response: z.object({
+      documents: z.array(DocumentSummary),
+      /** The Sandbox client: the operator uploads its documents from the back office. */
+      sandbox: z.boolean(),
+    }),
   }),
   opsClientDocument: defineRoute({
     method: "GET",

@@ -34,6 +34,7 @@ import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
+import { opsEventRoutes } from "./routes/ops-events";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsSkillRoutes } from "./routes/ops-skills";
@@ -66,6 +67,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsSkillRoutes(app);
   opsBuilderRoutes(app);
   opsMergeRoutes(app);
+  opsEventRoutes(app);
   supervisorRouteHandlers(app);
   portalRouteHandlers(app);
   qboRoutes(app);

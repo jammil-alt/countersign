@@ -65,7 +65,21 @@ function resultLine(
     : { text: t("upload.duplicate"), tone: "neutral" };
 }
 
-function DropZone({ onUploaded }: { onUploaded: () => void }) {
+/**
+ * Drop or choose files. The portal's by default; the back office's Sandbox documents page passes
+ * its own upload, links and test ids.
+ */
+export function DropZone({
+  onUploaded,
+  upload = uploadFiles,
+  documentHref = (id) => `/documents/${id}`,
+  testId = "portal-upload",
+}: {
+  onUploaded: () => void;
+  upload?: (files: File[]) => Promise<UploadResponse>;
+  documentHref?: (documentId: string) => string;
+  testId?: string;
+}) {
   const i18n = useI18n();
   const { t } = i18n;
   const input = useRef<HTMLInputElement>(null);
@@ -80,7 +94,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await uploadFiles(files);
+      const res = await upload(files);
       setResults(res.results.map((r) => ({ ...r, key: crypto.randomUUID() })));
       onUploaded();
     } catch (e) {
@@ -97,7 +111,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
       <p className="mt-1 text-sm text-ink-muted">{t("upload.help")}</p>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the drop target; the button inside is the keyboard path. */}
       <div
-        data-testid="portal-upload-drop"
+        data-testid={`${testId}-drop`}
         onDragOver={(e) => {
           e.preventDefault();
           setOver(true);
@@ -115,7 +129,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
       >
         <p className="text-sm text-ink">{t("upload.drop")}</p>
         <Button
-          data-testid="portal-upload-choose"
+          data-testid={`${testId}-choose`}
           disabled={busy}
           onClick={() => input.current?.click()}
         >
@@ -123,7 +137,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
         </Button>
         <input
           ref={input}
-          data-testid="portal-upload-input"
+          data-testid={`${testId}-input`}
           type="file"
           multiple
           accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,application/pdf,image/*,text/csv"
@@ -137,14 +151,14 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
         </div>
       ) : null}
       {results.length > 0 ? (
-        <ul data-testid="portal-upload-results" className="mt-3 flex flex-col gap-1.5 text-sm">
+        <ul data-testid={`${testId}-results`} className="mt-3 flex flex-col gap-1.5 text-sm">
           {results.map((r) => {
             const line = resultLine(r, i18n);
             return (
               <li key={r.key} className="flex items-start justify-between gap-3">
                 <span className="min-w-0 truncate text-ink">
                   {r.document ? (
-                    <Link to={`/documents/${r.document.id}`} className="hover:underline">
+                    <Link to={documentHref(r.document.id)} className="hover:underline">
                       {r.filename}
                     </Link>
                   ) : (
