@@ -147,6 +147,7 @@ describe.skipIf(!online)("the directory's tables", () => {
       title: null,
       relationship: null,
       source: null,
+      externalRefs: {},
     });
   });
 });

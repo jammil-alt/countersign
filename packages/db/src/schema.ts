@@ -1282,6 +1282,8 @@ export const contact = pgTable(
     relationship: text("relationship").$type<ContactRelationship>(),
     /** `manual`, `csv`, `agent` or a connector; null: made before the directory (manual). */
     source: text("source"),
+    /** Ids in connected tools, e.g. `{ zoho_crm: "4150868000000224005" }` (migration 0014). */
+    externalRefs: json<Record<string, string>>("external_refs").notNull().default({}),
     consent: json<ContactConsent>("consent").notNull().default({}),
     optedOutAt: ts("opted_out_at"),
     /** `keyword:STOP`, `operator`, `client`. */

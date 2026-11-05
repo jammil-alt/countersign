@@ -1,5 +1,5 @@
 {
-  "id": "77d6689b-f69a-4e7a-be7a-f9893b682a01",
+  "id": "b881239f-bc4a-4eb2-bc99-950132a93915",
   "prevId": "35166cdf-d60c-4302-9c75-66735cbbd2ce",
   "version": "7",
   "dialect": "postgresql",
@@ -2156,6 +2156,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "external_refs": {
+          "name": "external_refs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
         "consent": {
           "name": "consent",
