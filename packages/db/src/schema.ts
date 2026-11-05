@@ -1129,6 +1129,105 @@ export const feedback = pgTable(
   ],
 );
 
+// ── The directory (migration 0014, docs/plan.md §1.27) ───────────────────────────────────────────
+
+/** What an organization is to the client; several are allowed (a vendor that is also a customer). */
+export const ORGANIZATION_KINDS = ["vendor", "customer", "partner", "own", "other"] as const;
+export type OrganizationKind = (typeof ORGANIZATION_KINDS)[number];
+/** What a person is to the client. */
+export const CONTACT_RELATIONSHIPS = [
+  "employee",
+  "contractor",
+  "customer",
+  "vendor",
+  "partner",
+  "other",
+] as const;
+export type ContactRelationship = (typeof CONTACT_RELATIONSHIPS)[number];
+
+/** A postal address as people write it; every part optional. */
+export interface OrganizationAddress {
+  line1?: string;
+  line2?: string;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  country?: string;
+}
+
+/**
+ * An organization in a client's directory: a vendor, customer, partner, the client itself or other.
+ * People (contacts) point at it with `organization_id`. A vendor organization links to its `vendor`
+ * record (one per vendor) so matching and the directory share one entry. Edited in place and never
+ * deleted, as contacts; every change goes in `organization_change`.
+ */
+export const organization = pgTable(
+  "organization",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text("name").notNull(),
+    kinds: text("kinds").array().$type<OrganizationKind[]>().notNull().default(sql`'{}'::text[]`),
+    website: text("website"),
+    /** Lower case. */
+    email: text("email"),
+    /** E.164 where it can be read as one; else as given. */
+    phone: text("phone"),
+    address: json<OrganizationAddress>("address"),
+    notes: text("notes"),
+    /** Ids in connected tools, e.g. `{ zoho_crm: "4150868000000224005" }`. */
+    externalRefs: json<Record<string, string>>("external_refs").notNull().default({}),
+    /** The `vendor` record this organization is, if it is a vendor. One organization per vendor. */
+    vendorId: uuid("vendor_id"),
+    /** `manual`, `csv`, `agent`, or the connector it came from (`zoho_crm`, `podio`). */
+    source: text("source").notNull().default("manual"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("organization_id_tenant_key").on(t.id, t.tenantId),
+    unique("organization_vendor_key").on(t.tenantId, t.vendorId),
+    foreignKey({
+      name: "organization_vendor_fk",
+      columns: [t.vendorId, t.tenantId],
+      foreignColumns: [vendor.id, vendor.tenantId],
+    }),
+    index("organization_tenant_idx").on(t.tenantId, t.name),
+    check(
+      "organization_kinds_check",
+      sql`${t.kinds} <@ array[${sql.raw(ORGANIZATION_KINDS.map((k) => `'${k}'`).join(", "))}]::text[]`,
+    ),
+    check("organization_source_check", sql`${t.source} ~ '^[a-z][a-z0-9_]{0,39}$'`),
+  ],
+);
+
+/** Append-only log of an organization's changes, as `contact_change`. */
+export const organizationChange = pgTable(
+  "organization_change",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    organizationId: uuid("organization_id").notNull(),
+    /** Null for the system. */
+    actorId: uuid("actor_id").references(() => appUser.id),
+    change: json("change").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "organization_change_organization_fk",
+      columns: [t.organizationId, t.tenantId],
+      foreignColumns: [organization.id, organization.tenantId],
+    }),
+    index("organization_change_organization_idx").on(t.organizationId, t.createdAt),
+    index("organization_change_tenant_idx").on(t.tenantId),
+  ],
+);
+
 // ── Contacts (migration 0006, docs/plan.md §1.22) ─────────────────────────────────────────────────
 
 export const MESSAGING_CHANNELS = ["sms", "whatsapp"] as const;
@@ -1175,6 +1274,14 @@ export const contact = pgTable(
     /** Labels such as `purchaser`, `owner`, `vendor rep`. */
     roles: json<string[]>("roles").notNull().default([]),
     notes: text("notes"),
+    /** The organization this person belongs to, in the same client's directory (migration 0014). */
+    organizationId: uuid("organization_id"),
+    /** Job title, e.g. `Purchasing manager`. */
+    title: text("title"),
+    /** What this person is to the client; null: not said. */
+    relationship: text("relationship").$type<ContactRelationship>(),
+    /** `manual`, `csv`, `agent` or a connector; null: made before the directory (manual). */
+    source: text("source"),
     consent: json<ContactConsent>("consent").notNull().default({}),
     optedOutAt: ts("opted_out_at"),
     /** `keyword:STOP`, `operator`, `client`. */
@@ -1192,6 +1299,20 @@ export const contact = pgTable(
     uniqueIndex("contact_whatsapp_key").on(t.tenantId, t.whatsapp),
     uniqueIndex("contact_email_key").on(t.tenantId, t.email),
     index("contact_tenant_idx").on(t.tenantId, t.name),
+    foreignKey({
+      name: "contact_organization_fk",
+      columns: [t.organizationId, t.tenantId],
+      foreignColumns: [organization.id, organization.tenantId],
+    }),
+    index("contact_organization_idx").on(t.tenantId, t.organizationId),
+    check(
+      "contact_relationship_check",
+      sql`${t.relationship} is null or ${oneOf(t.relationship, CONTACT_RELATIONSHIPS)}`,
+    ),
+    check(
+      "contact_source_check",
+      sql`${t.source} is null or ${t.source} ~ '^[a-z][a-z0-9_]{0,39}$'`,
+    ),
     check(
       "contact_reachable_check",
       sql`${t.phone} is not null or ${t.whatsapp} is not null or ${t.email} is not null`,
@@ -1841,6 +1962,8 @@ export const TENANT_TABLES = [
   "tenant_key",
   "agent_grant",
   "access_release",
+  "organization",
+  "organization_change",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

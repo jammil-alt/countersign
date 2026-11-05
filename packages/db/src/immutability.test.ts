@@ -22,6 +22,7 @@ import {
   docLine,
   document,
   knowledgeEntryVersion,
+  organizationChange,
   rawRecord,
   skillVersion,
 } from "./schema";
@@ -148,8 +149,8 @@ describe.skipIf(!online)("immutability", () => {
     );
   });
 
-  it("connection_change, agent_change and contact_change are append-only", async () => {
-    for (const table of [connectionChange, agentChange, contactChange]) {
+  it("connection_change, agent_change, contact_change and organization_change are append-only", async () => {
+    for (const table of [connectionChange, agentChange, contactChange, organizationChange]) {
       expect(await errorCode(t.db.update(table).set({ change: { edited: true } }))).toBe(
         RESTRICT_VIOLATION,
       );
