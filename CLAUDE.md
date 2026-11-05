@@ -14,12 +14,12 @@ client's tools (QuickBooks Online and Gmail) within each connection's permission
 such as Pia (material cost management for a millwork shop, the Materials pack) are built separately
 from this plan, only from platform parts (ARCHITECTURE v0.9).
 
-- What to build: `docs/ARCHITECTURE.md` (v0.9). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.10). Do not add features outside its §1 v1 scope.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status: the platform foundation, Track B, streams B–H (merge view, the Builder and skills, documents and upload, feedback, the webhook, Zoho and Podio connectors, requests), onboarding (M5), usage (M11), approver rules, the knowledge base, Twilio texts and WhatsApp, calls with ElevenLabs, Stripe billing, reach out and languages are built and on staging (migrations through 0010). Next: QuickBooks (M9) and Gmail (M10, in the MVP) once the Google and Intuit apps are set up, then the provider accounts and keys for Twilio, ElevenLabs, Resend and Stripe on staging, and message translation (`docs/plan.md` §3, §1.17–§1.25). **The platform is the product.** Product shape: ARCHITECTURE v0.9. UI: the **Mezonas design system** in `packages/design-system` (tokens, component classes, logos, icons, Geist fonts; brand book in its README) on the layouts of the owner's v1 screens in `docs/design/`. Groundwork is retired. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status: the platform foundation, Track B, streams B–H (merge view, the Builder and skills, documents and upload, feedback, the webhook, Zoho and Podio connectors, requests), onboarding (M5), usage (M11), approver rules, the knowledge base, Twilio texts and WhatsApp, calls with ElevenLabs, Stripe billing, reach out and languages are built and on staging (migrations through 0010). Next: Access (M12: the vault, grants, the code service and browser logins, ARCHITECTURE v0.10), QuickBooks (M9) and Gmail (M10, in the MVP) once the Google and Intuit apps are set up, then the provider accounts and keys for Twilio, ElevenLabs, Resend and Stripe on staging, and message translation (`docs/plan.md` §3, §1.17–§1.25). **The platform is the product.** Product shape: ARCHITECTURE v0.10. UI: the **Mezonas design system** in `packages/design-system` (tokens, component classes, logos, icons, Geist fonts; brand book in its README) on the layouts of the owner's v1 screens in `docs/design/`. Groundwork is retired. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 **Separate from Plenary Labs.** Mezonas follows Plenary Labs' stack, conventions and patterns for
 consistency, and code may be copied from it, but nothing is shared: no runtime dependency, package,
@@ -32,8 +32,9 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 
 | Path | What |
 |---|---|
-| `apps/api` | Hono Worker: `/api` routes, auth, static assets, Workflow classes, cron. The only place that wires packages together and the only place with Workers bindings. |
+| `apps/api` | Hono Worker: `/api` routes, auth, static assets, Workflow classes, cron. The only place that wires packages together, and the only Worker with the platform's bindings (`apps/mfa` has its own). |
 | `apps/web` | React + Vite app: back office (`/ops`, incl. the workflow builder) and client portal; pack reports under `src/packs/<id>/`; typed API client. Imports `@countersign/core` and the design system's CSS and assets. |
+| `apps/mfa` | The code service (ARCHITECTURE §6.9): a separate Worker with its own key and Durable Object storage for second-factor codes; `apps/api` reaches it only by service binding. Imports `@countersign/core` only. |
 | `packages/design-system` | The Mezonas design system as delivered: `tokens.json` (source of truth) and `tokens.css`, component CSS (`ds-*`, `dt-*`, `mz-*`), logos, icons, Geist fonts, brand book. Plain CSS; don't edit it here, replace it with the owner's next delivery. |
 | `packages/core` | Domain types and Zod schemas (agent bundle, skill, workflow steps and rules, tool, connector, pack), workflow validation and template typing, bundle diff and three-way merge (shared with the builder and merge view), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
@@ -99,7 +100,9 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    `not_required`, the client's connection matrix allows `auto` for the verb, and the agent's mode is
    `act`. New steps, Builder drafts and pack templates always start with approval on. Only the operator
    loosens; clients can tighten their matrix, which overrides steps at once. Delete is off. Clients sign in
-   to their own tools; the operator never holds their credentials. Test runs never write.
+   to their own tools, or, for a browser connection on a site the operator allows, the client admin
+   enters the login of a dedicated agent account into the vault; the operator never sees a client's
+   credentials. Test runs never write.
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
    instructions. Agents cannot change their own permissions.
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
@@ -111,6 +114,12 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     prompts or cost. Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
+13. **Access is explicit and secrets stay apart.** An agent reaches a connection only through its binding,
+    within its grant (the strictest of the connection's matrix, the grant, the step and the mode wins).
+    Secrets are encrypted with the client's own key, write-only, and never reach a model, a log, a step
+    output or a screen; tool code gets them for one step. Second factors live only in `apps/mfa`, handed
+    once to a login in progress. Browser sign-in is code on pinned origins, never the model; agents never
+    sign in to blocked-tier sites (banks, payments, email accounts, identity providers).
 
 ## UI and copy
 
