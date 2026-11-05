@@ -33,7 +33,15 @@ import {
   type ReachChannel,
   routes,
 } from "@countersign/core";
-import { agent, connection, connectionChange, contact, reachOut, type Tx } from "@countersign/db";
+import {
+  agent,
+  connection,
+  connectionChange,
+  contact,
+  directoryPeople,
+  reachOut,
+  type Tx,
+} from "@countersign/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
@@ -44,23 +52,21 @@ import { cipherFor, connectionCredentials } from "../secrets";
 async function peopleView(tx: Tx, row: AgentRow): Promise<AgentPeople> {
   const roles = await agentRoles(tx, row);
   const people = (row.people ?? {}) as PeopleBindings;
-  const contacts = await tx
-    .select()
-    .from(contact)
-    .where(eq(contact.tenantId, row.tenantId as string))
-    .orderBy(asc(contact.name))
-    .limit(2000);
+  // The client's directory: people with their organization (docs/plan.md §1.27).
+  const contacts = (await directoryPeople(tx, row.tenantId as string)).slice(0, 2000);
   return {
     agentId: row.id,
     agentName: row.serviceName ?? row.name,
     roles,
     people,
     missing: missingRoles(roles, people),
-    contacts: contacts.map((c) => {
+    contacts: contacts.map(({ person: c, organization }) => {
       const reach = reachContactOf(c);
       return {
         id: c.id,
         name: c.name,
+        title: c.title,
+        organization: organization?.name ?? null,
         roles: c.roles ?? [],
         reachable: REACH_CHANNELS.filter((ch) => {
           const b = consentBlockFor(reach, ch);

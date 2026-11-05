@@ -2,11 +2,15 @@
 // stay inside one client, and the checks on kinds, relationships and sources. RLS on both tables is
 // covered with every other tenant table in rls.test.ts.
 
+import {
+  ORGANIZATION_KINDS as CORE_KINDS,
+  CONTACT_RELATIONSHIPS as CORE_RELATIONSHIPS,
+} from "@countersign/core";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenant } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
-import { contact, organization, vendor } from "./schema";
+import { CONTACT_RELATIONSHIPS, contact, ORGANIZATION_KINDS, organization, vendor } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -24,6 +28,13 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
   }
   return undefined;
 }
+
+describe("the directory's lists", () => {
+  it("are core's, so the checks and the schemas agree", () => {
+    expect([...ORGANIZATION_KINDS]).toEqual([...CORE_KINDS]);
+    expect([...CONTACT_RELATIONSHIPS]).toEqual([...CORE_RELATIONSHIPS]);
+  });
+});
 
 describe.skipIf(!online)("the directory's tables", () => {
   let t: TestDatabase;

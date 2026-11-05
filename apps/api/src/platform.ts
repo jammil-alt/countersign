@@ -3,6 +3,7 @@
 // place that names connectors (and, later, packs); nothing in packages/* does.
 
 import {
+  DIRECTORY_SKILLS,
   DOCS_SKILLS,
   KNOWLEDGE_SKILLS,
   PLATFORM_TOOLS,
@@ -83,13 +84,14 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
-  // The platform's built-in skills (docs.*, knowledge.search) come first, then the caller's, then a tool-mode skill
+  // The platform's built-in skills (docs.*, knowledge.search, directory.lookup) come first, then the caller's, then a tool-mode skill
   // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
   // packs register theirs here when they exist (registerPack); none yet.
   const catalog = new SkillCatalog(
     [
       ...DOCS_SKILLS,
       ...KNOWLEDGE_SKILLS,
+      ...DIRECTORY_SKILLS,
       ...REACH_SKILLS,
       ...(options.skills ?? []),
       ...connectorReadSkills(connectors),

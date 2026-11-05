@@ -1,7 +1,15 @@
 // Tools the platform and packs implement in-process (sideEffect `none` or `internal`). Connector
 // tools keep their own handler shape (packages/connectors); the tool registry holds both.
 
-import type { JsonObject, ToolSpec } from "@countersign/core";
+import type {
+  DirectoryGetInput,
+  DirectoryGetOutput,
+  DirectorySearchInput,
+  DirectorySearchOutput,
+  DirectorySuggestInput,
+  JsonObject,
+  ToolSpec,
+} from "@countersign/core";
 import { z } from "zod";
 
 export type RunMode = "live" | "test";
@@ -23,6 +31,8 @@ export interface ToolInvocation {
   documents?: DocumentsPort | undefined;
   /** The client's knowledge base (`knowledge.search`); absent where nothing provides it. */
   knowledge?: KnowledgePort | undefined;
+  /** The client's directory (`directory.*`); absent where nothing provides it. */
+  directory?: DirectoryPort | undefined;
   /** Adds a model call a tool made (e.g. extraction) to the step's and run's cost. */
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
@@ -129,6 +139,29 @@ export interface KnowledgePort {
       memory: { agentId: string; scopes: string[] };
     },
   ): Promise<KnowledgeHitForTool[]>;
+}
+
+/**
+ * The client's directory as tools reach it (docs/plan.md §1.27). Implemented over the database in
+ * `src/log/`; each call is one client-scoped transaction.
+ */
+export interface DirectoryPort {
+  search(tenantId: string, input: DirectorySearchInput): Promise<DirectorySearchOutput>;
+  get(tenantId: string, input: DirectoryGetInput): Promise<DirectoryGetOutput>;
+  /**
+   * Checks a suggestion against the client's directory and opens the client admin's inbox item,
+   * unless the same change is already waiting (`duplicate`) or this is a test (`test_run`).
+   */
+  suggest(
+    tenantId: string,
+    input: {
+      agentId: string;
+      agentVersionId: string;
+      runId: string;
+      suggestion: DirectorySuggestInput;
+      test: boolean;
+    },
+  ): Promise<{ status: "suggested" | "duplicate" | "test_run"; inboxItemId: string | null }>;
 }
 
 /** A platform or pack tool: its spec plus a handler validated on both sides (invariant 5). */

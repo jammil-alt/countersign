@@ -30,6 +30,7 @@ export function ClientTabs({ clientId }: { clientId: string }) {
         items={[
           { to: base, label: "Agents", end: true },
           { to: `${base}/knowledge`, label: "Knowledge" },
+          { to: `${base}/directory`, label: "Directory" },
         ]}
       />
     </div>

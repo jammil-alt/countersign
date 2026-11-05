@@ -140,6 +140,7 @@ describe("portal layout", () => {
       "Connections",
       "Access",
       "Requests",
+      "Directory",
       "Knowledge",
       "Contacts",
       "Billing",
@@ -169,6 +170,8 @@ describe("portal layout", () => {
     await screen.findByTestId("shell-portal");
     expect(screen.queryByTestId("portal-nav-settings")).toBeNull();
     expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
+    // Client users read the directory.
+    expect(screen.getByTestId("portal-nav-directory")).toBeInTheDocument();
     expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
   });
 

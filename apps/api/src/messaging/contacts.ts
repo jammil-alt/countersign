@@ -22,8 +22,17 @@ import {
   type ReachChannel,
   type ReachContact,
 } from "@countersign/core";
-import { contact, contactChange, message, type Tx, tenant, thread } from "@countersign/db";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import {
+  contact,
+  contactChange,
+  directoryPeople,
+  message,
+  organization,
+  type Tx,
+  tenant,
+  thread,
+} from "@countersign/db";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 
 export type ContactRow = typeof contact.$inferSelect;
@@ -69,7 +78,11 @@ function timezoneOrThrow(tz: string): string {
 
 export const CONTACT_THREAD_SUBJECT = "contact";
 
-export function contactView(row: ContactRow): Contact {
+/** A contact with its organization's name (the directory, docs/plan.md §1.27). */
+export function contactView(
+  row: ContactRow,
+  org: { id: string; name: string } | null = null,
+): Contact {
   const consent = (row.consent ?? {}) as ContactConsent;
   const state = { phone: row.phone, whatsapp: row.whatsapp, consent, optedOutAt: row.optedOutAt };
   return {
@@ -84,6 +97,10 @@ export function contactView(row: ContactRow): Contact {
     quietHours: QuietHours.safeParse(row.quietHours).data ?? null,
     roles: row.roles ?? [],
     notes: row.notes,
+    organization: org && org.id === row.organizationId ? org : null,
+    title: row.title,
+    relationship: row.relationship ?? null,
+    source: row.source,
     consent,
     optedOut:
       row.optedOutAt && row.optOutSource
@@ -123,13 +140,30 @@ async function log(
 }
 
 export async function listContacts(tx: Tx, tenantId: string): Promise<Contact[]> {
-  const rows = await tx
-    .select()
-    .from(contact)
-    .where(eq(contact.tenantId, tenantId))
-    .orderBy(asc(contact.name), asc(contact.id))
-    .limit(2000);
-  return rows.map(contactView);
+  const rows = await directoryPeople(tx, tenantId);
+  return rows.slice(0, 2000).map((r) => contactView(r.person, r.organization));
+}
+
+/** A contact as the routes answer it: with its organization's name. */
+export async function contactOut(tx: Tx, row: ContactRow): Promise<Contact> {
+  if (!row.organizationId) return contactView(row);
+  const [org] = await tx
+    .select({ id: organization.id, name: organization.name })
+    .from(organization)
+    .where(and(eq(organization.id, row.organizationId), eq(organization.tenantId, row.tenantId)));
+  return contactView(row, org ?? null);
+}
+
+/** The organization exists in this client's directory, or a 422. */
+async function organizationOrThrow(tx: Tx, tenantId: string, id: string): Promise<string> {
+  const [org] = await tx
+    .select({ id: organization.id })
+    .from(organization)
+    .where(and(eq(organization.id, id), eq(organization.tenantId, tenantId)));
+  if (!org) {
+    throw new HttpError(422, "unknown_organization", "that organization isn't in the directory");
+  }
+  return org.id;
 }
 
 export async function getContact(tx: Tx, tenantId: string, id: string): Promise<ContactRow> {
@@ -163,12 +197,22 @@ async function ensureFree(
   }
 }
 
+export interface ContactOrigin {
+  /** `manual`, `csv`, `agent` or a connector; default `manual` for a person, none for the system. */
+  source?: string;
+  /** Ids in the connected tool it came from. */
+  externalRefs?: Record<string, string>;
+  /** Logged with the creation (e.g. the suggestion it came from). */
+  log?: Record<string, unknown>;
+}
+
 export async function createContact(
   tx: Tx,
   tenantId: string,
   input: ContactCreateInput,
   actorId: string | null,
   now: Date = new Date(),
+  origin: ContactOrigin = {},
 ): Promise<ContactRow> {
   const phone = input.phone === undefined ? null : phoneOrThrow(input.phone, "phone");
   const whatsapp = input.whatsapp === undefined ? null : phoneOrThrow(input.whatsapp, "whatsapp");
@@ -202,6 +246,14 @@ export async function createContact(
       quietHours: input.quietHours ?? null,
       roles: [...new Set(input.roles ?? [])],
       notes: input.notes?.trim() || null,
+      organizationId:
+        input.organizationId === undefined
+          ? null
+          : await organizationOrThrow(tx, tenantId, input.organizationId),
+      title: input.title?.trim() || null,
+      relationship: input.relationship ?? null,
+      source: origin.source ?? (actorId ? "manual" : null),
+      externalRefs: origin.externalRefs ?? {},
       consent: stored(consent),
       createdBy: actorId,
     })
@@ -211,6 +263,8 @@ export async function createContact(
     kind: "created",
     consent: Object.keys(consent),
     source: input.consent?.source ?? null,
+    ...(origin.source ? { from: origin.source } : {}),
+    ...(origin.log ?? {}),
   });
   return row;
 }
@@ -220,7 +274,8 @@ export async function updateContact(
   tenantId: string,
   id: string,
   patch: ContactPatchInput,
-  actorId: string,
+  actorId: string | null,
+  extra: { log?: Record<string, unknown>; externalRefs?: Record<string, string> } = {},
 ): Promise<ContactRow> {
   const row = await getContact(tx, tenantId, id);
   const next = {
@@ -257,6 +312,18 @@ export async function updateContact(
     quietHours: patch.quietHours === undefined ? row.quietHours : patch.quietHours,
     roles: patch.roles === undefined ? row.roles : [...new Set(patch.roles)],
     notes: patch.notes === undefined ? row.notes : patch.notes?.trim() || null,
+    organizationId:
+      patch.organizationId === undefined
+        ? row.organizationId
+        : patch.organizationId === null
+          ? null
+          : await organizationOrThrow(tx, tenantId, patch.organizationId),
+    title: patch.title === undefined ? row.title : patch.title?.trim() || null,
+    relationship: patch.relationship === undefined ? row.relationship : patch.relationship,
+    externalRefs:
+      extra.externalRefs === undefined
+        ? row.externalRefs
+        : { ...(row.externalRefs ?? {}), ...extra.externalRefs },
   };
   if (!next.phone && !next.whatsapp && !next.email) {
     throw new HttpError(
@@ -310,6 +377,7 @@ export async function updateContact(
     fields: Object.keys(patch),
     changed,
     ...(withdrawn.length ? { consentWithdrawn: withdrawn } : {}),
+    ...(extra.log ?? {}),
   });
   return updated;
 }

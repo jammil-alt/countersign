@@ -23,6 +23,7 @@ import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
+import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
@@ -76,6 +77,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   recordRouteHandlers(app);
   approverRuleRoutes(app);
   contactRoutes(app);
+  directoryRoutes(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);

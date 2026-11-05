@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DIRECTORY_TITLE_MAX, Relationship } from "../directory/kinds";
 import { isUuid } from "../ids";
 import {
   CONSENT_SOURCE_MAX,
@@ -53,6 +54,10 @@ export const ContactCreate = z
     quietHours: QuietHours.optional(),
     roles: Roles.optional(),
     notes: z.string().trim().max(CONTACT_NOTES_MAX).optional(),
+    /** The directory (docs/plan.md §1.27): the person's organization, title and relationship. */
+    organizationId: Id.optional(),
+    title: z.string().trim().min(1).max(DIRECTORY_TITLE_MAX).optional(),
+    relationship: Relationship.optional(),
     /** Consent given already (e.g. on the client's web form): channels and how. */
     consent: z
       .strictObject({
@@ -78,6 +83,9 @@ export const ContactPatch = z.strictObject({
   quietHours: QuietHours.nullable().optional(),
   roles: Roles.optional(),
   notes: z.string().trim().max(CONTACT_NOTES_MAX).nullable().optional(),
+  organizationId: Id.nullable().optional(),
+  title: z.string().trim().max(DIRECTORY_TITLE_MAX).nullable().optional(),
+  relationship: Relationship.nullable().optional(),
 });
 export type ContactPatchInput = z.input<typeof ContactPatch>;
 
@@ -110,6 +118,12 @@ export const Contact = z.object({
   quietHours: QuietHours.nullable().optional(),
   roles: z.array(z.string()).optional(),
   notes: z.string().nullable().optional(),
+  /** The directory (docs/plan.md §1.27). */
+  organization: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
+  title: z.string().nullable().optional(),
+  relationship: Relationship.nullable().optional(),
+  /** `manual`, `csv`, `agent` or a connector; null: added before the directory. */
+  source: z.string().nullable().optional(),
   consent: ContactConsent,
   optedOut: z.object({ at: z.string(), source: z.string() }).nullable(),
   /** Whether a send could go out now, quiet hours aside. */
