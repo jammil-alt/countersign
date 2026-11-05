@@ -4,6 +4,7 @@ import {
   BrowserConnectionConfig,
   BrowserSiteProfile,
   type BrowserSiteProfileInput,
+  browserSiteHosts,
   browserWriteCeiling,
   checkBrowserUrl,
   effectiveTier,
@@ -69,6 +70,24 @@ describe("site profiles", () => {
         p.allow = ["http://127.0.0.1:4000/*"];
       }),
     ).toBe(true);
+  });
+});
+
+describe("site hosts (Browser Run's guardrails)", () => {
+  it("are the login, sign-out and allowed pages' hosts plus the profile's extra hosts", () => {
+    const p = BrowserSiteProfile.parse({
+      ...PROFILE,
+      allow: [...PROFILE.allow, "https://files.acme.test/*"],
+      hosts: ["cdn.acme-assets.test"],
+    });
+    expect(browserSiteHosts(p).sort()).toEqual([
+      "cdn.acme-assets.test",
+      "files.acme.test",
+      "portal.acme.test",
+    ]);
+    expect(BrowserSiteProfile.safeParse({ ...PROFILE, hosts: ["https://x.test"] }).success).toBe(
+      false,
+    );
   });
 });
 
