@@ -17,13 +17,17 @@ import {
   type Connector,
   ConnectorRegistry,
   createBrowserConnector,
+  createGmailConnector,
   createPodioConnector,
+  createQboConnector,
   createResendConnector,
   createTestkitConnector,
   createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
   createZohoCrmConnector,
+  QBO_CONNECTOR_ID,
+  QBO_SKILLS,
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -86,7 +90,7 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
   // The platform's built-in skills (docs.*, knowledge.search, directory.lookup, comms.reach-out,
-  // supervisor.*) come first, then the caller's, then a tool-mode skill
+  // supervisor.*) come first, then the caller's, QuickBooks' own, then a tool-mode skill
   // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
   // packs register theirs here when they exist (registerPack); none yet.
   const catalog = new SkillCatalog(
@@ -97,6 +101,9 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...REACH_SKILLS,
       ...SUPERVISOR_SKILLS,
       ...(options.skills ?? []),
+      // DECISION: QuickBooks' one agent-mode skill (the Bill clerk's line mapping) ships with the
+      // connector, beside the tools it reads with, and is offered wherever qbo is registered.
+      ...(connectors.has(QBO_CONNECTOR_ID) ? QBO_SKILLS : []),
       ...connectorReadSkills(connectors),
     ],
     tools,
@@ -108,6 +115,11 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     }
   }
   return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
+}
+
+/** QBO_ENV, read leniently: anything but `production` is the sandbox. */
+export function qboEnvironment(env: Pick<Bindings, "QBO_ENV">): "sandbox" | "production" {
+  return env.QBO_ENV?.trim().toLowerCase() === "production" ? "production" : "sandbox";
 }
 
 export function isProductionEnv(env: Pick<Bindings, "ENVIRONMENT">): boolean {
@@ -127,10 +139,16 @@ let cached: { key: string; platform: Platform } | undefined;
 // to find and change.
 type OAuthEnvKey =
   | "OAUTH_STATE_SECRET"
+  | "QBO_CLIENT_ID"
+  | "QBO_CLIENT_SECRET"
+  | "QBO_WEBHOOK_VERIFIER"
+  | "QBO_ENV"
   | "ZOHO_CLIENT_ID"
   | "ZOHO_CLIENT_SECRET"
   | "PODIO_CLIENT_ID"
-  | "PODIO_CLIENT_SECRET";
+  | "PODIO_CLIENT_SECRET"
+  | "GOOGLE_CLIENT_ID"
+  | "GOOGLE_CLIENT_SECRET";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -142,6 +160,10 @@ export function platformFor(
     env.OAUTH_STATE_SECRET ? "state" : "-",
     env.ZOHO_CLIENT_ID ?? "-",
     env.PODIO_CLIENT_ID ?? "-",
+    env.QBO_CLIENT_ID ?? "-",
+    qboEnvironment(env),
+    env.QBO_WEBHOOK_VERIFIER ? "qbo-hook" : "-",
+    env.GOOGLE_CLIENT_ID ?? "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -156,8 +178,8 @@ export function platformFor(
  * The connectors every deployment registers. Each appears in the operator's offering, the portal's
  * Connections page and the builder's palette through the registry; nothing else names them.
  */
-// DECISION: Zoho CRM and Podio are registered even where their OAuth clients aren't set, so they
-// can be offered and built with; each signs in only once its client id and secret and
+// DECISION: Zoho CRM, Podio and Gmail are registered even where their OAuth clients aren't set, so
+// they can be offered and built with; each signs in only once its client id and secret and
 // OAUTH_STATE_SECRET are all set (the portal shows "not available yet" until then).
 export function deploymentConnectors(
   env: Pick<Bindings, OAuthEnvKey | "BROWSER">,
@@ -167,9 +189,20 @@ export function deploymentConnectors(
   const podioReady = Boolean(
     env.PODIO_CLIENT_ID && env.PODIO_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
+  const qboReady = Boolean(env.QBO_CLIENT_ID && env.QBO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
+  const googleReady = Boolean(
+    env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
+  );
   return [
     // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
     createUploadConnector(),
+    // QuickBooks Online (plan M9): offered and built with everywhere; signs in once QBO_CLIENT_ID,
+    // QBO_CLIENT_SECRET and OAUTH_STATE_SECRET are set. QBO_ENV picks sandbox or production.
+    createQboConnector({
+      ...(qboReady ? { clientId: env.QBO_CLIENT_ID, clientSecret: env.QBO_CLIENT_SECRET } : {}),
+      environment: qboEnvironment(env),
+      webhookVerifier: env.QBO_WEBHOOK_VERIFIER,
+    }),
     createWebhookConnector(),
     createZohoCrmConnector(
       zohoReady ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : {},
@@ -180,6 +213,11 @@ export function deploymentConnectors(
     // Texts and WhatsApp: registered everywhere; a client gets a connection only when the
     // operator makes its subaccount, which needs TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.
     createTwilioConnector(),
+    // Gmail, send only (ARCHITECTURE §6.4): registered everywhere like Zoho; a person signs in once
+    // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
+    createGmailConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),

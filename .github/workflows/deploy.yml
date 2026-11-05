@@ -63,6 +63,12 @@ jobs:
       ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
       PODIO_CLIENT_ID: ${{ secrets.PODIO_CLIENT_ID }}
       PODIO_CLIENT_SECRET: ${{ secrets.PODIO_CLIENT_SECRET }}
+      # Gmail send-only (M10) and QuickBooks Online (M9): each stays off until its keys exist.
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
+      QBO_CLIENT_SECRET: ${{ secrets.QBO_CLIENT_SECRET }}
+      QBO_WEBHOOK_VERIFIER: ${{ secrets.QBO_WEBHOOK_VERIFIER }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -225,7 +231,8 @@ jobs:
           if [ -n "${OPENAI_API_KEY:-}" ]; then put OPENAI_API_KEY "$OPENAI_API_KEY"; fi
           for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
             RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
-            ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET; do
+            ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET \
+            GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET QBO_CLIENT_ID QBO_CLIENT_SECRET QBO_WEBHOOK_VERIFIER; do
             if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
           done
           # Generated once inside Cloudflare and never shown or stored anywhere else. If the list of

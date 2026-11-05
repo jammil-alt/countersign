@@ -7,7 +7,7 @@ import {
   forbiddenPortalFields,
   routeFamily,
 } from "./contract";
-import { routes } from "./routes";
+import { OpsInboxItem, routes } from "./routes";
 
 describe("route contract", () => {
   it("holds for the declared routes", () => {
@@ -49,6 +49,36 @@ describe("route contract", () => {
     expect(checkRouteContract({ leaky })).toHaveLength(1);
     // Business figures such as a landed cost are not model cost.
     expect(forbiddenPortalFields(z.object({ landedCost: z.string() }))).toEqual([]);
+  });
+
+  it("says on every back-office inbox item whether the operator may resolve it", () => {
+    expect(OpsInboxItem.shape.resolvableByOperator).toBeInstanceOf(z.ZodBoolean);
+    // The inbox list, the run view and the resolve answer all carry that item.
+    expect(routes.opsInbox.response.shape.items.element).toBe(OpsInboxItem);
+    expect(routes.opsRun.response.shape.inbox.element).toBe(OpsInboxItem);
+    expect(routes.opsResolveInbox.response.shape.item).toBe(OpsInboxItem);
+    const base = {
+      id: "i",
+      tenantId: "t",
+      kind: "approval",
+      agentId: null,
+      runId: null,
+      subjectType: null,
+      subjectId: null,
+      assigneeRole: "client_admin",
+      assigneeUserId: null,
+      title: "Is the record right now?",
+      payload: {},
+      status: "open",
+      resolution: null,
+      resolvedBy: null,
+      dueAt: null,
+      createdAt: "2026-11-05T10:00:00.000Z",
+      resolvedAt: null,
+    };
+    // A response without the flag breaks the contract; the server always sets it.
+    expect(OpsInboxItem.safeParse(base).success).toBe(false);
+    expect(OpsInboxItem.safeParse({ ...base, resolvableByOperator: true }).success).toBe(true);
   });
 
   it("knows the families and fills path parameters", () => {

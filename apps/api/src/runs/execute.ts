@@ -39,6 +39,7 @@ import { codesFor } from "../codes/client";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
+import { dbDocumentServices } from "../qbo/documents";
 import { type ReachDeps, reachPort } from "../reach/service";
 import { tenantLocale } from "../routes/language";
 import { signerFor } from "../storage";
@@ -181,15 +182,29 @@ export function runtimeFor(
     ...(deps.now ? { now: deps.now } : {}),
     // Contacts and consent for messaging connectors, scoped to the connection's client; the
     // catalogue, a browser, codes and documents for browser logins.
-    services: withBrowser(
-      connectorServicesFor(
+    services: withDocuments(
+      withBrowser(
+        connectorServicesFor(
+          db,
+          deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+        ),
         db,
-        deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+        deps.browser,
       ),
       db,
-      deps.browser,
+      deps.documents?.content,
     ),
   };
+}
+
+/** The client's stored documents, for tools that send one to the client's tool (QBO attachments). */
+function withDocuments(
+  base: NonNullable<RuntimeDeps["services"]>,
+  db: Db,
+  content: ContentStore | undefined,
+): NonNullable<RuntimeDeps["services"]> {
+  if (!content) return base;
+  return (conn) => ({ ...base(conn), documents: dbDocumentServices(db, conn, content) });
 }
 
 function withBrowser(

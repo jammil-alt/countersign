@@ -368,6 +368,7 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
     case "notify":
       checkRefs(c, step.id, step.message, ["message"], scope);
       if (step.to !== undefined) checkRefs(c, step.id, step.to, ["to"], scope);
+      if (step.sources !== undefined) checkRefs(c, step.id, step.sources, ["sources"], scope);
       break;
     case "for_each": {
       checkRefs(c, step.id, step.over, ["over"], scope);

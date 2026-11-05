@@ -2,7 +2,7 @@
 // status column, and are never deleted, whoever tries (the owner included); the change logs are
 // append-only.
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator } from "./client";
 import {
@@ -14,7 +14,10 @@ import {
 import {
   agentChange,
   agentVersion,
+  billingAgentDay,
   billingEvent,
+  billingStatement,
+  billingStatementLine,
   billingUsageReport,
   connectionChange,
   contactChange,
@@ -173,6 +176,96 @@ describe.skipIf(!online)("immutability", () => {
     expect(await errorCode(t.db.delete(billingUsageReport))).toBe(RESTRICT_VIOLATION);
     expect(await errorCode(t.db.update(billingEvent).set({ type: "x" }))).toBe(RESTRICT_VIOLATION);
     expect(await errorCode(t.db.delete(billingEvent))).toBe(RESTRICT_VIOLATION);
+  });
+
+  it("billing_agent_day never changes; a statement's lines freeze once its send starts", async () => {
+    expect(await errorCode(t.db.update(billingAgentDay).set({ monthlyPrice: "1.0000" }))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    expect(await errorCode(t.db.delete(billingAgentDay))).toBe(RESTRICT_VIOLATION);
+    const [st] = await t.db
+      .select()
+      .from(billingStatement)
+      .where(eq(billingStatement.tenantId, A.tenantId));
+    if (!st) throw new Error("no statement");
+    const line = (over: Partial<typeof billingStatementLine.$inferInsert> = {}) =>
+      t.db.insert(billingStatementLine).values({
+        tenantId: A.tenantId,
+        statementId: st.id,
+        position: 9,
+        kind: "adjustment",
+        description: "Credit for a slow week",
+        amount: "-1.0000",
+        ...over,
+      });
+    // A draft takes adjustments and gives them back; its other lines stay.
+    await line();
+    await t.db
+      .delete(billingStatementLine)
+      .where(
+        and(
+          eq(billingStatementLine.statementId, st.id),
+          eq(billingStatementLine.kind, "adjustment"),
+        ),
+      );
+    expect(
+      await errorCode(
+        t.db.delete(billingStatementLine).where(eq(billingStatementLine.kind, "agent")),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.update(billingStatementLine).set({ amount: "9.0000" }))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    await t.db
+      .update(billingStatement)
+      .set({ total: "2.2300" })
+      .where(eq(billingStatement.id, st.id));
+    // Once Stripe has the invoice: no new lines, no total change; an item id is set once.
+    await t.db
+      .update(billingStatement)
+      .set({ stripeInvoiceId: "in_1" })
+      .where(eq(billingStatement.id, st.id));
+    expect(await errorCode(line())).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db
+          .update(billingStatement)
+          .set({ total: "0.0000" })
+          .where(eq(billingStatement.id, st.id)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    await t.db.update(billingStatementLine).set({ stripeInvoiceItemId: "ii_1" });
+    expect(
+      await errorCode(t.db.update(billingStatementLine).set({ stripeInvoiceItemId: "ii_2" })),
+    ).toBe(RESTRICT_VIOLATION);
+    // Sent, then void for good; never back to draft, never deleted, its month never moves.
+    await t.db
+      .update(billingStatement)
+      .set({ status: "sent" })
+      .where(eq(billingStatement.id, st.id));
+    expect(
+      await errorCode(
+        t.db
+          .update(billingStatement)
+          .set({ status: "draft" })
+          .where(eq(billingStatement.id, st.id)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db.update(billingStatement).set({ creditsUsed: 5 }).where(eq(billingStatement.id, st.id)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    await t.db
+      .update(billingStatement)
+      .set({ status: "void" })
+      .where(eq(billingStatement.id, st.id));
+    expect(
+      await errorCode(
+        t.db.update(billingStatement).set({ status: "paid" }).where(eq(billingStatement.id, st.id)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.delete(billingStatement))).toBe(RESTRICT_VIOLATION);
   });
 
   it("doc_extraction and doc_line never change and are never deleted; the document's status can", async () => {

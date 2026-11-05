@@ -1,7 +1,8 @@
 // `/connections` (design screen 2, as the portal page, ARCHITECTURE §6.1 "Who does what"): the
 // tools the operator offered this client, which are connected, and what agents may do in each.
 // The client admin signs in to each tool here, disconnects, and may tighten permissions (never
-// loosen); a client user sees all of it read-only.
+// loosen); a client user sees all of it read-only, except a person's own account (Gmail), which
+// they may connect themselves and disconnect if they connected it.
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -10,7 +11,8 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { WebhookSetup } from "../../connections/WebhookSetup";
-import { useI18n } from "../../i18n/i18n";
+import type { PlainKey } from "../../i18n/catalog";
+import { type I18n, useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
 import { useSession } from "../../session/session";
 import {
@@ -28,6 +30,16 @@ import { PortalApproverRules } from "./ApproverRules";
 import { UploadSection } from "./Upload";
 
 type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][number];
+
+/** Connectors whose description we show in the reader's language (else the API's English). */
+const DESCRIPTIONS: Record<string, PlainKey> = {
+  gmail: "connections.gmail.description",
+};
+
+function descriptionOf(item: Offered, { t }: Pick<I18n, "t">): string {
+  const key = DESCRIPTIONS[item.connector];
+  return key ? t(key) : item.description;
+}
 
 export function PortalConnectionsScreen() {
   const api = useApiClient();
@@ -86,7 +98,9 @@ export function PortalConnectionsScreen() {
                   <ConnectedCard
                     key={c.connector}
                     item={c}
-                    canDisconnect={isAdmin}
+                    canDisconnect={
+                      isAdmin || (c.personal === true && c.connection?.connectedByYou === true)
+                    }
                     onDisconnect={(id) =>
                       act(() => api.call(apiRoutes.portalDisconnect, { params: { id } }))
                     }
@@ -190,7 +204,9 @@ function ConnectedCard({
         <ConnectorMark name={item.name} />
         <div className="min-w-0">
           <p className="font-medium text-ink">{item.name}</p>
-          <p className="text-sm text-ink-muted">{conn.externalAccountId ?? item.description}</p>
+          <p className="text-sm text-ink-muted">
+            {conn.accountName ?? conn.externalAccountId ?? descriptionOf(item, i18n)}
+          </p>
         </div>
       </div>
       <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
@@ -288,7 +304,7 @@ function AvailableCard({
           ) : null}
         </div>
       </div>
-      <p className="mt-3 text-sm text-ink">{item.description}</p>
+      <p className="mt-3 text-sm text-ink">{descriptionOf(item, i18n)}</p>
       <div className="mt-auto pt-4">
         {!item.available ? (
           <Badge testId="portal-connection-unavailable">{t("connections.notAvailable")}</Badge>
@@ -305,7 +321,7 @@ function AvailableCard({
           ) : (
             <p className="text-sm text-ink-muted">{t("connections.adminCanConnect")}</p>
           )
-        ) : isAdmin ? (
+        ) : isAdmin || item.personal === true ? (
           <Button
             data-testid="portal-connection-connect"
             className="w-full justify-center"

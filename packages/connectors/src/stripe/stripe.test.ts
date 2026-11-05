@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { formDecode, hmacSha256Hex } from "../http";
-import { FAKE_BASE_PRICE, FAKE_OVERAGE_PRICE, FAKE_STRIPE_KEY, fakeStripe } from "../testing";
+import { FAKE_STRIPE_KEY, fakeStripe } from "../testing";
 import {
   createStripeClient,
   fromMinorUnits,
-  invoiceView,
-  priceAmount,
   StripeError,
   StripeEvent,
   stripeForm,
   stripeSignatureHeader,
   summarizeStripeEvent,
+  toMinorUnits,
   verifyStripeSignature,
 } from "./index";
 
@@ -25,14 +24,14 @@ describe("Stripe requests", () => {
   it("form-encodes nested params the way Stripe reads them", () => {
     const body = stripeForm({
       customer: "cus_1",
-      items: [{ price: "price_a", quantity: 2 }, { price: "price_b" }],
+      period: { start: 1, end: 2 },
       metadata: { tenant_id: "t 1" },
       email: undefined,
     });
     expect(body).toBe(
-      "customer=cus_1&items%5B0%5D%5Bprice%5D=price_a&items%5B0%5D%5Bquantity%5D=2&items%5B1%5D%5Bprice%5D=price_b&metadata%5Btenant_id%5D=t%201",
+      "customer=cus_1&period%5Bstart%5D=1&period%5Bend%5D=2&metadata%5Btenant_id%5D=t%201",
     );
-    expect(formDecode(body)["items[0][quantity]"]).toBe("2");
+    expect(formDecode(body)["period[end]"]).toBe("2");
   });
 
   it("creates and updates a customer with the key and an idempotency key", async () => {
@@ -54,94 +53,90 @@ describe("Stripe requests", () => {
     expect(updated.name).toBe("Client A Ltd");
   });
 
-  it("subscribes a customer: the base price with a quantity, the metered price without", async () => {
+  it("makes a draft invoice that is sent, not charged, with only our items", async () => {
     const { fake, stripe } = client();
     const c = await stripe.createCustomer({ name: "A", metadata: {} }, "k1");
-    const sub = await stripe.createSubscription(
+    const invoice = await stripe.createInvoice(
       {
         customerId: c.id,
-        basePriceId: FAKE_BASE_PRICE,
-        quantity: 3,
-        overagePriceId: FAKE_OVERAGE_PRICE,
-        billingCycleAnchor: 1796083200,
+        currency: "USD",
         daysUntilDue: 30,
-        metadata: { tenant_id: "t1" },
+        description: "Mezonas, November 2026",
+        metadata: { statement_id: "s1", tenant_id: "t1" },
       },
-      "sub-t1",
+      "mezonas:s1:invoice",
     );
-    const base = sub.items.data.find((i) => i.price.id === FAKE_BASE_PRICE);
-    const overage = sub.items.data.find((i) => i.price.id === FAKE_OVERAGE_PRICE);
-    expect(base?.quantity).toBe(3);
-    expect(overage?.quantity ?? null).toBeNull();
-    const form = formDecode(fake.calls("POST", "/v1/subscriptions")[0]?.body ?? "");
-    expect(form.collection_method).toBe("send_invoice");
-    expect(form.days_until_due).toBe("30");
-    expect(form.billing_cycle_anchor).toBe("1796083200");
-    expect(form["items[1][quantity]"]).toBeUndefined();
-    const item = await stripe.setItemQuantity(base?.id ?? "", 1);
-    expect(item.quantity).toBe(1);
+    expect(invoice).toMatchObject({ status: "draft", metadata: { statement_id: "s1" } });
+    const form = formDecode(fake.calls("POST", "/v1/invoices")[0]?.body ?? "");
+    expect(form).toMatchObject({
+      customer: c.id,
+      currency: "usd",
+      collection_method: "send_invoice",
+      days_until_due: "30",
+      auto_advance: "false",
+      pending_invoice_items_behavior: "exclude",
+      "metadata[statement_id]": "s1",
+      "metadata[tenant_id]": "t1",
+    });
   });
 
-  it("reports usage as a meter event, idempotent on its identifier", async () => {
+  it("adds items in cents, finalizes and sends, each once per key", async () => {
     const { fake, stripe } = client();
     const c = await stripe.createCustomer({ name: "A", metadata: {} }, "k1");
-    const input = {
-      eventName: "mezonas_credits",
+    const inv = await stripe.createInvoice(
+      { customerId: c.id, currency: "usd", daysUntilDue: 14, description: "d", metadata: {} },
+      "s:invoice",
+    );
+    const item = {
       customerId: c.id,
-      value: 42,
-      identifier: "mezonas:t1:2026-11-01:2026-11-03",
-      timestamp: 1793750399,
+      invoiceId: inv.id,
+      amount: 12345,
+      currency: "usd",
+      description: "Orders desk",
+      period: { start: 1793491200, end: 1794095999 },
+      metadata: { line_id: "l1" },
     };
-    await stripe.createMeterEvent(input);
-    await stripe.createMeterEvent(input);
-    expect(fake.meterEvents).toHaveLength(1);
-    expect(fake.meterEvents[0]).toMatchObject({ value: 42, customer: c.id });
-    const form = formDecode(fake.calls("POST", "/v1/billing/meter_events")[0]?.body ?? "");
-    expect(form["payload[stripe_customer_id]"]).toBe(c.id);
-    expect(form["payload[value]"]).toBe("42");
+    await stripe.createInvoiceItem(item, "s:item:l1");
+    await stripe.createInvoiceItem(item, "s:item:l1");
+    await stripe.createInvoiceItem({ ...item, amount: -500, description: "Credit" }, "s:item:l2");
+    expect(fake.invoices.get(inv.id)?.lines.map((l) => l.amount)).toEqual([12345, -500]);
+    const form = formDecode(fake.calls("POST", "/v1/invoiceitems")[0]?.body ?? "");
+    expect(form).toMatchObject({ invoice: inv.id, amount: "12345", "period[start]": "1793491200" });
+    const finalized = await stripe.finalizeInvoice(inv.id, "s:finalize");
+    expect(finalized).toMatchObject({ status: "open", total: 11845 });
+    expect(finalized.hosted_invoice_url).toMatch(/^https:\/\/invoice\.stripe\.com\//);
+    expect(finalized.invoice_pdf).toMatch(/\/pdf$/);
+    // Finalizing again under the same key replays the answer; Stripe would refuse a new one.
+    expect((await stripe.finalizeInvoice(inv.id, "s:finalize")).number).toBe(finalized.number);
+    await stripe.sendInvoice(inv.id, "s:send");
+    await stripe.sendInvoice(inv.id, "s:send");
+    expect(fake.invoices.get(inv.id)?.sent).toBe(1);
+    expect((await stripe.getInvoice(inv.id)).status).toBe("open");
   });
 
-  it("lists invoices with their hosted page and PDF, amounts as decimals", async () => {
-    const { fake, stripe } = client();
-    fake.addInvoice("cus_x", { total: 50015, created: 1793750400, status: "paid", number: "MZ-1" });
-    fake.addInvoice("cus_y", { total: 100, created: 1793750400 });
-    const list = await stripe.listInvoices("cus_x");
-    expect(list).toHaveLength(1);
-    const view = invoiceView(list[0] as (typeof list)[number]);
-    expect(view.total).toEqual({ amount: "500.1500", currency: "USD" });
-    expect(view.hostedInvoiceUrl).toMatch(/^https:\/\/invoice\.stripe\.com\//);
-    expect(view.pdfUrl).toMatch(/\/pdf$/);
-    expect((await stripe.getInvoice(view.id)).id).toBe(view.id);
-  });
-
-  it("reads prices to the fraction of a cent", async () => {
-    const { stripe } = client();
-    expect(priceAmount(await stripe.getPrice(FAKE_BASE_PRICE))).toEqual({
-      amount: "250.0000",
-      currency: "USD",
-    });
-    expect(priceAmount(await stripe.getPrice(FAKE_OVERAGE_PRICE))).toEqual({
-      amount: "0.0150",
-      currency: "USD",
-    });
+  it("converts amounts to and from cents without floats", () => {
+    expect(toMinorUnits({ amount: "123.4500", currency: "USD" })).toBe(12345);
+    expect(toMinorUnits({ amount: "-0.0100", currency: "USD" })).toBe(-1);
+    expect(() => toMinorUnits({ amount: "0.0050", currency: "USD" })).toThrow();
     expect(fromMinorUnits(1500, "jpy")).toEqual({ amount: "1500.0000", currency: "JPY" });
+    expect(fromMinorUnits(50015, "usd")).toEqual({ amount: "500.1500", currency: "USD" });
   });
 
   it("turns Stripe's errors into StripeError, and a wrong key into a 401", async () => {
     const { stripe } = client();
-    await expect(stripe.getPrice("price_nope")).rejects.toMatchObject({
+    await expect(stripe.getInvoice("in_nope")).rejects.toMatchObject({
       status: 404,
       code: "resource_missing",
     });
     const wrong = createStripeClient({ secretKey: "sk_wrong", fetch: fakeStripe().fetch });
-    await expect(wrong.getPrice(FAKE_BASE_PRICE)).rejects.toBeInstanceOf(StripeError);
+    await expect(wrong.getInvoice("in_1")).rejects.toBeInstanceOf(StripeError);
     const offline = createStripeClient({
       secretKey: FAKE_STRIPE_KEY,
       fetch: async () => {
         throw new Error("no network");
       },
     });
-    await expect(offline.getPrice(FAKE_BASE_PRICE)).rejects.toMatchObject({ type: "network" });
+    await expect(offline.getInvoice("in_1")).rejects.toMatchObject({ type: "network" });
   });
 });
 
@@ -196,14 +191,21 @@ describe("Stripe webhook signatures", () => {
     ).toEqual({ ok: false, reason: "expired" });
   });
 
-  it("summarizes the events billing acts on", async () => {
+  it("summarizes the five invoice events billing acts on, and nothing else", async () => {
     const fake = fakeStripe({ webhookSecret: SECRET });
+    const object = {
+      id: "in_1",
+      customer: "cus_1",
+      currency: "usd",
+      total: 1234,
+      number: "MZ-1",
+      due_date: 1796083200,
+      hosted_invoice_url: "https://invoice.stripe.com/i/x",
+      invoice_pdf: "https://pay.stripe.com/invoice/x/pdf",
+      metadata: { statement_id: "s1", tenant_id: "t1" },
+    };
     const { payload: p } = await fake.signedEvent(
-      {
-        id: "evt_paid",
-        type: "invoice.paid",
-        object: { id: "in_1", customer: "cus_1", currency: "usd", total: 1234, number: "MZ-1" },
-      },
+      { id: "evt_paid", type: "invoice.paid", object },
       NOW,
     );
     const event = StripeEvent.parse(JSON.parse(p));
@@ -212,25 +214,22 @@ describe("Stripe webhook signatures", () => {
       outcome: "paid",
       total: "12.3400",
       currency: "USD",
+      statementId: "s1",
+      tenantId: "t1",
+      dueAt: "2026-12-01T00:00:00.000Z",
+      pdfUrl: "https://pay.stripe.com/invoice/x/pdf",
     });
-    const sub = StripeEvent.parse({
-      id: "evt_sub",
-      type: "customer.subscription.updated",
-      created: 1,
-      data: {
-        object: {
-          id: "sub_1",
-          customer: "cus_1",
-          status: "past_due",
-          items: { data: [{ id: "si_1", quantity: 2, price: { id: "price_a" } }] },
-        },
-      },
-    });
-    expect(summarizeStripeEvent(sub)).toMatchObject({
-      kind: "subscription",
-      status: "past_due",
-      items: [{ id: "si_1", priceId: "price_a", quantity: 2 }],
-    });
-    expect(summarizeStripeEvent(StripeEvent.parse({ ...sub, type: "invoice.paid" }))).toBeNull();
+    const outcome = (type: string) =>
+      summarizeStripeEvent(StripeEvent.parse({ ...event, type }))?.outcome ?? null;
+    expect(outcome("invoice.finalized")).toBe("finalized");
+    expect(outcome("invoice.payment_failed")).toBe("payment_failed");
+    expect(outcome("invoice.voided")).toBe("voided");
+    expect(outcome("invoice.marked_uncollectible")).toBe("uncollectible");
+    expect(outcome("customer.subscription.updated")).toBeNull();
+    expect(outcome("charge.refunded")).toBeNull();
+    // An invoice event whose object isn't an invoice is not summarized.
+    expect(
+      summarizeStripeEvent(StripeEvent.parse({ ...event, data: { object: { id: "sub_1" } } })),
+    ).toBeNull();
   });
 });

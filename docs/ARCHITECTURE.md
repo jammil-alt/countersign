@@ -30,9 +30,9 @@
 > with its tools: **Gmail moves into the MVP** (start Google's app verification now and measure how long
 > it takes), and **QuickBooks Online** ships its reads plus the planned writes (attach a document,
 > itemize lines with the total unchanged, update memo, update purchase cost), each behind approval.
-> **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing through
-> Stripe** comes into v1: a monthly base fee per active agent with a credit allowance, then usage
-> beyond it. **Languages:** the portal and agents' client-facing text in six languages (§1); translating
+> **Approver rules** decide who approves each change (`docs/plan.md` §1.17), and **billing** comes into
+> v1: a monthly price per agent with included credits, then usage beyond them, worked out by Mezonas
+> and invoiced through Stripe (§1.32 of the plan). **Languages:** the portal and agents' client-facing text in six languages (§1); translating
 > messages comes next. **Texts and calls:** Twilio (SMS, voice, numbers, WhatsApp), then WhatsApp via Meta, and ElevenLabs connectors
 > (§1). Changed: §1 (MVP and v1 scope), §6.2,
 > §9.5, §20.
@@ -228,8 +228,12 @@ In:
   export), run timeline, inbox, connections, requests, users and notification settings
 - **Approver rules** (v0.9): per client, set by the operator, tightened by the client admin; they name
   who approves each change (`docs/plan.md` §1.17)
-- **Billing** (v0.9): Stripe customers per client; a monthly base fee per active agent that includes a
-  credit allowance, then metered usage from `usage_daily` beyond it, invoiced by Stripe
+- **Billing** (v0.9; reworked 2026-11-05, `docs/plan.md` §1.32): Mezonas works out each client's bill.
+  Each agent has a monthly price that includes credits: the client agent's own price, else its
+  template's, else the default. Prices are prorated by the days the agent was active, the credits
+  are pooled, and extra credits are billed at a credit price, all from `usage_daily`. A monthly
+  statement is kept per client. Stripe only holds the customer and the invoice: it sends the
+  invoice, takes payment and tells us the outcome
 - ~~Materials pack~~: built separately from this plan (v0.9)
 - **Texts and calls** (v0.9): **Twilio** (SMS, voice, phone numbers and WhatsApp first), then
   **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
@@ -594,27 +598,28 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 - Upload CSV of purchases (date, vendor, amount, memo) → `raw_record(connector='upload')` → transactions.
 - The demo path when QBO is not connected.
 
-### 6.4 Gmail (after the MVP)
+### 6.4 Gmail (send only; owner, 2026-11-05)
 
-- OAuth 2.0 with Google, granted by the client for one mailbox (a shared `invoices@` / `ap@` box is the
-  usual case; a person's mailbox works too). Scopes: `gmail.readonly` (search and read),
-  `gmail.labels` (create and apply labels), `gmail.compose` (create drafts). Tokens encrypted like QBO's.
-  Verify current scope classifications and Google's app verification rules before launch (§20).
-- **What is ingested is narrow:** each connection has a Gmail search query set by the operator (default:
-  messages with PDF or image attachments from the last 90 days, from vendor addresses/domains known in
-  `vendor` plus any added by the operator, or carrying a chosen label). Only matching messages are
-  synced: headers and snippet to `raw_record(entity_type='Message')`, attachments to `document(source=
-  'email')`. Bodies are fetched on demand through a tool, never bulk-stored.
-- Incremental sync: `users.history.list` from the stored `historyId` every 5 minutes (cron), falling back
-  to a bounded search when the history id has expired. Push notifications (Pub/Sub `watch`) later.
-- Matching: email attachments are linked to transactions like uploads (vendor + total + date), with the
-  sender domain as an extra vendor signal.
-- **Tools, read** (`none`): `gmail.message.search` (query within the connection's scope),
-  `gmail.message.get` (headers, body text, attachment list), `gmail.attachment.get` (stores the file as a
-  document).
-- **Tools, write** (`external`, approval required): `gmail.draft.create` (e.g. ask a purchaser or vendor
-  for a missing invoice; a person sends it from Gmail), `gmail.label.apply` (e.g. label processed
-  invoices). Sending is out of v1 scope.
+> **Decision (owner, 2026-11-05): no restricted Gmail scopes, so no CASA security assessment.**
+> `gmail.readonly` and `gmail.compose` are restricted scopes: a public app needs Google's full
+> verification plus a yearly CASA assessment. Mezonas asks for **`gmail.send` only** (a sensitive scope:
+> Google's standard review, no CASA). **Reading mail is done by forwarding** (§6.5): the client forwards,
+> or sets a Gmail filter to auto-forward, the messages agents need (invoices, receipts, replies) to its
+> private Mezonas address. Google Workspace clients who want in-mailbox search can later grant
+> domain-wide delegation from their own admin console, which needs no public verification. The read,
+> label and draft design below is kept for that later step and is not built now.
+
+- OAuth 2.0 with Google, granted by the client for one person's or a shared mailbox, scope `gmail.send`
+  only. Tokens encrypted in the vault (§6.9).
+- **Tool, write** (`external`, approval required): `gmail.send` (reach out, §1.25 of the plan): sends a
+  message the client's approver has seen, from that mailbox; replies come back through forwarding.
+- Google's review needs a live homepage and privacy policy on mezonas.com (the Limited Use statement),
+  domain verification (done 2026-11-05), a demo video and a reason for the scope.
+
+Later, only if a client needs it (restricted scopes, CASA or Workspace delegation):
+- `gmail.readonly` search and read, `gmail.labels`, `gmail.compose` drafts, with a narrow ingestion
+  query: only matching messages synced (headers and snippet to `raw_record(entity_type='Message')`,
+  attachments to `document(source='email')`), bodies fetched on demand, history polling every 5 minutes.
 - Email content is untrusted input (§16): bodies and attachments reach agents only as tool results.
 
 ---
@@ -1408,7 +1413,7 @@ Portal (client)
   Settings     GET/POST /api/users (invite)               PATCH /api/settings/notifications
 
 Shared         GET  /api/connections/qbo/callback         GET  /api/connections/gmail/callback
-               POST /api/webhooks/qbo
+               POST /api/connections/qbo/webhook      (Intuit's webhook; plan §1.30)
 ```
 All bodies validated with Zod. The route contract declares each route's roles; middleware sets
 `app.tenant_ids` (and `app.operator` for operator sessions) from the session (§4). No portal route
@@ -1594,8 +1599,8 @@ Open:
   "testing" status its refresh tokens expire after 7 days. Check the current rules at M10 and choose:
   verify the app, or (for Google Workspace clients) domain-wide delegation granted by the client's admin.
 - Whether to add sending email (approved) after drafts, and Gmail push notifications instead of polling.
-- Billing: usage is metered per client from v1; how clients are charged (per agent, per month, usage)
-  decides what the back office invoices later.
+- Billing: decided (`docs/plan.md` §1.32). Open: real prices, and whether a client agent's own test
+  runs are billed.
 - From the owner's design, not yet in scope: Google Drive (appears connected in the screens), Ramp,
   bank, Outlook, HubSpot (Slack: later, owner); a header command bar ("Ask an agent, or type / for a
   command"); the Invoice intake, Collections follow-up and Card receipts agents.

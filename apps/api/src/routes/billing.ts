@@ -1,60 +1,81 @@
-// Billing (docs/plan.md §1.17, §1.24). The back office (`/api/ops/billing*`, operator only) keeps
-// the settings, sets up a client in Stripe (a customer and a subscription: the base fee per active
-// client agent, and metered overage) and sees each client's period with what it cost us. The
-// portal's `/api/billing` (client admin) shows the plan, the allowance, credits used and Stripe's
-// invoices: never our cost, tokens or prompts (invariant 11). Stripe's webhook is public, checked
-// by its signature, and stored once per event id.
+// Billing (docs/plan.md §1.17, §1.32). Mezonas works out each client's bill; Stripe only holds the
+// customer and the invoice. The back office (`/api/ops/billing*`, operator only) sets the prices
+// (defaults, templates, client agents), sets a client up (its Stripe customer), sees each client's
+// month so far with what it cost us, and reviews, adjusts, sends or voids the monthly statements.
+// The portal's `/api/billing` (client admin) shows the month so far by service, the credits and
+// past statements: never our cost, tokens or prompts (invariant 11). Stripe's webhook is public,
+// checked by its signature, and stored once per event id.
 
 import {
-  invoiceView,
   isHandledStripeEvent,
-  priceAmount,
   STRIPE_SIGNATURE_HEADER,
   STRIPE_WEBHOOK_MAX_BYTES,
   type StripeClient,
   StripeError,
   StripeEvent,
-  type StripePrice,
+  type StripeEventSummary,
   summarizeStripeEvent,
   verifyStripeSignature,
 } from "@countersign/connectors";
 import {
-  type BillingInvoice,
+  type AgentPriceView,
   type BillingSettingsView,
-  dec,
-  type Money,
+  type BuiltStatement,
+  type ClientAgentPrice,
+  isUuid,
+  type MonthSoFar,
   money,
-  nextPeriodAnchor,
+  type OpsAgentPrice,
   type OpsBillingClient,
+  type OpsStatement,
+  type PortalStatement,
+  type PricePoint,
+  type PriceView,
   readTenantBilling,
-  reportDay,
+  resolveAgentPrice,
   routes,
+  type StatementLine,
+  type StatementStatus,
   type TenantBilling,
 } from "@countersign/core";
 import {
+  agent,
+  agentChange,
+  appUser,
+  billingAgentPrice,
   billingEvent,
   billingSetting,
+  billingStatement,
+  billingStatementLine,
+  billingTemplatePrice,
   billingUnitCost,
-  billingUsageReport,
   type Tx,
   tenant,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
-  type Runner,
-  reportUsage,
-  syncAgentQuantity,
-  tenantRunner,
+  type LineRow,
+  retotal,
+  SendRefused,
+  type StatementRow,
+  sendStatement,
+  statementLines,
   txRunner,
 } from "../billing/jobs";
 import {
+  type AgentRow,
+  agentLabel,
   type BillingConfig,
-  type ClientPeriod,
-  clientPeriod,
+  clientAgents,
+  isActive,
   loadBillingConfig,
+  loadPricing,
+  monthFor,
+  type Pricing,
   patchTenantBilling,
+  priceOf,
   tenantBilling,
   usageMeasures,
 } from "../billing/ledger";
@@ -67,90 +88,322 @@ import {
   iso,
   mount,
   notFound,
-  type Services,
   stripeFor,
 } from "../http";
 
 const today = () => new Date().toISOString().slice(0, 10);
+const USD = "USD";
+
+// ── Views ────────────────────────────────────────────────────────────────────────────────────────
+
+const priceView = (p: PricePoint, currency = USD): PriceView => ({
+  monthlyPrice: money(p.monthlyPrice, currency),
+  includedCredits: p.includedCredits,
+});
+
+const agentPriceView = (p: PricePoint & { source: AgentPriceView["source"] }): AgentPriceView => ({
+  ...priceView(p),
+  source: p.source,
+});
 
 function settingsView(config: BillingConfig): BillingSettingsView {
   const s = config.settings;
-  const m = (amount: string | null): Money | null => (amount ? money(amount, s.currency) : null);
   return {
-    allowanceCreditsPerAgent: s.allowanceCreditsPerAgent,
-    basePriceId: s.basePriceId,
-    overagePriceId: s.overagePriceId,
-    meterEventName: s.meterEventName,
+    defaultAgentPrice: s.defaultAgentPrice,
+    defaultIncludedCredits: s.allowanceCreditsPerAgent,
+    creditPrice: s.creditPrice,
+    autoSend: s.autoSend,
     daysUntilDue: s.daysUntilDue,
     unitCosts: config.unitCosts,
-    baseFee: m(s.baseFee),
-    overagePrice: m(s.overagePrice),
     updatedAt: s.updatedAt.toISOString(),
   };
 }
 
-/** The base fee for `agents` agents, from the price snapshot. */
-function baseFor(config: BillingConfig, agents: number): Money | null {
-  const fee = config.settings.baseFee;
-  return fee ? money(dec(fee).times(agents), config.settings.currency) : null;
+interface Detail {
+  days?: number;
+  prices?: { monthlyPrice: string; days: number }[];
 }
 
-function opsClientRow(
-  client: { id: string; name: string; billing: TenantBilling | null },
-  p: ClientPeriod,
-  config: BillingConfig,
-): OpsBillingClient {
-  const b = client.billing;
+function lineView(
+  l: {
+    id: string | null;
+    kind: LineRow["kind"];
+    agentId: string | null;
+    description: string;
+    amount: string;
+    detail: unknown;
+  },
+  currency: string,
+): StatementLine {
+  const d = (l.detail ?? {}) as Detail;
   return {
-    id: client.id,
-    name: client.name,
-    setUp: Boolean(b?.subscriptionId),
-    customerId: b?.customerId ?? null,
-    subscriptionId: b?.subscriptionId ?? null,
-    subscriptionStatus: b?.subscriptionStatus ?? null,
-    billedAgents: b?.quantity ?? 0,
-    activeAgents: p.activeAgents,
-    period: p.period,
-    base: baseFor(config, p.activeAgents),
-    allowance: p.allowance,
-    creditsUsed: p.credits,
-    overageCredits: p.overage,
-    reportedCredits: p.reported,
-    costUsd: p.cost,
-    lastInvoice: b?.lastInvoice
+    id: l.id,
+    kind: l.kind,
+    agentId: l.agentId,
+    description: l.description,
+    amount: money(l.amount, currency),
+    days: l.kind === "agent" && typeof d.days === "number" ? d.days : null,
+    prices:
+      l.kind === "agent" && Array.isArray(d.prices)
+        ? d.prices.map((p) => ({ monthlyPrice: money(p.monthlyPrice, currency), days: p.days }))
+        : [],
+  };
+}
+
+function monthView(built: BuiltStatement, through: string): MonthSoFar {
+  return {
+    period: { start: built.period.start, end: built.period.end, through },
+    daysInMonth: built.daysInMonth,
+    lines: built.lines.map((l) => lineView({ ...l, id: null }, USD)),
+    creditsUsed: built.creditsUsed,
+    creditsIncluded: built.creditsIncluded,
+    extraCredits: built.extraCredits,
+    creditPrice: money(built.creditPrice, USD),
+    total: money(built.total, USD),
+  };
+}
+
+function portalStatement(s: StatementRow, lines: LineRow[]): PortalStatement {
+  return {
+    id: s.id,
+    period: { start: s.period, end: s.periodEnd },
+    status: s.status,
+    total: money(s.total, s.currency),
+    creditsUsed: s.creditsUsed,
+    creditsIncluded: s.creditsIncluded,
+    extraCredits: s.extraCredits,
+    creditPrice: money(s.creditPrice, s.currency),
+    lines: lines.map((l) => lineView(l, s.currency)),
+    invoiceNumber: s.stripeInvoiceNumber,
+    hostedInvoiceUrl: s.hostedInvoiceUrl,
+    pdfUrl: s.invoicePdfUrl,
+    dueAt: iso(s.dueAt),
+    sentAt: iso(s.sentAt),
+    paidAt: iso(s.paidAt),
+  };
+}
+
+function opsStatement(s: StatementRow, lines: LineRow[], clientName: string): OpsStatement {
+  return {
+    ...portalStatement(s, lines),
+    clientId: s.tenantId,
+    clientName,
+    editable: s.status === "draft" && !s.stripeInvoiceId,
+    sendStarted: Boolean(s.stripeInvoiceId),
+    sendError: s.sendError,
+    stripeInvoiceId: s.stripeInvoiceId,
+    voidedAt: iso(s.voidedAt),
+    createdAt: s.createdAt.toISOString(),
+  };
+}
+
+async function clientNames(tx: Tx, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({ id: tenant.id, name: tenant.name })
+    .from(tenant)
+    .where(inArray(tenant.id, [...ids]));
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+async function opsStatements(tx: Tx, rows: StatementRow[]): Promise<OpsStatement[]> {
+  const names = await clientNames(tx, [...new Set(rows.map((r) => r.tenantId))]);
+  const out: OpsStatement[] = [];
+  for (const s of rows) {
+    out.push(opsStatement(s, await statementLines(tx, s), names.get(s.tenantId) ?? ""));
+  }
+  return out;
+}
+
+async function opsClient(
+  tx: Tx,
+  tenantId: string,
+  config: BillingConfig,
+): Promise<OpsBillingClient> {
+  const t = await tenantBilling(tx, tenantId);
+  if (!t) throw notFound("client");
+  const through = today();
+  const period = through.slice(0, 7) + "-01";
+  const month = await monthFor(tx, { tenantId, period, through, config, billing: t.billing });
+  const agents = await clientAgents(tx, tenantId);
+  const [latest] = await tx
+    .select()
+    .from(billingStatement)
+    .where(eq(billingStatement.tenantId, tenantId))
+    .orderBy(desc(billingStatement.period))
+    .limit(1);
+  return {
+    id: tenantId,
+    name: t.name,
+    setUp: t.billing !== null,
+    customerId: t.billing?.customerId ?? null,
+    email: t.billing?.email ?? null,
+    activeAgents: agents.filter((a) => isActive(a.agent)).length,
+    monthSoFar: monthView(month.built, through),
+    costUsd: month.cost,
+    latestStatement: latest
       ? {
-          id: b.lastInvoice.id,
-          number: b.lastInvoice.number,
-          status: b.lastInvoice.status,
-          at: b.lastInvoice.at,
+          id: latest.id,
+          period: latest.period,
+          status: latest.status,
+          total: money(latest.total, latest.currency),
         }
       : null,
   };
 }
 
-async function opsClient(tx: Tx, tenantId: string, config: BillingConfig) {
-  const t = await tenantBilling(tx, tenantId);
-  if (!t) throw notFound("client");
-  const p = await clientPeriod(tx, { tenantId, through: today(), config });
-  return opsClientRow({ id: tenantId, name: t.name, billing: t.billing }, p, config);
+/** Templates (operator scope) with their own price and what their client agents get. */
+async function templateRows(tx: Tx, pricing: Pricing) {
+  const rows = await tx
+    .select()
+    .from(agent)
+    .where(and(isNull(agent.tenantId), eq(agent.kind, "template"), eq(agent.status, "active")))
+    .orderBy(agent.name);
+  return rows.map((t) => {
+    const own = pricing.templates.get(t.id) ?? null;
+    const effective = resolveAgentPrice({
+      override: null,
+      template: own,
+      templateSlug: pricing.platform.get(t.id) ?? null,
+      defaults: pricing.defaults,
+    });
+    return {
+      id: t.id,
+      slug: t.slug,
+      name: t.name,
+      price: own ? priceView(own) : null,
+      effective: agentPriceView(effective),
+    };
+  });
 }
 
-/** A client's invoices from Stripe; on failure, none and a flag (the page still loads). */
-async function invoicesFor(
-  stripe: StripeClient | null,
-  billing: TenantBilling | null,
-): Promise<{ invoices: BillingInvoice[]; invoicesUnavailable: boolean }> {
-  if (!stripe || !billing) return { invoices: [], invoicesUnavailable: Boolean(billing) };
-  try {
-    return {
-      invoices: (await stripe.listInvoices(billing.customerId, 24)).map(invoiceView),
-      invoicesUnavailable: false,
-    };
-  } catch (error) {
-    console.error("listing a client's invoices failed", error);
-    return { invoices: [], invoicesUnavailable: true };
-  }
+/** People's names (else their email) by id. */
+async function userNames(tx: Tx, ids: readonly (string | null)[]): Promise<Map<string, string>> {
+  const wanted = [...new Set(ids.filter((i): i is string => Boolean(i)))];
+  if (wanted.length === 0) return new Map();
+  const users = await tx
+    .select({ id: appUser.id, name: appUser.name, email: appUser.email })
+    .from(appUser)
+    .where(inArray(appUser.id, wanted));
+  return new Map(users.map((u) => [u.id, u.name ?? u.email]));
 }
+
+/** A template's price, as `PricePoint` changes are logged on the agent. */
+const logged = (p: PricePoint | null) =>
+  p ? { monthlyPrice: p.monthlyPrice, includedCredits: p.includedCredits } : null;
+
+/** The agent's price, where it comes from, and its last price changes (operator scope). */
+async function agentPriceDetail(
+  tx: Tx,
+  row: AgentRow,
+  config: BillingConfig,
+): Promise<OpsAgentPrice> {
+  const pricing = await loadPricing(tx, tx, config);
+  const names = (ids: (string | null)[]) => userNames(tx, ids);
+  const changes = await tx
+    .select()
+    .from(agentChange)
+    .where(and(eq(agentChange.agentId, row.id), sql`${agentChange.change} ? 'billing'`))
+    .orderBy(desc(agentChange.createdAt))
+    .limit(10);
+  let own: OpsAgentPrice["own"] = null;
+  let price: AgentPriceView;
+  let template: OpsAgentPrice["template"] = null;
+  const ownerIds: (string | null)[] = changes.map((c) => c.actorId);
+  if (row.kind === "template") {
+    const [t] = await tx
+      .select()
+      .from(billingTemplatePrice)
+      .where(eq(billingTemplatePrice.templateId, row.id));
+    ownerIds.push(t?.updatedBy ?? null);
+    const who = await names(ownerIds);
+    own = t
+      ? {
+          ...priceView(t),
+          note: null,
+          setBy: t.updatedBy ? (who.get(t.updatedBy) ?? null) : null,
+          setAt: t.updatedAt.toISOString(),
+        }
+      : null;
+    price = agentPriceView(
+      resolveAgentPrice({
+        override: null,
+        template: t ?? null,
+        templateSlug: pricing.platform.get(row.id) ?? null,
+        defaults: pricing.defaults,
+      }),
+    );
+    return {
+      agentId: row.id,
+      kind: "template",
+      price,
+      own,
+      template: null,
+      defaults: priceView(pricing.defaults),
+      history: history(changes, who),
+    };
+  }
+  const [o] = await tx
+    .select()
+    .from(billingAgentPrice)
+    .where(
+      and(
+        eq(billingAgentPrice.tenantId, row.tenantId as string),
+        eq(billingAgentPrice.agentId, row.id),
+      ),
+    );
+  ownerIds.push(o?.setBy ?? null);
+  const who = await names(ownerIds);
+  own = o
+    ? {
+        ...priceView(o),
+        note: o.note,
+        setBy: o.setBy ? (who.get(o.setBy) ?? null) : null,
+        setAt: o.setAt.toISOString(),
+      }
+    : null;
+  price = agentPriceView(priceOf(row, o ?? null, pricing));
+  if (row.templateId) {
+    const [t] = await tx
+      .select({ id: agent.id, name: agent.name })
+      .from(agent)
+      .where(eq(agent.id, row.templateId));
+    const tp = pricing.templates.get(row.templateId) ?? null;
+    template = t ? { id: t.id, name: t.name, price: tp ? priceView(tp) : null } : null;
+  }
+  return {
+    agentId: row.id,
+    kind: "client",
+    price,
+    own,
+    template,
+    defaults: priceView(pricing.defaults),
+    history: history(changes, who),
+  };
+}
+
+function history(
+  changes: (typeof agentChange.$inferSelect)[],
+  who: Map<string, string>,
+): OpsAgentPrice["history"] {
+  return changes.map((c) => {
+    const b =
+      (
+        c.change as {
+          billing?: { from?: PricePoint | null; to?: PricePoint | null; note?: string | null };
+        }
+      ).billing ?? {};
+    return {
+      at: c.createdAt.toISOString(),
+      by: c.actorId ? (who.get(c.actorId) ?? null) : null,
+      from: b.from ? priceView(b.from) : null,
+      to: b.to ? priceView(b.to) : null,
+      note: b.note ?? null,
+    };
+  });
+}
+
+// ── Stripe ───────────────────────────────────────────────────────────────────────────────────────
 
 function needStripe(c: AppContext): StripeClient {
   const stripe = stripeFor(c.get("req").services().deps, c.env);
@@ -167,60 +420,37 @@ function stripeFailure(error: unknown): HttpError {
   return error instanceof HttpError ? error : new HttpError(502, "stripe_error", String(error));
 }
 
-/** Checks a saved price id against Stripe: it exists, is monthly, licensed or metered. */
-async function checkPrice(
-  stripe: StripeClient,
-  id: string,
-  kind: "base" | "overage",
-): Promise<StripePrice> {
-  let price: StripePrice;
-  try {
-    price = await stripe.getPrice(id);
-  } catch (error) {
-    if (error instanceof StripeError && error.status === 404) {
-      throw new HttpError(422, "invalid_price", `Stripe has no price ${id}`);
-    }
-    throw stripeFailure(error);
-  }
-  const r = price.recurring;
-  const metered = r?.usage_type === "metered";
-  if (r?.interval !== "month") {
-    throw new HttpError(422, "invalid_price", `${id} is not a monthly recurring price`);
-  }
-  if (kind === "base" && metered) {
-    throw new HttpError(
-      422,
-      "invalid_price",
-      `${id} is metered: the base fee needs a licensed price`,
-    );
-  }
-  if (kind === "overage" && !metered) {
-    throw new HttpError(
-      422,
-      "invalid_price",
-      `${id} is not metered: overage needs a metered price`,
-    );
-  }
-  if (price.active === false) throw new HttpError(422, "invalid_price", `${id} is archived`);
-  return price;
+/** What the statement actions need from a request. */
+interface Scope {
+  tx: Tx;
+  tenantIds: readonly string[];
+  session: { user: { id: string } };
 }
 
-/** After an agent's run status changes: brings the client's base quantity in line, after the response. */
-export function syncQuantityLater(
-  ctx: { defer(task: () => Promise<unknown>): void; services: Services },
-  tenantId: string | null,
-): void {
-  if (!tenantId) return;
-  const stripe = stripeFor(ctx.services.deps, ctx.services.env);
-  if (!stripe) return;
-  ctx.defer(async () => {
-    try {
-      await syncAgentQuantity(tenantRunner(ctx.services.db, tenantId), stripe, tenantId);
-    } catch (error) {
-      // The hourly pass catches up.
-      console.error(`billing quantity for client ${tenantId} could not be synced`, error);
-    }
-  });
+/** A statement of the request's clients, or 404 (ids in paths are untrusted). */
+async function statementInScope(
+  ctx: Pick<Scope, "tx" | "tenantIds">,
+  id: string,
+): Promise<StatementRow> {
+  const [s] = await ctx.tx
+    .select()
+    .from(billingStatement)
+    .where(eq(billingStatement.id, id))
+    .for("update");
+  if (!s || !ctx.tenantIds.includes(s.tenantId)) throw notFound("statement");
+  return s;
+}
+
+function mustBeEditable(s: StatementRow): void {
+  if (s.status !== "draft" || s.stripeInvoiceId) {
+    throw new HttpError(409, "not_editable", "only a draft that hasn't gone to Stripe can change");
+  }
+}
+
+async function opsStatementOf(tx: Tx, s: StatementRow): Promise<OpsStatement> {
+  const [view] = await opsStatements(tx, [s]);
+  if (!view) throw notFound("statement");
+  return view;
 }
 
 export function billingRouteHandlers(app: Hono<AppEnv>): void {
@@ -228,12 +458,26 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsBilling, async ({ tx, tenantIds, query, services }) => {
     const config = await loadBillingConfig(tx);
+    const pricing = await loadPricing(tx, tx, config);
     const ids = query.client ? tenantIds.filter((id) => id === query.client) : tenantIds;
     const clients: OpsBillingClient[] = [];
     for (const id of ids) clients.push(await opsClient(tx, id, config));
     clients.sort((a, b) => Number(b.setUp) - Number(a.setUp) || a.name.localeCompare(b.name));
     const available = new Set(usageMeasures().map((m) => m.measure));
     const priced = new Set(config.unitCosts.map((u) => u.measure));
+    const review =
+      ids.length === 0
+        ? []
+        : await tx
+            .select()
+            .from(billingStatement)
+            .where(
+              and(
+                inArray(billingStatement.tenantId, [...ids]),
+                inArray(billingStatement.status, ["draft", "payment_failed"]),
+              ),
+            )
+            .orderBy(desc(billingStatement.period), billingStatement.createdAt);
     return {
       stripeConfigured: stripeFor(services.deps, services.env) !== null,
       webhookConfigured: Boolean(services.env.STRIPE_WEBHOOK_SECRET?.trim()),
@@ -243,53 +487,25 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
         available: available.has(measure),
         priced: priced.has(measure),
       })),
+      templates: await templateRows(tx, pricing),
       clients,
+      toReview: await opsStatements(tx, review),
     };
   });
 
-  mount(app, routes.opsBillingSettings, async ({ tx, body, session, c }) => {
+  mount(app, routes.opsBillingSettings, async ({ tx, body, session }) => {
     const measures = body.unitCosts.map((u) => u.measure);
     if (new Set(measures).size !== measures.length) {
       throw new HttpError(422, "invalid_settings", "each measure has one unit cost");
     }
-    const current = await loadBillingConfig(tx);
-    const s = current.settings;
-    let baseFee = s.baseFee;
-    let overagePrice = s.overagePrice;
-    let currency = s.currency;
-    const changed = body.basePriceId !== s.basePriceId || body.overagePriceId !== s.overagePriceId;
-    if (changed || (body.basePriceId && !s.baseFee)) {
-      const stripe = stripeFor(c.get("req").services().deps, c.env);
-      baseFee = null;
-      overagePrice = null;
-      // DECISION: price ids are checked against Stripe and their amounts kept when they are
-      // saved; without a Stripe key they are saved unchecked and the amounts stay unknown.
-      if (stripe) {
-        const base = body.basePriceId ? await checkPrice(stripe, body.basePriceId, "base") : null;
-        const over = body.overagePriceId
-          ? await checkPrice(stripe, body.overagePriceId, "overage")
-          : null;
-        if (base && over && base.currency !== over.currency) {
-          throw new HttpError(422, "invalid_price", "the two prices are in different currencies");
-        }
-        const b = base ? priceAmount(base) : null;
-        const o = over ? priceAmount(over) : null;
-        baseFee = b?.amount ?? null;
-        overagePrice = o?.amount ?? null;
-        currency = b?.currency ?? o?.currency ?? currency;
-      }
-    }
     await tx
       .update(billingSetting)
       .set({
-        allowanceCreditsPerAgent: body.allowanceCreditsPerAgent,
-        basePriceId: body.basePriceId,
-        overagePriceId: body.overagePriceId,
-        meterEventName: body.meterEventName,
+        allowanceCreditsPerAgent: body.defaultIncludedCredits,
+        defaultAgentPrice: body.defaultAgentPrice,
+        creditPrice: body.creditPrice,
+        autoSend: body.autoSend,
         daysUntilDue: body.daysUntilDue,
-        baseFee,
-        overagePrice,
-        currency,
         updatedAt: new Date(),
         updatedBy: session.user.id,
       })
@@ -314,47 +530,149 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
     return settingsView(await loadBillingConfig(tx));
   });
 
+  async function agentFor(ctx: Pick<Scope, "tx" | "tenantIds">, id: string) {
+    const [row] = await ctx.tx.select().from(agent).where(eq(agent.id, id));
+    if (!row || (row.tenantId !== null && !ctx.tenantIds.includes(row.tenantId))) {
+      throw notFound("agent");
+    }
+    return row;
+  }
+
+  mount(app, routes.opsAgentPrice, async (ctx) => {
+    const row = await agentFor(ctx, ctx.params.id);
+    return agentPriceDetail(ctx.tx, row, await loadBillingConfig(ctx.tx));
+  });
+
+  mount(app, routes.opsSetAgentPrice, async (ctx) => {
+    const { tx, body, session } = ctx;
+    const row = await agentFor(ctx, ctx.params.id);
+    const config = await loadBillingConfig(tx);
+    const note = body.note?.trim() || null;
+    const to = body.price;
+    if (row.testCopy) throw new HttpError(422, "test_copy", "a test copy is never billed");
+    let from: PricePoint | null;
+    if (row.kind === "template") {
+      const [current] = await tx
+        .select()
+        .from(billingTemplatePrice)
+        .where(eq(billingTemplatePrice.templateId, row.id));
+      from = current ?? null;
+      if (to) {
+        await tx
+          .insert(billingTemplatePrice)
+          .values({ templateId: row.id, ...to, updatedBy: session.user.id })
+          .onConflictDoUpdate({
+            target: billingTemplatePrice.templateId,
+            set: { ...to, updatedAt: new Date(), updatedBy: session.user.id },
+          });
+      } else {
+        await tx.delete(billingTemplatePrice).where(eq(billingTemplatePrice.templateId, row.id));
+      }
+    } else {
+      // DECISION: a client agent's own price needs a note, and so does clearing it: the log says why.
+      if (!note) throw new HttpError(422, "note_required", "say why this agent's price differs");
+      const tenantId = row.tenantId as string;
+      const where = and(
+        eq(billingAgentPrice.tenantId, tenantId),
+        eq(billingAgentPrice.agentId, row.id),
+      );
+      const [current] = await tx.select().from(billingAgentPrice).where(where);
+      from = current ?? null;
+      if (to) {
+        await tx
+          .insert(billingAgentPrice)
+          .values({ tenantId, agentId: row.id, ...to, note, setBy: session.user.id })
+          .onConflictDoUpdate({
+            target: [billingAgentPrice.tenantId, billingAgentPrice.agentId],
+            set: { ...to, note, setBy: session.user.id, setAt: new Date() },
+          });
+      } else if (current) {
+        await tx.delete(billingAgentPrice).where(where);
+      }
+    }
+    // Every price change is in the agent's log (its audit trail).
+    await tx.insert(agentChange).values({
+      tenantId: row.tenantId,
+      agentId: row.id,
+      actorId: session.user.id,
+      change: {
+        billing: {
+          from: logged(from),
+          to: to
+            ? {
+                monthlyPrice: money(to.monthlyPrice, USD).amount,
+                includedCredits: to.includedCredits,
+              }
+            : null,
+          note,
+        },
+      },
+    });
+    return agentPriceDetail(tx, row, config);
+  });
+
   mount(app, routes.opsBillingClient, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    const { tx } = ctx;
+    const { tx, services } = ctx;
     const tenantId = ctx.params.id;
     const config = await loadBillingConfig(tx);
+    const pricing = await loadPricing(tx, tx, config);
     const client = await opsClient(tx, tenantId, config);
-    const billing = (await tenantBilling(tx, tenantId))?.billing ?? null;
-    const reports = await tx
+    const rows = await clientAgents(tx, tenantId);
+    const templateIds = [
+      ...new Set(rows.map((r) => r.agent.templateId).filter((i): i is string => Boolean(i))),
+    ];
+    const templates =
+      templateIds.length === 0
+        ? new Map<string, string>()
+        : new Map(
+            (
+              await tx
+                .select({ id: agent.id, name: agent.name })
+                .from(agent)
+                .where(inArray(agent.id, templateIds))
+            ).map((t) => [t.id, t.name]),
+          );
+    const setters = await userNames(
+      tx,
+      rows.map((r) => r.override?.setBy ?? null),
+    );
+    const agents: ClientAgentPrice[] = rows
+      .filter((r) => r.agent.runStatus !== "retired")
+      .map(({ agent: a, override }) => ({
+        agentId: a.id,
+        slug: a.slug,
+        name: agentLabel(a),
+        runStatus: a.runStatus,
+        price: agentPriceView(priceOf(a, override, pricing)),
+        override: override
+          ? {
+              ...priceView(override),
+              note: override.note,
+              setBy: override.setBy ? (setters.get(override.setBy) ?? null) : null,
+              setAt: override.setAt.toISOString(),
+            }
+          : null,
+        template: a.templateId
+          ? { id: a.templateId, name: templates.get(a.templateId) ?? "Template" }
+          : null,
+      }));
+    const statements = await tx
       .select()
-      .from(billingUsageReport)
-      .where(
-        and(
-          eq(billingUsageReport.tenantId, tenantId),
-          eq(billingUsageReport.period, client.period.start),
-        ),
-      )
-      .orderBy(desc(billingUsageReport.day));
+      .from(billingStatement)
+      .where(eq(billingStatement.tenantId, tenantId))
+      .orderBy(desc(billingStatement.period));
     const events = await tx
       .select()
       .from(billingEvent)
       .where(eq(billingEvent.tenantId, tenantId))
       .orderBy(desc(billingEvent.createdAt))
       .limit(20);
-    const stripe = stripeFor(ctx.services.deps, ctx.services.env);
     return {
-      stripeConfigured: stripe !== null,
+      stripeConfigured: stripeFor(services.deps, services.env) !== null,
       client,
-      reports: reports.map((r) => ({
-        id: r.id,
-        day: r.day,
-        agents: r.agents,
-        allowance: r.allowance,
-        credits: r.credits,
-        overage: r.overage,
-        quantity: r.quantity,
-        costUsd: r.costUsd,
-        status: r.status,
-        error: r.error,
-        sentAt: iso(r.sentAt),
-      })),
-      ...(await invoicesFor(stripe, billing)),
+      agents,
+      statements: await opsStatements(tx, statements),
       events: events.map((e) => ({
         id: e.id,
         type: e.type,
@@ -369,132 +687,193 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
     const { tx, session } = ctx;
     const tenantId = ctx.params.id;
     const stripe = needStripe(ctx.c);
-    const config = await loadBillingConfig(tx);
-    const { basePriceId, overagePriceId } = config.settings;
-    if (!basePriceId || !overagePriceId) {
-      throw new HttpError(
-        409,
-        "billing_settings_incomplete",
-        "save the base and overage price ids in the billing settings first",
-      );
-    }
-    // Locks the client's row: two set-ups at once can't both create a subscription.
+    // Locks the client's row: two set-ups at once can't both create a customer.
     const [row] = await tx
       .select({ name: tenant.name, settings: tenant.settings })
       .from(tenant)
       .where(eq(tenant.id, tenantId))
       .for("update");
     if (!row) throw notFound("client");
-    const existing = readTenantBilling(row.settings);
-    if (existing?.subscriptionId) {
+    if (readTenantBilling(row.settings)) {
       throw new HttpError(409, "already_set_up", "this client is already set up for billing");
     }
-    const run: Runner = txRunner(tx);
-    const p = await clientPeriod(tx, { tenantId, through: today(), config });
+    const email = ctx.body.email ?? null;
     try {
-      // Keys per client: a retry after a failure finds the same customer and subscription.
-      const customer = existing?.customerId
-        ? await stripe.updateCustomer(existing.customerId, {
-            name: row.name,
-            ...(ctx.body.email ? { email: ctx.body.email } : {}),
-          })
-        : await stripe.createCustomer(
-            {
-              name: row.name,
-              ...(ctx.body.email ? { email: ctx.body.email } : {}),
-              metadata: { tenant_id: tenantId },
-            },
-            `mezonas-customer-${tenantId}`,
-          );
-      const sub = await stripe.createSubscription(
-        {
-          customerId: customer.id,
-          basePriceId,
-          quantity: p.activeAgents,
-          overagePriceId,
-          billingCycleAnchor: nextPeriodAnchor(new Date()),
-          daysUntilDue: config.settings.daysUntilDue,
-          metadata: { tenant_id: tenantId },
-        },
-        `mezonas-subscription-${tenantId}-${customer.id}`,
+      // Keyed per client: a retry after a failure finds the same customer.
+      const customer = await stripe.createCustomer(
+        { name: row.name, ...(email ? { email } : {}), metadata: { tenant_id: tenantId } },
+        `mezonas-customer-${tenantId}`,
       );
-      const base = sub.items.data.find((i) => i.price.id === basePriceId);
-      const over = sub.items.data.find((i) => i.price.id === overagePriceId);
       const billing: TenantBilling = {
         customerId: customer.id,
-        subscriptionId: sub.id,
-        baseItemId: base?.id ?? null,
-        overageItemId: over?.id ?? null,
-        quantity: base?.quantity ?? p.activeAgents,
-        subscriptionStatus: sub.status,
-        subscriptionEventAt: null,
-        lastInvoice: null,
+        email,
         setUpAt: new Date().toISOString(),
         setUpBy: session.user.id,
       };
-      await run((t) => patchTenantBilling(t, tenantId, billing));
+      await patchTenantBilling(tx, tenantId, billing);
     } catch (error) {
       throw stripeFailure(error);
     }
-    return opsClient(tx, tenantId, config);
+    return opsClient(tx, tenantId, await loadBillingConfig(tx));
   });
 
-  mount(app, routes.opsBillingSync, async (ctx) => {
-    ensureClient(ctx, ctx.params.id);
-    const stripe = needStripe(ctx.c);
-    const tenantId = ctx.params.id;
-    const run = txRunner(ctx.tx);
-    const t = await tenantBilling(ctx.tx, tenantId);
-    if (!t?.billing?.subscriptionId) {
-      throw new HttpError(409, "not_set_up", "this client is not set up for billing");
-    }
-    const config = await loadBillingConfig(ctx.tx);
+  mount(app, routes.opsAddAdjustment, async (ctx) => {
+    const s = await statementInScope(ctx, ctx.params.id);
+    mustBeEditable(s);
+    const lines = await statementLines(ctx.tx, s);
+    await ctx.tx.insert(billingStatementLine).values({
+      tenantId: s.tenantId,
+      statementId: s.id,
+      position: Math.max(-1, ...lines.map((l) => l.position)) + 1,
+      kind: "adjustment",
+      agentId: null,
+      description: ctx.body.description,
+      amount: money(ctx.body.amount, s.currency).amount,
+      currency: s.currency,
+      createdBy: ctx.session.user.id,
+    });
+    return opsStatementOf(ctx.tx, await retotal(ctx.tx, s));
+  });
+
+  mount(app, routes.opsRemoveAdjustment, async (ctx) => {
+    const s = await statementInScope(ctx, ctx.params.id);
+    mustBeEditable(s);
+    const removed = await ctx.tx
+      .delete(billingStatementLine)
+      .where(
+        and(
+          eq(billingStatementLine.tenantId, s.tenantId),
+          eq(billingStatementLine.statementId, s.id),
+          eq(billingStatementLine.id, ctx.params.lineId),
+          eq(billingStatementLine.kind, "adjustment"),
+        ),
+      )
+      .returning({ id: billingStatementLine.id });
+    if (removed.length === 0) throw notFound("adjustment");
+    return opsStatementOf(ctx.tx, await retotal(ctx.tx, s));
+  });
+
+  /** Sends in the request's transaction; Stripe's errors are recorded on the statement, not thrown. */
+  async function send(ctx: Scope, stripe: StripeClient, s: StatementRow) {
     try {
-      const quantity = await syncAgentQuantity(run, stripe, tenantId);
-      const report = await reportUsage(run, stripe, {
-        tenantId,
-        day: reportDay(new Date()),
-        config,
+      return await sendStatement(txRunner(ctx.tx), stripe, {
+        tenantId: s.tenantId,
+        statementId: s.id,
+        actorId: ctx.session.user.id,
+        config: await loadBillingConfig(ctx.tx),
       });
-      return {
-        quantity: quantity ?? { before: 0, after: 0, changed: false },
-        report: report
-          ? {
-              day: report.row.day,
-              status: report.row.status,
-              quantity: report.row.quantity,
-              repeated: report.repeated,
-            }
-          : null,
-      };
     } catch (error) {
-      throw stripeFailure(error);
+      if (error instanceof SendRefused)
+        throw new HttpError(error.status, error.code, error.message);
+      throw error;
     }
+  }
+
+  mount(app, routes.opsSendStatement, async (ctx) => {
+    const stripe = needStripe(ctx.c);
+    const s = await statementInScope(ctx, ctx.params.id);
+    const out = await send(ctx, stripe, s);
+    return opsStatementOf(ctx.tx, out.statement);
+  });
+
+  mount(app, routes.opsVoidStatement, async (ctx) => {
+    const s = await statementInScope(ctx, ctx.params.id);
+    if (s.status !== "draft" || s.stripeInvoiceId) {
+      throw new HttpError(
+        409,
+        "not_editable",
+        "only a draft that hasn't gone to Stripe is voided here; void a sent invoice in Stripe",
+      );
+    }
+    const [row] = await ctx.tx
+      .update(billingStatement)
+      .set({
+        status: "void",
+        voidedAt: new Date(),
+        voidedBy: ctx.session.user.id,
+        updatedAt: new Date(),
+      })
+      .where(eq(billingStatement.id, s.id))
+      .returning();
+    return opsStatementOf(ctx.tx, row ?? s);
+  });
+
+  mount(app, routes.opsSendDrafts, async (ctx) => {
+    const stripe = needStripe(ctx.c);
+    const drafts =
+      ctx.tenantIds.length === 0
+        ? []
+        : await ctx.tx
+            .select()
+            .from(billingStatement)
+            .where(
+              and(
+                inArray(billingStatement.tenantId, [...ctx.tenantIds]),
+                eq(billingStatement.status, "draft"),
+              ),
+            )
+            .orderBy(billingStatement.createdAt);
+    const results: {
+      statementId: string;
+      clientId: string;
+      status: StatementStatus;
+      error: string | null;
+    }[] = [];
+    for (const d of drafts) {
+      try {
+        const out = await send(ctx, stripe, d);
+        results.push({
+          statementId: d.id,
+          clientId: d.tenantId,
+          status: out.statement.status,
+          error: out.error,
+        });
+      } catch (error) {
+        results.push({
+          statementId: d.id,
+          clientId: d.tenantId,
+          status: d.status,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return { results };
   });
 
   // ── Portal ──────────────────────────────────────────────────────────────────────────────────
 
-  mount(app, routes.portalBilling, async ({ tx, tenantIds, services }) => {
+  mount(app, routes.portalBilling, async ({ tx, tenantIds }) => {
     const tenantId = tenantIds[0] as string;
-    const config = await loadBillingConfig(tx);
     const t = await tenantBilling(tx, tenantId);
     if (!t) throw notFound("client");
-    const p = await clientPeriod(tx, { tenantId, through: today(), config });
-    const billing = t.billing?.subscriptionId ? t.billing : null;
-    const s = config.settings;
-    const fee = s.baseFee ? money(s.baseFee, s.currency) : null;
+    if (!t.billing)
+      return { setUp: false, monthSoFar: null, paymentProblem: false, statements: [] };
+    const config = await loadBillingConfig(tx);
+    const through = today();
+    const month = await monthFor(tx, {
+      tenantId,
+      period: `${through.slice(0, 7)}-01`,
+      through,
+      config,
+      billing: t.billing,
+    });
+    // DECISION: the client sees statements once they are sent (or nothing is due); drafts and
+    // drafts voided before sending stay with the operator.
+    const rows = (
+      await tx
+        .select()
+        .from(billingStatement)
+        .where(eq(billingStatement.tenantId, tenantId))
+        .orderBy(desc(billingStatement.period))
+    ).filter((s) => s.status !== "draft" && !(s.status === "void" && !s.sentAt));
+    const statements: PortalStatement[] = [];
+    for (const s of rows) statements.push(portalStatement(s, await statementLines(tx, s)));
     return {
-      setUp: billing !== null,
-      plan: billing
-        ? { agents: p.activeAgents, baseFee: fee, monthly: baseFor(config, p.activeAgents) }
-        : null,
-      period: p.period,
-      allowance: p.allowance,
-      creditsUsed: p.credits,
-      extraCredits: p.overage,
-      extraCreditPrice: s.overagePrice ? money(s.overagePrice, s.currency) : null,
-      paymentProblem: billing?.lastInvoice?.status === "payment_failed",
-      ...(await invoicesFor(billing ? stripeFor(services.deps, services.env) : null, billing)),
+      setUp: true,
+      monthSoFar: monthView(month.built, through),
+      // Any statement whose payment failed and isn't settled yet.
+      paymentProblem: rows.some((s) => s.status === "payment_failed"),
+      statements,
     };
   });
 
@@ -540,10 +919,30 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
   });
 }
 
+/** The client an invoice event belongs to: by its Stripe customer, else by the invoice's metadata. */
+async function ownerOf(c: AppContext, summary: StripeEventSummary): Promise<string | null> {
+  const { db } = c.get("req").services();
+  const [byCustomer] = await db
+    .select({ id: tenant.id })
+    .from(tenant)
+    .where(sql`${tenant.settings} -> 'billing' ->> 'customerId' = ${summary.customerId}`)
+    .limit(1);
+  if (byCustomer) return byCustomer.id;
+  if (!summary.tenantId || !isUuid(summary.tenantId)) return null;
+  const [byMeta] = await db
+    .select({ id: tenant.id, settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, summary.tenantId));
+  // Only a client we bill, and only for its own customer.
+  return byMeta && readTenantBilling(byMeta.settings)?.customerId === summary.customerId
+    ? byMeta.id
+    : null;
+}
+
 /**
- * Stores a verified event once for the client it belongs to (found by its Stripe customer in the
- * global tenant table) and applies it: an invoice's outcome, a subscription's status and quantity.
- * Events of other types, or for customers we don't bill, are acknowledged and dropped.
+ * Stores a verified event once for the client it belongs to and applies it to the statement whose
+ * invoice it is (by invoice id, else by the invoice's `metadata.statement_id`). Events of other
+ * types, or for invoices that aren't ours, are acknowledged and dropped.
  */
 async function handleStripeEvent(
   c: AppContext,
@@ -552,14 +951,9 @@ async function handleStripeEvent(
   if (!isHandledStripeEvent(event.type)) return { duplicate: false, handled: false };
   const summary = summarizeStripeEvent(event);
   if (!summary) return { duplicate: false, handled: false };
+  const tenantId = await ownerOf(c, summary);
+  if (!tenantId) return { duplicate: false, handled: false };
   const { db } = c.get("req").services();
-  const [owner] = await db
-    .select({ id: tenant.id })
-    .from(tenant)
-    .where(sql`${tenant.settings} -> 'billing' ->> 'customerId' = ${summary.customerId}`)
-    .limit(1);
-  if (!owner) return { duplicate: false, handled: false };
-  const tenantId = owner.id;
   return withTenant(db, tenantId, async (tx) => {
     const [stored] = await tx
       .insert(billingEvent)
@@ -574,38 +968,70 @@ async function handleStripeEvent(
       .onConflictDoNothing()
       .returning({ id: billingEvent.id });
     if (!stored) return { duplicate: true, handled: true };
-    // Locks the client's settings row while applying, so two events don't interleave.
-    const [row] = await tx
-      .select({ settings: tenant.settings })
-      .from(tenant)
-      .where(eq(tenant.id, tenantId))
+    const mine = eq(billingStatement.tenantId, tenantId);
+    let [s] = await tx
+      .select()
+      .from(billingStatement)
+      .where(and(mine, eq(billingStatement.stripeInvoiceId, summary.objectId)))
       .for("update");
-    const billing = readTenantBilling(row?.settings);
-    if (!billing) return { duplicate: false, handled: true };
-    if (summary.kind === "invoice") {
-      await patchTenantBilling(tx, tenantId, {
-        lastInvoice: {
-          id: summary.objectId,
-          number: summary.number,
-          status: summary.outcome,
-          total: summary.total,
-          currency: summary.currency,
-          at: new Date(event.created * 1000).toISOString(),
-        },
-      });
-    } else if (summary.objectId === billing.subscriptionId) {
-      // Stripe may deliver out of order: an older subscription event changes nothing.
-      if ((billing.subscriptionEventAt ?? 0) <= event.created) {
-        const base = summary.items.find((i) => i.id === billing.baseItemId);
-        await patchTenantBilling(tx, tenantId, {
-          subscriptionStatus: summary.deleted ? "canceled" : summary.status,
-          subscriptionEventAt: event.created,
-          ...(base?.quantity !== undefined && base.quantity !== null
-            ? { quantity: base.quantity }
-            : {}),
-        });
-      }
+    if (!s && summary.statementId && isUuid(summary.statementId)) {
+      [s] = await tx
+        .select()
+        .from(billingStatement)
+        .where(and(mine, eq(billingStatement.id, summary.statementId)))
+        .for("update");
+      if (s?.stripeInvoiceId && s.stripeInvoiceId !== summary.objectId) s = undefined;
     }
+    if (!s) return { duplicate: false, handled: false };
+    await applyInvoiceEvent(tx, s, summary, new Date(event.created * 1000));
     return { duplicate: false, handled: true };
   });
+}
+
+/** What an invoice event does to its statement; an event older than the last one applied, nothing. */
+// DECISION: uncollectible is `payment_failed` (still owed, not collected); a failure never undoes
+// `paid`; `void` and `nothing_due` are final (the table's trigger too).
+async function applyInvoiceEvent(
+  tx: Tx,
+  s: StatementRow,
+  summary: StripeEventSummary,
+  at: Date,
+): Promise<void> {
+  const links = {
+    stripeInvoiceId: s.stripeInvoiceId ?? summary.objectId,
+    ...(summary.number ? { stripeInvoiceNumber: summary.number } : {}),
+    ...(summary.hostedInvoiceUrl ? { hostedInvoiceUrl: summary.hostedInvoiceUrl } : {}),
+    ...(summary.pdfUrl ? { invoicePdfUrl: summary.pdfUrl } : {}),
+    ...(summary.dueAt ? { dueAt: new Date(summary.dueAt) } : {}),
+  };
+  if (s.status === "void" || s.status === "nothing_due") return;
+  const stale = s.stripeEventAt !== null && at < s.stripeEventAt;
+  let status: StatementStatus = s.status;
+  const patch: Partial<typeof billingStatement.$inferInsert> = {};
+  if (!stale) {
+    switch (summary.outcome) {
+      case "finalized":
+        if (!s.finalizedAt) patch.finalizedAt = at;
+        break;
+      case "paid":
+        status = "paid";
+        patch.paidAt = at;
+        break;
+      case "payment_failed":
+      case "uncollectible":
+        if (s.status !== "paid") status = "payment_failed";
+        break;
+      case "voided":
+        status = "void";
+        patch.voidedAt = at;
+        break;
+    }
+    patch.stripeEventAt = at;
+  }
+  // A paid or voided invoice was sent, even if our own send hadn't recorded it yet.
+  if ((status === "paid" || status === "payment_failed") && !s.sentAt) patch.sentAt = at;
+  await tx
+    .update(billingStatement)
+    .set({ ...links, ...patch, status, updatedAt: new Date() })
+    .where(eq(billingStatement.id, s.id));
 }

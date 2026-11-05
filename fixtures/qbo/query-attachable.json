@@ -1,0 +1,41 @@
+{
+  "QueryResponse": {
+    "Attachable": [
+      {
+        "Id": "5000000000000401",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-31T08:02:40-07:00",
+          "LastUpdatedTime": "2026-10-31T08:02:40-07:00"
+        },
+        "FileName": "cascade-77812.pdf",
+        "FileAccessUri": "/v3/company/9130357766900456/download/5000000000000401",
+        "TempDownloadUri": "https://intuit-qbo-sandbox.s3.amazonaws.example/9130357766900456/attachments/cascade-77812.pdf?X-Amz-Expires=900",
+        "Size": 1180,
+        "ContentType": "application/pdf",
+        "AttachableRef": [
+          { "EntityRef": { "type": "Bill", "value": "146" }, "IncludeOnSend": false }
+        ]
+      },
+      {
+        "Id": "5000000000000402",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-29T12:31:00-07:00",
+          "LastUpdatedTime": "2026-10-29T12:31:00-07:00"
+        },
+        "Note": "Paper receipt lost; card statement only",
+        "AttachableRef": [
+          { "EntityRef": { "type": "Purchase", "value": "201" }, "IncludeOnSend": false }
+        ]
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 2
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

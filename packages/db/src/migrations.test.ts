@@ -149,7 +149,6 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "app_user",
       "vendor",
       "transaction",
-      "transaction_line",
       "document",
       "doc_extraction",
       "doc_line",
@@ -162,6 +161,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "billing_setting",
       "billing_usage_report",
       "billing_event",
+      "billing_agent_day",
+      "billing_statement",
       "reach_out",
       "tenant_key",
       "agent_grant",
@@ -175,6 +176,7 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("organization_change", "UPDATE")).toBe(false);
     expect(await can("knowledge_entry_version", "UPDATE")).toBe(false);
     expect(await can("billing_event", "UPDATE")).toBe(false);
+    expect(await can("billing_agent_day", "UPDATE")).toBe(false);
     expect(await can("connection_change", "UPDATE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
@@ -189,6 +191,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     }
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
+    // A synced transaction's lines mirror the tool's current lines (0015, QuickBooks sync); the
+    // versions behind them stay in raw_record.
+    expect(await can("transaction_line", "DELETE")).toBe(true);
   });
 
   it("force RLS on the operator-only tables, with policies on app.operator alone", async () => {
@@ -228,6 +233,32 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       });
     expect(await updated(false)).toBe(0);
     expect(await updated(true)).toBe(1);
+    // §1.32's defaults: placeholders until the owner sets prices; auto-send off.
+    const [defaults] = await t.db.$client<{ p: string; c: string; s: boolean }[]>`
+      select default_agent_price as p, credit_price as c, auto_send as s from billing_setting`;
+    expect({ ...defaults }).toEqual({ p: "250.0000", c: "0.0200", s: false });
+  });
+
+  it("let every session read template prices and only operator sessions write them", async () => {
+    const [template] = await t.db.$client<{ id: string }[]>`
+      insert into agent (kind, slug, name) values ('template', 'priced', 'Priced') returning id`;
+    const write = async (operator: boolean) =>
+      t.db.$client.begin(async (tx) => {
+        await tx`select set_config('app.operator', ${operator ? "on" : "off"}, true)`;
+        await tx`set local role cs_worker`;
+        const inserted = await tx`
+          insert into billing_template_price (template_id, monthly_price, included_credits)
+          values (${template?.id ?? ""}, 100, 1000)
+          on conflict (template_id) do update set monthly_price = 120 returning template_id`;
+        return inserted.length;
+      });
+    await expect(write(false)).rejects.toThrow(/row-level security/);
+    expect(await write(true)).toBe(1);
+    const read = await t.db.$client.begin(async (tx) => {
+      await tx`set local role cs_worker`;
+      return tx`select monthly_price from billing_template_price`;
+    });
+    expect(read.map((r) => r.monthly_price)).toEqual(["100.0000"]);
   });
 
   it("default ids to uuid v7, in creation order", async () => {

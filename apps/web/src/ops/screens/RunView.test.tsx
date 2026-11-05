@@ -62,7 +62,13 @@ const step = (id: string, nodeId: string, nodeType: string, status: string, extr
   ...extra,
 });
 
-function detail(itemStatus: "open" | "resolved") {
+function detail(
+  itemStatus: "open" | "resolved",
+  item: { assigneeRole: string; resolvableByOperator: boolean } = {
+    assigneeRole: "operator",
+    resolvableByOperator: true,
+  },
+) {
   return {
     run: {
       id: RUN_ID,
@@ -111,7 +117,7 @@ function detail(itemStatus: "open" | "resolved") {
         runId: RUN_ID,
         subjectType: "external_action",
         subjectId: "00000000-0000-4000-8000-0000000f4001",
-        assigneeRole: "operator",
+        assigneeRole: item.assigneeRole,
         assigneeUserId: null,
         title: "Change a record",
         payload: {},
@@ -121,6 +127,7 @@ function detail(itemStatus: "open" | "resolved") {
         dueAt: null,
         createdAt: "2026-11-03T10:00:10.000Z",
         resolvedAt: null,
+        resolvableByOperator: item.resolvableByOperator,
       },
     ],
     agent: {
@@ -187,6 +194,45 @@ describe("back-office run view", () => {
     await userEvent.click(within(panel).getByTestId("ops-run-action-approve"));
     expect(resolved).toEqual([{ decision: "approve" }]);
     expect(await within(panel).findByTestId("ops-run-action-status")).toHaveTextContent("Approved");
+  });
+
+  it("lets the operator sign the client admin's change only where the server says so", async () => {
+    // The Sandbox: the server marks the client admin's item as the operator's to resolve.
+    const sandbox = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () =>
+        detail("open", { assigneeRole: "client_admin", resolvableByOperator: true }),
+    });
+    const { unmount } = render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}`]}>
+        <AppProviders client={sandbox.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const panel = await screen.findByTestId("ops-run-action-00000000-0000-4000-8000-0000000f4001");
+    expect(within(panel).getByTestId("ops-run-action-approve")).toBeInTheDocument();
+    expect(screen.getByTestId("ops-run-waiting")).toHaveTextContent("Waiting on you · 1");
+    unmount();
+
+    // A real client: the same item is the client admin's, and the operator only watches.
+    const real = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () =>
+        detail("open", { assigneeRole: "client_admin", resolvableByOperator: false }),
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}`]}>
+        <AppProviders client={real.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const watched = await screen.findByTestId(
+      "ops-run-action-00000000-0000-4000-8000-0000000f4001",
+    );
+    expect(within(watched).queryByTestId("ops-run-action-approve")).toBeNull();
+    expect(screen.queryByTestId("ops-run-waiting")).toBeNull();
   });
 
   it("lists only reached steps once a run is over", () => {

@@ -1,5 +1,6 @@
 // `/ops/inbox` (ARCHITECTURE §11, §15): the operator inbox (items assigned to the operator:
-// delegated approvals, escalations, budget hits, test runs' questions) and, under "All clients",
+// delegated approvals, escalations, budget hits, test runs' questions, and every item of the
+// Sandbox, which has no client people) and, under "All clients",
 // every item in the clients served. The operator resolves only what is theirs; a client's own
 // approvals show who they wait on. Resolving resumes the waiting run.
 import type { OpsAgentRef } from "@countersign/core";
@@ -19,13 +20,12 @@ const ROLE_WORDS: Record<string, string> = {
   operator: "the operator",
 };
 
-/** Whether the signed-in operator may resolve an item (mirrors packages/agents' mayResolve). */
-export function operatorMayResolve(
-  item: { assigneeRole: string | null; assigneeUserId: string | null },
-  userId: string,
-): boolean {
-  if (item.assigneeUserId) return item.assigneeUserId === userId;
-  return item.assigneeRole === "operator";
+/**
+ * Whether the signed-in operator may resolve an item: the server decides (`resolvableByOperator`,
+ * packages/agents' mayResolve), including every item of the Sandbox client.
+ */
+export function operatorMayResolve(item: { resolvableByOperator: boolean }): boolean {
+  return item.resolvableByOperator;
 }
 
 export function OpsInboxScreen() {
@@ -98,7 +98,7 @@ export function OpsInboxScreen() {
       <div data-testid="ops-inbox-list" className="flex flex-col gap-4">
         {data?.items.map((item) => {
           const agent = item.agentId ? agents.get(item.agentId) : undefined;
-          const mine = operatorMayResolve(item, session.user.id);
+          const mine = operatorMayResolve(item);
           const resolution = (item.resolution ?? {}) as { approved?: unknown; decision?: unknown };
           const approved =
             typeof resolution.approved === "boolean"

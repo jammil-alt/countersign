@@ -188,7 +188,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body: formEncode({ ...fields, client_id: c.id, client_secret: c.secret }),
-      redirect: "error",
+      redirect: "manual",
       signal: timeoutSignal(15_000),
     });
     const text = await res.text();
@@ -266,7 +266,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
             ...(body === undefined ? {} : { "content-type": "application/json" }),
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-          redirect: "error",
+          redirect: "manual",
           signal: timeoutSignal(20_000),
         }),
       (r) => r.status === 401,

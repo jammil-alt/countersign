@@ -19,6 +19,7 @@ import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
@@ -258,6 +259,12 @@ export const OpsInboxItem = z.object({
   dueAt: NullableTimestamp,
   createdAt: Timestamp,
   resolvedAt: NullableTimestamp,
+  /**
+   * Whether the signed-in operator may resolve the item: theirs (assigned or delegated to the
+   * operator, or to them by name), or any item of the Sandbox client (docs/plan.md §1.5). The
+   * server decides; the back office only reads it.
+   */
+  resolvableByOperator: z.boolean(),
 });
 
 /** The client agent a run or inbox item belongs to, for the back office's lists (Track B). */
@@ -277,6 +284,11 @@ export const OpsConnectorInfo = z.object({
   description: z.string(),
   icon: z.string().nullable(),
   auth: z.string(),
+  /**
+   * Whether this deployment can connect it: an OAuth connector needs its client id and the state
+   * secret; one needing no sign-in always can ("Not available yet" otherwise).
+   */
+  available: z.boolean(),
   tools: z.array(
     z.object({
       id: z.string(),
@@ -285,6 +297,17 @@ export const OpsConnectorInfo = z.object({
       sideEffect: z.string(),
     }),
   ),
+});
+
+/** A connector id in a path. */
+const ConnectorId = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/);
+
+/**
+ * A provider's callback parameters as the callback page received them (code, state and the rest),
+ * posted once in the session that started the sign-in: the portal's or the back office's.
+ */
+export const OAuthCallbackBody = z.strictObject({
+  params: z.record(z.string(), z.string().max(4096)),
 });
 
 const AgentBody = z.strictObject({
@@ -353,15 +376,24 @@ export const PortalConnection = z.object({
   available: z.boolean(),
   /** An API-key connector the client admin sets up with a form on the Access page. */
   credentialForm: z.boolean(),
+  /**
+   * A person's own account (Gmail): a client user may connect it too, and disconnect it if they
+   * connected it; other tools are the client admin's.
+   */
+  personal: z.boolean().optional(),
   connection: z
     .object({
       id: z.string(),
       status: z.string(),
       externalAccountId: z.string().nullable(),
+      /** The account's name in the tool (e.g. the QuickBooks company), when the connector gives one. */
+      accountName: z.string().nullable(),
       lastSyncAt: NullableTimestamp,
       permissions: ConnectionMatrix,
       access: z.array(ToolAccessSchema),
       usedBy: z.array(z.object({ id: z.string(), name: z.string() })),
+      /** The signed-in person connected it (a client user may then disconnect it). */
+      connectedByYou: z.boolean().optional(),
     })
     .nullable(),
 });
@@ -740,8 +772,29 @@ export const opsRoutes = {
     roles: OPS,
     summary:
       "Connect a tool in the Sandbox client (only there: in a real client, the client signs in)",
-    params: z.object({ id: ApiId, connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    params: z.object({ id: ApiId, connector: ConnectorId }),
     response: z.object({ connection: OpsConnection }),
+  }),
+  opsSandboxAuthorize: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/connections/:connector/authorize",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Start the operator's own sign-in to an OAuth tool of the Sandbox client: answers where the provider's sign-in starts (403 not_sandbox in any other client)",
+    params: z.object({ id: ApiId, connector: ConnectorId }),
+    response: z.object({ redirectUrl: z.string() }),
+  }),
+  opsSandboxAuthorizeCallback: defineRoute({
+    method: "POST",
+    path: "/api/ops/connections/:connector/callback",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Finish the operator's sign-in to a Sandbox tool: the provider's parameters, checked against the signed state (its client, user and back-office origin)",
+    params: z.object({ connector: ConnectorId }),
+    body: OAuthCallbackBody,
+    response: z.object({ clientId: z.string(), connection: OpsConnection }),
   }),
   opsOfferConnectors: defineRoute({
     method: "PUT",
@@ -1462,21 +1515,21 @@ export const portalRoutes = {
     method: "POST",
     path: "/api/connections/:connector/authorize",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary:
       "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
-    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    params: z.object({ connector: ConnectorId }),
     response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
   }),
   portalAuthorizeCallback: defineRoute({
     method: "POST",
     path: "/api/connections/:connector/callback",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary:
       "Finish signing in to a tool: the provider's callback parameters, checked against the state",
-    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
-    body: z.strictObject({ params: z.record(z.string(), z.string().max(4096)) }),
+    params: z.object({ connector: ConnectorId }),
+    body: OAuthCallbackBody,
     response: z.object({ connection: PortalConnection }),
   }),
   portalWebhook: defineRoute({
@@ -1565,7 +1618,7 @@ export const portalRoutes = {
     method: "DELETE",
     path: "/api/connections/:id",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary: "Disconnect a tool: agents can no longer use it; its permissions are kept",
     params: IdParams,
     response: z.object({ connection: PortalConnection }),
@@ -1637,5 +1690,6 @@ export const routes = {
   ...browserRoutes,
   ...directoryRoutes,
   ...supervisorRoutes,
+  ...qboRoutes,
 } as const;
 export type Routes = typeof routes;

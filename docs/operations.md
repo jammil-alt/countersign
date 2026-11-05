@@ -98,7 +98,10 @@ After the first run: save the project id from the run summary as the repository 
    "The code service" below.
 5. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
    `https://staging.mezonas.com/api/auth/callback` and `https://app.mezonas.com/api/auth/callback`;
-   Worker secrets `WORKOS_CLIENT_ID`,
+   on each environment's application, a default **Sign-out URI** (`https://staging.mezonas.com/`,
+   `https://app.mezonas.com/`), which sign-out sends as `return_to`; without it WorkOS shows
+   `app-homepage-url-not-found` after signing out (the old app homepage URL is only a deprecated
+   fallback); Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
 
 ### The public site (mezonas.com)
@@ -220,24 +223,87 @@ in by our code (docs/plan.md §1.26). The code is deployed with apps/api; what a
 
 ### Intuit (QuickBooks Online, from M9)
 
-1. An Intuit developer app with the `com.intuit.quickbooks.accounting` scope, a sandbox company, and
-   redirect URIs `https://<domain>/api/connections/qbo/callback` per environment.
-2. Worker secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`; vars `QBO_ENV`,
-   `QBO_REDIRECT_URI`. Production keys need Intuit's app review.
+Done by the owner (2026-11-05):
 
-### Google (Gmail, from M10)
+- Intuit developer app **"Mezonas"**, development keys (sandbox companies only).
+- Scope `com.intuit.quickbooks.accounting` only.
+- Redirect URIs `https://staging.mezonas.com/api/connections/qbo/callback` and
+  `http://localhost:8787/api/connections/qbo/callback`. That route (the same forwarder Gmail uses)
+  passes Intuit's parameters to the portal page `/connections/qbo/callback`, which finishes the
+  sign-in in the client admin's session.
+- The operator's own sign-in to the Sandbox client (plan §1.5, to connect the sandbox company above)
+  uses the same redirect URIs: the forwarder sends a signed back-office state to
+  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho or Podio.
+- Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
+  Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
+  (every 15 minutes, and on any webhook).
+- Sandbox company: realm `9341458640918607` (QBO Plus, US).
+- GitHub staging secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`.
 
-1. A Google Cloud project for Mezonas with the Gmail API enabled.
-2. An OAuth consent screen (external) and a web OAuth client with redirect URIs
-   `https://<domain>/api/connections/gmail/callback` per environment (and `http://localhost:8787/...` for
-   local development).
-3. Scopes `gmail.readonly`, `gmail.labels`, `gmail.compose`. Gmail read scopes are restricted: a public
-   app needs Google's verification and a security assessment, which can take weeks, so start it early.
-   Until then the app works for a limited set of users with a warning screen, and in "testing" status
-   refresh tokens expire after 7 days (clients would have to reconnect weekly). Check the current rules
-   (plan M10). For clients on Google Workspace, domain-wide delegation granted by their admin is the
-   alternative.
-4. Worker secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; var `GOOGLE_REDIRECT_URI`.
+Still to do:
+
+1. `deploy.yml` copies the three secrets into the Worker when set (#70). QuickBooks also needs
+   `OAUTH_STATE_SECRET` and `ENCRYPTION_KEY`, which staging has. Until the client id and secret are
+   set, the portal shows QuickBooks as "not available yet"; without the verifier the webhook answers
+   503.
+2. `QBO_ENV` is a var in `wrangler.jsonc`: `sandbox` locally and on staging, `production` in
+   production. There is no `QBO_REDIRECT_URI`: the redirect URI is `APP_ORIGIN` +
+   `/api/connections/qbo/callback`.
+3. The sync runs as its own Workflow, `QboSyncWorkflow` (binding `QBO_SYNC`; `mezonas-staging-qbo-sync`
+   on staging). Wrangler creates it on the next deploy; nothing to do by hand.
+4. Offer QuickBooks to the Sandbox client in the back office, sign in from its portal with the
+   sandbox company, and walk the "against the sandbox company" list in
+   `packages/connectors/src/qbo/NOTES.md`.
+5. Production: Intuit's app review for production keys, then the production redirect URI
+   `https://app.mezonas.com/api/connections/qbo/callback` and webhook
+   `https://app.mezonas.com/api/connections/qbo/webhook`, and the production secrets.
+
+### Google (Gmail, send only, M10)
+
+Gmail only sends: an agent emails a contact from a mailbox the client connected, after approval.
+Reading mail is done by forwarding (ARCHITECTURE §6.5); we never ask Google for a read scope. What
+we couldn't check against Google's docs is in `packages/connectors/src/gmail/NOTES.md`, "To verify".
+
+1. The Google Cloud project `mezonas` with the Gmail API enabled (done, 2026-11-05).
+2. The web OAuth client "Mezonas web" with redirect URIs `https://staging.mezonas.com/api/connections/gmail/callback`,
+   `https://app.mezonas.com/api/connections/gmail/callback` and
+   `http://localhost:8787/api/connections/gmail/callback` (done, 2026-11-05). The Worker sends people
+   back to `<APP_ORIGIN>/api/connections/gmail/callback`, which matches these; set the var
+   `GOOGLE_REDIRECT_URI` only to use another one.
+3. The consent screen's scopes: **`gmail.send`** (sensitive) plus **`openid`** and **`email`**
+   (Google's basic sign-in scopes, non-sensitive), which tell us which address connected; Gmail's
+   send scope alone can't. Nothing else. The owner is reducing the list to `gmail.send`; add `openid`
+   and `.../auth/userinfo.email` beside it. We never ask for `gmail.readonly`, `gmail.labels`,
+   `gmail.compose`, `gmail.modify` or any other restricted scope (owner, 2026-11-05: no CASA), and
+   the connector refuses a grant that carries one. Asking for any other Gmail scope needs the privacy
+   policy changed first (`apps/site`).
+4. Worker secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (GitHub staging secrets exist;
+   wiring them into `deploy.yml` is the owner's own PR), copied like the other API keys, and
+   `OAUTH_STATE_SECRET`, which Zoho and Podio already use. Until all three are set the portal shows
+   Gmail as "Not available yet".
+5. While the consent screen is in **Testing**: only listed test users can connect, Google shows a
+   warning screen, and refresh tokens expire after 7 days, so a test mailbox must be reconnected
+   weekly (the connection shows "Needs reconnecting" and the supervisor raises it).
+
+What the owner still needs for Google's verification (standard review for a sensitive scope; no
+CASA):
+- **The live site.** `https://mezonas.com` (`apps/site`) live on the verified domain, with the
+  privacy policy (its Google section and the Limited Use statement) linked from the homepage. The
+  site's deploy is its own PR (`claude/site-deploy`, plan §1.29), held until the apex DNS records
+  are cleared.
+- **Domain verification** in Search Console and the domain on the consent screen's authorized
+  domains (done, 2026-11-05).
+- **A demo video** (unlisted, on YouTube): the consent screen in English with the client id visible
+  in the address bar, a person connecting Gmail from the portal's Connections page, an agent's
+  reach-out email waiting for approval in the inbox, approving it, the email arriving from that
+  mailbox, the reply coming back through the forwarding address, and disconnecting (which revokes
+  the grant).
+- **The scope's reason**, for `gmail.send`: "A person at a client business connects their Gmail so
+  that agents can send the emails that person's team has approved (for example asking a vendor for a
+  missing invoice), from their own address. Each message is shown to a person for approval before it
+  is sent. We never read the mailbox; replies reach us only when the client forwards them."
+- Then switch the consent screen to "In production" and submit for verification. Refresh tokens
+  stop expiring after 7 days once it is in production.
 
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
@@ -258,7 +324,9 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
   inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
   these, and the code service never has apps/api's.
-- Later: `QBO_*` and `GOOGLE_*` when those connectors are built, the same way.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Gmail, M10; see "Google" above) and `QBO_CLIENT_ID`,
+  `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (QuickBooks Online, M9) are copied like the API keys when
+  set. Staging has the development keys of both apps (2026-11-05).
 - Needed by the Zoho CRM connector (stream G, 2026-11-04): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only
@@ -281,12 +349,42 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
   ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
   `packages/connectors/src/elevenlabs/NOTES.md`.
-- Needed by billing (stream J, 2026-11-04; wiring them into `deploy.yml` is the coordinator's), copied
-  like the API keys: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a restricted or secret key; test
-  mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the `whsec_…` signing secret of
-  the webhook endpoint `https://<domain>/api/billing/stripe/webhook`). Without the key billing is off;
-  without the webhook secret Stripe's events are refused. Allow `api.stripe.com` in the network if it is
-  restricted. Stripe set-up steps: `packages/connectors/src/stripe/NOTES.md`.
+- Needed by billing (plan §1.32: Mezonas works out each bill, Stripe only bills it), copied like
+  the API keys by `deploy.yml` when set: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a secret
+  or restricted key; test mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the
+  `whsec_…` signing secret of the webhook endpoint `https://<domain>/api/billing/stripe/webhook`).
+  Without the key, billing is off: no client can be set up and no statement is sent, though the
+  daily record and the statements are still kept for clients already set up. Without the webhook
+  secret, Stripe's events are refused, so paid and failed invoices don't show. Allow `api.stripe.com`
+  in the network if it is restricted. Set-up: "Setting up Stripe" below.
+
+#### Setting up Stripe (billing)
+
+Stripe holds only customers and invoices. There are no products, prices, subscriptions or meters
+to create: prices are set in `/ops/billing` and on each template's and client agent's Settings tab.
+
+1. Make a **separate Stripe account for Mezonas** (Twelve Thirty-Four Consulting LLC), not Plenary
+   Labs' account. Nothing is shared with Plenary Labs (CLAUDE.md). Start in test mode for staging.
+2. Make an API key: Developers → API keys. A restricted key needs write access to **Customers**,
+   **Invoices** and **Invoice items**, and read access to the same. Use the secret key if you don't
+   want a restricted one. Keep test and live keys apart: test mode for staging, live mode for
+   production.
+3. Add a webhook endpoint: Developers → Webhooks → Add endpoint, URL
+   `https://<domain>/api/billing/stripe/webhook` (staging's and production's own domain), with these
+   five events: `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `invoice.voided`,
+   `invoice.marked_uncollectible`. Copy its signing secret (`whsec_…`).
+4. Save the two secrets per environment as GitHub environment secrets (`staging`, `production`):
+   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. `deploy.yml` copies them into the Worker on the
+   next deploy.
+5. In Stripe's settings, set the invoice emails, the company name and the payment methods shown on the
+   hosted invoice page (Settings → Billing → Invoices, and Settings → Payments). Stripe emails each
+   invoice, so set a billing email when you set a client up.
+6. In `/ops/billing`, set the credit price, the default agent price and credits, and the template
+   prices. Leave auto-send off until the first statements have been checked by hand. Then set each
+   client up from its page (this creates the Stripe customer).
+
+What to check against Stripe's docs and a test-mode account before the first real invoice:
+`packages/connectors/src/stripe/NOTES.md` (UNCHECKED items).
 - Needed for email reach-outs (plan §1.25; wiring into `deploy.yml` is the coordinator's):
   `RESEND_API_KEY` (Mezonas' Resend account: it only makes each client's domain and a sending key
   restricted to it, which is encrypted in the client's `resend` connection),
@@ -371,6 +469,24 @@ nothing itself.
    longer than this are reported).
 
 To stop it, pause the agent. Its findings stay in the inbox until someone marks them done.
+
+### Adding the Bill clerk to a client
+
+The Bill clerk (`docs/plan.md` §1.30) matches each read vendor invoice to its bill in QuickBooks
+and, after approval, itemizes the bill, attaches the invoice and notes it in the memo.
+
+1. **The template must be installed**: `bill-clerk` (`packages/db/seed/agents/bill-clerk.v1.json`),
+   as for the supervisor above (the seed on staging, by hand on production).
+2. **The client connects QuickBooks** from the portal's Connections page, and the first sync runs.
+3. **Fork it** into the client from the template, bind its QuickBooks connection (Operation), and
+   publish. It can't publish without the binding.
+4. **Test-run** `invoice-read` with a read invoice's `document.extracted` payload (`documentId`,
+   `extractionId`, `lineCount`, `totalsValid: true`): it proposes its changes and writes nothing.
+   Then Activate.
+5. **What it does then.** On every invoice read with totals that add up, it finds the bill (same
+   vendor, total to the cent, ± 7 days, document number). No bill, or several: the client admin is
+   asked, nothing is written. One bill with fewer lines than the invoice and the same total: three
+   approvals in turn (itemize, attach, memo), each written once.
 
 ## 2. What CI does
 

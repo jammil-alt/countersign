@@ -15,6 +15,7 @@ import {
 } from "@countersign/connectors";
 import {
   clientLabel,
+  connectionAccountName,
   findStep,
   isClientVisible,
   isPlainObject,
@@ -149,11 +150,21 @@ export function hasCredentialForm(connector: Pick<Connector, "manifest"> | undef
   return connector?.manifest.auth === "api_key" && Boolean(connector.manifest.credentialFields);
 }
 
+/**
+ * Connectors for a person's own account: a client user may sign in to theirs (and disconnect what
+ * they connected), not only the client admin (ARCHITECTURE §6.4, plan M10).
+ */
+// DECISION: named here, where apps/api names connectors, rather than in the manifest: Gmail is the
+// only one, and the rule is the portal's, not the connector's.
+export const PERSONAL_CONNECTORS: ReadonlySet<string> = new Set(["gmail"]);
+
 export async function portalConnections(
   tx: Tx,
   tenantId: string,
   platform: Platform,
   only?: string,
+  /** The signed-in person, for `connectedByYou`. */
+  viewerId?: string,
 ): Promise<
   {
     connector: string;
@@ -162,14 +173,17 @@ export async function portalConnections(
     icon: string | null;
     available: boolean;
     credentialForm: boolean;
+    personal: boolean;
     connection: {
       id: string;
       status: string;
       externalAccountId: string | null;
+      accountName: string | null;
       lastSyncAt: string | null;
       permissions: ReturnType<typeof normalizeMatrix>;
       access: ReturnType<typeof describeAccess>;
       usedBy: { id: string; name: string }[];
+      connectedByYou: boolean;
     } | null;
   }[]
 > {
@@ -206,14 +220,17 @@ export async function portalConnections(
       icon: manifest?.icon ?? null,
       available: canSignIn(platform.connectors.get(id)),
       credentialForm: hasCredentialForm(platform.connectors.get(id)),
+      personal: PERSONAL_CONNECTORS.has(id),
       connection: c && {
         id: c.id,
         status: c.status,
         externalAccountId: c.externalAccountId,
+        accountName: connectionAccountName(c.config),
         lastSyncAt: iso(c.lastSyncAt),
         permissions: normalizeMatrix(c.permissions),
         access: manifest ? describeAccess(manifest, c.permissions) : [],
         usedBy: usedBy(c),
+        connectedByYou: viewerId !== undefined && c.connectedBy === viewerId,
       },
     };
   });
@@ -420,8 +437,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.portalConnections, async ({ tx, tenantIds, services }) => ({
-    connections: await portalConnections(tx, tenantIds[0] as string, services.platform),
+  mount(app, routes.portalConnections, async ({ tx, tenantIds, services, session }) => ({
+    connections: await portalConnections(
+      tx,
+      tenantIds[0] as string,
+      services.platform,
+      undefined,
+      session.user.id,
+    ),
   }));
 
   mount(app, routes.portalTightenPermissions, async (ctx) => {

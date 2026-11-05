@@ -290,6 +290,14 @@ export {
   fakeElevenLabs,
 } from "./elevenlabs/fake";
 export {
+  FAKE_GOOGLE,
+  type FakeGmailMessage,
+  type FakeGoogle,
+  fakeGoogle,
+  readSentEmail,
+} from "./gmail/fake";
+export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
+export {
   FAKE_RESEND_MAIN,
   type FakeResend,
   type FakeResendEmail,

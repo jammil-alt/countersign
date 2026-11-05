@@ -586,13 +586,14 @@ class Executor {
     await this.runner.do(name, async () => {
       const text = renderTemplate(step.message, frame.scope);
       const to = step.to === undefined ? null : renderTemplate(step.to, frame.scope);
+      const sources = noticeSources(step.sources, frame.scope);
       const id = await log.start({
         runId: run.id,
         nodeId: name,
         nodeType: "notify",
-        input: { channel: step.channel, to, text },
+        input: { channel: step.channel, to, text, ...(sources.length ? { sources } : {}) },
       });
-      await notify.send({ run, step, nodeId: name, channel: step.channel, to, text });
+      await notify.send({ run, step, nodeId: name, channel: step.channel, to, text, sources });
       await log.update(id, {
         status: "succeeded",
         summary: `${clientLabel(step)}: ${this.words.sent}`,
@@ -613,6 +614,20 @@ class Executor {
     });
     throw new RunEnd({ status: step.status, reason: "stop", nodeId: name });
   }
+}
+
+/**
+ * A notify step's sources as record ids: each entry resolved, lists flattened, anything that isn't
+ * a non-empty string dropped, duplicates removed, in order.
+ */
+export function noticeSources(entries: readonly string[] | undefined, scope: unknown): string[] {
+  const out: string[] = [];
+  const add = (v: unknown) => {
+    if (Array.isArray(v)) for (const x of v) add(x);
+    else if (typeof v === "string" && v.trim() && !out.includes(v.trim())) out.push(v.trim());
+  };
+  for (const e of entries ?? []) add(resolveTemplate(e, scope));
+  return out;
 }
 
 /**

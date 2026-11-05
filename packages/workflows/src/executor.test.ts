@@ -658,7 +658,29 @@ describe("wait, notify and stop", () => {
       to: "ap@example.com",
       text: "Total 12.00",
       run: RUN,
+      sources: [],
     });
+  });
+
+  it("cites its sources: ids and lists of ids, flattened, without blanks or repeats", async () => {
+    const h = new Harness();
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      wf([
+        {
+          id: "n",
+          kind: "notify",
+          name: "Tell",
+          channel: "thread",
+          message: "Done",
+          sources: ["{{trigger.doc}}", "{{trigger.more}}", "{{trigger.missing}}", "fixed-id"],
+        },
+      ]),
+      { doc: "d1", more: ["t1", "d1", "", 7, "t2"] },
+    );
+    expect(h.sent[0]?.sources).toEqual(["d1", "t1", "t2", "fixed-id"]);
+    expect(h.row("n")?.input).toMatchObject({ sources: ["d1", "t1", "t2", "fixed-id"] });
   });
 
   it("ends the run with the stop step's status", async () => {

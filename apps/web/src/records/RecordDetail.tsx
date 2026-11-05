@@ -45,7 +45,7 @@ function txnStatus(s: string, { t }: Pick<I18n, "t">): { label: string; tone: To
 }
 
 /** A calendar day as stored (YYYY-MM-DD) in the reader's format; anything else as it is. */
-function day(value: string | null, { fmt }: Pick<I18n, "fmt">): string {
+export function day(value: string | null, { fmt }: Pick<I18n, "fmt"> = EN): string {
   if (!value) return "–";
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? fmt.date(`${value}T12:00:00`) : value;
 }

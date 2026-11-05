@@ -1,7 +1,9 @@
 // The route contract (docs/plan.md §1.2 "Role checks"), checked statically and against the running
 // app: every /api/ops route is operator-only and refuses client roles; no portal response schema
-// has bundle, instruction, prompt or cost fields; every contract route is mounted.
+// has bundle, instruction, prompt or cost fields; every contract route is mounted; the operator's
+// own sign-in to a tool works only in the Sandbox client.
 
+import { createOAuthState } from "@countersign/connectors";
 import {
   buildPath,
   checkRouteContract,
@@ -11,7 +13,7 @@ import {
   routes,
 } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, user } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
 
 const ROUTES = Object.entries(routes) as [string, RouteSpec][];
 
@@ -31,7 +33,8 @@ describe("route contract (static)", () => {
   });
 });
 
-const h = await createApiHarness();
+const STATE_SECRET = "contract-state-secret-".repeat(2);
+const h = await createApiHarness({ env: { OAUTH_STATE_SECRET: STATE_SECRET } });
 afterAll(() => h?.close());
 
 describe.skipIf(!h)("route contract (running app)", () => {
@@ -81,6 +84,38 @@ describe.skipIf(!h)("route contract (running app)", () => {
         { "x-countersign-client": harness.A.tenantId },
       );
       expect(res.status, name).toBe(403);
+    }
+  });
+
+  // docs/plan.md §1.5: the operator connects tools only in the Sandbox client, their own test client.
+  it("refuses the operator's own tool sign-in outside the Sandbox, and to client roles", async () => {
+    const start = buildPath(routes.opsSandboxAuthorize.path, {
+      id: harness.A.tenantId,
+      connector: "testkit",
+    });
+    const finish = buildPath(routes.opsSandboxAuthorizeCallback.path, { connector: "testkit" });
+    const state = (
+      await createOAuthState(
+        {
+          tenantId: harness.A.tenantId,
+          connector: "testkit",
+          userId: harness.operator,
+          origin: "ops",
+        },
+        { secret: STATE_SECRET },
+      )
+    ).state;
+    const body = { params: { code: "c", state } };
+    for (const [res, what] of [
+      [await harness.call(OPERATOR, "POST", start), "authorize"],
+      [await harness.call(OPERATOR, "POST", finish, body), "callback"],
+    ] as const) {
+      expect(res.status, what).toBe(403);
+      expect((res.json as { error: { code: string } }).error.code, what).toBe("not_sandbox");
+    }
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "POST", start)).status, who).toBe(403);
+      expect((await harness.call(who, "POST", finish, body)).status, who).toBe(403);
     }
   });
 });

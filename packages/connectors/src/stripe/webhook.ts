@@ -69,12 +69,16 @@ export const StripeEvent = z.object({
 });
 export type StripeEvent = z.infer<typeof StripeEvent>;
 
-/** The events billing acts on; others are acknowledged and ignored. */
+/**
+ * The events billing acts on (docs/plan.md §1.32): an invoice we sent is finalized, paid, failed,
+ * voided or marked uncollectible. Others are acknowledged and dropped.
+ */
 export const STRIPE_HANDLED_EVENTS = [
+  "invoice.finalized",
   "invoice.paid",
   "invoice.payment_failed",
-  "customer.subscription.updated",
-  "customer.subscription.deleted",
+  "invoice.voided",
+  "invoice.marked_uncollectible",
 ] as const;
 export type StripeHandledEvent = (typeof STRIPE_HANDLED_EVENTS)[number];
 
@@ -91,83 +95,62 @@ const InvoiceObject = z.object({
   total: z.number().int(),
   amount_paid: z.number().int().optional(),
   amount_due: z.number().int().optional(),
+  due_date: z.number().int().nullish(),
   hosted_invoice_url: z.string().nullish(),
+  invoice_pdf: z.string().nullish(),
+  metadata: z.record(z.string(), z.string()).nullish(),
 });
 
-const SubscriptionObject = z.object({
-  id: z.string(),
-  customer: z.string(),
-  status: z.string(),
-  items: z
-    .object({
-      data: z.array(
-        z.object({
-          id: z.string(),
-          quantity: z.number().int().nullish(),
-          price: z.object({ id: z.string() }),
-        }),
-      ),
-    })
-    .optional(),
-});
+/** What an invoice event means for its statement. */
+export type InvoiceOutcome = "finalized" | "paid" | "payment_failed" | "voided" | "uncollectible";
 
-export type StripeEventSummary =
-  | {
-      kind: "invoice";
-      customerId: string;
-      objectId: string;
-      outcome: "paid" | "payment_failed";
-      number: string | null;
-      status: string | null;
-      total: string;
-      currency: string;
-      hostedInvoiceUrl: string | null;
-    }
-  | {
-      kind: "subscription";
-      customerId: string;
-      objectId: string;
-      status: string;
-      deleted: boolean;
-      items: { id: string; priceId: string; quantity: number | null }[];
-    };
+const OUTCOME: Record<StripeHandledEvent, InvoiceOutcome> = {
+  "invoice.finalized": "finalized",
+  "invoice.paid": "paid",
+  "invoice.payment_failed": "payment_failed",
+  "invoice.voided": "voided",
+  "invoice.marked_uncollectible": "uncollectible",
+};
+
+export interface StripeEventSummary {
+  kind: "invoice";
+  outcome: InvoiceOutcome;
+  customerId: string;
+  objectId: string;
+  number: string | null;
+  status: string | null;
+  /** The invoice's total as a decimal string, and its currency (upper case). */
+  total: string;
+  currency: string;
+  hostedInvoiceUrl: string | null;
+  pdfUrl: string | null;
+  /** ISO time, or null. */
+  dueAt: string | null;
+  /** What we set on the invoice: our statement and client. */
+  statementId: string | null;
+  tenantId: string | null;
+}
 
 /** What billing reads from a handled event, or null when its object isn't what we expect. */
 export function summarizeStripeEvent(event: StripeEvent): StripeEventSummary | null {
-  if (event.type === "invoice.paid" || event.type === "invoice.payment_failed") {
-    const i = InvoiceObject.safeParse(event.data.object);
-    if (!i.success) return null;
-    const total = fromMinorUnits(i.data.total, i.data.currency);
-    return {
-      kind: "invoice",
-      customerId: i.data.customer,
-      objectId: i.data.id,
-      outcome: event.type === "invoice.paid" ? "paid" : "payment_failed",
-      number: i.data.number ?? null,
-      status: i.data.status ?? null,
-      total: total.amount,
-      currency: total.currency,
-      hostedInvoiceUrl: i.data.hosted_invoice_url ?? null,
-    };
-  }
-  if (
-    event.type === "customer.subscription.updated" ||
-    event.type === "customer.subscription.deleted"
-  ) {
-    const s = SubscriptionObject.safeParse(event.data.object);
-    if (!s.success) return null;
-    return {
-      kind: "subscription",
-      customerId: s.data.customer,
-      objectId: s.data.id,
-      status: s.data.status,
-      deleted: event.type === "customer.subscription.deleted",
-      items: (s.data.items?.data ?? []).map((it) => ({
-        id: it.id,
-        priceId: it.price.id,
-        quantity: it.quantity ?? null,
-      })),
-    };
-  }
-  return null;
+  if (!isHandledStripeEvent(event.type)) return null;
+  const i = InvoiceObject.safeParse(event.data.object);
+  if (!i.success) return null;
+  const total = fromMinorUnits(i.data.total, i.data.currency);
+  const meta = i.data.metadata ?? {};
+  return {
+    kind: "invoice",
+    outcome: OUTCOME[event.type],
+    customerId: i.data.customer,
+    objectId: i.data.id,
+    number: i.data.number ?? null,
+    status: i.data.status ?? null,
+    total: total.amount,
+    currency: total.currency,
+    hostedInvoiceUrl: i.data.hosted_invoice_url ?? null,
+    pdfUrl: i.data.invoice_pdf ?? null,
+    dueAt: i.data.due_date ? new Date(i.data.due_date * 1000).toISOString() : null,
+    statementId: meta.statement_id ?? null,
+    tenantId: meta.tenant_id ?? null,
+  };
 }

@@ -1,6 +1,7 @@
 // Back office: clients, their connections, runs across clients, and the operator inbox
 // (ARCHITECTURE §14). Every handler runs inside withOperator(the clients this operator serves).
 
+import type { Approver } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import {
@@ -19,7 +20,7 @@ import {
   toolCall,
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, count, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
@@ -37,11 +38,64 @@ import {
   opsToolCall,
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
+import { canSignIn } from "./portal";
 import { addSupervisor } from "./supervisor";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
 export function isSandbox(settings: Record<string, unknown>): boolean {
   return settings.sandbox === true;
+}
+
+/**
+ * The Sandbox client, for the routes that connect its tools from the back office: 404 unless this
+ * operator serves the client, 403 `not_sandbox` for any other client.
+ */
+// DECISION: the operator connects tools only in the Sandbox client, their own test client with no
+// client users (docs/plan.md §1.5): its no-sign-in tools, and since 2026-11-05 its OAuth tools with
+// the operator's own sign-in. In a real client the client signs in from the portal, and the
+// operator never connects on their behalf (ARCHITECTURE §6.1).
+export async function sandboxClient(ctx: { tx: Tx; tenantIds: readonly string[] }, id: string) {
+  ensureClient(ctx, id);
+  const [t] = await ctx.tx.select().from(tenant).where(eq(tenant.id, id));
+  if (!t) throw notFound("client");
+  if (!isSandbox(t.settings)) {
+    throw new HttpError(
+      403,
+      "not_sandbox",
+      "only the Sandbox client's tools are connected from the back office",
+    );
+  }
+  return t;
+}
+
+/** Which of these clients is the Sandbox, read from their settings. */
+async function sandboxIds(tx: Tx, tenantIds: readonly string[]): Promise<Set<string>> {
+  const ids = [...new Set(tenantIds)];
+  const rows = ids.length
+    ? await tx
+        .select({ id: tenant.id, settings: tenant.settings })
+        .from(tenant)
+        .where(inArray(tenant.id, ids))
+    : [];
+  return new Set(rows.filter((t) => isSandbox(t.settings)).map((t) => t.id));
+}
+
+/**
+ * The signed-in operator as the one resolving these clients' inbox items, per client. In the
+ * Sandbox they resolve every item (packages/agents' `mayResolve`); which client is the Sandbox is
+ * read from its settings here, never taken from a request.
+ */
+export async function operatorApprovers(
+  tx: Tx,
+  userId: string,
+  tenantIds: readonly string[],
+): Promise<(tenantId: string) => Approver> {
+  const sandboxes = await sandboxIds(tx, tenantIds);
+  return (tenantId) => ({
+    userId,
+    role: "operator",
+    ...(sandboxes.has(tenantId) ? { sandbox: true } : {}),
+  });
 }
 
 /** `tenant.settings.connectors_offered`, as connector ids. */
@@ -248,6 +302,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         description: c.manifest.description,
         icon: c.manifest.icon ?? null,
         auth: c.manifest.auth,
+        available: canSignIn(c),
         tools: c.manifest.tools.map((tool) => ({
           id: tool.id,
           description: tool.description,
@@ -262,19 +317,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsConnectSandbox, async (ctx) => {
     const { tx, params, services, session } = ctx;
-    ensureClient(ctx, params.id);
-    const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
-    if (!t) throw notFound("client");
-    // DECISION: the operator connects tools only in the Sandbox client, their own test client with
-    // no client users (docs/plan.md §1.5). In a real client the client signs in from the portal,
-    // and the operator never connects on their behalf (ARCHITECTURE §6.1).
-    if (!isSandbox(t.settings)) {
-      throw new HttpError(
-        403,
-        "not_sandbox",
-        "only the Sandbox client's tools are connected from the back office",
-      );
-    }
+    const t = await sandboxClient(ctx, params.id);
     const id = await connectNoAuth(tx, {
       tenantId: t.id,
       connector: params.connector,
@@ -385,7 +428,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.opsRun, async ({ tx, params, tenantIds }) => {
+  mount(app, routes.opsRun, async ({ tx, params, tenantIds, session }) => {
     const [r] = await tx
       .select()
       .from(run)
@@ -427,12 +470,13 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
     const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
     const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
+    const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
     return {
       run: opsRun(r),
       steps: steps.map(opsStep),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map(opsAction),
-      inbox: items.map(opsInboxItem),
+      inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId))),
       agent: ref ?? null,
       version: version?.version ?? null,
       workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
@@ -449,15 +493,28 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       eq(inboxItem.status, query.status),
     ];
     if (query.client) where.push(eq(inboxItem.tenantId, query.client));
-    if (query.assigned === "operator") where.push(eq(inboxItem.assigneeRole, "operator"));
+    if (query.assigned === "operator") {
+      // DECISION: "Assigned to you" also lists every item of the Sandbox, which the operator
+      // resolves whoever it is assigned to (docs/plan.md §1.5 "Sandbox inbox").
+      const sandboxes = [...(await sandboxIds(tx, ctx.tenantIds))];
+      const mine = eq(inboxItem.assigneeRole, "operator");
+      where.push(
+        sandboxes.length ? (or(mine, inArray(inboxItem.tenantId, sandboxes)) as SQL) : mine,
+      );
+    }
     const rows = await tx
       .select()
       .from(inboxItem)
       .where(and(...where))
       .orderBy(desc(inboxItem.createdAt))
       .limit(200);
+    const operatorIn = await operatorApprovers(
+      tx,
+      ctx.session.user.id,
+      rows.map((i) => i.tenantId),
+    );
     return {
-      items: rows.map(opsInboxItem),
+      items: rows.map((i) => opsInboxItem(i, operatorIn(i.tenantId))),
       agents: await agentRefs(
         tx,
         ctx.tenantIds,
@@ -473,11 +530,13 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .from(inboxItem)
       .where(and(eq(inboxItem.id, params.id), inArray(inboxItem.tenantId, [...ctx.tenantIds])));
     if (!item) throw notFound("inbox item");
+    // Recorded as the operator, as everywhere; in the Sandbox they may resolve any item.
+    const by = (await operatorApprovers(tx, session.user.id, [item.tenantId]))(item.tenantId);
     const collect: EventRow[] = [];
     const outcome = await resolveInboxItem(tx, {
       tenantId: item.tenantId,
       itemId: params.id,
-      by: { userId: session.user.id, role: "operator" },
+      by,
       body,
       registry: services.platform.events,
       collect,
@@ -491,6 +550,6 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
     }
-    return { item: opsInboxItem(outcome.item) };
+    return { item: opsInboxItem(outcome.item, by) };
   });
 }
