@@ -14,6 +14,19 @@ const LIMITED_USE =
   "Mezonas' use and transfer of information received from Google APIs to any other app will " +
   "adhere to the Google API Services User Data Policy, including the Limited Use requirements.";
 const POLICY_URL = "https://developers.google.com/terms/api-services-user-data-policy";
+const ENTITY = "Twelve Thirty-Four Consulting LLC";
+/** The sentences carriers look for during A2P 10DLC review, word for word. */
+const SMS_PRIVACY = [
+  "No mobile information will be shared with third parties or affiliates for marketing or " +
+    "promotional purposes.",
+  "Text messaging originator opt-in data and consent will not be shared with any third parties.",
+];
+const SMS_TERMS = [
+  "Message frequency varies.",
+  "Message and data rates may apply.",
+  "Reply STOP to opt out, HELP for help.",
+  "Carriers are not liable for delayed or undelivered messages.",
+];
 
 let out: string;
 let pages: Page[];
@@ -75,6 +88,7 @@ describe("pages", () => {
       "404",
       "index",
       "privacy",
+      "sms-terms",
       "subprocessors",
       "terms",
     ]);
@@ -84,7 +98,7 @@ describe("pages", () => {
     }
   });
 
-  it.each(["index", "terms", "privacy", "subprocessors", "404"])(
+  it.each(["index", "terms", "privacy", "subprocessors", "sms-terms", "404"])(
     "%s has a title, description, favicon, landmarks and one h1",
     (name) => {
       const { html, title, description } = page(name);
@@ -154,29 +168,66 @@ describe("privacy policy", () => {
   });
 });
 
+describe("company", () => {
+  it("names the legal entity on the terms and the privacy policy, and leaves no placeholder for it", () => {
+    for (const name of ["terms", "privacy", "sms-terms"]) {
+      expect(visibleText(page(name).html), name).toContain(ENTITY);
+    }
+    for (const p of pages) expect(p.html, p.name).not.toContain("[Legal entity name]");
+  });
+});
+
+describe("text messages", () => {
+  it("has the carriers' privacy sentences, word for word, in the privacy policy", () => {
+    const text = visibleText(page("privacy").html);
+    for (const sentence of SMS_PRIVACY) expect(text).toContain(sentence);
+  });
+
+  it("has the disclosures, STOP and HELP on the text message terms", () => {
+    const text = visibleText(page("sms-terms").html);
+    for (const sentence of [...SMS_TERMS, SMS_PRIVACY[0] ?? ""]) expect(text).toContain(sentence);
+    expect(text).toMatch(/\bSTOP\b/);
+    expect(text).toMatch(/\bHELP\b/);
+    expect(text).toMatch(/\bSTART\b/);
+  });
+
+  it("is linked from the terms and from every page's footer", () => {
+    expect(attrs(page("terms").html, "href")).toContain("/sms-terms");
+    for (const p of pages) {
+      const footer = p.html.slice(p.html.indexOf("<footer"));
+      expect(attrs(footer, "href"), p.name).toContain("/sms-terms");
+    }
+  });
+});
+
 describe("landing page", () => {
   it("links to the terms, the privacy policy and the subprocessors", () => {
     const hrefs = attrs(page("index").html, "href");
-    for (const p of ["/terms", "/privacy", "/subprocessors"]) expect(hrefs).toContain(p);
+    for (const p of ["/terms", "/privacy", "/subprocessors", "/sms-terms"]) {
+      expect(hrefs).toContain(p);
+    }
   });
 
   it("has a Terms and policies section and the company line in the footer", () => {
     const text = visibleText(page("index").html);
     expect(text).toContain("Terms and policies");
-    expect(text).toContain("Mezonas, a Twelve Thirty-Four company");
-    expect(text).toContain("© 2026 Mezonas");
+    expect(text).toContain(`Mezonas, a product of ${ENTITY}`);
+    expect(text).toContain(`© 2026 ${ENTITY}`);
   });
 });
 
 describe("legal pages", () => {
-  it.each(["terms", "privacy", "subprocessors"])("%s shows its date and the draft note", (name) => {
-    const p = page(name);
-    expect(p.legal).toBe(true);
-    expect(visibleText(p.html)).toMatch(/Last updated [A-Z][a-z]+ \d{1,2}, \d{4}/);
-    expect(p.html).toContain('<time datetime="');
-    // The note stays while any placeholder does.
-    expect(p.placeholders.length > 0).toBe(p.html.includes("Draft for legal review"));
-  });
+  it.each(["terms", "privacy", "subprocessors", "sms-terms"])(
+    "%s shows its date and the draft note",
+    (name) => {
+      const p = page(name);
+      expect(p.legal).toBe(true);
+      expect(visibleText(p.html)).toMatch(/Last updated [A-Z][a-z]+ \d{1,2}, \d{4}/);
+      expect(p.html).toContain('<time datetime="');
+      // The note stays while any placeholder does.
+      expect(p.placeholders.length > 0).toBe(p.html.includes("Draft for legal review"));
+    },
+  );
 
   it("marks every placeholder and lists each one in the README", () => {
     const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");

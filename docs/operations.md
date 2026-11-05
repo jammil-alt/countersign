@@ -185,12 +185,14 @@ in by our code (docs/plan.md §1.26). The code is deployed with apps/api; what a
 2. An OAuth consent screen (external) and a web OAuth client with redirect URIs
    `https://<domain>/api/connections/gmail/callback` per environment (and `http://localhost:8787/...` for
    local development).
-3. Scopes `gmail.readonly`, `gmail.labels`, `gmail.compose`. Gmail read scopes are restricted: a public
-   app needs Google's verification and a security assessment, which can take weeks, so start it early.
-   Until then the app works for a limited set of users with a warning screen, and in "testing" status
-   refresh tokens expire after 7 days (clients would have to reconnect weekly). Check the current rules
-   (plan M10). For clients on Google Workspace, domain-wide delegation granted by their admin is the
-   alternative.
+3. Scope **`gmail.send` only** (owner, 2026-11-05; ARCHITECTURE §6.4). It is a sensitive scope:
+   Google's standard verification, with no CASA security assessment. We never ask for `gmail.readonly`,
+   `gmail.labels`, `gmail.compose` or any other restricted scope; reading mail is done by forwarding
+   (ARCHITECTURE §6.5). Verification needs the live site at `https://mezonas.com` (`apps/site`) with its privacy
+   policy, the verified domain, a demo video and a reason for the scope. Until it is approved the
+   app works for a limited set of test users with a warning screen, and in "testing" status refresh
+   tokens expire after 7 days (clients would have to reconnect weekly). Check the current rules (plan
+   M10). Asking for any other Gmail scope needs the privacy policy changed first (`apps/site`).
 4. Worker secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; var `GOOGLE_REDIRECT_URI`.
 
 ### Worker secrets (set by `deploy.yml`, never by hand)
