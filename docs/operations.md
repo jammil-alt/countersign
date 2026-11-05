@@ -125,7 +125,11 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   when the Worker doesn't have them yet, and never shown or stored anywhere else. If the job can't read
   the Worker's existing secrets it stops instead of generating, so `ENCRYPTION_KEY` is never replaced by
   accident (replacing it would make stored connection credentials unreadable; rotation is described in
-  `packages/connectors/src/credentials.ts`).
+  `packages/connectors/src/credentials.ts`). Since Access phase 1 (`docs/plan.md` §1.26) it wraps each
+  client's own data key (`tenant_key`) rather than encrypting credentials itself. To rotate it: set the
+  new key as `ENCRYPTION_KEY` and the old one as `ENCRYPTION_KEY_PREVIOUS`; the hourly cron re-wraps
+  every client key and re-encrypts any v1 credentials; drop the old key once no `tenant_key` row's
+  `wrapped_key->>'kid'` and no v1 envelope names it.
 - Later: `QBO_*` and `GOOGLE_*` when those connectors are built, the same way.
 - Needed by the Zoho CRM connector (stream G, 2026-11-04; wiring them into `deploy.yml` is the
   coordinator's): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,

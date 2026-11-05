@@ -47,6 +47,9 @@ export const es: Messages = {
   "error.invalid_state": "Eso no se puede hacer ahora.",
   "error.feedback_off": "Los comentarios no están activados para usted.",
   "error.not_configured": "Esto aún no está configurado en este sitio.",
+  "error.loosening": "Solo nosotros podemos ampliar esto. Usted puede restringirlo.",
+  "error.invalid_credentials": "Complete todos los campos.",
+  "error.invalid_grant": "Ese acceso no es posible para esta herramienta.",
 
   // ── Shell ──
   "shell.navigation": "Navegación",
@@ -77,6 +80,7 @@ export const es: Messages = {
   "nav.contacts": "Contactos",
   "nav.billing": "Facturación",
   "nav.people": "Personas",
+  "nav.access": "Accesos",
   "page.service": "Servicio",
 
   // ── Overview ──
@@ -210,6 +214,7 @@ export const es: Messages = {
   "connections.reconnect": "Volver a conectar",
   "connections.connect": "Conectar",
   "connections.adminCanConnect": "Su administrador puede conectarla.",
+  "connections.enterKey": "Ingresar su acceso",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Sin conectar",
   "connection.status.disconnected": "Desconectada",
@@ -238,6 +243,48 @@ export const es: Messages = {
   "callback.subtitle": "Terminando el inicio de sesión en su herramienta.",
   "callback.back": "Volver a Conexiones",
   "callback.connecting": "Conectando…",
+
+  // ── Access (the vault and agents' access) ──
+  "vault.title": "Accesos",
+  "vault.subtitle":
+    "Cada forma de entrar a sus herramientas, si su secreto está guardado y qué agentes pueden usarla.",
+  "vault.setupTitle": "Configurar",
+  "vault.setupHint":
+    "Ingrese el acceso de cada herramienta. Lo guardamos cifrado con su propia clave. Nadie puede volver a leerlo, ni siquiera nosotros.",
+  "vault.itemsTitle": "Su bóveda · {count}",
+  "vault.none": "Su bóveda aún está vacía.",
+  "vault.connectionsLink": "Conectar una herramienta",
+  "vault.kind.oauth": "Sesión iniciada en su cuenta",
+  "vault.kind.api_key": "Clave de API",
+  "vault.kind.browser": "Acceso a un sitio web",
+  "vault.kind.built_in": "Incluida",
+  "vault.secretSet": "Secreto guardado",
+  "vault.secretNotSet": "Sin secreto guardado",
+  "vault.fieldSet": "Guardado",
+  "vault.fieldNotSet": "Sin completar",
+  "vault.updated": "Actualizado {time}",
+  "vault.enterKey": "Ingresar el acceso",
+  "vault.replaceKey": "Reemplazar el acceso",
+  "vault.saveKey": "Guardar",
+  "vault.keyNote":
+    "Complete todos los campos. Puede reemplazar o quitar lo que ingrese, pero nadie podrá verlo de nuevo.",
+  "vault.agentsTitle": "Agentes que pueden usarla",
+  "vault.noAgents": "Ningún agente la usa todavía.",
+  "vault.tools": "Herramientas",
+  "vault.allTools": "Todas las herramientas",
+  "vault.someTools": {
+    one: "{count} de {total} herramientas",
+    other: "{count} de {total} herramientas",
+  },
+  "vault.revoked": "Revocado",
+  "vault.tighten": "Restringir",
+  "vault.revoke": "Revocar",
+  "vault.revokeWarning":
+    "{agent} deja de usar {tool} de inmediato. Solo nosotros podemos devolverle el acceso.",
+  "vault.keepAccess": "Mantener el acceso",
+  "vault.tightenNote":
+    "Usted puede restringir lo que hace un agente. Solo nosotros podemos ampliarlo de nuevo.",
+  "vault.saveAccess": "Guardar el acceso",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuración",

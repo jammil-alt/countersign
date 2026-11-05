@@ -47,6 +47,9 @@ export const de: Messages = {
   "error.invalid_state": "Das geht gerade nicht.",
   "error.feedback_off": "Feedback ist für Sie nicht eingeschaltet.",
   "error.not_configured": "Das ist auf dieser Website noch nicht eingerichtet.",
+  "error.loosening": "Nur wir können das lockern. Sie können es verschärfen.",
+  "error.invalid_credentials": "Füllen Sie alle Felder aus.",
+  "error.invalid_grant": "Dieser Zugriff ist für dieses Tool nicht möglich.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -78,6 +81,7 @@ export const de: Messages = {
   "nav.contacts": "Kontakte",
   "nav.billing": "Abrechnung",
   "nav.people": "Personen",
+  "nav.access": "Zugriff",
   "page.service": "Service",
 
   // ── Overview ──
@@ -213,6 +217,7 @@ export const de: Messages = {
   "connections.reconnect": "Neu verbinden",
   "connections.connect": "Verbinden",
   "connections.adminCanConnect": "Ihr Admin kann es verbinden.",
+  "connections.enterKey": "Zugangsdaten eingeben",
   "connection.status.connected": "Verbunden",
   "connection.status.pending": "Nicht verbunden",
   "connection.status.disconnected": "Getrennt",
@@ -241,6 +246,48 @@ export const de: Messages = {
   "callback.subtitle": "Die Anmeldung bei Ihrem Tool wird abgeschlossen.",
   "callback.back": "Zurück zu den Verbindungen",
   "callback.connecting": "Wird verbunden…",
+
+  // ── Access (the vault and agents' access) ──
+  "vault.title": "Zugriff",
+  "vault.subtitle":
+    "Jeder Zugang zu Ihren Tools, ob sein Geheimnis gespeichert ist und welche Agenten ihn nutzen können.",
+  "vault.setupTitle": "Einrichten",
+  "vault.setupHint":
+    "Geben Sie die Zugangsdaten für jedes Tool ein. Wir speichern sie verschlüsselt mit Ihrem eigenen Schlüssel. Niemand kann sie wieder lesen, auch wir nicht.",
+  "vault.itemsTitle": "Ihr Tresor · {count}",
+  "vault.none": "Ihr Tresor ist noch leer.",
+  "vault.connectionsLink": "Ein Tool verbinden",
+  "vault.kind.oauth": "Bei Ihrem Konto angemeldet",
+  "vault.kind.api_key": "API-Schlüssel",
+  "vault.kind.browser": "Website-Zugang",
+  "vault.kind.built_in": "Integriert",
+  "vault.secretSet": "Geheimnis gespeichert",
+  "vault.secretNotSet": "Kein Geheimnis gespeichert",
+  "vault.fieldSet": "Gesetzt",
+  "vault.fieldNotSet": "Nicht gesetzt",
+  "vault.updated": "Aktualisiert {time}",
+  "vault.enterKey": "Zugangsdaten eingeben",
+  "vault.replaceKey": "Zugangsdaten ersetzen",
+  "vault.saveKey": "Speichern",
+  "vault.keyNote":
+    "Füllen Sie alle Felder aus. Sie können Ihre Eingaben ersetzen oder entfernen, aber niemand kann sie wieder sehen.",
+  "vault.agentsTitle": "Agenten mit Zugriff",
+  "vault.noAgents": "Noch nutzt kein Agent diesen Zugang.",
+  "vault.tools": "Werkzeuge",
+  "vault.allTools": "Alle Werkzeuge",
+  "vault.someTools": {
+    one: "{count} von {total} Werkzeugen",
+    other: "{count} von {total} Werkzeugen",
+  },
+  "vault.revoked": "Entzogen",
+  "vault.tighten": "Verschärfen",
+  "vault.revoke": "Entziehen",
+  "vault.revokeWarning":
+    "{agent} nutzt {tool} ab sofort nicht mehr. Nur wir können den Zugriff wiederherstellen.",
+  "vault.keepAccess": "Zugriff behalten",
+  "vault.tightenNote":
+    "Sie können verschärfen, was ein Agent darf. Nur wir können es wieder lockern.",
+  "vault.saveAccess": "Zugriff speichern",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · Einrichtung",

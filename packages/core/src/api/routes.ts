@@ -6,6 +6,7 @@ import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
+import { accessRoutes } from "./access";
 import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";
 import { callRoutes } from "./calls";
@@ -347,6 +348,8 @@ export const PortalConnection = z.object({
   icon: z.string().nullable(),
   /** Whether the client can sign in to it from the portal yet. */
   available: z.boolean(),
+  /** An API-key connector the client admin sets up with a form on the Access page. */
+  credentialForm: z.boolean(),
   connection: z
     .object({
       id: z.string(),
@@ -1623,5 +1626,6 @@ export const routes = {
   ...callRoutes,
   ...billingRoutes,
   ...reachRoutes,
+  ...accessRoutes,
 } as const;
 export type Routes = typeof routes;

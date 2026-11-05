@@ -18,6 +18,7 @@ import { and, desc, eq, inArray, like, not } from "drizzle-orm";
 import { notFound } from "../errors";
 import type { MemoryNoteRecord, PinnedAgent, RuntimeStore } from "../runtime/ports";
 import { MEMORY_TEST_SCOPE_PREFIX } from "../tools/platform";
+import { grantOf } from "./grants";
 import { resolveCustomSkill } from "./skills";
 
 export function toConnectionRef(row: typeof connection.$inferSelect): ConnectionRef {
@@ -104,6 +105,14 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           .where(and(eq(connection.id, connectionId), eq(connection.tenantId, tenantId)));
         return row ? toConnectionRef(row) : null;
       });
+    },
+
+    grant(tenantId, agentId, connectionId) {
+      return withTenant(
+        db,
+        tenantId,
+        async (tx) => (await grantOf(tx, { tenantId, agentId, connectionId }))?.limits ?? null,
+      );
     },
 
     approvalRouting(tenantId) {
