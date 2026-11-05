@@ -19,13 +19,12 @@ const ROLE_WORDS: Record<string, string> = {
   operator: "the operator",
 };
 
-/** Whether the signed-in operator may resolve an item (mirrors packages/agents' mayResolve). */
-export function operatorMayResolve(
-  item: { assigneeRole: string | null; assigneeUserId: string | null },
-  userId: string,
-): boolean {
-  if (item.assigneeUserId) return item.assigneeUserId === userId;
-  return item.assigneeRole === "operator";
+/**
+ * Whether the signed-in operator may resolve an item: the server decides (`resolvableByOperator`,
+ * packages/agents' mayResolve), including every item of the Sandbox client.
+ */
+export function operatorMayResolve(item: { resolvableByOperator: boolean }): boolean {
+  return item.resolvableByOperator;
 }
 
 export function OpsInboxScreen() {
@@ -98,7 +97,7 @@ export function OpsInboxScreen() {
       <div data-testid="ops-inbox-list" className="flex flex-col gap-4">
         {data?.items.map((item) => {
           const agent = item.agentId ? agents.get(item.agentId) : undefined;
-          const mine = operatorMayResolve(item, session.user.id);
+          const mine = operatorMayResolve(item);
           const resolution = (item.resolution ?? {}) as { approved?: unknown; decision?: unknown };
           const approved =
             typeof resolution.approved === "boolean"

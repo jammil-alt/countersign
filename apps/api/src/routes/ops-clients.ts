@@ -1,6 +1,7 @@
 // Back office: clients, their connections, runs across clients, and the operator inbox
 // (ARCHITECTURE §14). Every handler runs inside withOperator(the clients this operator serves).
 
+import type { Approver } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import {
@@ -65,6 +66,31 @@ export async function sandboxClient(ctx: { tx: Tx; tenantIds: readonly string[] 
     );
   }
   return t;
+}
+
+/**
+ * The signed-in operator as the one resolving these clients' inbox items, per client. In the
+ * Sandbox they resolve every item (packages/agents' `mayResolve`); which client is the Sandbox is
+ * read from its settings here, never taken from a request.
+ */
+export async function operatorApprovers(
+  tx: Tx,
+  userId: string,
+  tenantIds: readonly string[],
+): Promise<(tenantId: string) => Approver> {
+  const ids = [...new Set(tenantIds)];
+  const rows = ids.length
+    ? await tx
+        .select({ id: tenant.id, settings: tenant.settings })
+        .from(tenant)
+        .where(inArray(tenant.id, ids))
+    : [];
+  const sandboxes = new Set(rows.filter((t) => isSandbox(t.settings)).map((t) => t.id));
+  return (tenantId) => ({
+    userId,
+    role: "operator",
+    ...(sandboxes.has(tenantId) ? { sandbox: true } : {}),
+  });
 }
 
 /** `tenant.settings.connectors_offered`, as connector ids. */
@@ -397,7 +423,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.opsRun, async ({ tx, params, tenantIds }) => {
+  mount(app, routes.opsRun, async ({ tx, params, tenantIds, session }) => {
     const [r] = await tx
       .select()
       .from(run)
@@ -439,12 +465,13 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
     const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
     const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
+    const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
     return {
       run: opsRun(r),
       steps: steps.map(opsStep),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map(opsAction),
-      inbox: items.map(opsInboxItem),
+      inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId))),
       agent: ref ?? null,
       version: version?.version ?? null,
       workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
@@ -468,8 +495,13 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .where(and(...where))
       .orderBy(desc(inboxItem.createdAt))
       .limit(200);
+    const operatorIn = await operatorApprovers(
+      tx,
+      ctx.session.user.id,
+      rows.map((i) => i.tenantId),
+    );
     return {
-      items: rows.map(opsInboxItem),
+      items: rows.map((i) => opsInboxItem(i, operatorIn(i.tenantId))),
       agents: await agentRefs(
         tx,
         ctx.tenantIds,
@@ -485,11 +517,13 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .from(inboxItem)
       .where(and(eq(inboxItem.id, params.id), inArray(inboxItem.tenantId, [...ctx.tenantIds])));
     if (!item) throw notFound("inbox item");
+    // Recorded as the operator, as everywhere; in the Sandbox they may resolve any item.
+    const by = (await operatorApprovers(tx, session.user.id, [item.tenantId]))(item.tenantId);
     const collect: EventRow[] = [];
     const outcome = await resolveInboxItem(tx, {
       tenantId: item.tenantId,
       itemId: params.id,
-      by: { userId: session.user.id, role: "operator" },
+      by,
       body,
       registry: services.platform.events,
       collect,
@@ -503,6 +537,6 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
     }
-    return { item: opsInboxItem(outcome.item) };
+    return { item: opsInboxItem(outcome.item, by) };
   });
 }
