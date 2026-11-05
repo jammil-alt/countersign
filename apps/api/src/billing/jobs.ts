@@ -243,10 +243,17 @@ export async function sendStatement(
       await update({ stripeInvoiceId: invoice.id });
     }
     const invoiceId = s.stripeInvoiceId as string;
+    // Lines are frozen once the invoice id is stored (billing_statement_line_guard), so read them
+    // again now: an adjustment added after the first read is sent too, and the total still matches.
+    const lines = await run((tx) => statementLines(tx, s));
+    const sent = sumAmounts(lines.map((l) => l.amount));
+    if (!dec(sent).equals(dec(s.total))) {
+      throw new Error(`the lines add up to ${sent}, not the statement's total ${s.total}`);
+    }
     // 2. One item per line with an amount; zero lines stay on our statement only.
     // DECISION: zero-amount lines ("Included" agents, no extra usage) are not sent to Stripe.
     const period = periodSeconds(s.period);
-    for (const line of state.lines) {
+    for (const line of lines) {
       if (line.stripeInvoiceItemId || dec(line.amount).isZero()) continue;
       const item = await stripe.createInvoiceItem(
         {
