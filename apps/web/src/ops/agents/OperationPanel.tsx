@@ -92,7 +92,11 @@ export function OperationPanel({
         }}
       />
       {/* Remounted after a binding change, so it lists what the agent is bound to now. */}
-      <GrantsPanel key={`${agent.id}:${grantsVersion}`} agentId={agent.id} />
+      <GrantsPanel
+        key={`${agent.id}:${grantsVersion}`}
+        agentId={agent.id}
+        clientId={agent.tenantId ?? null}
+      />
     </div>
   );
 }

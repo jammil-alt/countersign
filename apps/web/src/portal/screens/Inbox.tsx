@@ -9,6 +9,7 @@ import { InboxCard } from "../../inbox/InboxCard";
 import { openResolved, StatusFilter } from "../../inbox/StatusFilter";
 import { usePoll } from "../../runs/usePoll";
 import { EmptyState, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { ReleaseCodeEntry } from "./AccessRelease";
 
 export function PortalInboxScreen() {
   const api = useApiClient();
@@ -43,6 +44,7 @@ export function PortalInboxScreen() {
             item={item}
             runHref={item.runId ? `/runs/${item.runId}` : null}
             recordHref={(id) => `/records/${id}`}
+            renderRelease={(i) => <ReleaseCodeEntry inboxItemId={i.id} onDone={reload} />}
             outcome={
               item.status === "resolved"
                 ? item.resolvedBy?.name

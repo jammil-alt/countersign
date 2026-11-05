@@ -3,7 +3,7 @@
 // approvals approve or reject; a person's question takes an answer. Resolving calls the surface's
 // resolve route (passed in), which resumes the waiting run.
 import type { ResolveBody } from "@countersign/core";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
 import type { PlainKey } from "../i18n/catalog";
@@ -55,6 +55,7 @@ const PLUMBING = new Set([
   "nodeId",
   "mode",
   "testRun",
+  "accessRelease",
 ]);
 
 /** "Approved by Ana", "Answered", "Declined by Ben": how an item was resolved. */
@@ -104,6 +105,9 @@ function statusBadge(
   if (item.kind === "external_action") {
     return { label: t("inbox.status.needsApproval"), tone: "warning" };
   }
+  if (typeof item.payload.accessRelease === "object" && item.payload.accessRelease !== null) {
+    return { label: t("release.needsCode"), tone: "warning" };
+  }
   if (item.kind === "request") return { label: t("inbox.status.needsAnswer"), tone: "warning" };
   return { label: t("common.waiting"), tone: "warning" };
 }
@@ -117,6 +121,7 @@ export function InboxCard({
   onResolve,
   waitingOn,
   outcome,
+  renderRelease,
   testId,
 }: {
   item: InboxCardItem;
@@ -132,6 +137,11 @@ export function InboxCard({
   waitingOn?: string | null;
   /** How it was resolved ("Approved by Ana"). */
   outcome?: string | null;
+  /**
+   * A request for a human release code (docs/plan.md §1.26) is answered only with the code, never
+   * by a click: the surface that lets its person enter one renders it here.
+   */
+  renderRelease?: ((item: InboxCardItem) => ReactNode) | null;
   testId?: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -142,6 +152,8 @@ export function InboxCard({
   const open = item.status === "open";
   const badge = statusBadge(item, outcome ?? null, i18n);
   const isChange = item.kind === "external_action";
+  const isRelease =
+    typeof item.payload.accessRelease === "object" && item.payload.accessRelease !== null;
   const tool = typeof item.payload.tool === "string" ? item.payload.tool : null;
   const connector =
     typeof item.payload.connector === "string"
@@ -210,7 +222,9 @@ export function InboxCard({
         </dl>
       ) : null}
 
-      {item.kind === "request" && open && onResolve ? (
+      {isRelease && open && renderRelease ? renderRelease(item) : null}
+
+      {item.kind === "request" && open && onResolve && !isRelease ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>
           <span className="text-sm font-medium text-ink">{t("inbox.yourAnswer")}</span>
           <textarea
@@ -254,7 +268,7 @@ export function InboxCard({
               ? `${outcome}${item.resolvedAt ? ` · ${shortTime(item.resolvedAt, undefined, i18n)}` : ""}`
               : null}
         </p>
-        {open && onResolve ? (
+        {open && onResolve && !isRelease ? (
           <Actions
             kind={item.kind}
             busy={busy}

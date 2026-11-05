@@ -12,6 +12,16 @@ const DEMO = CLIENT_SESSION.activeTenantId as string;
 const CONN = "00000000-0000-4000-8000-0000000c0001";
 const AGENT = "00000000-0000-4000-8000-0000000a0001";
 
+const RELEASE_OFF = {
+  mode: "off",
+  person: null,
+  channel: "email",
+  window: "run",
+  sentTo: null,
+  updatedAt: null,
+  live: [],
+};
+
 const overview = {
   client: { id: DEMO, name: "Demo client" },
   services: [],
@@ -66,6 +76,7 @@ function vault(limits: Record<string, unknown> = {}) {
         updatedAt: null,
       },
     ],
+    release: RELEASE_OFF,
   };
 }
 
@@ -84,7 +95,7 @@ describe("portal access page", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true, people: [] }),
     });
     renderAt(api);
     const card = await screen.findByTestId("vault-item-acme");
@@ -102,7 +113,7 @@ describe("portal access page", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true, people: [] }),
       [`PUT /api/access/agents/${AGENT}/connections/${CONN}`]: ({ init }) => {
         puts.push(JSON.parse(String(init.body)));
         return { item: vault({ verbs: { create: "off" }, tools: ["acme.price.get"] }) };
@@ -129,7 +140,7 @@ describe("portal access page", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: true, people: [] }),
       [`PUT /api/access/agents/${AGENT}/connections/${CONN}`]: ({ init }) => {
         puts.push(JSON.parse(String(init.body)));
         return { item: vault() };
@@ -165,6 +176,7 @@ describe("portal access page", () => {
           },
         ],
         canEdit: true,
+        people: [],
       }),
       "PUT /api/connections/acme/credentials": ({ init }) => {
         puts.push(JSON.parse(String(init.body)));
@@ -195,7 +207,7 @@ describe("portal access page", () => {
         tenants: [{ id: DEMO, name: "Demo client", role: "client_user" }],
       }),
       "GET /api/overview": () => overview,
-      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: false }),
+      "GET /api/access": () => ({ items: [vault()], setup: [], canEdit: false, people: [] }),
     });
     renderAt(api);
     const card = await screen.findByTestId("vault-item-acme");
