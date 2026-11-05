@@ -270,12 +270,42 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
   ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
   `packages/connectors/src/elevenlabs/NOTES.md`.
-- Needed by billing (stream J, 2026-11-04; wiring them into `deploy.yml` is the coordinator's), copied
-  like the API keys: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a restricted or secret key; test
-  mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the `whsec_…` signing secret of
-  the webhook endpoint `https://<domain>/api/billing/stripe/webhook`). Without the key billing is off;
-  without the webhook secret Stripe's events are refused. Allow `api.stripe.com` in the network if it is
-  restricted. Stripe set-up steps: `packages/connectors/src/stripe/NOTES.md`.
+- Needed by billing (plan §1.32: Mezonas works out each bill, Stripe only bills it), copied like
+  the API keys by `deploy.yml` when set: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a secret
+  or restricted key; test mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the
+  `whsec_…` signing secret of the webhook endpoint `https://<domain>/api/billing/stripe/webhook`).
+  Without the key, billing is off: no client can be set up and no statement is sent, though the
+  daily record and the statements are still kept for clients already set up. Without the webhook
+  secret, Stripe's events are refused, so paid and failed invoices don't show. Allow `api.stripe.com`
+  in the network if it is restricted. Set-up: "Setting up Stripe" below.
+
+#### Setting up Stripe (billing)
+
+Stripe holds only customers and invoices. There are no products, prices, subscriptions or meters
+to create: prices are set in `/ops/billing` and on each template's and client agent's Settings tab.
+
+1. Make a **separate Stripe account for Mezonas** (Twelve Thirty-Four Consulting LLC), not Plenary
+   Labs' account. Nothing is shared with Plenary Labs (CLAUDE.md). Start in test mode for staging.
+2. Make an API key: Developers → API keys. A restricted key needs write access to **Customers**,
+   **Invoices** and **Invoice items**, and read access to the same. Use the secret key if you don't
+   want a restricted one. Keep test and live keys apart: test mode for staging, live mode for
+   production.
+3. Add a webhook endpoint: Developers → Webhooks → Add endpoint, URL
+   `https://<domain>/api/billing/stripe/webhook` (staging's and production's own domain), with these
+   five events: `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `invoice.voided`,
+   `invoice.marked_uncollectible`. Copy its signing secret (`whsec_…`).
+4. Save the two secrets per environment as GitHub environment secrets (`staging`, `production`):
+   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. `deploy.yml` copies them into the Worker on the
+   next deploy.
+5. In Stripe's settings, set the invoice emails, the company name and the payment methods shown on the
+   hosted invoice page (Settings → Billing → Invoices, and Settings → Payments). Stripe emails each
+   invoice, so set a billing email when you set a client up.
+6. In `/ops/billing`, set the credit price, the default agent price and credits, and the template
+   prices. Leave auto-send off until the first statements have been checked by hand. Then set each
+   client up from its page (this creates the Stripe customer).
+
+What to check against Stripe's docs and a test-mode account before the first real invoice:
+`packages/connectors/src/stripe/NOTES.md` (UNCHECKED items).
 - Needed for email reach-outs (plan §1.25; wiring into `deploy.yml` is the coordinator's):
   `RESEND_API_KEY` (Mezonas' Resend account: it only makes each client's domain and a sending key
   restricted to it, which is encrypted in the client's `resend` connection),
