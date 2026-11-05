@@ -392,17 +392,18 @@ export function pickMessage(template: MessageTemplate, language: ReachLanguage):
 
 /**
  * Which connector's tool sends on a channel. An agent's channel is bound to one connection; the
- * reach-out sends through that connection's tool for the channel. Gmail (`gmail.send`, an agent's
- * own mailbox or a person's) and Meta's WhatsApp plug in here when they are built.
+ * reach-out sends through that connection's tool for the channel. Email goes through Mezonas'
+ * sending service (`resend`) or a Gmail mailbox the client connected (`gmail`, send only: an
+ * agent's own mailbox or a person's). Meta's WhatsApp plugs in here when it is built.
  */
-// DECISION: email goes through Mezonas' sending service (Resend) until the Gmail connector (M10)
-// exists; Gmail's send is listed so a binding to it is refused today with a plain reason.
+// DECISION: both email tools take the same input (`to`, `subject`, `text`, `replyTag`), so the
+// reach-out service builds one input whichever connection the agent's email channel is bound to.
 export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>> = {
   resend: { email: "email.send" },
+  gmail: { email: "gmail.send" },
   twilio: { sms: "sms.send", whatsapp: "whatsapp.send", voice: "call.place" },
 };
 export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {
-  gmail: ["email"],
   whatsapp_meta: ["whatsapp"],
 };
 

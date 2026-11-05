@@ -123,9 +123,11 @@ legal: true
       <h3>What we access</h3>
       <p>
         When a person at a client business connects their Gmail account, we ask Google for one
-        permission: to send email on their behalf (the <code>gmail.send</code> scope). We don't read,
-        search, label or draft messages in their mailbox, and we don't ask Google for permission
-        to. Mail reaches us only when the client forwards it to its private Mezonas address, as
+        Gmail permission: to send email on their behalf (the <code>gmail.send</code> scope). We also
+        ask for the address of the account they connect (Google's basic sign-in permissions,
+        <code>openid</code> and <code>email</code>), so we can show which mailbox is connected and
+        send from it. We don't read, search, label or draft messages in their mailbox, and we don't
+        ask Google for permission to. Mail reaches us only when the client forwards it to its private Mezonas address, as
         described in <a href="#what-we-collect">What we collect</a>.
       </p>
       <h3>How we use it</h3>

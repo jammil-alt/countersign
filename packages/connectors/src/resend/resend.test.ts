@@ -144,6 +144,18 @@ describe("resend connector", () => {
     expect(taggedReplyTo("a-b-c@in.x", "abc123")).toBe("a-b-c+abc123@in.x");
     expect(taggedReplyTo(null, "abc123")).toBeNull();
     expect(replyText("Yes, Friday.\n\nOn Tue, Orders wrote:\n> Can you?")).toBe("Yes, Friday.");
+    // Gmail's line above the quote, in each of the portal's languages.
+    for (const line of [
+      "El mar, 5 nov 2026 a las 15:00, Pat Lee (<pat.lee@gmail.test>) escribió:",
+      "Le mar. 5 nov. 2026 à 15:00, Pat Lee <pat.lee@gmail.test> a écrit :",
+      "Em ter., 5 de nov. de 2026 às 15:00, Pat Lee <pat.lee@gmail.test> escreveu:",
+      "Il giorno mar 5 nov 2026 alle ore 15:00 Pat Lee <pat.lee@gmail.test> ha scritto:",
+      "Am Di., 5. Nov. 2026 um 15:00 Uhr schrieb Pat Lee <pat.lee@gmail.test>:",
+    ]) {
+      expect(replyText(`Sí, el viernes.\n\n${line}\nHola`)).toBe("Sí, el viernes.");
+    }
+    // A sentence of the reply that happens to start alike stays.
+    expect(replyText("El pedido llega el viernes.")).toBe("El pedido llega el viernes.");
     const raw = utf8(
       [
         "From: Pat <pat@shop.example>",

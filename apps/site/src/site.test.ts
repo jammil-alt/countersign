@@ -165,6 +165,8 @@ describe("privacy policy", () => {
     const text = visibleText(page("privacy").html);
     expect(text).toContain("gmail.send");
     expect(text).not.toMatch(/gmail\.(readonly|labels|compose|modify)/);
+    // And the sign-in scopes that tell us which address connected (plan §1.31).
+    expect(text).toMatch(/openid and email/);
   });
 });
 

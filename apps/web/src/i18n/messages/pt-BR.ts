@@ -249,6 +249,8 @@ export const ptBR: Messages = {
   "connections.connect": "Conectar",
   "connections.adminCanConnect": "Seu administrador pode conectar.",
   "connections.enterKey": "Informar o acesso",
+  "connections.gmail.description":
+    "Envie e-mails do seu Gmail. Não conseguimos ler sua caixa de entrada.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Não conectada",
   "connection.status.disconnected": "Desconectada",

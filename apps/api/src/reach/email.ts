@@ -1,11 +1,26 @@
-// The platform services the `resend` connector calls (EmailServices), over the client's contacts:
-// may this address be emailed (a contact of this client, with email consent, not opted out), was
-// this send already made (a re-run after a crash), and record the email once in the contact's
-// thread. Each call is one short withTenant transaction for the connection's client (invariant 1).
+// The platform services the email connectors (`resend`, `gmail`) call (EmailServices), over the
+// client's contacts: may this address be emailed (a contact of this client, with email consent, not
+// opted out), was this send already made or started (a re-run after a crash), where replies come
+// back (the client's forwarding address), and record the email once in the contact's thread. Each
+// call is one short withTenant transaction for the connection's client (invariant 1).
 
-import type { ConnectionRef, EmailServices } from "@countersign/connectors";
+import {
+  type ConnectionRef,
+  type EmailSendAttempt,
+  type EmailServices,
+  forwardingOf,
+  UPLOAD_CONNECTOR_ID,
+} from "@countersign/connectors";
 import { consentBlockFor } from "@countersign/core";
-import { contact, type Db, externalAction, message, rawRecord, withTenant } from "@countersign/db";
+import {
+  connection as connectionTable,
+  contact,
+  type Db,
+  externalAction,
+  message,
+  rawRecord,
+  withTenant,
+} from "@countersign/db";
 import { and, eq, sql } from "drizzle-orm";
 import {
   contactThread,
@@ -15,6 +30,8 @@ import {
 } from "../messaging/contacts";
 
 export const EMAIL_MESSAGE_ENTITY = "EmailMessage";
+/** A send started and not yet known to be done (Gmail takes no idempotency key). */
+export const EMAIL_ATTEMPT_ENTITY = "EmailAttempt";
 
 const BLOCK_WORDS = {
   opted_out: "this contact opted out of messages",
@@ -37,6 +54,62 @@ export function dbEmailServices(db: Db, connection: ConnectionRef): EmailService
           return { ok: false, message: BLOCK_WORDS[block as keyof typeof BLOCK_WORDS] };
         }
         return { ok: true, contact: { id: c.id, name: c.name } };
+      });
+    },
+
+    startAttempt(a) {
+      return withTenant(db, tenantId, async (tx) => {
+        // Once per key (the raw record's external id): a second start keeps the first.
+        await tx
+          .insert(rawRecord)
+          .values({
+            tenantId,
+            connectionId: connection.id,
+            connector: connection.connector,
+            entityType: EMAIL_ATTEMPT_ENTITY,
+            externalId: a.idempotencyKey,
+            externalVersion: null,
+            payload: { ...a, startedAt: a.startedAt.toISOString() },
+            syncedAt: a.startedAt,
+          })
+          .onConflictDoNothing();
+      });
+    },
+
+    attemptFor(idempotencyKey) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ payload: rawRecord.payload })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, EMAIL_ATTEMPT_ENTITY),
+              eq(rawRecord.externalId, idempotencyKey),
+            ),
+          )
+          .limit(1);
+        if (!row) return null;
+        const p = row.payload as Omit<EmailSendAttempt, "startedAt"> & { startedAt: string };
+        return { ...p, startedAt: new Date(p.startedAt) };
+      });
+    },
+
+    replyAddress() {
+      return withTenant(db, tenantId, async (tx) => {
+        const [up] = await tx
+          .select()
+          .from(connectionTable)
+          .where(
+            and(
+              eq(connectionTable.tenantId, tenantId),
+              eq(connectionTable.connector, UPLOAD_CONNECTOR_ID),
+            ),
+          )
+          .orderBy(connectionTable.createdAt)
+          .limit(1);
+        return up ? (forwardingOf(up).address ?? null) : null;
       });
     },
 
