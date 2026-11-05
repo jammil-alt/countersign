@@ -298,6 +298,34 @@ set the Gmail ingestion query → enable packs → fork templates into the clien
 flows, bind the client's connections → test-run on the client's data → publish and activate → choose who
 approves writes (client admin by default, or the operator).
 
+### Adding the supervisor to a client
+
+The supervisor (`docs/plan.md` §1.28) watches one client's runs, connections, website logins, codes
+and waiting items, and tells the client admin in plain steps and us with the details. It changes
+nothing itself.
+
+1. **The template must be installed.** It is the platform template `supervisor`
+   (`packages/db/seed/agents/supervisor.v1.json`). On staging, run the seed again (Actions → **Add
+   operator** with "Run the seed first", or `pnpm --filter @countersign/db run db:seed`); it adds
+   templates that are missing and changes nothing else. The seed never runs on production, so there
+   the template is created by hand until a template-only install exists: back office → Templates →
+   new template `supervisor` with that file's bundle, then publish it.
+2. **Add it.** New clients: "Add the supervisor" is ticked on the new-client form. Existing clients:
+   the client page → Health → **Add the supervisor**. Either way it is forked from the template's
+   live version and published as the client's agent `supervisor` ("Account check"); a client that
+   has one keeps it.
+3. **Test and activate it** like any agent: test-run `daily-check` (a test run reads and writes
+   nothing; its output says what it would have reported), then Activate. It needs no connection.
+4. **What it does then.** On every failed live run and every connection that needs a person it looks
+   into it (the model, with the health tools and, at most, one question to the agent involved) and
+   reports: one item for the client admin, one for us, once per open issue. Every day at 08:00 in the
+   client's timezone it checks the account and writes the summary on the client's overview.
+5. **Settings** (client settings JSON, `supervisor`): `reminderHours` (default 24: an issue still
+   open is reminded after this long) and `waitingHours` (default 48: items waiting on the client
+   longer than this are reported).
+
+To stop it, pause the agent. Its findings stay in the inbox until someone marks them done.
+
 ## 2. What CI does
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;

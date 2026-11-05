@@ -1043,6 +1043,7 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
 | --- | --- | --- |
 | `document-clerk` | platform | `docs.find-support`, `docs.extract` (forked into each client automatically when a client agent needs it) |
 | `coordinator` | platform | `route-ask`, `review` (multi-agent review: collect views, write one summary with disagreements) |
+| `supervisor` | platform | `supervisor.triage`, `supervisor.report`, `supervisor.daily-check` (watches the client's runs, connections, logins, codes and waiting items; reads with `health.*`, asks with `agents.ask`; reports, changes nothing; `docs/plan.md` §1.28) |
 | `builder` | platform | `draft-agent`, `revise-agent` (back office only; runs outside any client) |
 
 ---
