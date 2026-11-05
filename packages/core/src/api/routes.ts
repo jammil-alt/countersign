@@ -9,6 +9,7 @@ import { ToolSpec } from "../schemas/tool";
 import { accessRoutes } from "./access";
 import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";
+import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
 import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
@@ -1627,5 +1628,6 @@ export const routes = {
   ...billingRoutes,
   ...reachRoutes,
   ...accessRoutes,
+  ...browserRoutes,
 } as const;
 export type Routes = typeof routes;
