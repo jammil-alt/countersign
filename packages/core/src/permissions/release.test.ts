@@ -10,6 +10,7 @@ import {
   type ReleaseSetting,
   type ReleaseStatus,
   releaseCovers,
+  releaseLocale,
   releaseMessage,
   releaseOf,
   releaseSettingProblem,
@@ -185,5 +186,31 @@ describe("the message", () => {
         test: false,
       }),
     ).toContain("for the next 4 hours");
+  });
+});
+
+describe("the message in the person's language", () => {
+  const base = { code: "123456", agent: "Intake", tool: "QuickBooks", test: false };
+  it("is written in Spanish and German, short and without a link", () => {
+    const es = releaseMessage({ ...base, window: "run", locale: "es" });
+    expect(es).toBe(
+      "Código de Mezonas: 123456. Introdúzcalo para que Intake use QuickBooks en esta ejecución. Caduca en 10 minutos.",
+    );
+    const de = releaseMessage({ ...base, window: { hours: 4 }, locale: "de" });
+    expect(de).toBe(
+      "Mezonas-Code: 123456. Geben Sie ihn ein, damit Intake QuickBooks für die nächsten 4 Stunden nutzen kann. Er läuft in 10 Minuten ab.",
+    );
+    for (const locale of ["en", "es", "fr", "pt-BR", "it", "de"] as const) {
+      const text = releaseMessage({ ...base, window: "run", locale });
+      expect(text).toContain("123456");
+      expect(text).not.toMatch(/https?:|www\./);
+      expect(text.length).toBeLessThan(160);
+    }
+  });
+
+  it("follows the person's choice, else the client's default, else English", () => {
+    expect(releaseLocale("es", "de")).toBe("es");
+    expect(releaseLocale(null, "de")).toBe("de");
+    expect(releaseLocale(null, null)).toBe("en");
   });
 });

@@ -259,6 +259,7 @@ export function twilioVoiceRoutes(app: Hono<AppEnv>): void {
             tenantId,
             connectionId: row.id,
             permissions: row.permissions as ConnectionRow["permissions"],
+            config: row.config,
             forwardTo: voice.forwardTo,
             voice: voiceDeps,
           });

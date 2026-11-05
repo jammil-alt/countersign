@@ -32,17 +32,20 @@ import {
 } from "@countersign/connectors";
 import {
   type ContactConsent,
+  clientLanguage,
   consentBlock,
   contactHours,
   inQuietHours,
   isPlainObject,
   type LiveRelease,
+  type Locale,
   maskEmail,
   maskPhone,
   normalizeCode,
   RELEASE_CODE_TTL_MS,
   RELEASE_MAX_RESENDS,
   RELEASE_MAX_TRIES,
+  RELEASE_WORDS,
   type ReleaseChannel,
   type ReleasePerson,
   type ReleaseRecord,
@@ -51,11 +54,13 @@ import {
   type ReleaseView,
   type ReleaseWindow,
   releaseCovers,
+  releaseLocale,
   releaseMessage,
   releaseOf,
   releaseSettingProblem,
   type SetRelease,
   tryCode,
+  userLanguage,
   uuidv7,
   validUntilFor,
 } from "@countersign/core";
@@ -72,6 +77,7 @@ import {
   run,
   stepRun,
   type Tx,
+  tenant,
   withTenant,
 } from "@countersign/db";
 import type { InboxResolution, StepOutcome } from "@countersign/workflows";
@@ -502,7 +508,7 @@ async function deliver(
   deps: ReleaseDeps,
   tenantId: string,
   route: Route,
-  input: { releaseId: string; text: string },
+  input: { releaseId: string; text: string; locale: Locale },
 ) {
   if (route.channel === "sms") {
     const creds = twilioCredentialsOf(
@@ -515,9 +521,8 @@ async function deliver(
   if (!deps.resend) throw new Error("codes can't be emailed here: no sending domain is set up");
   const forward = deps.forwardingDomain ? await forwardingAddress(tx, tenantId) : null;
   const replyTo = forward ? taggedReplyTo(forward, releaseReplyTag(input.releaseId)) : null;
-  const body = replyTo
-    ? `${input.text}\n\nReply to this email with just the code, or enter it in Mezonas.`
-    : `${input.text}\n\nEnter it in Mezonas.`;
+  const words = RELEASE_WORDS[input.locale];
+  const body = `${input.text}\n\n${replyTo ? words.replyOrEnter : words.enter}`;
   await resendRequest(
     deps.fetch,
     deps.resend.apiKey,
@@ -526,7 +531,7 @@ async function deliver(
     {
       from: `Mezonas <codes@${deps.resend.domain}>`,
       to: [route.to],
-      subject: "Your Mezonas code",
+      subject: words.subject,
       text: body,
       ...(replyTo ? { reply_to: replyTo } : {}),
     },
@@ -534,8 +539,8 @@ async function deliver(
   );
 }
 
-const titleFor = (channel: ReleaseChannel, agentName: string, tool: string) =>
-  `Enter the code we ${channel === "sms" ? "texted" : "emailed"} you to let ${agentName} use ${tool}`;
+const titleFor = (locale: Locale, channel: ReleaseChannel, agentName: string, tool: string) =>
+  RELEASE_WORDS[locale].title(channel, agentName, tool);
 
 interface RequestContext {
   conn: ConnectionRow;
@@ -543,6 +548,8 @@ interface RequestContext {
   person: { id: string; name: string | null; email: string };
   agentRow: typeof agent.$inferSelect;
   test: boolean;
+  /** The person's language: their own choice, else the client's, else English. */
+  locale: Locale;
 }
 
 /**
@@ -605,7 +612,9 @@ async function newRequest(
       tool: toolName(deps.platform, ctx.conn.connector),
       window: ctx.setting.window,
       test: ctx.test,
+      locale: ctx.locale,
     }),
+    locale: ctx.locale,
   });
   return { release, route };
 }
@@ -638,11 +647,79 @@ async function requestContext(
     .from(run)
     .where(and(eq(run.id, runId), eq(run.tenantId, tenantId)));
   if (!agentRow || !r) return { refused: "the run is gone" };
-  return { conn, setting, person, agentRow, test: r.mode === "test" };
+  const [t] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  // DECISION: the code message is written in the person's language (their own choice, else the
+  // client's default, else English), from core's RELEASE_WORDS: the Worker writes it, and the
+  // portal's message files are in the web bundle, which apps/api doesn't import (§1.18's pattern
+  // for the timeline words).
+  const locale = releaseLocale(userLanguage(t?.settings, person.id), clientLanguage(t?.settings));
+  return { conn, setting, person, agentRow, test: r.mode === "test", locale };
 }
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Whether a live release lets this agent use the connection now (true when it needs none). The one
+ * check every path shares: the gate, approved writes, reach-out attempts, a call's tools and
+ * inbound call answering.
+ */
+export async function releaseCoversTx(
+  tx: Tx,
+  tenantId: string,
+  ask: {
+    connection: { id: string; config: unknown };
+    agentId: string;
+    /** Null outside a run (an inbound call): only an hours release covers it. */
+    runId: string | null;
+    now: Date;
+  },
+): Promise<boolean> {
+  const setting = releaseOf(ask.connection.config);
+  if (setting.mode !== "code") return true;
+  const rows = await tx
+    .select()
+    .from(accessRelease)
+    .where(
+      and(
+        eq(accessRelease.tenantId, tenantId),
+        eq(accessRelease.connectionId, ask.connection.id),
+        eq(accessRelease.agentId, ask.agentId),
+        eq(accessRelease.status, "released"),
+      ),
+    )
+    .orderBy(desc(accessRelease.releasedAt))
+    .limit(20);
+  return rows.some((r) =>
+    releaseCovers(recordOf(r), setting, {
+      connectionId: ask.connection.id,
+      agentId: ask.agentId,
+      runId: ask.runId,
+      now: ask.now,
+    }),
+  );
+}
+
+/**
+ * For a call's tools: a live release lets a call through, but nothing on a call can wait for a
+ * person's code, so it never asks for one (the call is refused instead).
+ */
+// DECISION: a call never asks for a release mid-call; it goes on only under one already live.
+export function coverOnlyReleasePort(deps: Pick<ReleaseDeps, "db" | "now">): ReleasePort {
+  const port = dbReleasePort(deps as ReleaseDeps);
+  return {
+    covers: port.covers,
+    async request() {
+      return {
+        refused:
+          "this connection needs a person to release it first, and that can't be asked for on a call",
+      };
+    },
+  };
 }
 
 /** The runtime's port: whether a release covers a call, and a new request when none does. */
@@ -650,32 +727,14 @@ export function dbReleasePort(deps: ReleaseDeps): ReleasePort {
   const now = () => deps.now?.() ?? new Date();
   return {
     covers(tenantId, ask) {
-      return withTenant(deps.db, tenantId, async (tx) => {
-        const setting = releaseOf(ask.connection.config);
-        if (setting.mode !== "code") return true;
-        const rows = await tx
-          .select()
-          .from(accessRelease)
-          .where(
-            and(
-              eq(accessRelease.tenantId, tenantId),
-              eq(accessRelease.connectionId, ask.connection.id),
-              eq(accessRelease.agentId, ask.agentId),
-              eq(accessRelease.status, "released"),
-            ),
-          )
-          .orderBy(desc(accessRelease.releasedAt))
-          .limit(20);
-        const at = now();
-        return rows.some((r) =>
-          releaseCovers(recordOf(r), setting, {
-            connectionId: ask.connection.id,
-            agentId: ask.agentId,
-            runId: ask.runId,
-            now: at,
-          }),
-        );
-      });
+      return withTenant(deps.db, tenantId, (tx) =>
+        releaseCoversTx(tx, tenantId, {
+          connection: ask.connection,
+          agentId: ask.agentId,
+          runId: ask.runId,
+          now: now(),
+        }),
+      );
     },
 
     async request(tenantId, ask): Promise<ReleaseRequested | { refused: string }> {
@@ -712,7 +771,7 @@ export function dbReleasePort(deps: ReleaseDeps): ReleasePort {
               runId: ask.runId,
               assigneeUserId: ctx.person.id,
               assigneeRole: null,
-              title: titleFor(route.channel, agentName, tool),
+              title: titleFor(ctx.locale, route.channel, agentName, tool),
               // Names only: never the code, the hash or where it went.
               payload: {
                 accessRelease: {
@@ -993,7 +1052,7 @@ export async function resendReleaseCode(
     .set({
       subjectId: release.id,
       dueAt: release.expiresAt,
-      title: titleFor(route.channel, s.payload.agentName, s.payload.toolName),
+      title: titleFor(ctx.locale, route.channel, s.payload.agentName, s.payload.toolName),
       payload: {
         ...payload,
         accessRelease: {

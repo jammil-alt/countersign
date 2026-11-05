@@ -14,6 +14,7 @@ import {
   generateEncryptionKey,
   RESEND_API,
   TESTKIT_QUERY_TOOL,
+  TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import {
   FAKE_RESEND_MAIN,
@@ -21,11 +22,12 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, RELEASE_TEXT_PREFIXES } from "@countersign/core";
 import {
   accessRelease,
   agent,
   connectionChange,
+  externalAction,
   inboxItem,
   message,
   rawRecord,
@@ -120,7 +122,7 @@ function bundle(): AgentBundle {
       model: { id: "test-model", maxTokens: 1024 },
       instructions: "Be brief.",
       skills: [{ skill: TESTKIT_QUERY_TOOL }],
-      extraTools: [],
+      extraTools: [TESTKIT_UPDATE_TOOL],
       canCommand: [],
       permissions: { mode: "suggest_only" },
       budgets: { maxSteps: 4, maxCostUsd: "0.10" },
@@ -137,9 +139,33 @@ function bundle(): AgentBundle {
           steps: [read("first"), read("second")],
         },
       },
+      {
+        slug: "fix",
+        name: "Fix a record",
+        workflow: {
+          schemaVersion: 3,
+          trigger: { id: "trg-fix", on: { type: "manual", input: {} } },
+          steps: [
+            {
+              id: "update",
+              name: "Update the record",
+              kind: "action",
+              tool: TESTKIT_UPDATE_TOOL,
+              input: { id: "r1", amount: "12.00" },
+              approval: { required: "required" },
+              client: { visible: true, label: "Corrected the record" },
+            },
+          ],
+        },
+      },
     ],
   } as AgentBundleInput);
 }
+
+/** A code message in any language: its prefix, then the code. */
+const CODE_RE = new RegExp(
+  `^(?:${RELEASE_TEXT_PREFIXES.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}) (\\d{6})\\.`,
+);
 
 const timeout = () =>
   Object.assign(new Error("Execution timed out after 1000ms"), { name: "WorkflowTimeoutError" });
@@ -189,14 +215,14 @@ describe.skipIf(!h)("human release through the API", () => {
       .map((m) => m.body);
   function lastTextedCode(): string {
     const body = textedCodes().at(-1) ?? "";
-    const code = /^Mezonas code: (\d{6})\./.exec(body)?.[1];
+    const code = CODE_RE.exec(body)?.[1];
     if (!code) throw new Error(`no code in ${body}`);
     codes.add(code);
     return code;
   }
   function lastEmailedCode() {
     const email = resend.emails.at(-1);
-    const code = /^Mezonas code: (\d{6})\./.exec(email?.text ?? "")?.[1];
+    const code = CODE_RE.exec(email?.text ?? "")?.[1];
     if (!email || !code) throw new Error("no code email");
     codes.add(code);
     return { email, code };
@@ -223,10 +249,10 @@ describe.skipIf(!h)("human release through the API", () => {
     return m.sid;
   }
 
-  async function startRun(): Promise<RunParams> {
+  async function startRun(workflow = "main"): Promise<RunParams> {
     const before = [...H.instances.started.keys()];
     const res = await call(OPERATOR, "POST", `/api/ops/agents/${agentId}/run`, {
-      workflow: "main",
+      workflow,
       input: {},
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -708,6 +734,96 @@ describe.skipIf(!h)("human release through the API", () => {
     expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
       status: "succeeded",
     });
+  });
+
+  it("never runs an approved write once its release is revoked: an approval is not a release", async () => {
+    const writes = H.backend.writes.length;
+    const params = await startRun("fix");
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const item = j((await call(admin("a"), "GET", "/api/inbox")).json).items.find(
+        (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type,
+      );
+      if (!item) throw new Error(`no item for ${type}`);
+      if (item.payload.accessRelease) {
+        expect(j((await enter(admin("a"), item.id, lastTextedCode())).json).result).toBe(
+          "released",
+        );
+        return sentEvent(type);
+      }
+      // The write waits for approval; meanwhile the client admin revokes the release.
+      expect(item.kind).toBe("external_action");
+      const live = j((await call(admin("a"), "GET", "/api/access/releases")).json).releases;
+      const mine = live.find((r: { runId: string }) => r.runId === params.runId);
+      expect(
+        (await call(admin("a"), "POST", `/api/access/releases/${mine.id}/revoke`)).status,
+      ).toBe(200);
+      const ok = await call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+        decision: "approve",
+      });
+      expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+      return sentEvent(type);
+    });
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(result.status).toBe("failed");
+    expect(result.reason).toContain("needs a person to release it");
+    expect(H.backend.writes.length).toBe(writes);
+    const [action] = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, params.runId));
+    expect(action).toMatchObject({ status: "failed", error: { release: true } });
+  });
+
+  it("writes the code message in the person's language, else the client's", async () => {
+    // Ana reads Spanish: her text and her inbox item are in Spanish.
+    expect((await call(admin("a"), "PUT", "/api/me/language", { language: "es" })).status).toBe(
+      200,
+    );
+    const es = await startRun();
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const text = textedCodes().at(-1) ?? "";
+      const code = lastTextedCode();
+      expect(text).toBe(
+        `Código de Mezonas: ${code}. Introdúzcalo para que Intake use Testkit en esta ejecución. Caduca en 10 minutos.`,
+      );
+      expect(text).not.toMatch(/https?:|www\./);
+      const item = await requestItem(type);
+      expect(item.title).toBe(
+        "Introduzca el código que le enviamos por SMS para que Intake use Testkit",
+      );
+      expect(j((await enter(admin("a"), item.id, code)).json).result).toBe("released");
+      return sentEvent(type);
+    });
+    expect(await executeRun(deps(), es, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+
+    // No choice of her own: the client's default, German, by email.
+    await call(admin("a"), "PUT", "/api/me/language", { language: null });
+    expect((await call(admin("a"), "PUT", "/api/client/language", { language: "de" })).status).toBe(
+      200,
+    );
+    await call(admin("a"), "PUT", releasePath(), {
+      mode: "code",
+      personId: H.A.admin,
+      channel: "email",
+      window: { hours: 1 },
+    });
+    const de = await startRun();
+    const german = new FakeWorkflowStep(async (_name, type) => {
+      const { email, code } = lastEmailedCode();
+      expect(email.subject).toBe("Ihr Mezonas-Code");
+      expect(email.text).toBe(
+        `Mezonas-Code: ${code}. Geben Sie ihn ein, damit Intake Testkit für die nächste Stunde nutzen kann. Er läuft in 10 Minuten ab.\n\nAntworten Sie auf diese E-Mail nur mit dem Code oder geben Sie ihn in Mezonas ein.`,
+      );
+      const item = await requestItem(type);
+      expect(j((await enter(admin("a"), item.id, code)).json).result).toBe("released");
+      return sentEvent(type);
+    });
+    expect(await executeRun(deps(), de, cloudflareStepRunner(german))).toEqual({
+      status: "succeeded",
+    });
+    await call(admin("a"), "PUT", "/api/client/language", { language: "en" });
   });
 
   it("keeps releases per client", async () => {

@@ -41,3 +41,16 @@ describe("release codes", () => {
     await expect(ReleaseCodeKeys.create({ current: "c2hvcnQ=" })).rejects.toThrow(/32 bytes/);
   });
 });
+
+describe("code texts in agents' message reads", () => {
+  it("are hidden in every language, and so is a message that is only a code", async () => {
+    const { agentVisibleText } = await import("./twilio");
+    expect(agentVisibleText("Mezonas code: 123456. Enter it…")).toBe("Mezonas code: (hidden)");
+    expect(agentVisibleText("Código de Mezonas: 123456. Introdúzcalo…")).toBe(
+      "Código de Mezonas: (hidden)",
+    );
+    expect(agentVisibleText("Mezonas-Code: 123456. Geben Sie…")).toBe("Mezonas-Code: (hidden)");
+    expect(agentVisibleText(" 123 456 ")).toBe("(a code, hidden)");
+    expect(agentVisibleText("Order 123456 is late")).toBe("Order 123456 is late");
+  });
+});

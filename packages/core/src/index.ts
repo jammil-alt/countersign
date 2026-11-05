@@ -40,6 +40,7 @@ export * from "./codes/service";
 export * from "./documents/extraction";
 export * from "./duration";
 export * from "./i18n/locale";
+export * from "./i18n/release";
 export * from "./i18n/timeline";
 export * from "./ids";
 export * from "./json";

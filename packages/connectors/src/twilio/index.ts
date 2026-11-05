@@ -9,6 +9,7 @@ import {
   keywordOf,
   type MessagingChannel,
   normalizePhone,
+  RELEASE_TEXT_PREFIXES,
   sendBlockMessage,
   TwilioNumber,
 } from "@countersign/core";
@@ -452,9 +453,6 @@ function isoOrNull(rfc2822: string | null | undefined): string | null {
 
 // ── Human release texts (docs/plan.md §1.26) ─────────────────────────────────────────────────────
 
-/** How a release code text starts (core's `releaseMessage`). */
-export const RELEASE_TEXT_PREFIX = "Mezonas code:";
-
 /**
  * A message's text as agents may read it: a release code text, or a reply that is only a code, is
  * hidden, so no agent reads a code through `messages.search` or `message.get` (the model never
@@ -464,7 +462,9 @@ export const RELEASE_TEXT_PREFIX = "Mezonas code:";
 // track which SIDs were codes, any text that starts like one, and any message that is nothing but
 // six digits, reads as hidden. A contact who texts six digits alone loses that text to agents.
 export function agentVisibleText(body: string): string {
-  if (body.trimStart().startsWith(RELEASE_TEXT_PREFIX)) return `${RELEASE_TEXT_PREFIX} (hidden)`;
+  const start = body.trimStart();
+  const prefix = RELEASE_TEXT_PREFIXES.find((p) => start.startsWith(p));
+  if (prefix) return `${prefix} (hidden)`;
   if (/^\s*\d{3}[\s-]?\d{3}\s*$/.test(body)) return "(a code, hidden)";
   return body;
 }

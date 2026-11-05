@@ -6,6 +6,8 @@
 // compared in packages/connectors (`release-codes.ts`); it never reaches this module.
 
 import { z } from "zod";
+import type { Locale } from "../i18n/locale";
+import { RELEASE_WORDS } from "../i18n/release";
 import { isUuid } from "../ids";
 
 /** A code lasts this long. */
@@ -119,7 +121,8 @@ export interface ReleaseRecord {
 export interface ReleaseAsk {
   connectionId: string;
   agentId: string;
-  runId: string;
+  /** Null outside a run (an inbound call): only an hours release can cover it. */
+  runId: string | null;
   now: Date;
 }
 
@@ -142,7 +145,7 @@ export function releaseCovers(
   // Saving the setting again (off and on, another channel) starts afresh: earlier releases lapse.
   if (setting.updatedAt && row.releasedAt.getTime() < Date.parse(setting.updatedAt)) return false;
   const ms = windowMs(setting.window);
-  if (ms === null) return row.validUntil === null && row.runId === ask.runId;
+  if (ms === null) return row.validUntil === null && ask.runId !== null && row.runId === ask.runId;
   if (!row.validUntil || row.validUntil.getTime() <= ask.now.getTime()) return false;
   return row.validUntil.getTime() - row.releasedAt.getTime() <= ms;
 }
@@ -186,14 +189,16 @@ export function normalizeCode(input: string): string | null {
 }
 
 /** "for this run", "for the next 4 hours": what the message and the inbox item say. */
-export function windowWords(window: ReleaseWindow, test: boolean): string {
-  if (window === "run") return test ? "for this test run" : "for this run";
-  return window.hours === 1 ? "for the next hour" : `for the next ${window.hours} hours`;
+export function windowWords(window: ReleaseWindow, test: boolean, locale: Locale = "en"): string {
+  const w = RELEASE_WORDS[locale];
+  if (window === "run") return test ? w.testRun : w.run;
+  return w.hours(window.hours);
 }
 
 /**
- * The text and email that carry a code. Short, no link (a link in a code message is what phishing
- * looks like), and the code first so a phone shows it in the notification.
+ * The text and email that carry a code, in the person's language. Short, no link (a link in a
+ * code message is what phishing looks like), and the code first so a phone shows it in the
+ * notification.
  */
 export function releaseMessage(input: {
   code: string;
@@ -201,8 +206,16 @@ export function releaseMessage(input: {
   tool: string;
   window: ReleaseWindow;
   test: boolean;
+  locale?: Locale | undefined;
 }): string {
-  return `Mezonas code: ${input.code}. Enter it to let ${input.agent} use ${input.tool} ${windowWords(input.window, input.test)}. It expires in 10 minutes.`;
+  const locale = input.locale ?? "en";
+  const w = RELEASE_WORDS[locale];
+  return `${w.prefix} ${input.code}. ${w.body(input.agent, input.tool, windowWords(input.window, input.test, locale))}`;
+}
+
+/** The person's language for a code: their own choice, else the client's default, else English. */
+export function releaseLocale(user: Locale | null, client: Locale | null): Locale {
+  return user ?? client ?? "en";
 }
 
 /** A phone number with all but its last 4 digits hidden. */

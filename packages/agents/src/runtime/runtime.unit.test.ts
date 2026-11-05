@@ -11,9 +11,11 @@ import { SkillCatalog } from "../registry/skills";
 import { ToolRegistry, ToolRegistryError } from "../registry/tools";
 import { inboxCreate, PLATFORM_TOOLS } from "../tools/platform";
 import { defineInternalTool } from "../tools/types";
+import { executeAction } from "./actions";
 import { releaseGate } from "./call-tool";
 import { type RuntimeDeps, resolveApprover, type StepContext } from "./context";
 import { checkAgainst, objectSchema } from "./json-schema";
+import { runPlannedAction } from "./planned";
 import { toolName } from "./run-agent";
 
 const connectors = () => new ConnectorRegistry([createTestkitConnector()]);
@@ -211,5 +213,122 @@ describe("the human release gate", () => {
     expect(await gate(deps(true).d, conn({ mode: "code", window: { hours: 99 } }))).toMatchObject({
       status: "refused",
     });
+  });
+});
+
+describe("human release outside the gate: approved writes and reach-out attempts", () => {
+  const PERSON = "01a1a29f-2195-7f01-b490-3e9a675c8770";
+  const conn = {
+    id: "c1",
+    tenantId: "t1",
+    connector: "testkit",
+    status: "connected" as const,
+    externalAccountId: null,
+    config: {
+      release: { mode: "code", personId: PERSON, channel: "email", window: { hours: 2 } },
+    } as never,
+    permissions: { read: "auto", create: "auto", update: "auto", delete: "off" } as const,
+  };
+  const action = {
+    id: "act1",
+    tenantId: "t1",
+    connectionId: "c1",
+    tool: TESTKIT_UPDATE_TOOL,
+    runId: "r1",
+    stepRunId: "s1",
+    agentVersionId: "v1",
+    input: { id: "r1", amount: "1.00" },
+    idempotencyKey: "r1:x:0",
+    status: "approved" as const,
+    inboxItemId: null,
+    approvedBy: null,
+    result: null,
+    error: null,
+    before: null,
+  };
+  function deps(covers: boolean | null) {
+    const seen = { claimed: 0, failed: [] as unknown[], asked: 0, covers: [] as unknown[] };
+    const d = {
+      tools: new ToolRegistry({ platform: PLATFORM_TOOLS, connectors: connectors() }),
+      ports: {
+        store: {
+          connection: async () => conn,
+          run: async () => ({ mode: "live", agentId: "a1" }),
+          grant: async () => null,
+        },
+        actions: {
+          get: async () => action,
+          byKey: async () => null,
+          claim: async () => {
+            seen.claimed += 1;
+            return { action, claimed: true };
+          },
+          fail: async (_t: string, _id: string, error: unknown) => {
+            seen.failed.push(error);
+            return { ...action, status: "failed" };
+          },
+        },
+        log: { startToolCall: async () => "tc1", finishToolCall: async () => {} },
+        ...(covers === null
+          ? {}
+          : {
+              release: {
+                covers: async (_t: string, ask: unknown) => {
+                  seen.covers.push(ask);
+                  return covers;
+                },
+                request: async () => {
+                  seen.asked += 1;
+                  return { refused: "never" };
+                },
+              },
+            }),
+      },
+    } as unknown as RuntimeDeps;
+    return { d, seen };
+  }
+
+  it("runs an approved write only under a live release for its agent and run", async () => {
+    const blocked = deps(false);
+    const out = await executeAction(blocked.d, { tenantId: "t1", actionId: "act1" });
+    expect(out.status).toBe("failed");
+    expect(blocked.seen.claimed).toBe(0);
+    expect(blocked.seen.failed).toMatchObject([{ release: true }]);
+    expect(blocked.seen.covers).toMatchObject([{ agentId: "a1", runId: "r1" }]);
+    // No port: refused too, never asked.
+    const none = deps(null);
+    expect((await executeAction(none.d, { tenantId: "t1", actionId: "act1" })).status).toBe(
+      "failed",
+    );
+    expect(none.seen.claimed).toBe(0);
+    // Released: it goes on to claim and write.
+    const ok = deps(true);
+    await executeAction(ok.d, { tenantId: "t1", actionId: "act1" }).catch(() => null);
+    expect(ok.seen.claimed).toBe(1);
+    expect(blocked.seen.asked + none.seen.asked + ok.seen.asked).toBe(0);
+  });
+
+  it("refuses a reach-out attempt without a live release, and never asks for one", async () => {
+    const step = {
+      tenantId: "t1",
+      runId: "r1",
+      stepRunId: "s1",
+      stepId: "reach",
+      mode: "live",
+      agent: { agentId: "a1" },
+      externalIndex: { next: 0 },
+    } as unknown as StepContext;
+    for (const covers of [false, null] as const) {
+      const { d, seen } = deps(covers);
+      const out = await runPlannedAction(d, step, {
+        toolId: TESTKIT_UPDATE_TOOL,
+        connectionId: "c1",
+        input: { id: "r1", amount: "1.00" },
+        idempotencyKey: "r1:reach:reach:0",
+      });
+      expect(out).toMatchObject({ status: "refused" });
+      expect((out as { reason: string }).reason).toContain("needs a person to release it");
+      expect(seen.asked).toBe(0);
+    }
   });
 });
