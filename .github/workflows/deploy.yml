@@ -4,6 +4,7 @@ name: Deploy
 # `v*` tag or a manual run. Each deploy runs the full check, migrates the target's Neon branch as
 # cs_owner, deploys the code service (apps/mfa, Worker mezonas-codes) and its secrets, then
 # `wrangler deploy` from apps/api, whose `CODES` service binding needs the code service to exist.
+# The public site (apps/site, Worker mezonas-site, mezonas.com) deploys in its own job, from main only.
 # Inert until the secrets in docs/operations.md §1 exist, and until apps/api has a wrangler.jsonc (M0).
 
 on:
@@ -250,3 +251,54 @@ jobs:
             echo "::add-mask::$value"
             put "$name" "$value"
           done
+
+  # The public site, mezonas.com (apps/site, docs/plan.md §1.29): static files on the Worker
+  # mezonas-site. One site for every environment, so it deploys from main only (a push, or a
+  # manual run from main), never from a tag. Its own job: it needs no database or app secrets, and
+  # a failure here never holds up the app's deploy.
+  site:
+    needs: checks
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ready to deploy?
+        id: ready
+        run: |
+          missing=()
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Site deploy skipped, missing: ${missing[*]}. See docs/operations.md."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.ready.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - if: steps.ready.outputs.ready == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the site
+        if: steps.ready.outputs.ready == 'true'
+        run: pnpm --filter @countersign/site run build
+
+      # Creates the custom domains mezonas.com and www.mezonas.com on first run. It fails while
+      # another DNS record holds either name (docs/operations.md, "The public site").
+      - name: Deploy the site
+        if: steps.ready.outputs.ready == 'true'
+        run: pnpm --filter @countersign/site exec wrangler deploy
