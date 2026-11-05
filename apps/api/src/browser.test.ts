@@ -28,6 +28,7 @@ import {
   connection,
   connectionChange,
   document,
+  event,
   inboxItem,
   message,
   run,
@@ -644,6 +645,20 @@ describe.skipIf(!h)("browser connections through the API", () => {
         .from(inboxItem)
         .where(and(eq(inboxItem.tenantId, A()), eq(inboxItem.subjectType, "browser_stop")));
       expect(items.map((i) => i.assigneeRole).sort()).toEqual(["client_admin", "operator"]);
+      // The supervisor's event and fingerprint (docs/plan.md §1.28): once, with the stop.
+      for (const i of items) {
+        expect(j(i.payload).fingerprint).toBe(`login_stopped:${connectionId}`);
+      }
+      const stops = await H.t.db
+        .select()
+        .from(event)
+        .where(and(eq(event.tenantId, A()), eq(event.type, "connection.needs_attention")));
+      expect(stops).toHaveLength(1);
+      expect(stops[0]?.payload).toMatchObject({
+        connectionId,
+        connector: "browser",
+        reason: "login_stopped",
+      });
       const view = await H.call(admin("a"), "GET", "/api/access");
       const item = j(view.json).items.find(
         (i: { connectionId: string }) => i.connectionId === connectionId,

@@ -42,6 +42,7 @@ import { recordRouteHandlers } from "./routes/records";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
+import { supervisorRouteHandlers } from "./routes/supervisor";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
@@ -63,6 +64,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsSkillRoutes(app);
   opsBuilderRoutes(app);
   opsMergeRoutes(app);
+  supervisorRouteHandlers(app);
   portalRouteHandlers(app);
   connectionRoutes(app);
   webhookSetupRoutes(app);

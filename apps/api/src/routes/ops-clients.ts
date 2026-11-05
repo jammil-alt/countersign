@@ -37,6 +37,7 @@ import {
   opsToolCall,
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
+import { addSupervisor } from "./supervisor";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
 export function isSandbox(settings: Record<string, unknown>): boolean {
@@ -163,6 +164,14 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
           { surface: "ops" },
         )
       : null;
+    // Onboarding offers the supervisor (docs/plan.md §1.28): forked and published, ready to test.
+    if (body.supervisor) {
+      await addSupervisor(tx, {
+        tenantId: row.id,
+        actorId: session.user.id,
+        platform: services.platform,
+      });
+    }
     const [summary] = await clientSummaries(tx, [row.id]);
     if (!summary) throw new Error("the new client is not visible");
     return { client: summary, admin: invited };

@@ -22,7 +22,7 @@ import {
   openaiTransport,
   routingTransport,
 } from "@countersign/llm";
-import type { EventRow } from "@countersign/senses";
+import { type EventRow, emit } from "@countersign/senses";
 import {
   type ExecutorContext,
   executeWorkflow,
@@ -164,6 +164,7 @@ export function runtimeFor(
   const { db } = deps;
   return {
     ports: createDbPorts(db, {
+      connectorName: (id) => deps.platform.connectors.get(id)?.manifest.name ?? id,
       emit: senseEmitter(deps.platform.events, {
         ...(options.collect ? { collect: options.collect } : {}),
         testRun: options.testRun === true,
@@ -260,6 +261,29 @@ export async function executeRun(
             ? {}
             : { error: { reason: result.reason ?? null, nodeId: result.nodeId ?? null } }),
         });
+        // `run.failed` (docs/plan.md §1.28), in the transaction that records the failure, so it
+        // exists exactly when the run is failed. A test run emits nothing (ARCHITECTURE §10.4).
+        if (result.status === "failed") {
+          const row = await emit(
+            tx,
+            {
+              tenantId: info.tenantId,
+              type: "run.failed",
+              subjectType: "run",
+              subjectId: info.id,
+              payload: {
+                runId: info.id,
+                agentId: info.agentId,
+                agentVersionId: info.agentVersionId,
+                workflowSlug: info.workflowSlug,
+                stepId: result.nodeId ?? null,
+                error: (result.reason ?? "failed").slice(0, 1000),
+              },
+            },
+            { registry: deps.platform.events, testRun: info.mode === "test" },
+          );
+          if (row) emitted.push(row);
+        }
         // Every day the run touched: one that waited overnight added to more than today.
         await rollupUsageForRun(tx, { tenantId: info.tenantId, runId: info.id });
       });
