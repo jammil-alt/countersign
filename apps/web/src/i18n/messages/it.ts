@@ -249,6 +249,8 @@ export const it: Messages = {
   "connections.connect": "Collega",
   "connections.adminCanConnect": "Può collegarlo il tuo amministratore.",
   "connections.enterKey": "Inserisci le credenziali",
+  "connections.gmail.description":
+    "Invia email dal tuo Gmail. Non possiamo leggere la tua casella di posta.",
   "connection.status.connected": "Collegato",
   "connection.status.pending": "Non collegato",
   "connection.status.disconnected": "Scollegato",

@@ -34,6 +34,18 @@ export class ReconnectRequiredError extends Error {
   }
 }
 
+/**
+ * The provider's sign-in worked but its grant isn't one we can keep (a permission left unticked,
+ * an unverified account). The message is plain words for the person who signed in; the platform
+ * shows it as it is and stores nothing.
+ */
+export class SignInRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SignInRefusedError";
+  }
+}
+
 /** Refresh this long before expiry, so a token never expires mid-call. */
 export const REFRESH_SKEW_MS = 5 * 60 * 1000;
 

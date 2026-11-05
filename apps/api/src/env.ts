@@ -31,6 +31,9 @@ export interface Secrets {
   RESEND_FALLBACK_DOMAIN?: string;
   /** Resend's id for that domain, so fallback keys can send only from it. */
   RESEND_FALLBACK_DOMAIN_ID?: string;
+  /** Google Cloud's OAuth client "Mezonas web": Gmail, send only (ARCHITECTURE §6.4). */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
@@ -54,6 +57,11 @@ export interface Vars {
   LLM_MODE?: string;
   /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
   EMAIL_FORWARDING_DOMAIN?: string;
+  /**
+   * Where Google sends the person back after Gmail's consent screen; it must match a redirect URI
+   * registered on the OAuth client exactly. Unset: `<APP_ORIGIN>/api/connections/gmail/callback`.
+   */
+  GOOGLE_REDIRECT_URI?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */

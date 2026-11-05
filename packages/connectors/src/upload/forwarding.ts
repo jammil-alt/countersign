@@ -250,12 +250,22 @@ export interface ReplyEmail {
 
 export const REPLY_TEXT_MAX = 4000;
 
+/**
+ * The line mail apps put above quoted history, in the portal's six languages (people answer in
+ * theirs, plan §1.25): "On … wrote:", "El … escribió:", "Le … a écrit :", "Em … escreveu:",
+ * "Il … ha scritto:", "Am … schrieb …:".
+ */
+const ATTRIBUTION = [
+  /^(on|el|le|em|il) .+ (wrote|escribió|a écrit|escreveu|ha scritto)\s*:\s*$/i,
+  /^am .+ schrieb .+:\s*$/i,
+];
+
 /** The new part of a plain-text reply: up to the quoted history ("On … wrote:", "> " lines). */
 export function replyText(body: string): string {
   const out: string[] = [];
   for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
     if (/^>/.test(line.trim())) break;
-    if (/^On .+wrote:\s*$/i.test(line.trim())) break;
+    if (ATTRIBUTION.some((r) => r.test(line.trim()))) break;
     if (/^-{2,}\s*Original Message\s*-{2,}$/i.test(line.trim())) break;
     out.push(line);
   }
