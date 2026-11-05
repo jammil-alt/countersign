@@ -117,6 +117,56 @@ describe("ops connections: the Sandbox client", () => {
     expect(screen.getByTestId("ops-connections-list")).toHaveTextContent("9341458640918607");
   });
 
+  it("names a QuickBooks connection by its company, with the realm id under it, and links to what it synced", async () => {
+    const CONN = "00000000-0000-4000-8000-0000000000d1";
+    const qbo = (over: Record<string, unknown>) => ({
+      id: CONN,
+      tenantId: DEMO,
+      connector: "qbo",
+      status: "connected",
+      externalAccountId: "9341458640918607",
+      config: { accountName: "Sandbox Company_US_1" },
+      permissions: {
+        read: "auto",
+        create: "approval",
+        update: "approval",
+        delete: "off",
+        scope: null,
+      },
+      lastSyncAt: "2026-11-05T12:41:00.000Z",
+      connectedBy: null,
+      createdAt: "2026-11-05T12:00:00.000Z",
+      ...over,
+    });
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}/connections`]: () =>
+        connections({ sandbox: false, connections: [qbo({})] }),
+    });
+    const view = renderAt(`/ops/clients/${DEMO}/connections`, api);
+    const card = await screen.findByTestId(`ops-connection-${CONN}`);
+    expect(within(card).getByTestId("ops-connection-account")).toHaveTextContent(
+      /^Sandbox Company_US_1$/,
+    );
+    expect(card).toHaveTextContent("9341458640918607");
+    expect(within(card).getByTestId("ops-connection-records")).toHaveAttribute(
+      "href",
+      `/ops/clients/${DEMO}/records?source=${CONN}`,
+    );
+    view.unmount();
+
+    // No company name and never synced: the realm id, and no link to an empty list.
+    api.on(`GET /api/ops/clients/${DEMO}/connections`, () =>
+      connections({ sandbox: false, connections: [qbo({ config: {}, lastSyncAt: null })] }),
+    );
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
+    const bare = await screen.findByTestId(`ops-connection-${CONN}`);
+    expect(within(bare).getByTestId("ops-connection-account")).toHaveTextContent(
+      /^9341458640918607$/,
+    );
+    expect(within(bare).queryByTestId("ops-connection-records")).toBeNull();
+  });
+
   it("offers no Connect in a real client", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,

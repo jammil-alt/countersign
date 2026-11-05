@@ -42,6 +42,9 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                   testId="ops-nav-documents"
                 />
               ) : null}
+              {base ? (
+                <SidebarLink to={`${base}/records`} label="Records" testId="ops-nav-records" />
+              ) : null}
               {base ? null : (
                 <SidebarLink to="/ops/clients" label="Clients" testId="ops-nav-clients" />
               )}

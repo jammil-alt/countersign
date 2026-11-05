@@ -6,8 +6,9 @@
 // client, the operator's own test client: the operator connects its no-sign-in tools here, and signs
 // in to its offered OAuth tools with their own account (the provider returns to
 // `/ops/connections/:connector/callback`).
+import { connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -145,6 +146,8 @@ function ConnectionCard({
   onSaveConfig: (config: Record<string, unknown>) => Promise<void>;
 }) {
   const saved = JSON.stringify(c.config, null, 2);
+  // The company's name, as the portal shows it; the account id (a QuickBooks realm) under it.
+  const accountName = connectionAccountName(c.config);
   const [text, setText] = useState(saved);
   const [editing, setEditing] = useState(false);
   const [problem, setProblem] = useState<unknown>(null);
@@ -177,7 +180,20 @@ function ConnectionCard({
         <ConnectorMark name={name} />
         <div className="min-w-0">
           <p className="font-medium text-ink">{name}</p>
-          <p className="text-sm text-ink-muted">{c.externalAccountId ?? c.connector}</p>
+          {accountName ? (
+            <>
+              <p className="text-sm text-ink" data-testid="ops-connection-account">
+                {accountName}
+              </p>
+              {c.externalAccountId ? (
+                <p className="reference text-xs text-ink-muted">{c.externalAccountId}</p>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm text-ink-muted" data-testid="ops-connection-account">
+              {c.externalAccountId ?? c.connector}
+            </p>
+          )}
         </div>
       </div>
       <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
@@ -228,10 +244,19 @@ function ConnectionCard({
           </div>
         </div>
       ) : (
-        <div className="mt-auto pt-4">
+        <div className="mt-auto flex flex-wrap items-center gap-3 pt-4">
           <Button data-testid="ops-connection-config-edit" onClick={() => setEditing(true)}>
             Configuration
           </Button>
+          {c.lastSyncAt ? (
+            <Link
+              to={`/ops/clients/${c.tenantId}/records?source=${c.id}`}
+              data-testid="ops-connection-records"
+              className="ds-btn ds-btn--link text-sm"
+            >
+              See what it synced
+            </Link>
+          ) : null}
         </div>
       )}
     </Card>
