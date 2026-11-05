@@ -22,7 +22,8 @@ subaccount, and no access to Neon, R2 or apps/api's secrets. It imports `@counte
 1. A login in progress (apps/api, phase 3) calls `openWait({tenantId, identityId, siteKey, channel,
    sender, pattern, ttlSeconds ≤ 300})`. Each identity may open 20 waits a day (`MFA_DAILY_CAP`).
 2. A text (Twilio → `POST /twilio/sms/<identity id>`) or an email (`agent-<identity id>@<domain>`)
-   arrives. Email counts only when SPF, DKIM and DMARC passed. The first open wait whose sender
+   arrives. Email counts only when SPF, DKIM and DMARC passed, and only where `EMAIL_CODES` is `on`
+   (off everywhere until verified: `NOTES.md`). The first open wait whose sender
    matches and whose pattern finds a code takes it; the code is sealed and held.
 3. `claim({tenantId, identityId, waitId})` answers `pending`, then `{status: 'code', code}` once,
    then `expired`. The held code is deleted when claimed, or by the alarm after ten minutes.

@@ -17,7 +17,7 @@ import {
   type OpenWaitResult,
 } from "@countersign/core";
 import { SealKey, sealContext } from "./crypto";
-import type { CodesEnv } from "./env";
+import { type CodesEnv, emailCodesOn } from "./env";
 import { logEvent } from "./log";
 import { classifyUnmatched, extractCode, matchableText, senderMatches } from "./match";
 import {
@@ -288,6 +288,9 @@ export class Identity extends DurableObject<CodesEnv> {
     if (input.channel === "sms" && !r.phone) {
       return fail("not_configured", "this identity has no phone number");
     }
+    if (input.channel === "email" && !emailCodesOn(this.env)) {
+      return fail("not_configured", "email codes are off until verified");
+    }
     if (input.channel === "totp") {
       const has = this.sql
         .exec("select count(*) as n from authenticator where site_key = ?", input.siteKey)
@@ -473,14 +476,19 @@ export class Identity extends DurableObject<CodesEnv> {
     }
     const now = Date.now();
     const text = matchableText([message.subject, message.text]);
-    const waits = this.sql
-      .exec<WaitRow>(
-        `select * from wait where status = 'open' and channel = ? and expires_at > ?
+    // DECISION: while EMAIL_CODES is off, an email never fills a wait (Cloudflare's authentication
+    // headers are not verified yet); it is still read, and raises an alert as any unmatched message.
+    const fillable = message.channel !== "email" || emailCodesOn(this.env);
+    const waits = !fillable
+      ? []
+      : this.sql
+          .exec<WaitRow>(
+            `select * from wait where status = 'open' and channel = ? and expires_at > ?
          order by created_at, id`,
-        message.channel,
-        now,
-      )
-      .toArray();
+            message.channel,
+            now,
+          )
+          .toArray();
     for (const w of waits) {
       if (!w.sender || !w.pattern) continue;
       if (!senderMatches(message.channel, w.sender, message.sender)) continue;
@@ -530,7 +538,7 @@ export class Identity extends DurableObject<CodesEnv> {
       now,
     );
     await this.scheduleAt(now + ALERT_KEEP_MS);
-    logEvent("message.alert", { ...meta, kind, alertId });
+    logEvent("message.alert", { ...meta, kind, alertId, fillable });
     return { outcome: "alert", kind, alertId };
   }
 
