@@ -12,7 +12,11 @@ import {
   agentGrant,
   agentVersion,
   appUser,
+  billingAgentDay,
+  billingAgentPrice,
   billingEvent,
+  billingStatement,
+  billingStatementLine,
   billingUsageReport,
   connection,
   connectionChange,
@@ -359,6 +363,47 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     type: "invoice.paid",
     objectId: "in_1",
     summary: { status: "paid" },
+  });
+  await db.insert(billingAgentPrice).values({
+    tenantId,
+    agentId: a.id,
+    monthlyPrice: "100.0000",
+    includedCredits: 500,
+    note: "Agreed in the contract",
+  });
+  await db.insert(billingAgentDay).values({
+    tenantId,
+    day: "2026-10-01",
+    agentId: a.id,
+    agentName: "Test agent",
+    monthlyPrice: "100.0000",
+    includedCredits: 500,
+    priceSource: "override",
+  });
+  const [st] = await db
+    .insert(billingStatement)
+    .values({
+      tenantId,
+      period: "2026-10-01",
+      periodEnd: "2026-10-31",
+      daysInMonth: 31,
+      status: "draft",
+      total: "3.2300",
+      creditsUsed: 0,
+      creditsIncluded: 16,
+      extraCredits: 0,
+      creditPrice: "0.0200",
+    })
+    .returning();
+  if (!st) throw new Error("no statement");
+  await db.insert(billingStatementLine).values({
+    tenantId,
+    statementId: st.id,
+    position: 0,
+    kind: "agent",
+    agentId: a.id,
+    description: "Test agent",
+    amount: "3.2300",
   });
 
   const [ke] = await db
