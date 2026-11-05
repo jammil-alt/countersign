@@ -6,6 +6,7 @@ import type { AgentBundle } from "@countersign/core";
 import { sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
+  accessRelease,
   agent,
   agentChange,
   agentGrant,
@@ -88,6 +89,7 @@ export interface ClientFixture {
   connectionId: string;
   agentId: string;
   agentVersionId: string;
+  runId: string;
   skillVersionId: string;
   rawRecordId: string;
   documentId: string;
@@ -239,6 +241,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     plan: {},
     status: "open",
   });
+  await db.insert(accessRelease).values({
+    tenantId,
+    connectionId: c.id,
+    agentId: a.id,
+    runId: r.id,
+    personId: u.id,
+    channel: "email",
+    codeHash: "0".repeat(64),
+    expiresAt: new Date(Date.now() + 600_000),
+  });
 
   const [v] = await db
     .insert(vendor)
@@ -371,6 +383,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     connectionId: c.id,
     agentId: a.id,
     agentVersionId: av.id,
+    runId: r.id,
     skillVersionId: sv?.id ?? "",
     rawRecordId: rr?.id ?? "",
     documentId: d.id,

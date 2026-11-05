@@ -1721,6 +1721,81 @@ export const agentGrant = pgTable(
   ],
 );
 
+// ── Human release (migration 0013, docs/plan.md §1.26 "Human release") ──────────────────────────
+
+/** Mirrors core's RELEASE_STATUSES (this file imports core only for types). */
+export const ACCESS_RELEASE_STATUSES = [
+  "pending",
+  "released",
+  "expired",
+  "failed",
+  "revoked",
+  "void",
+] as const;
+export const ACCESS_RELEASE_CHANNELS = ["sms", "email"] as const;
+
+/**
+ * One request for a person to release a vault item (a connection) to one client agent, made by a
+ * step of one run: the code went to the person by text or email, and only its HMAC is kept
+ * (`code_hash`, under a key derived from ENCRYPTION_KEY). Append-mostly: only the status columns
+ * change (status, tries, released_at, valid_until, revoked_by); never deleted. A `run` release has
+ * no `valid_until` and covers its run only; an hours release covers the connection and agent until
+ * `valid_until`.
+ */
+export const accessRelease = pgTable(
+  "access_release",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    runId: uuid("run_id").notNull(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => appUser.id),
+    channel: text("channel").$type<(typeof ACCESS_RELEASE_CHANNELS)[number]>().notNull(),
+    /** Hex HMAC-SHA256 of the request id and the code; never the code. */
+    codeHash: text("code_hash").notNull(),
+    expiresAt: ts("expires_at").notNull(),
+    tries: integer("tries").notNull().default(0),
+    status: text("status")
+      .$type<(typeof ACCESS_RELEASE_STATUSES)[number]>()
+      .notNull()
+      .default("pending"),
+    releasedAt: ts("released_at"),
+    validUntil: ts("valid_until"),
+    revokedBy: uuid("revoked_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("access_release_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "access_release_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    foreignKey({
+      name: "access_release_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "access_release_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    index("access_release_lookup_idx").on(t.tenantId, t.connectionId, t.agentId, t.status),
+    index("access_release_run_idx").on(t.runId),
+    check("access_release_status_check", oneOf(t.status, ACCESS_RELEASE_STATUSES)),
+    check("access_release_channel_check", oneOf(t.channel, ACCESS_RELEASE_CHANNELS)),
+    check("access_release_tries_check", sql`${t.tries} between 0 and 5`),
+    check(
+      "access_release_released_check",
+      sql`(${t.status} in ('released', 'revoked')) = (${t.releasedAt} is not null)`,
+    ),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -1765,6 +1840,7 @@ export const TENANT_TABLES = [
   "reach_out",
   "tenant_key",
   "agent_grant",
+  "access_release",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
