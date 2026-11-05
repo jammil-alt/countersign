@@ -287,6 +287,38 @@ export const ptBR: Messages = {
   "vault.keepAccess": "Manter o acesso",
   "vault.tightenNote": "Você pode restringir o que um agente faz. Só nós podemos ampliar de novo.",
   "vault.saveAccess": "Salvar o acesso",
+  "vault.browser.setupTitle": "Acessos a sites",
+  "vault.browser.setupHint":
+    "Nossos agentes podem entrar nestes sites com uma conta que você cria para eles. Quem entra somos nós, nunca o agente, e ele nunca vê a senha nem um código.",
+  "vault.browser.tier.low": "Risco baixo",
+  "vault.browser.tier.medium": "Risco médio",
+  "vault.browser.tier.high": "Risco alto",
+  "vault.browser.tier.blocked": "Bloqueado",
+  "vault.browser.tierHelp.low":
+    "Entramos por conta própria. Mudanças precisam da sua aprovação, a menos que você as permita.",
+  "vault.browser.tierHelp.medium": "Entramos por conta própria. Toda mudança precisa de aprovação.",
+  "vault.browser.tierHelp.high": "Uma pessoa entra. Isso ainda não está disponível.",
+  "vault.browser.tierHelp.blocked": "Os agentes nunca entram neste site.",
+  "vault.browser.confirm":
+    "A conta que criamos para o agente é nossa, e os termos do site permitem acesso automatizado.",
+  "vault.browser.authenticator": "Link de configuração do autenticador",
+  "vault.browser.authenticatorHint":
+    "O link otpauth:// que o site mostra quando você ativa um app autenticador para a conta do agente.",
+  "vault.browser.setUp": "Configurar",
+  "vault.browser.identity": "E-mail da conta do agente",
+  "vault.browser.identityPhone": "Telefone da conta do agente",
+  "vault.browser.identityHint":
+    "Crie a conta do agente no site com este endereço e o menor papel que faça o trabalho. Os códigos de acesso dela chegam até nós.",
+  "vault.browser.signIns": "Acessos hoje: {count} de {limit}",
+  "vault.browser.stopped":
+    "Os acessos estão parados até alguém verificar a conta do agente: {reason}. Informe o acesso de novo para retomar.",
+  "vault.browser.stricter": "Deixar mais rígido",
+  "vault.browser.noWrites": "Nenhuma mudança neste site",
+  "vault.browser.personSignIn": "Uma pessoa entra",
+  "vault.browser.stricterNote":
+    "Você pode deixar um acesso a site mais rígido. Só nós podemos afrouxá-lo de novo.",
+  "vault.browser.saveStricter": "Salvar",
+  "vault.browser.version": "Versão do site {version}",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuração",

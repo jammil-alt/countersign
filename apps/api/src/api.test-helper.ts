@@ -14,7 +14,7 @@ import {
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type SkillDefinition } from "@countersign/core";
 import { appUser, connection, createDb, type Db, membership, tenant } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { type LlmTransport, withRecording } from "@countersign/llm";
@@ -117,6 +117,8 @@ export interface HarnessOptions {
   fetch?: FetchLike;
   /** Billing's Stripe (tests pass a client over `fakeStripe`); none by default. */
   stripe?: StripeClient;
+  /** Platform skills beside the built-in ones (e.g. an agent-mode skill over a connector's tools). */
+  skills?: SkillDefinition[];
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -138,6 +140,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
       createTestkitConnector(backend),
       ...(options.connectors?.(backend) ?? []),
     ],
+    ...(options.skills ? { skills: options.skills } : {}),
   });
   const instances = new MemoryInstances();
   const objects = new MemoryObjectStore();

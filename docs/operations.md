@@ -143,6 +143,35 @@ domain, and generates `MFA_ENCRYPTION_KEY` once. What a person does, per environ
   `MFA_ENCRYPTION_KEY` is never set by a person. Replacing it would make stored authenticator secrets
   unreadable (rotation is not built yet; `apps/mfa/NOTES.md`).
 
+### Browser logins (Access phase 3)
+
+Agents sign in to websites with no API as a client's agent account, on Cloudflare Browser Run, signed
+in by our code (docs/plan.md §1.26). The code is deployed with apps/api; what a person does:
+
+- [ ] **Turn on Browser Run** for the Cloudflare account (Workers & Pages → Browser Rendering; it
+      needs the Workers Paid plan). Check its limits for the account: concurrent browsers, browsers
+      per minute, and that `guardrails` (allowed domains) and `recording: false` are accepted.
+- [ ] **Merge the binding PR** (`claude/browser-binding`) only after that: it adds `"browser":
+      {"binding": "BROWSER"}` to `apps/api/wrangler.jsonc`, and a deploy with the binding fails on an
+      account without Browser Run. Without the binding, website logins show "Not available yet" and
+      agents' browser tools are refused.
+- [ ] **Add the first real site** in the back office (Websites → Add a site), after checking its
+      terms allow automated access; write who checked and when in the notes. Pick a low-tier site
+      (supplier portal, price list, invoice downloads) and allow only the pages the pilot reads, e.g.
+      `https://portal.example.com/invoices*`. Emailed codes are off until the code service's email
+      check is done (above), so start with a site that sends codes by text, uses an authenticator
+      app or has no second factor, or do that check first. Fill in the selectors from the site's
+      login page (browser developer tools) and set `signedIn` to something only a signed-in page has.
+- [ ] **Offer it to the pilot client** (the client's Connections settings: offer "Website logins").
+      The client admin sets the login up on Access: confirms the account is theirs and the terms
+      allow it, makes the agent's account on the site with the shown address (and number), with the
+      smallest role, then enters its username and password. Bind the agent as `browser:<slug>` on its
+      Operation panel and give it a read-only grant.
+- [ ] **Watch the first runs**: the connection's log has a `browser_session` line per call (pages,
+      screenshots, signed out); a CAPTCHA, an unusual page or two failed sign-ins stop the login and
+      put an item in your inbox and the client admin's. Re-entering the login on Access starts it
+      again.
+
 ### Intuit (QuickBooks Online, from M9)
 
 1. An Intuit developer app with the `com.intuit.quickbooks.accounting` scope, a sandbox company, and

@@ -106,6 +106,31 @@ export function withOperator<T>(
 }
 
 /**
+ * Inside any transaction (a client's request or run), reads the operator's catalogue (the browser
+ * sites, tables only operator sessions may read) as an operator scope with no clients: for `fn`
+ * only, `app.tenant_ids` is empty and `app.operator` on, so no client's rows are visible, only the
+ * operator's own; both are put back afterwards. `fn` must only read.
+ */
+// DECISION: a portal request holds the database's one pooled connection in its transaction, so a
+// second transaction (withOperator) would wait on itself; the scope switches inside it instead.
+// Runs, which hold no transaction across a tool call, use withOperator(db, [], …) directly.
+export async function readOperatorCatalogue<T>(tx: Tx, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  const rows = await tx.execute<{ ids: string | null; op: string | null }>(sql`select
+    current_setting('app.tenant_ids', true) as ids, current_setting('app.operator', true) as op`);
+  const before = [...rows][0];
+  await tx.execute(sql`select set_config('app.tenant_ids', '{}', true),
+    set_config('app.operator', 'on', true)`);
+  try {
+    return await fn(tx);
+  } finally {
+    await tx
+      .execute(sql`select set_config('app.tenant_ids', ${before?.ids ?? ""}, true),
+        set_config('app.operator', ${before?.op ?? "off"}, true)`)
+      .catch(() => undefined);
+  }
+}
+
+/**
  * Sign-in: no client yet, only this user's own memberships are visible (policy `own_memberships`).
  * For packages/auth, to learn which clients a session may name.
  */

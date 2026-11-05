@@ -7,12 +7,16 @@
 // a client's secret.
 
 import { grantOf, grantsOfClient, setGrant } from "@countersign/agents";
-import { connectionDefaults } from "@countersign/connectors";
+import { BROWSER_CONNECTOR_ID, connectionDefaults } from "@countersign/connectors";
 import {
   type AgentAccess,
+  BrowserConnectionConfig,
+  BrowserConnectionState,
+  type BrowserVaultInfo,
   type ConnectorManifest,
   type CredentialField,
   effectiveMatrix,
+  effectiveTier,
   type GrantLimits,
   grantLoosening,
   grantProblems,
@@ -29,6 +33,7 @@ import { agent, connection, connectionChange, type Tx, tenant } from "@countersi
 import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { type CatalogueSite, catalogueForClient, offers } from "../browser/sites";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import type { Platform } from "../platform";
 import { connectionCredentials } from "../secrets";
@@ -60,6 +65,7 @@ function vaultConfigOf(row: Pick<ConnectionRow, "config">): VaultConfig | null {
 // DECISION: the vault item's kind comes from the connector's auth (oauth2, api_key, none); browser
 // logins (phase 3) add their own kind with the `browser` connector.
 function kindOf(manifest: ConnectorManifest | undefined): VaultKind {
+  if (manifest?.id === BROWSER_CONNECTOR_ID) return "browser";
   if (manifest?.auth === "oauth2") return "oauth";
   if (manifest?.auth === "api_key") return "api_key";
   return "built_in";
@@ -123,6 +129,34 @@ function boundAgents(agents: AgentRow[], connectionId: string): AgentRow[] {
   );
 }
 
+/** A browser login's site, tier, identity, stricter settings and sign-in state, for the portal. */
+function browserInfo(
+  row: ConnectionRow,
+  sites: readonly CatalogueSite[],
+  at: Date,
+): BrowserVaultInfo | null {
+  const config = BrowserConnectionConfig.safeParse(row.config);
+  if (!config.success) return null;
+  const entry = sites.find((e) => e.site.slug === config.data.site);
+  const state = BrowserConnectionState.safeParse(
+    (row.config as Record<string, unknown>).browserState,
+  );
+  const today = at.toISOString().slice(0, 10);
+  const tier = entry?.site.tier ?? "blocked";
+  return {
+    site: { slug: config.data.site, name: entry?.site.name ?? config.data.site, tier },
+    effectiveTier: effectiveTier(tier, config.data.stricter),
+    siteVersion: null,
+    identity: config.data.identity
+      ? { email: config.data.identity.email, phone: config.data.identity.phone }
+      : null,
+    stricter: config.data.stricter,
+    signInsPerDay: config.data.caps.signInsPerDay,
+    signInsToday: state.success && state.data.day === today ? state.data.signIns : 0,
+    stopped: state.success ? state.data.stopped : null,
+  };
+}
+
 /** The client's vault: every connection, with each bound agent's access. */
 export async function vaultItems(
   tx: Tx,
@@ -145,14 +179,26 @@ export async function vaultItems(
     .from(agent)
     .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.status, "active")));
   const grants = await grantsOfClient(tx, tenantId);
+  const browserRows = rows.filter((r) => r.connector === BROWSER_CONNECTOR_ID);
+  const sites = browserRows.length > 0 ? await catalogueForClient(tx) : [];
+  const now = new Date();
   return rows.map((row) => {
     const connector = platform.connectors.get(row.connector);
     const manifest = connector?.manifest;
     const vault = vaultConfigOf(row);
+    const browser = row.connector === BROWSER_CONNECTOR_ID ? browserInfo(row, sites, now) : null;
+    if (browser) {
+      const version = sites.find((e) => e.site.slug === browser.site.slug);
+      const pinned = BrowserConnectionConfig.safeParse(row.config);
+      browser.siteVersion =
+        version && pinned.success && version.current.id === pinned.data.siteVersionId
+          ? version.current.version
+          : null;
+    }
     return {
       connectionId: row.id,
       connector: row.connector,
-      name: manifest?.name ?? row.connector,
+      name: browser ? browser.site.name : (manifest?.name ?? row.connector),
       kind: kindOf(manifest),
       status: row.status,
       externalAccountId: row.externalAccountId,
@@ -172,6 +218,7 @@ export async function vaultItems(
           options.names === "service" ? (a.serviceName ?? a.name) : a.name,
         ),
       ),
+      browser,
     };
   });
 }
@@ -190,8 +237,9 @@ async function vaultSetup(tx: Tx, tenantId: string, platform: Platform): Promise
     .select({ connector: connection.connector })
     .from(connection)
     .where(eq(connection.tenantId, tenantId));
+  // Browser logins are set up per site (browserSiteOffers), not with this generic form.
   return offeredConnectors(t.settings)
-    .filter((id) => !rows.some((r) => r.connector === id))
+    .filter((id) => id !== BROWSER_CONNECTOR_ID && !rows.some((r) => r.connector === id))
     .flatMap((id) => {
       const c = platform.connectors.get(id);
       if (!c || !hasCredentialForm(c)) return [];
@@ -204,6 +252,18 @@ async function vaultSetup(tx: Tx, tenantId: string, platform: Platform): Promise
         },
       ];
     });
+}
+
+/** Sites the client may set a browser login up on: offered, allowed, and not set up yet. */
+async function browserSiteOffers(tx: Tx, tenantId: string) {
+  const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
+  if (!t || !offeredConnectors(t.settings).includes(BROWSER_CONNECTOR_ID)) return [];
+  const rows = await tx
+    .select({ config: connection.config })
+    .from(connection)
+    .where(and(eq(connection.tenantId, tenantId), eq(connection.connector, BROWSER_CONNECTOR_ID)));
+  const taken = new Set(rows.map((r) => String((r.config as Record<string, unknown>).site ?? "")));
+  return offers(await catalogueForClient(tx)).filter((o) => !taken.has(o.slug));
 }
 
 /** The values entered for a connector's fields: each field, nothing else, none empty. */
@@ -274,6 +334,7 @@ export function accessRoutes(app: Hono<AppEnv>): void {
     return {
       items: await vaultItems(tx, tenantId, services.platform, { names: "service" }),
       setup: canEdit ? await vaultSetup(tx, tenantId, services.platform) : [],
+      browserSites: canEdit ? await browserSiteOffers(tx, tenantId) : [],
       canEdit,
     };
   });
@@ -335,13 +396,25 @@ export function accessRoutes(app: Hono<AppEnv>): void {
     }
     const fields = connector.manifest.credentialFields ?? [];
     const values = credentialValues(fields, body.values);
-    // DECISION: a client has at most one connection per connector in v1 (as connectNoAuth).
+    // DECISION: a client has at most one connection per connector in v1 (as connectNoAuth),
+    // except browser logins, one per site: those name their connection, made by the setup route.
+    const browser = params.connector === BROWSER_CONNECTOR_ID;
+    if (browser && !body.connectionId) {
+      throw new HttpError(422, "invalid_credentials", "say which website login this is for");
+    }
     const [existing] = await tx
       .select()
       .from(connection)
-      .where(and(eq(connection.tenantId, tenantId), eq(connection.connector, params.connector)))
+      .where(
+        and(
+          eq(connection.tenantId, tenantId),
+          eq(connection.connector, params.connector),
+          ...(body.connectionId ? [eq(connection.id, body.connectionId)] : []),
+        ),
+      )
       .orderBy(desc(connection.createdAt))
       .limit(1);
+    if (body.connectionId && !existing) throw notFound("connection");
     const id = existing?.id ?? uuidv7();
     if (!existing) {
       await tx.insert(connection).values({
@@ -363,12 +436,20 @@ export function accessRoutes(app: Hono<AppEnv>): void {
       ),
       updatedAt: new Date().toISOString(),
     };
+    // A browser login entered again starts signing in again: failures and a stop are cleared
+    // (the person has checked the account), today's count stays.
+    const previous = BrowserConnectionState.safeParse(
+      (existing?.config as Record<string, unknown> | undefined)?.browserState,
+    );
+    const browserState = previous.success
+      ? { browserState: { ...previous.data, failures: 0, stopped: null } }
+      : {};
     await tx
       .update(connection)
       .set({
         status: "connected",
         connectedBy: session.user.id,
-        config: { ...(existing?.config ?? {}), vault },
+        config: { ...(existing?.config ?? {}), vault, ...browserState },
       })
       .where(and(eq(connection.id, id), eq(connection.tenantId, tenantId)));
     await tx.insert(connectionChange).values({
