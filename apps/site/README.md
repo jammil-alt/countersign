@@ -9,6 +9,7 @@ needs on our own domain (a homepage that describes the app, with a privacy polic
 | `/terms` | Terms of service (B2B managed service) |
 | `/privacy` | Privacy policy, with the Google user data section and Google's Limited Use sentence |
 | `/subprocessors` | Our providers and the services clients connect themselves |
+| `/sms-terms` | Text message terms for the people clients text (A2P 10DLC review): who sends, opt-in, what the messages are, frequency, rates, STOP and HELP, carriers |
 | anything else | `404.html` |
 
 ## How it is built
@@ -33,20 +34,21 @@ review" note at the top; it disappears when the last placeholder on that page is
 
 `src/site.test.ts` checks that every page builds with a title, description, favicon, landmarks and
 headings in order; that every internal link, anchor and asset resolves; that `/privacy` has the
-Limited Use sentence word for word and links Google's policy; that the landing page links to all
-three legal pages; that every placeholder is listed below; and that no page has an exclamation
+Limited Use sentence word for word and links Google's policy; that the carriers' SMS sentences,
+STOP and HELP are word for word on `/privacy` and `/sms-terms`; that the company name is on the
+legal pages; that the landing page links to all four legal pages; that every placeholder is listed below; and that no page has an exclamation
 mark or "AI-powered".
 
 ## Placeholders to fill in
 
-The legal text is a draft for the owner's lawyer, not legal advice. These are left in brackets,
-highlighted on the page:
+The legal text is a draft for the owner's lawyer, not legal advice. The company is Twelve
+Thirty-Four Consulting LLC (the name on the owner's Twilio compliance profile; its EIN is not
+published). These are left in brackets, highlighted on the page:
 
 | Placeholder | Where | What goes there |
 |---|---|---|
-| `[Legal entity name]` | `/terms` (intro, contact), `/privacy` (who we are, contact) | The company that operates Mezonas |
 | `[address]` | `/terms` (contact), `/privacy` (contact) | Its postal address |
-| `[contact email]` | `/` (contact), `/terms` (contact) | The address clients and prospects write to |
+| `[contact email]` | `/` (contact), `/terms` (contact), `/sms-terms` (help) | The address clients, prospects and people who get texts write to |
 | `[privacy contact email]` | `/privacy` (rights, contact), `/subprocessors` (questions) | The address for privacy requests |
 | `[state]` | `/terms` (governing law) | The state whose law governs, and whose courts hear disputes |
 | `[to confirm with each provider]` | `/privacy` (AI model processing) | Whether Anthropic and OpenAI keep API data, for how long, and whether they may train on it, under the terms we accepted |
@@ -69,6 +71,10 @@ platform changes, update them in the same PR:
 - Gmail: the policy says we ask only for `gmail.send` and read no mailbox through Google (owner,
   2026-11-05). Asking Google for any other scope needs this policy changed first, and a new
   verification;
+- texts: `/sms-terms` and the privacy policy's "Text messages" section describe consent per
+  contact and channel, STOP and START, and quiet hours as `apps/api/src/messaging/contacts.ts`,
+  `apps/api/src/routes/twilio-hooks.ts` and `packages/connectors/src/twilio/` handle them. The
+  carriers' sentences are word for word and tested;
 - what forwarded email keeps (`packages/connectors/src/upload/forwarding.ts`), what Sentry receives
   (`apps/api/src/observability/sentry.ts`, `apps/web/src/observability.ts`), and how secrets are
   encrypted (`packages/connectors/src/credentials.ts`, `tenant-keys.ts`).

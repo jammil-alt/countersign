@@ -550,6 +550,10 @@ a.ds-btn:focus-visible {
   margin-top: 0;
 }
 
+.callout p:last-child {
+  margin-bottom: 0;
+}
+
 /* Tables on the subprocessors page */
 
 .table {
