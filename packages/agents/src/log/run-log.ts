@@ -16,6 +16,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { RunLog } from "../runtime/ports";
 import type { RunMode } from "../tools/types";
+import { rollupUsageForRun } from "./usage";
 
 type RunStatus = (typeof run.$inferSelect)["status"];
 
@@ -98,8 +99,40 @@ export async function finishRun(
     .where(and(eq(run.id, input.runId), eq(run.tenantId, input.tenantId)));
 }
 
+/** `run.workflow_slug` of an ask's test run (`agents.ask`): it runs no workflow. */
+export const ASK_RUN_WORKFLOW = "agents.ask";
+
 export function dbRunLog(db: Db): RunLog {
   return {
+    startAskRun(tenantId, input) {
+      return withTenant(db, tenantId, async (tx) => {
+        // DECISION: an ask is recorded as the asked agent's own test run (ARCHITECTURE §10.4), so
+        // the operator sees it with its steps and cost like any test; it never reaches the portal.
+        const row = await createRun(tx, {
+          tenantId,
+          agentId: input.agentId,
+          agentVersionId: input.agentVersionId,
+          workflowSlug: ASK_RUN_WORKFLOW,
+          mode: "test",
+          trigger: {
+            type: "ask",
+            askedBy: { agentId: input.askedBy.agentId, runId: input.askedBy.runId },
+          },
+        });
+        return row.id;
+      });
+    },
+    finishAskRun(tenantId, runId, result) {
+      return withTenant(db, tenantId, async (tx) => {
+        await finishRun(tx, {
+          tenantId,
+          runId,
+          status: result.status,
+          ...(result.error ? { error: { reason: result.error, nodeId: "ask" } } : {}),
+        });
+        await rollupUsageForRun(tx, { tenantId, runId });
+      });
+    },
     startStepRun(tenantId, input) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx

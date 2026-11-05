@@ -57,7 +57,23 @@ const PLUMBING = new Set([
   "mode",
   "testRun",
   "accessRelease",
+  // A finding's fingerprint and its state (docs/plan.md §1.28): the steps show as a list.
+  "fingerprint",
+  "finding",
 ]);
+
+/** A finding's plain steps for the client admin (`payload.finding.steps`), if it has them. */
+export function findingSteps(payload: Record<string, unknown>): string[] | null {
+  const f = payload.finding;
+  if (typeof f !== "object" || f === null) return null;
+  const steps = (f as { steps?: unknown }).steps;
+  return Array.isArray(steps) ? steps.filter((x): x is string => typeof x === "string") : null;
+}
+
+/** An item about an issue the supervisor keeps (it carries a fingerprint): resolved with "Done". */
+function isFinding(item: InboxCardItem): boolean {
+  return typeof item.payload.fingerprint === "string" && item.kind === "review";
+}
 
 /** "Approved by Ana", "Answered", "Declined by Ben": how an item was resolved. */
 export function outcomeText(
@@ -195,6 +211,7 @@ export function InboxCard({
   const toolName = connector ? connectorName(connector, connectorNames) : null;
   const target = isChange ? changeTarget(item.payload.before, item.payload.input) : null;
   const facts = isChange ? [] : (suggestionFacts(item.payload, i18n) ?? payloadFacts(item.payload));
+  const steps = findingSteps(item.payload);
   const sources = Array.isArray(item.payload.sources)
     ? item.payload.sources.filter((x): x is string => typeof x === "string")
     : [];
@@ -253,6 +270,17 @@ export function InboxCard({
         </dl>
       ) : null}
 
+      {steps && steps.length > 0 ? (
+        <div className="flex flex-col gap-1.5" data-testid="inbox-item-steps">
+          <span className="text-sm font-medium text-ink">{t("inbox.findingSteps")}</span>
+          <ol className="list-decimal flex flex-col gap-1 pl-5 text-ink">
+            {steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
       {isRelease && open && renderRelease ? renderRelease(item) : null}
 
       {item.kind === "request" && open && onResolve && !isRelease ? (
@@ -302,6 +330,7 @@ export function InboxCard({
         {open && onResolve && !isRelease ? (
           <Actions
             kind={item.kind}
+            finding={isFinding(item)}
             busy={busy}
             toolName={toolName}
             answer={answer}
@@ -315,12 +344,15 @@ export function InboxCard({
 
 function Actions({
   kind,
+  finding,
   busy,
   toolName,
   answer,
   onResolve,
 }: {
   kind: string;
+  /** A supervisor finding: one "Done" once the person has taken the steps. */
+  finding: boolean;
   busy: boolean;
   toolName: string | null;
   answer: string;
@@ -332,6 +364,18 @@ function Actions({
       <Link to="/ops/requests" className="text-sm text-link underline">
         {t("inbox.openRequestsQueue")}
       </Link>
+    );
+  }
+  if (finding) {
+    return (
+      <Button
+        data-testid="inbox-item-done"
+        variant="primary"
+        disabled={busy}
+        onClick={() => onResolve({ decision: "approve" })}
+      >
+        {t("inbox.findingDone")}
+      </Button>
     );
   }
   if (kind === "request") {

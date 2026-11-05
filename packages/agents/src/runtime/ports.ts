@@ -9,6 +9,8 @@ import type { ResolvedSkill } from "../registry/skills";
 import type {
   DirectoryPort,
   DocumentsPort,
+  FindingsPort,
+  HealthPort,
   KnowledgePort,
   PlatformStore,
   RunMode,
@@ -62,6 +64,15 @@ export interface RuntimeStore {
    */
   approvalRouting(tenantId: string): Promise<ApprovalRouting>;
   run(tenantId: string, runId: string): Promise<{ mode: RunMode; agentId: string } | null>;
+  /**
+   * Another client agent of the same client that `agents.ask` may run: its live version and
+   * name; null when there is none (another client's agent, a template, a test copy, retired or
+   * discarded, or no live version).
+   */
+  askTarget(
+    tenantId: string,
+    agentId: string,
+  ): Promise<{ agentId: string; agentVersionId: string; name: string } | null>;
 }
 
 export type StepStatus = "running" | "waiting" | "succeeded" | "failed" | "cancelled";
@@ -75,6 +86,19 @@ export interface UsageDelta {
 
 /** Writes about what ran (src/log/run-log.ts). */
 export interface RunLog {
+  /**
+   * A test run for an ask (`agents.ask`, docs/plan.md §1.28): the asked agent's live version, in
+   * the same client, with the asking run in its trigger. Returns the run id.
+   */
+  startAskRun(
+    tenantId: string,
+    input: { agentId: string; agentVersionId: string; askedBy: { agentId: string; runId: string } },
+  ): Promise<string>;
+  finishAskRun(
+    tenantId: string,
+    runId: string,
+    result: { status: "succeeded" | "failed"; error?: string },
+  ): Promise<void>;
   startStepRun(
     tenantId: string,
     input: {
@@ -243,6 +267,17 @@ export interface ReleasePort {
   request(tenantId: string, ask: ReleaseAsk): Promise<ReleaseRequested | { refused: string }>;
 }
 
+/**
+ * A connection the platform found needing a person (src/log/connection-attention.ts): marks it
+ * `error`, logs the change and emits `connection.needs_attention` in one transaction, once.
+ */
+export interface ConnectionAttentionPort {
+  needsAttention(
+    tenantId: string,
+    input: { connectionId: string; reason: "signin_expired" | "sync_failed"; detail: string },
+  ): Promise<void>;
+}
+
 export interface RuntimePorts {
   store: RuntimeStore;
   log: RunLog;
@@ -259,4 +294,10 @@ export interface RuntimePorts {
    * voice call's tool, which can't wait for a code.
    */
   release?: ReleasePort;
+  /** The client's health records for `health.*` and the supervisor; absent: those tools fail. */
+  health?: HealthPort;
+  /** The supervisor's findings and summaries; absent: `supervisor.*` fail. */
+  findings?: FindingsPort;
+  /** Marks connections that need a person (an expired sign-in); absent: nothing is marked. */
+  attention?: ConnectionAttentionPort;
 }

@@ -21,6 +21,7 @@ import {
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
+import { noteReconnect } from "./attention";
 import {
   asJsonObject,
   connectionContext,
@@ -78,6 +79,11 @@ export async function callTool(
   if (!tool) return { status: "refused", reason: `no tool ${call.toolId}` };
   if (call.allowed && !call.allowed.has(call.toolId)) {
     return { status: "refused", reason: `${call.toolId} is not one of this skill's tools` };
+  }
+  // An asked agent only reads: no platform records, no writes to a client's tool, not even
+  // proposed ones (docs/plan.md §1.28).
+  if (step.readOnly && tool.spec.sideEffect !== "none") {
+    return { status: "refused", reason: `${call.toolId} writes, and an asked agent only reads` };
   }
   const started = Date.now();
   const toolCallId = await log.startToolCall(step.tenantId, {
@@ -147,6 +153,11 @@ async function dispatch(
       documents: deps.ports.documents,
       knowledge: deps.ports.knowledge,
       directory: deps.ports.directory,
+      health: deps.ports.health,
+      findings: deps.ports.findings,
+      ask: step.ask,
+      language: step.language,
+      now: deps.now,
       recordUsage: (usage) =>
         deps.ports.log.addUsage(
           step.tenantId,
@@ -201,8 +212,13 @@ async function dispatch(
   if (waiting) return waiting;
   const ctx = connectionContext(deps, step.tenantId, conn);
   if (tool.spec.sideEffect !== "external") {
-    const r = await runReadTool(tool.connector, tool.spec.id, input, ctx);
-    return { status: "done", output: r.output, summary: r.summary };
+    try {
+      const r = await runReadTool(tool.connector, tool.spec.id, input, ctx);
+      return { status: "done", output: r.output, summary: r.summary };
+    } catch (error) {
+      await noteReconnect(deps, step.tenantId, conn, error);
+      throw error;
+    }
   }
 
   // A write to the client's tool: always an external_action, with its before state.
@@ -280,6 +296,13 @@ export async function releaseGate(
   const name = conn.connector;
   const problem = releaseSettingProblem(setting);
   if (problem) return { status: "refused", reason: `${name}: ${problem}` };
+  // An asked agent never asks a person for a release (docs/plan.md §1.28).
+  if (step.readOnly) {
+    return {
+      status: "refused",
+      reason: `the ${name} connection needs a person to release it, and an ask never asks for one`,
+    };
+  }
   const port = deps.ports.release;
   // DECISION: without the release port (a voice call's tools) a connection that needs a release
   // refuses: nothing there can wait for a person's code.

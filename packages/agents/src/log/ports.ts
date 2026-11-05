@@ -3,30 +3,42 @@
 import type { Db } from "@countersign/db";
 import { dbRuntimeStore } from "../registry/runtime-store";
 import type { ReleasePort, RuntimePorts } from "../runtime/ports";
+import { dbConnectionAttention } from "./connection-attention";
 import { dbDirectoryPort } from "./directory-port";
 import { type DbDocumentsOptions, dbDocumentsPort } from "./documents-port";
 import { dbExternalActions, type Emit } from "./external-actions";
+import { dbFindingsPort } from "./findings-port";
+import { dbHealthPort } from "./health-port";
 import { dbKnowledgePort } from "./knowledge-port";
 import { dbPlatformStore } from "./platform-store";
 import { dbRunLog } from "./run-log";
 
 export interface DbPortsOptions {
-  /** Emits `external_action.done` / `.failed` in the action's transaction (packages/senses). */
+  /**
+   * Emits events in the change's own transaction (packages/senses): `external_action.done` /
+   * `.failed`, `connection.needs_attention`, `health.checked`.
+   */
   emit?: Emit;
   /** The documents capability for `docs.*` tools (object storage, the model transport, a signer). */
   documents?: DbDocumentsOptions;
   /** Human release, from apps/api (it sends codes); absent: connections that need one refuse. */
   release?: ReleasePort;
+  /** A connector id's display name, for the health tools (apps/api passes the registry's). */
+  connectorName?: (connectorId: string) => string;
 }
 
 export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePorts {
+  const emit = options.emit ? { emit: options.emit } : {};
   return {
     store: dbRuntimeStore(db),
     log: dbRunLog(db),
-    actions: dbExternalActions(db, options.emit ? { emit: options.emit } : {}),
+    actions: dbExternalActions(db, emit),
     platform: dbPlatformStore(db),
     knowledge: dbKnowledgePort(db),
     directory: dbDirectoryPort(db),
+    health: dbHealthPort(db, options.connectorName ? { connectorName: options.connectorName } : {}),
+    findings: dbFindingsPort(db, emit),
+    attention: dbConnectionAttention(db, emit),
     ...(options.documents ? { documents: dbDocumentsPort(db, options.documents) } : {}),
     ...(options.release ? { release: options.release } : {}),
   };

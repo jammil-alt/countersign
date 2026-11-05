@@ -2,11 +2,14 @@
 // Each writes the platform's own records (`internal`), through the PlatformStore port.
 
 import { z } from "zod";
+import { agentsAsk } from "./ask";
 import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
+import { HEALTH_TOOLS } from "./health";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
+import { SUPERVISOR_TOOLS } from "./supervisor";
 import { defineInternalTool, type InternalTool } from "./types";
 
 export { MEMORY_TEST_SCOPE_PREFIX, memoryScope } from "./memory-scope";
@@ -111,7 +114,10 @@ export const memoryWrite = defineInternalTool({
   },
 });
 
-/** The platform's own tools, for the tool registry: inbox, threads, memory, documents, knowledge. */
+/**
+ * The platform's own tools, for the tool registry: inbox, threads, memory, documents, knowledge,
+ * the health tools, asking another agent and the supervisor's (docs/plan.md §1.28).
+ */
 export const PLATFORM_TOOLS: readonly InternalTool[] = [
   inboxCreate,
   threadsPost,
@@ -120,4 +126,7 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...KNOWLEDGE_TOOLS,
   ...DIRECTORY_TOOLS,
   reachOutTool,
+  ...HEALTH_TOOLS,
+  agentsAsk,
+  ...SUPERVISOR_TOOLS,
 ];

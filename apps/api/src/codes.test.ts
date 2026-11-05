@@ -2,7 +2,7 @@
 // cron step that turns its alerts into inbox items for the operator and the client admin.
 
 import type { CodeAlert, CodesService } from "@countersign/core";
-import { inboxItem, withTenant } from "@countersign/db";
+import { event, inboxItem, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
@@ -104,6 +104,17 @@ describe.skipIf(!h)("code alerts in the inbox", () => {
     expect(await raiseCodeAlerts(H.db, codes, H.A.tenantId, new Date())).toBe(0);
     const a = await items(H.A.tenantId);
     expect(a).toHaveLength(4);
+    // Each alert's items carry the supervisor's fingerprint, and each alert is announced once
+    // (docs/plan.md §1.28).
+    for (const i of a) expect(j(i.payload).fingerprint).toBe(`code_alert:${i.subjectId}`);
+    const announced = await H.t.db
+      .select()
+      .from(event)
+      .where(and(eq(event.tenantId, H.A.tenantId), eq(event.type, "connection.needs_attention")));
+    expect(announced.map((e) => j(e.payload).sourceId).sort()).toEqual(
+      [...new Set(a.map((i) => i.subjectId))].sort(),
+    );
+    expect(announced.every((e) => j(e.payload).reason === "code_alert")).toBe(true);
     expect(a.map((i) => i.assigneeRole).sort()).toEqual([
       "client_admin",
       "client_admin",

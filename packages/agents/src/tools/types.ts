@@ -7,7 +7,11 @@ import type {
   DirectorySearchInput,
   DirectorySearchOutput,
   DirectorySuggestInput,
+  FindingKind,
+  FindingParams,
+  HealthSummary,
   JsonObject,
+  Locale,
   ToolSpec,
 } from "@countersign/core";
 import { z } from "zod";
@@ -33,6 +37,19 @@ export interface ToolInvocation {
   knowledge?: KnowledgePort | undefined;
   /** The client's directory (`directory.*`); absent where nothing provides it. */
   directory?: DirectoryPort | undefined;
+  /** The client's own health records (`health.*`, the supervisor); absent where none is given. */
+  health?: HealthPort | undefined;
+  /** The supervisor's findings and summaries (`supervisor.*`); absent where none is given. */
+  findings?: FindingsPort | undefined;
+  /**
+   * Asks another agent of the same client (`agents.ask`): set by the runtime for a skill's tool
+   * calls, absent inside an ask (no asks within asks) and in action steps.
+   */
+  ask?: ((input: AskInput) => Promise<AskAnswer>) | undefined;
+  /** The client's language (docs/plan.md §1.18), when the run knows it. */
+  language?: Locale | undefined;
+  /** The clock (tests move it); default the system clock. */
+  now?: (() => Date) | undefined;
   /** Adds a model call a tool made (e.g. extraction) to the step's and run's cost. */
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
@@ -162,6 +179,137 @@ export interface DirectoryPort {
       test: boolean;
     },
   ): Promise<{ status: "suggested" | "duplicate" | "test_run"; inboxItemId: string | null }>;
+}
+
+// ── Health (docs/plan.md §1.28) ──────────────────────────────────────────────────────────────────
+
+/** One run as the health tools see it. */
+export interface HealthRun {
+  id: string;
+  agentId: string;
+  agentName: string;
+  agentVersionId: string;
+  workflowSlug: string;
+  mode: "live" | "test";
+  status: string;
+  createdAt: string;
+  finishedAt: string | null;
+  /** The step it failed at, and why (the run's recorded error). */
+  failedStep: string | null;
+  error: string | null;
+}
+
+export interface HealthConnection {
+  id: string;
+  connector: string;
+  connectorName: string;
+  /** What a person calls it: a website's address for a website login, else the tool's name. */
+  label: string;
+  status: string;
+  lastSyncAt: string | null;
+  /** A website login's stop (docs/plan.md §1.26). */
+  stopped: { reason: string; at: string } | null;
+  /** The latest time the platform found it needing a person, and why. */
+  attention: { reason: string; at: string } | null;
+  /** Client agents bound to it. */
+  usedBy: string[];
+}
+
+export interface HealthInboxItem {
+  id: string;
+  kind: string;
+  title: string;
+  assignee: "client" | "operator";
+  subjectType: string | null;
+  createdAt: string;
+  waitingHours: number;
+  /** One of the supervisor's own findings (or an item carrying a finding's fingerprint). */
+  finding: boolean;
+}
+
+export interface HealthAgent {
+  id: string;
+  slug: string;
+  name: string;
+  runStatus: string | null;
+  liveVersionId: string | null;
+  liveVersion: number | null;
+  lastRun: { id: string; status: string; at: string } | null;
+  lastTest: { id: string; status: string; at: string } | null;
+}
+
+/**
+ * The client's own records the health tools read (src/log/health-port.ts): each call one
+ * client-scoped transaction, so only that client's rows are visible (invariant 1).
+ */
+export interface HealthPort {
+  runs(
+    tenantId: string,
+    input: { sinceHours: number; failedOnly: boolean; limit: number; agentId?: string | undefined },
+  ): Promise<HealthRun[]>;
+  connections(tenantId: string): Promise<HealthConnection[]>;
+  inbox(tenantId: string, input: { now: Date }): Promise<HealthInboxItem[]>;
+  agents(tenantId: string): Promise<HealthAgent[]>;
+}
+
+/** One finding to report (src/log/findings-port.ts writes it). */
+export interface FindingInput {
+  kind: FindingKind;
+  fingerprint: string;
+  /** The connection or agent it is about. */
+  subjectId: string | null;
+  /** The agent reporting it (the supervisor). */
+  reporterAgentId: string;
+  /** The client admin's item: its words come from core's findingText; null = operator only. */
+  client: { params: FindingParams } | null;
+  operator: { title: string; details: JsonObject; note: string | null };
+  sources: string[];
+  /**
+   * When the issue was seen happening (a failed run's time). A finding a person resolved after
+   * that is not opened again for it; absent: now (the issue is current).
+   */
+  seenAt?: Date | undefined;
+}
+
+/** `resolved`: a person already closed this issue after it was last seen; nothing was written. */
+export type FindingItemStatus = "opened" | "open" | "reminded" | "resolved";
+
+export interface FindingOutcome {
+  fingerprint: string;
+  client: { itemId: string; status: FindingItemStatus } | null;
+  operator: { itemId: string; status: FindingItemStatus };
+}
+
+/**
+ * The supervisor's writes (src/log/findings-port.ts): findings as inbox items keyed by their
+ * fingerprint, and the daily summary as a `health.checked` event.
+ */
+export interface FindingsPort {
+  report(tenantId: string, input: FindingInput, now: Date): Promise<FindingOutcome>;
+  /** Open findings for the client admin (after a check), for the summary. */
+  openClientFindings(tenantId: string): Promise<number>;
+  /** The client's settings (`tenant.settings`), for the supervisor's own (core's supervisorSettings). */
+  settings(tenantId: string): Promise<Record<string, unknown>>;
+  summarize(tenantId: string, summary: HealthSummary): Promise<void>;
+}
+
+// ── Asking another agent ─────────────────────────────────────────────────────────────────────────
+
+export interface AskInput {
+  agentId: string;
+  question: string;
+}
+
+export interface AskAnswer {
+  agentId: string;
+  agentName: string;
+  /** The ask's own test run. */
+  runId: string;
+  status: "answered" | "no_answer";
+  answer: string;
+  sources: string[];
+  /** Why there is no answer (a budget reached, a model error). */
+  reason: string | null;
 }
 
 /** A platform or pack tool: its spec plus a handler validated on both sides (invariant 5). */

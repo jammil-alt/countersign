@@ -10,6 +10,7 @@ import {
   REACH_SKILLS,
   type RegistryContext,
   SkillCatalog,
+  SUPERVISOR_SKILLS,
   ToolRegistry,
 } from "@countersign/agents";
 import {
@@ -84,7 +85,8 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
-  // The platform's built-in skills (docs.*, knowledge.search, directory.lookup) come first, then the caller's, then a tool-mode skill
+  // The platform's built-in skills (docs.*, knowledge.search, directory.lookup, comms.reach-out,
+  // supervisor.*) come first, then the caller's, then a tool-mode skill
   // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
   // packs register theirs here when they exist (registerPack); none yet.
   const catalog = new SkillCatalog(
@@ -93,6 +95,7 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...KNOWLEDGE_SKILLS,
       ...DIRECTORY_SKILLS,
       ...REACH_SKILLS,
+      ...SUPERVISOR_SKILLS,
       ...(options.skills ?? []),
       ...connectorReadSkills(connectors),
     ],
