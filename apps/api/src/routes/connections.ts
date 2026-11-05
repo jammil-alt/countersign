@@ -10,6 +10,7 @@ import {
   connectionDefaults,
   noopLogger,
   OAuthCallbackError,
+  QBO_CONNECTOR_ID,
   SignInRefusedError,
 } from "@countersign/connectors";
 import { routes, uuidv7 } from "@countersign/core";
@@ -22,6 +23,7 @@ import type { Platform } from "../platform";
 import { connectionCredentials, vaultFor } from "../secrets";
 import { offeredConnectors } from "./ops-clients";
 import { canSignIn, PERSONAL_CONNECTORS, portalConnections } from "./portal";
+import { qboSyncFor, startQboSync } from "./qbo";
 
 async function connectionOut(
   tx: Tx,
@@ -127,6 +129,8 @@ export async function offeredTo(tx: Tx, tenantId: string, connectorId: string): 
 // DECISION: the provider redirects to a portal page (one fixed path per connector, as providers
 // register exact redirect URIs), not to an API route, so the callback runs as an ordinary JSON
 // route with the session's role and client checks, and the page shows the outcome.
+// DECISION: QuickBooks returns to the API path too: the Intuit app has
+// `/api/connections/qbo/callback` registered (ARCHITECTURE §14, plan §1.30).
 export function oauthRedirectUri(c: AppContext, env: Bindings, connectorId: string): string {
   const origin = (env.APP_ORIGIN?.trim() || new URL(c.req.url).origin).replace(/\/+$/, "");
   // DECISION: Google's OAuth client (owner, 2026-11-05) registers `/api/connections/gmail/callback`
@@ -135,6 +139,7 @@ export function oauthRedirectUri(c: AppContext, env: Bindings, connectorId: stri
   if (connectorId === "gmail") {
     return env.GOOGLE_REDIRECT_URI?.trim() || `${origin}/api/connections/gmail/callback`;
   }
+  if (connectorId === QBO_CONNECTOR_ID) return `${origin}/api/connections/qbo/callback`;
   return `${origin}/connections/${connectorId}/callback`;
 }
 
@@ -260,7 +265,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.portalAuthorizeCallback, async (ctx) => {
-    const { c, tx, tenantIds, params, body, session, services } = ctx;
+    const { c, tx, tenantIds, params, body, session, services, defer } = ctx;
     const tenantId = tenantIds[0] as string;
     await offeredTo(tx, tenantId, params.connector);
     const connector = services.platform.connectors.get(params.connector);
@@ -331,6 +336,16 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
         account: done.grant.externalAccountId,
       },
     });
+    if (params.connector === QBO_CONNECTOR_ID) {
+      // The first sync starts as soon as the client is connected (then the cron and webhooks).
+      defer(() =>
+        startQboSync(qboSyncFor(services.deps, services.env), {
+          tenantId,
+          connectionId: id,
+          reason: "connected",
+        }),
+      );
+    }
     return {
       connection: await connectionOut(tx, tenantId, services.platform, id, session.user.id),
     };

@@ -1,0 +1,13 @@
+{
+  "fault": {
+    "error": [
+      {
+        "message": "message=AuthenticationFailed; errorCode=003200; statusCode=401",
+        "detail": "Token expired: eyJlbm...",
+        "code": "3200"
+      }
+    ],
+    "type": "AUTHENTICATION"
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

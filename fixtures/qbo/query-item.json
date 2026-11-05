@@ -1,0 +1,71 @@
+{
+  "QueryResponse": {
+    "Item": [
+      {
+        "Id": "21",
+        "SyncToken": "3",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-12T10:05:00-08:00",
+          "LastUpdatedTime": "2026-09-30T16:40:00-07:00"
+        },
+        "Name": "Baltic birch 3/4in 5x5",
+        "FullyQualifiedName": "Baltic birch 3/4in 5x5",
+        "Sku": "BB-34-55",
+        "Description": "Baltic birch plywood, 3/4 in, 5 x 5 ft, B/BB",
+        "Type": "NonInventory",
+        "PurchaseDesc": "Baltic birch 18mm 5x5 B/BB",
+        "PurchaseCost": 64,
+        "UnitPrice": 0,
+        "ExpenseAccountRef": { "value": "80", "name": "Job Materials" },
+        "IncomeAccountRef": { "value": "79", "name": "Sales of Product Income" },
+        "Taxable": false
+      },
+      {
+        "Id": "22",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-12T10:06:00-08:00",
+          "LastUpdatedTime": "2026-01-12T10:06:00-08:00"
+        },
+        "Name": "White oak 4/4 FAS",
+        "FullyQualifiedName": "White oak 4/4 FAS",
+        "Description": "White oak, 4/4, FAS, per board foot",
+        "Type": "NonInventory",
+        "PurchaseCost": 8.75,
+        "UnitPrice": 0,
+        "ExpenseAccountRef": { "value": "80", "name": "Job Materials" },
+        "IncomeAccountRef": { "value": "79", "name": "Sales of Product Income" },
+        "Taxable": false
+      },
+      {
+        "Id": "23",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-12T10:07:00-08:00",
+          "LastUpdatedTime": "2026-04-02T09:00:00-07:00"
+        },
+        "Name": "Euro hinge 110 degree",
+        "FullyQualifiedName": "Euro hinge 110 degree",
+        "Sku": "EH-110",
+        "Type": "NonInventory",
+        "PurchaseCost": 3.2,
+        "UnitPrice": 0,
+        "ExpenseAccountRef": { "value": "80", "name": "Job Materials" },
+        "IncomeAccountRef": { "value": "79", "name": "Sales of Product Income" },
+        "Taxable": false
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 3
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

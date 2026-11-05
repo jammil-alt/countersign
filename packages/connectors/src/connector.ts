@@ -51,6 +51,22 @@ export interface ConnectorServices {
   email?: EmailServices;
   /** The catalogue, a browser, codes and documents, for browser logins (browser/services.ts). */
   browser?: BrowserServices;
+  /** The client's stored documents, for tools that send one to the tool (QBO attachments). */
+  documents?: DocumentServices;
+}
+
+/** A stored document's bytes, read for one client (the call's). */
+export interface StoredFile {
+  id: string;
+  bytes: Uint8Array;
+  filename: string;
+  mimeType: string;
+  sha256: string;
+}
+
+export interface DocumentServices {
+  /** The document with this id in the call's client, or null (unknown, or another client's). */
+  read(documentId: string): Promise<StoredFile | null>;
 }
 
 /** Everything a connector call runs with: one client, one connection. */

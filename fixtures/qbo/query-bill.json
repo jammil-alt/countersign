@@ -1,0 +1,90 @@
+{
+  "QueryResponse": {
+    "Bill": [
+      {
+        "Id": "145",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-28T09:14:02-07:00",
+          "LastUpdatedTime": "2026-10-28T09:14:02-07:00"
+        },
+        "DocNumber": "INV-20931",
+        "TxnDate": "2026-10-28",
+        "DueDate": "2026-11-27",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "PrivateNote": "Sheet goods for Henderson kitchen",
+        "VendorRef": { "value": "56", "name": "Northwest Plywood Supply" },
+        "APAccountRef": { "value": "33", "name": "Accounts Payable (A/P)" },
+        "SalesTermRef": { "value": "3" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Northwest Plywood invoice INV-20931",
+            "Amount": 1352.75,
+            "DetailType": "AccountBasedExpenseLineDetail",
+            "AccountBasedExpenseLineDetail": {
+              "AccountRef": { "value": "80", "name": "Job Materials" },
+              "CustomerRef": { "value": "7", "name": "Henderson kitchen" },
+              "BillableStatus": "Billable",
+              "TaxCodeRef": { "value": "NON" }
+            }
+          }
+        ],
+        "TotalAmt": 1352.75,
+        "Balance": 1352.75
+      },
+      {
+        "Id": "146",
+        "SyncToken": "2",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-30T15:40:11-07:00",
+          "LastUpdatedTime": "2026-10-31T08:02:45-07:00"
+        },
+        "DocNumber": "77812",
+        "TxnDate": "2026-10-30",
+        "DueDate": "2026-11-29",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "VendorRef": { "value": "57", "name": "Cascade Hardwoods" },
+        "APAccountRef": { "value": "33", "name": "Accounts Payable (A/P)" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "White oak 4/4 FAS, 95 bf",
+            "Amount": 831.25,
+            "DetailType": "ItemBasedExpenseLineDetail",
+            "ItemBasedExpenseLineDetail": {
+              "ItemRef": { "value": "22", "name": "White oak 4/4 FAS" },
+              "UnitPrice": 8.75,
+              "Qty": 95,
+              "BillableStatus": "NotBillable",
+              "TaxCodeRef": { "value": "NON" }
+            }
+          },
+          {
+            "Id": "2",
+            "LineNum": 2,
+            "Description": "Freight",
+            "Amount": 130,
+            "DetailType": "AccountBasedExpenseLineDetail",
+            "AccountBasedExpenseLineDetail": {
+              "AccountRef": { "value": "81", "name": "Freight In" },
+              "BillableStatus": "NotBillable",
+              "TaxCodeRef": { "value": "NON" }
+            }
+          }
+        ],
+        "TotalAmt": 961.25,
+        "Balance": 961.25
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 2
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

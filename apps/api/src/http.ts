@@ -38,6 +38,7 @@ import { z } from "zod";
 import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
 import type { Bindings } from "./env";
 import { type Platform, platformFor } from "./platform";
+import type { QboSyncInstances } from "./qbo/instances";
 import { workerTransport } from "./runs/execute";
 import { type RunInstances, workflowInstances } from "./runs/instances";
 
@@ -64,6 +65,8 @@ export interface AppDeps {
   fetch?(env: Bindings): FetchLike;
   /** Mezonas' Stripe (billing); null when STRIPE_SECRET_KEY is not set. Tests pass a fake. */
   stripe?(env: Bindings): StripeClient | null;
+  /** QuickBooks syncs (QboSyncWorkflow); default the QBO_SYNC binding. Tests pass memory. */
+  qboSync?(env: Bindings): QboSyncInstances | null;
 }
 
 /** The Stripe client for billing, or null where billing is off (no key). */

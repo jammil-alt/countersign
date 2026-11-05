@@ -31,8 +31,10 @@
 
   // One Workflow class runs any workflow of any client agent; the instance id is the run id
   // (ARCHITECTURE §10.3).
+  // QuickBooks sync runs as its own Workflow, one instance per sync of one connection (plan M9).
   "workflows": [
-    { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+    { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+    { "name": "mezonas-local-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" }
   ],
 
   // Non-secret configuration. Secrets (WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD, ANTHROPIC_API_KEY,
@@ -46,7 +48,10 @@
     "WORKOS_CLIENT_ID": "",
     "APP_ORIGIN": "http://localhost:8787",
     // live | record | replay. The Worker only ever calls the model live; tests use replay or fakes.
-    "LLM_MODE": "live"
+    "LLM_MODE": "live",
+    // Which QuickBooks the qbo connector talks to: the Intuit app's development keys reach sandbox
+    // companies only.
+    "QBO_ENV": "sandbox"
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
@@ -62,7 +67,12 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "934bb30230e344539da6ab05c4447ec6" }],
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas-staging" }],
       "workflows": [
-        { "name": "mezonas-staging-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+        { "name": "mezonas-staging-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+        {
+          "name": "mezonas-staging-qbo-sync",
+          "binding": "QBO_SYNC",
+          "class_name": "QboSyncWorkflow"
+        }
       ],
       // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
       "services": [
@@ -74,7 +84,8 @@
         // WorkOS "Mezonas Staging" app, Staging environment. Client ids are not secrets.
         "WORKOS_CLIENT_ID": "client_01M6HNS5BGAXTK0TK2A1RRGWGP",
         "APP_ORIGIN": "https://staging.mezonas.com",
-        "LLM_MODE": "live"
+        "LLM_MODE": "live",
+        "QBO_ENV": "sandbox"
       }
     },
     "production": {
@@ -85,7 +96,8 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "b4032076210742cb961ccc2fc1bdf282" }],
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas" }],
       "workflows": [
-        { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+        { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+        { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
       "vars": {
@@ -94,7 +106,10 @@
         // PLACEHOLDER: the production WorkOS client id, set when WorkOS is provisioned.
         "WORKOS_CLIENT_ID": "",
         "APP_ORIGIN": "https://app.mezonas.com",
-        "LLM_MODE": "live"
+        "LLM_MODE": "live",
+        // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off
+        // in production (no QBO_CLIENT_ID).
+        "QBO_ENV": "production"
       }
     }
   }

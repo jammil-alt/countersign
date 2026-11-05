@@ -296,6 +296,7 @@ export {
   fakeGoogle,
   readSentEmail,
 } from "./gmail/fake";
+export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
 export {
   FAKE_RESEND_MAIN,
   type FakeResend,

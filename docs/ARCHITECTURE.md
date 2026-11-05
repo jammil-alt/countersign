@@ -1409,7 +1409,7 @@ Portal (client)
   Settings     GET/POST /api/users (invite)               PATCH /api/settings/notifications
 
 Shared         GET  /api/connections/qbo/callback         GET  /api/connections/gmail/callback
-               POST /api/webhooks/qbo
+               POST /api/connections/qbo/webhook      (Intuit's webhook; plan §1.30)
 ```
 All bodies validated with Zod. The route contract declares each route's roles; middleware sets
 `app.tenant_ids` (and `app.operator` for operator sessions) from the session (§4). No portal route
