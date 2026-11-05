@@ -58,6 +58,8 @@ export const ptBR: Messages = {
   "error.connector_failed": "A ferramenta conectada não respondeu. Tente de novo em instantes.",
   "error.not_importable": "O diretório importa do Zoho CRM ou do Podio.",
   "error.contact_exists": "Alguém no diretório já tem esse e-mail ou esse número.",
+  "error.rate_limited": "Aguarde um minuto e tente de novo.",
+  "error.no_address": "Não sabemos o endereço desta conta. Conecte-a de novo.",
 
   // ── Shell ──
   "shell.navigation": "Navegação",
@@ -251,6 +253,9 @@ export const ptBR: Messages = {
   "connections.enterKey": "Informar o acesso",
   "connections.gmail.description":
     "Envie e-mails do seu Gmail. Não conseguimos ler sua caixa de entrada.",
+  "connections.gmail.testSend": "Enviar um e-mail de teste",
+  "connections.gmail.testSent":
+    "Enviado para {address}. Confira a pasta Enviados e a caixa de entrada desse endereço.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Não conectada",
   "connection.status.disconnected": "Desconectada",

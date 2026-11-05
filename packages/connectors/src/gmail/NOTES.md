@@ -38,6 +38,9 @@ mailbox before a client connects, and the connector and fake fixed where they di
   recorded as started (a raw record per key) before Gmail is called. A re-run after a crash returns
   what was recorded; a send that was started and never recorded is never sent again: the action
   fails and the operator gets an item to check the mailbox (`UnconfirmedWriteError`).
+- Test email (`sendToSelf`, not a tool): one plain message from the connected address to itself,
+  for the portal's and the Sandbox's "Send a test email" (plan §1.31). The recipient is never an
+  input; a connection without a stored address, or whose tokens belong to another, sends nothing.
 
 ## To verify
 

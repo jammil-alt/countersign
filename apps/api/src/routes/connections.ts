@@ -11,16 +11,32 @@ import {
   type Connector,
   completeAuthorization,
   connectionDefaults,
+  GMAIL_CONNECTOR_ID,
+  GmailApiError,
+  GmailNoAddressError,
+  GmailNotConfiguredError,
+  isGmailConnector,
+  MimeError,
   noopLogger,
   OAuthCallbackError,
   type OAuthOrigin,
   QBO_CONNECTOR_ID,
+  ReconnectRequiredError,
   readOAuthState,
   SignInRefusedError,
 } from "@countersign/connectors";
-import { routes, uuidv7 } from "@countersign/core";
+import {
+  clientLanguage,
+  GMAIL_TEST_WORDS,
+  type Locale,
+  parseAcceptLanguage,
+  resolveLocale,
+  routes,
+  userLanguage,
+  uuidv7,
+} from "@countersign/core";
 import { connection, connectionChange, type Tx, tenant } from "@countersign/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services } from "../http";
@@ -215,6 +231,9 @@ function refOf(row: ConnectionRow): ConnectionRef {
 }
 
 type ConnectionRow = typeof connection.$inferSelect;
+
+/** `connection_change.change.kind` of a Gmail test email the person sent to their own mailbox. */
+export const GMAIL_TEST_CHANGE = "gmail_test_email";
 
 /** An OAuth connector this deployment can sign in to, or 409 `not_available`. */
 function oauthConnector(platform: Platform, connectorId: string): Connector {
@@ -482,6 +501,32 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     },
   );
 
+  // The client admin may, and the person who connected the mailbox (mayManage's rule).
+  mount(app, routes.portalGmailTestSend, async ({ c, tx, tenantIds, session, services, role }) => {
+    const tenantId = tenantIds[0] as string;
+    return sendGmailTest(tx, services, {
+      tenantId,
+      actorId: session.user.id,
+      by: "client",
+      allowed: (found) => {
+        if (!mayManage(role, session.user.id, GMAIL_CONNECTOR_ID, found).ok) {
+          throw new HttpError(
+            403,
+            "forbidden",
+            "only your admin or the person who connected this mailbox can send a test",
+          );
+        }
+      },
+      // The reader's language: their own, else the client's, else the browser's.
+      locale: (settings) =>
+        resolveLocale({
+          user: userLanguage(settings, session.user.id),
+          client: clientLanguage(settings),
+          browser: parseAcceptLanguage(c.req.header("accept-language")),
+        }),
+    });
+  });
+
   // ── The Sandbox client: the operator's own sign-in (docs/plan.md §1.5) ─────────────────────────
 
   // DECISION: the operator signs in to OAuth tools only in the Sandbox client, their own test client
@@ -541,4 +586,135 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     if (!row) throw notFound("connection");
     return { clientId: t.id, connection: opsConnection(row) };
   });
+
+  // DECISION: the operator sends the same test email from the Sandbox client's Gmail, which they
+  // connected themselves (Google's verification video is recorded there), with the same rules; any
+  // other client is 403 `not_sandbox`. The back office reads English, so the email is in English.
+  mount(app, routes.opsSandboxGmailTestSend, async (ctx) => {
+    const t = await sandboxClient(ctx, ctx.params.id);
+    return sendGmailTest(ctx.tx, ctx.services, {
+      tenantId: t.id,
+      actorId: ctx.session.user.id,
+      by: "operator",
+      allowed: () => {},
+      locale: () => "en",
+    });
+  });
+}
+
+// DECISION: "Send a test email" (plan §1.31) is a person's own action on their own mailbox, not an
+// agent's: it doesn't run through a run or the approval gate, and it can only ever go to the
+// connection's own address (the route bodies are strictly empty). At most one a minute per
+// connection, counted from the connection's history, where each send is recorded with who sent
+// it and Gmail's message id.
+async function sendGmailTest(
+  tx: Tx,
+  services: Services,
+  input: {
+    tenantId: string;
+    actorId: string;
+    by: "client" | "operator";
+    /** Throws when this session may not send from this connection. */
+    allowed: (found: ConnectionRow) => void;
+    locale: (settings: Record<string, unknown> | null | undefined) => Locale;
+  },
+): Promise<{ to: string; sentAt: string }> {
+  const { tenantId } = input;
+  await offeredTo(tx, tenantId, GMAIL_CONNECTOR_ID);
+  const connector = services.platform.connectors.get(GMAIL_CONNECTOR_ID);
+  if (!isGmailConnector(connector)) {
+    throw new HttpError(409, "not_available", "Gmail is not available here");
+  }
+  const found = await newestConnection(tx, tenantId, GMAIL_CONNECTOR_ID);
+  if (found?.status !== "connected" || !found.credentialsEncrypted) {
+    throw new HttpError(409, "not_connected", "Gmail isn't connected");
+  }
+  input.allowed(found);
+  // The row is locked until the send is recorded, so two clicks at once send one email.
+  const [row] = await tx
+    .select()
+    .from(connection)
+    .where(and(eq(connection.id, found.id), eq(connection.tenantId, tenantId)))
+    .for("update");
+  if (row?.status !== "connected") {
+    throw new HttpError(409, "not_connected", "Gmail isn't connected");
+  }
+  const [recent] = await tx
+    .select({ n: count() })
+    .from(connectionChange)
+    .where(
+      and(
+        eq(connectionChange.tenantId, tenantId),
+        eq(connectionChange.connectionId, row.id),
+        sql`${connectionChange.change}->>'kind' = ${GMAIL_TEST_CHANGE}`,
+        gt(connectionChange.createdAt, sql`now() - interval '1 minute'`),
+      ),
+    );
+  if ((recent?.n ?? 0) > 0) {
+    throw new HttpError(
+      429,
+      "rate_limited",
+      "we sent a test email less than a minute ago; wait a minute and try again",
+    );
+  }
+  if (!row.externalAccountId) {
+    throw new HttpError(409, "no_address", "we don't know this mailbox's address; connect again");
+  }
+  if (!services.env.ENCRYPTION_KEY) {
+    throw new HttpError(503, "not_configured", "sending is not set up here yet");
+  }
+
+  const [t] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const locale = input.locale(t?.settings);
+  const words = GMAIL_TEST_WORDS[locale];
+  const now = new Date();
+  let sent: Awaited<ReturnType<typeof connector.sendToSelf>>;
+  try {
+    sent = await connector.sendToSelf(
+      {
+        tenantId,
+        connection: refOf(row),
+        credentials: await connectionCredentials(tx, services.env, row),
+        logger: noopLogger,
+        now: () => now,
+      },
+      { subject: words.subject, text: words.text, key: uuidv7() },
+    );
+  } catch (error) {
+    if (error instanceof GmailNoAddressError || error instanceof MimeError) {
+      throw new HttpError(409, "no_address", "we don't know this mailbox's address; connect again");
+    }
+    if (error instanceof ReconnectRequiredError) {
+      throw new HttpError(
+        409,
+        "not_connected",
+        "Google ended this connection; connect Gmail again",
+      );
+    }
+    if (error instanceof GmailNotConfiguredError) {
+      throw new HttpError(503, "not_configured", "Gmail sign-in is not set up here yet");
+    }
+    if (error instanceof GmailApiError) {
+      throw new HttpError(502, "connector_failed", error.message);
+    }
+    reportHandled("Gmail test email failed", error, { connector: GMAIL_CONNECTOR_ID });
+    throw new HttpError(502, "connector_failed", "Gmail didn't send the test email");
+  }
+  await tx.insert(connectionChange).values({
+    tenantId,
+    connectionId: row.id,
+    actorId: input.actorId,
+    change: {
+      kind: GMAIL_TEST_CHANGE,
+      by: input.by,
+      to: sent.to,
+      gmailMessageId: sent.id,
+      threadId: sent.threadId,
+      language: locale,
+    },
+  });
+  return { to: sent.to, sentAt: now.toISOString() };
 }

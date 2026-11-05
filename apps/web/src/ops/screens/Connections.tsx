@@ -5,7 +5,8 @@
 // connects a tool on a client's behalf and never sees credentials. The one exception is the Sandbox
 // client, the operator's own test client: the operator connects its no-sign-in tools here, and signs
 // in to its offered OAuth tools with their own account (the provider returns to
-// `/ops/connections/:connector/callback`).
+// `/ops/connections/:connector/callback`). The Sandbox's connected Gmail also sends a test email
+// to itself from here (plan §1.31).
 import { connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -75,6 +76,11 @@ export function OpsConnectionsScreen() {
                   connection={c}
                   name={names[c.connector] ?? c.connector}
                   usedBy={data.usedBy[c.id] ?? []}
+                  testEmail={
+                    data.sandbox && c.connector === "gmail" && c.status === "connected"
+                      ? clientId
+                      : null
+                  }
                   onSaveConfig={async (config) => {
                     await api.call(apiRoutes.opsUpdateConnection, {
                       params: { id: c.id },
@@ -134,15 +140,64 @@ export function OpsConnectionsScreen() {
   );
 }
 
+/**
+ * The Sandbox's connected Gmail: one test email from the mailbox to itself (the API picks the
+ * address; nothing here can name another), then where it went, or the plain error.
+ */
+function GmailTestSend({ clientId }: { clientId: string }) {
+  const api = useApiClient();
+  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [problem, setProblem] = useState<unknown>(null);
+
+  async function send() {
+    setBusy(true);
+    setProblem(null);
+    setSentTo(null);
+    try {
+      const res = await api.call(apiRoutes.opsSandboxGmailTestSend, {
+        params: { id: clientId },
+        body: {},
+      });
+      setSentTo(res.to);
+    } catch (e) {
+      setProblem(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button data-testid="ops-gmail-test-send" disabled={busy} onClick={() => void send()}>
+        {busy ? "Sending…" : "Send a test email"}
+      </Button>
+      {sentTo || problem ? (
+        <div className="basis-full">
+          {sentTo ? (
+            <p role="status" data-testid="ops-gmail-test-sent" className="text-sm text-positive">
+              Sent to {sentTo}. Check that mailbox's Sent folder and inbox.
+            </p>
+          ) : null}
+          {problem ? <ErrorNotice error={problem} /> : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function ConnectionCard({
   connection: c,
   name,
   usedBy,
+  testEmail,
   onSaveConfig,
 }: {
   connection: Data["connections"][number];
   name: string;
   usedBy: { id: string; name: string }[];
+  /** The Sandbox client's id when its connected Gmail may send a test email; else null. */
+  testEmail: string | null;
   onSaveConfig: (config: Record<string, unknown>) => Promise<void>;
 }) {
   const saved = JSON.stringify(c.config, null, 2);
@@ -248,6 +303,7 @@ function ConnectionCard({
           <Button data-testid="ops-connection-config-edit" onClick={() => setEditing(true)}>
             Configuration
           </Button>
+          {testEmail ? <GmailTestSend clientId={testEmail} /> : null}
           {c.lastSyncAt ? (
             <Link
               to={`/ops/clients/${c.tenantId}/records?source=${c.id}`}

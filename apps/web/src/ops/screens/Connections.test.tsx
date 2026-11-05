@@ -7,7 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION, SANDBOX_DETAIL } from "../../test/fixtures";
+import { fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../../test/fixtures";
 
 const SANDBOX = "00000000-0000-4000-8000-00000000a001";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
@@ -165,6 +165,104 @@ describe("ops connections: the Sandbox client", () => {
       /^9341458640918607$/,
     );
     expect(within(bare).queryByTestId("ops-connection-records")).toBeNull();
+  });
+
+  it("sends a test email from the Sandbox's Gmail, with an empty body, and says where it went", async () => {
+    const GMAIL = "00000000-0000-4000-8000-0000000000e1";
+    const gmail = (over: Record<string, unknown> = {}) => ({
+      id: GMAIL,
+      tenantId: SANDBOX,
+      connector: "gmail",
+      status: "connected",
+      externalAccountId: "operator@gmail.test",
+      config: { address: "operator@gmail.test", scopes: ["gmail.send"] },
+      permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+      lastSyncAt: null,
+      connectedBy: OPERATOR_SESSION.user.id,
+      createdAt: "2026-11-05T18:00:00.000Z",
+      ...over,
+    });
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
+      [`GET /api/ops/clients/${SANDBOX}/connections`]: () =>
+        connections({ offered: ["gmail"], connections: [gmail()] }),
+      [`POST /api/ops/clients/${SANDBOX}/connections/gmail/test-send`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { to: "operator@gmail.test", sentAt: "2026-11-05T18:05:00.000Z" };
+      },
+    });
+    const view = renderAt(`/ops/clients/${SANDBOX}/connections`, api);
+    const card = await screen.findByTestId(`ops-connection-${GMAIL}`);
+    const button = within(card).getByTestId("ops-gmail-test-send");
+    expect(button).toHaveTextContent("Send a test email");
+    expect(button.className).toContain("ds-btn--secondary");
+    await userEvent.setup().click(button);
+    expect(await within(card).findByTestId("ops-gmail-test-sent")).toHaveTextContent(
+      "Sent to operator@gmail.test. Check that mailbox's Sent folder and inbox.",
+    );
+    expect(bodies).toEqual([{}]);
+    view.unmount();
+
+    // A refusal shows the plain error.
+    const failing = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
+      [`GET /api/ops/clients/${SANDBOX}/connections`]: () =>
+        connections({ offered: ["gmail"], connections: [gmail()] }),
+      [`POST /api/ops/clients/${SANDBOX}/connections/gmail/test-send`]: () =>
+        new Reply(429, {
+          error: {
+            code: "rate_limited",
+            message: "we sent a test email less than a minute ago; wait a minute and try again",
+          },
+        }),
+    });
+    const second = renderAt(`/ops/clients/${SANDBOX}/connections`, failing);
+    const again = await screen.findByTestId(`ops-connection-${GMAIL}`);
+    await userEvent.setup().click(within(again).getByTestId("ops-gmail-test-send"));
+    expect(await within(again).findByRole("alert")).toHaveTextContent(
+      "we sent a test email less than a minute ago; wait a minute and try again",
+    );
+    second.unmount();
+
+    // Disconnected: no button.
+    failing.on(`GET /api/ops/clients/${SANDBOX}/connections`, () =>
+      connections({ offered: ["gmail"], connections: [gmail({ status: "disconnected" })] }),
+    );
+    renderAt(`/ops/clients/${SANDBOX}/connections`, failing);
+    const off = await screen.findByTestId(`ops-connection-${GMAIL}`);
+    expect(within(off).queryByTestId("ops-gmail-test-send")).toBeNull();
+  });
+
+  it("offers no Gmail test email in a real client", async () => {
+    const GMAIL = "00000000-0000-4000-8000-0000000000e2";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}/connections`]: () =>
+        connections({
+          sandbox: false,
+          offered: ["gmail"],
+          connections: [
+            {
+              id: GMAIL,
+              tenantId: DEMO,
+              connector: "gmail",
+              status: "connected",
+              externalAccountId: "pat.lee@gmail.test",
+              config: {},
+              permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+              lastSyncAt: null,
+              connectedBy: null,
+              createdAt: "2026-11-05T18:00:00.000Z",
+            },
+          ],
+        }),
+    });
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
+    const card = await screen.findByTestId(`ops-connection-${GMAIL}`);
+    expect(within(card).queryByTestId("ops-gmail-test-send")).toBeNull();
   });
 
   it("offers no Connect in a real client", async () => {
