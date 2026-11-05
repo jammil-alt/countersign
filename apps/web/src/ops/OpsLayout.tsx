@@ -68,6 +68,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
               <SidebarLink to="/ops/usage" label="Usage" testId="ops-nav-usage" />
               <SidebarLink to="/ops/billing" label="Billing" testId="ops-nav-billing" />
               <SidebarLink to="/ops/feedback" label="Feedback" testId="ops-nav-feedback" />
+              <SidebarLink to="/ops/audit" label="Audit log" testId="ops-nav-audit" />
               <SidebarLink
                 to={base ? `${base}/settings` : "/ops/settings"}
                 label="Settings"

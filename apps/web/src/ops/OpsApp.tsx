@@ -10,6 +10,7 @@ import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/Templ
 import { MergeScreen } from "./merge/MergeScreen";
 import { OpsLayout } from "./OpsLayout";
 import { AgentPage } from "./screens/AgentPage";
+import { OpsAuditScreen } from "./screens/AuditLog";
 import { OpsBillingScreen } from "./screens/Billing";
 import { OpsBrowserSitesScreen } from "./screens/BrowserSites";
 import { ClientDetailScreen } from "./screens/ClientDetail";
@@ -82,6 +83,7 @@ function OpsBackOffice() {
         <Route path="billing" element={<OpsBillingScreen />} />
         <Route path="browser-sites" element={<OpsBrowserSitesScreen />} />
         <Route path="feedback" element={<OpsFeedbackScreen />} />
+        <Route path="audit" element={<OpsAuditScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
         <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
         <Route path="skills" element={<SkillsScreen />} />
