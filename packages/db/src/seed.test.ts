@@ -13,9 +13,14 @@ import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } fr
 const online = await databaseAvailable();
 
 describe("seed files", () => {
-  it("hold the three platform templates, each a valid bundle", async () => {
+  it("hold the four platform templates, each a valid bundle", async () => {
     const templates = await loadSeedTemplates();
-    expect(templates.map((t) => t.slug)).toEqual(["builder", "coordinator", "document-clerk"]);
+    expect(templates.map((t) => t.slug)).toEqual([
+      "builder",
+      "coordinator",
+      "document-clerk",
+      "supervisor",
+    ]);
     for (const t of templates) {
       expect(validateBundle(t.bundle).valid, t.slug).toBe(true);
       expect(t.bundle.definition.kind).toBe("platform");
@@ -49,10 +54,10 @@ describe.skipIf(!online)("seed", () => {
     return row;
   };
 
-  it("inserts the operator, two clients and three live templates; twice is the same as once", async () => {
+  it("inserts the operator, two clients and four live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 3, versions: 3 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 4, versions: 4 });
 
     const second = await seed(t.db);
     expect(second).toEqual(first);
@@ -67,7 +72,12 @@ describe.skipIf(!online)("seed", () => {
       })
       .from(agent)
       .orderBy(agent.slug);
-    expect(templates.map((r) => r.slug)).toEqual(["builder", "coordinator", "document-clerk"]);
+    expect(templates.map((r) => r.slug)).toEqual([
+      "builder",
+      "coordinator",
+      "document-clerk",
+      "supervisor",
+    ]);
     for (const r of templates) {
       expect(r.kind).toBe("template");
       expect(r.tenantId).toBeNull();
@@ -110,6 +120,6 @@ describe.skipIf(!online)("seed", () => {
       await asWorker(tx);
       return tx.select({ id: agent.id }).from(agent).where(isNull(agent.tenantId));
     });
-    expect(asOperator).toHaveLength(3);
+    expect(asOperator).toHaveLength(4);
   });
 });

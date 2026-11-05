@@ -13,8 +13,8 @@ type Row = typeof externalAction.$inferSelect;
 /** A sense the caller emits in the same transaction (apps/api passes packages/senses' emit). */
 export interface EmittedEvent {
   type: string;
-  subjectType: string;
-  subjectId: string;
+  subjectType: string | null;
+  subjectId: string | null;
   payload: JsonObject;
 }
 export type Emit = (tx: Tx, tenantId: string, event: EmittedEvent) => Promise<void>;

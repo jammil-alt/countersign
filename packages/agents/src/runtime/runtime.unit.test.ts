@@ -1,8 +1,10 @@
 // Pieces of the runtime that need no database: registries, approver resolution, schema checks.
 
 import {
+  type ConnectionRef,
   ConnectorRegistry,
   createTestkitConnector,
+  ReconnectRequiredError,
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import { describe, expect, it } from "vitest";
@@ -12,6 +14,7 @@ import { ToolRegistry, ToolRegistryError } from "../registry/tools";
 import { inboxCreate, PLATFORM_TOOLS } from "../tools/platform";
 import { defineInternalTool } from "../tools/types";
 import { executeAction } from "./actions";
+import { noteReconnect } from "./attention";
 import { releaseGate } from "./call-tool";
 import { type RuntimeDeps, resolveApprover, type StepContext } from "./context";
 import { checkAgainst, objectSchema } from "./json-schema";
@@ -42,14 +45,21 @@ describe("tool registry", () => {
       ],
     });
     expect(Object.keys(tools.specs()).sort()).toEqual([
+      "agents.ask",
       "comms.reach_out",
       "demo.thing.find",
       "docs.extract",
       "docs.find_support",
       "docs.get",
+      "health.agents",
+      "health.connections",
+      "health.inbox",
+      "health.runs",
       "inbox.create",
       "knowledge.search",
       "memory.write",
+      "supervisor.check",
+      "supervisor.report",
       "testkit.record.query",
       "testkit.record.update",
       "threads.post",
@@ -330,5 +340,23 @@ describe("human release outside the gate: approved writes and reach-out attempts
       expect((out as { reason: string }).reason).toContain("needs a person to release it");
       expect(seen.asked).toBe(0);
     }
+  });
+});
+
+describe("noteReconnect", () => {
+  it("marks the connection only when the connector says to sign in again", async () => {
+    const marked: unknown[] = [];
+    const deps = {
+      ports: { attention: { needsAttention: async (...a: unknown[]) => void marked.push(a) } },
+    } as unknown as RuntimeDeps;
+    const conn = { id: "c1", tenantId: "t1", connector: "zoho_crm" } as ConnectionRef;
+    await noteReconnect(deps, "t1", conn, new Error("timeout"));
+    expect(marked).toEqual([]);
+    await noteReconnect(deps, "t1", conn, new ReconnectRequiredError("Zoho refused the refresh"));
+    expect(marked).toEqual([
+      ["t1", { connectionId: "c1", reason: "signin_expired", detail: "Zoho refused the refresh" }],
+    ]);
+    // Without the port (a call's tools) nothing happens, and nothing throws.
+    await noteReconnect({ ports: {} } as RuntimeDeps, "t1", conn, new ReconnectRequiredError());
   });
 });

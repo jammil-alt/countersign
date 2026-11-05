@@ -141,6 +141,30 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
       });
     },
 
+    askTarget(tenantId, agentId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(agent)
+          .where(
+            and(
+              eq(agent.id, agentId),
+              // Only this client's own agents: RLS and this filter both (invariant 1).
+              eq(agent.tenantId, tenantId),
+              eq(agent.kind, "client"),
+              eq(agent.status, "active"),
+              eq(agent.testCopy, false),
+            ),
+          );
+        if (!row?.liveVersionId || row.runStatus === "retired") return null;
+        return {
+          agentId: row.id,
+          agentVersionId: row.liveVersionId,
+          name: row.serviceName ?? row.name,
+        };
+      });
+    },
+
     run(tenantId, runId) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx

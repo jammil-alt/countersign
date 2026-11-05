@@ -32,7 +32,8 @@ import {
   type LlmRequest,
 } from "@countersign/llm";
 import type { ResolvedSkill } from "../registry/skills";
-import type { RunMode } from "../tools/types";
+import { AGENTS_ASK_TOOL } from "../tools/ask";
+import type { AskAnswer, AskInput, RunMode } from "../tools/types";
 import { callTool, type ToolOutcome } from "./call-tool";
 import type { RuntimeDeps, StepContext } from "./context";
 import { checkAgainst, objectSchema } from "./json-schema";
@@ -63,6 +64,17 @@ export interface RunAgentInput {
    * text: summaries render in it, and the model is asked to write client-facing text in it.
    */
   language?: Locale | undefined;
+  /**
+   * An ask (`agents.ask`, docs/plan.md §1.28): answer `input.question` with only the tools that
+   * read, within `budget` (each limit the smaller of it and the agent's own), with no inbox item
+   * on a budget hit and no asks of its own. Set by `askAgent`, never by a workflow.
+   */
+  asked?: { budget: AskBudget; tools: string[] } | undefined;
+}
+
+export interface AskBudget {
+  maxSteps: number;
+  maxCostUsd: string;
 }
 
 export interface PendingAction {
@@ -141,6 +153,44 @@ function taskSkill(task: string): SkillDefinition {
     instructions: task,
     tools: [],
     input: {},
+    output: {
+      type: "object",
+      properties: {
+        answer: { type: "string" },
+        sources: { type: "array", items: { type: "string" } },
+      },
+      required: ["answer", "sources"],
+    },
+    settings: [],
+    requiresConnectors: [],
+    requiresPacks: [],
+    producesAlerts: false,
+  };
+}
+
+/**
+ * The skill an asked agent runs: fixed words in the system prompt, the question as data in the
+ * task input (invariant 9), an answer with its sources.
+ */
+function askSkill(tools: string[]): SkillDefinition {
+  return {
+    schemaVersion: 1,
+    id: "agents.answer",
+    name: "Answer a question from another agent",
+    description: "Answer another agent's question about this client from what you can read.",
+    category: "agents",
+    mode: "agent",
+    instructions: [
+      "Another agent working for this client asks you the question in the task input.",
+      "Answer it briefly from what your tools can read. You can't change anything here: every tool that writes is refused.",
+      "If you can't tell, say so. Cite the record ids you used in sources.",
+    ].join("\n"),
+    tools,
+    input: {
+      type: "object",
+      properties: { question: { type: "string" } },
+      required: ["question"],
+    },
     output: {
       type: "object",
       properties: {
@@ -284,6 +334,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     const own = agent.bundle.definition.skills.find((s) => parseSkillRef(s.skill).id === id);
     if (!own) return fail(`agent ${agent.slug} has no skill ${id}`);
     settings = resolveSkillSettings(def, { ...own.settings, ...input.settings });
+  } else if (input.asked) {
+    def = askSkill(input.asked.tools);
   } else if (input.task !== undefined) {
     def = taskSkill(input.task);
   } else {
@@ -292,6 +344,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   const checkedInput = checkAgainst(def.input, input.input);
   if (!checkedInput.ok) return fail(`invalid input: ${checkedInput.message}`);
 
+  const asked = input.asked;
   const step: StepContext = {
     tenantId: input.tenantId,
     agent,
@@ -302,8 +355,25 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     approval: input.approval,
     threadId: input.threadId,
     externalIndex: { next: 0 },
+    language: input.language,
+    readOnly: asked !== undefined,
+    // No asks within an ask: the asked agent can't start a chain.
+    ask: asked
+      ? undefined
+      : (q) =>
+          askAgent(deps, {
+            tenantId: input.tenantId,
+            agentId: agent.agentId,
+            runId: input.runId,
+            language: input.language,
+            ask: q,
+          }),
   };
-  const allowed = new Set([...skillTools(def), ...agent.bundle.definition.extraTools]);
+  const allowed = new Set(
+    asked
+      ? skillTools(def).filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
+      : [...skillTools(def), ...agent.bundle.definition.extraTools],
+  );
   const pending: PendingAction[] = [];
   const track = (o: ToolOutcome) => {
     if (o.status === "awaiting_approval") {
@@ -382,8 +452,13 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
 
   // 3. Agent mode: the loop.
   const { definition } = agent.bundle;
-  const maxSteps = definition.budgets.maxSteps;
-  const maxCost = new Decimal(definition.budgets.maxCostUsd);
+  // An ask's budget is the smaller of the ask's and the agent's own.
+  const maxSteps = asked
+    ? Math.min(definition.budgets.maxSteps, asked.budget.maxSteps)
+    : definition.budgets.maxSteps;
+  const maxCost = asked
+    ? Decimal.min(definition.budgets.maxCostUsd, asked.budget.maxCostUsd)
+    : new Decimal(definition.budgets.maxCostUsd);
   const onCall = async (record: LlmCallRecord) => {
     modelCalls += 1;
     const callCost = new Decimal(record.costUsd ?? "0");
@@ -452,6 +527,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   ];
 
   const escalate = async (reason: "max_steps" | "max_cost"): Promise<AgentResult> => {
+    // An ask that runs out of budget just has no answer: nothing is written for a person.
+    if (asked) return fail(`budget reached: ${reason}`);
     const item = await platform.createInboxItem(input.tenantId, {
       kind: "review",
       title: `${definition.identity.name} stopped: ${reason === "max_steps" ? "step" : "cost"} budget reached on ${def.name}`,
@@ -570,4 +647,81 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     if (finished) return finish(finished.value);
     messages.push({ role: "user", content: results });
   }
+}
+
+// ── Asking another agent (docs/plan.md §1.28) ──────────────────────────────────────────────────────
+
+/** An ask's budget: a few model calls and a few cents (each the smaller of this and the agent's). */
+// DECISION: 4 model calls and $0.10 per ask: enough to read a record or two and answer; the
+// asked agent's own budget still applies when it is smaller.
+export const ASK_BUDGET: AskBudget = { maxSteps: 4, maxCostUsd: "0.10" };
+
+/** Runs another agent of the same client once on a question, as a test run that only reads. */
+export async function askAgent(
+  deps: RuntimeDeps,
+  from: {
+    tenantId: string;
+    agentId: string;
+    runId: string;
+    language?: Locale | undefined;
+    ask: AskInput;
+  },
+): Promise<AskAnswer> {
+  const { store, log } = deps.ports;
+  if (from.ask.agentId === from.agentId) throw new Error("an agent can't ask itself");
+  // The asked agent is looked up in the asking run's own client: another client's is not found.
+  const target = await store.askTarget(from.tenantId, from.ask.agentId);
+  if (!target) throw new Error(`no agent ${from.ask.agentId} of this client can be asked`);
+  const pinned = await store.loadAgentVersion(from.tenantId, target.agentVersionId);
+  // The tools its own skills read with (and its extra tools), never agents.ask itself.
+  const tools = new Set<string>(pinned.bundle.definition.extraTools);
+  for (const s of pinned.bundle.definition.skills) {
+    const resolved = await resolveSkill(deps, from.tenantId, s.skill);
+    if (resolved) for (const t of skillTools(resolved.definition)) tools.add(t);
+  }
+  tools.delete(AGENTS_ASK_TOOL);
+  const readTools = [...tools].filter((t) => deps.tools.get(t)?.spec.sideEffect === "none").sort();
+
+  const runId = await log.startAskRun(from.tenantId, {
+    agentId: target.agentId,
+    agentVersionId: target.agentVersionId,
+    askedBy: { agentId: from.agentId, runId: from.runId },
+  });
+  let result: AgentResult;
+  try {
+    result = await runAgent(deps, {
+      tenantId: from.tenantId,
+      agentVersionId: target.agentVersionId,
+      input: { question: from.ask.question },
+      runId,
+      stepId: "ask",
+      mode: "test",
+      language: from.language,
+      asked: { budget: ASK_BUDGET, tools: readTools },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await log.finishAskRun(from.tenantId, runId, { status: "failed", error: message });
+    throw error;
+  }
+  const base = { agentId: target.agentId, agentName: target.name, runId };
+  if (result.status === "succeeded") {
+    await log.finishAskRun(from.tenantId, runId, { status: "succeeded" });
+    const out = (result.output ?? {}) as { answer?: unknown; sources?: unknown };
+    return {
+      ...base,
+      status: "answered",
+      answer: typeof out.answer === "string" ? out.answer : "",
+      sources: Array.isArray(out.sources)
+        ? out.sources.filter((x): x is string => typeof x === "string")
+        : [],
+      reason: null,
+    };
+  }
+  const reason =
+    result.status === "failed"
+      ? result.error
+      : `the asked agent stopped (${result.status}) without an answer`;
+  await log.finishAskRun(from.tenantId, runId, { status: "failed", error: reason });
+  return { ...base, status: "no_answer", answer: "", sources: [], reason };
 }

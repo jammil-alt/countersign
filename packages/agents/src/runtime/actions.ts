@@ -5,6 +5,7 @@
 import { executeWrite, UnconfirmedWriteError } from "@countersign/connectors";
 import { releaseOf } from "@countersign/core";
 import { AgentsError, notFound } from "../errors";
+import { noteReconnect } from "./attention";
 import { connectionContext, type RuntimeDeps } from "./context";
 import type { ExternalActionRecord } from "./ports";
 
@@ -128,6 +129,7 @@ export async function executeAction(
       );
       return { status: "failed", action: failed, error: error.message };
     }
+    await noteReconnect(deps, input.tenantId, conn, error);
     const failed = await actions.fail(input.tenantId, action.id, { message: message(error) });
     return { status: "failed", action: failed, error: message(error) };
   }
