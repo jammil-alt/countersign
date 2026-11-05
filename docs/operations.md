@@ -424,6 +424,24 @@ nothing itself.
 
 To stop it, pause the agent. Its findings stay in the inbox until someone marks them done.
 
+### Adding the Bill clerk to a client
+
+The Bill clerk (`docs/plan.md` §1.30) matches each read vendor invoice to its bill in QuickBooks
+and, after approval, itemizes the bill, attaches the invoice and notes it in the memo.
+
+1. **The template must be installed**: `bill-clerk` (`packages/db/seed/agents/bill-clerk.v1.json`),
+   as for the supervisor above (the seed on staging, by hand on production).
+2. **The client connects QuickBooks** from the portal's Connections page, and the first sync runs.
+3. **Fork it** into the client from the template, bind its QuickBooks connection (Operation), and
+   publish. It can't publish without the binding.
+4. **Test-run** `invoice-read` with a read invoice's `document.extracted` payload (`documentId`,
+   `extractionId`, `lineCount`, `totalsValid: true`): it proposes its changes and writes nothing.
+   Then Activate.
+5. **What it does then.** On every invoice read with totals that add up, it finds the bill (same
+   vendor, total to the cent, ± 7 days, document number). No bill, or several: the client admin is
+   asked, nothing is written. One bill with fewer lines than the invoice and the same total: three
+   approvals in turn (itemize, attach, memo), each written once.
+
 ## 2. What CI does
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;

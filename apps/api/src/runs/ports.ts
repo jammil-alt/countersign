@@ -360,12 +360,12 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
 export function threadNotifyPort(deps: RuntimeDeps): NotifyPort {
   const { platform } = deps.ports;
   return {
-    async send({ run, nodeId, channel, to, text }) {
+    async send({ run, nodeId, channel, to, text, sources }) {
       await platform.postMessage(run.tenantId, {
         subject: { type: "run", id: run.id, title: `Run of ${run.workflowSlug}` },
         agentVersionId: run.agentVersionId,
         body: { text, channel, to, nodeId },
-        sources: [],
+        sources,
         audience: run.mode === "live" && channel === "thread" ? "client" : "operator",
       });
     },

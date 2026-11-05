@@ -67,6 +67,13 @@ export const NotifyStep = z.object({
   channel: z.enum(["thread", "email", "digest"]),
   to: TemplateString.optional(),
   message: TemplateString,
+  /**
+   * The record ids the notice rests on (CLAUDE.md invariant 10): each entry an id, or a reference
+   * to one or to a list of them (`{{steps.match.output.sources}}`). Optional.
+   */
+  // DECISION: a notice cites its records with an optional list on the notify step, resolved to
+  // ids and stored as the message's `sources`, rather than a new step kind (docs/plan.md §1.30).
+  sources: z.array(TemplateString).max(50).optional(),
 });
 
 export const StopStep = z.object({

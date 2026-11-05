@@ -26,6 +26,8 @@ import {
   createUploadConnector,
   createWebhookConnector,
   createZohoCrmConnector,
+  QBO_CONNECTOR_ID,
+  QBO_SKILLS,
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -88,7 +90,7 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
   // The platform's built-in skills (docs.*, knowledge.search, directory.lookup, comms.reach-out,
-  // supervisor.*) come first, then the caller's, then a tool-mode skill
+  // supervisor.*) come first, then the caller's, QuickBooks' own, then a tool-mode skill
   // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
   // packs register theirs here when they exist (registerPack); none yet.
   const catalog = new SkillCatalog(
@@ -99,6 +101,9 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...REACH_SKILLS,
       ...SUPERVISOR_SKILLS,
       ...(options.skills ?? []),
+      // DECISION: QuickBooks' one agent-mode skill (the Bill clerk's line mapping) ships with the
+      // connector, beside the tools it reads with, and is offered wherever qbo is registered.
+      ...(connectors.has(QBO_CONNECTOR_ID) ? QBO_SKILLS : []),
       ...connectorReadSkills(connectors),
     ],
     tools,

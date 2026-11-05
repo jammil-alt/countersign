@@ -184,6 +184,8 @@ export interface NotifyPort {
     channel: NotifyStep["channel"];
     to: string | null;
     text: string;
+    /** The step's `sources`, resolved: record ids, deduplicated (invariant 10). */
+    sources: string[];
   }): Promise<void>;
   /** A person step timed out with `onTimeout: 'notify_operator'`. */
   notifyOperator(notice: {

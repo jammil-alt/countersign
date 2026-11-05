@@ -14,6 +14,7 @@ import type {
   Locale,
   ToolSpec,
 } from "@countersign/core";
+import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
 import { z } from "zod";
 
 export type RunMode = "live" | "test";
@@ -130,6 +131,8 @@ export interface DocumentsPort {
     tenantId: string,
     input: { transactionId: string; testRun: boolean },
   ): Promise<FindSupportOutcome>;
+  /** The one synced bill an invoice belongs to (packages/documents' matchBill); reads only. */
+  matchBill(tenantId: string, input: MatchBillInput): Promise<MatchBillResult>;
 }
 
 /** One thing `knowledge.search` found: an FAQ, policy, document or memory note. */
