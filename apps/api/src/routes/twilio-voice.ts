@@ -66,7 +66,7 @@ import {
   threadCallLine,
 } from "../calls/store";
 import { type AppEnv, errorResponse, HttpError, type Services } from "../http";
-import { createContact, findContactByNumber } from "../messaging/contacts";
+import { contactLanguage, createContact, findContactByNumber } from "../messaging/contacts";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
 
@@ -250,7 +250,8 @@ export function twilioVoiceRoutes(app: Hono<AppEnv>): void {
             now,
           );
         }
-        const language = callLanguage(contactRow.language, client.language);
+        // The caller's language, else their organization's, else the client's (§1.27).
+        const language = (await contactLanguage(tx, contactRow)).language;
         let payload: CallPayload;
         if (before) {
           payload = before.payload;

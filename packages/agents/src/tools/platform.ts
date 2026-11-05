@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { agentsAsk } from "./ask";
+import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
 import { HEALTH_TOOLS } from "./health";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
@@ -123,6 +124,7 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   memoryWrite,
   ...DOCS_TOOLS,
   ...KNOWLEDGE_TOOLS,
+  ...DIRECTORY_TOOLS,
   reachOutTool,
   ...HEALTH_TOOLS,
   agentsAsk,

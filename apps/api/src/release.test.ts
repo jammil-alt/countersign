@@ -27,9 +27,11 @@ import {
   accessRelease,
   agent,
   connectionChange,
+  contact,
   externalAction,
   inboxItem,
   message,
+  organization,
   rawRecord,
   run,
   stepRun,
@@ -824,6 +826,32 @@ describe.skipIf(!h)("human release through the API", () => {
       status: "succeeded",
     });
     await call(admin("a"), "PUT", "/api/client/language", { language: "en" });
+  });
+
+  it("uses the organization's language for a person with none of their own (directory, §1.27)", async () => {
+    // Ana has no language of her own and the client's is English; her directory entry belongs to
+    // an organization that reads French.
+    const [org] = await H.t.db
+      .insert(organization)
+      .values({ tenantId: H.A.tenantId, name: "Atelier Ana", language: "fr" })
+      .returning();
+    // Her directory entry (made earlier in this file, found by her email) joins it.
+    await H.t.db
+      .update(contact)
+      .set({ organizationId: org?.id ?? null, language: null })
+      .where(and(eq(contact.tenantId, H.A.tenantId), eq(contact.email, admin("a"))));
+    const fr = await startRun();
+    const french = new FakeWorkflowStep(async (_name, type) => {
+      const { email, code } = lastEmailedCode();
+      expect(email.subject).toBe("Votre code Mezonas");
+      expect(email.text.startsWith(`Code Mezonas : ${code}.`)).toBe(true);
+      const item = await requestItem(type);
+      expect(j((await enter(admin("a"), item.id, code)).json).result).toBe("released");
+      return sentEvent(type);
+    });
+    expect(await executeRun(deps(), fr, cloudflareStepRunner(french))).toEqual({
+      status: "succeeded",
+    });
   });
 
   it("keeps releases per client", async () => {

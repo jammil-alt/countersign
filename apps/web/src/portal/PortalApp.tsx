@@ -13,7 +13,11 @@ import { Placeholder } from "../ui/primitives";
 import { PortalAccessScreen } from "./screens/Access";
 import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConnectionsScreen } from "./screens/Connections";
-import { PortalContactsScreen, PortalPeopleScreen } from "./screens/Contacts";
+import {
+  PortalContactsScreen,
+  PortalDirectoryScreen,
+  PortalPeopleScreen,
+} from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
 import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
@@ -62,6 +66,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             />
             <SidebarLink to="/access" label={t("nav.access")} testId="portal-nav-access" />
             <SidebarLink to="/requests" label={t("nav.requests")} testId="portal-nav-requests" />
+            <SidebarLink to="/directory" label={t("nav.directory")} testId="portal-nav-directory" />
             {isAdmin ? (
               <>
                 <SidebarLink
@@ -112,6 +117,7 @@ export function PortalApp() {
         <Route path="requests" element={<PortalRequestsScreen />} />
         <Route path="knowledge" element={<PortalKnowledgeScreen />} />
         <Route path="contacts" element={<PortalContactsScreen />} />
+        <Route path="directory" element={<PortalDirectoryScreen />} />
         <Route path="people" element={<PortalPeopleScreen />} />
         <Route path="billing" element={<PortalBillingScreen />} />
         <Route path="settings" element={<PortalSettingsScreen />} />

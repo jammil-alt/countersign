@@ -9,13 +9,7 @@ import {
   readVoiceConfig,
   type VoiceServices,
 } from "@countersign/connectors";
-import {
-  type ContactConsent,
-  callBlock,
-  callBlockMessage,
-  callLanguage,
-  inQuietHours,
-} from "@countersign/core";
+import { type ContactConsent, callBlock, callBlockMessage, inQuietHours } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -28,7 +22,12 @@ import {
   withTenant,
 } from "@countersign/db";
 import { and, eq, inArray } from "drizzle-orm";
-import { findContactByNumber, getContact, messagingSettings } from "../messaging/contacts";
+import {
+  contactLanguage,
+  findContactByNumber,
+  getContact,
+  messagingSettings,
+} from "../messaging/contacts";
 import type { Platform } from "../platform";
 import { ensureVoiceAgent, type VoiceDeps, voiceAgentConfig } from "./answer";
 import {
@@ -195,10 +194,8 @@ export function dbVoiceServices(
         const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
         if (!v || !t) throw new CallBlockedError("no_call", "the agent's version is missing");
         const who = await getContact(tx, tenantId, r.contactId);
-        const language = callLanguage(
-          who.language,
-          (t.settings as { language?: string } | null)?.language,
-        );
+        // The person's language, else their organization's, else the client's (§1.27).
+        const language = (await contactLanguage(tx, who)).language;
         // r.settings' purpose and opening are the step's fixed text: the gate refused the call
         // otherwise, before its approval card (call.place `fixedInputs`, invariant 9).
         const config = voiceAgentConfig({

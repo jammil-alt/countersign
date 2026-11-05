@@ -6,6 +6,7 @@
 // compared in packages/connectors (`release-codes.ts`); it never reaches this module.
 
 import { z } from "zod";
+import { languageFor } from "../directory/language";
 import type { Locale } from "../i18n/locale";
 import { RELEASE_WORDS } from "../i18n/release";
 import { isUuid } from "../ids";
@@ -215,7 +216,7 @@ export function releaseMessage(input: {
 
 /** The person's language for a code: their own choice, else the client's default, else English. */
 export function releaseLocale(user: Locale | null, client: Locale | null): Locale {
-  return user ?? client ?? "en";
+  return languageFor({ person: user, client }).language;
 }
 
 /** A phone number with all but its last 4 digits hidden. */

@@ -2,10 +2,11 @@
 // portal's inboxes. An external action shows the tool, the record and "now / after this change";
 // approvals approve or reject; a person's question takes an answer. Resolving calls the surface's
 // resolve route (passed in), which resumes the waiting run.
-import type { ResolveBody } from "@countersign/core";
+import { DirectorySuggestionChange, isPlainObject, type ResolveBody } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
+import { directoryFieldName, directoryValue } from "../directory/DirectoryPanel";
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { SourceLinks } from "../records/SourceLinks";
@@ -102,6 +103,36 @@ export function payloadFacts(payload: Record<string, unknown>): [string, string]
     .map(([k, v]) => [fieldLabel(k), formatValue(v)]);
 }
 
+/**
+ * An agent's directory suggestion (plan §1.27) in plain words: why, and each field it would set.
+ * What the agent wrote is data, shown as text.
+ */
+function suggestionFacts(payload: Record<string, unknown>, i18n: I18n): [string, string][] | null {
+  const s = payload.directorySuggestion;
+  if (!isPlainObject(s)) return null;
+  const change = DirectorySuggestionChange.safeParse(s.change);
+  if (!change.success) return null;
+  const c = change.data;
+  const fields =
+    c.action === "add_person"
+      ? c.person
+      : c.action === "add_organization"
+        ? c.organization
+        : c.changes;
+  const facts: [string, string][] = [];
+  if (typeof s.reason === "string") facts.push([i18n.t("directory.suggestions.why"), s.reason]);
+  for (const [k, v] of Object.entries(fields)) {
+    facts.push([directoryFieldName(k, i18n), directoryValue(v, i18n)]);
+  }
+  if (s.changesAddress === true) {
+    facts.push([
+      i18n.t("directory.import.changesAddress"),
+      i18n.t("directory.suggestions.address"),
+    ]);
+  }
+  return facts;
+}
+
 function statusBadge(
   item: InboxCardItem,
   outcome: string | null,
@@ -179,7 +210,7 @@ export function InboxCard({
         : null;
   const toolName = connector ? connectorName(connector, connectorNames) : null;
   const target = isChange ? changeTarget(item.payload.before, item.payload.input) : null;
-  const facts = isChange ? [] : payloadFacts(item.payload);
+  const facts = isChange ? [] : (suggestionFacts(item.payload, i18n) ?? payloadFacts(item.payload));
   const steps = findingSteps(item.payload);
   const sources = Array.isArray(item.payload.sources)
     ? item.payload.sources.filter((x): x is string => typeof x === "string")

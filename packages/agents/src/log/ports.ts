@@ -4,6 +4,7 @@ import type { Db } from "@countersign/db";
 import { dbRuntimeStore } from "../registry/runtime-store";
 import type { ReleasePort, RuntimePorts } from "../runtime/ports";
 import { dbConnectionAttention } from "./connection-attention";
+import { dbDirectoryPort } from "./directory-port";
 import { type DbDocumentsOptions, dbDocumentsPort } from "./documents-port";
 import { dbExternalActions, type Emit } from "./external-actions";
 import { dbFindingsPort } from "./findings-port";
@@ -34,6 +35,7 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     actions: dbExternalActions(db, emit),
     platform: dbPlatformStore(db),
     knowledge: dbKnowledgePort(db),
+    directory: dbDirectoryPort(db),
     health: dbHealthPort(db, options.connectorName ? { connectorName: options.connectorName } : {}),
     findings: dbFindingsPort(db, emit),
     attention: dbConnectionAttention(db, emit),

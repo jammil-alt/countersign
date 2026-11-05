@@ -152,6 +152,7 @@ async function dispatch(
       platform: deps.ports.platform,
       documents: deps.ports.documents,
       knowledge: deps.ports.knowledge,
+      directory: deps.ports.directory,
       health: deps.ports.health,
       findings: deps.ports.findings,
       ask: step.ask,

@@ -8,7 +8,7 @@ import { type AppEnv, ensureClient, mount } from "../http";
 import {
   changeConsent,
   contactMessages,
-  contactView,
+  contactOut,
   createContact,
   getContact,
   listContacts,
@@ -24,7 +24,7 @@ export function contactRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsCreateContact, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
     const row = await createContact(ctx.tx, ctx.params.id, ctx.body, ctx.session.user.id);
-    return { contact: contactView(row) };
+    return { contact: await contactOut(ctx.tx, row) };
   });
   mount(app, routes.opsUpdateContact, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
@@ -35,7 +35,7 @@ export function contactRoutes(app: Hono<AppEnv>): void {
       ctx.body,
       ctx.session.user.id,
     );
-    return { contact: contactView(row) };
+    return { contact: await contactOut(ctx.tx, row) };
   });
   mount(app, routes.opsContactConsent, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
@@ -43,7 +43,7 @@ export function contactRoutes(app: Hono<AppEnv>): void {
       id: ctx.session.user.id,
       role: "operator",
     });
-    return { contact: contactView(row) };
+    return { contact: await contactOut(ctx.tx, row) };
   });
   mount(app, routes.opsContactMessages, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
@@ -62,7 +62,7 @@ export function contactRoutes(app: Hono<AppEnv>): void {
       ctx.body,
       ctx.session.user.id,
     );
-    return { contact: contactView(row) };
+    return { contact: await contactOut(ctx.tx, row) };
   });
   mount(app, routes.portalUpdateContact, async (ctx) => {
     const row = await updateContact(
@@ -72,14 +72,14 @@ export function contactRoutes(app: Hono<AppEnv>): void {
       ctx.body,
       ctx.session.user.id,
     );
-    return { contact: contactView(row) };
+    return { contact: await contactOut(ctx.tx, row) };
   });
   mount(app, routes.portalContactConsent, async (ctx) => {
     const row = await changeConsent(ctx.tx, ctx.tenantIds[0] as string, ctx.params.id, ctx.body, {
       id: ctx.session.user.id,
       role: ctx.role,
     });
-    return { contact: contactView(row) };
+    return { contact: await contactOut(ctx.tx, row) };
   });
   mount(app, routes.portalContactMessages, async (ctx) => {
     const tenantId = ctx.tenantIds[0] as string;

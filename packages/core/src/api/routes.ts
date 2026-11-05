@@ -12,6 +12,7 @@ import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
 import { defineRoute } from "./contract";
+import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
@@ -1634,6 +1635,7 @@ export const routes = {
   ...reachRoutes,
   ...accessRoutes,
   ...browserRoutes,
+  ...directoryRoutes,
   ...supervisorRoutes,
 } as const;
 export type Routes = typeof routes;

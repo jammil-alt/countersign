@@ -12,6 +12,7 @@ import { type InboxResolution, inboxEventType } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import type { z } from "zod";
 import { refuseGenericResolve } from "./access/release";
+import { applySuggestion, isDirectorySuggestion } from "./directory/suggestions";
 import { HttpError, notFound } from "./http";
 import { senseEmitter } from "./runs/dispatch";
 
@@ -97,7 +98,13 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     });
     resolution = { approved: decision === "approve", answer: null, by: input.by.userId };
   } else {
-    if (!mayResolve(item, input.by)) {
+    const suggestion = isDirectorySuggestion(item);
+    // DECISION: a directory suggestion is the client admin's, and the operator, who edits the
+    // directory fully, may decide it too (docs/plan.md §1.27).
+    const allowed = suggestion
+      ? input.by.role === "client_admin" || input.by.role === "operator"
+      : mayResolve(item, input.by);
+    if (!allowed) {
       throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
     }
     let approved: boolean;
@@ -108,12 +115,18 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
       if (!decision) throw new HttpError(400, "invalid_request", "approve or reject this item");
       approved = decision === "approve";
     }
+    // An accepted suggestion changes the directory in this transaction, or nothing is resolved.
+    const applied =
+      suggestion && approved
+        ? await applySuggestion(tx, input.tenantId, item, input.by.userId)
+        : null;
     const stored = {
       ...(decision === undefined ? {} : { decision }),
       approved,
       answer: answer ?? null,
       by: input.by.userId,
       ...(note === undefined ? {} : { note }),
+      ...(applied ? { applied } : {}),
     };
     await tx
       .update(inboxItem)

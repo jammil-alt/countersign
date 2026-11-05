@@ -13,6 +13,7 @@ import { AgentPage } from "./screens/AgentPage";
 import { OpsBillingScreen } from "./screens/Billing";
 import { OpsBrowserSitesScreen } from "./screens/BrowserSites";
 import { ClientDetailScreen } from "./screens/ClientDetail";
+import { ClientDirectoryRoute } from "./screens/ClientDirectory";
 import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
@@ -63,6 +64,7 @@ function OpsBackOffice() {
         <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
         <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
         <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
+        <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
         <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
         <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
         <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />

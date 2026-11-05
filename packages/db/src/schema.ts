@@ -1149,12 +1149,12 @@ export type ContactRelationship = (typeof CONTACT_RELATIONSHIPS)[number];
 
 /** A postal address as people write it; every part optional. */
 export interface OrganizationAddress {
-  line1?: string;
-  line2?: string;
-  city?: string;
-  region?: string;
-  postalCode?: string;
-  country?: string;
+  line1?: string | undefined;
+  line2?: string | undefined;
+  city?: string | undefined;
+  region?: string | undefined;
+  postalCode?: string | undefined;
+  country?: string | undefined;
 }
 
 /**

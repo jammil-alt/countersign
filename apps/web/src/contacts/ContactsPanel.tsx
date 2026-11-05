@@ -247,7 +247,10 @@ function ContactDetails({
         email: email.trim() || null,
         phone: phone.trim() || null,
         whatsapp: whatsapp.trim() || null,
-        language: language || null,
+        // Sent only when changed: a language saved before the six were enforced stays as it is.
+        ...(language === (contact.language ?? "")
+          ? {}
+          : { language: (language || null) as Locale | null }),
         preferredChannels: preferred,
         timezone: timezone.trim() || null,
         quietHours: quiet,

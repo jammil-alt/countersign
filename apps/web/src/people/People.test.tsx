@@ -104,6 +104,42 @@ describe("portal: People", () => {
   });
 });
 
+describe("portal: People picked from the directory", () => {
+  it("shows each person's title and organization, and narrows a long list by search", async () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-0000000c01${String(i).padStart(2, "0")}`,
+      name: `Person ${i}`,
+      roles: [],
+      reachable: ["email" as const],
+      optedOut: false,
+      title: "Driver",
+      organization: "Elm Haulage",
+    }));
+    const base = peopleOf();
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/feedback/status": () => ({ enabled: false }),
+      "GET /api/people": () => ({
+        items: [
+          {
+            ...base,
+            contacts: [
+              { ...base.contacts[0], title: "Buyer", organization: "Birch & Co" },
+              ...many,
+            ],
+          },
+        ],
+      }),
+    });
+    renderAt("/people", api);
+    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 5000 });
+    expect(within(role).getByText("Buyer, Birch & Co")).toBeInTheDocument();
+    await userEvent.type(within(role).getByTestId("role-purchaser-find"), "birch");
+    expect(within(role).getByTestId(`role-purchaser-contact-${PAT}`)).toBeInTheDocument();
+    expect(within(role).queryByText("Person 3")).toBeNull();
+  });
+});
+
 describe("back office: People and Channels", () => {
   it("binds people and the agent's channels", async () => {
     const sent: { route: string; body: unknown }[] = [];
@@ -326,7 +362,7 @@ describe("contacts: reach-out details", () => {
           email: "pat@shop.example",
           phone: "+15555550100",
           whatsapp: null,
-          language: null,
+          // The language is sent only when it changed.
           preferredChannels: ["whatsapp", "voice"],
           timezone: "America/Chicago",
           quietHours: null,

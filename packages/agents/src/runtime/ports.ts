@@ -7,6 +7,7 @@ import type { ConnectionRef } from "@countersign/connectors";
 import type { AgentBundle, ApproverRule, GrantLimits, JsonObject } from "@countersign/core";
 import type { ResolvedSkill } from "../registry/skills";
 import type {
+  DirectoryPort,
   DocumentsPort,
   FindingsPort,
   HealthPort,
@@ -286,6 +287,8 @@ export interface RuntimePorts {
   documents?: DocumentsPort;
   /** The client's knowledge base for `knowledge.search`; absent: that tool fails with a reason. */
   knowledge?: KnowledgePort;
+  /** The client's directory for `directory.*`; absent: those tools fail with a reason. */
+  directory?: DirectoryPort;
   /**
    * Human release; absent: a connection that needs one refuses every call (fails closed), as in a
    * voice call's tool, which can't wait for a code.
