@@ -11,6 +11,7 @@ import {
   noopLogger,
   OAuthCallbackError,
   QBO_CONNECTOR_ID,
+  SignInRefusedError,
 } from "@countersign/connectors";
 import { routes, uuidv7 } from "@countersign/core";
 import { connection, connectionChange, type Tx, tenant } from "@countersign/db";
@@ -21,11 +22,17 @@ import { type AppContext, type AppEnv, HttpError, mount, notFound } from "../htt
 import type { Platform } from "../platform";
 import { connectionCredentials, vaultFor } from "../secrets";
 import { offeredConnectors } from "./ops-clients";
-import { canSignIn, portalConnections } from "./portal";
+import { canSignIn, PERSONAL_CONNECTORS, portalConnections } from "./portal";
 import { qboSyncFor, startQboSync } from "./qbo";
 
-async function connectionOut(tx: Tx, tenantId: string, platform: Platform, id: string) {
-  const [out] = await portalConnections(tx, tenantId, platform, id);
+async function connectionOut(
+  tx: Tx,
+  tenantId: string,
+  platform: Platform,
+  id: string,
+  viewerId?: string,
+) {
+  const [out] = await portalConnections(tx, tenantId, platform, id, viewerId);
   if (!out) throw notFound("connection");
   return out;
 }
@@ -96,8 +103,14 @@ export async function connectNoAuth(
 }
 
 /** The portal entry for one connector (its connection may be null: not signed in yet). */
-async function connectorOut(tx: Tx, tenantId: string, platform: Platform, connectorId: string) {
-  const all = await portalConnections(tx, tenantId, platform);
+async function connectorOut(
+  tx: Tx,
+  tenantId: string,
+  platform: Platform,
+  connectorId: string,
+  viewerId?: string,
+) {
+  const all = await portalConnections(tx, tenantId, platform, undefined, viewerId);
   const out = all.find((x) => x.connector === connectorId);
   if (!out) throw notFound("connector");
   return out;
@@ -116,12 +129,43 @@ export async function offeredTo(tx: Tx, tenantId: string, connectorId: string): 
 // DECISION: the provider redirects to a portal page (one fixed path per connector, as providers
 // register exact redirect URIs), not to an API route, so the callback runs as an ordinary JSON
 // route with the session's role and client checks, and the page shows the outcome.
-// DECISION: QuickBooks is the exception: the Intuit app has `/api/connections/qbo/callback`
-// registered (ARCHITECTURE §14), and that route forwards to the same portal page (routes/qbo.ts).
+// DECISION: QuickBooks returns to the API path too: the Intuit app has
+// `/api/connections/qbo/callback` registered (ARCHITECTURE §14, plan §1.30).
 export function oauthRedirectUri(c: AppContext, env: Bindings, connectorId: string): string {
   const origin = (env.APP_ORIGIN?.trim() || new URL(c.req.url).origin).replace(/\/+$/, "");
+  // DECISION: Google's OAuth client (owner, 2026-11-05) registers `/api/connections/gmail/callback`
+  // per environment, so Gmail returns to that API path (GOOGLE_REDIRECT_URI when set, ARCHITECTURE
+  // §17), which only forwards the parameters to the portal page below (`API_RETURN_PATH`).
+  if (connectorId === "gmail") {
+    return env.GOOGLE_REDIRECT_URI?.trim() || `${origin}/api/connections/gmail/callback`;
+  }
   if (connectorId === QBO_CONNECTOR_ID) return `${origin}/api/connections/qbo/callback`;
   return `${origin}/connections/${connectorId}/callback`;
+}
+
+/** The API path a provider may return to; it forwards to the portal's callback page as it is. */
+const API_RETURN_PATH = "/api/connections/:connector/callback";
+
+/**
+ * Whether this session may sign in to, or disconnect, a connector's connection. The client admin
+ * may, for every tool. A client user may only for a person's own account (Gmail), and only when no
+ * one else's is connected: one person can't take over another's mailbox.
+ */
+function mayManage(
+  role: string,
+  userId: string,
+  connectorId: string,
+  existing: { status: string; connectedBy: string | null } | undefined,
+): { ok: true } | { ok: false; message: string } {
+  if (role === "client_admin") return { ok: true };
+  if (!PERSONAL_CONNECTORS.has(connectorId)) {
+    return { ok: false, message: "your admin connects this tool" };
+  }
+  // Someone else's mailbox stays theirs until it is disconnected, also while it needs reconnecting.
+  if (existing && existing.status !== "disconnected" && existing.connectedBy !== userId) {
+    return { ok: false, message: "someone else connected this account; your admin can change it" };
+  }
+  return { ok: true };
 }
 
 function stateSecret(env: Bindings): string {
@@ -158,9 +202,28 @@ async function newestConnection(tx: Tx, tenantId: string, connectorId: string) {
 }
 
 export function connectionRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.portalAuthorize, async ({ c, tx, tenantIds, params, session, services }) => {
+  // A provider that returns to the API (Gmail): the same parameters, on to the portal's page. Nothing
+  // is read or stored here; the page posts them to the callback route below in the person's session.
+  app.get(API_RETURN_PATH, (c) => {
+    const id = c.req.param("connector") ?? "";
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(id)) return c.notFound();
+    const query = new URL(c.req.url).search;
+    c.header("cache-control", "no-store");
+    c.header("referrer-policy", "no-referrer");
+    return c.redirect(`/connections/${id}/callback${query}`, 302);
+  });
+
+  mount(app, routes.portalAuthorize, async (ctx) => {
+    const { c, tx, tenantIds, params, session, services, role } = ctx;
     const tenantId = tenantIds[0] as string;
     await offeredTo(tx, tenantId, params.connector);
+    const allowed = mayManage(
+      role,
+      session.user.id,
+      params.connector,
+      await newestConnection(tx, tenantId, params.connector),
+    );
+    if (!allowed.ok) throw new HttpError(403, "forbidden", allowed.message);
     const connector = services.platform.connectors.get(params.connector);
     if (connector?.manifest.auth === "oauth2") {
       if (!canSignIn(connector)) {
@@ -178,7 +241,13 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
         stateSecret: stateSecret(services.env),
       });
       return {
-        connection: await connectorOut(tx, tenantId, services.platform, params.connector),
+        connection: await connectorOut(
+          tx,
+          tenantId,
+          services.platform,
+          params.connector,
+          session.user.id,
+        ),
         redirectUrl,
       };
     }
@@ -190,7 +259,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
       by: "client",
     });
     return {
-      connection: await connectionOut(tx, tenantId, services.platform, id),
+      connection: await connectionOut(tx, tenantId, services.platform, id, session.user.id),
       redirectUrl: null,
     };
   });
@@ -204,6 +273,8 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
       throw new HttpError(409, "not_available", "signing in to that tool is not available");
     }
     const existing = await newestConnection(tx, tenantId, params.connector);
+    const allowed = mayManage(ctx.role, session.user.id, params.connector, existing);
+    if (!allowed.ok) throw new HttpError(403, "forbidden", allowed.message);
     const id = existing?.id ?? uuidv7();
     let done: Awaited<ReturnType<typeof completeAuthorization>>;
     try {
@@ -219,6 +290,10 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     } catch (error) {
       if (error instanceof OAuthCallbackError) {
         throw new HttpError(400, error.reason, error.message);
+      }
+      // The sign-in worked but the grant can't be kept (Gmail: send left unticked); nothing stored.
+      if (error instanceof SignInRefusedError) {
+        throw new HttpError(422, "sign_in_refused", error.message);
       }
       if (error instanceof HttpError) throw error;
       console.error(`sign-in to ${params.connector} failed`, error);
@@ -271,49 +346,64 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
         }),
       );
     }
-    return { connection: await connectionOut(tx, tenantId, services.platform, id) };
+    return {
+      connection: await connectionOut(tx, tenantId, services.platform, id, session.user.id),
+    };
   });
 
-  mount(app, routes.portalDisconnect, async ({ tx, tenantIds, params, session, services }) => {
-    const tenantId = tenantIds[0] as string;
-    const [row] = await tx
-      .select()
-      .from(connection)
-      .where(and(eq(connection.id, params.id), eq(connection.tenantId, tenantId)));
-    if (!row) throw notFound("connection");
-    if (row.status !== "disconnected") {
-      // The credentials go; the row, its matrix and its history stay (bindings keep pointing at
-      // it, so reconnecting puts the agents back to work).
-      // DECISION: the grant is revoked at the provider first (Connector.revoke), best effort: a
-      // provider that is down must not keep the client from disconnecting, and the stored
-      // credentials are dropped either way.
-      const connector = services.platform.connectors.get(row.connector);
-      if (connector?.revoke && row.credentialsEncrypted && services.env.ENCRYPTION_KEY) {
-        try {
-          await connector.revoke({
-            tenantId,
-            connection: refOf(row),
-            credentials: await connectionCredentials(tx, services.env, row),
-            logger: noopLogger,
-            now: () => new Date(),
-          });
-        } catch (error) {
-          console.warn(`revoking ${row.connector} for connection ${row.id} failed`, error);
-        }
+  mount(
+    app,
+    routes.portalDisconnect,
+    async ({ tx, tenantIds, params, session, services, role }) => {
+      const tenantId = tenantIds[0] as string;
+      const [row] = await tx
+        .select()
+        .from(connection)
+        .where(and(eq(connection.id, params.id), eq(connection.tenantId, tenantId)));
+      if (!row) throw notFound("connection");
+      // A client user disconnects only a personal account they connected themselves.
+      if (
+        role !== "client_admin" &&
+        !(PERSONAL_CONNECTORS.has(row.connector) && row.connectedBy === session.user.id)
+      ) {
+        throw new HttpError(403, "forbidden", "your admin disconnects this tool");
       }
-      // The vault's read model of the credentials goes with them (docs/plan.md §1.26).
-      const { vault: _vault, ...config } = row.config as Record<string, unknown>;
-      await tx
-        .update(connection)
-        .set({ status: "disconnected", credentialsEncrypted: null, config })
-        .where(and(eq(connection.id, row.id), eq(connection.tenantId, tenantId)));
-      await tx.insert(connectionChange).values({
-        tenantId,
-        connectionId: row.id,
-        actorId: session.user.id,
-        change: { kind: "status", by: "client", before: row.status, after: "disconnected" },
-      });
-    }
-    return { connection: await connectionOut(tx, tenantId, services.platform, row.id) };
-  });
+      if (row.status !== "disconnected") {
+        // The credentials go; the row, its matrix and its history stay (bindings keep pointing at
+        // it, so reconnecting puts the agents back to work).
+        // DECISION: the grant is revoked at the provider first (Connector.revoke), best effort: a
+        // provider that is down must not keep the client from disconnecting, and the stored
+        // credentials are dropped either way.
+        const connector = services.platform.connectors.get(row.connector);
+        if (connector?.revoke && row.credentialsEncrypted && services.env.ENCRYPTION_KEY) {
+          try {
+            await connector.revoke({
+              tenantId,
+              connection: refOf(row),
+              credentials: await connectionCredentials(tx, services.env, row),
+              logger: noopLogger,
+              now: () => new Date(),
+            });
+          } catch (error) {
+            console.warn(`revoking ${row.connector} for connection ${row.id} failed`, error);
+          }
+        }
+        // The vault's read model of the credentials goes with them (docs/plan.md §1.26).
+        const { vault: _vault, ...config } = row.config as Record<string, unknown>;
+        await tx
+          .update(connection)
+          .set({ status: "disconnected", credentialsEncrypted: null, config })
+          .where(and(eq(connection.id, row.id), eq(connection.tenantId, tenantId)));
+        await tx.insert(connectionChange).values({
+          tenantId,
+          connectionId: row.id,
+          actorId: session.user.id,
+          change: { kind: "status", by: "client", before: row.status, after: "disconnected" },
+        });
+      }
+      return {
+        connection: await connectionOut(tx, tenantId, services.platform, row.id, session.user.id),
+      };
+    },
+  );
 }

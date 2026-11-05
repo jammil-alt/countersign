@@ -258,7 +258,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     const query = `code=fixture-code&state=${encodeURIComponent(state)}&realmId=${FAKE_QBO_REALM}`;
     const bounce = await H.call(null, "GET", `/api/connections/qbo/callback?${query}`);
     expect(bounce.status).toBe(302);
-    expect(bounce.headers.get("location")).toBe(`${ORIGIN}/connections/qbo/callback?${query}`);
+    expect(bounce.headers.get("location")).toBe(`/connections/qbo/callback?${query}`);
 
     // The portal page posts the parameters in the admin's session; another client can't land them.
     const params = { code: "fixture-code", state, realmId: FAKE_QBO_REALM };

@@ -354,6 +354,11 @@ export const PortalConnection = z.object({
   available: z.boolean(),
   /** An API-key connector the client admin sets up with a form on the Access page. */
   credentialForm: z.boolean(),
+  /**
+   * A person's own account (Gmail): a client user may connect it too, and disconnect it if they
+   * connected it; other tools are the client admin's.
+   */
+  personal: z.boolean().optional(),
   connection: z
     .object({
       id: z.string(),
@@ -365,6 +370,8 @@ export const PortalConnection = z.object({
       permissions: ConnectionMatrix,
       access: z.array(ToolAccessSchema),
       usedBy: z.array(z.object({ id: z.string(), name: z.string() })),
+      /** The signed-in person connected it (a client user may then disconnect it). */
+      connectedByYou: z.boolean().optional(),
     })
     .nullable(),
 });
@@ -1465,7 +1472,7 @@ export const portalRoutes = {
     method: "POST",
     path: "/api/connections/:connector/authorize",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary:
       "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
     params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
@@ -1475,7 +1482,7 @@ export const portalRoutes = {
     method: "POST",
     path: "/api/connections/:connector/callback",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary:
       "Finish signing in to a tool: the provider's callback parameters, checked against the state",
     params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
@@ -1568,7 +1575,7 @@ export const portalRoutes = {
     method: "DELETE",
     path: "/api/connections/:id",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary: "Disconnect a tool: agents can no longer use it; its permissions are kept",
     params: IdParams,
     response: z.object({ connection: PortalConnection }),

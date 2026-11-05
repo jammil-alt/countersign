@@ -253,6 +253,8 @@ export const de: Messages = {
   "connections.connect": "Verbinden",
   "connections.adminCanConnect": "Ihr Admin kann es verbinden.",
   "connections.enterKey": "Zugangsdaten eingeben",
+  "connections.gmail.description":
+    "Senden Sie E-Mails aus Ihrem Gmail. Ihr Postfach können wir nicht lesen.",
   "connection.status.connected": "Verbunden",
   "connection.status.pending": "Nicht verbunden",
   "connection.status.disconnected": "Getrennt",

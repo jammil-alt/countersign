@@ -17,6 +17,7 @@ import {
   type Connector,
   ConnectorRegistry,
   createBrowserConnector,
+  createGmailConnector,
   createPodioConnector,
   createQboConnector,
   createResendConnector,
@@ -140,7 +141,9 @@ type OAuthEnvKey =
   | "ZOHO_CLIENT_ID"
   | "ZOHO_CLIENT_SECRET"
   | "PODIO_CLIENT_ID"
-  | "PODIO_CLIENT_SECRET";
+  | "PODIO_CLIENT_SECRET"
+  | "GOOGLE_CLIENT_ID"
+  | "GOOGLE_CLIENT_SECRET";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -155,6 +158,7 @@ export function platformFor(
     env.QBO_CLIENT_ID ?? "-",
     qboEnvironment(env),
     env.QBO_WEBHOOK_VERIFIER ? "qbo-hook" : "-",
+    env.GOOGLE_CLIENT_ID ?? "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -169,8 +173,8 @@ export function platformFor(
  * The connectors every deployment registers. Each appears in the operator's offering, the portal's
  * Connections page and the builder's palette through the registry; nothing else names them.
  */
-// DECISION: Zoho CRM and Podio are registered even where their OAuth clients aren't set, so they
-// can be offered and built with; each signs in only once its client id and secret and
+// DECISION: Zoho CRM, Podio and Gmail are registered even where their OAuth clients aren't set, so
+// they can be offered and built with; each signs in only once its client id and secret and
 // OAUTH_STATE_SECRET are all set (the portal shows "not available yet" until then).
 export function deploymentConnectors(
   env: Pick<Bindings, OAuthEnvKey | "BROWSER">,
@@ -181,6 +185,9 @@ export function deploymentConnectors(
     env.PODIO_CLIENT_ID && env.PODIO_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
   const qboReady = Boolean(env.QBO_CLIENT_ID && env.QBO_CLIENT_SECRET && env.OAUTH_STATE_SECRET);
+  const googleReady = Boolean(
+    env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
+  );
   return [
     // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
     createUploadConnector(),
@@ -201,6 +208,11 @@ export function deploymentConnectors(
     // Texts and WhatsApp: registered everywhere; a client gets a connection only when the
     // operator makes its subaccount, which needs TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.
     createTwilioConnector(),
+    // Gmail, send only (ARCHITECTURE §6.4): registered everywhere like Zoho; a person signs in once
+    // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
+    createGmailConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),

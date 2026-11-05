@@ -179,8 +179,9 @@ Done by the owner (2026-11-05):
 - Intuit developer app **"Mezonas"**, development keys (sandbox companies only).
 - Scope `com.intuit.quickbooks.accounting` only.
 - Redirect URIs `https://staging.mezonas.com/api/connections/qbo/callback` and
-  `http://localhost:8787/api/connections/qbo/callback`. That route forwards Intuit's parameters to the
-  portal page `/connections/qbo/callback`, which finishes the sign-in in the client admin's session.
+  `http://localhost:8787/api/connections/qbo/callback`. That route (the same forwarder Gmail uses)
+  passes Intuit's parameters to the portal page `/connections/qbo/callback`, which finishes the
+  sign-in in the client admin's session.
 - Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
   Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
   (every 15 minutes, and on any webhook).
@@ -189,10 +190,10 @@ Done by the owner (2026-11-05):
 
 Still to do:
 
-1. Load the three secrets into the Worker from `deploy.yml` (the owner's separate PR), the same way as
-   the Zoho and Podio ones. QuickBooks also needs `OAUTH_STATE_SECRET` and `ENCRYPTION_KEY`, which
-   staging has. Until the client id and secret are set, the portal shows QuickBooks as "not
-   available yet"; without the verifier the webhook answers 503.
+1. `deploy.yml` copies the three secrets into the Worker when set (#70). QuickBooks also needs
+   `OAUTH_STATE_SECRET` and `ENCRYPTION_KEY`, which staging has. Until the client id and secret are
+   set, the portal shows QuickBooks as "not available yet"; without the verifier the webhook answers
+   503.
 2. `QBO_ENV` is a var in `wrangler.jsonc`: `sandbox` locally and on staging, `production` in
    production. There is no `QBO_REDIRECT_URI`: the redirect URI is `APP_ORIGIN` +
    `/api/connections/qbo/callback`.
@@ -205,21 +206,52 @@ Still to do:
    `https://app.mezonas.com/api/connections/qbo/callback` and webhook
    `https://app.mezonas.com/api/connections/qbo/webhook`, and the production secrets.
 
-### Google (Gmail, from M10)
+### Google (Gmail, send only, M10)
 
-1. A Google Cloud project for Mezonas with the Gmail API enabled.
-2. An OAuth consent screen (external) and a web OAuth client with redirect URIs
-   `https://<domain>/api/connections/gmail/callback` per environment (and `http://localhost:8787/...` for
-   local development).
-3. Scope **`gmail.send` only** (owner, 2026-11-05; ARCHITECTURE §6.4). It is a sensitive scope:
-   Google's standard verification, with no CASA security assessment. We never ask for `gmail.readonly`,
-   `gmail.labels`, `gmail.compose` or any other restricted scope; reading mail is done by forwarding
-   (ARCHITECTURE §6.5). Verification needs the live site at `https://mezonas.com` (`apps/site`) with its privacy
-   policy, the verified domain, a demo video and a reason for the scope. Until it is approved the
-   app works for a limited set of test users with a warning screen, and in "testing" status refresh
-   tokens expire after 7 days (clients would have to reconnect weekly). Check the current rules (plan
-   M10). Asking for any other Gmail scope needs the privacy policy changed first (`apps/site`).
-4. Worker secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; var `GOOGLE_REDIRECT_URI`.
+Gmail only sends: an agent emails a contact from a mailbox the client connected, after approval.
+Reading mail is done by forwarding (ARCHITECTURE §6.5); we never ask Google for a read scope. What
+we couldn't check against Google's docs is in `packages/connectors/src/gmail/NOTES.md`, "To verify".
+
+1. The Google Cloud project `mezonas` with the Gmail API enabled (done, 2026-11-05).
+2. The web OAuth client "Mezonas web" with redirect URIs `https://staging.mezonas.com/api/connections/gmail/callback`,
+   `https://app.mezonas.com/api/connections/gmail/callback` and
+   `http://localhost:8787/api/connections/gmail/callback` (done, 2026-11-05). The Worker sends people
+   back to `<APP_ORIGIN>/api/connections/gmail/callback`, which matches these; set the var
+   `GOOGLE_REDIRECT_URI` only to use another one.
+3. The consent screen's scopes: **`gmail.send`** (sensitive) plus **`openid`** and **`email`**
+   (Google's basic sign-in scopes, non-sensitive), which tell us which address connected; Gmail's
+   send scope alone can't. Nothing else. The owner is reducing the list to `gmail.send`; add `openid`
+   and `.../auth/userinfo.email` beside it. We never ask for `gmail.readonly`, `gmail.labels`,
+   `gmail.compose`, `gmail.modify` or any other restricted scope (owner, 2026-11-05: no CASA), and
+   the connector refuses a grant that carries one. Asking for any other Gmail scope needs the privacy
+   policy changed first (`apps/site`).
+4. Worker secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (GitHub staging secrets exist;
+   wiring them into `deploy.yml` is the owner's own PR), copied like the other API keys, and
+   `OAUTH_STATE_SECRET`, which Zoho and Podio already use. Until all three are set the portal shows
+   Gmail as "Not available yet".
+5. While the consent screen is in **Testing**: only listed test users can connect, Google shows a
+   warning screen, and refresh tokens expire after 7 days, so a test mailbox must be reconnected
+   weekly (the connection shows "Needs reconnecting" and the supervisor raises it).
+
+What the owner still needs for Google's verification (standard review for a sensitive scope; no
+CASA):
+- **The live site.** `https://mezonas.com` (`apps/site`) live on the verified domain, with the
+  privacy policy (its Google section and the Limited Use statement) linked from the homepage. The
+  site's deploy is its own PR (`claude/site-deploy`, plan §1.29), held until the apex DNS records
+  are cleared.
+- **Domain verification** in Search Console and the domain on the consent screen's authorized
+  domains (done, 2026-11-05).
+- **A demo video** (unlisted, on YouTube): the consent screen in English with the client id visible
+  in the address bar, a person connecting Gmail from the portal's Connections page, an agent's
+  reach-out email waiting for approval in the inbox, approving it, the email arriving from that
+  mailbox, the reply coming back through the forwarding address, and disconnecting (which revokes
+  the grant).
+- **The scope's reason**, for `gmail.send`: "A person at a client business connects their Gmail so
+  that agents can send the emails that person's team has approved (for example asking a vendor for a
+  missing invoice), from their own address. Each message is shown to a person for approval before it
+  is sent. We never read the mailbox; replies reach us only when the client forwards them."
+- Then switch the consent screen to "In production" and submit for verification. Refresh tokens
+  stop expiring after 7 days once it is in production.
 
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
@@ -240,7 +272,9 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
   inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
   these, and the code service never has apps/api's.
-- Later: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (M9, built) and `GOOGLE_*`, the same way.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Gmail, M10; see "Google" above) and `QBO_CLIENT_ID`,
+  `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (QuickBooks Online, M9) are copied like the API keys when
+  set. Staging has the development keys of both apps (2026-11-05).
 - Needed by the Zoho CRM connector (stream G, 2026-11-04): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only

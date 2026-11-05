@@ -62,7 +62,11 @@ describe.skipIf(!h)("documents API", () => {
       ["document", true],
     ]);
     for (const [i, g] of GOLDEN.entries()) ids[g.stem] = res.json.results[i].document.id;
-    // The request deferred the reading; run it (as waitUntil would).
+    // The request deferred the reading, and the harness's waitUntil has already started it: wait
+    // for that first. Starting a second reading alongside it raced: the second saw the documents
+    // as already being read and returned, and the checks below ran while the first was still going.
+    await harness.settle();
+    // Then run it as waitUntil would; documents already read are left as they are.
     const { extractInBackground } = await import("./routes/documents");
     await extractInBackground(
       {

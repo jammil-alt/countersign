@@ -2,10 +2,9 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
 
-// QuickBooks Online (plan M9, ARCHITECTURE §6.2, §14). Intuit's sign-in comes back to a fixed API
-// path registered with the Intuit app, which hands the client on to the portal's callback page
-// (the same POST /api/connections/:connector/callback as every OAuth tool then finishes it).
-// Intuit's webhook is one public, signed endpoint for every client. The operator can start a sync.
+// QuickBooks Online (plan M9, ARCHITECTURE §6.2, §14). Intuit's sign-in comes back to
+// `GET /api/connections/qbo/callback`, the generic forwarder Gmail also uses, and finishes through
+// POST /api/connections/:connector/callback like every OAuth tool. Intuit's webhook is one public, signed endpoint for every client. The operator can start a sync.
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 
@@ -15,15 +14,6 @@ export const QboWebhookResponse = z.object({
 });
 
 export const qboRoutes = {
-  qboCallback: defineRoute({
-    method: "GET",
-    path: "/api/connections/qbo/callback",
-    auth: "public",
-    roles: [],
-    summary:
-      "Where Intuit sends the client after signing in: forwards its parameters to the portal's callback page",
-    response: z.object({}),
-  }),
   qboWebhook: defineRoute({
     method: "POST",
     path: "/api/connections/qbo/webhook",

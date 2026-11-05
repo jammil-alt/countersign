@@ -241,6 +241,7 @@ export const en = {
   "connections.connect": "Connect",
   "connections.adminCanConnect": "Your admin can connect it.",
   "connections.enterKey": "Enter its login",
+  "connections.gmail.description": "Send email from your Gmail. We can't read your mailbox.",
   "connection.status.connected": "Connected",
   "connection.status.pending": "Not connected",
   "connection.status.disconnected": "Disconnected",

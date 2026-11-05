@@ -1,8 +1,8 @@
 // QuickBooks Online's routes (plan M9, ARCHITECTURE §6.2, §14). The paths are the ones registered
 // with the Intuit app (docs/operations.md, "Intuit"):
-// - `GET /api/connections/qbo/callback`: Intuit sends the client back here after signing in; this
-//   hands its parameters on to the portal's callback page, which finishes the sign-in in the
-//   client admin's session like every OAuth tool (POST /api/connections/qbo/callback).
+// - `GET /api/connections/qbo/callback`: Intuit sends the client back here after signing in. The
+//   generic forwarder in ./connections.ts (shared with Gmail) hands the parameters on to the
+//   portal's callback page, which finishes the sign-in (POST /api/connections/qbo/callback).
 // - `POST /api/connections/qbo/webhook`: Intuit's signed notifications. Checked, then a sync is
 //   started for each connection to a company it names; nothing is processed inline.
 // - `POST /api/ops/connections/:id/sync`: the operator starts a sync now.
@@ -107,14 +107,6 @@ async function readBody(req: Request, limit: number): Promise<Uint8Array | null>
 }
 
 export function qboRoutes(app: Hono<AppEnv>): void {
-  app.get(routes.qboCallback.path, (c) => {
-    const origin = (c.env.APP_ORIGIN?.trim() || new URL(c.req.url).origin).replace(/\/+$/, "");
-    const query = new URL(c.req.url).search;
-    // Only the portal page reads the parameters, in the client admin's session; this route keeps
-    // nothing and needs no session.
-    return c.redirect(`${origin}/connections/${QBO_CONNECTOR_ID}/callback${query}`, 302);
-  });
-
   app.post(routes.qboWebhook.path, async (c) => {
     try {
       const services = c.get("req").services();

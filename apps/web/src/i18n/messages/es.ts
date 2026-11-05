@@ -247,6 +247,7 @@ export const es: Messages = {
   "connections.connect": "Conectar",
   "connections.adminCanConnect": "Su administrador puede conectarla.",
   "connections.enterKey": "Ingresar su acceso",
+  "connections.gmail.description": "Envíe correos desde su Gmail. No podemos leer su buzón.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Sin conectar",
   "connection.status.disconnected": "Desconectada",
