@@ -72,11 +72,22 @@ export function OpsStatementCard({
     if (res.ok) onChanged();
   }
 
+  const sentLine =
+    [
+      s.invoiceNumber ? `Invoice ${s.invoiceNumber}` : null,
+      s.sentAt ? `sent ${dayLabel(s.sentAt.slice(0, 10))}` : null,
+      s.dueAt && s.status !== "paid" ? `due ${dayLabel(s.dueAt.slice(0, 10))}` : null,
+      s.paidAt ? `paid ${dayLabel(s.paidAt.slice(0, 10))}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not sent";
+
   return (
-    <Card className="flex flex-col gap-4 p-5" testId={testId}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col">
-          <span className="font-medium text-ink">
+    <Card
+      testId={testId}
+      title={
+        <span className="flex flex-col">
+          <span>
             {showClient ? (
               <>
                 <Link to={`/ops/clients/${s.clientId}`} className="hover:underline">
@@ -87,19 +98,12 @@ export function OpsStatementCard({
             ) : null}
             {monthOf(s.period.start)}
           </span>
-          <span className="text-sm text-ink-muted">
-            {[
-              s.invoiceNumber ? `Invoice ${s.invoiceNumber}` : null,
-              s.sentAt ? `sent ${dayLabel(s.sentAt.slice(0, 10))}` : null,
-              s.dueAt && s.status !== "paid" ? `due ${dayLabel(s.dueAt.slice(0, 10))}` : null,
-              s.paidAt ? `paid ${dayLabel(s.paidAt.slice(0, 10))}` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ") || "Not sent"}
-          </span>
-        </div>
+          <span className="text-sm font-normal text-ink-muted">{sentLine}</span>
+        </span>
+      }
+      meta={
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-ink figures" data-testid={`${testId}-total`}>
+          <span className="text-base text-ink figures" data-testid={`${testId}-total`}>
             {price(s.total)}
           </span>
           <Badge tone={status.tone}>{EN.t(status.label)}</Badge>
@@ -124,102 +128,105 @@ export function OpsStatementCard({
             </a>
           ) : null}
         </span>
-      </div>
-
-      {s.sendError ? (
-        <Notice tone="warning" testId={`${testId}-error`}>
-          The send stopped: {s.sendError}. Send it again to carry on from where it stopped.
-        </Notice>
-      ) : null}
-
-      <StatementLines
-        lines={s.lines}
-        daysInMonth={daysIn(s.period.start)}
-        summary={s}
-        total={s.total}
-        totalLabel="Total"
-        testId={`${testId}-lines`}
-        {...(s.editable
-          ? {
-              action: (line) =>
-                line.kind === "adjustment" && line.id ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={action.busy}
-                    onClick={async () => {
-                      const res = await action.call(apiRoutes.opsRemoveAdjustment, {
-                        params: { id: s.id, lineId: line.id as string },
-                      });
-                      if (res.ok) onChanged();
-                    }}
-                  >
-                    Remove
-                  </Button>
-                ) : null,
-            }
-          : {})}
-      />
-
-      {s.editable ? (
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Adjustment" className="min-w-64 flex-1">
-            <TextInput
-              data-testid={`${testId}-adjust-description`}
-              placeholder="What it's for, as the client will read it"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </Field>
-          <Field label="Amount (USD)" hint="Minus for a credit" className="w-40">
-            <TextInput
-              data-testid={`${testId}-adjust-amount`}
-              inputMode="decimal"
-              placeholder="-15.00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </Field>
-          <Button
-            disabled={action.busy}
-            data-testid={`${testId}-adjust`}
-            onClick={() => void addAdjustment()}
-          >
-            Add adjustment
-          </Button>
-        </div>
-      ) : null}
-      {problem ? <Notice tone="warning">{problem}</Notice> : null}
-      {action.error ? <ErrorNotice error={action.error} /> : null}
-
-      {s.status === "draft" ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="primary"
-            data-testid={`${testId}-send`}
-            disabled={action.busy || !stripeConfigured}
-            title={stripeConfigured ? undefined : "Connect Stripe first"}
-            onClick={() => void run(apiRoutes.opsSendStatement)}
-          >
-            {s.sendStarted ? "Send again" : "Send to Stripe"}
-          </Button>
-          {s.editable ? (
+      }
+      footer={
+        s.status === "draft" ? (
+          <>
             <Button
-              variant="ghost"
-              data-testid={`${testId}-void`}
-              disabled={action.busy}
-              onClick={() => void run(apiRoutes.opsVoidStatement)}
+              variant="primary"
+              data-testid={`${testId}-send`}
+              disabled={action.busy || !stripeConfigured}
+              title={stripeConfigured ? undefined : "Connect Stripe first"}
+              onClick={() => void run(apiRoutes.opsSendStatement)}
             >
-              Void
+              {s.sendStarted ? "Send again" : "Send to Stripe"}
             </Button>
-          ) : null}
-          <span className="text-sm text-ink-muted">
-            {s.editable
-              ? "Stripe emails the invoice with a link to pay. The lines can't change after that."
-              : "Stripe has the invoice. Void it in Stripe if it shouldn't go."}
-          </span>
-        </div>
-      ) : null}
+            {s.editable ? (
+              <Button
+                variant="ghost"
+                data-testid={`${testId}-void`}
+                disabled={action.busy}
+                onClick={() => void run(apiRoutes.opsVoidStatement)}
+              >
+                Void
+              </Button>
+            ) : null}
+            <span className="text-sm text-ink-muted">
+              {s.editable
+                ? "Stripe emails the invoice with a link to pay. The lines can't change after that."
+                : "Stripe has the invoice. Void it in Stripe if it shouldn't go."}
+            </span>
+          </>
+        ) : undefined
+      }
+    >
+      <div className="ui-card__body flex flex-col gap-4">
+        {s.sendError ? (
+          <Notice tone="warning" testId={`${testId}-error`}>
+            The send stopped: {s.sendError}. Send it again to carry on from where it stopped.
+          </Notice>
+        ) : null}
+
+        <StatementLines
+          lines={s.lines}
+          daysInMonth={daysIn(s.period.start)}
+          summary={s}
+          total={s.total}
+          totalLabel="Total"
+          testId={`${testId}-lines`}
+          {...(s.editable
+            ? {
+                action: (line) =>
+                  line.kind === "adjustment" && line.id ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={action.busy}
+                      onClick={async () => {
+                        const res = await action.call(apiRoutes.opsRemoveAdjustment, {
+                          params: { id: s.id, lineId: line.id as string },
+                        });
+                        if (res.ok) onChanged();
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  ) : null,
+              }
+            : {})}
+        />
+
+        {s.editable ? (
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Adjustment" className="min-w-64 flex-1">
+              <TextInput
+                data-testid={`${testId}-adjust-description`}
+                placeholder="What it's for, as the client will read it"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </Field>
+            <Field label="Amount (USD)" hint="Minus for a credit" className="w-40">
+              <TextInput
+                data-testid={`${testId}-adjust-amount`}
+                inputMode="decimal"
+                placeholder="-15.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </Field>
+            <Button
+              disabled={action.busy}
+              data-testid={`${testId}-adjust`}
+              onClick={() => void addAdjustment()}
+            >
+              Add adjustment
+            </Button>
+          </div>
+        ) : null}
+        {problem ? <Notice tone="warning">{problem}</Notice> : null}
+        {action.error ? <ErrorNotice error={action.error} /> : null}
+      </div>
     </Card>
   );
 }

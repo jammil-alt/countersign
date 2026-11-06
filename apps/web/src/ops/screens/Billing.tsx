@@ -2,27 +2,22 @@
 // statements to review (adjust, send, void, or send every draft), each client's month so far with
 // what it cost us (operator only; the portal never sees cost), template prices, and the settings:
 // the default price and credits, the price of an extra credit, auto-send, days until due and the
-// unit costs that turn usage into credits.
-import type { BillingSettings, OpsBilling, UnitCost } from "@countersign/core";
+// unit costs that turn usage into credits. Drafted in the prototype's back-office style (no
+// prototype screen; docs/ui-plan.md): the month's figures as stat tiles, then each part in a card.
+import { type BillingSettings, dec, type OpsBilling, type UnitCost } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { price } from "../../billing/parts";
+import { StatTile } from "../../ui/figures";
 import { Field, TextInput } from "../../ui/forms";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-  SectionLabel,
-} from "../../ui/primitives";
-import { cost, count, periodLabel } from "../../usage/format";
+import { Columns, Loaded, Page, Section } from "../../ui/page";
+import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
+import { cost, count, periodLabel, plural } from "../../usage/format";
 import { Notice, Select, useAction } from "../agents/ui";
 import { OpsStatementCard } from "./BillingStatement";
+import { BusinessTabs, moneyTotal, TableCard } from "./business";
 
 export const SOURCE_LABEL = {
   override: "Own price",
@@ -32,38 +27,78 @@ export const SOURCE_LABEL = {
 } as const;
 
 export function OpsBillingScreen() {
-  const { data, error, loading, reload } = useApi(apiRoutes.opsBilling);
+  const billing = useApi(apiRoutes.opsBilling);
   return (
-    <div>
-      <PageHeader
-        title="Billing"
-        subtitle="We work out each client's bill: a monthly price per agent with credits included, then extra credits. Stripe sends the invoice and takes payment. One credit is one cent of what the work cost us."
+    <Page testId="ops-billing">
+      <div>
+        <PageHeader
+          title="Usage and billing"
+          subtitle="We work out each client's bill: a monthly price per agent with credits included, then extra credits. Stripe sends the invoice and takes payment. One credit is one cent of what the work cost us."
+        />
+        <BusinessTabs />
+      </div>
+      <Loaded state={billing}>
+        {(data) => (
+          <>
+            <StripeStatus data={data} />
+            <BillingFigures data={data} />
+            <ToReview data={data} onChange={billing.reload} />
+            <ClientsTable data={data} />
+            <TemplatePrices data={data} />
+            <SettingsForm data={data} onSaved={billing.reload} />
+          </>
+        )}
+      </Loaded>
+    </Page>
+  );
+}
+
+/** The month so far across clients, and what waits on us. Sums are decimal (invariant 6). */
+function BillingFigures({ data }: { data: OpsBilling }) {
+  const drafts = data.toReview.filter((s) => s.status === "draft").length;
+  const failed = data.toReview.filter((s) => s.status === "payment_failed").length;
+  const setUp = data.clients.filter((c) => c.setUp).length;
+  const ourCost = data.clients.reduce((sum, c) => sum.plus(dec(c.costUsd)), dec("0"));
+  return (
+    <Columns count={4}>
+      <StatTile
+        testId="ops-billing-month-total"
+        label="Billed this month"
+        value={moneyTotal(data.clients.map((c) => c.monthSoFar.total))}
+        note={`So far, across ${plural(data.clients.length, "client")}`}
       />
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data ? (
-        <>
-          <StripeStatus data={data} />
-          <ToReview data={data} onChange={reload} />
-          <ClientsTable data={data} />
-          <TemplatePrices data={data} />
-          <SettingsForm data={data} onSaved={reload} />
-        </>
-      ) : null}
-    </div>
+      <StatTile
+        testId="ops-billing-our-cost"
+        label="Our cost"
+        value={cost(ourCost.toFixed(4))}
+        note="This month's work, as priced"
+      />
+      <StatTile
+        testId="ops-billing-to-review"
+        label="To review"
+        value={count(drafts)}
+        note={drafts > 0 ? "Drafts waiting on you" : "No drafts waiting"}
+        {...(drafts > 0 ? { noteTone: "signal" as const } : {})}
+      />
+      <StatTile
+        testId="ops-billing-failed"
+        label="Payment failed"
+        value={count(failed)}
+        note={`${count(setUp)} of ${plural(data.clients.length, "client")} set up in Stripe`}
+        alert={failed > 0}
+      />
+    </Columns>
   );
 }
 
 function StripeStatus({ data }: { data: OpsBilling }) {
   if (data.stripeConfigured && data.webhookConfigured) return null;
   return (
-    <div className="mb-6">
-      <Notice tone="neutral" testId="ops-billing-stripe-status">
-        {data.stripeConfigured
-          ? "Stripe's webhook secret is not set, so paid and failed invoices won't show here yet."
-          : "Stripe is not connected yet: set STRIPE_SECRET_KEY to set clients up and send statements."}
-      </Notice>
-    </div>
+    <Notice tone="neutral" testId="ops-billing-stripe-status">
+      {data.stripeConfigured
+        ? "Stripe's webhook secret is not set, so paid and failed invoices won't show here yet."
+        : "Stripe is not connected yet: set STRIPE_SECRET_KEY to set clients up and send statements."}
+    </Notice>
   );
 }
 
@@ -87,36 +122,30 @@ function ToReview({ data, onChange }: { data: OpsBilling; onChange: () => void }
   }
 
   return (
-    <section className="mb-8" data-testid="ops-billing-review">
-      <SectionLabel
-        action={
-          drafts.length > 0 ? (
-            <Button
-              size="sm"
-              variant="primary"
-              data-testid="ops-billing-send-all"
-              disabled={action.busy || !data.stripeConfigured}
-              onClick={() => void sendAll()}
-            >
-              {action.busy ? "Sending…" : `Send all drafts (${drafts.length})`}
-            </Button>
-          ) : null
-        }
-      >
-        Statements to review
-      </SectionLabel>
+    <Section
+      testId="ops-billing-review"
+      title="Statements to review"
+      meta={plural(data.toReview.length, "statement")}
+      action={
+        drafts.length > 0 ? (
+          <Button
+            size="sm"
+            variant="primary"
+            data-testid="ops-billing-send-all"
+            disabled={action.busy || !data.stripeConfigured}
+            onClick={() => void sendAll()}
+          >
+            {action.busy ? "Sending…" : `Send all drafts (${drafts.length})`}
+          </Button>
+        ) : null
+      }
+    >
       {result ? (
-        <div className="mb-3">
-          <Notice tone="positive" testId="ops-billing-send-all-result">
-            {result}
-          </Notice>
-        </div>
+        <Notice tone="positive" testId="ops-billing-send-all-result">
+          {result}
+        </Notice>
       ) : null}
-      {action.error ? (
-        <div className="mb-3">
-          <ErrorNotice error={action.error} />
-        </div>
-      ) : null}
+      {action.error ? <ErrorNotice error={action.error} /> : null}
       {data.toReview.length === 0 ? (
         <EmptyState>
           Nothing to review. Each client's statement for a month is built on the 1st of the next.
@@ -134,18 +163,17 @@ function ToReview({ data, onChange }: { data: OpsBilling; onChange: () => void }
           ))}
         </div>
       )}
-    </section>
+    </Section>
   );
 }
 
 function ClientsTable({ data }: { data: OpsBilling }) {
   return (
-    <section className="mb-8">
-      <SectionLabel>This month so far</SectionLabel>
+    <Section>
       {data.clients.length === 0 ? (
         <EmptyState>No clients yet.</EmptyState>
       ) : (
-        <div className="dt dt-ana overflow-x-auto">
+        <TableCard title="This month so far" meta={plural(data.clients.length, "client")}>
           <table data-testid="ops-billing-clients">
             <thead>
               <tr className="dt-cols">
@@ -205,24 +233,29 @@ function ClientsTable({ data }: { data: OpsBilling }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableCard>
       )}
-    </section>
+    </Section>
   );
 }
 
 function TemplatePrices({ data }: { data: OpsBilling }) {
   return (
-    <section className="mb-8">
-      <SectionLabel>Template prices</SectionLabel>
-      <p className="mb-3 text-sm text-ink-muted">
-        A client agent takes its own price if it has one, else its template's, else the default.
-        Change a template's price on its Settings tab; it applies from the next day recorded.
-      </p>
+    <Section>
       {data.templates.length === 0 ? (
         <EmptyState>No templates yet.</EmptyState>
       ) : (
-        <div className="dt dt-ana overflow-x-auto">
+        <TableCard
+          title="Template prices"
+          meta={plural(data.templates.length, "template")}
+          footer={
+            <span className="text-sm text-ink-muted">
+              A client agent takes its own price if it has one, else its template's, else the
+              default. Change a template's price on its Settings tab; it applies from the next day
+              recorded.
+            </span>
+          }
+        >
           <table data-testid="ops-billing-templates">
             <thead>
               <tr className="dt-cols">
@@ -250,9 +283,9 @@ function TemplatePrices({ data }: { data: OpsBilling }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableCard>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -362,8 +395,7 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
   }
 
   return (
-    <section data-testid="ops-billing-settings">
-      <SectionLabel>Settings</SectionLabel>
+    <Section testId="ops-billing-settings" title="Settings">
       <Card className="flex flex-col gap-6 p-5">
         <p className="text-sm text-ink-muted">
           These are placeholders until prices are set. Prices apply from the next day recorded; a
@@ -519,7 +551,7 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
           ) : null}
         </div>
       </Card>
-    </section>
+    </Section>
   );
 }
 

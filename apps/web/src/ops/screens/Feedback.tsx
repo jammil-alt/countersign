@@ -1,22 +1,16 @@
 // `/ops/feedback`: everything sent with the Feedback button, from the back office and the clients
 // this operator serves, newest first, open by default. Each item: who, which client, the page, what
 // was pinned, the comment, the picture with the pin; Resolve (with an optional note, e.g. a PR
-// link) and Reopen.
+// link) and Reopen. Drafted in the prototype's back-office style (no prototype screen;
+// docs/ui-plan.md): each item a card with who and where in its head, the actions in its foot.
 import type { FeedbackItem } from "@countersign/core";
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { PinnedPicture } from "../../feedback/Feedback";
 import { TextInput } from "../../ui/forms";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-} from "../../ui/primitives";
+import { Loaded, Page } from "../../ui/page";
+import { Badge, Button, Card, EmptyState, PageHeader } from "../../ui/primitives";
 
 type Filter = "open" | "resolved" | "all";
 const FILTERS: [Filter, string][] = [
@@ -36,22 +30,20 @@ function when(iso: string): string {
 
 export function OpsFeedbackScreen() {
   const [filter, setFilter] = useState<Filter>("open");
-  const { data, error, loading, reload } = useApi(apiRoutes.opsFeedback, {
-    query: { status: filter },
-  });
-  const items = data?.items ?? [];
+  const feedback = useApi(apiRoutes.opsFeedback, { query: { status: filter } });
+  const items = feedback.data?.items ?? [];
   const open = items.filter((i) => i.status === "open").length;
 
   return (
-    <div>
+    <Page testId="ops-feedback">
       <PageHeader
         title="Feedback"
         subtitle={
-          data
+          feedback.data
             ? filter === "resolved"
-              ? `${items.length} resolved`
-              : `${open} open${filter === "all" ? ` of ${items.length}` : ""}`
-            : undefined
+              ? `${items.length} resolved. What people sent with the Feedback button.`
+              : `${open} open${filter === "all" ? ` of ${items.length}` : ""}. What people sent with the Feedback button.`
+            : "What people sent with the Feedback button."
         }
         actions={
           <div className="ds-seg" data-testid="ops-feedback-filter">
@@ -69,19 +61,22 @@ export function OpsFeedbackScreen() {
           </div>
         }
       />
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && items.length === 0 ? (
-        <EmptyState>
-          {filter === "open" ? "Nothing open. New feedback shows here." : "No feedback here."}
-        </EmptyState>
-      ) : null}
-      <div data-testid="ops-feedback-list" className="flex flex-col gap-4">
-        {items.map((item) => (
-          <FeedbackCard key={item.id} item={item} onChanged={reload} />
-        ))}
-      </div>
-    </div>
+      <Loaded state={feedback}>
+        {(data) =>
+          data.items.length === 0 ? (
+            <EmptyState>
+              {filter === "open" ? "Nothing open. New feedback shows here." : "No feedback here."}
+            </EmptyState>
+          ) : (
+            <div data-testid="ops-feedback-list" className="flex flex-col gap-4">
+              {data.items.map((item) => (
+                <FeedbackCard key={item.id} item={item} onChanged={feedback.reload} />
+              ))}
+            </div>
+          )
+        }
+      </Loaded>
+    </Page>
   );
 }
 
@@ -119,10 +114,11 @@ function FeedbackCard({ item, onChanged }: { item: FeedbackItem; onChanged: () =
   }
 
   return (
-    <Card testId={`ops-feedback-item-${item.id}`} className="p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-medium text-ink">
+    <Card
+      testId={`ops-feedback-item-${item.id}`}
+      title={
+        <span className="flex min-w-0 flex-col">
+          <span>
             {who}
             <span className="font-normal text-ink-muted">
               {" · "}
@@ -132,12 +128,17 @@ function FeedbackCard({ item, onChanged }: { item: FeedbackItem; onChanged: () =
               {" · "}
               {when(item.createdAt)}
             </span>
-          </p>
-          <p className="reference truncate text-sm text-ink-muted" data-testid="ops-feedback-path">
+          </span>
+          <span
+            className="reference truncate text-sm font-normal text-ink-muted"
+            data-testid="ops-feedback-path"
+          >
             {item.path}
-          </p>
-        </div>
-        {item.status === "open" ? (
+          </span>
+        </span>
+      }
+      meta={
+        item.status === "open" ? (
           <Badge tone="warning" testId="ops-feedback-status">
             Open
           </Badge>
@@ -145,10 +146,53 @@ function FeedbackCard({ item, onChanged }: { item: FeedbackItem; onChanged: () =
           <Badge tone="positive" testId="ops-feedback-status">
             Resolved
           </Badge>
-        )}
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+        )
+      }
+      footer={
+        <>
+          {item.status === "open" && !resolving ? (
+            <Button data-testid="ops-feedback-resolve" onClick={() => setResolving(true)}>
+              Resolve
+            </Button>
+          ) : null}
+          {item.status === "open" && resolving ? (
+            <>
+              <TextInput
+                data-testid="ops-feedback-note"
+                aria-label="Note (optional)"
+                placeholder="Note, such as a PR link (optional)"
+                value={note}
+                maxLength={2000}
+                onChange={(e) => setNote(e.target.value)}
+                className="w-80 max-w-full"
+              />
+              <Button
+                variant="primary"
+                data-testid="ops-feedback-resolve-confirm"
+                disabled={busy}
+                onClick={() => void act("resolve")}
+              >
+                Resolve
+              </Button>
+              <Button variant="ghost" onClick={() => setResolving(false)}>
+                Cancel
+              </Button>
+            </>
+          ) : null}
+          {item.status === "resolved" ? (
+            <Button
+              data-testid="ops-feedback-reopen"
+              disabled={busy}
+              onClick={() => void act("reopen")}
+            >
+              Reopen
+            </Button>
+          ) : null}
+          {error ? <span className="ds-error text-sm">{error}</span> : null}
+        </>
+      }
+    >
+      <div className="ui-card__body grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
         <div className="min-w-0">
           <p data-testid="ops-feedback-comment" className="whitespace-pre-wrap text-ink">
             {item.comment}
@@ -182,48 +226,6 @@ function FeedbackCard({ item, onChanged }: { item: FeedbackItem; onChanged: () =
             No picture
           </p>
         )}
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
-        {item.status === "open" && !resolving ? (
-          <Button data-testid="ops-feedback-resolve" onClick={() => setResolving(true)}>
-            Resolve
-          </Button>
-        ) : null}
-        {item.status === "open" && resolving ? (
-          <>
-            <TextInput
-              data-testid="ops-feedback-note"
-              aria-label="Note (optional)"
-              placeholder="Note, such as a PR link (optional)"
-              value={note}
-              maxLength={2000}
-              onChange={(e) => setNote(e.target.value)}
-              className="w-80 max-w-full"
-            />
-            <Button
-              variant="primary"
-              data-testid="ops-feedback-resolve-confirm"
-              disabled={busy}
-              onClick={() => void act("resolve")}
-            >
-              Resolve
-            </Button>
-            <Button variant="ghost" onClick={() => setResolving(false)}>
-              Cancel
-            </Button>
-          </>
-        ) : null}
-        {item.status === "resolved" ? (
-          <Button
-            data-testid="ops-feedback-reopen"
-            disabled={busy}
-            onClick={() => void act("reopen")}
-          >
-            Reopen
-          </Button>
-        ) : null}
-        {error ? <span className="ds-error text-sm">{error}</span> : null}
       </div>
     </Card>
   );
