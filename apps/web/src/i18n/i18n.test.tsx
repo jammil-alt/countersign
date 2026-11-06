@@ -13,6 +13,7 @@ import {
   CLIENT_SESSION,
   fakeApi,
   OPERATOR_SESSION,
+  opsClientSettings,
   Reply,
   SANDBOX_DETAIL,
   tableService,
@@ -328,12 +329,14 @@ describe("before a session and in the back office", () => {
         enabled: false,
         changes: [],
       }),
+      [`GET /api/ops/clients/${SANDBOX_DETAIL.client.id}/settings`]: () =>
+        opsClientSettings(SANDBOX_DETAIL.client.id),
       [`PUT /api/ops/clients/${SANDBOX_DETAIL.client.id}/language`]: ({ init }) => {
         bodies.push(JSON.parse(String(init.body)));
         return { client: "es" };
       },
     });
-    renderAt(`/ops/clients/${SANDBOX_DETAIL.client.id}`, api);
+    renderAt(`/ops/clients/${SANDBOX_DETAIL.client.id}/settings`, api);
     const select = await screen.findByTestId("ops-client-language-select");
     expect(select).toHaveValue("");
     await userEvent.selectOptions(select, "es");

@@ -2,6 +2,8 @@
 // name and timezone, who approves changes to its tools (with the log of who changed it and why),
 // the tools it is offered (changed on Connections), its people and invites, and the email choices
 // its admin made in the portal; then compliance (HIPAA mode, vendors) and retiring the client.
+// On the client page's Settings tab, with the client's language, approver rules, the portal's
+// Feedback switch, which used to sit on the client's first page.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
@@ -10,17 +12,12 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { InviteForm, inviteMessage, MemberList } from "../../people/People";
 import { Field, TextInput } from "../../ui/forms";
-import {
-  Badge,
-  Button,
-  Card,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-  SectionLabel,
-  Tag,
-} from "../../ui/primitives";
+import { Badge, Button, Card, ErrorNotice, Loading, SectionLabel, Tag } from "../../ui/primitives";
+import { ClientFrame, useClientPage } from "../client/ClientFrame";
+import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientComplianceSetting } from "./ClientComplianceSetting";
+import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
+import { ClientLanguageSetting } from "./ClientLanguageSetting";
 import { ApproverChoice, type CreatedState } from "./NewClient";
 
 const APPROVER_LABEL: Record<ExternalApprover, string> = {
@@ -30,6 +27,15 @@ const APPROVER_LABEL: Record<ExternalApprover, string> = {
 
 export function ClientSettingsScreen() {
   const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <Settings clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+function Settings({ clientId }: { clientId: string }) {
+  const client = useClientPage();
   const location = useLocation();
   const created = (location.state as CreatedState | null)?.created ?? null;
   const api = useApiClient();
@@ -53,16 +59,16 @@ export function ClientSettingsScreen() {
       body,
     });
     setCurrent(next);
+    client.reload();
   };
   const people = current.members.filter((m) => m.role !== "operator");
   const team = current.members.filter((m) => m.role === "operator");
 
   return (
     <div className="max-w-4xl">
-      <PageHeader
-        title="Settings"
-        subtitle={`${current.client.name} · ${people.length} ${people.length === 1 ? "person" : "people"} · approvals by ${APPROVER_LABEL[current.approvals.externalActions]}`}
-      />
+      <p className="mb-6 text-ink-muted" data-testid="ops-client-settings-line">
+        {`${people.length} ${people.length === 1 ? "person" : "people"} · approvals by ${APPROVER_LABEL[current.approvals.externalActions]}`}
+      </p>
       {created ? (
         <Card className="mb-8 p-5" testId="ops-client-created">
           <div className="flex flex-wrap items-center gap-3">
@@ -79,6 +85,14 @@ export function ClientSettingsScreen() {
 
       <Details settings={current} onSave={save} />
       <Approvals settings={current} onSave={save} />
+      <ClientApproverRules clientId={clientId} />
+      {client.data ? (
+        <ClientLanguageSetting
+          clientId={clientId}
+          settings={client.data.client.settings}
+          onSaved={client.reload}
+        />
+      ) : null}
 
       <section className="mt-8" data-testid="ops-client-settings-offered">
         <SectionLabel
@@ -155,6 +169,7 @@ export function ClientSettingsScreen() {
         </Card>
       </section>
 
+      <ClientFeedbackSetting clientId={clientId} />
       <ClientComplianceSetting clientId={clientId} clientName={current.client.name} />
     </div>
   );

@@ -201,6 +201,16 @@ export const AGENT_DETAIL = {
   update: null,
 };
 
+/** A client's settings as its Settings tab reads them (`GET /api/ops/clients/:id/settings`). */
+export function opsClientSettings(id: string, name = "Sandbox") {
+  return {
+    client: { id, name, timezone: "UTC", sandbox: true },
+    approvals: { externalActions: "client_admin", changes: [] },
+    notifications: { itemsWaiting: true, weeklyDigest: false },
+    members: [],
+  };
+}
+
 export const SANDBOX_DETAIL = {
   client: {
     id: "00000000-0000-4000-8000-00000000a001",
