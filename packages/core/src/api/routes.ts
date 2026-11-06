@@ -15,6 +15,8 @@ import { automationRoutes, BuilderAutomation } from "./automations";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
+// v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+import { clientViewRoutes } from "./client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
@@ -1842,6 +1844,8 @@ export const routes = {
   ...automationRoutes,
   // v0.12 W1-C
   ...threadRoutes,
+  // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+  ...clientViewRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   ...testbenchRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions

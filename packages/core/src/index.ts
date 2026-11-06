@@ -11,6 +11,8 @@ export * from "./api/automations";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
+// v0.12 W2-G: KPIs and the client view, credits, the client's audit export
+export * from "./api/client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 export * from "./api/command-center";
 export * from "./api/compliance";
@@ -96,6 +98,11 @@ export * from "./i18n/timeline";
 export * from "./i18n/weekly";
 export * from "./ids";
 export * from "./json";
+// v0.12 W2-G: agent KPIs
+export * from "./kpi/format";
+export * from "./kpi/period";
+export * from "./kpi/schema";
+export * from "./kpi/validate";
 export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
 export * from "./mappers/qbo";
