@@ -1,6 +1,6 @@
 # UI plan: the owner's prototype, page by page
 
-Status: **UI-0 to UI-3 built and on staging** (2026-11-06); UI-4 (end-to-end) in progress. See [Status](#status) at the end. Source: [`docs/design/prototype.html`](design/prototype.html), the owner's clickable prototype (open it in a browser; hash routing, `#Start` lists every screen). It is built on the Mezonas design system's tokens (`packages/design-system/tokens.css`), with sample data for Harbor Millwork.
+Status: **UI-0 to UI-4 built and on staging** (2026-11-06). See [Status](#status) at the end. Source: [`docs/design/prototype.html`](design/prototype.html), the owner's clickable prototype (open it in a browser; hash routing, `#Start` lists every screen). It is built on the Mezonas design system's tokens (`packages/design-system/tokens.css`), with sample data for Harbor Millwork.
 
 The API for almost everything here exists already (built "API first", `docs/plan.md` §8). This plan turns it into screens. It replaces the rule "UI only where a screen would break" (plan §8.1) for the pages listed below.
 
@@ -142,6 +142,8 @@ UI-0 to UI-3 are merged to `main` (staging). No migrations; one small contract c
 | UI-3 | a | #167 | records and receivables, upload, documents, reports, requests, knowledge, conversations, team, exports, connect flows, sign-in |
 | UI-3 | b | #168 | back-office client page (ten tabs), clients list, new client |
 | UI-3 | c | #166 | usage and billing, feedback, audit log, website logins, requests |
+| UI-4 | End to end | #171, #173, #174 | the two walkthroughs on seeded data in light and dark, desktop and phone, read-only except signing and undoing the e2e Desk item (seeded only with `SEED_E2E=1`, never on staging); run by CI's `sweep` job |
+| Follow-ups | | #170, #172 | this status; 10 s first-load waits in tests, long words wrap in the Builder chat |
 
 ### Decisions taken (owner to adjust)
 
