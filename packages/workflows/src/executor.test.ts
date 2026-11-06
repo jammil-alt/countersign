@@ -337,6 +337,21 @@ describe("skill and action steps", () => {
     );
     expect(result.status).toBe("succeeded");
     expect(tries).toBe(3);
+    // v0.14 W4-B: the step's one row counts every try.
+    expect(h.rows.size).toBe(1);
+    expect(h.row("s")?.attempt).toBe(3);
+  });
+
+  it("counts one attempt for a step that works the first time", async () => {
+    const h = new Harness();
+    h.handlers.s = () => ({ kind: "done", output: {} });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ stepConfig: { retries: { limit: 2, delay: "1 second" } } }),
+      wf([{ id: "s", kind: "skill", name: "S", skill: "x.y" }]),
+      {},
+    );
+    expect(h.row("s")?.attempt ?? 1).toBe(1);
   });
 });
 

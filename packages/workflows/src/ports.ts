@@ -240,6 +240,12 @@ export interface StepRunStart {
    * this and whose `input` becomes the attempt's (ARCHITECTURE §5.6). Absent: the first attempt.
    */
   attempt?: number;
+  // v0.14 W4-B
+  /**
+   * The platform retried the step's work (a durable step's try after the first): the step's row
+   * counts one more attempt. Absent: the first try, or a call that only finds the row.
+   */
+  retried?: boolean;
 }
 
 export interface StepRunUpdate {
