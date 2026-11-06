@@ -87,6 +87,55 @@ export const PRICES: Readonly<Record<ModelId, ModelPrice>> = {
       },
     },
   },
+  // DECISION: xAI's list prices for Grok 4.7 as reported in 2026-11 ($2 in, $0.50 cached in, $6
+  // out; prompts of 200k tokens or more at double every rate), from third-party summaries: xAI's
+  // own page could not be read when this was written. Check before production, as every price
+  // here. xAI does not charge for cache writes, so they cost what fresh input does.
+  [MODELS.grok]: {
+    inputPerMtok: "2.00",
+    outputPerMtok: "6.00",
+    cacheWrite5mPerMtok: "2.00",
+    cacheWrite1hPerMtok: "2.00",
+    cacheReadPerMtok: "0.50",
+    longContext: {
+      aboveInputTokens: 200_000,
+      price: {
+        inputPerMtok: "4.00",
+        outputPerMtok: "12.00",
+        cacheWrite5mPerMtok: "4.00",
+        cacheWrite1hPerMtok: "4.00",
+        cacheReadPerMtok: "1.00",
+      },
+    },
+  },
+  // DECISION: Google's paid-tier prices as reported in 2026-11, unverified like the rest (Google's
+  // page could not be read when this was written). Gemini 3.1 Pro: $2 in, $12 out; prompts over
+  // 200k tokens $4 in, $18 out. Gemini 3.5 Flash: $1.50 in, $9 out. Cached input is a tenth of
+  // fresh input; implicit caching charges nothing to write, so writes cost what fresh input does.
+  [MODELS.gemini]: {
+    inputPerMtok: "2.00",
+    outputPerMtok: "12.00",
+    cacheWrite5mPerMtok: "2.00",
+    cacheWrite1hPerMtok: "2.00",
+    cacheReadPerMtok: "0.20",
+    longContext: {
+      aboveInputTokens: 200_000,
+      price: {
+        inputPerMtok: "4.00",
+        outputPerMtok: "18.00",
+        cacheWrite5mPerMtok: "4.00",
+        cacheWrite1hPerMtok: "4.00",
+        cacheReadPerMtok: "0.40",
+      },
+    },
+  },
+  [MODELS.geminiFlash]: {
+    inputPerMtok: "1.50",
+    outputPerMtok: "9.00",
+    cacheWrite5mPerMtok: "1.50",
+    cacheWrite1hPerMtok: "1.50",
+    cacheReadPerMtok: "0.15",
+  },
 };
 
 /**
@@ -151,6 +200,9 @@ export const MODEL_LABELS: Readonly<Record<ModelId, string>> = {
   [MODELS.sonnet]: "Standard (Sonnet)",
   [MODELS.opus]: "Strong (Opus)",
   [MODELS.gpt]: "OpenAI (GPT)",
+  [MODELS.grok]: "xAI (Grok)",
+  [MODELS.gemini]: "Google (Gemini Pro)",
+  [MODELS.geminiFlash]: "Google (Gemini Flash)",
 };
 
 export interface KnownModel {

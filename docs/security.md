@@ -176,6 +176,8 @@ in `docs/hipaa-plan.md`.
 | WorkOS | Users' names, emails and sign-ins | `workos` |
 | Anthropic | What agents read and write, and documents to extract | `anthropic` |
 | OpenAI | The same, for agents set to `openai:` models | `openai` |
+| xAI | The same, for agents set to `xai:` (Grok) models | `xai` |
+| Google | The same, for agents set to `gemini:` models (Gemini API) | `google` |
 | Twilio | Texts and calls of clients that use them | `twilio` |
 | Meta (WhatsApp) | WhatsApp messages | `meta_whatsapp` |
 | ElevenLabs | Live calls and their transcripts | `elevenlabs` |

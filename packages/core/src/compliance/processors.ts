@@ -18,6 +18,8 @@ export const PROCESSORS = [
   // Models.
   "anthropic",
   "openai",
+  "xai",
+  "google",
   // Messaging and calls on Mezonas' accounts.
   "twilio",
   "meta_whatsapp",
@@ -37,6 +39,8 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   workos: "WorkOS",
   anthropic: "Anthropic",
   openai: "OpenAI",
+  xai: "xAI",
+  google: "Google (Gemini)",
   twilio: "Twilio",
   meta_whatsapp: "WhatsApp (Meta)",
   elevenlabs: "ElevenLabs",
@@ -55,9 +59,15 @@ export function parseCoveredProcessors(raw: string | null | undefined): Readonly
   );
 }
 
-/** A model id's provider: `openai:` ids go to OpenAI, everything else to Anthropic. */
+/**
+ * A model id's provider: `openai:` ids go to OpenAI, `xai:` to xAI, `gemini:` to Google, everything
+ * else to Anthropic (packages/llm's `providerOf`, which core can't import).
+ */
 export function processorForModel(modelId: string): Processor {
-  return modelId.startsWith("openai:") ? "openai" : "anthropic";
+  if (modelId.startsWith("openai:")) return "openai";
+  if (modelId.startsWith("xai:")) return "xai";
+  if (modelId.startsWith("gemini:")) return "google";
+  return "anthropic";
 }
 
 // DECISION: connectors are named here by id rather than each manifest declaring its processors:

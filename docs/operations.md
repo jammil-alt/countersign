@@ -442,8 +442,8 @@ verified (NOTES.md).
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
-- `WORKOS_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`: copied from the GitHub **environment** (`staging` or
-  `production`) on every deploy, so rotating a key is "update the GitHub secret, redeploy".
+- `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `GEMINI_API_KEY`: copied
+  from the GitHub **environment** (`staging` or `production`) on every deploy, so rotating a key is "update the GitHub secret, redeploy".
 - `ENCRYPTION_KEY` (32 random bytes, base64) and `WORKOS_COOKIE_PASSWORD`: generated once inside the job
   when the Worker doesn't have them yet, and never shown or stored anywhere else. If the job can't read
   the Worker's existing secrets it stops instead of generating, so `ENCRYPTION_KEY` is never replaced by
@@ -583,7 +583,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 |---|---|---|
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
-| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
+| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY` (one per environment; a repository secret also works) |
 | Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
@@ -775,7 +775,7 @@ Settings page in the back office (with a reason). It can only be switched on onc
 would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
-`openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
+`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
 HIPAA client. `anthropic` is needed for agents and document reading.
 
 **Retiring a client.** On the client's Settings page, Retire client (a reason, and the client's

@@ -7,6 +7,12 @@ export const MODELS = {
   opus: "claude-opus-5-5",
   /** OpenAI's flagship. The `openai:` prefix routes the call to OpenAI (./route.ts). */
   gpt: "openai:gpt-5.5",
+  /** xAI's flagship. The `xai:` prefix routes the call to xAI (./xai.ts). */
+  grok: "xai:grok-4.7",
+  /** Google's flagship. The `gemini:` prefix routes the call to Google (./gemini.ts). */
+  gemini: "gemini:gemini-3.1-pro",
+  /** Google's fast model. */
+  geminiFlash: "gemini:gemini-3.5-flash",
 } as const;
 
 export type ModelId = string;

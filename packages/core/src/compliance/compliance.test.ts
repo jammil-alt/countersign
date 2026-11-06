@@ -56,6 +56,8 @@ describe("processors", () => {
   it("names each feature's processors", () => {
     expect(processorForModel("claude-sonnet-5-5")).toBe("anthropic");
     expect(processorForModel("openai:gpt-5.5")).toBe("openai");
+    expect(processorForModel("xai:grok-4.7")).toBe("xai");
+    expect(processorForModel("gemini:gemini-3.1-pro")).toBe("google");
     expect(processorsForTool("sms.send", "twilio")).toEqual(["twilio"]);
     expect(processorsForTool("whatsapp.send", "twilio").sort()).toEqual([
       "meta_whatsapp",
@@ -103,6 +105,8 @@ describe("processors", () => {
       "workos",
       "anthropic",
       "openai",
+      "xai",
+      "google",
       "twilio",
       "meta_whatsapp",
       "elevenlabs",

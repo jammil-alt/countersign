@@ -7,6 +7,7 @@
 // Plain fetch, no SDK: the Worker stays light and a test can pass its own fetch.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { apiRoot, errorDetail, type HttpTransportOptions, postJson } from "./http";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
 
 /** Model ids that start with this go to OpenAI: `openai:gpt-5.5`. */
@@ -272,12 +273,25 @@ const EFFORT: Record<string, "low" | "medium" | "high"> = {
   max: "high",
 };
 
-export function toOpenAIRequest(request: LlmRequest): OAResponsesRequest {
+/** How a Responses-API provider differs from OpenAI's own (xAI's Grok, ./xai.ts). */
+export interface ResponsesDialect {
+  /** The id the provider knows the model by (the platform id without its prefix). */
+  readonly modelName: (model: string) => string;
+  /** Whether the provider's models accept `reasoning.effort`. */
+  readonly reasoningEffort: boolean;
+}
+
+const OPENAI_DIALECT: ResponsesDialect = { modelName: openAIModelName, reasoningEffort: true };
+
+export function toOpenAIRequest(
+  request: LlmRequest,
+  dialect: ResponsesDialect = OPENAI_DIALECT,
+): OAResponsesRequest {
   const instructions = systemText(request.system);
-  const effort = request.output_config?.effort;
+  const effort = dialect.reasoningEffort ? request.output_config?.effort : undefined;
   const format = request.output_config?.format;
   return {
-    model: openAIModelName(request.model),
+    model: dialect.modelName(request.model),
     ...(instructions ? { instructions } : {}),
     input: toOpenAIInput(request.messages),
     ...(request.tools?.length ? { tools: request.tools.map(toOpenAITool) } : {}),
@@ -313,10 +327,14 @@ function parseArguments(args: string | undefined): unknown {
  * The answer as an Anthropic message. `model` is the platform id that was asked for (with its
  * prefix), so pricing and logs name the model the way definitions do.
  */
-export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): LlmMessage {
+export function fromOpenAIResponse(
+  response: OAResponse,
+  request: LlmRequest,
+  vendor = "OpenAI",
+): LlmMessage {
   if (response.status === "failed" || response.status === "cancelled") {
     throw new OpenAIError(
-      `OpenAI response ${response.status}: ${response.error?.message ?? "no detail"}`,
+      `${vendor} response ${response.status}: ${response.error?.message ?? "no detail"}`,
       null,
       response.error?.code ?? null,
     );
@@ -386,74 +404,43 @@ export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): L
 // ---------------------------------------------------------------------------------------------
 // The transport.
 
-export interface OpenAITransportOptions {
-  readonly apiKey: string;
-  /** Injected so a Worker, a test or a proxy decides how requests leave. Defaults to global fetch. */
-  readonly fetch?: typeof fetch;
-  /** Defaults to https://api.openai.com/v1. */
-  readonly baseURL?: string;
-  /** Per attempt. Defaults to 10 minutes: agent calls with reasoning can run long. */
-  readonly timeoutMs?: number;
-  /** Retries after a rate limit, overload, server error or dropped connection. Defaults to 2. */
-  readonly maxRetries?: number;
-  /** Waits between retries; tests pass one that doesn't. */
-  readonly sleep?: (ms: number) => Promise<void>;
+export type OpenAITransportOptions = HttpTransportOptions;
+
+/** A Responses-API provider: its name in errors, its API root and its dialect. */
+export interface ResponsesProvider {
+  readonly vendor: string;
+  readonly defaultBaseURL: string;
+  readonly dialect: ResponsesDialect;
 }
 
-const RETRY_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
-
-function retryDelayMs(attempt: number, retryAfter: string | null): number {
-  const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 60_000);
-  return Math.min(500 * 2 ** attempt, 8_000);
+/** The Responses API over plain fetch, for OpenAI and for providers that speak it (xAI). */
+export function responsesTransport(
+  provider: ResponsesProvider,
+  options: HttpTransportOptions,
+): LlmTransport {
+  const url = `${apiRoot(options.baseURL ?? provider.defaultBaseURL)}/responses`;
+  return {
+    async create(request, opts) {
+      const body = JSON.stringify(toOpenAIRequest(request, provider.dialect));
+      const res = await postJson(
+        options,
+        url,
+        { authorization: `Bearer ${options.apiKey}` },
+        body,
+        opts?.signal,
+      );
+      if (res.ok) {
+        return fromOpenAIResponse((await res.json()) as OAResponse, request, provider.vendor);
+      }
+      const { message, code } = await errorDetail(res);
+      throw new OpenAIError(`${provider.vendor} ${res.status}: ${message}`, res.status, code);
+    },
+  };
 }
 
 export function openaiTransport(options: OpenAITransportOptions): LlmTransport {
-  const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  const url = `${(options.baseURL ?? "https://api.openai.com/v1").replace(/\/+$/, "")}/responses`;
-  const timeoutMs = options.timeoutMs ?? 600_000;
-  const maxRetries = options.maxRetries ?? 2;
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-
-  return {
-    async create(request, opts) {
-      const body = JSON.stringify(toOpenAIRequest(request));
-      for (let attempt = 0; ; attempt += 1) {
-        const signals = [AbortSignal.timeout(timeoutMs)];
-        if (opts?.signal) signals.push(opts.signal);
-        let res: Response;
-        try {
-          res = await doFetch(url, {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${options.apiKey}`,
-              "content-type": "application/json",
-            },
-            body,
-            signal: AbortSignal.any(signals),
-          });
-        } catch (error) {
-          if (opts?.signal?.aborted || attempt >= maxRetries) throw error;
-          await sleep(retryDelayMs(attempt, null));
-          continue;
-        }
-        if (res.ok) return fromOpenAIResponse((await res.json()) as OAResponse, request);
-        if (RETRY_STATUS.has(res.status) && attempt < maxRetries) {
-          await sleep(retryDelayMs(attempt, res.headers.get("retry-after")));
-          continue;
-        }
-        const text = await res.text();
-        let message = text.slice(0, 500);
-        let code: string | null = null;
-        try {
-          const parsed = JSON.parse(text) as { error?: { message?: string; code?: string } };
-          message = parsed.error?.message ?? message;
-          code = parsed.error?.code ?? null;
-        } catch {
-          // Not JSON; keep the start of the body.
-        }
-        throw new OpenAIError(`OpenAI ${res.status}: ${message}`, res.status, code);
-      }
-    },
-  };
+  return responsesTransport(
+    { vendor: "OpenAI", defaultBaseURL: "https://api.openai.com/v1", dialect: OPENAI_DIALECT },
+    options,
+  );
 }

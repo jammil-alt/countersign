@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Model client for Anthropic and OpenAI, cost tracking, record/replay, prompt utilities",
+  "description": "Model client for Anthropic, OpenAI, xAI and Gemini, cost tracking, record/replay, prompt utilities",
   "exports": {
     ".": "./src/index.ts",
     "./node": "./src/node.ts"

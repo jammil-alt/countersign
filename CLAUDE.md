@@ -42,7 +42,7 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | `packages/design-system` | The Mezonas design system as delivered: `tokens.json` (source of truth) and `tokens.css`, component CSS (`ds-*`, `dt-*`, `mz-*`), logos, icons, Geist fonts, brand book. Plain CSS; don't edit it here, replace it with the owner's next delivery. |
 | `packages/core` | Domain types and Zod schemas (agent bundle, skill, workflow steps and rules, tool, connector, pack), workflow validation and template typing, bundle diff and three-way merge (shared with the builder and merge view), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
-| `packages/llm` | Model client: Anthropic, and OpenAI for `openai:` model ids (one request shape, translated); record/replay, cost tracking. |
+| `packages/llm` | Model client: Anthropic, and OpenAI, xAI (Grok) and Google (Gemini) for `openai:`, `xai:` and `gemini:` model ids (one request shape, translated); record/replay, cost tracking. |
 | `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
 | `packages/senses` | Event outbox (`emit`, `undispatched`, `markDispatched`); `apps/api` dispatches. |
 | `packages/connectors` | Connector framework (manifest with tools), `qbo/`, `upload/` (with email forwarding), `gmail/` (after the MVP), object storage. |

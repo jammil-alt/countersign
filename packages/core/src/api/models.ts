@@ -6,7 +6,7 @@ import { defineRoute } from "./contract";
 
 export const ModelOption = z.object({
   id: z.string(),
-  /** The builder's label: Fast (Haiku), Standard (Sonnet), Strong (Opus), OpenAI. */
+  /** The builder's label: Fast (Haiku), Standard (Sonnet), Strong (Opus), OpenAI, xAI, Google. */
   label: z.string(),
   /** USD per million tokens, as decimal strings. */
   inputPerMtok: z.string(),

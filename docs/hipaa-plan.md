@@ -61,6 +61,8 @@ Two directions:
 | Anthropic (API) | Agents and document reading | Not started | `anthropic` |
 | Anthropic (claude.ai) | The Ops MCP connector (T1) | Not started | after T1 |
 | OpenAI | Only agents set to `openai:` models | Not needed yet | `openai` |
+| xAI | Only agents set to `xai:` (Grok) models | Not needed yet | `xai` |
+| Google (Gemini API) | Only agents set to `gemini:` models | Not needed yet | `google` |
 | Twilio | Texts and calls | Not started | `twilio` |
 | ElevenLabs | Live calls | Not started | `elevenlabs` |
 | Resend | Our sending email | Not started | `resend` |
