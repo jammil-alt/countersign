@@ -1,5 +1,5 @@
-// Templates (ARCHITECTURE §9.3, §15): `/ops/templates` lists them, `/ops/templates/new` makes one
-// from scratch or from a description (the Builder), and
+// Templates (ARCHITECTURE §9.3, §15): the Agent lab (`/ops/lab`, ../lab) lists them,
+// `/ops/templates/new` makes one from scratch or from a description (the Builder), and
 // `/ops/templates/:slug` is the agent screen shared with client agents.
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -7,18 +7,14 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import {
-  AgentAvatar,
-  Badge,
   Button,
   buttonClass,
   Card,
-  EmptyState,
   ErrorNotice,
   Loading,
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
-import { summaryBadge } from "../versions";
 import { AgentScreen } from "./AgentScreen";
 import { BuilderDescribe, BuilderDraftResult } from "./BuilderParts";
 import {
@@ -38,96 +34,6 @@ import {
   WorkflowPreview,
 } from "./NewAgentParts";
 import { errorText, Field, isCode, Notice, notifyAgentsChanged, TextInput, useAction } from "./ui";
-
-export function TemplatesScreen() {
-  const [showDiscarded, setShowDiscarded] = useState(false);
-  const { data, error, loading, reload } = useApi(
-    apiRoutes.opsTemplates,
-    showDiscarded ? { query: { include: "discarded" } } : {},
-  );
-  return (
-    <div>
-      <PageHeader
-        title="Templates"
-        subtitle="Reusable agents. Fork one into a client to make that client's own agent."
-        actions={
-          <Link
-            to="/ops/templates/new"
-            className={buttonClass("primary")}
-            data-testid="templates-new"
-          >
-            New template
-          </Link>
-        }
-      />
-      <SectionLabel
-        action={
-          <label className="flex items-center gap-2 text-sm text-ink-muted">
-            <input
-              type="checkbox"
-              className="size-4 accent-slate"
-              data-testid="templates-show-discarded"
-              checked={showDiscarded}
-              onChange={(e) => setShowDiscarded(e.target.checked)}
-            />
-            Show discarded drafts
-          </label>
-        }
-      >
-        Templates
-      </SectionLabel>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && data.templates.length === 0 ? <EmptyState>No templates yet.</EmptyState> : null}
-      {data && data.templates.length > 0 ? (
-        <div className="dt dt-ana">
-          <table data-testid="templates-table">
-            <thead>
-              <tr className="dt-cols">
-                <th>Template</th>
-                <th>Area</th>
-                <th>Status</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.templates.map((t) => {
-                const badge =
-                  t.status === "disabled"
-                    ? { tone: "neutral" as const, label: "Discarded" }
-                    : summaryBadge(t);
-                return (
-                  <tr key={t.id}>
-                    <td>
-                      <Link
-                        to={`/ops/templates/${t.slug}`}
-                        data-testid={`templates-row-${t.slug}`}
-                        className="flex items-center gap-3"
-                      >
-                        <AgentAvatar name={t.name} seed={t.slug} size="md" />
-                        <span>
-                          <span className="block font-medium text-ink hover:underline">
-                            {t.name}
-                          </span>
-                          <span className="block reference text-ink-muted">{t.slug}</span>
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="text-ink">{t.role ?? "—"}</td>
-                    <td>
-                      <Badge tone={badge.tone}>{badge.label}</Badge>
-                    </td>
-                    <td className="text-sm figures">{t.createdAt.slice(0, 10)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 type Draft = ResponseOf<typeof apiRoutes.opsDraftAgent>;
 

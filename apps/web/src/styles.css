@@ -11,6 +11,7 @@
 @import "./ui/page.css" layer(components);
 /* UI-2a: the command center, runs and run page (ops/ops-runs.css). */
 @import "./ops/ops-runs.css" layer(components);
+@import "./portal/screens/runs-weekly-sloan.css" layer(components);
 
 /* The Mezonas tokens as Tailwind theme names, one-to-one (`bg-surface`, `text-ink-muted`,
  * `border-line`, `bg-signal-tint`). Tailwind's own palette is removed, so a raw colour class such as

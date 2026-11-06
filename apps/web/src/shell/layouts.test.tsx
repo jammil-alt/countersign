@@ -3,7 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
-import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../test/fixtures";
+import {
+  CLIENT_SESSION,
+  fakeApi,
+  OPERATOR_SESSION,
+  Reply,
+  SANDBOX_DETAIL,
+  tableService,
+  tableView,
+} from "../test/fixtures";
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
   return render(
@@ -201,6 +209,13 @@ describe("portal layout", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview([service(SERVICE, "Material costs")], 3),
+      "GET /api/table": () =>
+        tableView({
+          services: [
+            tableService(SERVICE, "Material costs", { description: "Keeps bills itemized." }),
+          ],
+          desk: { open: 3, top: [] },
+        }),
     });
     renderAt("/", api);
 
@@ -265,7 +280,7 @@ describe("portal layout", () => {
 
     const card = await screen.findByTestId(`portal-service-${SERVICE}`);
     expect(within(card).getByText("Keeps bills itemized.")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-needs-you")).toHaveTextContent("3");
+    expect(screen.getByTestId("table-stat-waiting")).toHaveTextContent("3");
   });
 
   it("names the client's Mezonas lead in copper", async () => {
@@ -280,17 +295,19 @@ describe("portal layout", () => {
     expect(lead.querySelector(".mz-lead")).toHaveTextContent("AR");
   });
 
-  it("hides Settings and the admin pages from a client user", async () => {
+  it("hides the admin pages from a client user, and keeps their own settings", async () => {
     const api = fakeApi({
       "GET /api/session": () => ({
         ...CLIENT_SESSION,
         tenants: [{ id: DEMO, name: "Demo client", role: "client_user" }],
       }),
       "GET /api/overview": () => overview(),
+      "GET /api/table": () => tableView(),
     });
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
-    expect(screen.queryByTestId("portal-nav-settings")).toBeNull();
+    // Settings holds everyone's own notifications and language (UI-1d); the company's are the admin's.
+    expect(screen.getByTestId("portal-nav-settings")).toHaveAttribute("href", "/settings");
     expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
     // Client users read the directory: People opens it.
     expect(screen.getByTestId("portal-nav-people")).toHaveAttribute("href", "/people/directory");

@@ -124,7 +124,7 @@ describe("app", () => {
       within(tabs)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Runs", "People", "Versions2", "Settings"]);
+    ).toEqual(["Overview", "Workflow", "Triggers", "Runs", "Versions2", "Tests", "Settings"]);
     expect(screen.getByText(/How it works · 5 steps, 1 fork$/)).toBeInTheDocument();
 
     await user.click(within(tabs).getByRole("link", { name: /^Versions/ }));
