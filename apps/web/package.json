@@ -8,7 +8,8 @@
     "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "sweep": "node e2e/route-sweep.mjs"
   },
   "dependencies": {
     "@countersign/core": "workspace:*",
@@ -33,6 +34,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^30.1.3",
+    "playwright": "1.64.1",
     "tailwindcss": "^4.3.4",
     "vite": "^8.3.0",
     "vitest": "^5.0.0"
