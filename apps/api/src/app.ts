@@ -50,6 +50,8 @@ import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -81,6 +83,8 @@ import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./routes/slack";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
 // v0.12 W2-C
@@ -127,6 +131,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 bankfeed: Plaid's webhook
   bankfeedRoutes(app);
   connectionRoutes(app);
+  // v0.14 W4-D: Google Sheets' picking
+  gsheetsRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
   documentRoutes(app);
@@ -179,6 +185,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   triggerRouteHandlers(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // v0.14 W4-C: the Slack channel picker
+  slackRoutes(app);
   // v0.14 capture: WhatsApp conversations and their capture
   conversationRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.

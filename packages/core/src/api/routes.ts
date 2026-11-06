@@ -34,6 +34,8 @@ import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 // v0.12 W1-A: go-live stages and client controls
@@ -59,6 +61,8 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./slack";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
@@ -1890,6 +1894,10 @@ export const routes = {
   ...modelRoutes,
   // v0.13 W2-I: run oversight decisions for the agent lab.
   ...oversightRoutes,
+  // v0.14 W4-D: Google Sheets' picking
+  ...gsheetsRoutes,
+  // v0.14 W4-C: the Slack channel picker.
+  ...slackRoutes,
   // v0.14 capture: WhatsApp conversations and their capture.
   ...conversationRoutes,
 } as const;

@@ -4,6 +4,8 @@
 // that vendor's BAA is signed). The client's own tools (QuickBooks, Gmail, Zoho CRM, Podio, its
 // webhook endpoints, the sites of its browser logins) are the client's vendors, not ours: they are
 // not processors here. Plaid, which carries the bank feed on Mezonas' own account, is.
+// v0.14 W4-D: Google Drive and Google Sheets (`gdrive`, `gsheets`) are not: the client's own Google
+// account, which only the client signs in to; we send its data nowhere else.
 
 import { z } from "zod";
 
