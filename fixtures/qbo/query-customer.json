@@ -1,0 +1,58 @@
+{
+  "QueryResponse": {
+    "Customer": [
+      {
+        "Id": "7",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-03-02T10:00:00-08:00",
+          "LastUpdatedTime": "2026-03-02T10:00:00-08:00"
+        },
+        "DisplayName": "Henderson kitchen",
+        "CompanyName": "Henderson Family Trust",
+        "GivenName": "Ruth",
+        "FamilyName": "Henderson",
+        "PrimaryEmailAddr": { "Address": "ruth@henderson.example" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0142" },
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Balance": 0
+      },
+      {
+        "Id": "8",
+        "SyncToken": "2",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-20T09:30:00-08:00",
+          "LastUpdatedTime": "2026-10-15T11:12:00-07:00"
+        },
+        "DisplayName": "Lakeside Builders",
+        "CompanyName": "Lakeside Builders LLC",
+        "PrimaryEmailAddr": { "Address": "ap@lakesidebuilders.example" },
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Balance": 7380.5
+      },
+      {
+        "Id": "9",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-05-11T14:00:00-07:00",
+          "LastUpdatedTime": "2026-05-11T14:00:00-07:00"
+        },
+        "DisplayName": "Oak Street Dental",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Balance": 1840
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 3
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

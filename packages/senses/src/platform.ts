@@ -84,6 +84,30 @@ export const ScheduleTickPayload = z.strictObject({
   scheduledAt: z.iso.datetime({ offset: true }),
 });
 
+// v0.12 W1-F: accounts receivable (ARCHITECTURE §6.2, docs/plan.md §1.41).
+/** An invoice to a customer in the client's books. */
+export const ReceivableCreatedPayload = z.strictObject({
+  receivableId: Id,
+  /** The connector it came from, e.g. `qbo`. */
+  source: z.string().min(1),
+  /** The directory organization it is linked to, when one has its customer's id. */
+  organizationId: NullableId,
+  total: Money,
+  /** What is still owed. */
+  balance: Money,
+  /** ISO date (yyyy-mm-dd), when it has one. */
+  dueDate: z.string().nullable(),
+  status: z.enum(["open", "paid", "void", "deleted"]),
+});
+
+export const ReceivableUpdatedPayload = ReceivableCreatedPayload.extend({
+  /** What changed: balance, total, status, dueDate, customer, docNumber, note. */
+  changed: z.array(z.string()),
+});
+
+export const ReceivablePaidPayload = ReceivableCreatedPayload.omit({ status: true });
+// end v0.12 W1-F
+
 interface PlatformEventDef {
   description: string;
   subjectType?: string;
@@ -233,6 +257,49 @@ export const PLATFORM_EVENTS = {
       agents: { active: 3, paused: 0 },
       openFindings: 1,
       sources: [SAMPLE_ID],
+    },
+  },
+  // v0.12 W1-F: accounts receivable.
+  "receivable.created": {
+    description: "An invoice to a customer arrived from the client's books (QuickBooks).",
+    subjectType: "receivable",
+    payload: ReceivableCreatedPayload,
+    sample: {
+      receivableId: SAMPLE_ID,
+      source: "qbo",
+      organizationId: SAMPLE_ID_2,
+      total: { amount: "4200.0000", currency: "USD" },
+      balance: { amount: "4200.0000", currency: "USD" },
+      dueDate: "2026-12-01",
+      status: "open",
+    },
+  },
+  "receivable.updated": {
+    description: "An invoice to a customer changed in the client's books (a payment, an edit).",
+    subjectType: "receivable",
+    payload: ReceivableUpdatedPayload,
+    sample: {
+      receivableId: SAMPLE_ID,
+      source: "qbo",
+      organizationId: SAMPLE_ID_2,
+      total: { amount: "4200.0000", currency: "USD" },
+      balance: { amount: "2100.0000", currency: "USD" },
+      dueDate: "2026-12-01",
+      status: "open",
+      changed: ["balance"],
+    },
+  },
+  "receivable.paid": {
+    description: "An invoice to a customer was paid in full (its balance reached zero).",
+    subjectType: "receivable",
+    payload: ReceivablePaidPayload,
+    sample: {
+      receivableId: SAMPLE_ID,
+      source: "qbo",
+      organizationId: SAMPLE_ID_2,
+      total: { amount: "4200.0000", currency: "USD" },
+      balance: { amount: "0.0000", currency: "USD" },
+      dueDate: "2026-12-01",
     },
   },
   // v0.12 W1-C: threads (ARCHITECTURE §11.2). Ids only, never the text.

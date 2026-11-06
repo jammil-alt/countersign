@@ -39,6 +39,8 @@ import { qboTools } from "./tools";
 import { QBO_SIGNATURE_HEADER, verifyQboWebhook } from "./webhook";
 
 export * from "./api";
+export * from "./ar";
+export * from "./bill-create";
 export * from "./records";
 export * from "./skills";
 export * from "./sync";
@@ -91,7 +93,7 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
     id: QBO_CONNECTOR_ID,
     name: "QuickBooks Online",
     description:
-      "Bills, purchases, vendors, items and attachments in your QuickBooks Online. You sign in to QuickBooks yourself.",
+      "Bills, purchases, vendors, items, attachments, and invoices, customers and payments in your QuickBooks Online. You sign in to QuickBooks yourself.",
     icon: "book",
     auth: "oauth2",
     entities: [...QBO_SYNCED_ENTITIES],

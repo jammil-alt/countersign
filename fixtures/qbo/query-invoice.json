@@ -1,0 +1,210 @@
+{
+  "QueryResponse": {
+    "Invoice": [
+      {
+        "Id": "130",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-07-15T09:00:00-07:00",
+          "LastUpdatedTime": "2026-07-15T09:05:00-07:00"
+        },
+        "DocNumber": "1041",
+        "TxnDate": "2026-07-15",
+        "DueDate": "2026-08-14",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "8", "name": "Lakeside Builders" },
+        "SalesTermRef": { "value": "3" },
+        "EmailStatus": "EmailSent",
+        "BillEmail": { "Address": "ap@lakesidebuilders.example" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Kitchen cabinets, Lot 14, white oak",
+            "Amount": 5100,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "30", "name": "Cabinet install" },
+              "UnitPrice": 5100,
+              "Qty": 1
+            }
+          },
+          { "Amount": 5100, "DetailType": "SubTotalLineDetail", "SubTotalLineDetail": {} }
+        ],
+        "TxnTaxDetail": { "TotalTax": 0 },
+        "TotalAmt": 5100,
+        "Balance": 5100
+      },
+      {
+        "Id": "131",
+        "SyncToken": "2",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-09-01T10:00:00-07:00",
+          "LastUpdatedTime": "2026-10-03T16:20:00-07:00"
+        },
+        "DocNumber": "1042",
+        "TxnDate": "2026-09-01",
+        "DueDate": "2026-10-01",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "7", "name": "Henderson kitchen" },
+        "EmailStatus": "EmailSent",
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Built-in pantry, phase 1",
+            "Amount": 2400,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "30", "name": "Cabinet install" },
+              "UnitPrice": 2400,
+              "Qty": 1
+            }
+          },
+          { "Amount": 2400, "DetailType": "SubTotalLineDetail", "SubTotalLineDetail": {} }
+        ],
+        "TotalAmt": 2400,
+        "Balance": 0
+      },
+      {
+        "Id": "132",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-20T08:30:00-07:00",
+          "LastUpdatedTime": "2026-10-20T08:30:00-07:00"
+        },
+        "DocNumber": "1043",
+        "TxnDate": "2026-10-20",
+        "DueDate": "2026-11-19",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "8", "name": "Lakeside Builders" },
+        "PrivateNote": "Deposit received by check",
+        "EmailStatus": "NotSet",
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Vanity, primary bath",
+            "Amount": 1980.5,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "31", "name": "Vanity" },
+              "UnitPrice": 1980.5,
+              "Qty": 1
+            }
+          },
+          {
+            "Id": "2",
+            "LineNum": 2,
+            "Description": "Delivery",
+            "Amount": 300,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "32", "name": "Delivery" },
+              "UnitPrice": 150,
+              "Qty": 2
+            }
+          },
+          { "Amount": 2280.5, "DetailType": "SubTotalLineDetail", "SubTotalLineDetail": {} }
+        ],
+        "TotalAmt": 2280.5,
+        "Balance": 2280.5
+      },
+      {
+        "Id": "133",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-09-20T13:00:00-07:00",
+          "LastUpdatedTime": "2026-09-20T13:00:00-07:00"
+        },
+        "DocNumber": "1044",
+        "TxnDate": "2026-09-20",
+        "DueDate": "2026-10-20",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "9", "name": "Oak Street Dental" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Reception desk",
+            "Amount": 1840,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "33", "name": "Custom millwork" },
+              "UnitPrice": 1840,
+              "Qty": 1
+            }
+          }
+        ],
+        "TotalAmt": 1840,
+        "Balance": 1840
+      },
+      {
+        "Id": "134",
+        "SyncToken": "3",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-02T09:00:00-07:00",
+          "LastUpdatedTime": "2026-10-02T09:40:00-07:00"
+        },
+        "DocNumber": "1045",
+        "TxnDate": "2026-10-02",
+        "DueDate": "2026-11-01",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "7", "name": "Henderson kitchen" },
+        "PrivateNote": "Voided",
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Wrong customer",
+            "Amount": 0,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": { "ItemRef": { "value": "30", "name": "Cabinet install" } }
+          }
+        ],
+        "TotalAmt": 0,
+        "Balance": 0
+      },
+      {
+        "Id": "120",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2025-06-01T09:00:00-07:00",
+          "LastUpdatedTime": "2025-06-20T09:00:00-07:00"
+        },
+        "DocNumber": "0990",
+        "TxnDate": "2025-06-01",
+        "DueDate": "2025-07-01",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "8", "name": "Lakeside Builders" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Shop drawings",
+            "Amount": 300,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": { "ItemRef": { "value": "33", "name": "Custom millwork" } }
+          }
+        ],
+        "TotalAmt": 300,
+        "Balance": 0
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 6
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

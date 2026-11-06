@@ -1,0 +1,27 @@
+{
+  "QueryResponse": {
+    "Account": [
+      {
+        "Id": "80",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "Name": "Job Materials",
+        "FullyQualifiedName": "Job Materials",
+        "AccountType": "Cost of Goods Sold",
+        "Active": true
+      },
+      {
+        "Id": "81",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "Name": "Freight In",
+        "FullyQualifiedName": "Job Materials:Freight In",
+        "AccountType": "Cost of Goods Sold",
+        "Active": true
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 2
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}
