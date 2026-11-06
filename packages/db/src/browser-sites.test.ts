@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readOperatorCatalogue, type Tx, withOperator, withTenant, withTenants } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
-import { browserSite, browserSiteVersion, OPERATOR_ONLY_TABLES } from "./schema";
+import { browserSite, browserSiteVersion, OPERATOR_ONLY_TABLES, savedView } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -49,6 +49,8 @@ describe.skipIf(!online)("browser_site and browser_site_version", () => {
         .insert(browserSiteVersion)
         .values({ siteId: site?.id as string, version: 1, profile: PROFILE })
         .returning();
+      // The other operator-only table (0023), so every one of them has a row below.
+      await tx.insert(savedView).values({ userId: A.userId, surface: "ops_runs", name: "Failed" });
       return { siteId: site?.id as string, versionId: version?.id as string };
     }));
   });
