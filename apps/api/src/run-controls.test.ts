@@ -429,6 +429,24 @@ describe.skipIf(!h)("run controls", () => {
     expect(j(signed.json).runs.length).toBeGreaterThanOrEqual(1);
     const changed = await H.call(OPERATOR, "GET", "/api/ops/runs?changedConnector=testkit");
     expect(j(changed.json).runs.length).toBeGreaterThanOrEqual(1);
+    // v0.14 W4-B: the amount of a change, where its tool declares it (the testkit: 12.00 USD).
+    const over = await H.call(OPERATOR, "GET", "/api/ops/runs?amountOver=11&amountCurrency=USD");
+    expect(over.status, JSON.stringify(over.json)).toBe(200);
+    expect(j(over.json).runs.length).toBeGreaterThanOrEqual(1);
+    for (const q of [
+      "amountOver=12&amountCurrency=USD",
+      "amountUnder=12&amountCurrency=USD",
+      "amountOver=11&amountCurrency=EUR",
+    ]) {
+      expect(j((await H.call(OPERATOR, "GET", `/api/ops/runs?${q}`)).json).runs).toEqual([]);
+    }
+    const between = await H.call(
+      admin("a"),
+      "GET",
+      "/api/runs?amountOver=11&amountUnder=13&amountCurrency=USD",
+    );
+    expect(j(between.json).runs.length).toBeGreaterThanOrEqual(1);
+    expect((await H.call(OPERATOR, "GET", "/api/ops/runs?amountOver=11")).status).toBe(400);
     const manual = await H.call(OPERATOR, "GET", "/api/ops/runs?startedBy=schedule");
     expect(j(manual.json).runs).toEqual([]);
 

@@ -14,6 +14,8 @@ import {
   shortRunId,
   shortRunIdTail,
   startedByEventTypes,
+  type ToolAmount,
+  type ToolSpec,
   uuidv7,
 } from "@countersign/core";
 import {
@@ -85,11 +87,63 @@ function startedBySql(kind: RunFilter["startedBy"] extends (infer K)[] | undefin
   }
 }
 
+// v0.14 W4-B: RunFilter's `amount` (docs/plan.md §1.49 "Amounts"). A change's amount is where its
+// tool declares it (`ToolSpec.amount`), read from the input the change runs with (the signer's
+// edit, else the agent's), as core's `amountOf` reads it for approver rules.
+
+/** The tools whose changes carry an amount, from the registry's specs. */
+export function amountTools(specs: Readonly<Record<string, ToolSpec>>): AmountTool[] {
+  return Object.values(specs)
+    .filter((s) => s.sideEffect === "external" && s.amount)
+    .map((s) => ({ tool: s.id, ...(s.amount as ToolAmount) }));
+}
+
+export type AmountTool = ToolAmount & { tool: string };
+
+/** A JSON path `a.0.b` as a text[] for `#>>`, each segment a parameter. */
+function jsonPath(path: string): SQL {
+  return sql`array[${sql.join(
+    path.split(".").map((p) => sql`${p}`),
+    sql`, `,
+  )}]::text[]`;
+}
+
+/** Decimal text as numeric, or null when it isn't a plain decimal (never a cast error). */
+function numericOrNull(text: SQL): SQL {
+  return sql`(case when ${text} ~ '^-?[0-9]{1,14}([.][0-9]{1,8})?$' then (${text})::numeric end)`;
+}
+
+function amountSql(filter: NonNullable<RunFilter["amount"]>, tools: readonly AmountTool[]): SQL {
+  if (tools.length === 0) return sql`false`;
+  const input = sql`coalesce(${externalAction.editedInput}, ${externalAction.input})`;
+  const perTool = tools.map((t) => {
+    const value = numericOrNull(sql`btrim(${input} #>> ${jsonPath(t.path)})`);
+    const named = t.currencyPath ? sql`upper(${input} #>> ${jsonPath(t.currencyPath)})` : sql`null`;
+    // As amountOf: the input's currency when it names a valid code, else the tool's own.
+    const currency = sql`(case when ${named} ~ '^[A-Z]{3}$' then ${named} else ${t.currency ?? null} end)`;
+    const bounds = [
+      sql`${externalAction.tool} = ${t.tool}`,
+      sql`${currency} = ${filter.currency}`,
+      ...(filter.over !== undefined ? [sql`${value} > ${filter.over}::numeric`] : []),
+      ...(filter.under !== undefined ? [sql`${value} < ${filter.under}::numeric`] : []),
+    ];
+    return sql`(${sql.join(bounds, sql` and `)})`;
+  });
+  return sql`exists (select 1 from ${externalAction}
+    where ${externalAction.runId} = ${run.id} and ${externalAction.tenantId} = ${run.tenantId}
+      and ${externalAction.status} <> 'rejected'
+      and (${sql.join(perTool, sql` or `)}))`;
+}
+
 /**
  * RunFilter's conditions on `run` (the caller adds the client scope). Every subquery names the
- * run's own client as well as its id (invariant 1).
+ * run's own client as well as its id (invariant 1). `tools`: the registry's specs, for `amount`
+ * (v0.14 W4-B); a filter with an amount and no tool that declares one matches no run.
  */
-export function runFilterWhere(filter: RunFilter): SQL[] {
+export function runFilterWhere(
+  filter: RunFilter,
+  tools: Readonly<Record<string, ToolSpec>>,
+): SQL[] {
   const where: SQL[] = [];
   const f = filter;
   if (f.clients?.length) where.push(inArray(run.tenantId, f.clients));
@@ -118,6 +172,8 @@ export function runFilterWhere(filter: RunFilter): SQL[] {
     );
   }
   if (f.attemptsOver !== undefined) where.push(sql`${attemptsSql} > ${f.attemptsOver}`);
+  // v0.14 W4-B
+  if (f.amount) where.push(amountSql(f.amount, amountTools(tools)));
   if (f.costOver) where.push(gt(run.costUsd, f.costOver));
   if (f.errorKey) where.push(sql`${errorKeySql} = ${f.errorKey}`);
   if (f.text) {
@@ -404,7 +460,12 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
         agentVersion,
         and(eq(agentVersion.id, run.agentVersionId), eq(agentVersion.tenantId, run.tenantId)),
       )
-      .where(and(inArray(run.tenantId, [...ctx.tenantIds]), ...runFilterWhere(query.filter)))
+      .where(
+        and(
+          inArray(run.tenantId, [...ctx.tenantIds]),
+          ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs()),
+        ),
+      )
       .orderBy(desc(run.createdAt))
       .limit(RUNS_CSV_MAX);
     const bytes = csvFile(
