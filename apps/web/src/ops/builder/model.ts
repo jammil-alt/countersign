@@ -229,6 +229,8 @@ export type PaletteItem =
       own: boolean;
     }
   | { type: "action"; key: string; title: string; detail: string; tool: ToolSpec; group: string }
+  // UI-2c: an automation (a pinned `slug@version`), placed as one use step.
+  | { type: "automation"; key: string; title: string; detail: string; ref: string }
   | { type: "person"; key: string; title: string; detail: string; mode: "approve" | "ask" }
   | { type: "logic"; key: string; title: string; detail: string; logic: LogicKind };
 
@@ -263,6 +265,9 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
         input: {},
         approval: { ...DEFAULT_APPROVAL },
       };
+    case "automation":
+      // Its inner steps keep their own approvals (on by default); the use step overrides none.
+      return { id, kind: "use_automation", name: item.title, automation: item.ref, input: {} };
     case "person":
       return {
         id,

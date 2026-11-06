@@ -24,6 +24,17 @@ export const KIND_LABEL: Record<StepKind | "trigger", string> = {
   use_automation: "Automation",
 };
 
+/** A trigger's kind in a word, as the triggers list and the plan show it (prototype `#O7-Triggers`). */
+export const TRIGGER_KIND_LABEL: Record<Trigger["on"]["type"], string> = {
+  event: "Event",
+  schedule: "Schedule",
+  manual: "Manual",
+  command: "Command",
+  webhook: "Webhook",
+  message: "Message",
+  handoff: "Another agent",
+};
+
 export function triggerTitle(trigger: Trigger): string {
   const on = trigger.on;
   switch (on.type) {

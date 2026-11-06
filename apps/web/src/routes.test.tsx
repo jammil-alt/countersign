@@ -5,6 +5,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { createRoutesFromElements, MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "./App";
+import { OPS_PATHS } from "./ops/paths";
 import { opsRoutes } from "./ops/routes";
 import { portalRoutes } from "./portal/routes";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "./test/fixtures";
@@ -108,6 +109,19 @@ describe("the back office's routes", () => {
   it("sends /ops/templates to the Agent lab", async () => {
     renderAt("/ops/templates", true);
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/ops/lab"));
+  });
+
+  // UI-2c: the agent page's Workflow and Triggers tabs live under its splat route.
+  it.each([
+    OPS_PATHS.agentWorkflow(ID, "costs"),
+    `${OPS_PATHS.agent(ID, "costs")}/workflows/main`,
+    OPS_PATHS.agentTriggers(ID, "costs"),
+    OPS_PATHS.newAgent(ID),
+    OPS_PATHS.newTemplate,
+  ])("%s renders a page", async (path) => {
+    renderAt(path, true);
+    await screen.findByTestId("shell-ops");
+    expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
   });
 
   it("keeps the template pages under /ops/templates", () => {
