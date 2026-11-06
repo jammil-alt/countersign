@@ -79,6 +79,39 @@ const T = {
     it: "Nota",
     de: "Notiz",
   },
+  // v0.12 W1-F
+  invoice: {
+    en: "QuickBooks invoice",
+    es: "Factura de cliente de QuickBooks",
+    fr: "Facture client QuickBooks",
+    "pt-BR": "Fatura do QuickBooks",
+    it: "Fattura cliente QuickBooks",
+    de: "QuickBooks-Ausgangsrechnung",
+  },
+  privateNote: {
+    en: "Private note",
+    es: "Nota privada",
+    fr: "Note privée",
+    "pt-BR": "Observação privada",
+    it: "Nota privata",
+    de: "Private Notiz",
+  },
+  dueDate: {
+    en: "Due date",
+    es: "Vencimiento",
+    fr: "Échéance",
+    "pt-BR": "Vencimento",
+    it: "Scadenza",
+    de: "Fällig am",
+  },
+  balance: {
+    en: "Open balance",
+    es: "Saldo pendiente",
+    fr: "Solde dû",
+    "pt-BR": "Saldo em aberto",
+    it: "Saldo aperto",
+    de: "Offener Betrag",
+  },
 } satisfies Record<string, LocalizedText>;
 
 const date: DisplayField = { label: T.date, kind: "date", now: "before.txnDate" };
@@ -222,5 +255,85 @@ export const attachDisplay: ToolDisplay = {
       columns: { id: "id", description: "fileName", size: "size" },
     },
     { label: T.note, kind: "text", after: "input.note" },
+  ],
+};
+
+// ── v0.12 W1-F: accounts receivable and create bill ────────────────────────────────────────────
+
+/** "QuickBooks invoice 1043 · Lakeside Builders", the private note now and after. */
+export const addNoteDisplay: ToolDisplay = {
+  name: T.invoice,
+  description: {
+    en: "Add a dated line to the invoice's private note. Nothing else changes, and the customer doesn't see it.",
+    es: "Añade una línea con fecha a la nota privada de la factura. Nada más cambia y el cliente no la ve.",
+    fr: "Ajoute une ligne datée à la note privée de la facture. Rien d'autre ne change et le client ne la voit pas.",
+    "pt-BR":
+      "Adiciona uma linha com data à observação privada da fatura. Nada mais muda e o cliente não a vê.",
+    it: "Aggiunge una riga datata alla nota privata della fattura. Nient'altro cambia e il cliente non la vede.",
+    de: "Fügt der privaten Notiz der Rechnung eine datierte Zeile hinzu. Sonst ändert sich nichts, und der Kunde sieht sie nicht.",
+  },
+  number: "before.docNumber",
+  subject: "before.customer",
+  fields: [
+    {
+      label: T.privateNote,
+      kind: "text",
+      now: "before.privateNote",
+      after: "before.privateNoteAfter",
+    },
+    {
+      label: T.balance,
+      kind: "money",
+      now: "before.balance",
+      currencyPath: "before.currency",
+    },
+    { label: T.dueDate, kind: "date", now: "before.dueDate" },
+  ],
+};
+
+/** A new bill: its vendor and number, dates, lines with their items' and accounts' names, total. */
+// DECISION: a new bill has nothing "now", so every field reads only its `after`; the before state
+// carries the vendor as QuickBooks names it and the names of the items and accounts the lines use,
+// read when the change is proposed (the card shows names, never ids).
+export const billCreateDisplay: ToolDisplay = {
+  name: T.bill,
+  description: {
+    en: "Create this bill in QuickBooks. Nothing else changes.",
+    es: "Crea esta factura en QuickBooks. Nada más cambia.",
+    fr: "Crée cette facture dans QuickBooks. Rien d'autre ne change.",
+    "pt-BR": "Cria esta conta no QuickBooks. Nada mais muda.",
+    it: "Crea questa fattura in QuickBooks. Nient'altro cambia.",
+    de: "Legt diese Rechnung in QuickBooks an. Sonst ändert sich nichts.",
+  },
+  number: "input.docNumber",
+  subject: "before.vendor",
+  names: "before.names",
+  fields: [
+    { label: T.date, kind: "date", after: "input.txnDate" },
+    { label: T.dueDate, kind: "date", after: "input.dueDate" },
+    {
+      label: T.lines,
+      kind: "lines",
+      after: "input.lines",
+      currencyPath: "input.currency",
+      columns: {
+        description: "description",
+        qty: "qty",
+        unitPrice: "unitPrice",
+        amount: "amount",
+        refs: [
+          { key: "itemId", names: "items" },
+          { key: "accountId", names: "accounts" },
+        ],
+      },
+    },
+    {
+      label: T.total,
+      kind: "money",
+      after: "input.expectedTotal",
+      currencyPath: "input.currency",
+      currency: "USD",
+    },
+    { label: T.memo, kind: "text", after: "input.privateNote" },
   ],
 };

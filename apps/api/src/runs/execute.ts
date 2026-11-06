@@ -46,6 +46,7 @@ import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
 import { dbDocumentServices } from "../qbo/documents";
+import { dbSyncedRecords } from "../qbo/receivables";
 import { type ReachDeps, reachPort } from "../reach/service";
 import { tenantLocale } from "../routes/language";
 import { signerFor } from "../storage";
@@ -216,8 +217,13 @@ function withDocuments(
   db: Db,
   content: ContentStore | undefined,
 ): NonNullable<RuntimeDeps["services"]> {
-  if (!content) return base;
-  return (conn) => ({ ...base(conn), documents: dbDocumentServices(db, conn, content) });
+  // v0.12 W1-F: what QuickBooks sync stored (duplicate bills, receivable ids), for the qbo tools.
+  if (!content) return (conn) => ({ ...base(conn), records: dbSyncedRecords(db, conn) });
+  return (conn) => ({
+    ...base(conn),
+    documents: dbDocumentServices(db, conn, content),
+    records: dbSyncedRecords(db, conn),
+  });
 }
 
 function withBrowser(
