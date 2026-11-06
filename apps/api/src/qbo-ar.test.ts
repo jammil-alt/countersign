@@ -342,7 +342,7 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
       .from(connection)
       .where(eq(connection.id, connectionId));
     expect(after?.c).toMatchObject({ ar: true });
-    expect((after?.c as { running?: unknown }).running).toBeUndefined();
+    expect(after?.c).not.toHaveProperty("running");
   });
 
   it("reads the aging report with the receivables as sources, and notes one invoice after approval", async () => {
