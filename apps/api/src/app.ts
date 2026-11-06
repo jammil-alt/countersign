@@ -30,6 +30,7 @@ import { callsSetupRoutes } from "./routes/calls-setup";
 import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
+import { deskRoutes } from "./routes/desk";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { exportRoutes } from "./routes/exports";
@@ -89,6 +90,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.13 W2-H: models for task skills and skill steps.
   opsModelRoutes(app);
   supervisorRouteHandlers(app);
+  // v0.12 W1-D: before the portal's routes, so `/api/inbox/batch/resolve` is not read as an item
+  // id by `/api/inbox/:id/resolve` (Hono runs handlers in the order they were added).
+  deskRoutes(app);
   portalRouteHandlers(app);
   qboRoutes(app);
   connectionRoutes(app);

@@ -5,10 +5,14 @@
 // the executor through InboxPort.received), and the every-minute cron re-sends the event of every
 // pending item whose run is still going. Sending again is safe: each item's event type is waited on
 // at most once, and the run checks the item before it waits, so a duplicate is never read twice.
+//
+// v0.12 W1-D (ARCHITECTURE §11.1): an approval inside its undo window (`deliver_after`) is not sent
+// when it is resolved; this pass sends it once the window has passed, so the write runs 60 to 120
+// seconds after signing with the default window.
 
 import { type Db, inboxItem, run, withTenant } from "@countersign/db";
 import { inboxEventType } from "@countersign/workflows";
-import { and, eq, gt, inArray, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { toRunResolution } from "../inbox";
 import type { RunInstances } from "./instances";
 
@@ -50,7 +54,16 @@ export async function redeliverResolutions(
           eq(inboxItem.status, "resolved"),
           isNotNull(inboxItem.runId),
           isNull(inboxItem.runReceivedAt),
-          lte(inboxItem.resolvedAt, new Date(now.getTime() - REDELIVER_AFTER_MS)),
+          // v0.12 W1-D: an approval inside its undo window is delivered only once the window
+          // has passed (the database's clock, as in undo and in claiming the action); after
+          // that, at every tick until the run takes it. Others: a minute after the resolution.
+          or(
+            and(
+              isNull(inboxItem.deliverAfter),
+              lte(inboxItem.resolvedAt, new Date(now.getTime() - REDELIVER_AFTER_MS)),
+            ),
+            lte(inboxItem.deliverAfter, sql`now()`),
+          ),
           gt(inboxItem.resolvedAt, new Date(now.getTime() - REDELIVER_WINDOW_MS)),
           inArray(run.status, [...GOING]),
         ),

@@ -164,6 +164,8 @@ export const es: Messages = {
   "inbox.openRequestsQueue": "Abrir la cola de solicitudes",
   "inbox.decline": "Declinar",
   "inbox.sendAnswer": "Enviar respuesta",
+  "inbox.undo": "Deshacer",
+  "inbox.undoWindow": "Firmado. Hacemos el cambio en un minuto; todavía puede deshacerlo.",
   "inbox.reject": "Rechazar",
   "inbox.sign": "Firmar",
   "inbox.findingSteps": "Qué hacer",

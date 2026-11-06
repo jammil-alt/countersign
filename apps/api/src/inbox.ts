@@ -5,11 +5,17 @@
 
 import { type Approver, mayResolve, resolveExternalActionTx } from "@countersign/agents";
 import type { ResolveBody } from "@countersign/core";
-import { FORBIDDEN_PORTAL_FIELD, isPlainObject } from "@countersign/core";
-import { inboxItem, run, type Tx } from "@countersign/db";
+import {
+  choiceProblem,
+  FORBIDDEN_PORTAL_FIELD,
+  isPlainObject,
+  readChoices,
+  undoSecondsOf,
+} from "@countersign/core";
+import { inboxItem, membership, run, type Tx, tenant } from "@countersign/db";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
 import { type InboxResolution, inboxEventType } from "@countersign/workflows";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { refuseGenericResolve } from "./access/release";
 import { applySuggestion, isDirectorySuggestion } from "./directory/suggestions";
@@ -60,6 +66,11 @@ export function toRunResolution(item: Pick<InboxRow, "resolution" | "resolvedBy"
 }
 
 export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<ResolveOutcome> {
+  // v0.12 W1-D: a viewer signs nothing (ARCHITECTURE §4).
+  input = { ...input, by: await withCanSign(tx, input.tenantId, input.by) };
+  if (input.by.canSign === false) {
+    throw new HttpError(403, "cannot_sign", "you can see this, but you don't sign for your team");
+  }
   const item = await lockItem(tx, input.tenantId, input.itemId);
   // A request for a code is resolved only by its code (docs/plan.md §1.26), never by a click.
   refuseGenericResolve(item);
@@ -84,6 +95,12 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   if (item.runId) {
     const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
     testRun = r?.mode === "test";
+  }
+  // v0.12 W1-D: a question with quick answers takes one of them (a decline needs none).
+  const choices = readChoices(isPlainObject(item.payload) ? item.payload.choices : undefined);
+  if (choices && item.kind === "request" && decision !== "reject") {
+    const problem = choiceProblem(choices, answer);
+    if (problem) throw new HttpError(422, "invalid_answer", problem);
   }
   const emitter = senseEmitter(input.registry, { collect: input.collect, testRun });
 
@@ -171,13 +188,62 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     resolution = { approved, answer: answer ?? null, by: input.by.userId };
   }
 
+  // v0.12 W1-D: the undo window. An approval reaches the run only once it has passed: the cron
+  // delivers it (runs/resume.ts), so nothing is sent now.
+  const held = await holdForUndo(tx, input.tenantId, item, resolution, testRun);
   const updated = await lockItem(tx, input.tenantId, item.id);
   return {
     item: updated,
-    resume: item.runId
-      ? { runId: item.runId, type: inboxEventType(item.id), payload: resolution }
-      : null,
+    resume:
+      item.runId && !held
+        ? { runId: item.runId, type: inboxEventType(item.id), payload: resolution }
+        : null,
   };
+}
+
+// ── v0.12 W1-D: viewers and the undo window (ARCHITECTURE §4, §11.1) ─────────────────────────────
+
+/** The approver with `canSign` from their membership in this client (client people only). */
+export async function withCanSign(tx: Tx, tenantId: string, by: Approver): Promise<Approver> {
+  if (by.role === "operator" || by.canSign !== undefined) return by;
+  const [m] = await tx
+    .select({ canSign: membership.canSign })
+    .from(membership)
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, by.userId)));
+  return { ...by, canSign: m?.canSign ?? false };
+}
+
+/** Kinds whose approval waits out the undo window. */
+const HELD_KINDS = new Set(["external_action", "approval"]);
+
+/**
+ * Sets `deliver_after` on a just-approved item of a live run when the client has an undo window.
+ * Rejections, answers and test runs are delivered at once.
+ */
+// DECISION: the window holds approvals of changes and of approval steps in live runs, whoever
+// signed (a client person, or the operator on a delegated item or in the Sandbox); test runs write
+// nothing, so they get none. The clock is the database's, as in undo and delivery.
+async function holdForUndo(
+  tx: Tx,
+  tenantId: string,
+  item: InboxRow,
+  resolution: InboxResolution,
+  testRun: boolean,
+): Promise<boolean> {
+  if (!item.runId || testRun || resolution.approved !== true || !HELD_KINDS.has(item.kind)) {
+    return false;
+  }
+  const [t] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const seconds = undoSecondsOf(t?.settings);
+  if (seconds === 0) return false;
+  await tx
+    .update(inboxItem)
+    .set({ deliverAfter: sql`now() + make_interval(secs => ${seconds}::double precision)` })
+    .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, tenantId)));
+  return true;
 }
 
 /** Drops every field a portal response may never carry, at any depth (invariant 11). */
