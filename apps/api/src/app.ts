@@ -61,7 +61,10 @@ import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
+// v0.12 W2-C
 import { testbenchRoutes } from "./routes/testbench";
+// v0.12 W1-C
+import { threadRouteHandlers } from "./routes/threads";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
@@ -128,6 +131,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);
   tableRouteHandlers(app);
+  // v0.12 W1-C
+  threadRouteHandlers(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);
   labRoutes(app);

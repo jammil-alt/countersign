@@ -16,6 +16,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  forbiddenKeys,
   OPERATOR,
   OTHER_OPERATOR,
   user,
@@ -409,6 +410,45 @@ describe.skipIf(!h)("the back office's records list", () => {
       expect(asClient.status).toBe(403);
     }
     expect((await list(null, A())).status).toBe(401);
+  });
+});
+
+// v0.12 W1-H: the portal's list (docs/plan.md §1.43): the same list, for the client's own records.
+describe.skipIf(!h)("the portal's records list", () => {
+  const H = h as ApiHarness;
+  const A = () => H.A.tenantId;
+
+  it("lists the client's own records, the back office's view of them", async () => {
+    for (const who of [admin("a"), user("a")]) {
+      const res = await H.call(who, "GET", "/api/records");
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const ops = (await H.call(OPERATOR, "GET", `/api/ops/clients/${A()}/records`)).json as J;
+      expect(res.json).toEqual(ops);
+    }
+    const vendors = (await H.call(admin("a"), "GET", "/api/records?kind=vendors&q=telephone"))
+      .json as J;
+    expect(vendors.page.rows.map((v: J) => v.name)).toEqual(["Cal Telephone"]);
+    const paged = (await H.call(admin("a"), "GET", "/api/records?offset=1&limit=2")).json as J;
+    expect([paged.offset, paged.limit, paged.page.rows.length]).toEqual([1, 2, 2]);
+    // Nothing a portal response may not carry (invariant 11).
+    expect(forbiddenKeys(paged)).toEqual([]);
+  });
+
+  it("shows each client its own records only, and only to its people", async () => {
+    const a = (await H.call(admin("a"), "GET", "/api/records")).json as J;
+    const b = (await H.call(admin("b"), "GET", "/api/records")).json as J;
+    expect(b.counts.transactions).toBe(1);
+    const aIds = a.page.rows.map((t: J) => t.id);
+    for (const t of b.page.rows) expect(aIds).not.toContain(t.id);
+    expect(JSON.stringify(b)).not.toContain("Sheet goods");
+    // Naming another client in the header gets none of its records.
+    const asA = await H.call(admin("b"), "GET", "/api/records", undefined, {
+      "x-countersign-client": A(),
+    });
+    expect(asA.status).not.toBe(200);
+    for (const id of aIds) expect(JSON.stringify(asA.json)).not.toContain(id);
+    expect((await H.call(null, "GET", "/api/records")).status).toBe(401);
+    expect((await H.call(admin("a"), "GET", "/api/records?kind=bundles")).status).toBe(400);
   });
 });
 

@@ -44,6 +44,8 @@ import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
 import { testbenchRoutes } from "./testbench";
+// v0.12 W1-C: threads, the lead and `/commands`
+import { PortalLead, threadRoutes } from "./threads";
 import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -63,6 +65,8 @@ export type SessionBase = z.infer<typeof SessionBase>;
 export const SessionResponse = SessionBase.extend({
   /** The language the app reads in, and the choices behind it (docs/plan.md §1.18). */
   language: SessionLanguage,
+  // v0.12 W1-C: the active client's lead, by name ("Message Ana"); null when none is set.
+  lead: PortalLead.nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
@@ -1817,6 +1821,8 @@ export const routes = {
   ...tableRoutes,
   // v0.12 W1-D: the Desk
   ...deskRoutes,
+  // v0.12 W1-C
+  ...threadRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   ...testbenchRoutes,
 } as const;

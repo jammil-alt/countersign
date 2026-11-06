@@ -15,10 +15,12 @@ import {
   DEFAULT_APPROVAL,
   isPlainObject,
   type JsonObject,
+  LEAD_ASSIGNEE,
   parseSkillRef,
   REACH_OUT_SKILL,
 } from "@countersign/core";
 import { type Db, inboxItem, stepRun, withTenant } from "@countersign/db";
+import { leadOf } from "@countersign/threads";
 import type {
   AgentPort,
   InboxPort,
@@ -292,10 +294,18 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
         if (existing) return existing;
         // DECISION: a test run's person steps go to the operator, never to the client: test runs
         // are hidden from the portal (ARCHITECTURE §10.4).
+        // v0.12 W1-C: a lead check goes to the client's lead (as an operator's item), else to
+        // the operator role (ARCHITECTURE §11.2).
+        const lead =
+          run.mode !== "test" && item.step.assignee === LEAD_ASSIGNEE
+            ? await leadOf(tx, run.tenantId)
+            : null;
         const assignee =
           run.mode === "test"
             ? { assigneeRole: "operator" as const, assigneeUserId: null }
-            : resolveApprover([item.step.assignee]);
+            : item.step.assignee === LEAD_ASSIGNEE
+              ? { assigneeRole: "operator" as const, assigneeUserId: lead?.userId ?? null }
+              : resolveApprover([item.step.assignee]);
         const payload = {
           ...(isPlainObject(item.payload) ? (item.payload as JsonObject) : { value: item.payload }),
           nodeId: item.nodeId,

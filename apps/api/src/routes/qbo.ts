@@ -21,13 +21,9 @@ import type { Hono } from "hono";
 import type { Bindings } from "../env";
 import { type AppDeps, type AppEnv, errorResponse, HttpError, mount, notFound } from "../http";
 import { reportHandled } from "../observability/report";
-import {
-  type QboSyncInstances,
-  type QboSyncParams,
-  qboSyncInstanceId,
-  qboSyncInstances,
-} from "../qbo/instances";
+import { type QboSyncInstances, type QboSyncParams, qboSyncInstances } from "../qbo/instances";
 import { qboConnectorOf } from "../qbo/sync";
+import { claimQboSync, requestQboSync, type SyncAsked, startClaimed } from "../qbo/sync-now";
 
 /** The deployment's QboSyncWorkflow (tests pass memory instances); null where it isn't bound. */
 export function qboSyncFor(deps: AppDeps, env: Bindings): QboSyncInstances | null {
@@ -35,16 +31,17 @@ export function qboSyncFor(deps: AppDeps, env: Bindings): QboSyncInstances | nul
   return env.QBO_SYNC ? qboSyncInstances(env.QBO_SYNC) : null;
 }
 
-/** Starts a sync of one connection now (one per minute slot); null where sync isn't bound. */
+/**
+ * Asks for a sync of one connection: starts one when none runs, or queues one to run when the
+ * running one ends (v0.12 W1-H, ./qbo/sync-now.ts). Null instance where sync isn't bound.
+ */
 export async function startQboSync(
+  db: Db,
   instances: QboSyncInstances | null,
   params: QboSyncParams,
   at = new Date(),
-): Promise<{ started: boolean; instanceId: string | null }> {
-  if (!instances) return { started: false, instanceId: null };
-  const id = qboSyncInstanceId(params.connectionId, params.reason, at);
-  const result = await instances.start(id, params);
-  return { started: result === "started", instanceId: id };
+): Promise<SyncAsked> {
+  return requestQboSync(db, instances, params, at);
 }
 
 /**
@@ -91,7 +88,7 @@ export async function qboCronTick(
   let started = 0;
   for (const c of await qboConnectionsFor(db, null)) {
     try {
-      const r = await startQboSync(instances, { ...c, reason: "cron" }, at);
+      const r = await startQboSync(db, instances, { ...c, reason: "cron" }, at);
       if (r.started) started += 1;
     } catch (error) {
       reportHandled("qbo sync did not start", error, { connector: "qbo" });
@@ -133,7 +130,7 @@ export function qboRoutes(app: Hono<AppEnv>): void {
       let syncs = 0;
       for (const { realmId } of companies) {
         for (const conn of await qboConnectionsFor(services.db, realmId)) {
-          const r = await startQboSync(instances, { ...conn, reason: "webhook" });
+          const r = await startQboSync(services.db, instances, { ...conn, reason: "webhook" });
           if (r.started) syncs += 1;
         }
       }
@@ -143,22 +140,36 @@ export function qboRoutes(app: Hono<AppEnv>): void {
     }
   });
 
-  mount(app, routes.opsConnectionSync, async ({ tx, params, tenantIds, services }) => {
-    const [row] = await tx.select().from(connection).where(eq(connection.id, params.id));
-    if (!row || !tenantIds.includes(row.tenantId)) throw notFound("connection");
-    if (row.connector !== QBO_CONNECTOR_ID) {
-      throw new HttpError(409, "not_syncable", "only QuickBooks connections sync");
-    }
-    if (row.status !== "connected") {
-      throw new HttpError(409, "not_connected", `the connection is ${row.status}`);
-    }
-    const instances = qboSyncFor(services.deps, services.env);
-    if (!instances)
-      throw new HttpError(503, "not_configured", "QuickBooks sync is not set up here");
-    return startQboSync(instances, {
-      tenantId: row.tenantId,
-      connectionId: row.id,
-      reason: "operator",
-    });
-  });
+  mount(
+    app,
+    routes.opsConnectionSync,
+    async ({ c, tx, params, tenantIds, services, afterCommit }) => {
+      const [row] = await tx.select().from(connection).where(eq(connection.id, params.id));
+      if (!row || !tenantIds.includes(row.tenantId)) throw notFound("connection");
+      if (row.connector !== QBO_CONNECTOR_ID) {
+        throw new HttpError(409, "not_syncable", "only QuickBooks connections sync");
+      }
+      if (row.status !== "connected") {
+        throw new HttpError(409, "not_connected", `the connection is ${row.status}`);
+      }
+      const instances = qboSyncFor(services.deps, services.env);
+      if (!instances)
+        throw new HttpError(503, "not_configured", "QuickBooks sync is not set up here");
+      // v0.12 W1-H: claimed in this request's transaction, started once it commits; while a sync
+      // runs, one more is queued (202) and the running one starts it when it ends.
+      const asked: QboSyncParams = {
+        tenantId: row.tenantId,
+        connectionId: row.id,
+        reason: "operator",
+      };
+      const claim = await claimQboSync(tx, asked);
+      if (claim.kind === "queued") {
+        c.status(202);
+        return { started: false, queued: true, instanceId: claim.instanceId };
+      }
+      if (claim.kind === "missing") throw notFound("connection");
+      afterCommit(() => startClaimed(services.db, instances, asked, claim.instanceId));
+      return { started: true, queued: false, instanceId: claim.instanceId };
+    },
+  );
 }

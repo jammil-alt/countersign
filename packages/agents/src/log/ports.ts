@@ -14,6 +14,7 @@ import { dbKnowledgePort } from "./knowledge-port";
 import type { ModelCallPort } from "./model-calls";
 import { dbPlatformStore } from "./platform-store";
 import { dbRunLog } from "./run-log";
+import { dbThreadsPort } from "./threads-port";
 
 export interface DbPortsOptions {
   /**
@@ -44,6 +45,8 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     health: dbHealthPort(db, options.connectorName ? { connectorName: options.connectorName } : {}),
     findings: dbFindingsPort(db, emit),
     attention: dbConnectionAttention(db, emit),
+    // v0.12 W1-C
+    threads: dbThreadsPort(db, emit),
     ...(options.documents ? { documents: dbDocumentsPort(db, options.documents) } : {}),
     ...(options.release ? { release: options.release } : {}),
     // v0.12 W1-E: a retry's carried approvals; model calls when apps/api keeps them.

@@ -93,6 +93,7 @@ export const fr: Messages = {
   "nav.people": "Personnes",
   "nav.access": "Accès",
   "nav.directory": "Annuaire",
+  "nav.records": "Enregistrements",
   "page.service": "Service",
 
   // ── Overview ──
@@ -701,6 +702,29 @@ export const fr: Messages = {
   "record.notFound":
     "Il n'y a pas de page pour cet identifiant. Il s'agit peut-être d'un enregistrement d'un outil ou d'un pack que nous n'affichons pas ici.",
   "record.source": "Enregistrement ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Enregistrements",
+  "records.subtitle":
+    "Ce que vos outils ont apporté, du plus récent au plus ancien. Ouvrez-en un pour voir d’où il vient.",
+  "records.kind.transactions": "Transactions",
+  "records.kind.vendors": "Fournisseurs",
+  "records.kind.items": "Articles",
+  "records.search": "Rechercher",
+  "records.empty":
+    "Rien pour l’instant. Les enregistrements arrivent quand vos outils se synchronisent.",
+  "records.noMatch": "Rien ne correspond à « {q} ».",
+  "records.col.date": "Date",
+  "records.col.type": "Type",
+  "records.col.vendor": "Fournisseur",
+  "records.col.number": "Numéro",
+  "records.col.total": "Total",
+  "records.col.name": "Nom",
+  "records.col.transactions": "Transactions",
+  "records.col.description": "Description",
+  "records.col.source": "Source",
+  "records.range": "{from}–{to} sur {total}",
+  "records.previous": "Précédent",
+  "records.next": "Suivant",
 
   // ── Who approves ──
   "approvers.title": "Qui approuve",

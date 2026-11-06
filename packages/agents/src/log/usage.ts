@@ -2,7 +2,7 @@
 // office's usage screens and future billing. Recomputed from the rows, so running it twice for the
 // same day gives the same answer. Cost is summed by Postgres as numeric, never as a JS number.
 
-import { run, type Tx, usageDaily } from "@countersign/db";
+import { run, type Tx, usageDaily, usagePlatformDaily } from "@countersign/db";
 import { and, eq, sql } from "drizzle-orm";
 
 /** The most days one run's rollup recomputes (a run waiting longer is caught by the cron sweep). */
@@ -30,10 +30,13 @@ export function utcDaysBetween(from: string, to: string, max = USAGE_ROLLUP_MAX_
  */
 // DECISION: days are UTC days. Usage is the operator's (pricing), not the client's, so one clock
 // across clients keeps rollups comparable.
-// DECISION: `documents` counts the distinct documents a client agent's versions extracted that day
-// (doc_extraction.agent_version_id); documents read in the background, with no agent, are not
-// any agent's usage. Tool calls have no column of their own: their cost is their step's, and the
-// writes among them are `external_actions` (plan §1.15).
+// DECISION: `documents` counts the distinct documents a client agent worked on that day: those its
+// versions extracted (doc_extraction.agent_version_id), and (v0.12 W1-H, ARCHITECTURE §13) those
+// its live runs' steps cite in their `sources` (a document id, or an extraction's), so an agent
+// working on a document read in the background counts it. The background reading itself is the
+// client's usage (usage_platform_daily, rolled up below), never an agent's. Tool calls have no
+// column of their own: their cost is their step's, and the writes among them are
+// `external_actions` (plan §1.15).
 export async function rollupUsageDaily(
   tx: Tx,
   input: { tenantId: string; day: string },
@@ -71,12 +74,39 @@ export async function rollupUsageDaily(
         and ea.executed_at >= d.lo and ea.executed_at < d.hi
       group by run.agent_id
     ),
-    x as (
-      select av.agent_id, count(distinct de.document_id)::int as documents
+    read as (
+      select av.agent_id, de.document_id
       from doc_extraction de
       join agent_version av on av.id = de.agent_version_id and av.tenant_id = de.tenant_id, d
       where de.tenant_id = ${t} and de.created_at >= d.lo and de.created_at < d.hi
-      group by av.agent_id
+    ),
+    cited_ids as (
+      select run.agent_id, src.id
+      from step_run sr
+      join run on run.id = sr.run_id and run.tenant_id = sr.tenant_id
+      cross join lateral jsonb_array_elements_text(
+        (case when jsonb_typeof(sr.output -> 'sources') = 'array'
+              then sr.output -> 'sources' else '[]'::jsonb end)
+        || (case when jsonb_typeof(sr.input -> 'sources') = 'array'
+                 then sr.input -> 'sources' else '[]'::jsonb end)
+      ) as src(id), d
+      where sr.tenant_id = ${t} and run.mode = 'live'
+        and coalesce(sr.started_at, run.created_at) >= d.lo
+        and coalesce(sr.started_at, run.created_at) < d.hi
+    ),
+    cited as (
+      select c.agent_id, doc.id as document_id
+      from cited_ids c
+      join document doc on doc.tenant_id = ${t} and doc.id::text = c.id
+      union
+      select c.agent_id, dx.document_id
+      from cited_ids c
+      join doc_extraction dx on dx.tenant_id = ${t} and dx.id::text = c.id
+    ),
+    x as (
+      select agent_id, count(distinct document_id)::int as documents
+      from (select * from read union select * from cited) u
+      group by agent_id
     ),
     ids as (
       select agent_id from r union select agent_id from s
@@ -97,10 +127,48 @@ export async function rollupUsageDaily(
       external_actions = excluded.external_actions, tokens_in = excluded.tokens_in,
       tokens_out = excluded.tokens_out, cost_usd = excluded.cost_usd
   `);
+  await rollupPlatformDaily(tx, input);
   return tx
     .select()
     .from(usageDaily)
     .where(and(eq(usageDaily.tenantId, t), eq(usageDaily.day, input.day)));
+}
+
+/**
+ * v0.12 W1-H (ARCHITECTURE §13): recomputes one client's own usage for one day, the reading no
+ * agent asked for (uploads and forwarded mail: doc_extraction rows with no agent version), into
+ * usage_platform_daily. A day with no such reading writes no row.
+ */
+// DECISION: a background reading that fails writes no doc_extraction row, so its model call (if it
+// got that far) is not counted: rows are immutable and only a reading has one. Failures are rare,
+// and an agent's own failed docs.extract still counts on its step.
+export async function rollupPlatformDaily(
+  tx: Tx,
+  input: { tenantId: string; day: string },
+): Promise<(typeof usagePlatformDaily.$inferSelect)[]> {
+  const t = input.tenantId;
+  await tx.execute(sql`
+    with d as (
+      select ${input.day}::date as day,
+             (${input.day}::date)::timestamp at time zone 'UTC' as lo,
+             (${input.day}::date + 1)::timestamp at time zone 'UTC' as hi
+    )
+    insert into usage_platform_daily (tenant_id, day, documents, tokens_in, tokens_out, cost_usd)
+    select ${t}::uuid, d.day, count(distinct de.document_id)::int,
+           coalesce(sum(de.tokens_in), 0)::bigint, coalesce(sum(de.tokens_out), 0)::bigint,
+           coalesce(sum(de.cost_usd), 0)
+    from doc_extraction de, d
+    where de.tenant_id = ${t} and de.agent_version_id is null
+      and de.created_at >= d.lo and de.created_at < d.hi
+    group by d.day
+    on conflict (tenant_id, day) do update set
+      documents = excluded.documents, tokens_in = excluded.tokens_in,
+      tokens_out = excluded.tokens_out, cost_usd = excluded.cost_usd
+  `);
+  return tx
+    .select()
+    .from(usagePlatformDaily)
+    .where(and(eq(usagePlatformDaily.tenantId, t), eq(usagePlatformDaily.day, input.day)));
 }
 
 /** Recomputes each of `days` for one client. */

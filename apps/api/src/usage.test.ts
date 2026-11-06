@@ -22,6 +22,7 @@ import {
   stepRun,
   tenant,
   usageDaily,
+  usagePlatformDaily,
   withTenant,
 } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
@@ -198,6 +199,8 @@ describe.skipIf(!h)("usage and reports", () => {
         total: "10.0000",
         linesSum: "10.0000",
         totalsMatch: true,
+        // v0.12 W1-H: what the reading cost (a background one is the client's usage).
+        ...(versionId === null ? { tokensIn: 1200, tokensOut: 300, costUsd: "0.0125" } : {}),
         createdAt: new Date(new Date(at).getTime() + (i + 1) * 60_000),
       });
     }
@@ -335,9 +338,25 @@ describe.skipIf(!h)("usage and reports", () => {
       externalActions: 1,
       costUsd: "0.0004",
     });
-    // The background read belongs to no agent.
+    // The background read belongs to no agent: it is the client's own usage (v0.12 W1-H).
     const nov2 = await db.select().from(usageDaily).where(eq(usageDaily.day, "2026-11-02"));
     expect(nov2.reduce((n, r) => n + r.documents, 0)).toBe(1);
+    expect(
+      await db.select().from(usagePlatformDaily).where(eq(usagePlatformDaily.day, "2026-11-02")),
+    ).toEqual([
+      {
+        tenantId: H.A.tenantId,
+        day: "2026-11-02",
+        documents: 1,
+        tokensIn: 1200,
+        tokensOut: 300,
+        costUsd: "0.0125",
+      },
+    ]);
+    // A day with no background reading has no row.
+    expect(
+      await db.select().from(usagePlatformDaily).where(eq(usagePlatformDaily.day, "2026-10-15")),
+    ).toEqual([]);
     // Recomputing changes nothing.
     const before = await db.select().from(usageDaily);
     await rollupAll();
@@ -383,19 +402,27 @@ describe.skipIf(!h)("usage and reports", () => {
     expect(res.status).toBe(200);
     const u = j(res.json);
     expect(u.months).toEqual(["2026-10", "2026-11"]);
-    expect(u.total).toMatchObject({ runs: 6, steps: 9, documents: 1, costUsd: "0.8307" });
+    // The total and client A's row include its background reading (v0.12 W1-H): one document,
+    // $0.0125; no agent's or template's row does.
+    expect(u.total).toMatchObject({ runs: 6, steps: 9, documents: 2, costUsd: "0.8432" });
     expect(u.byMonth.map((m: { figures: { costUsd: string } }) => m.figures.costUsd)).toEqual([
       "0.3000",
-      "0.5307",
+      "0.5432",
     ]);
+    expect(u.background.total).toMatchObject({
+      runs: 0,
+      documents: 1,
+      tokensIn: 1200,
+      costUsd: "0.0125",
+    });
     // Client C is served by another operator: never here.
     expect(u.clients.map((c: { name: string; total: { costUsd: string } }) => c)).toMatchObject([
-      { id: H.A.tenantId, name: "Client A", total: { costUsd: "0.4307", runs: 5 } },
+      { id: H.A.tenantId, name: "Client A", total: { costUsd: "0.4432", runs: 5 } },
       { id: H.B.tenantId, name: "Client B", total: { costUsd: "0.4000", runs: 1 } },
     ]);
     expect(u.clients[0].byMonth).toMatchObject([
       { month: "2026-10", figures: { costUsd: "0.3000" } },
-      { month: "2026-11", figures: { costUsd: "0.1307" } },
+      { month: "2026-11", figures: { costUsd: "0.1432" } },
     ]);
     expect(u.agents).toMatchObject([
       {
@@ -430,10 +457,14 @@ describe.skipIf(!h)("usage and reports", () => {
       (await call(OPERATOR, "GET", `/api/ops/usage?${RANGE}&client=${H.A.tenantId}`)).json,
     );
     expect(a.clients.map((c: { id: string }) => c.id)).toEqual([H.A.tenantId]);
-    expect(a.total.costUsd).toBe("0.4307");
+    // Its agents' and its own background reading's (v0.12 W1-H).
+    expect(a.total.costUsd).toBe("0.4432");
+    expect(a.background.total.costUsd).toBe("0.0125");
     const t = j((await call(OPERATOR, "GET", `/api/ops/usage?${RANGE}&template=${ids.tpl}`)).json);
     expect(t.agents.map((x: { id: string }) => x.id).sort()).toEqual([ids.aA, ids.aB].sort());
+    // A template's usage has no background reading in it.
     expect(t.total.costUsd).toBe("0.7507");
+    expect(t.background).toBeUndefined();
     const one = j((await call(OPERATOR, "GET", `/api/ops/usage?${RANGE}&agent=${ids.aA2}`)).json);
     expect(one.agents.map((x: { id: string }) => x.id)).toEqual([ids.aA2]);
     expect(one.templates).toEqual([]);

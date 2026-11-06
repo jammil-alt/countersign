@@ -17,6 +17,8 @@ import {
   requestedClient,
 } from "../http";
 import { sessionLanguage } from "./language";
+// v0.12 W1-C
+import { sessionLead } from "./threads";
 
 function sendCookies(c: AppContext, cookies: readonly string[]) {
   for (const cookie of cookies) c.header("Set-Cookie", cookie, { append: true });
@@ -49,8 +51,10 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
         result.session,
         c.req.header("accept-language"),
       );
+      // v0.12 W1-C: the active client's lead, by name.
+      const lead = await sessionLead(services.db, result.session.activeTenantId);
       return c.json(
-        routes.session.response.parse({ ...toSessionResponse(result.session), language }),
+        routes.session.response.parse({ ...toSessionResponse(result.session), language, lead }),
       );
     } catch (error) {
       return errorResponse(c, error);

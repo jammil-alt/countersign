@@ -115,50 +115,45 @@ export async function matchReplies(
       e.tenantId === tenantId && (e.type === "message.received" || e.type === "call.completed"),
   );
   if (relevant.length === 0) return [];
-  return withTenant(db, tenantId, async (tx) => {
-    const woken: Wake[] = [];
-    for (const e of relevant) {
-      const p = (e.payload ?? {}) as Record<string, unknown>;
-      const contactId = typeof p.contactId === "string" ? p.contactId : null;
-      if (!contactId) continue;
-      const open = await openFor(tx, tenantId, contactId);
-      if (open.length === 0) continue;
-      if (e.type === "message.received") {
-        if (p.keyword === "stop") {
-          // An opt-out stops everything at once.
-          for (const row of open) {
-            const ended = await endReachOut(
-              tx,
-              row,
-              { outcome: "opted_out", reason: "the contact texted STOP" },
-              now,
-            );
-            if (ended) woken.push({ id: ended.id, runId: ended.runId });
-          }
-          continue;
+  return withTenant(db, tenantId, (tx) => matchRepliesIn(tx, tenantId, relevant, now));
+}
+
+/** matchReplies inside the caller's transaction (the dispatcher's, which claimed the events). */
+export async function matchRepliesIn(
+  tx: Tx,
+  tenantId: string,
+  events: readonly Pick<EventRow, "type" | "payload" | "tenantId">[],
+  now: Date,
+): Promise<Wake[]> {
+  const relevant = events.filter(
+    (e) =>
+      e.tenantId === tenantId && (e.type === "message.received" || e.type === "call.completed"),
+  );
+  const woken: Wake[] = [];
+  for (const e of relevant) {
+    const p = (e.payload ?? {}) as Record<string, unknown>;
+    const contactId = typeof p.contactId === "string" ? p.contactId : null;
+    if (!contactId) continue;
+    const open = await openFor(tx, tenantId, contactId);
+    if (open.length === 0) continue;
+    if (e.type === "message.received") {
+      if (p.keyword === "stop") {
+        // An opt-out stops everything at once.
+        for (const row of open) {
+          const ended = await endReachOut(
+            tx,
+            row,
+            { outcome: "opted_out", reason: "the contact texted STOP" },
+            now,
+          );
+          if (ended) woken.push({ id: ended.id, runId: ended.runId });
         }
-        if (p.keyword) continue;
-        const row = open[0] as ReachOutRow;
-        const reply: ReachReply = {
-          channel: (p.channel === "whatsapp" ? "whatsapp" : "sms") as ReachChannel,
-          text: await rawText(tx, tenantId, p.rawRecordId),
-          untrusted: true,
-          rawRecordId: typeof p.rawRecordId === "string" ? p.rawRecordId : null,
-          at: now.toISOString(),
-        };
-        const w = await recordReply(tx, row, reply, now);
-        if (w) woken.push(w);
         continue;
       }
-      // call.completed: they spoke with the voice agent, on our call or theirs.
-      if (p.outcome !== "answered") continue;
-      const ours = open.find((r) =>
-        ((r.attempts ?? []) as { ref?: string }[]).some((a) => a.ref === p.callSid),
-      );
-      const row = ours ?? (p.direction === "in" ? open[0] : undefined);
-      if (!row) continue;
+      if (p.keyword) continue;
+      const row = open[0] as ReachOutRow;
       const reply: ReachReply = {
-        channel: "voice",
+        channel: (p.channel === "whatsapp" ? "whatsapp" : "sms") as ReachChannel,
         text: await rawText(tx, tenantId, p.rawRecordId),
         untrusted: true,
         rawRecordId: typeof p.rawRecordId === "string" ? p.rawRecordId : null,
@@ -166,9 +161,26 @@ export async function matchReplies(
       };
       const w = await recordReply(tx, row, reply, now);
       if (w) woken.push(w);
+      continue;
     }
-    return woken;
-  });
+    // call.completed: they spoke with the voice agent, on our call or theirs.
+    if (p.outcome !== "answered") continue;
+    const ours = open.find((r) =>
+      ((r.attempts ?? []) as { ref?: string }[]).some((a) => a.ref === p.callSid),
+    );
+    const row = ours ?? (p.direction === "in" ? open[0] : undefined);
+    if (!row) continue;
+    const reply: ReachReply = {
+      channel: "voice",
+      text: await rawText(tx, tenantId, p.rawRecordId),
+      untrusted: true,
+      rawRecordId: typeof p.rawRecordId === "string" ? p.rawRecordId : null,
+      at: now.toISOString(),
+    };
+    const w = await recordReply(tx, row, reply, now);
+    if (w) woken.push(w);
+  }
+  return woken;
 }
 
 export async function wakeAll(instances: RunInstances | undefined, woken: readonly Wake[]) {
