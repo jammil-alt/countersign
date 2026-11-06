@@ -12,6 +12,7 @@ import { fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../../test/fix
 import { priceFromDraft } from "../agents/PricePanel";
 import { settingsFromDraft } from "./Billing";
 import { adjustmentFromDraft } from "./BillingStatement";
+import { moneyTotal } from "./business";
 
 const SANDBOX = "00000000-0000-4000-8000-00000000a001";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
@@ -278,6 +279,31 @@ describe("ops billing", () => {
       ],
     });
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
+  });
+
+  it("adds up the month across clients in decimals and moves to Usage by its tab", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/billing": () => BILLING,
+    });
+    renderAt("/ops/billing", api);
+    const total = await screen.findByTestId("ops-billing-month-total", {}, { timeout: 5000 });
+    // 106.24 + 106.24, and 43.1150 + 0.0003 of our cost: no float drift.
+    expect(total).toHaveTextContent("$212.48");
+    expect(total).toHaveTextContent("across 2 clients");
+    expect(screen.getByTestId("ops-billing-our-cost")).toHaveTextContent("$43.12");
+    expect(screen.getByTestId("ops-billing-to-review")).toHaveTextContent("Drafts waiting on you");
+    expect(screen.getByTestId("ops-billing-failed")).toHaveTextContent("1 of 2 clients set up");
+    await userEvent.click(screen.getByRole("link", { name: "Usage" }));
+    expect(await screen.findByTestId("ops-usage")).toBeInTheDocument();
+  });
+
+  it("adds money per currency, never as floats", () => {
+    expect(moneyTotal([])).toBe("$0.00");
+    expect(moneyTotal([usd("0.1000"), usd("0.2000")])).toBe("$0.30");
+    expect(moneyTotal([usd("1.0000"), { amount: "2.5000", currency: "EUR" }])).toBe(
+      "$1.00 + 2.50 EUR",
+    );
   });
 
   it("refuses a bad amount in the form without calling the API", async () => {

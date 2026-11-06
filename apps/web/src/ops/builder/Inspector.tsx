@@ -26,6 +26,8 @@ import {
   type Workflow,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { apiRoutes } from "../../api/routes";
+import { useApi } from "../../api/useApi";
 import { Icon } from "../../ui/icons";
 import { Badge, Button, cx } from "../../ui/primitives";
 import { KIND_LABEL } from "../workflow/describe";
@@ -207,7 +209,7 @@ const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
 
 function stepNumber(workflow: Workflow, id: string): string {
   const i = workflow.steps.findIndex((s) => s.id === id);
-  return i === -1 ? "Step" : `Step ${i + 2}`;
+  return i === -1 ? "Step" : `Step ${i + 1}`;
 }
 
 function StepInspector(props: InspectorProps & { step: Step }) {
@@ -238,6 +240,9 @@ function StepInspector(props: InspectorProps & { step: Step }) {
 
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
 
+      {step.kind === "skill" ? (
+        <ModelRow step={step} ctx={props.ctx} fieldErrors={fieldErrors} set={set} />
+      ) : null}
       {step.kind === "skill" || step.kind === "action" ? (
         <ApprovalSection {...props} set={set} />
       ) : null}
@@ -260,6 +265,63 @@ function StepInspector(props: InspectorProps & { step: Step }) {
 }
 
 type SetStep = (key: string, fn: (s: Step) => Step) => void;
+
+// v0.13 W2-H: the model a skill step runs on (ARCHITECTURE §10.11), from GET /api/ops/models,
+// over the skill's own (a task skill) or the agent's (an agent skill). A tool skill runs code and
+// takes no model, so the row isn't offered for one.
+function ModelRow({
+  step,
+  ctx,
+  fieldErrors,
+  set,
+}: {
+  step: Extract<Step, { kind: "skill" }>;
+  ctx: TypingContext;
+  fieldErrors: FieldErrors;
+  set: SetStep;
+}) {
+  const skill = lookupSkill(step.skill, ctx);
+  const models = useApi(apiRoutes.opsModels, skill?.mode === "tool" ? null : {});
+  if (skill?.mode === "tool") return null;
+  const options = models.data?.models ?? [];
+  const current = step.model?.id ?? "";
+  const fallback = skill?.mode === "task" ? "The skill's model" : "The agent's model";
+  return (
+    <Row
+      label="Model"
+      field="model"
+      errors={fieldErrors}
+      hint={
+        models.error
+          ? "Couldn't load the models; the step keeps its own."
+          : "Price per million tokens, in and out."
+      }
+    >
+      <SmallSelect
+        data-field="model"
+        data-testid="builder-inspector-model"
+        value={current}
+        onChange={(e) => {
+          const id = e.target.value;
+          set("model", (s) => {
+            const { model: _m, ...rest } = s as Extract<Step, { kind: "skill" }>;
+            return (id ? { ...rest, model: { id } } : rest) as Step;
+          });
+        }}
+      >
+        <option value="">{fallback}</option>
+        {current && !options.some((m) => m.id === current) ? (
+          <option value={current}>{current}</option>
+        ) : null}
+        {options.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label} · {m.id} · ${m.inputPerMtok} / ${m.outputPerMtok}
+          </option>
+        ))}
+      </SmallSelect>
+    </Row>
+  );
+}
 
 function KindFields(
   props: InspectorProps & {
@@ -1229,7 +1291,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
   return (
     <div className="flex flex-col gap-4">
       <Heading
-        eyebrow="Step 1 · Trigger"
+        eyebrow="Trigger"
         title="How it starts"
         intro="One trigger starts each run of this workflow."
       />

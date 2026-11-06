@@ -139,9 +139,10 @@ describe("AgentScreen", () => {
         ],
       }),
     });
-    const row = await screen.findByTestId("agent-trigger-t1");
+    // The Triggers screen (O7) reads the latest version's triggers; last fired comes from the list.
+    const row = await screen.findByTestId("trigger-row-t1");
     expect(row).toHaveTextContent("Event");
-    expect(row).toHaveTextContent("When a bill is created");
+    expect(row).toHaveTextContent("When bill.created");
     expect(row).toHaveTextContent("New bill");
     expect(row).toHaveTextContent("Never");
     expect(row).toHaveTextContent("On");
