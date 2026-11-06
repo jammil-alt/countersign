@@ -116,6 +116,12 @@ async function plannedDispatch(
     grant,
     stepApproval: "not_required",
     agentMode: "act",
+    // v0.12 W2-A: the entity and its scope hold at every attempt too.
+    entity: {
+      tool: tool.spec,
+      input: call.input,
+      declared: tool.connector.manifest.permissionEntities,
+    },
   });
   // v0.12 W1-G: a person's `off` stops the next attempt at once, even inside an approved plan
   // (docs/plan.md §1.42). `approval` was settled when the plan was made: the plan's sign covers it.

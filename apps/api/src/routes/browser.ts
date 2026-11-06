@@ -5,7 +5,7 @@
 // gets an agent identity at the code service) and may make it stricter, never looser. The login
 // itself goes through the write-only credentials route (routes/access.ts).
 
-import { BROWSER_CONNECTOR_ID, connectionDefaults } from "@countersign/connectors";
+import { BROWSER_CONNECTOR_ID } from "@countersign/connectors";
 import {
   BrowserConnectionConfig,
   type BrowserSiteProfile,
@@ -27,6 +27,7 @@ import { catalogue, catalogueForClient, siteView } from "../browser/sites";
 import { CodesServiceError, codesFor } from "../codes/client";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import { offeredTo } from "./connections";
+import { newConnectionMatrix } from "./ops-connectors";
 
 async function viewOf(tx: Tx, slug: string) {
   const [entry] = await catalogue(tx, [slug]);
@@ -207,7 +208,8 @@ export function browserRoutes(app: Hono<AppEnv>): void {
       tenantId,
       connector: BROWSER_CONNECTOR_ID,
       status: "pending",
-      permissions: connectionDefaults(connector.manifest),
+      // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+      permissions: await newConnectionMatrix(tx, connector.manifest),
       config,
     });
     await tx.insert(connectionChange).values({

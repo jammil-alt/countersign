@@ -10,7 +10,6 @@ import {
   type ConnectionRef,
   type Connector,
   completeAuthorization,
-  connectionDefaults,
   GMAIL_CONNECTOR_ID,
   GmailApiError,
   GmailNoAddressError,
@@ -45,6 +44,7 @@ import type { Platform } from "../platform";
 import { connectionCredentials, vaultFor } from "../secrets";
 import { opsConnection } from "./mappers";
 import { offeredConnectors, sandboxClient } from "./ops-clients";
+import { newConnectionMatrix } from "./ops-connectors";
 import { canSignIn, PERSONAL_CONNECTORS, portalConnections } from "./portal";
 import { qboSyncFor, startQboSync } from "./qbo";
 
@@ -111,7 +111,8 @@ export async function connectNoAuth(
       tenantId,
       connector: input.connector,
       status: "connected",
-      permissions: connectionDefaults(connector.manifest),
+      // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+      permissions: await newConnectionMatrix(tx, connector.manifest),
       connectedBy: input.actorId,
     })
     .returning();
@@ -359,7 +360,8 @@ async function finishSignIn(
       id,
       tenantId,
       connector: connectorId,
-      permissions: connectionDefaults(connector.manifest),
+      // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+      permissions: await newConnectionMatrix(tx, connector.manifest),
       config: done.grant.config ?? {},
       ...values,
     });

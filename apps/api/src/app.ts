@@ -45,6 +45,8 @@ import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
+// v0.12 W2-A: the connectors catalog
+import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
@@ -129,6 +131,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   tableRouteHandlers(app);
   // v0.12 W1-C
   threadRouteHandlers(app);
+  // v0.12 W2-A: the connectors catalog
+  opsConnectorRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

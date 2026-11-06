@@ -10,6 +10,8 @@ export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
 export * from "./api/compliance";
+// v0.12 W2-A: the connectors catalog
+export * from "./api/connectors";
 export * from "./api/contract";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
@@ -90,6 +92,7 @@ export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";
 export * from "./permissions/decide";
+export * from "./permissions/entities";
 export * from "./permissions/explain";
 export * from "./permissions/grants";
 export * from "./permissions/release";

@@ -21,6 +21,7 @@ import {
   isPlainObject,
   LEAD_ASSIGNEE,
   leadCheckLabel,
+  type PermissionEntity,
   portalRunFilter,
   type Role,
   routes,
@@ -196,6 +197,7 @@ export async function portalConnections(
     available: boolean;
     credentialForm: boolean;
     personal: boolean;
+    permissionEntities: PermissionEntity[];
     connection: {
       id: string;
       status: string;
@@ -243,6 +245,8 @@ export async function portalConnections(
       available: canSignIn(platform.connectors.get(id)),
       credentialForm: hasCredentialForm(platform.connectors.get(id)),
       personal: PERSONAL_CONNECTORS.has(id),
+      // v0.12 W2-A: the record types the matrix sets levels for.
+      permissionEntities: manifest?.permissionEntities ?? [],
       connection: c && {
         id: c.id,
         status: c.status,
@@ -499,10 +503,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       current: row.permissions,
       proposed: matrixEdit(body),
       by: "client",
+      // v0.12 W2-A: tighten-only per entity too (403 `loosening`).
+      declared: services.platform.connectors.get(row.connector)?.manifest.permissionEntities,
     });
     if (!r.ok) {
       const refusal: MatrixChangeRefusal = r;
-      throw new HttpError(403, refusal.reason, refusal.message);
+      // v0.12 W2-A: entities the connector doesn't have are a bad request, not a refusal.
+      const status = refusal.reason === "invalid_entities" ? 422 : 403;
+      throw new HttpError(status, refusal.reason, refusal.message);
     }
     if (r.changed) {
       await tx

@@ -14,6 +14,8 @@ import {
   changeFacts,
   decideToolCall,
   effectiveMode,
+  entityCeiling,
+  entityOfCall,
   explainWrite,
   fixedInputProblem,
   grantAllowsTool,
@@ -238,11 +240,35 @@ async function dispatch(
     stepApproval: step.approval?.required,
     agentMode: mode,
     ceilings: autonomy ? [autonomy] : undefined,
+    // v0.12 W2-A: the entity and its scope, on the connection and the grant.
+    entity: { tool: tool.spec, input, declared: tool.connector.manifest.permissionEntities },
   });
   // v0.12 W1-G: the person's own setting refuses before the matrix's words would.
   if (decision === "refused" && recipient && autonomy === "off") {
     return { status: "refused", reason: autonomyMessage(recipient.channel, "off") };
   }
+  // ── v0.12 W2-A: per-entity permissions (docs/plan.md §1.44) ──────────────────────────────────
+  // The entity the call works on, for the refusal's words and the explanation of a wait.
+  const entity = entityOfCall(tool.spec, input);
+  if (decision === "refused" && entity !== undefined) {
+    const verb = tool.spec.sideEffect === "none" ? "read" : tool.spec.verb;
+    const onConnection = entityCeiling({
+      tool: { ...tool.spec, verb },
+      input,
+      declared: tool.connector.manifest.permissionEntities,
+      matrix: conn.permissions,
+    });
+    if (levelFor(conn.permissions, verb) !== "off" && onConnection === "off") {
+      return {
+        status: "refused",
+        reason:
+          entity === null
+            ? `${tool.spec.id} names a record type the ${connectorId} connection doesn't know`
+            : `${tool.spec.id} is off for ${entity} on the ${connectorId} connection`,
+      };
+    }
+  }
+  // ── end v0.12 W2-A ──────────────────────────────────────────────────────────────────────────
   if (decision === "refused") {
     const verb = tool.spec.sideEffect === "none" ? "read" : tool.spec.verb;
     return {
@@ -345,6 +371,8 @@ async function dispatch(
               // v0.12 W1-G: the recipient's autonomy (reason `person` when it is `approval`).
               person: autonomy,
               route: { source: approver.source, ruleId: approver.ruleId },
+              // v0.12 W2-A: the entity, named when its own setting asked.
+              entity,
             }) as JsonObject,
           },
           // v0.12 W1-D: the items one step proposes are signed together.

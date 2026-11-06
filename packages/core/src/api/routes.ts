@@ -4,7 +4,7 @@ import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
-import { PermissionLevel } from "../schemas/permissions";
+import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
@@ -14,6 +14,8 @@ import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
 import { complianceRoutes } from "./compliance";
+// v0.12 W2-A: the connectors catalog
+import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
@@ -95,6 +97,8 @@ export const MatrixEdit = z.strictObject({
   update: PermissionLevel.optional(),
   delete: PermissionLevel.optional(),
   scope: z.unknown().optional(),
+  // v0.12 W2-A: when sent, the matrix's entities, whole; left out, they are kept (docs/plan.md §1.44).
+  entities: EntityPermissions.optional(),
 });
 
 export const ConnectionMatrix = z.object({
@@ -103,6 +107,8 @@ export const ConnectionMatrix = z.object({
   update: PermissionLevel,
   delete: PermissionLevel,
   scope: z.unknown().optional(),
+  // v0.12 W2-A: levels per entity (absent: every entity takes the verb's level).
+  entities: EntityPermissions.optional(),
 });
 
 export const ValidationErrorSchema = z.object({
@@ -406,6 +412,8 @@ export const ToolAccessSchema = z.object({
   verb: z.string(),
   level: PermissionLevel,
   access: z.enum(["runs", "asks_first", "steps_may_skip_approval", "not_allowed"]),
+  // v0.12 W2-A: the tool's entity; null when it has none or its input names it.
+  entity: z.string().nullable().optional(),
 });
 
 export const PortalConnection = z.object({
@@ -422,6 +430,8 @@ export const PortalConnection = z.object({
    * connected it; other tools are the client admin's.
    */
   personal: z.boolean().optional(),
+  // v0.12 W2-A: the record types the connector declares, for the entity rows of the matrix.
+  permissionEntities: z.array(PermissionEntity).optional(),
   connection: z
     .object({
       id: z.string(),
@@ -1826,5 +1836,7 @@ export const routes = {
   ...deskRoutes,
   // v0.12 W1-C
   ...threadRoutes,
+  // v0.12 W2-A: the connectors catalog
+  ...connectorRoutes,
 } as const;
 export type Routes = typeof routes;

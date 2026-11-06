@@ -6,10 +6,13 @@
 import { z } from "zod";
 import {
   DEFAULT_PERMISSIONS,
+  EntityPermissions,
+  type PermissionEntity,
   PermissionLevel,
   type PermissionMatrix,
   type Verb,
 } from "../schemas/permissions";
+import { entityProblems, loosenedEntities, readEntities } from "./entities";
 
 export const PERMISSION_VERBS: readonly Verb[] = ["read", "create", "update", "delete"];
 
@@ -30,6 +33,9 @@ export const GrantLimits = z
     verbs: GrantVerbs.optional(),
     /** The connector's tools the agent may call; absent = all of them. */
     tools: z.array(z.string().min(1).max(200)).max(GRANT_TOOLS_MAX).optional(),
+    // v0.12 W2-A: the same `entities` as a matrix (ARCHITECTURE §6.1): a ceiling per entity and
+    // verb, and scopes. An entity left out is not narrowed beyond the grant's verbs.
+    entities: EntityPermissions.optional(),
   })
   .meta({ id: "GrantLimits" });
 export type GrantLimits = z.infer<typeof GrantLimits>;
@@ -90,7 +96,9 @@ export function isRevoked(grant: GrantLimits | null | undefined): boolean {
 export function grantLoosening(
   before: GrantLimits | null | undefined,
   after: GrantLimits,
-): { verbs: Verb[]; tools: boolean } {
+  // v0.12 W2-A: the connector's entities, to judge a scope change.
+  declared?: readonly PermissionEntity[] | undefined,
+): { verbs: Verb[]; tools: boolean; entities: string[] } {
   const verbs = PERMISSION_VERBS.filter((v) =>
     isLooserLevel(grantLevel(after, v), grantLevel(before, v)),
   );
@@ -99,17 +107,27 @@ export function grantLoosening(
     was === undefined
       ? false
       : after.tools === undefined || after.tools.some((t) => !was.includes(t));
-  return { verbs, tools };
+  // v0.12 W2-A: an entity's own ceiling (its entry, else the grant's verb) made looser, or a
+  // scope widened.
+  const entities = loosenedEntities(
+    before,
+    after,
+    (g, v) => grantLevel(g as GrantLimits | null | undefined, v),
+    declared,
+  );
+  return { verbs, tools, entities };
 }
 
 /**
  * Problems with grant limits the operator sets on a connection: no verb above the connection's
- * matrix (a grant only narrows), and tools only from the connector's own.
+ * matrix (a grant only narrows), and tools only from the connector's own. v0.12 W2-A: entities
+ * the connector declares, each no looser than the connection's own level for that entity.
  */
 export function grantProblems(
   limits: GrantLimits,
   matrix: Partial<PermissionMatrix> | undefined,
   connectorTools: readonly string[],
+  declared?: readonly PermissionEntity[] | undefined,
 ): string[] {
   const problems: string[] = [];
   for (const verb of PERMISSION_VERBS) {
@@ -117,6 +135,19 @@ export function grantProblems(
     const ceiling = matrix?.[verb] ?? DEFAULT_PERMISSIONS[verb];
     if (level && isLooserLevel(level, ceiling)) {
       problems.push(`${verb} can't be ${level}: the connection allows ${ceiling} at most`);
+    }
+  }
+  // v0.12 W2-A
+  problems.push(...entityProblems(limits.entities, declared));
+  const own = readEntities(matrix) ?? {};
+  for (const [id, levels] of Object.entries(limits.entities ?? {})) {
+    const conn = Object.hasOwn(own, id) ? own[id] : undefined;
+    for (const verb of PERMISSION_VERBS) {
+      const level = levels[verb];
+      const ceiling = conn?.[verb] ?? matrix?.[verb] ?? DEFAULT_PERMISSIONS[verb];
+      if (level && isLooserLevel(level, ceiling)) {
+        problems.push(`${id} ${verb} can't be ${level}: the connection allows ${ceiling} at most`);
+      }
     }
   }
   for (const tool of limits.tools ?? []) {
@@ -140,6 +171,10 @@ export function normalizeGrant(limits: GrantLimits): GrantLimits {
   return {
     ...(Object.keys(verbs).length ? { verbs } : {}),
     ...(limits.tools ? { tools: [...limits.tools] } : {}),
+    // v0.12 W2-A: entities are kept as given, left out when there are none.
+    ...(limits.entities && Object.keys(limits.entities).length > 0
+      ? { entities: JSON.parse(JSON.stringify(limits.entities)) as EntityPermissions }
+      : {}),
   };
 }
 
