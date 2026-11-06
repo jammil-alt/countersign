@@ -48,7 +48,7 @@ turn API statuses into chip states. The chip's words are always the caller's, in
 
 ## Steps and activity
 
-- `StepList` (`steps.tsx`) — `steps`: `{ key, title, detail?, state, time?, children? }[]`, `state` one of
+- `StepList` (`steps.tsx`) — `steps`: `{ key, title, detail?, state, time?, children?, testId? }[]`, `state` one of
   `done`, `current`, `waiting`, `failed`, `person`, `todo`. A time column appears when any step has `time`.
   Each mark says its state in words for screen readers.
 - `ActivityRow` (`activity.tsx`) — `time`, `badge`, `children` (the text), `end` (a chip or receipt),

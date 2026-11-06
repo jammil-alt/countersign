@@ -1,41 +1,28 @@
-// `/access` (ARCHITECTURE §6.9, docs/plan.md §1.26 "Access page"): the client's vault. Every way
-// into the client's tools (a connection): what it is, whether its secret is stored (never the
-// secret), and each agent that can use it with what. The client admin enters an API-key tool's
-// login here, tightens or revokes an agent's access (never loosens: only we do), and disconnects;
-// a client user sees all of it read-only. The API enforces the same rules.
+// The vault's parts (ARCHITECTURE §6.9, docs/plan.md §1.26), shown on the portal's Accounts page
+// (C4): each way into the client's tools (a connection), whether its secret is stored (never the
+// secret), and each agent that can use it with what. The client admin enters a login (write-only),
+// sets a website login up, tightens or revokes an agent's access (never loosens: only we do), and
+// disconnects; a client user sees all of it read-only. The API enforces the same rules.
 import type { GrantLimits, PermissionLevel, Verb } from "@countersign/core";
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import type { ResponseOf } from "../../api/client";
-import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
-import { ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
-import {
-  isLooser,
-  LEVEL_LABEL,
-  LEVELS,
-  levelTone,
-  VERB_LABEL,
-  VERBS,
-} from "../../connections/matrix";
-import type { PlainKey } from "../../i18n/catalog";
-import { useI18n } from "../../i18n/i18n";
-import { shortTime } from "../../runs/format";
-import { Field, Select, TextInput } from "../../ui/forms";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-  SectionLabel,
-} from "../../ui/primitives";
-import { ReleaseSection } from "./AccessRelease";
+import { type ReactNode, useState } from "react";
+import type { ResponseOf } from "../api/client";
+import { apiRoutes } from "../api/routes";
+import { useApiClient } from "../api/useApi";
+import { ConnectorMark } from "../connections/ConnectorMark";
+import { isLooser, LEVEL_LABEL, LEVELS, levelTone, VERB_LABEL, VERBS } from "../connections/matrix";
+import type { PlainKey } from "../i18n/catalog";
+import { useI18n } from "../i18n/i18n";
+import { ReleaseSection } from "../portal/screens/AccessRelease";
+import { shortTime } from "../runs/format";
+import { AgentBadge } from "../ui/badges";
+import { Field, Select, TextInput } from "../ui/forms";
+import { Badge, Button, ErrorNotice } from "../ui/primitives";
+import { StatusChip } from "../ui/status";
 
-type View = ResponseOf<typeof apiRoutes.portalAccess>;
-type Item = View["items"][number];
+export type VaultView = ResponseOf<typeof apiRoutes.portalAccess>;
+export type VaultItem = VaultView["items"][number];
+type View = VaultView;
+type Item = VaultItem;
 type Setup = View["setup"][number];
 type SiteOffer = View["browserSites"][number];
 type BrowserInfo = NonNullable<Item["browser"]>;
@@ -62,7 +49,7 @@ const TIER_TONE: Record<Tier, "neutral" | "person" | "risk"> = {
   blocked: "risk",
 };
 
-function TierBadge({ tier }: { tier: Tier }) {
+export function TierBadge({ tier }: { tier: Tier }) {
   const { t } = useI18n();
   return (
     <Badge tone={TIER_TONE[tier]} testId="vault-browser-tier">
@@ -78,71 +65,284 @@ const KIND_LABEL: Record<Item["kind"], PlainKey> = {
   built_in: "vault.kind.built_in",
 };
 
-export function PortalAccessScreen() {
+/**
+ * Whether a vault item waits on the client: a website login that stopped, or a login nobody has
+ * entered yet. A signed-in tool's trouble shows on its connection instead.
+ */
+export function vaultItemNeedsYou(item: Item): boolean {
+  if (item.kind !== "browser" && item.kind !== "api_key") return false;
+  return Boolean(item.browser?.stopped) || (item.credentialForm && !item.secret.set);
+}
+
+/** A vault item's state in words: working, needs you, or the connection's own status. */
+function VaultStateChip({ item }: { item: Item }) {
   const { t } = useI18n();
-  const { data, error, loading, reload } = useApi(apiRoutes.portalAccess);
-  const items = data?.items.filter((i) => i.connector !== "upload") ?? [];
+  if (item.browser?.stopped) {
+    return (
+      <StatusChip state="waiting" testId="vault-item-state">
+        {t("accounts.vault.needsYou")}
+      </StatusChip>
+    );
+  }
+  if (vaultItemNeedsYou(item)) {
+    return (
+      <StatusChip state="waiting" testId="vault-item-state">
+        {t("accounts.vault.needsLogin")}
+      </StatusChip>
+    );
+  }
+  return item.status === "connected" ? (
+    <StatusChip state="done" testId="vault-item-state">
+      {t("accounts.vault.working")}
+    </StatusChip>
+  ) : (
+    <StatusChip state="idle" testId="vault-item-state">
+      {t("accounts.vault.notInUse")}
+    </StatusChip>
+  );
+}
+
+/**
+ * "Your vault" (C4's right rail): the logins for sites without a connection, each with its state
+ * and the agents that use it, and (for the client admin) the sites a login can be set up on.
+ */
+export function VaultCard({
+  view,
+  items,
+  adding,
+  onAdding,
+  onChanged,
+}: {
+  view: View;
+  /** The items this card lists (the page shows signed-in tools on their own cards). */
+  items: Item[];
+  adding: boolean;
+  onAdding: (open: boolean) => void;
+  onChanged: () => void;
+}) {
+  const { t } = useI18n();
+  const offers = view.canEdit ? view.browserSites : [];
+  const setups = view.canEdit ? view.setup : [];
   return (
-    <div>
-      <PageHeader title={t("vault.title")} subtitle={t("vault.subtitle")} />
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data ? (
-        <div className="flex flex-col gap-6">
-          {data.canEdit && data.browserSites.length > 0 ? (
-            <section data-testid="vault-browser-setup">
-              <SectionLabel>{t("vault.browser.setupTitle")}</SectionLabel>
-              <p className="mb-3 text-sm text-ink-muted">{t("vault.browser.setupHint")}</p>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {data.browserSites.map((s) => (
-                  <BrowserSetupCard key={s.slug} site={s} onSaved={reload} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-          {data.canEdit && data.setup.length > 0 ? (
-            <section data-testid="vault-setup">
-              <SectionLabel>{t("vault.setupTitle")}</SectionLabel>
-              <p className="mb-3 text-sm text-ink-muted">{t("vault.setupHint")}</p>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {data.setup.map((s) => (
-                  <SetupCard key={s.connector} setup={s} onSaved={reload} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-          <section>
-            <SectionLabel>{t("vault.itemsTitle", { count: items.length })}</SectionLabel>
-            {items.length === 0 ? (
-              <EmptyState>
-                {t("vault.none")}{" "}
-                <Link className="text-ink underline" to="/accounts">
-                  {t("vault.connectionsLink")}
-                </Link>
-              </EmptyState>
-            ) : (
-              <div className="flex flex-col gap-4" data-testid="vault-items">
-                {items.map((item) => (
-                  <VaultCard
-                    key={item.connectionId}
-                    item={item}
-                    canEdit={data.canEdit}
-                    people={data.people}
-                    onChanged={reload}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+    <div className="ds-card" data-testid="vault-card">
+      <div className="ui-card__head">
+        <div className="min-w-0">
+          <h2 className="type-subheading text-ink">{t("accounts.vault.title")}</h2>
+          <p className="text-sm text-ink-muted">{t("accounts.vault.subtitle")}</p>
         </div>
+        {view.canEdit ? (
+          <Button
+            size="sm"
+            data-testid="vault-add"
+            aria-expanded={adding}
+            onClick={() => onAdding(!adding)}
+          >
+            {adding ? t("accounts.vault.closeAdd") : t("accounts.vault.add")}
+          </Button>
+        ) : null}
+      </div>
+      <p className="ui-card__body text-sm text-ink-muted">{t("accounts.vault.note")}</p>
+      {adding && view.canEdit ? (
+        <div
+          className="flex flex-col gap-5 border-t border-line px-6 py-4"
+          data-testid="vault-add-panel"
+        >
+          {offers.length > 0 ? (
+            <section data-testid="vault-browser-setup" className="flex flex-col gap-3">
+              <h3 className="eyebrow text-ink-muted">{t("vault.browser.setupTitle")}</h3>
+              <p className="text-sm text-ink-muted">{t("vault.browser.setupHint")}</p>
+              {offers.map((s) => (
+                <BrowserSetupCard key={s.slug} site={s} onSaved={onChanged} />
+              ))}
+            </section>
+          ) : null}
+          {setups.length > 0 ? (
+            <section data-testid="vault-setup" className="flex flex-col gap-3">
+              <h3 className="eyebrow text-ink-muted">{t("vault.setupTitle")}</h3>
+              <p className="text-sm text-ink-muted">{t("vault.setupHint")}</p>
+              {setups.map((s) => (
+                <SetupCard key={s.connector} setup={s} onSaved={onChanged} />
+              ))}
+            </section>
+          ) : null}
+          {offers.length === 0 && setups.length === 0 ? (
+            <p className="text-sm text-ink-muted" data-testid="vault-no-offers">
+              {t("accounts.vault.noOffers")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {items.length === 0 ? (
+        <p
+          className="border-t border-line px-6 py-4 text-sm text-ink-muted"
+          data-testid="vault-empty"
+        >
+          {t("accounts.vault.empty")}
+        </p>
+      ) : (
+        <div data-testid="vault-items">
+          {items.map((item) => (
+            <VaultLogin
+              key={item.connectionId}
+              item={item}
+              canEdit={view.canEdit}
+              people={view.people}
+              onChanged={onChanged}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One login in the vault: what it is, its state, who uses it; its details on request. */
+function VaultLogin({
+  item,
+  canEdit,
+  people,
+  onChanged,
+}: {
+  item: Item;
+  canEdit: boolean;
+  people: View["people"];
+  onChanged: () => void;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const [open, setOpen] = useState(false);
+  const identity = item.browser?.identity?.email;
+  return (
+    <div
+      className="flex flex-col gap-2 border-t border-line px-6 py-4"
+      data-testid={
+        item.browser
+          ? `vault-item-browser-${item.browser.site.slug}`
+          : `vault-item-${item.connector}`
+      }
+    >
+      <div className="flex items-start gap-3">
+        <ConnectorMark name={item.name} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="font-medium text-ink">{item.name}</p>
+            <VaultStateChip item={item} />
+          </div>
+          <p className="text-sm break-words text-ink-muted">
+            {identity
+              ? t("accounts.vault.agentLogin", { email: identity })
+              : t(KIND_LABEL[item.kind])}
+          </p>
+        </div>
+      </div>
+      {item.browser?.stopped ? (
+        <p className="text-sm ui-tone-risk" data-testid="vault-browser-stopped">
+          {t("vault.browser.stopped", { reason: item.browser.stopped.reason })}
+        </p>
+      ) : null}
+      <AgentsLine names={item.agents.filter((a) => !a.revoked).map((a) => a.name)} />
+      {item.secret.updatedAt ? (
+        <p className="text-sm text-ink-muted">
+          {t("vault.updated", { time: shortTime(item.secret.updatedAt, undefined, i18n) })}
+        </p>
+      ) : null}
+      <LoginEditor item={item} canEdit={canEdit} onChanged={onChanged}>
+        <Button
+          size="sm"
+          variant="ghost"
+          data-testid="vault-item-open"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {open ? t("accounts.vault.hideDetails") : t("accounts.vault.details")}
+        </Button>
+      </LoginEditor>
+      {open ? (
+        <VaultDetails
+          item={item}
+          canEdit={canEdit}
+          people={people}
+          onChanged={onChanged}
+          withDisconnect
+        />
       ) : null}
     </div>
   );
 }
 
-function SetupCard({ setup, onSaved }: { setup: Setup; onSaved: () => void }) {
+/** "PI Pia · IR Iris": the agents that use a connection, by name. */
+export function AgentsLine({ names }: { names: string[] }) {
+  const { t } = useI18n();
+  if (names.length === 0) {
+    return <p className="text-sm text-ink-muted">{t("vault.noAgents")}</p>;
+  }
   return (
-    <Card testId={`vault-setup-${setup.connector}`} className="p-4">
+    <ul
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5"
+      aria-label={t("vault.agentsTitle")}
+    >
+      {names.map((name) => (
+        <li key={name} className="flex items-center gap-1.5 text-sm text-ink">
+          <AgentBadge name={name} size="sm" />
+          {name}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Enter or replace a login (every field, each time; nothing is shown back), with any other
+ * buttons of the row beside it.
+ */
+export function LoginEditor({
+  item,
+  canEdit,
+  onChanged,
+  children,
+}: {
+  item: Item;
+  canEdit: boolean;
+  onChanged: () => void;
+  children?: ReactNode;
+}) {
+  const { t } = useI18n();
+  const [replacing, setReplacing] = useState(false);
+  const canReplace = canEdit && item.credentialForm;
+  return (
+    <>
+      {(canReplace && !replacing) || children ? (
+        <div className="flex flex-wrap gap-2">
+          {canReplace && !replacing ? (
+            <Button size="sm" data-testid="vault-replace" onClick={() => setReplacing(true)}>
+              {item.secret.set ? t("vault.replaceKey") : t("vault.enterKey")}
+            </Button>
+          ) : null}
+          {children}
+        </div>
+      ) : null}
+      {replacing ? (
+        <CredentialForm
+          connector={item.connector}
+          {...(item.browser ? { connectionId: item.connectionId } : {})}
+          fields={item.secret.fields}
+          onSaved={() => {
+            setReplacing(false);
+            onChanged();
+          }}
+          onCancel={() => setReplacing(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function SetupCard({ setup, onSaved }: { setup: Setup; onSaved: () => void }) {
+  return (
+    <div
+      data-testid={`vault-setup-${setup.connector}`}
+      className="rounded-md border border-line p-4"
+    >
       <div className="mb-3 flex items-start gap-3">
         <ConnectorMark name={setup.name} />
         <div className="min-w-0">
@@ -155,7 +355,7 @@ function SetupCard({ setup, onSaved }: { setup: Setup; onSaved: () => void }) {
         fields={setup.fields.map((f) => ({ ...f, hint: f.hint ?? null, value: null }))}
         onSaved={onSaved}
       />
-    </Card>
+    </div>
   );
 }
 
@@ -164,7 +364,7 @@ function SetupCard({ setup, onSaved }: { setup: Setup; onSaved: () => void }) {
  * the client owns the account and the site's terms allow automated access, and for sites with an
  * authenticator app its setup link (sent on to the code service, never kept or shown).
  */
-function BrowserSetupCard({ site, onSaved }: { site: SiteOffer; onSaved: () => void }) {
+export function BrowserSetupCard({ site, onSaved }: { site: SiteOffer; onSaved: () => void }) {
   const { t } = useI18n();
   const api = useApiClient();
   const [confirmed, setConfirmed] = useState(false);
@@ -194,7 +394,10 @@ function BrowserSetupCard({ site, onSaved }: { site: SiteOffer; onSaved: () => v
   }
 
   return (
-    <Card testId={`vault-browser-offer-${site.slug}`} className="p-4">
+    <div
+      data-testid={`vault-browser-offer-${site.slug}`}
+      className="rounded-md border border-line p-4"
+    >
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-3">
           <ConnectorMark name={site.name} />
@@ -239,7 +442,7 @@ function BrowserSetupCard({ site, onSaved }: { site: SiteOffer; onSaved: () => v
           {t("vault.browser.setUp")}
         </Button>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -313,11 +516,7 @@ function BrowserDetails({
           ? ` · ${t("vault.browser.version", { version: browser.siteVersion })}`
           : ""}
       </p>
-      {browser.stopped ? (
-        <div className="ds-banner block" data-testid="vault-browser-stopped">
-          {t("vault.browser.stopped", { reason: browser.stopped.reason })}
-        </div>
-      ) : null}
+      {/* Why it stopped is on the login's row (VaultLogin), always in view. */}
       {editing ? (
         <div className="flex flex-col gap-2" data-testid="vault-browser-stricter">
           {(
@@ -460,21 +659,27 @@ function CredentialForm({
   );
 }
 
-function VaultCard({
+/**
+ * A vault item's details: for a website login its site, tier and agent identity; whether each
+ * login field is set (a secret's value never); each agent's access, which the client admin may
+ * tighten or revoke; human release; and, where asked, Disconnect.
+ */
+export function VaultDetails({
   item,
   canEdit,
   people,
   onChanged,
+  withDisconnect,
 }: {
   item: Item;
   canEdit: boolean;
   people: View["people"];
   onChanged: () => void;
+  /** The connection's own card has its Disconnect; a vault row shows one here. */
+  withDisconnect?: boolean;
 }) {
-  const i18n = useI18n();
-  const { t } = i18n;
+  const { t } = useI18n();
   const api = useApiClient();
-  const [replacing, setReplacing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const connected = item.status === "connected";
@@ -491,37 +696,7 @@ function VaultCard({
   }
 
   return (
-    <Card
-      testId={
-        item.browser
-          ? `vault-item-browser-${item.browser.site.slug}`
-          : `vault-item-${item.connector}`
-      }
-      className="p-4"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <ConnectorMark name={item.name} />
-          <div className="min-w-0">
-            <p className="font-medium text-ink">{item.name}</p>
-            <p className="text-sm text-ink-muted">
-              {t(KIND_LABEL[item.kind])}
-              {item.externalAccountId ? ` · ${item.externalAccountId}` : ""}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={connected ? "positive" : "neutral"}>
-            {connectionStatusLabel(item.status, i18n)}
-          </Badge>
-          {item.kind !== "built_in" ? (
-            <Badge testId="vault-secret-state" tone={item.secret.set ? "positive" : "neutral"}>
-              {item.secret.set ? t("vault.secretSet") : t("vault.secretNotSet")}
-            </Badge>
-          ) : null}
-        </div>
-      </div>
-
+    <div className="flex flex-col gap-4" data-testid="vault-details">
       {item.browser ? (
         <BrowserDetails
           item={item}
@@ -531,44 +706,33 @@ function VaultCard({
         />
       ) : null}
 
-      {item.secret.fields.length > 0 ? (
-        <dl
-          className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm"
-          data-testid="vault-fields"
-        >
-          {item.secret.fields.map((f) => (
-            <div key={f.name} className="contents">
-              <dt className="text-ink-muted">{f.label}</dt>
-              <dd className="text-ink">
-                {f.value ?? (f.set ? t("vault.fieldSet") : t("vault.fieldNotSet"))}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      {item.secret.updatedAt ? (
-        <p className="mt-2 text-sm text-ink-muted">
-          {t("vault.updated", { time: shortTime(item.secret.updatedAt, undefined, i18n) })}
-        </p>
-      ) : null}
-
-      {replacing ? (
-        <div className="mt-3">
-          <CredentialForm
-            connector={item.connector}
-            {...(item.browser ? { connectionId: item.connectionId } : {})}
-            fields={item.secret.fields}
-            onSaved={() => {
-              setReplacing(false);
-              onChanged();
-            }}
-            onCancel={() => setReplacing(false)}
-          />
+      {item.kind !== "built_in" ? (
+        <div className="flex flex-col gap-2">
+          <div>
+            <Badge testId="vault-secret-state" tone={item.secret.set ? "positive" : "neutral"}>
+              {item.secret.set ? t("vault.secretSet") : t("vault.secretNotSet")}
+            </Badge>
+          </div>
+          {item.secret.fields.length > 0 ? (
+            <dl
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm"
+              data-testid="vault-fields"
+            >
+              {item.secret.fields.map((f) => (
+                <div key={f.name} className="contents">
+                  <dt className="text-ink-muted">{f.label}</dt>
+                  <dd className="break-words text-ink">
+                    {f.value ?? (f.set ? t("vault.fieldSet") : t("vault.fieldNotSet"))}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="mt-4">
-        <p className="mb-2 text-sm font-medium text-ink">{t("vault.agentsTitle")}</p>
+      <div>
+        <h4 className="eyebrow mb-2 text-ink-muted">{t("vault.agentsTitle")}</h4>
         {item.agents.length === 0 ? (
           <p className="text-sm text-ink-muted">{t("vault.noAgents")}</p>
         ) : (
@@ -588,31 +752,21 @@ function VaultCard({
 
       <ReleaseSection item={item} people={people} canEdit={canEdit} onChanged={onChanged} />
 
-      {error ? (
-        <div className="mt-3">
-          <ErrorNotice error={error} />
-        </div>
-      ) : null}
-      {canEdit ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {item.credentialForm && !replacing ? (
-            <Button data-testid="vault-replace" onClick={() => setReplacing(true)}>
-              {item.secret.set ? t("vault.replaceKey") : t("vault.enterKey")}
-            </Button>
-          ) : null}
-          {connected && !confirming ? (
-            <Button
-              data-testid="vault-disconnect"
-              variant="ghost"
-              onClick={() => setConfirming(true)}
-            >
-              {t("connections.disconnect")}
-            </Button>
-          ) : null}
+      {error ? <ErrorNotice error={error} /> : null}
+      {withDisconnect && canEdit && connected && !confirming ? (
+        <div>
+          <Button
+            data-testid="vault-disconnect"
+            size="sm"
+            variant="ghost"
+            onClick={() => setConfirming(true)}
+          >
+            {t("connections.disconnect")}
+          </Button>
         </div>
       ) : null}
       {confirming ? (
-        <div className="ds-banner mt-3 block">
+        <div className="ds-banner block">
           <p>{t("connections.disconnectWarning", { tool: item.name })}</p>
           <div className="mt-2 flex gap-2">
             <Button
@@ -628,10 +782,9 @@ function VaultCard({
           </div>
         </div>
       ) : null}
-    </Card>
+    </div>
   );
 }
-
 function AgentRow({
   item,
   access,

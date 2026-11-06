@@ -51,13 +51,13 @@ export function portalSearchGroups(r: PortalSearchResult, t: Translate): SearchG
       hits: [
         ...r.people.map((p) => ({
           key: `p:${p.id}`,
-          href: "/people/directory",
+          href: `/people?person=${encodeURIComponent(p.id)}`,
           title: p.name,
           meta: dot(p.title, p.organization?.name, p.email),
         })),
         ...r.organizations.map((o) => ({
           key: `o:${o.id}`,
-          href: "/people/directory",
+          href: "/people/organizations",
           title: o.name,
           meta: o.website ?? undefined,
         })),

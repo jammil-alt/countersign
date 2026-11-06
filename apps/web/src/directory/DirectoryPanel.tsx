@@ -93,7 +93,8 @@ const FIELD_KEY: Record<string, PlainKey> = {
   address: "directory.field.address",
 };
 
-type Tab = "people" | "organizations" | "import" | "suggestions";
+export type DirectoryTab = "people" | "organizations" | "import" | "suggestions";
+type Tab = DirectoryTab;
 
 function problem(error: unknown, i18n: I18n): string {
   return isApiError(error) ? errorText(error, i18n) : i18n.t("directory.notSaved");
@@ -215,12 +216,15 @@ type DirectoryApi = ReturnType<typeof useDirectoryApi>;
 export function DirectoryPanel({
   surface,
   canEdit,
+  only,
 }: {
   surface: DirectorySurface;
   canEdit: boolean;
+  /** The tabs to offer (the portal's People page lists people itself); every tab when left out. */
+  only?: readonly Tab[];
 }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<Tab>("people");
+  const [tab, setTab] = useState<Tab>(only?.[0] ?? "people");
   const [q, setQ] = useState("");
   const [relationship, setRelationship] = useState<Relationship | "">("");
   const [kind, setKind] = useState<OrganizationKind | "">("");
@@ -231,7 +235,7 @@ export function DirectoryPanel({
   };
   const d = useDirectoryApi(surface, query);
   const { data, error, loading, reload } = d.list;
-  const tabs: { id: Tab; label: string; count?: number }[] = [
+  const allTabs: { id: Tab; label: string; count?: number }[] = [
     { id: "people", label: t("directory.tab.people") },
     { id: "organizations", label: t("directory.tab.organizations") },
     ...(canEdit
@@ -245,6 +249,7 @@ export function DirectoryPanel({
         ]
       : []),
   ];
+  const tabs = only ? allTabs.filter((x) => only.includes(x.id)) : allTabs;
 
   return (
     <section data-testid="directory-panel">
@@ -443,7 +448,7 @@ function People({
   );
 }
 
-function PersonForm({
+export function PersonForm({
   person,
   organizations,
   onSubmit,
