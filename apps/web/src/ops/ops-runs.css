@@ -1,0 +1,153 @@
+/* The back office's command center, runs list and run page (UI-2a; docs/design/prototype.html
+ * `#O1-Command`, `#O9-Runs`, `#O10-RunDetail`). Tokens only: no raw colours, radii, fonts or
+ * shadows. Borders, not shadows. */
+
+/* Six figures in a row, folding as the page narrows. */
+.ops-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
+}
+.ops-tiles .ui-stat {
+  padding: var(--space-4) var(--space-4-5);
+}
+
+/* A card's list rows ("Needs us", client health, same error elsewhere). */
+.ops-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3-5) var(--space-6);
+}
+.ops-row + .ops-row {
+  border-top: 1px solid var(--line);
+}
+.ops-row__text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A grouped table's group row ("Harbor Millwork · 4 agents"). */
+.dt tr.ops-group td {
+  height: 36px;
+  background: var(--surface-subtle);
+}
+.dt tr.is-selected td,
+.dt tr.is-selected:hover td {
+  background: var(--slate-tint);
+}
+
+/* A figure tile that is also a button (an error group that filters the list). */
+.ops-pick {
+  all: unset;
+  display: block;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+.ops-pick:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.ops-pick[aria-pressed="true"] .ui-stat {
+  border-color: var(--slate);
+}
+
+/* The runs list's filter bar: chips, then the question box. */
+.ops-query {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.ops-query input {
+  all: unset;
+  min-width: 200px;
+  flex: 1;
+  font: 400 13px / 28px var(--font-sans);
+  color: var(--ink);
+}
+.ops-query input::placeholder {
+  color: var(--ink-muted);
+}
+.ops-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  font: 500 12px / 18px var(--font-mono);
+  color: var(--ink);
+}
+.ops-chip b {
+  font-weight: 600;
+}
+.ops-chip button {
+  all: unset;
+  cursor: pointer;
+  color: var(--ink-muted);
+}
+.ops-chip button:hover {
+  color: var(--ink);
+}
+
+/* "About this run": label and value in two columns. */
+.ops-facts {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+  gap: var(--space-2-5) var(--space-4);
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.ops-facts dt {
+  color: var(--ink-muted);
+}
+.ops-facts dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Raw data: a tool call, an input, a model call's request. */
+.ops-code {
+  overflow-x: auto;
+  margin: 0;
+  padding: var(--space-3) var(--space-3-5);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  font: 400 12px / 18px var(--font-mono);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A timeline step's head: its title on the left, its time, cost and tokens on the right. */
+.ops-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+.ops-step-meta {
+  font: 500 12px / 20px var(--font-mono);
+  color: var(--ink-muted);
+}
+
+@media (max-width: 767.98px) {
+  .ops-row {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+  .ops-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

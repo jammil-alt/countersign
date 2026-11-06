@@ -107,8 +107,11 @@ describe("app", () => {
     await user.click(operator);
     expect(api.signedInAs()).toBe("operator@example.com");
 
-    // Operators land in the back office.
-    await user.click(await screen.findByTestId("ops-client-00000000-0000-4000-8000-00000000a001"));
+    // Operators land in the back office's command center; a client opens from the sidebar.
+    expect(await screen.findByTestId("ops-command")).toBeInTheDocument();
+    await user.click(
+      await screen.findByTestId("ops-nav-client-00000000-0000-4000-8000-00000000a001"),
+    );
     const card = await screen.findByTestId("ops-agent-card-material-costs");
     expect(within(card).getByText("Live")).toBeInTheDocument();
     await user.click(within(card).getByText("Material costs"));
