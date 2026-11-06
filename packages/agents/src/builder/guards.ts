@@ -18,6 +18,8 @@ import {
   type Approval,
   type BundleWorkflow,
   isPlainObject,
+  NEW_AGENT_OVERSIGHT,
+  OversightSettings,
   parseSkillRef,
   type SkillDefinition,
   type Step,
@@ -34,6 +36,13 @@ export interface GuardOptions {
   mode: "draft" | "revise";
   /** The version a revision starts from. */
   source?: AgentBundle;
+  /**
+   * v0.12 W3-A: in a conversation, the operator's version the session started from (null for a
+   * new agent). When given, the operator's rules (mode, budgets, memory, oversight, approvals the
+   * operator switched off) follow it, while ids and skill references follow `source`, the working
+   * draft, so the guards hold across turns.
+   */
+  origin?: AgentBundle | null;
   /** Fresh node ids (uuid v7 by default; tests pass a counter). */
   newId?: () => string;
 }
@@ -49,8 +58,9 @@ export interface GuardResult {
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Every node id of a workflow, in order: trigger, then steps, paths and otherwise branches. */
-function workflowNodeIds(w: BundleWorkflow["workflow"]): string[] {
-  const ids = [w.trigger.id];
+export function workflowNodeIds(w: BundleWorkflow["workflow"]): string[] {
+  // v0.12 W3-A: other triggers (W2-E) have ids too.
+  const ids = [w.trigger.id, ...(w.moreTriggers ?? []).map((t) => t.id)];
   walkSteps(w, ({ step }) => {
     ids.push(step.id);
     if (step.kind === "fork") {
@@ -61,14 +71,38 @@ function workflowNodeIds(w: BundleWorkflow["workflow"]): string[] {
   return ids;
 }
 
+/**
+ * `text.replace(/\{\{([^}]*)\}\}/g, (_, inner) => fn(inner))` without the regular expression,
+ * which is quadratic on a long run of `{{` with no `}}` (CodeQL js/polynomial-redos). Same
+ * matches: from each `{{`, the inner text runs to the first `}`, which must start `}}`.
+ */
+export function replaceTemplates(text: string, fn: (inner: string) => string): string {
+  let out = "";
+  let from = 0;
+  let at = text.indexOf("{{");
+  while (at !== -1) {
+    const close = text.indexOf("}", at + 2);
+    if (close === -1) break;
+    if (text.charCodeAt(close + 1) === 125) {
+      out += text.slice(from, at) + fn(text.slice(at + 2, close));
+      from = close + 2;
+      at = text.indexOf("{{", from);
+    } else {
+      // Every `{{` before this `}` meets the same lone `}`, so none of them can match.
+      at = text.indexOf("{{", close + 1);
+    }
+  }
+  return out + text.slice(from);
+}
+
 /** Rewrites `steps.<old>` inside every `{{…}}` of every string under `value`. */
-function rewriteRefs(value: unknown, map: ReadonlyMap<string, string>): unknown {
+export function rewriteRefs(value: unknown, map: ReadonlyMap<string, string>): unknown {
   if (typeof value === "string") {
     if (!value.includes("{{")) return value;
     const ref = /(^|[^A-Za-z0-9_.])steps\.([A-Za-z0-9][A-Za-z0-9_-]*)/g;
-    return value.replace(
-      /\{\{([^}]*)\}\}/g,
-      (_whole, inner: string) =>
+    return replaceTemplates(
+      value,
+      (inner) =>
         `{{${inner.replace(ref, (m, pre: string, id: string) => {
           const to = map.get(id);
           return to ? `${pre}steps.${to}` : m;
@@ -122,11 +156,16 @@ export function assignIds(
         return { ...s, id };
       });
     const trigger = { ...bw.workflow.trigger, id: take(bw.workflow.trigger.id) };
+    // v0.12 W3-A: other triggers' ids follow the same rule.
+    const more = bw.workflow.moreTriggers?.map((t) => ({ ...t, id: take(t.id) }));
     const steps = renameSteps(bw.workflow.steps);
     let slug = bw.slug;
     for (let n = 2; slugs.has(slug); n += 1) slug = `${bw.slug}-${n}`;
     slugs.add(slug);
-    const workflow = rewriteRefs({ ...bw.workflow, trigger, steps }, map) as typeof bw.workflow;
+    const workflow = rewriteRefs(
+      { ...bw.workflow, trigger, ...(more ? { moreTriggers: more } : {}), steps },
+      map,
+    ) as typeof bw.workflow;
     return { ...bw, slug, workflow };
   });
   return { ...bundle, workflows };
@@ -217,7 +256,10 @@ export function guardBundle(
     def.kind = "functional";
     note("The Builder makes functional agents; platform agents are seeded.");
   }
-  const mode = source ? source.definition.permissions.mode : "suggest_only";
+  // v0.12 W3-A: in a conversation the operator's rules follow the version it started from (none for
+  // a new agent), whatever earlier turns made of the working draft.
+  const operatorSource = options.origin !== undefined ? options.origin : source;
+  const mode = operatorSource ? operatorSource.definition.permissions.mode : "suggest_only";
   if (def.permissions.mode !== mode) {
     note(
       mode === "suggest_only"
@@ -226,10 +268,22 @@ export function guardBundle(
     );
     def.permissions = { ...def.permissions, mode };
   }
-  if (source) {
+  const budgetSource = operatorSource ?? source;
+  if (budgetSource) {
     // What an agent may spend and remember is the operator's to set.
-    def.budgets = source.definition.budgets;
-    def.memory = source.definition.memory;
+    def.budgets = budgetSource.definition.budgets;
+    def.memory = budgetSource.definition.memory;
+  }
+  // v0.13 W2-I / v0.12 W3-A: oversight is the operator's on an existing agent; a new agent from
+  // the Builder reviews its failed steps at least (ARCHITECTURE §10.11).
+  if (operatorSource) {
+    if (operatorSource.definition.oversight === undefined) delete def.oversight;
+    else def.oversight = operatorSource.definition.oversight;
+  } else if (def.oversight === undefined || def.oversight.review === "off") {
+    if (def.oversight?.review === "off") {
+      note("It reviews its failed steps: new agents start with oversight on failures.");
+    }
+    def.oversight = OversightSettings.parse(NEW_AGENT_OVERSIGHT);
   }
 
   const skillList: AgentBundle["definition"]["skills"] = [];
@@ -337,6 +391,33 @@ export function guardBundle(
     for (const w of source.workflows) for (const id of workflowNodeIds(w.workflow)) keep.add(id);
   let bundle = assignIds({ ...input, definition: def, workflows }, keep, newId);
 
+  // ── v0.13 W2-H / v0.12 W3-A: a step's model is one the platform prices, never on a tool skill ──
+  const models = ctx.models ? new Set(ctx.models) : null;
+  let modelsDropped = 0;
+  bundle = {
+    ...bundle,
+    workflows: bundle.workflows.map((bw) => ({
+      ...bw,
+      workflow: {
+        ...bw.workflow,
+        steps: mapSteps(bw.workflow.steps, (s) => {
+          if (s.kind !== "skill" || s.model === undefined) return s;
+          const d = skillsById.get(parseSkillRef(s.skill).id);
+          const unknown = models !== null && !models.has(s.model.id);
+          if (!unknown && d?.mode !== "tool") return s;
+          modelsDropped += 1;
+          const { model: _m, ...rest } = s;
+          return rest as Step;
+        }),
+      },
+    })),
+  };
+  if (modelsDropped > 0) {
+    note(
+      `${plural(modelsDropped, "step")} kept the model ${modelsDropped === 1 ? "its skill or agent" : "their skills or agent"} runs on: the one asked for is unknown, or the skill runs as code.`,
+    );
+  }
+
   // ── Approval: on for every write step unless the operator had it off on that step ─────────────
   const typing: TypingContext = {
     tools: Object.fromEntries(ctx.tools.map((t) => [t.id, t])) as Record<string, ToolSpec>,
@@ -347,7 +428,7 @@ export function guardBundle(
       }),
     ),
   };
-  const before = source ? stepsOf(source) : new Map<string, Step>();
+  const before = operatorSource ? stepsOf(operatorSource) : new Map<string, Step>();
   let turnedOn = 0;
   bundle = {
     ...bundle,
@@ -356,6 +437,26 @@ export function guardBundle(
       workflow: {
         ...bw.workflow,
         steps: mapSteps(bw.workflow.steps, (s) => {
+          // v0.12 W3-A: a use step's overrides never switch an inner step's approval off, unless
+          // the operator had that same override on that same step.
+          if (s.kind === "use_automation" && s.approvals) {
+            const was = before.get(s.id);
+            const kept = Object.entries(s.approvals).filter(([inner, a]) => {
+              if (a.required !== "not_required") return true;
+              const prior = was?.kind === "use_automation" ? was.approvals : undefined;
+              const same = prior
+                ? Object.entries(prior).some(
+                    ([k, p]) => k === inner && p.required === "not_required",
+                  )
+                : false;
+              if (!same) turnedOn += 1;
+              return same;
+            });
+            const { approvals: _drop, ...rest } = s;
+            return (
+              kept.length > 0 ? { ...rest, approvals: Object.fromEntries(kept) } : rest
+            ) as Step;
+          }
           const approval = approvalOf(s);
           if (approval?.required !== "not_required") return s;
           const was = before.get(s.id);

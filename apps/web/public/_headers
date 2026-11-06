@@ -15,3 +15,16 @@
   Referrer-Policy: same-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
+
+# v0.14 W4-D: Google Sheets' picking page only (docs/plan.md §1.52), loaded as a document of its own.
+# It replaces the policy above with the same one plus Google's two scripts (the Picker's loader on
+# apis.google.com, and Google Identity Services' client, which gets the Picker its token in a
+# pop-up), the Picker's frame on docs.google.com and Identity Services' frame and calls under
+# accounts.google.com/gsi/. The pop-up must be able to answer this page: same-origin-allow-popups.
+# Every other path keeps the policy above. What Google needs exactly is in
+# packages/connectors/src/gsheets/NOTES.md, to verify.
+/connections/gsheets/pick
+  ! Content-Security-Policy
+  ! Cross-Origin-Opener-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://apis.google.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/ https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; frame-src 'self' https://docs.google.com https://accounts.google.com/gsi/; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Cross-Origin-Opener-Policy: same-origin-allow-popups

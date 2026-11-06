@@ -18,6 +18,8 @@ import { automationRoutes, BuilderAutomation } from "./automations";
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
+// v0.12 W3-A: the Builder as a conversation
+import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";
@@ -27,11 +29,17 @@ import { complianceRoutes } from "./compliance";
 // v0.12 W2-A: the connectors catalog
 import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
+// v0.14 capture: WhatsApp conversations and their capture
+import { conversationRoutes } from "./conversations";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
+// v0.14 W4-E: Google Chat
+import { gchatRoutes } from "./gchat";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 // v0.12 W1-A: go-live stages and client controls
@@ -57,6 +65,8 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./slack";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
@@ -66,6 +76,8 @@ import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
 import { triggerRoutes } from "./triggers";
 import { usageRoutes } from "./usage";
+// v0.14 W4-B
+import { zohoRoutes } from "./zoho";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -1854,6 +1866,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.14 W4-B: Zoho CRM notifications
+  ...zohoRoutes,
   // v0.12 bankfeed: Plaid's webhook
   ...bankfeedRoutes,
   // v0.12 W1-G: people (autonomy).
@@ -1888,5 +1902,15 @@ export const routes = {
   ...modelRoutes,
   // v0.13 W2-I: run oversight decisions for the agent lab.
   ...oversightRoutes,
+  // v0.12 W3-A: the Builder as a conversation.
+  ...builderRoutes,
+  // v0.14 W4-E: Google Chat
+  ...gchatRoutes,
+  // v0.14 W4-D: Google Sheets' picking
+  ...gsheetsRoutes,
+  // v0.14 W4-C: the Slack channel picker.
+  ...slackRoutes,
+  // v0.14 capture: WhatsApp conversations and their capture.
+  ...conversationRoutes,
 } as const;
 export type Routes = typeof routes;

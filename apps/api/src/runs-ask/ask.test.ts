@@ -32,11 +32,20 @@ const context: AskContext = {
 
 /** Each question and the answer written for it. */
 const ANSWERS: { question: string; input: unknown }[] = [
-  // M26's example: Iris's runs that entered something in QuickBooks. The amount has no filter
-  // field (RunFilter has none for a bill's amount), so it is left out, not stuffed into `text`.
+  // M26's example: Iris's runs that entered something in QuickBooks over $5,000 (v0.14 W4-B:
+  // RunFilter's `amount`).
   {
     question: "bills Iris entered over $5,000",
-    input: { agents: [IRIS], changedConnector: "qbo" },
+    input: {
+      agents: [IRIS],
+      changedConnector: "qbo",
+      amount: { over: "5000.00", currency: "USD" },
+    },
+  },
+  // v0.14 W4-B: what the filter can't express is said, not dropped.
+  {
+    question: "Iris runs about the Hollis job",
+    input: { agents: [IRIS], leftOut: ["about the Hollis job"] },
   },
   // A field outside the filter.
   { question: "Iris bills above 5000 dollars", input: { agents: [IRIS], amountOver: "5000" } },
@@ -116,10 +125,15 @@ describe.skipIf(process.env.WRITE_ASK_FIXTURES === "1")(
       });
       expect(outcome).toMatchObject({
         ok: true,
-        filter: { agents: [IRIS], changedConnector: "qbo" },
+        filter: {
+          agents: [IRIS],
+          changedConnector: "qbo",
+          amount: { over: "5000.00", currency: "USD" },
+        },
+        leftOut: [],
       });
       if (!outcome.ok) return;
-      expect(Object.keys(outcome.filter).sort()).toEqual(["agents", "changedConnector"]);
+      expect(Object.keys(outcome.filter).sort()).toEqual(["agents", "amount", "changedConnector"]);
       // The call is priced and its tokens kept, for the client's usage under Sloan.
       expect(outcome.record.model).toBe("claude-haiku-5-5");
       expect(outcome.record.usage.inputTokens).toBe(900);
@@ -143,6 +157,21 @@ describe.skipIf(process.env.WRITE_ASK_FIXTURES === "1")(
       });
       expect(opsKey).toMatchObject({ ok: false });
       if (!opsKey.ok) expect(opsKey.reason).toMatch(/^invalid_input/);
+    });
+
+    // v0.14 W4-B
+    it("says what the question asked that the filter can't express", async () => {
+      const outcome = await compileQuestion({
+        llm: replay(),
+        question: "Iris runs about the Hollis job",
+        context,
+      });
+      expect(outcome).toMatchObject({
+        ok: true,
+        filter: { agents: [IRIS] },
+        leftOut: ["about the Hollis job"],
+      });
+      if (outcome.ok) expect(Object.keys(outcome.filter)).toEqual(["agents"]);
     });
 
     it("refuses an id the model was never given", async () => {

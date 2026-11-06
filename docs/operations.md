@@ -243,7 +243,7 @@ Done by the owner (2026-11-05):
   sign-in in the client admin's session.
 - The operator's own sign-in to the Sandbox client (plan §1.5, to connect the sandbox company above)
   uses the same redirect URIs: the forwarder sends a signed back-office state to
-  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho or Podio.
+  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho, Podio, Ramp or HubSpot.
 - Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
   Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
   (every 15 minutes, and on any webhook).
@@ -332,6 +332,25 @@ Google Drive uses the same Google project and OAuth client as Gmail ("Mezonas we
    connection made by the same Google account on the shared client (plan §1.52). To have it revoke,
    give Drive an OAuth client of its own (two more secrets) and turn the revoke back on.
 
+Google Sheets (W4-D) uses the same project and OAuth client, with `drive.file` only (already on
+the consent screen for Drive): agents open only the sheets the client picks with Google's Picker.
+Built against a fake; what we couldn't check is under "To verify" in
+`packages/connectors/src/gsheets/NOTES.md`.
+1. Enable the **Google Sheets API** and the **Google Picker API** in the project `mezonas`.
+2. Add the redirect URIs `https://staging.mezonas.com/connections/gsheets/callback`,
+   `https://app.mezonas.com/connections/gsheets/callback` and
+   `http://localhost:8787/connections/gsheets/callback` to "Mezonas web".
+3. Add `https://staging.mezonas.com`, `https://app.mezonas.com` and `http://localhost:8787` to the
+   client's **Authorized JavaScript origins**: the picking page gets the Picker's token from Google
+   Identity Services in the browser.
+4. Make a **browser API key** (APIs & Services, Credentials): application restriction "Websites"
+   with `https://staging.mezonas.com/*`, `https://app.mezonas.com/*` and `http://localhost:8787/*`;
+   API restriction: the Google Picker API only. It is `GOOGLE_PICKER_API_KEY`.
+5. The project's **number** (Cloud console, project settings; not the project id) is
+   `GOOGLE_PROJECT_NUMBER`: the Picker's app id, so a picked sheet is granted to our client.
+6. Set both as secrets of the GitHub environment (`staging` first); `deploy.yml` copies them once
+   it is wired. Disconnect drops our tokens without revoking at Google, as Drive.
+
 Outlook needs an Entra app of Mezonas' own:
 1. A multi-tenant app registration "Mezonas" (supported accounts: any organizational directory and
    personal Microsoft accounts), web platform, redirect URIs
@@ -345,6 +364,49 @@ Outlook needs an Entra app of Mezonas' own:
    others by `deploy.yml` when set.
 4. Publisher verification (a Microsoft Partner Network id tied to mezonas.com), so work tenants
    show a verified publisher and allow their users to consent.
+
+### Slack (W4-C)
+
+Built against a fake only; what we couldn't check is under "To verify" in
+`packages/connectors/src/slack/NOTES.md`. Registered everywhere; "Not available yet" until its keys
+are set. Slack needs an app of Mezonas' own:
+1. Make an app "Mezonas" at `api.slack.com/apps` in a Slack workspace of Mezonas' own (from
+   scratch, not a manifest with tokens), with the Mezonas mark as its icon.
+2. OAuth & Permissions: redirect URLs `https://staging.mezonas.com/connections/slack/callback` and
+   `https://app.mezonas.com/connections/slack/callback` (and
+   `http://localhost:8787/connections/slack/callback` if Slack accepts it); Bot Token Scopes
+   `chat:write` and `channels:read` only (the connector refuses a grant with any other); no User
+   Token Scopes; token rotation **off** (the connector refuses expiring tokens).
+3. Manage Distribution: turn on public distribution, so clients can install it into their own
+   workspaces. Marketplace listing is not needed.
+4. Basic Information: the client id and client secret become the Worker secrets `SLACK_CLIENT_ID`
+   and `SLACK_CLIENT_SECRET`, copied like the others by `deploy.yml` when set (not yet wired: its
+   own PR).
+5. Leave Event Subscriptions, Interactivity and slash commands off.
+
+### Google Chat (W4-E, plan §1.60)
+
+A Google Chat app of Mezonas' own posts to the spaces a client connects. Built against a fake; what
+we couldn't check (Marketplace publishing, each Workspace admin's steps) is in
+`packages/connectors/src/gchat/NOTES.md`. Registered everywhere; "Not available yet" until both
+secrets are set.
+1. In the Google Cloud project (its own, or `mezonas`), enable the **Google Chat API**.
+2. A **service account** (e.g. `mezonas-chat`), no roles needed; create a JSON key. Its whole JSON
+   is the Worker secret `GOOGLE_CHAT_SERVICE_ACCOUNT` (one secret; it is never logged or shown).
+3. The Chat API's **Configuration**: app name "Mezonas", avatar (the design system's mark), a
+   description; functionality "Join spaces and group conversations" (1:1 messages can stay on: the
+   app only answers there); connection settings **HTTP endpoint URL**
+   `https://app.mezonas.com/api/hooks/gchat` (staging: `https://staging.mezonas.com/api/hooks/gchat`,
+   on a project of its own or a second app); **Authentication Audience: Project Number**. The
+   project number (Cloud console, project info) is the Worker secret `GOOGLE_CHAT_PROJECT_NUMBER`.
+   Visibility: Mezonas' own Workspace while testing.
+4. Publish the app on the **Google Workspace Marketplace** (the Marketplace SDK in the same
+   project: the Chat app integration, listing, privacy policy and terms on mezonas.com, and Google's
+   review) so clients' Workspaces can install it.
+5. Each client's **Google Workspace admin** allows the Marketplace app for their users (or installs
+   it for the domain) and lets users use Chat apps. Then the client admin, in the portal's
+   Connections, connects Google Chat, gets a code, adds Mezonas to a space and sends
+   `@Mezonas <code>` there.
 
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
@@ -384,10 +446,23 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `<APP_ORIGIN>/connections/podio/callback`).
 - Google Drive (W3-B, plan §1.52) needs no new secret: it signs in with `GOOGLE_CLIENT_ID` and
   `GOOGLE_CLIENT_SECRET` (see "Google Drive and Outlook" above) and `OAUTH_STATE_SECRET`.
+- Google Sheets (W4-D, plan §1.52) signs in with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` too.
+  Its picking page needs two more values, public (Google restricts them to our origins) but set
+  like the others, copied when set: `GOOGLE_PICKER_API_KEY` (a browser API key) and
+  `GOOGLE_PROJECT_NUMBER` (the project's number). Without them Sheets connects, but no sheet can
+  be picked ("Choosing sheets isn't set up here yet").
 - Needed by the Outlook connector (W3-B, plan §1.52), the same way: `OUTLOOK_CLIENT_ID` and
   `OUTLOOK_CLIENT_SECRET` (the Entra app's application id and a client secret, redirect URI
-  `<APP_ORIGIN>/connections/outlook/callback`). Wiring them into `deploy.yml` is its own PR. Until
-  both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
+  `<APP_ORIGIN>/connections/outlook/callback`). Until both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
+- Needed by the Ramp connector (W3-B, docs/plan.md §1.52), the same way: `RAMP_CLIENT_ID`,
+  `RAMP_CLIENT_SECRET` (a Ramp developer app, scopes `transactions:read users:read receipts:write
+  business:read`, redirect URI `<APP_ORIGIN>/connections/ramp/callback`). New transactions are read
+  every 15 minutes by the cron; nothing else to set.
+- Needed by the HubSpot connector, the same way: `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (a
+  HubSpot public app in a developer account, scopes `oauth` and `crm.objects.{contacts,companies,deals}.{read,write}`,
+  redirect URI `<APP_ORIGIN>/connections/hubspot/callback`). Until the id, the secret and
+  `OAUTH_STATE_SECRET` are all set, each shows "Not available yet" in the portal. `deploy.yml`
+  copies the four secrets into the Worker (#134).
 - Needed by the bank and card feed (`bankfeed`, Plaid; plan §1.52): `PLAID_CLIENT_ID` and
   `PLAID_SECRET` (the secret of the environment `PLAID_ENV` names: Plaid's sandbox secret on
   staging, its production secret in production), copied like the API keys; `PLAID_ENV` is a var in
@@ -399,8 +474,15 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   production). No webhook URL is set in the dashboard: each item's Link token names
   `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
   `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
-  sandbox first: `packages/connectors/src/bankfeed/NOTES.md`. Copying the two secrets in
-  `deploy.yml` is its own PR.
+  sandbox first: `packages/connectors/src/bankfeed/NOTES.md`.
+- Needed by the Slack connector (W4-C, plan §1.56), the same way: `SLACK_CLIENT_ID` and
+  `SLACK_CLIENT_SECRET` (our Slack app's client id and secret, redirect URL
+  `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
+- Needed by the Google Chat connector (W4-E, plan §1.60), the same way:
+  `GOOGLE_CHAT_SERVICE_ACCOUNT` (the service account's key JSON, as one secret) and
+  `GOOGLE_CHAT_PROJECT_NUMBER` (the audience of Chat's tokens; see "Google Chat" above).
+  Until both are set, Google Chat shows
+  "Not available yet" in the portal and `/api/hooks/gchat` answers 503.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -466,7 +548,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook; not yet in `deploy.yml`), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds; not yet in `deploy.yml`) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 

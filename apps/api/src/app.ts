@@ -1,6 +1,7 @@
 // The Hono app: every /api route, built from injectable dependencies so the same app runs in the
 // Worker and in Node tests (with a test database and in-memory Workflow instances).
 
+import { credentialKeysFromEnv } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import { bankfeedCron } from "./bankfeed/sync";
@@ -8,6 +9,8 @@ import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
 import { purgeRetiredFiles } from "./compliance/retention";
+import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
+import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import type { Bindings } from "./env";
 import {
   type AppDeps,
@@ -24,6 +27,8 @@ import { mcpRoutes } from "./mcp/routes";
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
+// v0.12 W3-B
+import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
@@ -41,11 +46,17 @@ import { commandCenterRoutes } from "./routes/command-center";
 import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
+// v0.14 capture: WhatsApp conversations and their capture
+import { conversationRouteHandlers } from "./routes/conversations";
 import { deskRoutes } from "./routes/desk";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
+// v0.14 W4-E: Google Chat
+import { gchatRoutes } from "./routes/gchat";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -77,6 +88,8 @@ import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./routes/slack";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
 // v0.12 W2-C
@@ -90,10 +103,13 @@ import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
-import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
-import { forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+// v0.14 W4-B
+import { zohoRoutes } from "./routes/zoho";
+import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
+import { credentialsFor, forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
 import { securityHeaders } from "./security-headers";
 import { vaultTick } from "./vault/upkeep";
+import { zohoCronTick } from "./zoho/sync";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -120,9 +136,13 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   deskRoutes(app);
   portalRouteHandlers(app);
   qboRoutes(app);
+  // v0.14 W4-B: Zoho CRM's notifications.
+  zohoRoutes(app);
   // v0.12 bankfeed: Plaid's webhook
   bankfeedRoutes(app);
   connectionRoutes(app);
+  // v0.14 W4-D: Google Sheets' picking
+  gsheetsRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
   documentRoutes(app);
@@ -175,6 +195,12 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   triggerRouteHandlers(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // v0.14 W4-E: Google Chat's events and the portal's card
+  gchatRoutes(app);
+  // v0.14 W4-C: the Slack channel picker
+  slackRoutes(app);
+  // v0.14 capture: WhatsApp conversations and their capture
+  conversationRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -225,6 +251,32 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       console.error("qbo sync tick failed", error),
     );
+    // v0.12 W3-B: Ramp's new card transactions every 15 minutes, as events (docs/plan.md §1.52).
+    await rampCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
+      console.error("ramp poll tick failed", error),
+    );
+    // v0.14 W4-B: Zoho CRM, every 15 minutes: the watch renewed when due, then a poll of each
+    // connected Zoho (docs/plan.md §1.9 "Sync (W4-B)"). Needs the credentials' key.
+    if (env.ENCRYPTION_KEY) {
+      await zohoCronTick(
+        {
+          db,
+          platform,
+          credentials: credentialsFor(db, credentialKeysFromEnv(env)),
+          secret: env.OAUTH_STATE_SECRET,
+          origin: env.APP_ORIGIN?.trim() ? originOf(env) : undefined,
+        },
+        (tenantId, ids) => dispatchByIds({ db, instances }, tenantId, ids),
+        scheduledTime,
+      ).catch((error: unknown) => console.error("zoho sync tick failed", error));
+    }
+    // v0.14 capture: captures left pending start again (every 10 minutes, docs/plan.md §1.55).
+    if (scheduledTime.getUTCMinutes() % 10 === CAPTURE_CRON_MINUTE) {
+      const capture = captureDepsFor({ db, env, deps, platform });
+      await captureCronTick(db, captureJobsFor(env, capture), scheduledTime).catch(
+        (error: unknown) => console.error("capture restart tick failed", error),
+      );
+    }
     // v0.12 bankfeed: every connected bank feed once an hour, behind Plaid's webhook (§1.52).
     await bankfeedCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
       console.error("bank feed sync tick failed", error),

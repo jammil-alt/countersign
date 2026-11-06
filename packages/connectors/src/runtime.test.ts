@@ -28,6 +28,11 @@ describe("base64", () => {
 
   it("rejects invalid input", () => {
     expect(() => fromBase64("a")).toThrow();
+    // Padding is trimmed in linear time (CodeQL js/polynomial-redos), however long the run.
+    const started = Date.now();
+    expect(() => fromBase64(`a${"=".repeat(100_000)}b`)).toThrow();
+    expect(fromUtf8(fromBase64(`aGk${"=".repeat(100_000)}`))).toBe("hi");
+    expect(Date.now() - started).toBeLessThan(500);
     expect(() => fromBase64("ab!c")).toThrow();
     expect(() => fromBase64Url("ab+c")).toThrow();
   });

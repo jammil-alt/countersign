@@ -5,8 +5,22 @@
 // nothing; a test run of the failing agent emits nothing; the daily check at 08:00 in the client's
 // timezone writes the summary the portal's overview shows; and the portal never sees internals.
 
-import { FORBIDDEN_PORTAL_FIELD, validateBundle } from "@countersign/core";
-import { agent, connection, event, inboxItem, run, tenant } from "@countersign/db";
+import {
+  DIRECTORY_SUGGESTION_SUBJECT,
+  FORBIDDEN_PORTAL_FIELD,
+  validateBundle,
+} from "@countersign/core";
+import {
+  agent,
+  connection,
+  event,
+  inboxItem,
+  organization,
+  run,
+  tenant,
+  transaction,
+  vendor,
+} from "@countersign/db";
 import { loadSeedTemplates } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
@@ -399,5 +413,73 @@ describe.skipIf(!h)("the supervisor", () => {
     expect(mine).toEqual([]);
     const runs = await H.t.db.select().from(run).where(eq(run.agentId, supervisorId));
     expect(runs.some((r) => r.status === "failed")).toBe(true);
+  });
+
+  // v0.14 W4-B (docs/plan.md §1.28 "Directory upkeep").
+  it("the daily check suggests a vendor the directory lacks, once, and never again once declined", async () => {
+    const [v] = await H.t.db
+      .insert(vendor)
+      .values({
+        tenantId: H.A.tenantId,
+        name: "Hollis Hardwoods",
+        normalizedName: "hollis hardwoods",
+      })
+      .returning();
+    const [listed] = await H.t.db
+      .insert(vendor)
+      .values({ tenantId: H.A.tenantId, name: "Oak Supply", normalizedName: "oak supply" })
+      .returning();
+    await H.t.db.insert(organization).values({ tenantId: H.A.tenantId, name: "Oak Supply" });
+    for (const [vendorId, at] of [
+      [v?.id, "2026-11-06T10:00:00Z"],
+      [listed?.id, "2026-11-06T11:00:00Z"],
+    ] as const) {
+      await H.t.db.insert(transaction).values({
+        tenantId: H.A.tenantId,
+        kind: "purchase",
+        connector: "upload",
+        vendorId: vendorId ?? null,
+        txnDate: "2026-11-05",
+        total: "412.0000",
+        externalId: crypto.randomUUID(),
+        createdAt: new Date(at),
+      });
+    }
+    const suggestions = () =>
+      H.t.db
+        .select()
+        .from(inboxItem)
+        .where(
+          and(
+            eq(inboxItem.tenantId, H.A.tenantId),
+            eq(inboxItem.subjectType, DIRECTORY_SUGGESTION_SUBJECT),
+          ),
+        );
+    const daily = async (iso: string) => {
+      const before = H.instances.started.size;
+      await cronTick({ db: H.db, instances: H.instances }, new Date(iso));
+      const [p] = startedSince(before, supervisorId);
+      expect(await execute(p as RunParams)).toEqual({ status: "succeeded" });
+    };
+    await daily("2026-11-07T14:00:20Z");
+    const made = await suggestions();
+    expect(made).toHaveLength(1);
+    expect(made[0]).toMatchObject({ kind: "review", assigneeRole: "client_admin", status: "open" });
+    expect(j(made[0]?.payload).directorySuggestion).toMatchObject({
+      change: {
+        action: "add_organization",
+        organization: { name: "Hollis Hardwoods", kinds: ["vendor"] },
+      },
+    });
+    expect(j(made[0]?.payload).directorySuggestion.sources).toHaveLength(1);
+    // The next day: still waiting, so nothing new; declined, it isn't asked again.
+    await daily("2026-11-08T14:00:20Z");
+    expect(await suggestions()).toHaveLength(1);
+    await H.t.db
+      .update(inboxItem)
+      .set({ status: "resolved", resolution: { decision: "decline" } })
+      .where(eq(inboxItem.id, made[0]?.id ?? ""));
+    await daily("2026-11-09T14:00:20Z");
+    expect(await suggestions()).toHaveLength(1);
   });
 });

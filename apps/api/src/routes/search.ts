@@ -205,11 +205,18 @@ export function searchRoutes(app: Hono<AppEnv>): void {
     }
     // The portal's own filter (no back-office keys: the schema refused them), its live runs only.
     const filter = portalRunFilter(outcome.filter);
-    const runs = await runSummaries(tx, tenantId, runFilterWhere(filter), ASK_RUNS_LIMIT);
+    const runs = await runSummaries(
+      tx,
+      tenantId,
+      runFilterWhere(filter, services.platform.ctx.tools.specs()),
+      ASK_RUNS_LIMIT,
+    );
     return {
       understood: true as const,
       filter,
       chips: askChips(filter, namesOf(context)),
+      // v0.14 W4-B: what the question asked that the filter can't express.
+      leftOut: outcome.leftOut,
       query: runFilterQuery(filter),
       runs: runs.map((r) => ({ ...r, shortId: shortRunId(r.id) })),
     };
@@ -247,7 +254,12 @@ export function searchRoutes(app: Hono<AppEnv>): void {
       .select({ r: run, a: agent })
       .from(run)
       .innerJoin(agent, and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)))
-      .where(and(inArray(run.tenantId, ids), ...runFilterWhere(filter)))
+      .where(
+        and(
+          inArray(run.tenantId, ids),
+          ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
+        ),
+      )
       .orderBy(desc(run.createdAt))
       .limit(ASK_RUNS_LIMIT);
     const client = await clientNames(tx, ids);
@@ -255,6 +267,8 @@ export function searchRoutes(app: Hono<AppEnv>): void {
       understood: true as const,
       filter,
       chips: askChips(filter, namesOf(context)),
+      // v0.14 W4-B: what the question asked that the filter can't express.
+      leftOut: outcome.leftOut,
       query: runFilterQuery(filter),
       runs: rows.map(({ r, a }) => ({
         id: r.id,

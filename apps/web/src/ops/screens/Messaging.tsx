@@ -9,6 +9,8 @@ import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ContactsPanel } from "../../contacts/ContactsPanel";
+// v0.14 capture
+import { ConversationsPanel } from "../../conversations/ConversationsPanel";
 import { Field, TextInput } from "../../ui/forms";
 import {
   Badge,
@@ -22,6 +24,7 @@ import {
   type Tone,
 } from "../../ui/primitives";
 import { CallsPanel } from "./Calls";
+import { CaptureDefault } from "./CaptureDefault";
 import { EmailPanel } from "./EmailSetup";
 
 const A2P: Record<A2pStatus, { label: string; tone: Tone }> = {
@@ -64,6 +67,11 @@ export function OpsMessagingScreen() {
       </div>
       <div className="mt-8">
         <ContactsPanel surface={{ kind: "ops", clientId }} />
+      </div>
+      {/* v0.14 capture: WhatsApp conversations and the client's default (docs/plan.md §1.55). */}
+      <div className="mt-8">
+        <CaptureDefault clientId={clientId} />
+        <ConversationsPanel surface={{ kind: "ops", clientId }} />
       </div>
     </div>
   );

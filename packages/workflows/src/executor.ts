@@ -536,7 +536,7 @@ class Executor {
     const keyNode = retry && retry.keyNode !== name ? retry.keyNode : undefined;
     const first = await this.runner.do(
       at,
-      async () => {
+      async (tried) => {
         const input = retry ? retry.input : resolveTemplate(step.input, frame.scope);
         const start = {
           runId: run.id,
@@ -545,6 +545,8 @@ class Executor {
           input,
           // v0.13 W2-I
           ...(retry ? { attempt: retry.seq + 1 } : {}),
+          // v0.14 W4-B: a platform retry of this attempt is one more attempt on the step's row.
+          ...((tried?.attempt ?? 1) > 1 ? { retried: true } : {}),
         } as const;
         const stepRunId = await log.start(
           step.kind === "skill" ? { ...start, skillRef: step.skill } : start,
