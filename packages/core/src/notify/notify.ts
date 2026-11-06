@@ -90,6 +90,9 @@ export const NotificationCounts = z.strictObject({
   messages: z.number().int().min(0).optional(),
   /** Credits: 0 = the included credits ran out; n = another n × 2,500 beyond them. */
   block: z.number().int().min(0).optional(),
+  // v0.12 W2-G: the credits beyond the included ones that block stands for, when the client's
+  // block (`tenant.settings.billing.creditBlock`) is not 2,500.
+  credits: z.number().int().min(0).optional(),
 });
 export type NotificationCounts = z.infer<typeof NotificationCounts>;
 
