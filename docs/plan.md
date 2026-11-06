@@ -895,6 +895,24 @@ of them:
 | Past event, live | `POST /api/ops/agents/:id/run-event {eventId}` (ARCHITECTURE §10.9): reuses the router's matching and run ids; 409 `already_ran` when a run with that id exists; 409 `not_live` on bench; the event must be the client's and not from a test run. |
 | Files | Owns `packages/core/src/lifecycle/`, `packages/core/src/api/lifecycle.ts`, `apps/api/src/lifecycle/`, `apps/api/src/routes/lifecycle.ts`; edits the activate/pause handlers in `apps/api/src/routes/ops-agents.ts`, the activation check in `ops-lineage.ts`, the manual trigger in `packages/core/src/schemas/workflow.ts`, the three `effectiveMode` call sites, `runtime-store.ts`. |
 
+### Go-live stages (W1-A)
+
+Decisions made while building §1.36 (ARCHITECTURE §10.9, §11.5; migration 0019). Code in
+`packages/core/src/lifecycle/`, `packages/core/src/api/lifecycle.ts`, `apps/api/src/lifecycle/` and
+`apps/api/src/routes/lifecycle.ts`.
+
+| Topic | Decision |
+|---|---|
+| Not live means suggest only | `effectiveMode(definition, stage)` returns the definition's mode only at `live`; bench, trial, signoff and a missing stage are `suggest_only` (approval stays on by default). At the gate the stage is read fresh (`RuntimeStore.agentStage`) only for `external` tools; reads never ask. An approved reach-out plan's attempts keep running under that one signature (the plan itself is signed in trial). // DECISION |
+| What "writes" means | An agent "has no writes" when its live version's enabled workflows, skills' tools and extra tools hold no `external` tool and no skill that reaches people (a reach-out's attempts are writes on the client's channels). Automations join the walk when W2-B lands. // DECISION |
+| Finished runs | A trial counts live runs that succeeded or failed, created since the trial's `startedAt`; cancelled and waiting runs don't count. Only trials of agents whose run status is active move: a paused trial isn't put before the client. // DECISION |
+| Sign-off item | `kind: approval`, `subject_type: go_live`, assigned to the client admin role, title and one summary sentence in the client's language (`GO_LIVE_WORDS`, six languages, marked for review), payload `goLive: {agentId, summary, text, ask}`: counts only. Resolved through the normal resolve path; an item the agent has moved on from (skipped, moved back) is answered but changes nothing. Leaving signoff any other way expires the item. // DECISION |
+| Rejection | Back to trial with a new `startedAt` (the minimums kept); the reason (the resolve's `note`, else "no reason given") is kept in `stage_state.rejections` and sent to the operator as a `review` item (`subject_type: go_live_rejected`) until W1-C's lead thread exists (TODO in `resolveGoLive`). // DECISION |
+| Skips and moves | Forward needs a reason; each stage cut short is added to `stage_state.skipped`. Leaving the bench runs the activation check (it is starting the agent). Back to the bench sets the run status to `testing` (the bench only test-runs) and lifts any pause. Moving to signoff asks the client admin at once; moving to trial restarts the clock. Every move is an `agent_change` (`kind: 'stage'`) and an `agent.stage` audit row; minimums changes are `kind: 'trial'` and `agent.trial`. // DECISION |
+| Activate and pauses | Activate on the bench starts the trial (or goes live with "no writes"); on a paused agent it resumes and lifts the pause, whoever made it. The operator's Pause takes no reason today: it records `side: operator`, "paused by the operator". Pausing a paused agent keeps the first pause. A pause recorded before v0.12 (none) is the operator's to lift. // DECISION |
+| Client controls | `GET /api/controls` lists the client's running and paused services with who paused them (a route under `/api/services/` would collide with the service page). `POST /api/services/resume-all` resumes every client-side pause. Run now is open to client admins and client users until W1-D's `can_sign` (TODO in `api/lifecycle.ts`); input is checked with the runtime's JSON Schema reader (`checkAgainst`). // DECISION |
+| Past event, live | The router's `routeEvent` over this one agent decides the workflows and the run ids; 409 `already_ran` if any of those runs exists, 409 `not_live` on the bench or when not active, 422 `test_event` for an event whose payload names a test run, 422 `no_workflow` when nothing matches. The run's trigger records `replayedBy`; an `agent_change` `kind: 'run_event'` names the event and runs. // DECISION |
+
 ### 1.37 Notifications, the Table and the Weekly Table (W1-B, M14; migration 0020)
 
 | Topic | Decision |

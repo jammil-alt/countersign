@@ -14,6 +14,8 @@ import type { z } from "zod";
 import { refuseGenericResolve } from "./access/release";
 import { applySuggestion, isDirectorySuggestion } from "./directory/suggestions";
 import { HttpError, notFound } from "./http";
+// v0.12 W1-A: go-live sign-off
+import { isGoLiveItem, resolveGoLive } from "./lifecycle/stages";
 import { senseEmitter } from "./runs/dispatch";
 
 export type InboxRow = typeof inboxItem.$inferSelect;
@@ -114,6 +116,17 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     } else {
       if (!decision) throw new HttpError(400, "invalid_request", "approve or reject this item");
       approved = decision === "approve";
+    }
+    // v0.12 W1-A: the client admin's go-live sign-off moves the agent's stage in this transaction:
+    // approved → live; rejected → back to trial with the reason (ARCHITECTURE §10.9).
+    if (isGoLiveItem(item)) {
+      await resolveGoLive(tx, {
+        tenantId: input.tenantId,
+        item,
+        approved,
+        by: { userId: input.by.userId, role: input.by.role },
+        note,
+      });
     }
     // An accepted suggestion changes the directory in this transaction, or nothing is resolved.
     const applied =

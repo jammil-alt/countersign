@@ -11,6 +11,7 @@ import {
 import {
   changeFacts,
   decideToolCall,
+  effectiveMode,
   fixedInputProblem,
   grantAllowsTool,
   type JsonObject,
@@ -131,7 +132,6 @@ async function dispatch(
   tool: RegisteredTool,
   input: unknown,
 ): Promise<ToolOutcome> {
-  const mode = step.agent.bundle.definition.permissions.mode;
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
     const resumed = await resumeProposed(deps, step, tool);
@@ -198,6 +198,15 @@ async function dispatch(
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
   }
+  // v0.12 W1-A: the go-live stage, read fresh like the matrix: in trial and signoff every write
+  // needs a signature, whatever the step, matrix or mode say (ARCHITECTURE §10.9). Reads don't ask.
+  const mode =
+    tool.spec.sideEffect === "external"
+      ? effectiveMode(
+          step.agent.bundle.definition,
+          await deps.ports.store.agentStage(step.tenantId, step.agent.agentId),
+        )
+      : step.agent.bundle.definition.permissions.mode;
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
     verb: tool.spec.verb,
