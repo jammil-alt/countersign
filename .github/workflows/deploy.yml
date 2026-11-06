@@ -87,6 +87,12 @@ jobs:
       GOOGLE_PROJECT_NUMBER: ${{ secrets.GOOGLE_PROJECT_NUMBER }}
       GOOGLE_CHAT_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_CHAT_SERVICE_ACCOUNT }}
       GOOGLE_CHAT_PROJECT_NUMBER: ${{ secrets.GOOGLE_CHAT_PROJECT_NUMBER }}
+      # WhatsApp through Meta (plan §1.57): the Meta app, its webhook verify token and the Embedded
+      # Signup configuration. "Not available yet" until they exist.
+      META_APP_ID: ${{ secrets.META_APP_ID }}
+      META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+      META_WEBHOOK_VERIFY_TOKEN: ${{ secrets.META_WEBHOOK_VERIFY_TOKEN }}
+      META_CONFIG_ID: ${{ secrets.META_CONFIG_ID }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -254,7 +260,8 @@ jobs:
             OUTLOOK_CLIENT_ID OUTLOOK_CLIENT_SECRET RAMP_CLIENT_ID RAMP_CLIENT_SECRET \
             HUBSPOT_CLIENT_ID HUBSPOT_CLIENT_SECRET PLAID_CLIENT_ID PLAID_SECRET \
             SLACK_CLIENT_ID SLACK_CLIENT_SECRET GOOGLE_PICKER_API_KEY GOOGLE_PROJECT_NUMBER \
-            GOOGLE_CHAT_SERVICE_ACCOUNT GOOGLE_CHAT_PROJECT_NUMBER; do
+            GOOGLE_CHAT_SERVICE_ACCOUNT GOOGLE_CHAT_PROJECT_NUMBER \
+            META_APP_ID META_APP_SECRET META_WEBHOOK_VERIFY_TOKEN META_CONFIG_ID; do
             if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
           done
           # Generated once inside Cloudflare and never shown or stored anywhere else. If the list of
