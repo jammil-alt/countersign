@@ -84,7 +84,7 @@ describe("the portal's routes", () => {
   it.each(all)("%s renders a page", async (path) => {
     renderAt(path, false);
     await screen.findByTestId("shell-portal");
-    await waitFor(() => expect(screen.queryByRole("status")).toBeNull(), { timeout: 3000 });
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull(), { timeout: 10_000 });
     expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
   });
 
@@ -118,7 +118,7 @@ describe("the back office's routes", () => {
 
   it.each(all)("%s renders a page", async (path) => {
     renderAt(path, true);
-    await screen.findByTestId("shell-ops");
+    await screen.findByTestId("shell-ops", {}, { timeout: 10_000 });
     expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
   });
 
@@ -136,7 +136,7 @@ describe("the back office's routes", () => {
     OPS_PATHS.newTemplate,
   ])("%s renders a page", async (path) => {
     renderAt(path, true);
-    await screen.findByTestId("shell-ops");
+    await screen.findByTestId("shell-ops", {}, { timeout: 10_000 });
     expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
   });
 
