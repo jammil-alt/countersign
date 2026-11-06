@@ -106,6 +106,13 @@ After the first run: save the project id from the run summary as the repository 
    fallback); Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters). For the Claude
    connector, each environment's AuthKit domain in `WORKOS_AUTHKIT_DOMAIN` ("MCP server" below).
+   For HIPAA, SOC 2 and PCI (`docs/plan.md` §1.35), on both environments: **multi-factor
+   authentication required** for email and password sign-ins (Authentication → Features →
+   Multi-factor auth), and the AuthKit session no longer than ours (Applications → the app →
+   Sessions → Session lifetime: maximum 12 hours, inactivity 30 minutes; access token duration
+   stays 5 minutes). Our own cookie enforces both limits anyway, and an idle or expired session
+   also ends WorkOS's, so the next sign-in asks for the password and code again.
+
 
 ### The public site (mezonas.com)
 

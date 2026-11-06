@@ -79,6 +79,7 @@ export * from "./schemas/skill";
 export * from "./schemas/tool";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
+export * from "./security/session-limits";
 export * from "./supervisor/health";
 export * from "./template/template";
 export * from "./template/typer";
