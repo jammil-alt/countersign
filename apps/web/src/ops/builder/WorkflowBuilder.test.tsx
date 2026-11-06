@@ -140,6 +140,7 @@ const CATALOG: BuilderCatalog = {
     },
   ],
   connectors: [{ id: "testkit", name: "Testkit", icon: null }],
+  automations: [],
 };
 
 const EVENTS = {
@@ -323,6 +324,8 @@ interface Setup {
   bundle?: AgentBundle;
   status?: string;
   update?: PermissionMatrix["update"];
+  // v0.12 W2-B
+  catalog?: BuilderCatalog;
 }
 
 function setup(options: Setup = {}) {
@@ -333,7 +336,7 @@ function setup(options: Setup = {}) {
     return body;
   };
   const api = fakeApi({
-    [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
+    [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
     [`POST /api/ops/agents/${AGENT_ID}/versions`]: ({ init }) => {
       record("save", init);
@@ -940,5 +943,74 @@ describe("WorkflowBuilder", () => {
     await user.click(screen.getByTestId("builder-save"));
     await waitFor(() => expect(screen.queryByTestId("builder-unsaved")).toBeNull());
     expect(screen.queryByTestId("builder-error")).toBeNull();
+  });
+
+  // v0.12 W2-B: the old builder renders a use step as a read-only card with an input form.
+  it("shows a use step as its automation's name and version, with its input as a form", async () => {
+    const user = userEvent.setup();
+    const bundle = AgentBundle.parse({
+      ...BUNDLE_INPUT,
+      workflows: [
+        {
+          slug: "new-bill",
+          name: "New bill",
+          workflow: {
+            schemaVersion: 3,
+            trigger: { id: "t1", on: { type: "event", event: "transaction.created" } },
+            steps: [
+              {
+                id: "follow",
+                kind: "use_automation",
+                name: "Follow up",
+                automation: "polite-follow-up@2",
+                input: { note: "Hello" },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const definition = {
+      schemaVersion: 1 as const,
+      slug: "polite-follow-up",
+      name: "Polite follow-up",
+      description: "Say a word, then correct the record",
+      input: { type: "object", properties: { note: { type: "string" } }, required: ["note"] },
+      output: { said: "{{input.note}}" },
+      steps: [
+        {
+          id: "say",
+          kind: "notify" as const,
+          name: "Say it",
+          channel: "thread" as const,
+          message: "{{input.note}}",
+        },
+      ],
+      requires: { skills: [], tools: [], connectors: [] },
+    };
+    setup({
+      bundle,
+      catalog: {
+        ...CATALOG,
+        automations: [
+          {
+            ref: "polite-follow-up@2",
+            slug: "polite-follow-up",
+            version: 2,
+            name: "Polite follow-up",
+            description: definition.description,
+            source: "shared",
+            status: "live",
+            definition,
+            outputSchema: { type: "object", properties: { said: { type: "string" } } },
+          },
+        ],
+      },
+    });
+    await ready();
+    expect(screen.getByTestId("builder-step-follow")).toHaveTextContent("polite-follow-up@2");
+    await user.click(screen.getByTestId("builder-step-follow-select"));
+    expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
+    expect(screen.queryByTestId("builder-step-follow-invalid")).toBeNull();
   });
 });

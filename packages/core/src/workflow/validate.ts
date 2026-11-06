@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 import { levelFor } from "../permissions/decide";
 import { compileRule, RuleCompileError } from "../rules/compile";
@@ -7,15 +8,26 @@ import {
   AgentBundle as AgentBundleSchema,
   type AgentDefinition,
 } from "../schemas/agent";
+import {
+  type AutomationDefinition,
+  AutomationDefinition as AutomationDefinitionSchema,
+} from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
-import { type Step, type Workflow, Workflow as WorkflowSchema } from "../schemas/workflow";
+import {
+  type Step,
+  type UseAutomationStep,
+  type Workflow,
+  Workflow as WorkflowSchema,
+} from "../schemas/workflow";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
+  automationEndScope,
+  automationScopes,
   lookupSkill,
   type Scope,
   schemaTypes,
@@ -66,7 +78,14 @@ export type ValidationCode =
   | "approval_required_by_connection"
   // v0.12 W1-D
   | "choices_not_ask"
-  | "duplicate_choice";
+  | "duplicate_choice"
+  // v0.12 W2-B
+  | "unknown_automation"
+  | "automation_nested"
+  | "automation_named_person"
+  | "automation_agent"
+  | "approvals_not_client"
+  | "approval_unknown_step";
 
 export interface ValidationError {
   /** The step, fork path or trigger id; null for workflow- or bundle-level errors. */
@@ -87,6 +106,12 @@ export interface ValidationContext extends TypingContext {
    * (from its bindings). When absent, connection checks are skipped (templates, drafts).
    */
   publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> };
+  // v0.12 W2-B
+  /**
+   * Whether the bundle is a client agent's: a use step's `approvals` are for client agents only.
+   * Absent: not checked (a draft the builder can't place yet).
+   */
+  clientAgent?: boolean;
 }
 
 export interface ValidationResult<T> {
@@ -180,7 +205,9 @@ function checkRefs(
       // referenced output doesn't have.
       const [root, id] = r.path;
       const inScope =
-        root === "trigger" ||
+        // v0.12 W2-B: an automation reads its input, never a trigger.
+        (root === "trigger" && !scope.input) ||
+        (root === "input" && scope.input !== undefined) ||
         (root === "steps" &&
           id !== undefined &&
           scope.steps[id] !== undefined &&
@@ -397,6 +424,10 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
       }
       // Paths are evaluated at the fork, so their rules see what the fork itself sees.
       for (const p of step.paths) checkRules(c, p.id, p.when, ["when"], scope, true);
+      break;
+    // v0.12 W2-B
+    case "use_automation":
+      checkUseStep(c, step, scope);
       break;
     default:
       break;
@@ -642,4 +673,195 @@ export function validateBundle(
   const full: ValidationContext = { ...ctx, agent: bundle.definition };
   for (const w of bundle.workflows) errors.push(...semantic(w.workflow, full, w.slug));
   return { valid: errors.length === 0, errors, value: bundle };
+}
+
+// ── v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45) ───────────────────────────
+
+/** Every step of a list, nested ones included, in run order. */
+function stepsOf(steps: readonly Step[]): Step[] {
+  const out: Step[] = [];
+  walkSteps({ steps: [...steps] }, ({ step }) => out.push(step));
+  return out;
+}
+
+/** An inner step's approval as the use step runs it: the use step's override, else its own. */
+function innerApproval(use: UseAutomationStep, inner: Step) {
+  const own = inner.kind === "skill" || inner.kind === "action" ? inner.approval : undefined;
+  return use.approvals?.[inner.id] ?? own;
+}
+
+/**
+ * A use step: its automation exists (when the context lists automations), its input against the
+ * automation's input schema, `approvals` only on client agents and only for inner write steps,
+ * and at publish the agent's bindings cover the automation's connectors, with the same connection
+ * rules as any write step for the inner ones.
+ */
+function checkUseStep(c: Checker, step: UseAutomationStep, scope: Scope) {
+  const { ctx } = c;
+  checkRefs(c, step.id, step.input, ["input"], scope);
+  const def = ctx.automations?.[step.automation];
+  if (ctx.automations && !def) {
+    c.add(step.id, "automation", "unknown_automation", `no automation "${step.automation}"`);
+  }
+  const approvals = Object.entries(step.approvals ?? {});
+  if (approvals.length > 0 && ctx.clientAgent === false) {
+    c.add(
+      step.id,
+      "approvals",
+      "approvals_not_client",
+      "only a client agent's use step can change an inner step's approval",
+    );
+  }
+  if (!def) return;
+  checkInput(c, step.id, step.input, def.input, scope);
+
+  const inner = new Map(stepsOf(def.steps).map((s) => [s.id, s]));
+  for (const [innerId, approval] of approvals) {
+    const target = inner.get(innerId);
+    if (!target) {
+      c.add(
+        step.id,
+        `approvals.${innerId}`,
+        "approval_unknown_step",
+        `the automation has no step "${innerId}"`,
+      );
+      continue;
+    }
+    const writes = stepWrites(target, ctx);
+    const reaches =
+      target.kind === "skill" && lookupSkill(target.skill, ctx)?.reachesPeople === true;
+    if (
+      approval.required === "not_required" &&
+      ((writes !== undefined && writes.length === 0 && !reaches) ||
+        (target.kind !== "skill" && target.kind !== "action"))
+    ) {
+      c.add(
+        step.id,
+        `approvals.${innerId}.required`,
+        "approval_not_write",
+        "only steps that change a client's tool have an approval setting",
+      );
+    }
+  }
+
+  if (!ctx.publish) return;
+  const { matrices } = ctx.publish;
+  for (const connector of def.requires.connectors) {
+    if (!(connector in matrices) || matrices[connector] === undefined) {
+      c.add(
+        step.id,
+        "automation",
+        "connection_missing",
+        `no ${connector} connection is bound for "${def.name}"`,
+      );
+    }
+  }
+  for (const target of inner.values()) {
+    const approval = innerApproval(step, target);
+    for (const tool of stepWrites(target, ctx) ?? []) {
+      const connector = tool.connector ?? tool.source;
+      const matrix = matrices[connector];
+      if (matrix === undefined) continue; // reported above, or by requires
+      const level = levelFor(matrix, tool.verb);
+      if (level === "off") {
+        c.add(
+          step.id,
+          "automation",
+          "verb_off",
+          `this connection doesn't allow ${VERB_NOUN[tool.verb]} ("${tool.id}", in ${def.name})`,
+        );
+      } else if (approval?.required === "not_required" && level !== "auto") {
+        c.add(
+          step.id,
+          `approvals.${target.id}.required`,
+          "approval_required_by_connection",
+          `this connection requires approval for ${VERB_NOUN[tool.verb]}`,
+        );
+      }
+    }
+  }
+}
+
+/** Checks that apply to an automation's steps only: no nesting, no named people, no other agent. */
+function automationRules(c: Checker, steps: readonly Step[]) {
+  for (const step of stepsOf(steps)) {
+    if (step.kind === "use_automation") {
+      c.add(step.id, "", "automation_nested", "an automation can't use another automation");
+    }
+    // DECISION: an automation never names a person (a user id is one client's); a person step
+    // in it is assigned to a role or the lead, resolved in the client that uses it.
+    if (step.kind === "person" && isUuid(step.assignee)) {
+      c.add(
+        step.id,
+        "assignee",
+        "automation_named_person",
+        "an automation assigns people by role, not by name",
+      );
+    }
+    // DECISION: an automation's skill steps run as the agent that uses it; asking another agent
+    // depends on that agent's `canCommand`, which an automation can't know.
+    if (step.kind === "skill" && step.agent !== undefined) {
+      c.add(
+        step.id,
+        "agent",
+        "automation_agent",
+        "an automation's steps run as the agent using it",
+      );
+    }
+  }
+}
+
+function automationIds(steps: readonly Step[]): ValidationError[] {
+  const seen = new Set<string>();
+  const errors: ValidationError[] = [];
+  const note = (id: string, f: string) => {
+    if (seen.has(id)) {
+      errors.push({
+        stepId: id,
+        field: f,
+        code: "duplicate_id",
+        message: `id "${id}" is used more than once`,
+      });
+    } else seen.add(id);
+  };
+  walkSteps({ steps: [...steps] }, ({ step }) => {
+    note(step.id, "id");
+    if (step.kind === "fork") {
+      for (const p of step.paths) note(p.id, "id");
+      note(step.otherwise.id, "otherwise.id");
+    }
+  });
+  return errors;
+}
+
+/**
+ * Validates one automation version on its own (ARCHITECTURE §10.7): as a workflow with `input` in
+ * place of the trigger. Skills and tools are checked against the context, not an agent: an agent
+ * that uses the automation brings them in. Its `output` may read its input and its top-level steps.
+ */
+export function validateAutomation(
+  input: unknown,
+  ctx: Omit<ValidationContext, "agent" | "publish" | "clientAgent"> = {},
+): ValidationResult<AutomationDefinition> {
+  const parsed = AutomationDefinitionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { valid: false, errors: schemaErrors(parsed.error.issues, input) };
+  }
+  const def = parsed.data;
+  const errors: ValidationError[] = [...automationIds(def.steps)];
+  const c: Checker = {
+    ctx,
+    errors,
+    add(stepId, f, code, message) {
+      errors.push({ stepId, field: f, code, message });
+    },
+  };
+  automationRules(c, def.steps);
+  const byStep = automationScopes(def, ctx);
+  walkSteps(def, ({ step }) => {
+    checkStep(c, step, byStep.get(step.id) as Scope, undefined);
+  });
+  checkRefs(c, "", def.output, ["output"], automationEndScope(def, ctx));
+  for (const e of errors) if (e.stepId === "") e.stepId = null;
+  return { valid: errors.length === 0, errors, value: def };
 }

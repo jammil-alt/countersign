@@ -108,6 +108,12 @@ export interface SkillStepRequest {
   input: unknown;
   /** The step's approval, or the default (required) when it has none. */
   approval: Approval;
+  // v0.12 W2-B
+  /**
+   * Inside a use step: the automation (`slug@version`). Its skill steps run as the using agent
+   * though the agent doesn't list their skills: using an automation brings them in (§10.7).
+   */
+  automation?: string;
 }
 
 export interface ActionStepRequest {
@@ -117,6 +123,8 @@ export interface ActionStepRequest {
   stepRunId: string;
   input: unknown;
   approval: Approval;
+  // v0.12 W2-B
+  automation?: string;
 }
 
 export interface ResumeRequest {
