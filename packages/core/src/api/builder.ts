@@ -132,7 +132,8 @@ export const builderRoutes = {
     path: "/api/ops/builder/sessions",
     auth: "session",
     roles: OPS,
-    summary: "Start a Builder conversation about a new or existing agent, or a new or existing skill",
+    summary:
+      "Start a Builder conversation about a new or existing agent, or a new or existing skill",
     body: z
       .strictObject({
         kind: BuilderSessionKind,
@@ -228,7 +229,9 @@ export const builderRoutes = {
       skill: z.object({ id: z.string(), slug: z.string(), ref: z.string() }).nullable(),
       version: z.object({ id: z.string(), version: z.number().int() }),
       /** Test cases saved with a skill (new ones only). */
-      cases: z.array(z.object({ id: z.string(), name: z.string(), clientId: z.string().nullable() })),
+      cases: z.array(
+        z.object({ id: z.string(), name: z.string(), clientId: z.string().nullable() }),
+      ),
       errors: z.array(CheckError),
     }),
   }),

@@ -429,7 +429,9 @@ export function guardBundle(
               return same;
             });
             const { approvals: _drop, ...rest } = s;
-            return (kept.length > 0 ? { ...rest, approvals: Object.fromEntries(kept) } : rest) as Step;
+            return (
+              kept.length > 0 ? { ...rest, approvals: Object.fromEntries(kept) } : rest
+            ) as Step;
           }
           const approval = approvalOf(s);
           if (approval?.required !== "not_required") return s;

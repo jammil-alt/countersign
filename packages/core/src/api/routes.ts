@@ -15,9 +15,9 @@ import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
 import { billingRoutes } from "./billing";
+import { browserRoutes } from "./browser";
 // v0.12 W3-A: the Builder as a conversation
 import { builderRoutes } from "./builder";
-import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";

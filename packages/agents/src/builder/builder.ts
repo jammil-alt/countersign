@@ -141,6 +141,11 @@ export const OPERATOR_FIXES = new Set([
   "approval_required_by_connection",
 ]);
 
+/** v0.12 W3-A: an error by where it is and what it is, to tell an old error from a new one. */
+export function errorKey(e: ValidationError): string {
+  return [e.workflow ?? "", e.stepId ?? "", e.field, e.code].join("|");
+}
+
 function describeErrors(errors: readonly ValidationError[]): string {
   return errors
     .map(
@@ -173,6 +178,8 @@ export async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
     system?: string;
     present?: (bundle: AgentBundle) => AgentBundle;
     presentText?: (text: string) => string;
+    /** Errors the draft had before this answer (keys from `errorKey`): not the model's to repair. */
+    known?: ReadonlySet<string>;
   },
   options: BuilderOptions,
 ): Promise<{
@@ -229,7 +236,9 @@ export async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
     }
     const guarded = input.guard(answer);
     const errors = await options.validate(guarded.bundle);
-    const fixable = errors.filter((e) => !OPERATOR_FIXES.has(e.code));
+    const fixable = errors.filter(
+      (e) => !OPERATOR_FIXES.has(e.code) && !(input.known?.has(errorKey(e)) ?? false),
+    );
     if (fixable.length > 0 && repairs > 0) {
       repairs -= 1;
       messages.push(
@@ -243,9 +252,7 @@ export async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
         {
           role: "user",
           content: `That bundle (after the server's rules were applied, so ids may have changed) does not validate:\n${
-            input.presentText
-              ? input.presentText(describeErrors(fixable))
-              : describeErrors(fixable)
+            input.presentText ? input.presentText(describeErrors(fixable)) : describeErrors(fixable)
           }\n\nAnswer again with the whole corrected answer. Keep the ids it has now.`,
         },
       );

@@ -51,7 +51,10 @@ export function mapNodeIds(
     const trigger = { ...bw.workflow.trigger, id: to(bw.workflow.trigger.id, "trigger") };
     const more = bw.workflow.moreTriggers?.map((t) => ({ ...t, id: to(t.id, "trigger") }));
     const steps = mapSteps(bw.workflow.steps);
-    return { ...bw, workflow: { ...bw.workflow, trigger, ...(more ? { moreTriggers: more } : {}), steps } };
+    return {
+      ...bw,
+      workflow: { ...bw.workflow, trigger, ...(more ? { moreTriggers: more } : {}), steps },
+    };
   });
   // References are rewritten after every id is known (a reference may point forward in a bad draft).
   return {

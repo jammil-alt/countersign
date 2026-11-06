@@ -11,14 +11,16 @@
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
+  NEW_AGENT_OVERSIGHT,
   selectableBetween,
   selectChanges,
+  uuidv7,
   type ValidationError,
 } from "@countersign/core";
-import type { LlmCallRecord } from "@countersign/llm";
+import { DEFAULT_MODEL, type LlmCallRecord } from "@countersign/llm";
 import { z } from "zod";
 import { aliasBundle, aliasText, type IdAliases, mapNodeIds, unaliasBundle } from "./aliases";
-import { ask, type BuilderOptions, catalogBlock, RULES, totalCost } from "./builder";
+import { ask, type BuilderOptions, catalogBlock, errorKey, RULES, totalCost } from "./builder";
 import { labelledChanges } from "./changes";
 import { commandScope, type TurnCommand } from "./commands";
 import type { BuilderContext } from "./context";
@@ -31,7 +33,9 @@ export const TurnAnswer = z.object({
     .string()
     .min(1)
     .max(4000)
-    .describe("Your reply to the operator: what you changed and why, or your answer, in plain words"),
+    .describe(
+      "Your reply to the operator: what you changed and why, or your answer, in plain words",
+    ),
   questions: z
     .array(z.string().min(1).max(500))
     .max(5)
@@ -103,7 +107,14 @@ function historyBlock(history: readonly HistoryLine[], aliases: IdAliases): stri
 function extendAliases(bundle: AgentBundle, aliases: IdAliases): AgentBundle {
   const next = { trigger: 0, step: 0, path: 0, otherwise: 0 };
   for (const alias of aliases.toReal.keys()) {
-    const kind = alias[0] === "t" ? "trigger" : alias[0] === "s" ? "step" : alias[0] === "p" ? "path" : "otherwise";
+    const kind =
+      alias[0] === "t"
+        ? "trigger"
+        : alias[0] === "s"
+          ? "step"
+          : alias[0] === "p"
+            ? "path"
+            : "otherwise";
     next[kind] = Math.max(next[kind], Number(alias.slice(1)) || 0);
   }
   const prefix = { trigger: "t", step: "s", path: "p", otherwise: "o" } as const;
@@ -115,6 +126,48 @@ function extendAliases(bundle: AgentBundle, aliases: IdAliases): AgentBundle {
     aliases.toAlias.set(id, alias);
     aliases.toReal.set(alias, id);
     return alias;
+  });
+}
+
+/**
+ * A new agent's starting draft, as the back office's blank agent: suggest only, reviewing its
+ * failed steps, one workflow `main` started by hand with no steps. The trigger id is made here,
+ * once.
+ */
+// DECISION: a conversation about a new agent starts from this blank draft, so every turn (the
+// first included) revises a working draft the same way, and undo of the first turn has a draft
+// to go back to.
+export function blankAgentDraft(
+  input: { name: string; role?: string; model?: string },
+  newId: () => string = () => uuidv7(),
+): AgentBundle {
+  return AgentBundleSchema.parse({
+    schemaVersion: 1,
+    definition: {
+      schemaVersion: 2,
+      identity: {
+        name: input.name.trim() || "New agent",
+        role: input.role?.trim() ?? "",
+        mission: "",
+      },
+      kind: "functional",
+      model: { id: input.model ?? DEFAULT_MODEL },
+      instructions: "",
+      skills: [],
+      permissions: { mode: "suggest_only" },
+      oversight: NEW_AGENT_OVERSIGHT,
+    },
+    workflows: [
+      {
+        slug: "main",
+        name: "Main",
+        workflow: {
+          schemaVersion: 3,
+          trigger: { id: newId(), on: { type: "manual", input: { type: "object" } } },
+          steps: [],
+        },
+      },
+    ],
   });
 }
 
@@ -146,19 +199,29 @@ ${input.request ? `\nThe client's request, in their words (what they want change
       ...(options.newId ? { newId: options.newId } : {}),
     });
     let bundle = g.bundle;
+    let notes = g.notes;
     const scope = commandScope(command, working, bundle);
     if (scope) {
       const all = selectableBetween(working, bundle).map((c) => c.id);
       const allowed = all.filter(scope);
       if (allowed.length < all.length) {
-        bundle = AgentBundleSchema.parse(selectChanges(working, bundle, allowed));
+        const kept = AgentBundleSchema.parse(selectChanges(working, bundle, allowed));
+        // The guards again on what is kept (what a kept step needs, approvals), keeping its ids.
+        const again = guardBundle(kept, ctx, {
+          mode: "revise",
+          source: kept,
+          origin: input.origin,
+          ...(options.newId ? { newId: options.newId } : {}),
+        });
+        bundle = again.bundle;
+        notes = [...new Set([...notes, ...again.notes])];
         const left = all.length - allowed.length;
         const what = command?.name === "skill" ? `/skill ${command.skill}` : `/${command?.name}`;
         const note = `${left} change${left === 1 ? "" : "s"} outside ${what} ${left === 1 ? "was" : "were"} left out.`;
         if (!scopeNotes.includes(note)) scopeNotes.push(note);
       }
     }
-    return { bundle, gaps: [...new Set([...a.gaps, ...g.gaps])], notes: g.notes };
+    return { bundle, gaps: [...new Set([...a.gaps, ...g.gaps])], notes };
   };
   const out = await ask(
     {
@@ -172,6 +235,8 @@ ${input.request ? `\nThe client's request, in their words (what they want change
       system: CONVERSATION_RULES,
       present: (b) => extendAliases(b, aliases),
       presentText: (t) => aliasText(t, aliases),
+      // What the draft already got wrong before this turn is not the answer's to repair.
+      known: new Set((await options.validate(working)).map(errorKey)),
     },
     options,
   );

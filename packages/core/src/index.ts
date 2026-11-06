@@ -14,10 +14,10 @@ export * from "./api/account";
 export * from "./api/approver-rules";
 // v0.12 W2-B: automations
 export * from "./api/automations";
-// v0.12 W3-A: the Builder as a conversation
-export * from "./api/builder";
 export * from "./api/billing";
 export * from "./api/browser";
+// v0.12 W3-A: the Builder as a conversation
+export * from "./api/builder";
 export * from "./api/calls";
 // v0.12 W2-G: KPIs and the client view, credits, the client's audit export
 export * from "./api/client-view";

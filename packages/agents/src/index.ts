@@ -4,14 +4,14 @@
 // Only src/registry/ and src/log/ import @countersign/db (CLAUDE.md invariant 2): the runtime reaches
 // storage through the ports in src/runtime/ports.ts, and agent reasoning reaches data only through tools.
 
-export * from "./builder/builder";
-export * from "./builder/context";
-export * from "./builder/guards";
 // v0.12 W3-A: the Builder as a conversation
 export * from "./builder/aliases";
+export * from "./builder/builder";
 export * from "./builder/changes";
 export * from "./builder/commands";
+export * from "./builder/context";
 export * from "./builder/conversation";
+export * from "./builder/guards";
 export * from "./builder/skill-draft";
 export * from "./errors";
 // v0.12 W2-D

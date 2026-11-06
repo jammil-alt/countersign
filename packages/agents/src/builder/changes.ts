@@ -190,3 +190,38 @@ export function entityOf(bundle: AgentBundle, key: string): Record<string, unkno
   const flat = flattenBundle(bundle);
   return flat.entities.has(key) ? buildEntity(flat, key) : null;
 }
+
+/** `turnId:changeId`, how a change entry is named across a conversation. */
+export const entryKey = (turnId: string, changeId: string) => `${turnId}:${changeId}`;
+
+/**
+ * Which entries of a conversation are undone now: an entry is undone when a later undo entry names
+ * it and that undo is not itself undone (undoing an undo puts the change back).
+ */
+export function undoneEntries(
+  turns: readonly { id: string; seq: number; changes: readonly BuilderChange[] }[],
+): Set<string> {
+  const undoers = new Map<string, string[]>();
+  for (const t of [...turns].sort((a, b) => a.seq - b.seq)) {
+    for (const c of t.changes) {
+      if (!c.undoes) continue;
+      const target = entryKey(c.undoes.turnId, c.undoes.changeId);
+      const list = undoers.get(target);
+      if (list) list.push(entryKey(t.id, c.id));
+      else undoers.set(target, [entryKey(t.id, c.id)]);
+    }
+  }
+  const memo = new Map<string, boolean>();
+  const undone = (key: string): boolean => {
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    memo.set(key, false);
+    const result = (undoers.get(key) ?? []).some((u) => !undone(u));
+    memo.set(key, result);
+    return result;
+  };
+  const out = new Set<string>();
+  for (const t of turns)
+    for (const c of t.changes) if (undone(entryKey(t.id, c.id))) out.add(entryKey(t.id, c.id));
+  return out;
+}

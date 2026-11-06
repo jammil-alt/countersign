@@ -88,9 +88,7 @@ export function bundleSimilarity(a: AgentBundle, b: AgentBundle): BundleSimilari
   const steps = sequenceScore(fa.steps, fb.steps);
   const w = SIMILARITY_WEIGHTS;
   return {
-    score: round(
-      w.skills * skills + w.tools * tools + w.triggers * triggers + w.steps * steps,
-    ),
+    score: round(w.skills * skills + w.tools * tools + w.triggers * triggers + w.steps * steps),
     skills: round(skills),
     tools: round(tools),
     triggers: round(triggers),

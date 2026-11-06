@@ -2961,7 +2961,8 @@ export interface BuilderChangeEntry {
  * A Builder conversation about one agent (new or existing, template or client agent) or one skill.
  * `bundle` is the working draft: an `AgentBundle` for `agent`, `{definition, cases}` for `skill`.
  * `agent_id` / `skill_id` are set once the draft is saved (or from the start for an existing one);
- * `base_version_id` is the version the conversation started from, then the last one it saved.
+ * `base_version_id` is the version the conversation started from (each save is a turn that names
+ * the version it wrote).
  * Updated in place; never deleted.
  */
 // DECISION: `base_version_id` has no foreign key: it names an `agent_version` or a `skill_version`
