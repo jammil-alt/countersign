@@ -2,7 +2,13 @@
 // fake. Loads the pinned version's workflow, executes it through packages/workflows with the real
 // ports, records how it ended on `run`, rolls usage up, and dispatches the events it emitted.
 
-import { createDbPorts, finishRun, type RuntimeDeps, rollupUsageForRun } from "@countersign/agents";
+import {
+  createDbPorts,
+  dbModelCalls,
+  finishRun,
+  type RuntimeDeps,
+  rollupUsageForRun,
+} from "@countersign/agents";
 import {
   ContentStore,
   CredentialCipher,
@@ -10,6 +16,7 @@ import {
   type CredentialsAccessor,
   credentialKeysFromEnv,
   encryptedCredentials,
+  type ObjectStore,
   R2ObjectStore,
   tenantKeysInDb,
   type UrlSigner,
@@ -18,9 +25,19 @@ import {
   type Locale,
   type Processor,
   parseCoveredProcessors,
+  runErrorKey,
+  shortRunId,
   type Workflow,
 } from "@countersign/core";
-import { agentVersion, connection, type Db, run, withTenant } from "@countersign/db";
+import {
+  agentVersion,
+  connection,
+  type Db,
+  run,
+  stepRun,
+  type Tx,
+  withTenant,
+} from "@countersign/db";
 import {
   anthropicTransport,
   type LlmTransport,
@@ -33,9 +50,10 @@ import {
   executeWorkflow,
   type RunInfo,
   type RunResult,
+  type RunResume,
   type StepRunner,
 } from "@countersign/workflows";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
 import { browserRunOpener } from "../browser/driver";
 import { type BrowserDeps, dbBrowserServices } from "../browser/services";
@@ -77,6 +95,12 @@ export interface RunDeps {
   now?: () => Date;
   /** Browser Run, the code service and storage, for browser logins (`browser.*`). */
   browser?: BrowserDeps;
+  // v0.12 W1-E
+  /**
+   * Where model calls' requests and answers are stored (the R2 bucket). Absent (tests): the
+   * `model_call` rows are still written, without their bodies.
+   */
+  modelCallBodies?: ObjectStore | null;
 }
 
 /**
@@ -157,6 +181,8 @@ export function runDepsFromEnv(
       ? { credentials: credentialsFor(base.db, credentialKeysFromEnv(env)) }
       : {}),
     release: releaseDepsFromEnv(env, base),
+    // v0.12 W1-E: model calls' bodies, under the client's prefix in the same bucket.
+    modelCallBodies: new R2ObjectStore(env.ARTIFACTS),
   };
 }
 
@@ -167,7 +193,9 @@ const STEP_CONFIG = {
   timeout: "15 minutes",
 } as const;
 
-type Loaded = { ok: true; workflow: Workflow; language: Locale } | { ok: false; reason: string };
+type Loaded =
+  | { ok: true; workflow: Workflow; language: Locale; resume: RunResume | null }
+  | { ok: false; reason: string; cancelled?: true };
 
 /** The agents runtime over the database, as a run (or the cron, for reach-outs) uses it. */
 export function runtimeFor(
@@ -186,6 +214,11 @@ export function runtimeFor(
       ...(deps.release
         ? { release: dbReleasePort(deps.now ? { ...deps.release, now: deps.now } : deps.release) }
         : {}),
+      // v0.12 W1-E: every model call of a run, with its body when storage is there.
+      modelCalls: dbModelCalls(deps.db, {
+        bodies: deps.modelCallBodies ?? null,
+        ...(deps.now ? { now: deps.now } : {}),
+      }),
     }),
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,
@@ -259,6 +292,7 @@ export async function executeRun(
     agentVersionId: params.agentVersionId,
     workflowSlug: params.workflowSlug,
     mode: params.mode,
+    ...(params.retryOf ? { retryOf: params.retryOf } : {}),
   };
   const { db } = deps;
   const emitted: EventRow[] = [];
@@ -271,6 +305,9 @@ export async function executeRun(
       } catch (error) {
         return { ok: false, reason: error instanceof Error ? error.message : String(error) };
       }
+      // v0.12 W1-E: a run cancelled before its instance began (queued) never starts.
+      const [state] = await tx.select({ status: run.status }).from(run).where(eq(run.id, info.id));
+      if (state?.status === "cancelled") return { ok: false, reason: "cancelled", cancelled: true };
       const [v] = await tx
         .select({ bundle: agentVersion.bundle })
         .from(agentVersion)
@@ -281,7 +318,12 @@ export async function executeRun(
       if (!wf) return { ok: false, reason: `no workflow ${info.workflowSlug} in that version` };
       // DECISION: the run reads the client's language once, inside this durable step, so a replay
       // writes in the same language even if the client changed it meanwhile (plan §1.18).
-      return { ok: true, workflow: wf.workflow, language: await tenantLocale(tx, info.tenantId) };
+      return {
+        ok: true,
+        workflow: wf.workflow,
+        language: await tenantLocale(tx, info.tenantId),
+        resume: await resumeOf(tx, params, wf.workflow),
+      };
     }),
   );
 
@@ -296,7 +338,18 @@ export async function executeRun(
           status: result.status,
           ...(result.status === "succeeded"
             ? {}
-            : { error: { reason: result.reason ?? null, nodeId: result.nodeId ?? null } }),
+            : {
+                error: {
+                  reason: result.reason ?? null,
+                  nodeId: result.nodeId ?? null,
+                  // v0.12 W1-E: what failed runs are grouped by (docs/plan.md §1.40).
+                  ...(result.status === "failed"
+                    ? {
+                        key: result.errorKey ?? runErrorKey({ kind: "run" }, result.reason ?? null),
+                      }
+                    : {}),
+                },
+              }),
         });
         // `run.failed` (docs/plan.md §1.28), in the transaction that records the failure, so it
         // exists exactly when the run is failed. A test run emits nothing (ARCHITECTURE §10.4).
@@ -340,6 +393,7 @@ export async function executeRun(
     });
   };
 
+  if (!loaded.ok && loaded.cancelled) return { status: "cancelled", reason: "cancelled" };
   if (!loaded.ok) {
     const result: RunResult = { status: "failed", reason: loaded.reason };
     await finish(result);
@@ -369,6 +423,7 @@ export async function executeRun(
       retries: { ...STEP_CONFIG.retries },
       timeout: STEP_CONFIG.timeout,
     },
+    ...(loaded.resume ? { resume: loaded.resume } : {}),
   };
 
   let result: RunResult;
@@ -383,4 +438,35 @@ export async function executeRun(
   }
   await finish(result);
   return result;
+}
+
+// ── v0.12 W1-E: retry from the failed step (ARCHITECTURE §10.10; docs/plan.md §1.40) ──────────
+
+/**
+ * What a retry reuses: the run retried's rows of the top-level steps before `resumeFrom` that
+ * succeeded (or were skipped), with their outputs. Read once, inside the run's load step, so a
+ * replay of the instance reuses the same outputs.
+ */
+async function resumeOf(tx: Tx, params: RunParams, workflow: Workflow): Promise<RunResume | null> {
+  if (!params.retryOf || !params.resumeFrom) return null;
+  const index = workflow.steps.findIndex((s) => s.id === params.resumeFrom);
+  if (index <= 0) return null;
+  const before = workflow.steps.slice(0, index).map((s) => s.id);
+  const rows = await tx
+    .select({ nodeId: stepRun.nodeId, status: stepRun.status, output: stepRun.output })
+    .from(stepRun)
+    .where(
+      and(
+        eq(stepRun.runId, params.retryOf),
+        eq(stepRun.tenantId, params.tenantId),
+        inArray(stepRun.nodeId, before),
+      ),
+    );
+  const reused: RunResume["reused"] = {};
+  for (const r of rows) {
+    if (r.status === "succeeded" || r.status === "skipped") {
+      reused[r.nodeId] = { status: r.status, output: r.output ?? null };
+    }
+  }
+  return { from: params.resumeFrom, of: shortRunId(params.retryOf), reused };
 }

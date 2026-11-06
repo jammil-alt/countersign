@@ -58,7 +58,15 @@ describe("RunFilter query parameters", () => {
   });
 
   it("refuses the back office's keys on the portal, cost first among them", () => {
-    for (const key of ["costOver", "clients", "client", "mode", "templates", "versions", "errorKey"]) {
+    for (const key of [
+      "costOver",
+      "clients",
+      "client",
+      "mode",
+      "templates",
+      "versions",
+      "errorKey",
+    ]) {
       const value = key === "costOver" ? "1" : key === "mode" ? "test" : A;
       const r = PortalRunsQuery.safeParse({ [key]: value });
       expect(r.success, key).toBe(false);

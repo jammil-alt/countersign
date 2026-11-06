@@ -22,6 +22,15 @@ export interface LlmCallRecord {
   readonly label?: string;
 }
 
+/**
+ * What was sent and what came back, for callers that keep model calls (v0.12 W1-E: `model_call`
+ * rows with their bodies, ARCHITECTURE §10.10). `response` is null when the call failed.
+ */
+export interface LlmExchange {
+  readonly request: LlmRequest;
+  readonly response: LlmMessage | null;
+}
+
 export interface LlmCallResult {
   readonly message: LlmMessage;
   readonly record: LlmCallRecord;
@@ -32,7 +41,7 @@ export interface LlmClientOptions {
   readonly defaultModel?: ModelId;
   readonly defaultMaxTokens?: number;
   readonly prices?: Readonly<Record<ModelId, ModelPrice>>;
-  readonly onCall?: (record: LlmCallRecord) => void | Promise<void>;
+  readonly onCall?: (record: LlmCallRecord, exchange: LlmExchange) => void | Promise<void>;
   /** Monotonic-ish milliseconds, for durations. Tests pass a fixed clock. */
   readonly clock?: () => number;
 }
@@ -121,8 +130,8 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
   const defaultModel = options.defaultModel ?? DEFAULT_MODEL;
   const defaultMaxTokens = options.defaultMaxTokens ?? 16_000;
 
-  async function report(record: LlmCallRecord) {
-    await options.onCall?.(record);
+  async function report(record: LlmCallRecord, exchange: LlmExchange) {
+    await options.onCall?.(record, exchange);
   }
 
   async function message(
@@ -140,16 +149,19 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
     try {
       response = await transport.create(request, opts.signal ? { signal: opts.signal } : {});
     } catch (error) {
-      await report({
-        model: request.model,
-        ok: false,
-        usage: ZERO_USAGE,
-        costUsd: null,
-        durationMs: clock() - started,
-        stopReason: null,
-        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-        ...label,
-      });
+      await report(
+        {
+          model: request.model,
+          ok: false,
+          usage: ZERO_USAGE,
+          costUsd: null,
+          durationMs: clock() - started,
+          stopReason: null,
+          error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+          ...label,
+        },
+        { request, response: null },
+      );
       throw error;
     }
     const usage = usageOf(response);
@@ -163,7 +175,7 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
       stopReason: response.stop_reason,
       ...label,
     };
-    await report(record);
+    await report(record, { request, response });
     return { message: response, record };
   }
 

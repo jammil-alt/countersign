@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkRouteContract, forbiddenPortalFields, routeFamily } from "./contract";
+import { routes } from "./routes";
 import {
   CARRIED_APPROVAL_MAX_AGE_MS,
   carryDecision,
@@ -12,7 +13,6 @@ import {
   shortRunId,
   shortRunIdTail,
 } from "./run-controls";
-import { routes } from "./routes";
 
 describe("short ids", () => {
   it("shows a run as R- and the last 6 hex characters of its id", () => {
@@ -94,7 +94,12 @@ describe("the routes", () => {
     expect(checkRouteContract(runControlRoutes)).toEqual([]);
     for (const r of Object.values(runControlRoutes)) expect(routeFamily(r)).toBe("ops");
     // A portal route that carried model calls would break the contract.
-    expect(forbiddenPortalFields(OpsModelCall).sort()).toEqual(["costUsd", "stopReason", "tokensIn", "tokensOut"]);
+    expect(forbiddenPortalFields(OpsModelCall).sort()).toEqual([
+      "costUsd",
+      "stopReason",
+      "tokensIn",
+      "tokensOut",
+    ]);
     for (const [name, r] of Object.entries(routes)) {
       if (routeFamily(r) === "portal") expect(forbiddenPortalFields(r.response), name).toEqual([]);
     }

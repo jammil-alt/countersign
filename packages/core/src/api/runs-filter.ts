@@ -158,8 +158,9 @@ export interface RunListQuery {
 }
 
 /** `GET /api/ops/runs` (and its CSV): a RunFilter from the query, plus paging and grouping. */
-export const OpsRunsQuery = z.object(opsParams).transform(
-  (q): RunListQuery & { groupBy?: "error" } => ({
+export const OpsRunsQuery = z
+  .object(opsParams)
+  .transform((q): RunListQuery & { groupBy?: "error" } => ({
     filter: compact({
       clients: merged(q.clients, q.client),
       agents: merged(q.agents, q.agent),
@@ -180,8 +181,7 @@ export const OpsRunsQuery = z.object(opsParams).transform(
     limit: q.limit,
     perDay: q.perDay === true,
     ...(q.groupBy ? { groupBy: q.groupBy } : {}),
-  }),
-);
+  }));
 
 /** `GET /api/runs`: the same filter, refusing the back office's keys. */
 export const PortalRunsQuery = z

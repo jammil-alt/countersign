@@ -19,6 +19,7 @@ import {
   findStep,
   isClientVisible,
   isPlainObject,
+  portalRunFilter,
   type Role,
   routes,
   type Step,
@@ -45,6 +46,7 @@ import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
 import type { Platform } from "../platform";
 import { dispatchEvents } from "../runs/dispatch";
 import { matrixEdit } from "./mappers";
+import { runFilterWhere, runsPerDay } from "./run-controls";
 import { latestHealthSummary, portalFindings } from "./supervisor";
 
 type ConnectionRow = typeof connection.$inferSelect;
@@ -340,10 +342,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.portalRuns, async ({ tx, tenantIds, query }) => {
-    const where: SQL[] = [];
-    if (query.service) where.push(eq(run.agentId, query.service));
-    if (query.status) where.push(eq(run.status, query.status));
-    return { runs: await runSummaries(tx, tenantIds[0] as string, where, query.limit) };
+    // v0.12 W1-E: RunFilter without the back office's keys (refused by the query schema), the
+    // client's own live runs only.
+    const tenantId = tenantIds[0] as string;
+    const where = runFilterWhere(portalRunFilter(query.filter));
+    const runs = await runSummaries(tx, tenantId, where, query.limit);
+    if (!query.perDay) return { runs };
+    const scope = [eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where];
+    return { runs, perDay: await runsPerDay(tx, scope) };
   });
 
   mount(app, routes.portalRun, async ({ tx, tenantIds, params, services }) => {

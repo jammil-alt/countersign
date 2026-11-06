@@ -133,8 +133,6 @@ export const OpsModelCall = z.object({
   costUsd: z.string(),
   durationMs: z.number().int().nullable(),
   stopReason: z.string().nullable(),
-  /** Whether its request and answer were stored. */
-  hasBody: z.boolean(),
   createdAt: z.string(),
 });
 export type OpsModelCall = z.infer<typeof OpsModelCall>;

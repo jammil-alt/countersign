@@ -47,6 +47,7 @@ import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
@@ -104,6 +105,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   releaseRoutes(app);
   browserRoutes(app);
   complianceRouteHandlers(app);
+  // v0.12 W1-E
+  runControlRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
