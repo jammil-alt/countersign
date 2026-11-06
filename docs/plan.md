@@ -1660,7 +1660,8 @@ model.
 
 Tests: resolution (step override; `task` → skill; `agent` → agent) including `maxTokens`; a `task`
 skill's prompt has no agent instructions and no memory notes, an `agent` skill's has both; the same
-`task` skill gives the same request in two different agents; validation errors (unknown id, `task`
+`task` skill gives the same request in two different agents; a `task` skill's input with an embedded
+instruction stays in the wrapped user turn and is not followed (replay fixture); validation errors (unknown id, `task`
 without a model, `agent` with one, `model` on a `tool` step); stored skills and bundles parse and hash
 as before; a merge where both sides set a step's model conflicts and one side alone doesn't; replay
 fixtures for two models in one run.

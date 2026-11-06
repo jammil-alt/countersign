@@ -1274,8 +1274,10 @@ const SkillDefinition = z.object({
   - `tool`: code (a handler), no model. Unchanged.
   - `task`: a typed job that does not depend on the agent running it, such as reading an invoice into
     JSON, classifying a line or summarising a thread. `model` is **required**: the skill's default,
-    chosen for the job. The prompt is the platform preamble, the skill's instructions and the input;
-    **no** agent instructions and **no** memory notes. Same input, same model, same instructions in
+    chosen for the job. The system prompt is the platform preamble and the skill's instructions;
+    **no** agent instructions and **no** memory notes. The input goes in as data, in the user turn
+    inside the platform's untrusted-data wrapping, never in the system prompt, because it often
+    carries document or email text (invariant 9), as agent skills receive such text in tool results. Same input, same model, same instructions in
     every agent, so its tests (§9.10) hold wherever it is used.
   - `agent`: depends on the agent. Runs on the agent's `definition.model` with the agent's
     instructions and memory notes, as today: analysis, judgment and drafting in its voice. `model` is
