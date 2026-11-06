@@ -303,6 +303,12 @@ export const fr: Messages = {
   "callback.subtitle": "Fin de la connexion à votre outil.",
   "callback.back": "Retour aux connexions",
   "callback.connecting": "Connexion…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lisez les opérations de vos comptes bancaires et de vos cartes. Rien ici ne peut déplacer d'argent.",
+  "connections.bankfeed.connect": "Connecter une banque ou une carte",
+  "callback.linkLost":
+    "Cette connexion bancaire a commencé dans un autre onglet ou une autre fenêtre. Recommencez depuis Connexions.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accès",
