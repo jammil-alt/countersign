@@ -252,7 +252,7 @@ describe("the agent page", () => {
     expect(within(reach).getByTestId(`agent-reach-${QBO}-delete`)).toHaveTextContent("Delete: off");
     expect(
       within(screen.getByTestId("agent-reach")).getByRole("link", { name: "Change" }),
-    ).toHaveAttribute("href", "/accounts/access");
+    ).toHaveAttribute("href", "/accounts#vault");
 
     const row = screen.getByTestId(`portal-service-run-${OLD_RUN}`);
     expect(within(row).getByRole("link")).toHaveAttribute("href", `/runs/${OLD_RUN}`);
