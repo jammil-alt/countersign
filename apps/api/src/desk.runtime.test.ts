@@ -79,6 +79,7 @@ describe("the undo window under the Workflows engine", () => {
       status: "failed",
       reason: "not written: awaiting_approval",
       nodeId: "send",
+      errorKey: "testkit.record.update:failed",
     });
   });
 });
