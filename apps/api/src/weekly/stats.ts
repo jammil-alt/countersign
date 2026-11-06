@@ -23,8 +23,11 @@ import {
   membership,
   run,
   type Tx,
+  tenant,
 } from "@countersign/db";
 import { and, eq, gte, inArray, isNotNull, lt } from "drizzle-orm";
+// v0.12 W2-G
+import { readerLocale, weekKpis } from "../kpi/view";
 import type { Platform } from "../platform";
 
 type AgentRow = typeof agent.$inferSelect;
@@ -146,6 +149,9 @@ export async function weeklyStats(
   const signatures = await signaturesGiven(tx, input.tenantId, b);
   const documents = await documentsRead(tx, input.tenantId, b);
   const agents = await services(tx, input.tenantId);
+  // v0.12 W2-G: each agent's KPIs over the week, in the client's language.
+  const [t] = await tx.select({ settings: tenant.settings }).from(tenant).where(eq(tenant.id, input.tenantId));
+  const kpis = await weekKpis(tx, agents, { locale: readerLocale({ settings: t?.settings ?? {} }, null), bounds: b });
   return {
     weekStart: input.weekStart,
     from: b.from.toISOString(),
@@ -167,7 +173,8 @@ export async function weeklyStats(
       id: a.id,
       name: serviceName(a),
       runsDone: done.filter((r) => r.agentId === a.id).length,
-      kpis: [],
+      // v0.12 W2-G
+      kpis: kpis.get(a.id) ?? [],
     })),
     computedAt: input.now.toISOString(),
   };

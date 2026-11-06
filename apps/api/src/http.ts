@@ -651,3 +651,40 @@ export function ensureClient(ctx: { tenantIds: readonly string[] }, tenantId: st
 }
 
 export const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
+
+// ── v0.12 W2-G: a file streamed after the request's transaction commits ─────────────────────────
+
+/** What a streamed file route's handler hands back: a stream, its type and the name to save it as. */
+export interface StreamResult {
+  filename: string;
+  contentType: string;
+  stream: ReadableStream<Uint8Array>;
+}
+
+/**
+ * A session route that answers with a stream (the audit export): the same sign-in, roles, client
+ * scope, transaction and audit row as `mount`. The handler checks and audits inside the request's
+ * transaction and hands back a stream that reads after it commits, each read in its own scoped
+ * transaction; the handler `defer`s the stream's end, so the database closes only after it.
+ */
+export function mountStream<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  spec: R,
+  handler: (ctx: HandlerCtx<R>) => Promise<Result<R> & StreamResult>,
+): void {
+  mountWith(app, spec, handler, sendStream);
+}
+
+function sendStream<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) {
+  const out = spec.response.safeParse(result);
+  if (!out.success) {
+    console.error(`response of ${spec.method} ${spec.path} does not match its contract`, out.error);
+    return errorResponse(c, new HttpError(500, "internal", "something went wrong"));
+  }
+  const file = out.data as StreamResult;
+  return c.body(file.stream, 200, {
+    "content-type": file.contentType,
+    "content-disposition": contentDisposition(file.filename, "attachment"),
+    "cache-control": "private, max-age=0, no-store",
+  });
+}

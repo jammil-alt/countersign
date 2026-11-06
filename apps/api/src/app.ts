@@ -21,6 +21,10 @@ import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
+// v0.12 W2-G
+import { originOf } from "./notify/outbox";
+import { auditExportRoutes } from "./routes/audit-export";
+import { clientViewRoutes } from "./routes/client-view";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 import { approverRuleRoutes } from "./routes/approver-rules";
@@ -129,6 +133,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   tableRouteHandlers(app);
   // v0.12 W1-C
   threadRouteHandlers(app);
+  // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+  clientViewRoutes(app);
+  auditExportRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -180,7 +187,8 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       console.error("qbo sync tick failed", error),
     );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
+      // v0.12 W2-G: `origin` for the credits notifications the pass queues.
+      await billingTick({ db, stripe: stripeFor(deps, env), origin: originOf(env) }, scheduledTime);
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>

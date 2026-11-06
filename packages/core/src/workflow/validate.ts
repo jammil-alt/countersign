@@ -1,5 +1,7 @@
 import type { z } from "zod";
 import { isPlainObject } from "../json";
+// v0.12 W2-G
+import { validateClientView } from "../kpi/validate";
 import { levelFor } from "../permissions/decide";
 import { compileRule, RuleCompileError } from "../rules/compile";
 import {
@@ -66,7 +68,14 @@ export type ValidationCode =
   | "approval_required_by_connection"
   // v0.12 W1-D
   | "choices_not_ask"
-  | "duplicate_choice";
+  | "duplicate_choice"
+  // v0.12 W2-G: the client view (kpi/validate.ts)
+  | "duplicate_kpi"
+  | "kpi_ratio_depth"
+  | "kpi_unknown_step"
+  | "kpi_unknown_workflow"
+  | "kpi_unknown"
+  | "kpi_pack_missing";
 
 export interface ValidationError {
   /** The step, fork path or trigger id; null for workflow- or bundle-level errors. */
@@ -87,6 +96,8 @@ export interface ValidationContext extends TypingContext {
    * (from its bindings). When absent, connection checks are skipped (templates, drafts).
    */
   publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> };
+  // v0.12 W2-G: the packs installed where the bundle runs (pack panels of the client view).
+  packs?: readonly string[];
 }
 
 export interface ValidationResult<T> {
@@ -641,5 +652,7 @@ export function validateBundle(
   errors.push(...duplicateIds(bundle.workflows));
   const full: ValidationContext = { ...ctx, agent: bundle.definition };
   for (const w of bundle.workflows) errors.push(...semantic(w.workflow, full, w.slug));
+  // v0.12 W2-G: the client view's KPIs and panels (ARCHITECTURE §9.9).
+  errors.push(...validateClientView(bundle, ctx.packs ? { packs: ctx.packs } : {}));
   return { valid: errors.length === 0, errors, value: bundle };
 }

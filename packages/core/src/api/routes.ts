@@ -13,6 +13,8 @@ import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
+// v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+import { clientViewRoutes } from "./client-view";
 import { complianceRoutes } from "./compliance";
 import { defineRoute } from "./contract";
 import { deskRoutes } from "./desk";
@@ -1821,5 +1823,7 @@ export const routes = {
   ...deskRoutes,
   // v0.12 W1-C
   ...threadRoutes,
+  // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+  ...clientViewRoutes,
 } as const;
 export type Routes = typeof routes;

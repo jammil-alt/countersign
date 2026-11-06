@@ -9,6 +9,8 @@ export * from "./api/approver-rules";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
+// v0.12 W2-G: KPIs and the client view, credits, the client's audit export
+export * from "./api/client-view";
 export * from "./api/compliance";
 export * from "./api/contract";
 // v0.12 W1-D: the Desk
@@ -78,6 +80,11 @@ export * from "./i18n/timeline";
 export * from "./i18n/weekly";
 export * from "./ids";
 export * from "./json";
+// v0.12 W2-G: agent KPIs
+export * from "./kpi/format";
+export * from "./kpi/period";
+export * from "./kpi/schema";
+export * from "./kpi/validate";
 export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
 export * from "./mappers/qbo";
