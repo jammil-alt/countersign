@@ -126,6 +126,12 @@ describe("definition form", () => {
       () => "0190a1b2-0000-7000-8000-000000000001",
     );
     expect(bundle.definition.permissions.mode).toBe("suggest_only");
+    // v0.13 W2-I: a new agent reviews its failed steps.
+    expect(bundle.definition.oversight).toEqual({
+      review: "failures",
+      maxPerRun: 3,
+      maxCostUsd: "0.25",
+    });
     expect(bundle.definition.model.id).toBe("claude-opus-5-5");
     expect(bundle.workflows).toHaveLength(1);
     expect(bundle.workflows[0]?.workflow.trigger.id).toBe("0190a1b2-0000-7000-8000-000000000001");

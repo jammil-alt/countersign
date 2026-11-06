@@ -62,13 +62,22 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
             agentVersionId: run.agentVersionId,
             input: (entry.input ?? null) as Record<string, unknown> | null,
             status: "running",
-            attempts: 1,
+            attempts: entry.attempt ?? 1,
             startedAt: new Date(),
           })
           // A no-op update, so the existing row's id comes back (DO NOTHING returns no row).
           .onConflictDoUpdate({
             target: [stepRun.runId, stepRun.nodeId],
-            set: { nodeId: sql`excluded.node_id` },
+            set:
+              entry.attempt === undefined
+                ? { nodeId: sql`excluded.node_id` }
+                : // v0.13 W2-I: an oversight retry keeps the step's one row: its attempts rise and
+                  // it holds the input the attempt runs with (ARCHITECTURE §5.6).
+                  {
+                    attempts: sql`greatest(${stepRun.attempts}, excluded.attempts)`,
+                    input: sql`excluded.input`,
+                    status: "running",
+                  },
           })
           .returning({ id: stepRun.id });
         if (!row) throw new Error("step_run upsert returned nothing");
@@ -139,8 +148,9 @@ export function agentPort(
         ...(step.settings ? { settings: step.settings } : {}),
         ...(step.model ? { model: step.model } : {}),
         runId: run.id,
-        // The durable name, so each for_each iteration keys its own external actions.
-        stepId: nodeId,
+        // The durable name, so each for_each iteration keys its own external actions; v0.13 W2-I:
+        // an oversight retry with a corrected input keys its own (`${nodeId}:o${seq}`).
+        stepId: request.keyNode ?? nodeId,
         stepRunId,
         approval,
         mode: run.mode,
@@ -183,14 +193,15 @@ export function agentPort(
       }
     },
 
-    async runAction({ run, step, nodeId, stepRunId, input, approval }) {
+    async runAction({ run, step, nodeId, stepRunId, input, approval, keyNode }) {
       const agent = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
       const ctx: StepContext = {
         tenantId: run.tenantId,
         agent,
         runId: run.id,
         stepRunId,
-        stepId: nodeId,
+        // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
+        stepId: keyNode ?? nodeId,
         mode: run.mode,
         approval,
         // The step as written in the version: fixed inputs are checked against it, not `input`.

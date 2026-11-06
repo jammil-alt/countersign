@@ -19,12 +19,17 @@ import {
   type ForkStep,
   lookupSkill,
   type NotifyStep,
+  // v0.13 W2-I
+  OVERSIGHT_DEFAULT_MAX_PER_RUN,
+  OVERSIGHT_MAX_PER_STEP,
+  type OversightSettings,
   type PersonStep,
   parseDuration,
   type RunContext,
   renderSummary,
   renderTemplate,
   resolveTemplate,
+  reviewsFailures,
   runErrorKey,
   type SkillStep,
   type Step,
@@ -41,6 +46,9 @@ import {
   type InboxPort,
   InboxResolution,
   type NotifyPort,
+  // v0.13 W2-I
+  type OversightPort,
+  type OversightVerdict,
   type RunInfo,
   type StepCatalog,
   type StepLog,
@@ -68,6 +76,9 @@ export interface ExecutorContext {
   // v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
   /** The automation versions the workflow's use steps pin, loaded in the run's load step. */
   automations?: AutomationResolver;
+  // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54).
+  /** The run's own agent reviewing failed steps; absent: no step is reviewed, as before. */
+  oversight?: ExecutorOversight;
 }
 
 /** What a retry starts from. Small JSON: apps/api loads it in a durable step. */
@@ -90,6 +101,38 @@ export interface RunResult {
   nodeId?: string;
   /** A failure's `error.key`: `<tool id or step kind>:<code>` of the step that failed (W1-E). */
   errorKey?: string;
+  // v0.13 W2-I
+  /** A failure the run's agent reviewed: its last decision's note (operator side only). */
+  diagnosis?: string;
+}
+
+// v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54).
+export interface ExecutorOversight {
+  port: OversightPort;
+  /** The agent's `definition.oversight`; absent means `off` (a step may still say `always`). */
+  settings?: OversightSettings | undefined;
+}
+
+/** How one attempt at a skill or action step ended. */
+interface Attempt {
+  stepRunId: string;
+  outcome: StepOutcome;
+  rejected: boolean;
+}
+
+/** An oversight retry: its place, the input it runs with and the node its write keys use. */
+interface AttemptRetry {
+  seq: number;
+  input: unknown;
+  keyNode: string;
+}
+
+function failedAttempt(a: Attempt | { thrown: unknown }): boolean {
+  return "thrown" in a || a.outcome.kind === "failed";
+}
+
+function withDiagnosis(diagnosis: string | undefined): { diagnosis?: string } {
+  return diagnosis === undefined ? {} : { diagnosis };
 }
 
 // DECISION: a write step whose approval names no timeout waits 7 days, then counts as not
@@ -160,6 +203,10 @@ class Executor {
     // v0.12 W2-B
     readonly expansions: Expansions = {},
   ) {}
+
+  // v0.13 W2-I
+  /** Oversight decisions taken in this run so far (each counts toward `maxPerRun`). */
+  interventions = 0;
 
   get testRun(): boolean {
     return this.ctx.run.mode === "test";
@@ -367,14 +414,95 @@ class Executor {
   }
 
   async work(step: SkillStep | ActionStep, name: string, frame: Frame): Promise<void> {
-    const { run, agent, log } = this.ctx;
     const approval: Approval =
       step.kind === "action" ? step.approval : (step.approval ?? DEFAULT_APPROVAL);
-    const first = await this.runner.do(
+    // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54). Without a port, or when
+    // this step's failures aren't reviewed, the first attempt is the only one, exactly as before.
+    if (this.oversees(step)) {
+      const done = await this.overseen(step, name, frame, approval);
+      if (done.kind === "thrown") {
+        if (done.diagnosis === undefined) throw done.error;
+        const reason = message(done.error);
+        await this.recordFailure(step, name, reason);
+        throw new RunEnd({
+          status: "failed",
+          reason,
+          nodeId: name,
+          errorKey: errorKeyOf(step, reason),
+          diagnosis: done.diagnosis,
+        });
+      }
+      if (done.kind === "skipped") {
+        frame.scope.steps[step.id] = { output: null };
+        return;
+      }
+      return this.finishWork(step, name, frame, approval, done.attempt, done.diagnosis);
+    }
+    return this.finishWork(
+      step,
       name,
+      frame,
+      approval,
+      await this.attempt(step, name, frame, approval),
+    );
+  }
+
+  /** How the step's last attempt ended decides the run (unchanged by oversight). */
+  finishWork(
+    step: SkillStep | ActionStep,
+    name: string,
+    frame: Frame,
+    approval: Approval,
+    { outcome, rejected }: Attempt,
+    diagnosis?: string,
+  ): void {
+    if (outcome.kind === "escalated") {
+      throw new RunEnd({ status: "failed", reason: `escalated: ${outcome.reason}`, nodeId: name });
+    }
+    if (outcome.kind === "failed") {
+      throw new RunEnd({
+        status: "failed",
+        reason: outcome.error,
+        nodeId: name,
+        // v0.13 W2-I: the last decision's note, for `run.failed` (operator side only).
+        ...(diagnosis === undefined ? {} : { diagnosis }),
+      });
+    }
+    if (outcome.kind !== "done") throw new Error("unreachable");
+    if (rejected && approval.onReject === "stop") {
+      // DECISION: a rejected write ends the run as `cancelled` (a person's decision, not a fault).
+      throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
+    }
+    frame.scope.steps[step.id] = { output: outcome.output };
+  }
+
+  /**
+   * One attempt at a skill or action step: the step, then its approvals and waits. The first
+   * attempt's durable names are the step's own (`name`, `name:approval:n`); v0.13 W2-I: an
+   * oversight retry's are under `${name}:retry:${seq}`, on the same step_run row.
+   */
+  async attempt(
+    step: SkillStep | ActionStep,
+    name: string,
+    frame: Frame,
+    approval: Approval,
+    retry?: AttemptRetry,
+  ): Promise<Attempt> {
+    const { run, agent, log } = this.ctx;
+    const at = retry ? `${name}:retry:${retry.seq}` : name;
+    const keyNode = retry && retry.keyNode !== name ? retry.keyNode : undefined;
+    const first = await this.runner.do(
+      at,
       async () => {
-        const input = resolveTemplate(step.input, frame.scope);
-        const start = { runId: run.id, nodeId: name, nodeType: step.kind, input } as const;
+        const input = retry ? retry.input : resolveTemplate(step.input, frame.scope);
+        const start = {
+          runId: run.id,
+          nodeId: name,
+          nodeType: step.kind,
+          input,
+          // v0.13 W2-I
+          ...(retry ? { attempt: retry.seq + 1 } : {}),
+        } as const;
         const stepRunId = await log.start(
           step.kind === "skill" ? { ...start, skillRef: step.skill } : start,
         );
@@ -386,6 +514,8 @@ class Executor {
           approval,
           // v0.12 W2-B: an automation's step runs as the using agent, with the automation's skills.
           ...(frame.automation ? { automation: frame.automation } : {}),
+          // v0.13 W2-I
+          ...(keyNode ? { keyNode } : {}),
         };
         const outcome =
           step.kind === "skill"
@@ -401,11 +531,20 @@ class Executor {
     let rejected = false;
     for (let n = 1; outcome.kind === "approval" || outcome.kind === "waiting"; n++) {
       if (outcome.kind === "waiting") {
-        outcome = await this.awaitStep(step, name, stepRunId, outcome.wait, n, rejected);
+        outcome = await this.awaitStep(
+          step,
+          name,
+          stepRunId,
+          outcome.wait,
+          n,
+          rejected,
+          at,
+          keyNode,
+        );
         continue;
       }
       const pending = outcome.pending;
-      const base = `${name}:approval:${n}`;
+      const base = `${at}:approval:${n}`;
       const timeout = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
       const resolution = (await this.awaitResolution(base, pending.inboxItemId, timeout)) ?? {
         approved: false,
@@ -428,19 +567,7 @@ class Executor {
         this.ctx.stepConfig,
       );
     }
-
-    if (outcome.kind === "escalated") {
-      throw new RunEnd({ status: "failed", reason: `escalated: ${outcome.reason}`, nodeId: name });
-    }
-    if (outcome.kind === "failed") {
-      throw new RunEnd({ status: "failed", reason: outcome.error, nodeId: name });
-    }
-    if (outcome.kind !== "done") throw new Error("unreachable");
-    if (rejected && approval.onReject === "stop") {
-      // DECISION: a rejected write ends the run as `cancelled` (a person's decision, not a fault).
-      throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
-    }
-    frame.scope.steps[step.id] = { output: outcome.output };
+    return { stepRunId, outcome, rejected };
   }
 
   /**
@@ -454,14 +581,24 @@ class Executor {
     wait: StepWait,
     n: number,
     rejected: boolean,
+    // v0.13 W2-I: an oversight retry's durable names and key node.
+    at: string = name,
+    keyNode?: string,
   ): Promise<StepOutcome> {
     const { agent, run } = this.ctx;
     const { waitDone, afterWait } = agent;
     if (!waitDone || !afterWait) {
       throw new Error(`step ${step.id} waits, but the agent port can't wait`);
     }
-    const base = `${name}:wait:${n}`;
-    const request = { run, step, nodeId: name, stepRunId, wait };
+    const base = `${at}:wait:${n}`;
+    const request = {
+      run,
+      step,
+      nodeId: name,
+      stepRunId,
+      wait,
+      ...(keyNode ? { keyNode } : {}),
+    };
     const done = await this.runner.do(`${base}:check`, () => waitDone.call(agent, request));
     let timedOut = false;
     if (!done) {
@@ -793,6 +930,156 @@ class Executor {
     });
     if (ended) throw ended;
     frame.scope.steps[step.id] = { output };
+  }
+
+  // ── v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54) ──────────────────────
+
+  /** Whether a failure of this step goes to the run's own agent for review. */
+  oversees(step: SkillStep | ActionStep): boolean {
+    const oversight = this.ctx.oversight;
+    return oversight !== undefined && reviewsFailures(oversight.settings, step);
+  }
+
+  /** The first attempt and its thrown error, if any: a review never hides the step's own error. */
+  async tryAttempt(
+    step: SkillStep | ActionStep,
+    name: string,
+    frame: Frame,
+    approval: Approval,
+    retry?: AttemptRetry,
+  ): Promise<Attempt | { thrown: unknown }> {
+    try {
+      return await this.attempt(step, name, frame, approval, retry);
+    } catch (error) {
+      if (error instanceof RunEnd) throw error;
+      return { thrown: error };
+    }
+  }
+
+  /**
+   * The step under oversight: while an attempt fails (its outcome `failed`, or an error thrown),
+   * the agent reviews it (`${name}:oversee:${seq}`, a durable step) and the executor applies the
+   * verdict: run it again (`${name}:retry:${seq}`) as it was or with the corrected input, wait for
+   * a person's answer first, or stop. Past 2 reviews for the step or `maxPerRun` for the run, or on
+   * a verdict of `none`, the last attempt stands and the step fails exactly as without oversight.
+   */
+  async overseen(
+    step: SkillStep | ActionStep,
+    name: string,
+    frame: Frame,
+    approval: Approval,
+  ): Promise<
+    | { kind: "attempt"; attempt: Attempt; diagnosis?: string }
+    | { kind: "thrown"; error: unknown; diagnosis?: string }
+    | { kind: "skipped" }
+  > {
+    const oversight = this.ctx.oversight;
+    if (!oversight) throw new Error("unreachable");
+    const { run, log } = this.ctx;
+    const maxPerRun = oversight.settings?.maxPerRun ?? OVERSIGHT_DEFAULT_MAX_PER_RUN;
+    let current = await this.tryAttempt(step, name, frame, approval);
+    let input: unknown;
+    let keyNode = name;
+    let diagnosis: string | undefined;
+    const result = () =>
+      "thrown" in current
+        ? { kind: "thrown" as const, error: current.thrown, ...withDiagnosis(diagnosis) }
+        : { kind: "attempt" as const, attempt: current, ...withDiagnosis(diagnosis) };
+
+    for (let seq = 1; failedAttempt(current); seq++) {
+      // DECISION: the executor counts interventions per step and per run (a replay counts the same
+      // stored verdicts again); the port holds the cost limit, from the decisions' recorded cost.
+      if (seq > OVERSIGHT_MAX_PER_STEP || this.interventions >= maxPerRun) break;
+      if (seq === 1) {
+        try {
+          input = resolveTemplate(step.input, frame.scope);
+        } catch {
+          break;
+        }
+      }
+      const failed = current;
+      const error =
+        "thrown" in failed
+          ? message(failed.thrown)
+          : failed.outcome.kind === "failed"
+            ? failed.outcome.error
+            : "failed";
+      let verdict: OversightVerdict;
+      try {
+        verdict = await this.runner.do(
+          `${name}:oversee:${seq}`,
+          async () => {
+            // A step that threw may not have handed back its row: the upsert finds it (or makes it).
+            const stepRunId =
+              "thrown" in failed
+                ? await log.start({
+                    runId: run.id,
+                    nodeId: name,
+                    nodeType: step.kind,
+                    ...(step.kind === "skill" ? { skillRef: step.skill } : {}),
+                  })
+                : failed.stepRunId;
+            return oversight.port.review({
+              run,
+              step,
+              nodeId: name,
+              stepRunId,
+              seq,
+              cause: "failed",
+              input,
+              error,
+              errorKey: errorKeyOf(step, error),
+              attempts: seq,
+              ...(frame.automation ? { automation: frame.automation } : {}),
+            });
+          },
+          this.ctx.stepConfig,
+        );
+      } catch {
+        // A review that fails is no intervention: the step's own error stands.
+        break;
+      }
+      if (verdict.action === "none" || verdict.action === "continue") break;
+      this.interventions += 1;
+      diagnosis = verdict.note;
+      if (verdict.action === "stop") break;
+      if (verdict.action === "ask") {
+        const timeout = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
+        const answer = await this.awaitResolution(
+          `${name}:oversee:${seq}:ask`,
+          verdict.inboxItemId,
+          timeout,
+        );
+        if (answer?.approved !== true) {
+          // DECISION: a person who declines (or doesn't answer) is the step's `onReject`:
+          // `continue` skips the step and the run goes on; `stop` fails it with its own error.
+          if (approval.onReject !== "continue") break;
+          await this.runner.do(`${name}:oversee:${seq}:skipped`, async () => {
+            const stepRunId =
+              "thrown" in failed
+                ? await log.start({ runId: run.id, nodeId: name, nodeType: step.kind })
+                : failed.stepRunId;
+            await log.update(stepRunId, {
+              status: "skipped",
+              summary: `${clientLabel(step)}: ${this.words.notApproved}`,
+            });
+            return null;
+          });
+          return { kind: "skipped" };
+        }
+      }
+      if (verdict.action === "retry") {
+        await this.runner.sleep(`${name}:retry:${seq}:sleep`, verdict.after);
+      }
+      if (verdict.action === "retry_with") {
+        input = verdict.input;
+        // A new input is a new change: its own idempotency keys, so the gate decides it afresh
+        // and an approval given for the old input never carries (ARCHITECTURE §10.11).
+        keyNode = `${name}:o${seq}`;
+      }
+      current = await this.tryAttempt(step, name, frame, approval, { seq, input, keyNode });
+    }
+    return result();
   }
 
   async stop(step: StopStep, name: string): Promise<void> {

@@ -31,6 +31,8 @@ import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
+// v0.13 W2-I
+import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
@@ -519,6 +521,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       agent: ref ?? null,
       version: version?.version ?? null,
       workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
+      // v0.13 W2-I: each oversight decision with its note, input change, model and cost.
+      oversight: await runOversight(tx, r.tenantId, r.id),
     };
   });
 
