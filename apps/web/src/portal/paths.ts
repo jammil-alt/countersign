@@ -21,4 +21,8 @@ export const PORTAL_PATHS = {
   // UI-1d
   weekly: "/weekly",
   sloan: "/sloan",
+  // UI-3a
+  upload: "/upload",
+  team: "/settings/team",
+  exports: "/settings/exports",
 } as const;
