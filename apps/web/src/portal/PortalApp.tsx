@@ -169,6 +169,12 @@ export function PortalLayout({ children }: { children: ReactNode }) {
               />
             </SidebarSection>
             <SidebarMore label={t("nav.more")} testId="portal-nav-more">
+              {/* UI-3a */}
+              <SidebarLink
+                to={PORTAL_PATHS.upload}
+                label={t("nav.upload")}
+                testId="portal-nav-upload"
+              />
               <SidebarLink
                 to={PORTAL_PATHS.reports}
                 label={t("nav.reports")}

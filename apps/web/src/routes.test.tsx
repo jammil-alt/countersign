@@ -70,6 +70,10 @@ describe("the portal's routes", () => {
       "/runs",
       "/weekly",
       "/sloan",
+      // UI-3a
+      "/upload",
+      "/settings/team",
+      "/settings/exports",
     ]) {
       const pattern = p.replace("/x", `/${ID}`);
       expect(all).toContain(pattern);
