@@ -311,6 +311,12 @@ export const it: Messages = {
   "callback.subtitle": "Stiamo completando l'accesso al tuo strumento.",
   "callback.back": "Torna a Connessioni",
   "callback.connecting": "Collegamento…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Leggi i movimenti dei tuoi conti bancari e delle tue carte. Niente qui può spostare denaro.",
+  "connections.bankfeed.connect": "Collega banca o carta",
+  "callback.linkLost":
+    "Questo accesso alla banca è iniziato in un'altra scheda o finestra. Ricomincia da Connessioni.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accessi",

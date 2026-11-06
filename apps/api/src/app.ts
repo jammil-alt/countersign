@@ -3,6 +3,7 @@
 
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
+import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
@@ -29,6 +30,8 @@ import { accessRoutes } from "./routes/access";
 import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { auditExportRoutes } from "./routes/audit-export";
+// v0.12 bankfeed
+import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
@@ -119,6 +122,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   deskRoutes(app);
   portalRouteHandlers(app);
   qboRoutes(app);
+  // v0.12 bankfeed: Plaid's webhook
+  bankfeedRoutes(app);
   connectionRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
@@ -223,6 +228,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       console.error("qbo sync tick failed", error),
+    );
+    // v0.12 bankfeed: every connected bank feed once an hour, behind Plaid's webhook (§1.52).
+    await bankfeedCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
+      console.error("bank feed sync tick failed", error),
     );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.

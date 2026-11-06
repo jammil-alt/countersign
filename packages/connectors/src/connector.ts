@@ -271,6 +271,35 @@ export interface CallbackRequest {
   tenantId: string;
   userId: string;
   redirectUri: string;
+  /**
+   * v0.12 bankfeed: the connection being signed in again, when it still holds credentials (a
+   * hosted link flow's reconnect keeps the same grant: Plaid Link's update mode). Absent otherwise.
+   */
+  existing?: ConnectionContext;
+}
+
+// v0.12 bankfeed (docs/plan.md §1.52): a provider whose sign-in is its own hosted widget opened in
+// the page (Plaid Link), not a redirect. The platform signs a state as for OAuth; the connector
+// makes a short-lived token the portal opens the widget with; the widget's result comes back
+// through the same callback route (`handleCallback`) with that state.
+export interface LinkRequest {
+  tenantId: string;
+  userId: string;
+  /** Where an OAuth bank sends the person back to (the portal's callback page). */
+  redirectUri: string;
+  /** Where the provider posts this client's notifications. */
+  webhookUrl: string;
+  /** The reader's language (a portal locale); the widget may support fewer. */
+  language?: string;
+  /** The connection being reconnected, when it still holds credentials (update mode). */
+  reconnect?: ConnectionContext;
+}
+
+export interface LinkStart {
+  provider: "plaid";
+  /** Short-lived and single-use: it opens the widget, and reads nothing by itself. */
+  token: string;
+  expiresAt: string | null;
 }
 
 /**
@@ -291,6 +320,8 @@ export interface Connector {
   /** Handlers by tool id, one for each of `manifest.tools`. */
   tools: Readonly<Record<string, ToolHandler>>;
   authorize?(req: AuthorizeRequest): Promise<{ redirectUrl: string }>;
+  /** v0.12 bankfeed: a hosted link widget in place of `authorize`'s redirect (Plaid Link). */
+  beginLink?(req: LinkRequest): Promise<LinkStart>;
   handleCallback?(params: Record<string, string>, req: CallbackRequest): Promise<ConnectionGrant>;
   /**
    * Whether this deployment has what signing in needs (e.g. the OAuth client id and secret).
@@ -436,8 +467,9 @@ export function defineConnector(
     }
     handlers[t.spec.id] = t.handler;
   }
-  if (auth === "oauth2" && (!hooks.authorize || !hooks.handleCallback)) {
-    problems.push("oauth2 connectors need authorize and handleCallback");
+  // v0.12 bankfeed: a hosted link widget (beginLink) starts a sign-in in place of a redirect.
+  if (auth === "oauth2" && (!(hooks.authorize || hooks.beginLink) || !hooks.handleCallback)) {
+    problems.push("oauth2 connectors need authorize and handleCallback (or beginLink for a link)");
   }
   problems.push(...manifestDefaultProblems({ defaultPermissions }));
   if (problems.length > 0 || !parsed.success) throw new ConnectorDefinitionError(id, problems);

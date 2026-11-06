@@ -50,6 +50,11 @@ export interface Secrets {
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
+  // v0.12 bankfeed: bank and card feeds through Plaid (ARCHITECTURE §6.11, docs/plan.md §1.52).
+  /** Mezonas' Plaid client id (the same in every Plaid environment). */
+  PLAID_CLIENT_ID?: string;
+  /** The secret of the Plaid environment PLAID_ENV names (sandbox and production differ). */
+  PLAID_SECRET?: string;
   /** Mezonas' own Stripe account (billing, docs/plan.md §1.24); unset: billing is off. */
   STRIPE_SECRET_KEY?: string;
   /** The Stripe webhook endpoint's signing secret (`whsec_…`) for /api/billing/stripe/webhook. */
@@ -79,6 +84,8 @@ export interface Vars {
   EMAIL_FORWARDING_DOMAIN?: string;
   /** `sandbox` (default) or `production`: which QuickBooks the qbo connector talks to. */
   QBO_ENV?: string;
+  /** v0.12 bankfeed: `sandbox` (default) or `production`: which Plaid the bank feed talks to. */
+  PLAID_ENV?: string;
   /**
    * Where Google sends the person back after Gmail's consent screen; it must match a redirect URI
    * registered on the OAuth client exactly. Unset: `<APP_ORIGIN>/api/connections/gmail/callback`.
