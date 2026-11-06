@@ -598,6 +598,20 @@ export const stepRun = pgTable(
 );
 
 /**
+ * What a model call was for (migration 0032), so tokens can be counted by action: an agent's own
+ * turn in a step, the run's oversight review, a reach-out's message, a tool's own call (a document
+ * read in a step), and a question asked of the client's account agent (Sloan) in the portal.
+ * Mirrors core's `MODEL_CALL_ACTIONS` (db can't import core's runtime).
+ */
+export const MODEL_CALL_ACTIONS = [
+  "agent_turn",
+  "oversight",
+  "reach_out",
+  "tool_call",
+  "question",
+] as const;
+
+/**
  * One model call of a run's step (migration 0023, ARCHITECTURE §10.10): provider, model, tokens,
  * cost, duration and why it stopped. The request and answer are in object storage under the
  * client's prefix (`body_key`), never in the database. Back office only. Insert only (trigger).
@@ -610,9 +624,14 @@ export const modelCall = pgTable(
     runId: uuid("run_id").notNull(),
     stepRunId: uuid("step_run_id").notNull(),
     agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
-    /** `anthropic` | `openai`. */
+    /** `anthropic` | `openai` | `xai` | `google`. */
     provider: text("provider").notNull(),
     model: text("model").notNull(),
+    /**
+     * What the call was for (migration 0032): core's `MODEL_CALL_ACTIONS`. Rows from before it
+     * read `agent_turn`, which most were.
+     */
+    action: text("action").notNull().default("agent_turn"),
     tokensIn: integer("tokens_in").notNull(),
     tokensOut: integer("tokens_out").notNull(),
     costUsd: numeric("cost_usd", { precision: 14, scale: 4 }).notNull(),
@@ -637,6 +656,7 @@ export const modelCall = pgTable(
     index("model_call_run_idx").on(t.runId, t.createdAt),
     index("model_call_step_run_idx").on(t.stepRunId),
     index("model_call_tenant_idx").on(t.tenantId, t.createdAt),
+    check("model_call_action_check", oneOf(t.action, MODEL_CALL_ACTIONS)),
     check(
       "model_call_amounts_check",
       sql`${t.tokensIn} >= 0 and ${t.tokensOut} >= 0 and ${t.costUsd} >= 0 and ${t.durationMs} >= 0`,

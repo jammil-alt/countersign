@@ -225,6 +225,13 @@
       "when": 1793971912678,
       "tag": "0031_whatsapp_capture",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794004770353,
+      "tag": "0032_model_call_action",
+      "breakpoints": true
     }
   ]
 }
