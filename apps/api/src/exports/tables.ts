@@ -406,7 +406,11 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
     ],
     async page(tx, tenantId, cursor, limit) {
       const rows = await tx
-        .select({ l: docLine, documentId: docExtraction.documentId, currency: docExtraction.currency })
+        .select({
+          l: docLine,
+          documentId: docExtraction.documentId,
+          currency: docExtraction.currency,
+        })
         .from(docLine)
         .innerJoin(
           docExtraction,
@@ -639,9 +643,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
         .select({ s: stepRun, versionId: run.agentVersionId, slug: run.workflowSlug })
         .from(stepRun)
         .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
-        .where(
-          and(eq(stepRun.tenantId, tenantId), eq(run.mode, "live"), after(stepRun.id, cursor)),
-        )
+        .where(and(eq(stepRun.tenantId, tenantId), eq(run.mode, "live"), after(stepRun.id, cursor)))
         .orderBy(stepRun.id)
         .limit(limit + 1);
       // The bundle is read here only to know which steps the client's timeline shows and what it
@@ -716,7 +718,10 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
             eq(connection.tenantId, externalAction.tenantId),
           ),
         )
-        .leftJoin(run, and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)))
+        .leftJoin(
+          run,
+          and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)),
+        )
         .where(
           and(
             eq(externalAction.tenantId, tenantId),
@@ -851,7 +856,10 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
       const rows = await tx
         .select({ m: message, threadTitle: thread.title })
         .from(message)
-        .innerJoin(thread, and(eq(thread.id, message.threadId), eq(thread.tenantId, message.tenantId)))
+        .innerJoin(
+          thread,
+          and(eq(thread.id, message.threadId), eq(thread.tenantId, message.tenantId)),
+        )
         .where(
           and(
             eq(message.tenantId, tenantId),
@@ -916,7 +924,10 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
           ),
         )
         .where(
-          and(eq(knowledgeEntryVersion.tenantId, tenantId), after(knowledgeEntryVersion.id, cursor)),
+          and(
+            eq(knowledgeEntryVersion.tenantId, tenantId),
+            after(knowledgeEntryVersion.id, cursor),
+          ),
         )
         .orderBy(knowledgeEntryVersion.id)
         .limit(limit + 1);
@@ -972,9 +983,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
           createdAt: organizationChange.createdAt,
         })
         .from(organizationChange)
-        .where(
-          and(eq(organizationChange.tenantId, tenantId), after(organizationChange.id, cursor)),
-        )
+        .where(and(eq(organizationChange.tenantId, tenantId), after(organizationChange.id, cursor)))
         .orderBy(organizationChange.id)
         .limit(limit + 1),
   ),

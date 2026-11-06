@@ -111,8 +111,7 @@ export async function exportRunning(
   const all = await listManifests(objects, tenantId);
   return all.some(
     (m) =>
-      m.status === "running" &&
-      now.getTime() - Date.parse(m.requestedAt) < RUNNING_EXPORT_HOLD_MS,
+      m.status === "running" && now.getTime() - Date.parse(m.requestedAt) < RUNNING_EXPORT_HOLD_MS,
   );
 }
 

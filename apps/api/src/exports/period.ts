@@ -4,8 +4,8 @@
 import type { ObjectStore } from "@countersign/connectors";
 import {
   type AuditPeriod,
-  Decimal,
   DECIMAL_RE,
+  Decimal,
   type ExportFile,
   type ExportPeriod,
   isPlainObject,
@@ -259,7 +259,8 @@ export async function accountantExport(
   const docsOf = (actionId: string) => {
     const ids = named.get(actionId) ?? new Set<string>();
     return docs.filter(
-      (d) => ids.has(d.id.toLowerCase()) || (d.transactionId && ids.has(d.transactionId.toLowerCase())),
+      (d) =>
+        ids.has(d.id.toLowerCase()) || (d.transactionId && ids.has(d.transactionId.toLowerCase())),
     );
   };
 

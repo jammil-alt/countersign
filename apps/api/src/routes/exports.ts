@@ -177,7 +177,11 @@ export function exportRoutes(app: Hono<AppEnv>): void {
           finishedAt: new Date().toISOString(),
           error: "the export job could not be started",
         });
-        throw new HttpError(503, "export_not_started", "the export could not be started; try again");
+        throw new HttpError(
+          503,
+          "export_not_started",
+          "the export could not be started; try again",
+        );
       }
       return exportView(c, services.env, manifest, now);
     },
@@ -185,24 +189,28 @@ export function exportRoutes(app: Hono<AppEnv>): void {
 
   // ── Accountant export ──────────────────────────────────────────────────────────────────────────
 
-  mountFile(app, routes.portalAccountantExport, async ({ c, tx, tenantIds, query, services, session }) => {
-    const tenantId = tenantIds[0] as string;
-    const file = await accountantExport({
-      tx,
-      tenantId,
-      period: query,
-      platform: services.platform,
-      objects: services.deps.objects(services.env),
-      now: new Date(),
-    });
-    await auditExportRow({ c, tx, session }, tenantId, "export.accountant", {
-      from: query.from,
-      to: query.to,
-      format: query.format,
-      changes: String(file.changes),
-    });
-    return file;
-  });
+  mountFile(
+    app,
+    routes.portalAccountantExport,
+    async ({ c, tx, tenantIds, query, services, session }) => {
+      const tenantId = tenantIds[0] as string;
+      const file = await accountantExport({
+        tx,
+        tenantId,
+        period: query,
+        platform: services.platform,
+        objects: services.deps.objects(services.env),
+        now: new Date(),
+      });
+      await auditExportRow({ c, tx, session }, tenantId, "export.accountant", {
+        from: query.from,
+        to: query.to,
+        format: query.format,
+        changes: String(file.changes),
+      });
+      return file;
+    },
+  );
 
   mountFile(
     app,

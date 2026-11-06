@@ -32,9 +32,7 @@ export const ClientExport = z.object({
   /** Why it failed, in words. */
   error: z.string().nullable(),
   /** A link that works for a few minutes, for a ready export. */
-  download: z
-    .object({ url: z.string(), filename: z.string(), expiresAt: z.string() })
-    .nullable(),
+  download: z.object({ url: z.string(), filename: z.string(), expiresAt: z.string() }).nullable(),
 });
 export type ClientExport = z.infer<typeof ClientExport>;
 
@@ -83,7 +81,9 @@ export type ExportPeriod = z.infer<typeof ExportPeriod>;
 
 /** Days from `from` to `to`, both included. */
 export function periodDays(from: string, to: string): number {
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+  return (
+    Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
+  );
 }
 
 /**

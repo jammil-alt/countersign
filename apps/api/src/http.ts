@@ -466,10 +466,7 @@ function sendFile<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) 
  * exact name as RFC 5987 UTF-8, so a non-Latin-1 name (e.g. a Chinese invoice) is a valid header,
  * not a 500.
  */
-export function contentDisposition(
-  name: string,
-  kind: "inline" | "attachment" = "inline",
-): string {
+export function contentDisposition(name: string, kind: "inline" | "attachment" = "inline"): string {
   const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_") || "document";
   const utf8 = encodeURIComponent(name.replace(/[\r\n]/g, "")).replace(
     /['()*]/g,

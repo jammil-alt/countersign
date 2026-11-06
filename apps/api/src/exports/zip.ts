@@ -192,7 +192,7 @@ export function planZip(
   return { headers, trailer, size: offset + trailer.length };
 }
 
-export function concat(parts: readonly Uint8Array[]): Uint8Array {
+export function concat(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;
   for (const p of parts) {
@@ -207,14 +207,14 @@ export function zipSync(
   files: readonly { name: string; bytes: Uint8Array }[],
   modified: Date,
   options: { zip64?: "auto" | "always" } = {},
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const plan = planZip(
     files.map((f) => ({ name: f.name, size: f.bytes.length, crc: crc32(f.bytes) })),
     modified,
     options,
   );
   const parts: Uint8Array[] = [];
-  files.forEach((f, i) => parts.push(plan.headers[i] as Uint8Array, f.bytes));
+  for (const [i, f] of files.entries()) parts.push(plan.headers[i] as Uint8Array, f.bytes);
   parts.push(plan.trailer);
   return concat(parts);
 }

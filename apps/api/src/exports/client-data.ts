@@ -34,6 +34,8 @@ export interface ExportJobDeps {
   db: Db;
   storage: ExportStorage;
   now(): Date;
+  /** Rows per page; default EXPORT_PAGE_ROWS (tests use a few, to page). */
+  pageRows?: number;
 }
 
 /** A Workflow's `step.do`: a named, durable step whose JSON result is replayed on resume. */
@@ -44,6 +46,20 @@ export interface ExportStep {
 /** One file of the ZIP and the stored pieces it is made of, in order. */
 interface Piece extends ZipEntry {
   keys: string[];
+}
+
+interface PageResult {
+  key: string;
+  size: number;
+  crc: number;
+  rows: number;
+  next: string | null;
+}
+
+interface DocumentBatch {
+  files: Piece[];
+  missing: { id: string; filename: string }[];
+  next: string | null;
 }
 
 interface Begun {
@@ -93,9 +109,9 @@ async function writeTablePage(
   cursor: string | null,
   pageNo: number,
   crcSoFar: number,
-) {
+): Promise<PageResult> {
   const page = await withTenant(deps.db, p.tenantId, (tx) =>
-    table.page(tx, p.tenantId, cursor, EXPORT_PAGE_ROWS),
+    table.page(tx, p.tenantId, cursor, deps.pageRows ?? EXPORT_PAGE_ROWS),
   );
   const text =
     (pageNo === 0 ? CSV_BOM + csvLine(table.header) : "") + page.rows.map(csvLine).join("");
@@ -111,7 +127,11 @@ async function writeTablePage(
   };
 }
 
-async function readDocuments(deps: ExportJobDeps, p: ExportParams, cursor: string | null) {
+async function readDocuments(
+  deps: ExportJobDeps,
+  p: ExportParams,
+  cursor: string | null,
+): Promise<DocumentBatch> {
   const docs = await withTenant(deps.db, p.tenantId, (tx) =>
     tx
       .select({
@@ -312,9 +332,9 @@ export async function runClientExport(
       let count = 0;
       do {
         const crcSoFar = piece.crc;
-        const at = cursor;
+        const at: string | null = cursor;
         const n = pageNo;
-        const page = await step.do(`${table.file} page ${n}`, () =>
+        const page: PageResult = await step.do(`${table.file} page ${n}`, () =>
           writeTablePage(deps, p, table, at, n, crcSoFar),
         );
         piece.keys.push(page.key);
@@ -332,8 +352,10 @@ export async function runClientExport(
     let cursor: string | null = null;
     let batch = 0;
     do {
-      const at = cursor;
-      const r = await step.do(`documents ${batch}`, () => readDocuments(deps, p, at));
+      const at: string | null = cursor;
+      const r: DocumentBatch = await step.do(`documents ${batch}`, () =>
+        readDocuments(deps, p, at),
+      );
       files.push(...r.files);
       missing.push(...r.missing);
       cursor = r.next;

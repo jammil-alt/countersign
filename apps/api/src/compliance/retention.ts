@@ -7,6 +7,7 @@ import type { ObjectStore } from "@countersign/connectors";
 import { RETIREMENT_PURGE_DAYS } from "@countersign/core";
 import { auditEvent, type Db, tenant, withTenant } from "@countersign/db";
 import { and, isNotNull, lte, sql } from "drizzle-orm";
+import { exportRunning } from "../exports/store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -27,6 +28,9 @@ export async function purgeRetiredFiles(
     );
   const done: { tenantId: string; files: number }[] = [];
   for (const t of due) {
+    // DECISION: an export asked for within the 30 days finishes first (terms §12); the sweep
+    // tries again next hour. An export stuck for a day no longer holds it off.
+    if (await exportRunning(objects, t.id, now)) continue;
     const prefix = `tenants/${t.id.toLowerCase()}/`;
     let files = 0;
     let cursor: string | undefined;

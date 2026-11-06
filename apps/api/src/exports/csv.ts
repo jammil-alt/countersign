@@ -37,8 +37,12 @@ export function csvLine(values: readonly CsvValue[]): string {
 }
 
 /** A whole CSV file: the byte order mark, the header and the rows. */
-export function csvFile(header: readonly string[], rows: readonly (readonly CsvValue[])[]): Uint8Array {
-  return encoder.encode(CSV_BOM + csvLine(header) + rows.map(csvLine).join(""));
+export function csvFile(
+  header: readonly string[],
+  rows: readonly (readonly CsvValue[])[],
+): Uint8Array<ArrayBuffer> {
+  const bytes = encoder.encode(CSV_BOM + csvLine(header) + rows.map(csvLine).join(""));
+  return new Uint8Array(bytes);
 }
 
 /**
