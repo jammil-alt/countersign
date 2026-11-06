@@ -122,4 +122,60 @@ describe("portal records list", () => {
     expect(await screen.findByText("Nothing matches “nothing”.")).toBeInTheDocument();
     expect(asked.some((s) => s.includes("q=nothing"))).toBe(true);
   });
+
+  it("lists receivables: what each customer still owes, an open one past due marked overdue", async () => {
+    const OPEN = "00000000-0000-4000-8000-0000000b7101";
+    const PAID = "00000000-0000-4000-8000-0000000b7102";
+    const receivable = (id: string, o: Record<string, unknown>) => ({
+      id,
+      docNumber: "1042",
+      customer: { name: "Lakeside Builders", organizationId: null },
+      txnDate: "2026-09-01",
+      dueDate: "2026-10-01",
+      total: "6200.0000",
+      balance: "6200.0000",
+      currency: "USD",
+      status: "open",
+      syncedAt: "2026-11-05T10:00:00.000Z",
+      sourceId: SOURCE,
+      ...o,
+    });
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/records": () => ({
+        ...base,
+        counts: { transactions: 1, vendors: 1, items: 0, receivables: 2 },
+        total: 2,
+        page: {
+          kind: "receivables",
+          rows: [
+            receivable(OPEN, { balance: "4100.0000" }),
+            receivable(PAID, { docNumber: "1043", status: "paid", balance: "0.0000" }),
+          ],
+        },
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={["/records?kind=receivables"]}>
+        <AppProviders client={api.client}>
+          <Routes>
+            <Route path="/records" element={<PortalRecordsScreen />} />
+          </Routes>
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const table = await screen.findByTestId("portal-records-receivables");
+    const open = within(table).getByTestId(`portal-records-row-${OPEN}`);
+    expect(open).toHaveTextContent("Lakeside Builders");
+    expect(open).toHaveTextContent("$4,100.00");
+    expect(open).toHaveTextContent("Overdue");
+    expect(open).toHaveTextContent("Open");
+    const paid = within(table).getByTestId(`portal-records-row-${PAID}`);
+    expect(paid).toHaveTextContent("Paid");
+    expect(paid).not.toHaveTextContent("Overdue");
+    // No route serves one receivable yet: its row opens nothing.
+    expect(within(table).queryByRole("link")).toBeNull();
+    expect(screen.getByRole("link", { name: /Receivables/ })).toHaveTextContent("2");
+    expect(screen.getByTestId("portal-records-upload")).toHaveAttribute("href", "/upload");
+  });
 });

@@ -12,28 +12,25 @@ import { documentStatus, money, sourceLabel } from "../../portal/documents";
 import { DropZone } from "../../portal/screens/Upload";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
-import { useSession } from "../../session/session";
-import { Badge, EmptyState, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { Badge, EmptyState, ErrorNotice, Loading } from "../../ui/primitives";
+import { ClientFrame } from "../client/ClientFrame";
 
 export function OpsDocumentsScreen() {
   const { clientId = "" } = useParams();
-  const session = useSession();
-  const clientName = session.tenants.find((t) => t.id === clientId)?.name ?? "This client";
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientDocuments, {
     params: { id: clientId },
     query: { limit: 200 },
   });
   const base = `/ops/clients/${clientId}`;
   return (
-    <div>
-      <PageHeader
-        title="Documents"
-        subtitle={
-          data
-            ? `${clientName} · ${data.documents.length} ${data.documents.length === 1 ? "document" : "documents"}, newest first`
-            : clientName
-        }
-      />
+    <ClientFrame
+      clientId={clientId}
+      intro={
+        data
+          ? `${data.documents.length} ${data.documents.length === 1 ? "document" : "documents"}, newest first`
+          : undefined
+      }
+    >
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data?.sandbox ? (
@@ -113,7 +110,7 @@ export function OpsDocumentsScreen() {
           </div>
         </div>
       ) : null}
-    </div>
+    </ClientFrame>
   );
 }
 

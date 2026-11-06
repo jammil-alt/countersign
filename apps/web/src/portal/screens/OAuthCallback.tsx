@@ -7,7 +7,8 @@ import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
 import { openPlaidLink, pendingLink } from "../../connections/plaidLink";
 import { useI18n } from "../../i18n/i18n";
-import { buttonClass, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { buttonClass, ErrorNotice, Loading } from "../../ui/primitives";
+import { ConnectFrame } from "./ConnectFrame";
 
 export function OAuthCallbackScreen() {
   const api = useApiClient();
@@ -53,8 +54,7 @@ export function OAuthCallbackScreen() {
   }, [api, connector, search, navigate, t]);
 
   return (
-    <div>
-      <PageHeader title={t("callback.title")} subtitle={t("callback.subtitle")} />
+    <ConnectFrame title={t("callback.title")} subtitle={t("callback.subtitle")}>
       {error ? (
         <div className="flex flex-col gap-3">
           <ErrorNotice error={error} />
@@ -65,6 +65,6 @@ export function OAuthCallbackScreen() {
       ) : (
         <Loading label={t("callback.connecting")} />
       )}
-    </div>
+    </ConnectFrame>
   );
 }

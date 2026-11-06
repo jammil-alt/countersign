@@ -71,6 +71,10 @@ describe("the portal's routes", () => {
       "/runs",
       "/weekly",
       "/sloan",
+      // UI-3a
+      "/upload",
+      "/settings/team",
+      "/settings/exports",
     ]) {
       const pattern = p.replace("/x", `/${ID}`);
       expect(all).toContain(pattern);
@@ -139,5 +143,24 @@ describe("the back office's routes", () => {
   it("keeps the template pages under /ops/templates", () => {
     expect(all).toContain(`/ops/templates/${ID}`);
     expect(all).toContain("/ops/templates/new");
+  });
+
+  it("has a route for each of the client page's tabs, and new client", () => {
+    for (const tab of [
+      "",
+      "/agents",
+      "/connections",
+      "/messaging",
+      "/knowledge",
+      "/directory",
+      "/documents",
+      "/records",
+      "/settings",
+      "/exports",
+    ]) {
+      expect(all).toContain(`/ops/clients/${ID}${tab}`);
+    }
+    expect(all).toContain("/ops/clients");
+    expect(all).toContain("/ops/clients/new");
   });
 });
