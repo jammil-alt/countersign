@@ -1,4 +1,4 @@
-import type { JsonObject } from "@countersign/core";
+import { type JsonObject, trimTrailingSlashes } from "@countersign/core";
 import { z } from "zod";
 import {
   type ConnectionContext,
@@ -92,11 +92,11 @@ const ACCOUNTS_SERVER = /^https:\/\/accounts\.zoho\.(com|eu|in|com\.au|jp|ca|com
 const API_DOMAIN = /^https:\/\/(www\.)?zohoapis\.(com|eu|in|com\.au|jp|ca|com\.cn|sa|uk)$/;
 
 export function isZohoAccountsServer(url: string): boolean {
-  return ACCOUNTS_SERVER.test(url.replace(/\/+$/, ""));
+  return ACCOUNTS_SERVER.test(trimTrailingSlashes(url));
 }
 
 export function isZohoApiDomain(url: string): boolean {
-  return API_DOMAIN.test(url.replace(/\/+$/, ""));
+  return API_DOMAIN.test(trimTrailingSlashes(url));
 }
 
 /** The encrypted credentials: the shared token fields plus where this client's Zoho lives. */
@@ -239,7 +239,7 @@ export class ZohoNotConfiguredError extends Error {
 
 export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmConnector {
   const doFetch = (): FetchLike => options.fetch ?? globalFetch();
-  const accountsUrl = (options.accountsUrl ?? DEFAULT_ACCOUNTS).replace(/\/+$/, "");
+  const accountsUrl = trimTrailingSlashes(options.accountsUrl ?? DEFAULT_ACCOUNTS);
   const configured = Boolean(options.clientId && options.clientSecret);
 
   function client(accountsServer: string): { id: string; secret: string } {
@@ -336,7 +336,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
       async (token) => {
         // The API domain can change on refresh: read it again each try.
         const domain = ZohoCredentials.parse(await ctx.credentials.get()).apiDomain;
-        return doFetch()(`${domain.replace(/\/+$/, "")}/crm/${API_VERSION}${path}`, {
+        return doFetch()(`${trimTrailingSlashes(domain)}/crm/${API_VERSION}${path}`, {
           method,
           headers: {
             authorization: `Zoho-oauthtoken ${token}`,
@@ -509,7 +509,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
     async handleCallback(params, req) {
       const code = params.code;
       if (!code) throw new Error("the Zoho callback has no code");
-      const accountsServer = (params["accounts-server"] ?? accountsUrl).replace(/\/+$/, "");
+      const accountsServer = trimTrailingSlashes(params["accounts-server"] ?? accountsUrl);
       if (!isZohoAccountsServer(accountsServer)) {
         throw new Error("the Zoho callback names an accounts server we don't know");
       }
