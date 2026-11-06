@@ -37,6 +37,14 @@ export const ZOHO_TOOLS = {
 export const ZohoModule = z.enum(["Leads", "Contacts", "Accounts", "Deals"]);
 export type ZohoModule = z.infer<typeof ZohoModule>;
 
+// v0.12 W2-A: the record tools work on any module; the entity is the one their `module` names.
+// DECISION: Zoho's generic record tools declare `entityInput` rather than one entity each, so a
+// matrix can set leads, contacts, accounts and deals apart (docs/plan.md §1.44).
+export const ZOHO_MODULE_ENTITY = {
+  field: "module",
+  values: { Leads: "lead", Contacts: "contact", Accounts: "account", Deals: "deal" },
+} satisfies { field: string; values: Record<ZohoModule, string> };
+
 // DECISION: read, create and update scopes per module, notes and tasks, plus org read (for the org
 // id on the connection). No delete scope at all, so even a bug can't delete in the client's CRM.
 export const ZOHO_SCOPES: readonly string[] = [
@@ -370,6 +378,16 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
     icon: "users",
     auth: "oauth2",
     entities: ["Leads", "Contacts", "Accounts", "Deals", "Notes", "Tasks"],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44). The record tools read theirs
+    // from the input's `module` (ZOHO_MODULE_ENTITY).
+    permissionEntities: [
+      { id: "lead", label: "Leads", verbs: ["read", "create", "update"] },
+      { id: "contact", label: "Contacts", verbs: ["read", "create", "update"] },
+      { id: "account", label: "Accounts", verbs: ["read", "create", "update"] },
+      { id: "deal", label: "Deals", verbs: ["read", "create", "update"] },
+      { id: "note", label: "Notes", verbs: ["create"] },
+      { id: "task", label: "Tasks", verbs: ["create"] },
+    ],
     isConfigured: () => configured,
 
     async authorize(req) {
@@ -468,6 +486,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
     tools: [
       defineReadTool({
         id: ZOHO_TOOLS.search,
+        entityInput: ZOHO_MODULE_ENTITY,
         description:
           "Search a Zoho CRM module (Leads, Contacts, Accounts, Deals) by criteria, email, phone or a word.",
         summary: "Found {{records.length}} {{module}}",
@@ -514,6 +533,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineReadTool({
         id: ZOHO_TOOLS.get,
+        entityInput: ZOHO_MODULE_ENTITY,
         description: "Get one Zoho CRM record by module and id.",
         summary: "Read {{record.module}} {{record.id}}",
         input: z.object({ module: ZohoModule, id: RecordId }),
@@ -524,6 +544,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.create,
+        entityInput: ZOHO_MODULE_ENTITY,
         description:
           "Create a record in a Zoho CRM module, e.g. a lead with Last_Name and Company.",
         verb: "create",
@@ -547,6 +568,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.update,
+        entityInput: ZOHO_MODULE_ENTITY,
         description:
           "Change fields of a Zoho CRM record. Give the record's Modified_Time as read to refuse the change if it changed since.",
         verb: "update",
@@ -605,6 +627,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.note,
+        entity: "note",
         description: "Add a note to a Zoho CRM record.",
         verb: "create",
         summary: "Added a note to {{module}} {{recordId}}",
@@ -633,6 +656,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.task,
+        entity: "task",
         description:
           "Create a task in Zoho CRM, optionally linked to a record (a contact as Who, others as What).",
         verb: "create",

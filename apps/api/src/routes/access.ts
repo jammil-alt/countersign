@@ -7,7 +7,7 @@
 // a client's secret.
 
 import { grantOf, grantsOfClient, setGrant } from "@countersign/agents";
-import { BROWSER_CONNECTOR_ID, connectionDefaults } from "@countersign/connectors";
+import { BROWSER_CONNECTOR_ID } from "@countersign/connectors";
 import {
   type AgentAccess,
   BrowserConnectionConfig,
@@ -17,6 +17,7 @@ import {
   type CredentialField,
   effectiveMatrix,
   effectiveTier,
+  entityProblems,
   type GrantLimits,
   grantLoosening,
   grantProblems,
@@ -40,6 +41,7 @@ import type { Platform } from "../platform";
 import { connectionCredentials } from "../secrets";
 import { offeredTo } from "./connections";
 import { offeredConnectors } from "./ops-clients";
+import { newConnectionMatrix } from "./ops-connectors";
 import { hasCredentialForm } from "./portal";
 
 type ConnectionRow = typeof connection.$inferSelect;
@@ -363,18 +365,22 @@ export function accessRoutes(app: Hono<AppEnv>): void {
     if (!a || !Object.values(a.bindings).includes(row.id)) throw notFound("agent's access");
     const before = await grantOf(tx, { tenantId, agentId: a.id, connectionId: row.id });
     // Client roles only tighten or revoke (invariant 8's rule): anything looser is the operator's.
-    const loosened = grantLoosening(before?.limits, body.limits);
-    if (loosened.verbs.length > 0 || loosened.tools) {
-      const what = [...loosened.verbs, ...(loosened.tools ? ["tools"] : [])].join(", ");
+    const manifest = services.platform.connectors.get(row.connector)?.manifest;
+    // v0.12 W2-A: entities too, entity by entity and scope by scope.
+    const loosened = grantLoosening(before?.limits, body.limits, manifest?.permissionEntities);
+    if (loosened.verbs.length > 0 || loosened.tools || loosened.entities.length > 0) {
+      const what = [
+        ...loosened.verbs,
+        ...(loosened.tools ? ["tools"] : []),
+        ...loosened.entities,
+      ].join(", ");
       throw new HttpError(
         403,
         "loosening",
         `only we can give an agent more access (${what}); you can tighten or revoke it`,
       );
     }
-    const toolIds = toolsOf(services.platform.connectors.get(row.connector)?.manifest).map(
-      (t) => t.id,
-    );
+    const toolIds = toolsOf(manifest).map((t) => t.id);
     const unknown = (body.limits.tools ?? []).filter((t) => !toolIds.includes(t));
     if (unknown.length > 0) {
       throw new HttpError(
@@ -382,6 +388,11 @@ export function accessRoutes(app: Hono<AppEnv>): void {
         "invalid_grant",
         `not tools of this connection: ${unknown.join(", ")}`,
       );
+    }
+    // v0.12 W2-A: entities, verbs and scopes the connector declares.
+    const entityIssues = entityProblems(body.limits.entities, manifest?.permissionEntities);
+    if (entityIssues.length > 0) {
+      throw new HttpError(422, "invalid_grant", entityIssues.join("; "));
     }
     await setGrant(tx, {
       tenantId,
@@ -430,7 +441,8 @@ export function accessRoutes(app: Hono<AppEnv>): void {
         tenantId,
         connector: params.connector,
         status: "pending",
-        permissions: connectionDefaults(connector.manifest),
+        // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+        permissions: await newConnectionMatrix(tx, connector.manifest),
       });
     }
     // Encrypted under the client's own key; the read model keeps only what is set.
@@ -499,6 +511,8 @@ export function accessRoutes(app: Hono<AppEnv>): void {
       body.limits,
       row.permissions,
       toolsOf(manifest).map((t) => t.id),
+      // v0.12 W2-A: the connector's entities.
+      manifest?.permissionEntities,
     );
     if (problems.length > 0) {
       throw new HttpError(422, "beyond_matrix", problems.join("; "));

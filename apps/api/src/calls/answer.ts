@@ -8,6 +8,7 @@
 import { grantOf } from "@countersign/agents";
 import {
   CALL_ANSWER_TOOL,
+  CALL_ENTITY,
   CALL_RECEIVED_EVENT,
   createVoiceAgent,
   ELEVENLABS_AGENT_ENTITY,
@@ -310,6 +311,8 @@ export async function planInbound(
     stepApproval: answering.step.approval?.required,
     // v0.12 W1-A: in trial and signoff an agent never answers on its own (§10.9).
     agentMode: effectiveMode(answering.bundle.definition, answering.stage),
+    // v0.12 W2-A: calls' entity level, on the connection and the grant.
+    entity: { tool: { id: CALL_ANSWER_TOOL, entity: CALL_ENTITY } },
   });
   if (decision === "refused") {
     return fallback(`creating is off for ${answering.agentName} on the client's Twilio connection`);

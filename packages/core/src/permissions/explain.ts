@@ -13,6 +13,7 @@ import type {
   Verb,
 } from "../schemas/permissions";
 import { levelFor } from "./decide";
+import { entityAsksApproval } from "./entities";
 import { type GrantLimits, grantLevel } from "./grants";
 
 /**
@@ -32,6 +33,11 @@ export const WhyApproval = z
     reasons: z.array(WhyCode),
     /** With `stage`: which stage forced the signature. */
     stage: z.enum(["trial", "signoff"]).optional(),
+    // v0.12 W2-A: with `matrix` or `grant`, the entity whose own setting asked for approval
+    // (`invoice`), so the Desk can say which one.
+    // DECISION: no new reason code: ARCHITECTURE §11.1 keeps `matrix` for "the connection or the
+    // entity allows only approval" (and `grant` likewise); this names the entity beside it.
+    entity: z.string().optional(),
     /** What chose the approver, and the rule when one did. */
     route: z
       .object({
@@ -69,6 +75,8 @@ export interface ExplainWriteInput {
   person?: PermissionLevel | null | undefined;
   /** What chose the approver (core routeApproval). */
   route?: { source: ApprovalSource; ruleId: string | null } | null | undefined;
+  /** v0.12 W2-A: the entity the call works on (core `entityOfCall`), if any. */
+  entity?: string | null | undefined;
 }
 
 /**
@@ -79,10 +87,18 @@ export interface ExplainWriteInput {
 export function explainWrite(input: ExplainWriteInput): WhyApproval {
   const reasons: WhyCode[] = [];
   if ((input.stepApproval ?? "required") !== "not_required") reasons.push("step");
-  if (input.verb !== "read" && levelFor(input.matrix, input.verb) === "approval") {
+  // v0.12 W2-A: `matrix` and `grant` also when the entity's own level asks (ARCHITECTURE §11.1:
+  // "the connection or the entity allows only approval"); `entity` names it.
+  const write = input.verb !== "read";
+  const connEntity = write && entityAsksApproval(input.matrix, input.entity, input.verb);
+  const grantEntity =
+    write && Boolean(input.grant) && entityAsksApproval(input.grant, input.entity, input.verb);
+  if (write && (levelFor(input.matrix, input.verb) === "approval" || connEntity)) {
     reasons.push("matrix");
   }
-  if (input.grant && grantLevel(input.grant, input.verb) === "approval") reasons.push("grant");
+  if (input.grant && (grantLevel(input.grant, input.verb) === "approval" || grantEntity)) {
+    reasons.push("grant");
+  }
   const stage = input.stage === "trial" || input.stage === "signoff" ? input.stage : undefined;
   const ownMode = input.definitionMode ?? input.agentMode;
   if (input.agentMode === "suggest_only" && !(stage && ownMode === "act")) reasons.push("mode");
@@ -91,6 +107,7 @@ export function explainWrite(input: ExplainWriteInput): WhyApproval {
   return {
     reasons,
     ...(stage ? { stage } : {}),
+    ...((connEntity || grantEntity) && input.entity ? { entity: input.entity } : {}),
     ...(input.route ? { route: { source: input.route.source, ruleId: input.route.ruleId } } : {}),
   };
 }

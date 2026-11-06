@@ -319,6 +319,14 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
     icon: "grid",
     auth: "oauth2",
     entities: ["Organization", "Space", "App", "Item", "Comment", "Task"],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    // DECISION: reading spaces and apps (where items live) counts as reading items: the plan
+    // declares Podio's entities as items, comments and tasks only.
+    permissionEntities: [
+      { id: "item", label: "Items", verbs: ["read", "create", "update"] },
+      { id: "comment", label: "Comments", verbs: ["create"] },
+      { id: "task", label: "Tasks", verbs: ["create"] },
+    ],
     isConfigured: () => configured,
 
     async authorize(req) {
@@ -365,6 +373,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
     tools: [
       defineReadTool({
         id: PODIO_TOOLS.spaces,
+        entity: "item",
         description: "List the Podio organizations and workspaces the connection can see.",
         summary: "Found {{spaces.length}} workspaces",
         input: z.object({}),
@@ -404,6 +413,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineReadTool({
         id: PODIO_TOOLS.apps,
+        entity: "item",
         description: "List the apps in a Podio workspace.",
         summary: "Found {{apps.length}} apps",
         input: z.object({ spaceId: Id }),
@@ -434,6 +444,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineReadTool({
         id: PODIO_TOOLS.app,
+        entity: "item",
         description:
           "Get a Podio app with its fields (external ids, types, choices), to know what its items hold.",
         summary: "Read app {{app.name}}",
@@ -445,6 +456,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineReadTool({
         id: PODIO_TOOLS.filter,
+        entity: "item",
         description:
           "Find items in a Podio app, filtered by field values (keys are field external ids) and paged.",
         summary: "Found {{items.length}} of {{filtered}} items",
@@ -500,6 +512,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineReadTool({
         id: PODIO_TOOLS.get,
+        entity: "item",
         description: "Get one Podio item with its field values.",
         summary: "Read item {{item.title}}",
         input: z.object({ itemId: Id }),
@@ -510,6 +523,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineWriteTool({
         id: PODIO_TOOLS.create,
+        entity: "item",
         description:
           "Create an item in a Podio app. Fields by external id; checked against the app's fields.",
         verb: "create",
@@ -556,6 +570,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineWriteTool({
         id: PODIO_TOOLS.update,
+        entity: "item",
         description:
           "Change fields of a Podio item. Give the revision you read to refuse the change if the item changed since.",
         verb: "update",
@@ -615,6 +630,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineWriteTool({
         id: PODIO_TOOLS.comment,
+        entity: "comment",
         description: "Add a comment to a Podio item.",
         verb: "create",
         summary: "Commented on item {{itemId}}",
@@ -636,6 +652,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       }),
       defineWriteTool({
         id: PODIO_TOOLS.task,
+        entity: "task",
         description: "Create a Podio task, optionally on an item.",
         verb: "create",
         summary: "Created task {{taskId}}",

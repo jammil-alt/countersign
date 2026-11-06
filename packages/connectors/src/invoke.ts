@@ -1,7 +1,8 @@
-import { levelFor, renderSummary, type ToolSpec } from "@countersign/core";
+import { renderSummary, type ToolSpec } from "@countersign/core";
 import type { z } from "zod";
 import type { Connector, ToolContext, ToolHandler, WriteContext } from "./connector";
 import { childLogger } from "./logger";
+import { connectionLevel } from "./permissions";
 
 export type ToolCallErrorCode =
   | "unknown_tool"
@@ -50,7 +51,7 @@ function lookup(connector: Connector, toolId: string): { spec: ToolSpec; handler
  * in packages/agents decides run / approval / refused; this is the last line, so a client's
  * tightening applies even to a call already past the gate.
  */
-function check(connector: Connector, spec: ToolSpec, ctx: ToolContext): void {
+function check(connector: Connector, spec: ToolSpec, ctx: ToolContext, input: unknown): void {
   const c = ctx.connection;
   if (c.tenantId !== ctx.tenantId || c.connector !== connector.manifest.id) {
     throw new ToolCallError(
@@ -66,7 +67,8 @@ function check(connector: Connector, spec: ToolSpec, ctx: ToolContext): void {
   if (!usable) {
     throw new ToolCallError("not_connected", spec.id, `the connection is ${c.status}`);
   }
-  if (levelFor(c.permissions, spec.verb) === "off") {
+  // v0.12 W2-A: the entity and its scope count too (connectionLevel folds them into the verb).
+  if (connectionLevel(connector.manifest, spec, c.permissions, input) === "off") {
     throw new ToolCallError("permission_off", spec.id, `${spec.verb} is off on this connection`);
   }
 }
@@ -112,7 +114,7 @@ export async function runReadTool(
 ): Promise<ToolResult> {
   const { spec, handler } = lookup(connector, toolId);
   if (handler.kind !== "read") throw new ToolCallError("not_a_read", toolId, "tool writes");
-  check(connector, spec, ctx);
+  check(connector, spec, ctx, input);
   const parsed = parse(handler.input, input, "invalid_input", toolId);
   const raw = await handler.run(parsed, withToolLogger(ctx, connector, toolId));
   const output = parse(handler.output, raw, "invalid_output", toolId);
@@ -132,7 +134,7 @@ export async function captureBefore(
 ): Promise<{ input: unknown; before: unknown }> {
   const { spec, handler } = lookup(connector, toolId);
   if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
-  check(connector, spec, ctx);
+  check(connector, spec, ctx, input);
   const parsed = parse(handler.input, input, "invalid_input", toolId);
   const raw = await handler.before(parsed, withToolLogger(ctx, connector, toolId));
   return {
@@ -156,7 +158,7 @@ export async function executeWrite(
   const { spec, handler } = lookup(connector, toolId);
   if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
   if (spec.verb === "read") throw new ToolCallError("not_a_write", toolId, "verb is read");
-  check(connector, spec, ctx);
+  check(connector, spec, ctx, input);
   const parsed = parse(handler.input, input, "invalid_input", toolId);
   const logged = withToolLogger(ctx, connector, toolId);
   const before = parse(

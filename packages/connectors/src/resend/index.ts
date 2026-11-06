@@ -256,10 +256,13 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
     icon: "mail",
     auth: "api_key",
     entities: [],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    permissionEntities: [{ id: "message", label: "Messages", verbs: ["create"] }],
     sharedNamespaces: [...EMAIL_NAMESPACES],
     tools: [
       defineWriteTool({
         id: EMAIL_SEND_TOOL,
+        entity: "message",
         description:
           "Email a contact from the client's address. Only contacts who agreed to email; plain text.",
         verb: "create",

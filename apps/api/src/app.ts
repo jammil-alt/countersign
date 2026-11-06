@@ -57,6 +57,8 @@ import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsAutomationRoutes } from "./routes/ops-automations";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
+// v0.12 W2-A: the connectors catalog
+import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
@@ -160,6 +162,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   labRoutes(app);
   // v0.12 W2-F: the command center, search and plain-words questions
   commandCenterRoutes(app);
+  // v0.12 W2-A: the connectors catalog
+  opsConnectorRoutes(app);
   // v0.12 W2-E: the triggers list
   triggerRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.

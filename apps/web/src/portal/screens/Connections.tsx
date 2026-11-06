@@ -134,6 +134,8 @@ export function PortalConnectionsScreen() {
                   update: "approval",
                   delete: "off",
                 },
+                // v0.12 W2-A: the connector's record types, as rows under it.
+                entities: c.permissionEntities,
               }))}
               {...(isAdmin
                 ? {

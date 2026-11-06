@@ -10,6 +10,8 @@ export const CALL_NAMESPACES = ["call"] as const;
 export const CALL_PLACE_TOOL = "call.place";
 export const CALL_ANSWER_TOOL = "call.answer";
 export const CALL_GET_TOOL = "call.get";
+// v0.12 W2-A: the record type the call tools touch (ToolSpec `entity`, docs/plan.md §1.44).
+export const CALL_ENTITY = "call";
 export const CALL_RECEIVED_EVENT = "call.received";
 export const CALL_COMPLETED_EVENT = "call.completed";
 

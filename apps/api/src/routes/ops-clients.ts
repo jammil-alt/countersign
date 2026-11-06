@@ -386,7 +386,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     return { offered };
   });
 
-  mount(app, routes.opsUpdateConnection, async ({ tx, params, body, tenantIds, session }) => {
+  mount(app, routes.opsUpdateConnection, async (ctx) => {
+    const { tx, params, body, tenantIds, session, services } = ctx;
     const row = await connectionInScope(tx, tenantIds, params.id);
     const set: Partial<typeof connection.$inferInsert> = {};
     const changes: Record<string, unknown>[] = [];
@@ -395,6 +396,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         current: row.permissions,
         proposed: matrixEdit(body.permissions),
         by: "operator",
+        // v0.12 W2-A: the connector's entities, for the entity levels and scopes.
+        declared: services.platform.connectors.get(row.connector)?.manifest.permissionEntities,
       });
       if (!r.ok) throw new HttpError(422, r.reason, r.message);
       if (r.changed) {
