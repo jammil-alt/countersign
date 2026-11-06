@@ -158,7 +158,7 @@ export function NewAgentConversation({
           meta={<span className="text-sm text-ink-muted">Talk to it. It drafts, you decide.</span>}
           testId="new-agent-chat"
         >
-          <div className="ui-card__body flex max-h-[70vh] min-h-[280px] flex-col gap-5 overflow-y-auto">
+          <div className="ui-card__body flex max-h-[70vh] min-h-[280px] flex-col gap-5 overflow-y-auto [overflow-wrap:anywhere]">
             {sessionId && !current && loaded.error ? (
               <Notice tone="warning" testId="new-agent-session-error">
                 {errorText(loaded.error)}
