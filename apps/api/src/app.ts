@@ -1,6 +1,7 @@
 // The Hono app: every /api route, built from injectable dependencies so the same app runs in the
 // Worker and in Node tests (with a test database and in-memory Workflow instances).
 
+import { credentialKeysFromEnv } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import { billingTick } from "./billing/jobs";
@@ -87,10 +88,13 @@ import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
-import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
-import { forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+// v0.14 W4-B
+import { zohoRoutes } from "./routes/zoho";
+import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
+import { credentialsFor, forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
 import { securityHeaders } from "./security-headers";
 import { vaultTick } from "./vault/upkeep";
+import { zohoCronTick } from "./zoho/sync";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -117,6 +121,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   deskRoutes(app);
   portalRouteHandlers(app);
   qboRoutes(app);
+  // v0.14 W4-B: Zoho CRM's notifications.
+  zohoRoutes(app);
   connectionRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
@@ -220,6 +226,21 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       console.error("qbo sync tick failed", error),
     );
+    // v0.14 W4-B: Zoho CRM, every 15 minutes: the watch renewed when due, then a poll of each
+    // connected Zoho (docs/plan.md §1.9 "Sync (W4-B)"). Needs the credentials' key.
+    if (env.ENCRYPTION_KEY) {
+      await zohoCronTick(
+        {
+          db,
+          platform,
+          credentials: credentialsFor(db, credentialKeysFromEnv(env)),
+          secret: env.OAUTH_STATE_SECRET,
+          origin: env.APP_ORIGIN?.trim() ? originOf(env) : undefined,
+        },
+        (tenantId, ids) => dispatchByIds({ db, instances }, tenantId, ids),
+        scheduledTime,
+      ).catch((error: unknown) => console.error("zoho sync tick failed", error));
+    }
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
       await billingTick({ db, stripe: stripeFor(deps, env), origin: originOf(env) }, scheduledTime);
