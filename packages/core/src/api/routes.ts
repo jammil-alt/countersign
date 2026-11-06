@@ -9,6 +9,8 @@ import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 import { accessRoutes } from "./access";
+// v0.12 W2-D: Sloan, the account agent
+import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
@@ -1850,6 +1852,8 @@ export const routes = {
   ...automationRoutes,
   // v0.12 W1-C
   ...threadRoutes,
+  // v0.12 W2-D: Sloan, the account agent
+  ...accountRoutes,
   // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
   ...clientViewRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab

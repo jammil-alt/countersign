@@ -25,6 +25,8 @@ import { originOf } from "./notify/outbox";
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
+// v0.12 W2-D: Sloan, the account agent
+import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { auditExportRoutes } from "./routes/audit-export";
 import { billingRouteHandlers } from "./routes/billing";
@@ -147,6 +149,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsAutomationRoutes(app);
   // v0.12 W1-C
   threadRouteHandlers(app);
+  // v0.12 W2-D: Sloan, the account agent
+  accountRoutes(app);
   // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
   clientViewRoutes(app);
   auditExportRoutes(app);

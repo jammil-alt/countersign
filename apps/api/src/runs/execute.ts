@@ -66,6 +66,8 @@ import {
 } from "@countersign/workflows";
 import { and, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
+// v0.12 W2-D
+import { accountViews } from "../account/views";
 import { browserRunOpener } from "../browser/driver";
 import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
@@ -257,6 +259,8 @@ export function runtimeFor(
         bodies: deps.modelCallBodies ?? null,
         ...(deps.now ? { now: deps.now } : {}),
       }),
+      // v0.12 W2-D: Sloan reads and writes the account through the portal's own code.
+      account: accountViews(deps.platform),
     }),
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,

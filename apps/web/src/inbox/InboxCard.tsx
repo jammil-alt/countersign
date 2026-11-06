@@ -166,6 +166,27 @@ function suggestionFacts(payload: Record<string, unknown>, i18n: I18n): [string,
   return facts;
 }
 
+// v0.12 W2-D
+/** A change Sloan drafted (plan §1.47): its "now" and "after" lines, in the server's words. */
+export function accountChangeFacts(
+  payload: Record<string, unknown>,
+  { t }: Pick<I18n, "t">,
+): [string, string][] | null {
+  const c = payload.accountChange;
+  if (!isPlainObject(c)) return null;
+  const lines = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").join("\n") : "";
+  return [
+    [t("change.now"), lines(c.now)],
+    [t("change.after"), lines(c.after)],
+  ];
+}
+
+/** v0.12 W2-D: a change Sloan drafted is signed through its own route. */
+export function isAccountChangeItem(item: Pick<InboxCardItem, "payload">): boolean {
+  return isPlainObject(item.payload.accountChange);
+}
+
 function statusBadge(
   item: InboxCardItem,
   outcome: string | null,
@@ -266,7 +287,12 @@ export function InboxCard({
           i18n.locale,
         )
       : null;
-  const facts = isChange ? [] : (suggestionFacts(item.payload, i18n) ?? payloadFacts(item.payload));
+  const facts = isChange
+    ? []
+    : (suggestionFacts(item.payload, i18n) ??
+      // v0.12 W2-D: a change Sloan drafted, as its now and after lines.
+      accountChangeFacts(item.payload, i18n) ??
+      payloadFacts(item.payload));
   const steps = findingSteps(item.payload);
   const sources = Array.isArray(item.payload.sources)
     ? item.payload.sources.filter((x): x is string => typeof x === "string")
@@ -324,7 +350,7 @@ export function InboxCard({
           {facts.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-ink-muted">{k}</dt>
-              <dd className="break-words text-ink">{v}</dd>
+              <dd className="break-words whitespace-pre-line text-ink">{v}</dd>
             </div>
           ))}
         </dl>

@@ -3,6 +3,8 @@
 // Each writes the platform's own records (`internal`), through the PlatformStore port.
 
 import { z } from "zod";
+// v0.12 W2-D
+import { ACCOUNT_TOOLS } from "./account";
 import { agentsAsk } from "./ask";
 import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
@@ -94,6 +96,8 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...HEALTH_TOOLS,
   agentsAsk,
   ...SUPERVISOR_TOOLS,
+  // v0.12 W2-D: Sloan's account tools
+  ...ACCOUNT_TOOLS,
   // v0.12 W2-E
   ...INBOUND_TOOLS,
 ];

@@ -14,6 +14,8 @@ import type {
 } from "@countersign/core";
 import type { ModelCallPort } from "../log/model-calls";
 import type { ResolvedSkill } from "../registry/skills";
+// v0.12 W2-D
+import type { AccountPort } from "../tools/account";
 // v0.12 W2-E
 import type { InboundPort } from "../tools/inbound";
 import type { ThreadsPort } from "../tools/threads";
@@ -346,6 +348,9 @@ export interface RuntimePorts {
   carried?: CarriedActionsPort;
   /** Each model call of a run's step, with its request and answer; absent: not kept. */
   modelCalls?: ModelCallPort;
+  // v0.12 W2-D
+  /** The client's account as the portal shows it, for Sloan's `account.*`; absent: they fail. */
+  account?: AccountPort;
 }
 
 // ── v0.12 W1-E: carried approvals and model calls (ARCHITECTURE §10.10) ─────────────────────────
