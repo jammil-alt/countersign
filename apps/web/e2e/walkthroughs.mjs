@@ -125,7 +125,20 @@ async function walk(browser, email, lookName, name, script, results) {
         throw new Error(`no visible link to ${typeof target === "string" ? target : "it"}`);
       }
       const href = stripQuery((await link.getAttribute("href")) ?? "");
-      await link.click();
+      // A screen can re-render between finding the link and clicking it (a list reloads, a tab
+      // row redraws), which detaches the element we hold: find it again and click the fresh one.
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await link.click();
+          break;
+        } catch (error) {
+          if (attempt >= 3 || !String(error).includes("not attached to the DOM")) throw error;
+          await settle(page);
+          const again = await find();
+          if (!again) throw error;
+          link = again;
+        }
+      }
       await settle(page);
       const landed = new URL(page.url()).pathname;
       if (!matches(landed, target) && landed !== href) {
