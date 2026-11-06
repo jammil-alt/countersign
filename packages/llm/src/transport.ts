@@ -32,6 +32,10 @@ export function anthropicTransport(options: AnthropicTransportOptions): LlmTrans
     ...(options.fetch ? { fetch: options.fetch } : {}),
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
     ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+    // DECISION: no OpenTelemetry from the SDK. Since 0.134 it makes spans with, and sends trace
+    // headers from, any tracer or propagator registered globally; we keep what 0.125 did (none),
+    // as model calls stay out of traces (apps/api/src/observability/sentry.ts).
+    openTelemetry: { traces: false, propagation: false },
   });
   return {
     async create(request, opts) {

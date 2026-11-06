@@ -628,7 +628,9 @@ describe.skipIf(!h)("connectors through the API", () => {
       expect(ok.status, JSON.stringify(ok.json)).toBe(200);
       expect(j(ok.json)).toEqual({ accepted: true });
       await H.settle();
-      expect((await H.call(null, "POST", path, note(`${token.slice(0, -1)}0`))).status).toBe(401);
+      // A token one character off; never the real one (its last character always changes).
+      const wrong = `${token.slice(0, -1)}${token.endsWith("0") ? "1" : "0"}`;
+      expect((await H.call(null, "POST", path, note(wrong))).status).toBe(401);
       expect((await H.call(null, "POST", path, note(token, "123"))).status).toBe(401);
       const otherConn = `/api/hooks/zoho_crm/${H.B.tenantId}/${H.B.connectionId}`;
       expect((await H.call(null, "POST", otherConn, note(token))).status).toBe(401);
