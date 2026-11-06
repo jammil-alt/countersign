@@ -20,6 +20,7 @@ import { useSession } from "../../session/session";
 import {
   AgentAvatar,
   Badge,
+  Button,
   EmptyState,
   ErrorNotice,
   Loading,
@@ -37,6 +38,9 @@ export function OpsRunsScreen() {
   const [mode, setMode] = useState<"all" | "live" | "test">("all");
   const [status, setStatus] = useState<RunStatus | "">("");
   const [picked, setPicked] = useState("");
+  // v0.12 W1-E: failed runs grouped by error key, and a group's runs.
+  const [byError, setByError] = useState(false);
+  const [errorKey, setErrorKey] = useState("");
   const client = clientId ?? picked;
   const { data, error, loading, reload } = useApi(apiRoutes.opsRuns, {
     query: {
@@ -44,6 +48,8 @@ export function OpsRunsScreen() {
       ...(client ? { client } : {}),
       ...(status ? { status } : {}),
       ...(mode === "all" ? {} : { mode }),
+      ...(errorKey ? { errorKey } : {}),
+      ...(byError ? { groupBy: "error" as const } : {}),
     },
   });
   usePoll(reload, data?.runs.some((r) => isRunGoing(r.status)) ?? false, 5_000, loading);
@@ -88,6 +94,29 @@ export function OpsRunsScreen() {
             ))}
           </Select>
         </label>
+        <StatusFilter
+          value={byError ? "error" : "runs"}
+          onChange={(v) => {
+            setByError(v === "error");
+            setErrorKey("");
+          }}
+          area="ops-runs-view"
+          label="Show"
+          options={[
+            ["runs", "Runs"],
+            ["error", "Failures by error"],
+          ]}
+        />
+        {errorKey ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setErrorKey("")}
+            data-testid="ops-runs-error-key"
+          >
+            <span className="reference">{errorKey}</span> · clear
+          </Button>
+        ) : null}
         {clientId ? null : (
           // biome-ignore lint/a11y/noLabelWithoutControl: the Select is the label's control.
           <label className="flex items-center gap-2 text-sm text-ink-muted">
@@ -110,8 +139,53 @@ export function OpsRunsScreen() {
       </div>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && data.runs.length === 0 ? <EmptyState>No runs match.</EmptyState> : null}
-      {data && data.runs.length > 0 ? (
+      {byError && data?.groups ? (
+        data.groups.length === 0 ? (
+          <EmptyState>No failed runs match.</EmptyState>
+        ) : (
+          <div className="dt dt-ana overflow-x-auto">
+            <table data-testid="ops-runs-errors">
+              <thead>
+                <tr className="dt-cols">
+                  {["Error", "Failed runs", "Clients", "Agents", "Last"].map((h) => (
+                    <th key={h} className={h === "Failed runs" ? "n" : undefined}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.groups.map((g) => (
+                  <tr key={g.key}>
+                    <td>
+                      <button
+                        type="button"
+                        className="reference text-link underline"
+                        data-testid={`ops-runs-error-${g.key}`}
+                        onClick={() => {
+                          setErrorKey(g.key);
+                          setByError(false);
+                          setStatus("failed");
+                        }}
+                      >
+                        {g.key}
+                      </button>
+                    </td>
+                    <td className="n">{g.count}</td>
+                    <td className="text-ink">{g.clients.map((c) => c.name).join(", ")}</td>
+                    <td className="text-ink">
+                      {g.agents.map((id) => agents.get(id)?.name ?? "Agent").join(", ")}
+                    </td>
+                    <td className="text-ink figures">{shortTime(g.latestAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : null}
+      {!byError && data && data.runs.length === 0 ? <EmptyState>No runs match.</EmptyState> : null}
+      {!byError && data && data.runs.length > 0 ? (
         <div className="dt dt-ana overflow-x-auto">
           <table data-testid="ops-runs">
             <thead>

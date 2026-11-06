@@ -32,6 +32,12 @@ export interface RunInfo {
    * written in it, and skills are asked to write client-facing text in it. Absent: English.
    */
   language?: Locale | undefined;
+  // v0.12 W1-E
+  /**
+   * A retry: the failed run it repeats (ARCHITECTURE §10.10). The agent port carries that run's
+   * approved, not-done writes with the same input under their original idempotency keys.
+   */
+  retryOf?: string | undefined;
 }
 
 /** Step-run statuses (packages/db STEP_RUN_STATUSES) the executor writes. */
