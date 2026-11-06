@@ -78,41 +78,65 @@ export function editablePaths(
     if (f.editable !== true || !f.after?.startsWith("input.")) continue;
     if (!(EDITABLE_KINDS as readonly string[]).includes(f.kind)) continue;
     const path = f.after.split(".").slice(1);
-    if (path.length === 0 || fixed.has(path[0] as string)) continue;
+    // A path through an object's prototype is never an input field.
+    if (path.length === 0 || !safePath(path) || fixed.has(path[0] as string)) continue;
     out.push(path);
   }
   return out;
 }
 
+/** Keys that reach an object's prototype: never part of a path read or written here. */
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function safePath(path: readonly string[]): boolean {
+  return path.every((key) => !UNSAFE_KEYS.has(key));
+}
+
 function getAt(value: unknown, path: readonly string[]): { found: boolean; value: unknown } {
+  if (!safePath(path)) return { found: false, value: undefined };
   let node: unknown = value;
   for (const key of path) {
-    if (!isPlainObject(node) || !Object.hasOwn(node, key))
+    if (UNSAFE_KEYS.has(key) || !isPlainObject(node) || !Object.hasOwn(node, key)) {
       return { found: false, value: undefined };
+    }
     node = node[key];
   }
   return { found: true, value: node };
 }
 
+/** Sets (or, when not found, removes) the value at `path`, copying each object on the way down. */
 function setAt(
   target: Record<string, unknown>,
   path: readonly string[],
   hit: { found: boolean; value: unknown },
 ) {
+  if (path.length === 0 || !safePath(path)) return;
   let node: Record<string, unknown> = target;
   for (const key of path.slice(0, -1)) {
-    const next = node[key];
-    if (!isPlainObject(next)) {
-      if (!hit.found) return;
-      node[key] = {};
-    } else {
-      node[key] = { ...next };
-    }
-    node = node[key] as Record<string, unknown>;
+    if (UNSAFE_KEYS.has(key)) return;
+    const next = Object.hasOwn(node, key) ? node[key] : undefined;
+    if (!isPlainObject(next) && !hit.found) return;
+    const copy: Record<string, unknown> = isPlainObject(next) ? { ...next } : {};
+    Object.defineProperty(node, key, {
+      value: copy,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    node = copy;
   }
   const last = path[path.length - 1] as string;
-  if (hit.found) node[last] = hit.value;
-  else delete node[last];
+  if (UNSAFE_KEYS.has(last)) return;
+  if (hit.found) {
+    Object.defineProperty(node, last, {
+      value: hit.value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  } else if (Object.hasOwn(node, last)) {
+    delete node[last];
+  }
 }
 
 /**

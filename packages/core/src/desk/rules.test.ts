@@ -112,6 +112,27 @@ describe("edits before signing", () => {
   });
 });
 
+describe("edit paths through a prototype", () => {
+  it("are never editable, and an edit through them changes nothing", () => {
+    const sneaky = {
+      name: "x",
+      fields: [
+        { label: "A", kind: "text", after: "input.__proto__.polluted", editable: true },
+        { label: "B", kind: "text", after: "input.constructor.prototype.x", editable: true },
+      ],
+    } as unknown as Parameters<typeof editablePaths>[0];
+    expect(editablePaths(sneaky)).toEqual([]);
+    const original = { subject: "Hi" };
+    const edited = JSON.parse('{"subject":"Hi","__proto__":{"polluted":"yes"}}');
+    for (const paths of [[["__proto__", "polluted"]], [["constructor", "prototype", "x"]]]) {
+      expect(editProblem({ original, edited, paths })).not.toBeNull();
+    }
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(({} as Record<string, unknown>).x).toBeUndefined();
+    expect((Object.prototype as Record<string, unknown>).x).toBeUndefined();
+  });
+});
+
 describe("quick answers", () => {
   it("takes one of the values", () => {
     const choices = [{ value: "yes" }, { value: "no" }];
