@@ -207,8 +207,8 @@ const QBO_IMPORT_MAX = 2000;
  * sync stored, so nothing is asked of QuickBooks and its read permission was already applied.
  */
 // DECISION: QuickBooks rows come from synced raw records rather than a live query: sync already
-// keeps every vendor (and, after W1-F, every customer), and a preview must not spend the client's
-// API limits. Customers appear once W1-F syncs them; until then a QuickBooks import is vendors.
+// keeps every vendor and (since W1-F's accounts receivable) every customer, and a preview must not
+// spend the client's API limits. A connection synced before W1-F has customers after its backfill.
 async function rowsFromQbo(
   tx: Tx,
   tenantId: string,
