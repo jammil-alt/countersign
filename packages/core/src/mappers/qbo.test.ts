@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import cdc from "../../../../fixtures/qbo/cdc.json";
 import attachables from "../../../../fixtures/qbo/query-attachable.json";
 import bills from "../../../../fixtures/qbo/query-bill.json";
+import invoices from "../../../../fixtures/qbo/query-invoice.json";
 import purchases from "../../../../fixtures/qbo/query-purchase.json";
 import vendors from "../../../../fixtures/qbo/query-vendor.json";
 import credits from "../../../../fixtures/qbo/query-vendorcredit.json";
 import { dec } from "../money";
 import {
+  isVoidedQboInvoice,
   mapQboAttachable,
+  mapQboInvoice,
   mapQboTransaction,
   mapQboVendor,
   qboAmount,
@@ -173,5 +176,38 @@ describe("mapQboVendor and mapQboAttachable", () => {
       note: "Paper receipt lost; card statement only",
       refs: [{ entity: "Purchase", id: "201" }],
     });
+  });
+});
+
+describe("mapQboInvoice (accounts receivable, v0.12)", () => {
+  const invoice = (id: string) => invoices.QueryResponse.Invoice.find((i) => i.Id === id);
+
+  it("maps an open invoice with its customer, dates, total and balance in decimal", () => {
+    expect(mapQboInvoice(invoice("130"))).toMatchObject({
+      connector: "qbo",
+      externalId: "130",
+      docNumber: "1041",
+      customerExternalId: "8",
+      customerName: "Lakeside Builders",
+      txnDate: "2026-07-15",
+      dueDate: "2026-08-14",
+      total: "5100.0000",
+      balance: "5100.0000",
+      currency: "USD",
+      status: "open",
+      privateNote: null,
+    });
+  });
+
+  it("reads a zero balance as paid and a voided invoice as void", () => {
+    expect(mapQboInvoice(invoice("131"))).toMatchObject({ balance: "0.0000", status: "paid" });
+    expect(mapQboInvoice(invoice("134"))).toMatchObject({ status: "void" });
+    expect(isVoidedQboInvoice({ TotalAmt: 0, Balance: 0, PrivateNote: "Paid in cash" })).toBe(
+      false,
+    );
+  });
+
+  it("refuses what is not an invoice", () => {
+    expect(() => mapQboInvoice({ Id: "1", TotalAmt: 5 })).toThrow(MapperError);
   });
 });

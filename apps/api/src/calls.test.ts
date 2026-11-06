@@ -393,7 +393,10 @@ describe.skipIf(!h)("calls through the API", () => {
         `/api/ops/agents/${callerAgent}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, callerAgent));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, callerAgent));
     });
 
     it("waits for approval of who, why and what the agent may do, then places one call", async () => {
@@ -802,7 +805,10 @@ describe.skipIf(!h)("calls through the API", () => {
         `/api/ops/agents/${reception}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, reception));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, reception));
       const preview = await H.call(OPERATOR, "GET", calls());
       expect(j(preview.json).setup.inbound).toMatchObject({
         decision: "agent",
@@ -987,7 +993,10 @@ describe.skipIf(!h)("calls through the API", () => {
         `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, agentId));
       const [pat] = await H.t.db.select().from(contact).where(eq(contact.phone, PAT));
       patId = pat?.id ?? "";
     });

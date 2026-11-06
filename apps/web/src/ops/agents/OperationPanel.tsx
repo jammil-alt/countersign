@@ -20,6 +20,7 @@ import {
   SectionLabel,
   type Tone,
 } from "../../ui/primitives";
+import { GoLivePanel } from "./GoLivePanel";
 import { GrantsPanel } from "./GrantsPanel";
 import {
   JSON_INPUT_PROPS,
@@ -96,6 +97,13 @@ export function OperationPanel({
           onChanged();
         }}
       />
+      {/* v0.12 W1-A: the go-live stage, its trial and running a past event live. */}
+      <GoLivePanel
+        key={`${agent.id}:${agent.runStatus}`}
+        agent={agent}
+        liveBundle={liveBundle}
+        onChanged={onChanged}
+      />
       <ServiceForm
         key={agent.id}
         agent={agent}
@@ -155,7 +163,9 @@ function StatusCard({
       setAnswered(res.data.agent);
       setDone(
         kind === "activate"
-          ? "Active: its triggers start runs now."
+          ? status === "paused"
+            ? "Resumed: its triggers start runs again."
+            : "Started: its triggers start runs now. Until it goes live, every change waits for a signature."
           : kind === "pause"
             ? "Paused: no new runs start; running ones finish."
             : "Retired: it never runs again. Its history stays.",
@@ -209,11 +219,11 @@ function StatusCard({
       {activation.data && status !== "active" && status !== "retired" ? (
         problems.length === 0 ? (
           <p className="text-ink" data-testid="agent-activation-ready">
-            Ready to activate: connections bound, live version valid and tested on this client.
+            Ready to start: connections bound, live version valid and tested on this client.
           </p>
         ) : (
           <div data-testid="agent-activation-problems">
-            <p className="mb-1.5 text-ink">Before it can be activated:</p>
+            <p className="mb-1.5 text-ink">Before it can start:</p>
             <ul className="list-disc pl-5 text-ink">
               {problems.map((p) => (
                 <li key={p}>{p}</li>
@@ -257,7 +267,8 @@ function StatusCard({
             disabled={action.busy || !activation.data?.ready || agent.testCopy}
             onClick={() => run("activate")}
           >
-            Activate
+            {/* v0.12 W1-A: Activate starts the trial (or resumes a paused agent). */}
+            {status === "paused" ? "Resume" : "Start trial"}
           </Button>
         ) : null}
         {status !== "retired" ? (
