@@ -26,7 +26,11 @@ export type MyNotifications = z.infer<typeof MyNotifications>;
 export const RemindResult = z.object({
   /** One row per person and channel, queued and sent by the next pass. */
   notifications: z.array(
-    z.object({ channel: NotificationChannel, status: NotificationStatus, reason: z.string().nullable() }),
+    z.object({
+      channel: NotificationChannel,
+      status: NotificationStatus,
+      reason: z.string().nullable(),
+    }),
   ),
 });
 export type RemindResult = z.infer<typeof RemindResult>;

@@ -70,7 +70,9 @@ export const WEEKLY_WORDS: Record<Locale, WeeklyWords> = {
     weekOf: (d) => `Semaine du ${d}`,
     runsDone: "Exécutions faites",
     versusLastWeek: (c, f) =>
-      c === 0 ? "comme la semaine dernière" : `${c > 0 ? "+" : "-"}${f} par rapport à la semaine dernière`,
+      c === 0
+        ? "comme la semaine dernière"
+        : `${c > 0 ? "+" : "-"}${f} par rapport à la semaine dernière`,
     changes: "Modifications dans vos outils",
     automatic: "automatiques",
     signed: "signées",
@@ -110,7 +112,9 @@ export const WEEKLY_WORDS: Record<Locale, WeeklyWords> = {
     weekOf: (d) => `Settimana del ${d}`,
     runsDone: "Esecuzioni fatte",
     versusLastWeek: (c, f) =>
-      c === 0 ? "come la settimana scorsa" : `${c > 0 ? "+" : "-"}${f} rispetto alla settimana scorsa`,
+      c === 0
+        ? "come la settimana scorsa"
+        : `${c > 0 ? "+" : "-"}${f} rispetto alla settimana scorsa`,
     changes: "Modifiche ai tuoi strumenti",
     automatic: "automatiche",
     signed: "firmate",

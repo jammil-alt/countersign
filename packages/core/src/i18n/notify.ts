@@ -16,7 +16,11 @@ export interface NotifyNumbers {
 
 export interface NotifyWords {
   itemsWaiting: { subject(count: number, x: NotifyNumbers): string; action: string };
-  weeklyTable: { subject(x: NotifyNumbers): string; line(x: NotifyNumbers): string; action: string };
+  weeklyTable: {
+    subject(x: NotifyNumbers): string;
+    line(x: NotifyNumbers): string;
+    action: string;
+  };
   reconnect: { subject: string; line: string; action: string };
   credits: { subject(block: number, x: NotifyNumbers): string; line: string; action: string };
   leadMessage: {
@@ -112,13 +116,14 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       line: "Vea lo que hizo durante su prueba y apruébelo en su escritorio.",
       action: "Abrir su escritorio",
     },
-    footer:
-      "Este correo es de Mezonas. Usted elige qué correos recibe en su configuración.",
+    footer: "Este correo es de Mezonas. Usted elige qué correos recibe en su configuración.",
   },
   fr: {
     itemsWaiting: {
       subject: (c, x) =>
-        c === 1 ? "1 élément vous attend dans Mezonas" : `${x.n} éléments vous attendent dans Mezonas`,
+        c === 1
+          ? "1 élément vous attend dans Mezonas"
+          : `${x.n} éléments vous attendent dans Mezonas`,
       action: "Ouvrir votre bureau",
     },
     weeklyTable: {
@@ -200,8 +205,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       line: "Veja o que ele fez durante o teste e aprove na sua mesa.",
       action: "Abrir sua mesa",
     },
-    footer:
-      "Este e-mail é do Mezonas. Você escolhe quais e-mails recebe nas suas configurações.",
+    footer: "Este e-mail é do Mezonas. Você escolhe quais e-mails recebe nas suas configurações.",
   },
   it: {
     itemsWaiting: {
@@ -249,7 +253,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
   de: {
     itemsWaiting: {
       subject: (c, x) =>
-        c === 1 ? "1 Eintrag wartet in Mezonas auf Sie" : `${x.n} Einträge warten in Mezonas auf Sie`,
+        c === 1
+          ? "1 Eintrag wartet in Mezonas auf Sie"
+          : `${x.n} Einträge warten in Mezonas auf Sie`,
       action: "Ihren Schreibtisch öffnen",
     },
     weeklyTable: {

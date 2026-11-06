@@ -17,6 +17,8 @@ import {
   stripeFor,
 } from "./http";
 import { mcpRoutes } from "./mcp/routes";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 import { approverRuleRoutes } from "./routes/approver-rules";
@@ -33,6 +35,7 @@ import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 import { languageRouteHandlers } from "./routes/language";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
+import { notifyRouteHandlers } from "./routes/notify";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
 import { opsBuilderRoutes } from "./routes/ops-builder";
@@ -49,6 +52,7 @@ import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { sessionRoutes } from "./routes/session";
 import { supervisorRouteHandlers } from "./routes/supervisor";
+import { tableRouteHandlers } from "./routes/table";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
@@ -104,6 +108,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   releaseRoutes(app);
   browserRoutes(app);
   complianceRouteHandlers(app);
+  // v0.12 W1-B: notifications, the Table and the Weekly Table
+  notifyRouteHandlers(app);
+  tableRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -139,6 +146,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           : {}),
       },
       scheduledTime,
+    );
+    // v0.12 W1-B: the Weekly Table every minute (Friday draft, Monday send) and the notification
+    // pass every 5 minutes.
+    await notifyTick(db, notifyDepsFromEnv(env, deps.fetch?.(env)), platform, scheduledTime).catch(
+      (error: unknown) => console.error("notification tick failed", error),
     );
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>

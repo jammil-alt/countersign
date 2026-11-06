@@ -98,10 +98,23 @@ export function isMonday(day: string): boolean {
 }
 
 /** When the draft of a week is made, and when it is sent. */
-export function weeklySchedule(weekStart: string, timezone: string): { draftAt: Date; sendAt: Date } {
+export function weeklySchedule(
+  weekStart: string,
+  timezone: string,
+): { draftAt: Date; sendAt: Date } {
   return {
-    draftAt: zonedTimeToUtc(addDays(weekStart, WEEKLY_DRAFT.weekday - 1), WEEKLY_DRAFT.hour, 0, timezone),
-    sendAt: zonedTimeToUtc(addDays(weekStart, 7 + WEEKLY_SEND.weekday - 1), WEEKLY_SEND.hour, 0, timezone),
+    draftAt: zonedTimeToUtc(
+      addDays(weekStart, WEEKLY_DRAFT.weekday - 1),
+      WEEKLY_DRAFT.hour,
+      0,
+      timezone,
+    ),
+    sendAt: zonedTimeToUtc(
+      addDays(weekStart, 7 + WEEKLY_SEND.weekday - 1),
+      WEEKLY_SEND.hour,
+      0,
+      timezone,
+    ),
   };
 }
 

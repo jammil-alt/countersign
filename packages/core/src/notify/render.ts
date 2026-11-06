@@ -3,9 +3,14 @@
 // colours (no images, no tracking); a text is one line and the link. Nothing else goes in: the
 // inputs are the kind, whole numbers, a week's date and the link.
 
-import { type NotifyNumbers, NOTIFY_WORDS } from "../i18n/notify";
 import type { Locale } from "../i18n/locale";
-import { CREDITS_BLOCK, type NotificationChannel, type NotificationCounts, type NotificationKind } from "./notify";
+import { NOTIFY_WORDS, type NotifyNumbers } from "../i18n/notify";
+import {
+  CREDITS_BLOCK,
+  type NotificationChannel,
+  type NotificationCounts,
+  type NotificationKind,
+} from "./notify";
 
 export interface RenderInput {
   kind: NotificationKind;
@@ -16,6 +21,8 @@ export interface RenderInput {
   locale: Locale;
   /** lead_message: true when it goes to the lead (a client wrote), false when to the client. */
   toLead?: boolean;
+  /** weekly_table: the week's Monday, which its sentence names. */
+  weekStart?: string;
 }
 
 export interface RenderedNotification {
@@ -33,11 +40,11 @@ const SLATE = "#23415E";
 const PAPER = "#F4F5F3";
 const LINE = "#DCDFE2";
 
-function numbers(counts: NotificationCounts, locale: Locale): NotifyNumbers {
+function numbers(counts: NotificationCounts, locale: Locale, weekStart?: string): NotifyNumbers {
   const fmt = new Intl.NumberFormat(locale);
-  const week = counts.weekStart
+  const week = weekStart
     ? new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(
-        new Date(`${counts.weekStart}T00:00:00Z`),
+        new Date(`${weekStart}T00:00:00Z`),
       )
     : "";
   return {
@@ -52,7 +59,7 @@ function numbers(counts: NotificationCounts, locale: Locale): NotifyNumbers {
 /** The headline, an optional second sentence and the action's words. */
 function sentences(input: RenderInput): { headline: string; line: string | null; action: string } {
   const w = NOTIFY_WORDS[input.locale];
-  const x = numbers(input.counts, input.locale);
+  const x = numbers(input.counts, input.locale, input.weekStart);
   switch (input.kind) {
     case "items_waiting":
       return {
@@ -101,9 +108,14 @@ export function renderNotification(input: RenderInput): RenderedNotification {
     return { subject: headline, text: `Mezonas: ${headline}. ${input.link}` };
   }
   const footer = NOTIFY_WORDS[input.locale].footer;
-  const text = [`${headline}.`, ...(line ? [line] : []), "", `${action}: ${input.link}`, "", footer].join(
-    "\n",
-  );
+  const text = [
+    `${headline}.`,
+    ...(line ? [line] : []),
+    "",
+    `${action}: ${input.link}`,
+    "",
+    footer,
+  ].join("\n");
   const p = (s: string, color = INK) =>
     `<p style="margin:0 0 12px;color:${color};font:15px/1.5 Helvetica,Arial,sans-serif">${escapeHtml(s)}</p>`;
   const html = [

@@ -23,7 +23,12 @@ export const WeeklyAgentStats = z.object({
   runsDone: z.number().int(),
   // DECISION: KPIs come from W2-G (docs/plan.md §1.50); until it merges every list is empty.
   kpis: z.array(
-    z.object({ key: z.string(), label: z.string(), value: z.string(), unit: z.string().optional() }),
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      value: z.string(),
+      unit: z.string().optional(),
+    }),
   ),
 });
 
@@ -55,7 +60,11 @@ export const WeeklyStats = z.object({
 });
 export type WeeklyStats = z.infer<typeof WeeklyStats>;
 
-export const WeeklyDecisionReply = z.object({ by: z.string(), at: z.string(), messageId: z.string() });
+export const WeeklyDecisionReply = z.object({
+  by: z.string(),
+  at: z.string(),
+  messageId: z.string(),
+});
 
 export const WeeklyDecision = z.object({
   id: z.string(),
@@ -116,6 +125,7 @@ export const WeeklyEditBody = z.strictObject({
   nextWeek: z.string().trim().max(WEEKLY_TEXT_MAX).nullable().optional(),
 });
 export type WeeklyEditBody = z.input<typeof WeeklyEditBody>;
+export type WeeklyEdit = z.output<typeof WeeklyEditBody>;
 
 export const WeekStartParam = Day.refine(
   (d) => new Date(`${d}T00:00:00Z`).getUTCDay() === 1,

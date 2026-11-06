@@ -20,16 +20,16 @@ import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { messagingRoutes } from "./messaging";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
-import { usageRoutes } from "./usage";
-// v0.12 W1-B: notifications, the Table and the Weekly Table
-import { notifyRoutes } from "./notify";
 import { tableRoutes } from "./table";
+import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 

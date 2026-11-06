@@ -74,13 +74,15 @@ export const dedupeKeys = {
 } as const;
 
 /** The prefix every reconnect key of one connection on one UTC day shares (the remind check). */
+/** The week a weekly_table key names (`weekly:<week start>:<user>`). */
+export function weekOfKey(key: string): string | undefined {
+  return /^weekly:(\d{4}-\d{2}-\d{2}):/.exec(key)?.[1];
+}
+
 export const reconnectDayPrefix = (connectionId: string, at: Date) =>
   `reconnect:${connectionId}:${utcDay(at)}:`;
 
-/**
- * What a notification counts: whole numbers only, never a record's field. `weekStart` is the one
- * non-count, a date the Weekly Table's sentence names.
- */
+/** What a notification counts (`notification.counts`): whole numbers only, never a record's field. */
 export const NotificationCounts = z.strictObject({
   items: z.number().int().min(0).optional(),
   runs: z.number().int().min(0).optional(),
@@ -88,10 +90,6 @@ export const NotificationCounts = z.strictObject({
   messages: z.number().int().min(0).optional(),
   /** Credits: 0 = the included credits ran out; n = another n × 2,500 beyond them. */
   block: z.number().int().min(0).optional(),
-  weekStart: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
 });
 export type NotificationCounts = z.infer<typeof NotificationCounts>;
 

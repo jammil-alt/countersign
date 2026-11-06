@@ -12,6 +12,7 @@ import {
   reconnectDayPrefix,
   retryReason,
   triesOf,
+  weekOfKey,
   withPersonNotifications,
 } from "./notify";
 import { renderNotification } from "./render";
@@ -39,6 +40,8 @@ describe("dedupe keys", () => {
 
   it("weekly, lead, credits and sign-off keys", () => {
     expect(dedupeKeys.weekly("2026-11-02", U)).toBe(`weekly:2026-11-02:${U}`);
+    expect(weekOfKey(dedupeKeys.weekly("2026-11-02", U))).toBe("2026-11-02");
+    expect(weekOfKey(dedupeKeys.signoff(C, U))).toBeUndefined();
     expect(dedupeKeys.lead(C, U)).toBe(`lead:${C}:${U}`);
     expect(dedupeKeys.credits("2026-11", 2, U)).toBe(`credits:2026-11:2:${U}`);
     expect(dedupeKeys.signoff(C, U)).toBe(`signoff:${C}:${U}`);
@@ -71,7 +74,7 @@ describe("preferences", () => {
 describe("rendering", () => {
   const counts: Record<(typeof NOTIFICATION_KINDS)[number], NotificationCounts> = {
     items_waiting: { items: 3 },
-    weekly_table: { runs: 12, changes: 4, weekStart: "2026-11-02" },
+    weekly_table: { runs: 12, changes: 4 },
     reconnect: {},
     credits: { block: 2 },
     lead_message: { messages: 2 },
@@ -82,8 +85,18 @@ describe("rendering", () => {
     for (const kind of NOTIFICATION_KINDS) {
       for (const channel of NOTIFICATION_CHANNELS) {
         for (const locale of LOCALES) {
-          const link = notificationLink("https://app.mezonas.test/", notificationPath(kind, { weekStart: "2026-11-02" }));
-          const r = renderNotification({ kind, channel, counts: counts[kind], link, locale });
+          const link = notificationLink(
+            "https://app.mezonas.test/",
+            notificationPath(kind, { weekStart: "2026-11-02" }),
+          );
+          const r = renderNotification({
+            kind,
+            channel,
+            counts: counts[kind],
+            link,
+            locale,
+            weekStart: "2026-11-02",
+          });
           expect(r.subject.length).toBeGreaterThan(5);
           expect(r.text).toContain(link);
           const urls = r.text.match(/https?:\/\/\S+/g) ?? [];
@@ -126,6 +139,7 @@ describe("rendering", () => {
       kind: "weekly_table",
       channel: "email",
       counts: counts.weekly_table,
+      weekStart: "2026-11-02",
       link: "https://x.test/weekly",
       locale: "en",
     });

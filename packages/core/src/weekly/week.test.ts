@@ -5,8 +5,8 @@ import {
   isMonday,
   sendDueWeek,
   weekBounds,
-  weekStartOf,
   weeklySchedule,
+  weekStartOf,
   zonedParts,
   zonedTimeToUtc,
 } from "./week";
