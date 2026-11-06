@@ -47,6 +47,23 @@ const portalBase = {
 };
 
 describe("portal knowledge", () => {
+  it("tells a client user only the admin sees it, and loads nothing (UI-3a)", async () => {
+    const api = fakeApi({
+      ...portalBase,
+      "GET /api/session": () => ({
+        ...CLIENT_SESSION,
+        tenants: [{ id: DEMO, name: "Demo client", role: "client_user" }],
+      }),
+    });
+    renderAt("/knowledge", api);
+    expect(
+      await screen.findByText(
+        "Only your admin can see and change what agents know about your business.",
+      ),
+    ).toBeInTheDocument();
+    expect(api.calls).not.toContain("GET /api/knowledge");
+  });
+
   it("adds an FAQ and shows it, with 'us' for our earlier edits", async () => {
     const entries: unknown[] = [entry()];
     const sent: unknown[] = [];

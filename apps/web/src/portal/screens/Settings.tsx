@@ -12,8 +12,8 @@ import { CreditMeter } from "../../billing/parts";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { LanguageMenu } from "../../i18n/LanguageMenu";
-import { InviteForm, MemberList } from "../../people/People";
 import { useSession } from "../../session/session";
+import { Icon } from "../../ui/icons";
 import { Loaded, Page, Section } from "../../ui/page";
 import { Badge, Button, buttonClass, Card, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { PORTAL_PATHS } from "../paths";
@@ -69,7 +69,7 @@ export function PortalSettingsScreen() {
             </p>
           )}
           <Anchor id="signoff" title={t("settingsPage.signoff")}>
-            {isAdmin ? <WhoApproves /> : null}
+            {isAdmin ? <WhoApproves /> : <TeamLink />}
             <PortalApproverRules />
           </Anchor>
           <Anchor id="notifications" title={t("settingsPage.notifications")}>
@@ -230,31 +230,63 @@ function CreditsOut() {
   );
 }
 
-/** The people who use the portal, and the invite form. */
+/**
+ * UI-3a: the team and the exports have pages of their own (`/settings/team`, `/settings/exports`);
+ * Settings links to them, with how many people use the portal.
+ */
 function Team() {
   const { t } = useI18n();
-  const api = useApiClient();
   const users = useApi(apiRoutes.portalUsers);
+  const rows = [
+    {
+      to: PORTAL_PATHS.team,
+      title: t("settingsPage.teamLink"),
+      line: users.data
+        ? t("settings.peopleCount", { count: users.data.users.length })
+        : t("settingsPage.teamLinkHelp"),
+      testId: "portal-settings-team-link",
+    },
+    {
+      to: PORTAL_PATHS.exports,
+      title: t("settingsPage.exportsLink"),
+      line: t("settingsPage.exportsLinkHelp"),
+      testId: "portal-settings-exports-link",
+    },
+  ];
   return (
-    <Card
-      title={t("settings.people")}
-      meta={users.data ? t("settings.peopleCount", { count: users.data.users.length }) : null}
-      testId="portal-settings-people"
-    >
-      <div className="ui-card__body flex flex-col gap-4">
-        {users.error ? <ErrorNotice error={users.error} onRetry={users.reload} /> : null}
-        {users.data ? <MemberList members={users.data.users} testId="portal-users" /> : null}
-        <InviteForm
-          surface="portal"
-          testId="portal-invite"
-          onInvite={async (body) => {
-            const result = await api.call(apiRoutes.portalInvite, { body });
-            users.reload();
-            return result;
-          }}
-        />
-      </div>
+    <Card testId="portal-settings-people">
+      <ul>
+        {rows.map((r) => (
+          <li key={r.to} className="border-b border-line last:border-b-0">
+            <Link
+              to={r.to}
+              data-testid={r.testId}
+              className="flex items-center justify-between gap-3 px-6 py-4 hover:bg-surface-subtle max-sm:px-4"
+            >
+              <span className="min-w-0">
+                <span className="block font-medium text-ink">{r.title}</span>
+                <span className="block text-sm text-ink-muted">{r.line}</span>
+              </span>
+              <Icon name="chevron-right" className="text-ink-muted" />
+            </Link>
+          </li>
+        ))}
+      </ul>
     </Card>
+  );
+}
+
+/** A client user reads the team (who signs what); the admin reaches it from Team above. */
+function TeamLink() {
+  const { t } = useI18n();
+  return (
+    <Link
+      to={PORTAL_PATHS.team}
+      className="text-sm text-link hover:underline"
+      data-testid="portal-settings-team-link"
+    >
+      {t("settingsPage.seeTeam")}
+    </Link>
   );
 }
 

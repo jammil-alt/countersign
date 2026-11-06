@@ -13,6 +13,7 @@ import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConversationsScreen } from "./screens/Conversations";
 import { PortalDeskScreen } from "./screens/Desk";
 import { PortalDocumentScreen } from "./screens/Document";
+import { PortalExportsScreen } from "./screens/Exports";
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
@@ -25,6 +26,8 @@ import { PortalRunScreen } from "./screens/RunTimeline";
 import { PortalSettingsScreen } from "./screens/Settings";
 import { PortalSloanScreen } from "./screens/Sloan";
 import { TableScreen } from "./screens/Table";
+import { PortalTeamScreen } from "./screens/Team";
+import { PortalUploadScreen } from "./screens/UploadPage";
 import { PortalWeeklyScreen } from "./screens/Weekly";
 import { WhatsappMetaSignupScreen } from "./screens/WhatsappMetaSignup";
 
@@ -67,6 +70,9 @@ export const portalRoutes = (
     <Route path="requests" element={<PortalRequestsScreen />} />
     <Route path="knowledge" element={<PortalKnowledgeScreen />} />
     <Route path="conversations" element={<PortalConversationsScreen />} />
+    <Route path="upload" element={<PortalUploadScreen />} />
+    <Route path="settings/team" element={<PortalTeamScreen />} />
+    <Route path="settings/exports" element={<PortalExportsScreen />} />
 
     {/* Addresses a provider sends the browser back to: they never move. */}
     <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
