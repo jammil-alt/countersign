@@ -1,22 +1,18 @@
 // `/ops/usage` (ARCHITECTURE §13, §15): usage and model cost per client, client agent and template,
 // by month, for the clients this operator serves. Cost is operator-only; the portal never sees it.
 // The filters live in the URL (`?client=`, `?template=`, `?view=`, `?range=`) so a client page or a
-// template can link straight to its usage.
+// template can link straight to its usage. Drafted in the prototype's back-office style (no
+// prototype screen; docs/ui-plan.md): the period's figures as stat tiles, then the months and the
+// chosen grouping as tables in cards.
 import type { UsageFigures, UsageReport } from "@countersign/core";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { useSession } from "../../session/session";
-import {
-  Badge,
-  Button,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-  SectionLabel,
-} from "../../ui/primitives";
+import { StatTile } from "../../ui/figures";
+import { Columns, Loaded, Page, Section } from "../../ui/page";
+import { Badge, Button, EmptyState, PageHeader } from "../../ui/primitives";
 import {
   cost,
   count,
@@ -26,8 +22,8 @@ import {
   periodLabel,
   plural,
 } from "../../usage/format";
-import { Stat, StatRow } from "../../usage/Stat";
 import { Select } from "../agents/ui";
+import { BusinessTabs, TableCard } from "./business";
 
 const RANGES = [
   ["month", "This month", 0],
@@ -150,23 +146,25 @@ export function OpsUsageScreen() {
     setParams(next, { replace: true });
   };
   const { from, to } = usageRange(range);
-  const { data, error, loading, reload } = useApi(apiRoutes.opsUsage, {
+  const usage = useApi(apiRoutes.opsUsage, {
     query: { from, to, ...(client ? { client } : {}), ...(template ? { template } : {}) },
   });
+  const { data } = usage;
   const clients = session.tenants.filter((t) => t.role === "operator");
   const templateName =
     data?.templates.find((t) => t.id === template)?.name ??
     data?.agents.find((a) => a.template?.id === template)?.template?.name;
-  const thisMonth = data?.byMonth.at(-1);
-  const rows = data ? rowsFor(view, data, (id) => set({ template: id, view: "agents" })) : [];
 
   return (
-    <div>
-      <PageHeader
-        title="Usage and cost"
-        subtitle="What your clients' agents did and what their model calls cost, by month. Only you see cost."
-      />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+    <Page testId="ops-usage">
+      <div>
+        <PageHeader
+          title="Usage and billing"
+          subtitle="What your clients' agents did and what their model calls cost, by month. Only you see cost."
+        />
+        <BusinessTabs />
+      </div>
+      <div className="flex flex-wrap items-center gap-3" data-testid="ops-usage-filters">
         <StatusFilter
           value={view}
           onChange={(v) => set({ view: v === "clients" ? "" : v })}
@@ -221,120 +219,145 @@ export function OpsUsageScreen() {
           </span>
         ) : null}
       </div>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data ? (
-        <>
-          <StatRow>
-            <Stat
-              testId="ops-usage-cost"
-              label="Model cost"
-              value={cost(data.total.costUsd)}
-              note={`${periodLabel(data.from, data.to)}${
-                thisMonth
-                  ? ` · ${cost(thisMonth.figures.costUsd)} in ${monthLabel(thisMonth.month)}`
-                  : ""
-              }`}
-            />
-            <Stat
-              testId="ops-usage-runs"
-              label="Runs"
-              value={count(data.total.runs)}
-              note={`${count(data.total.steps)} steps, test runs included`}
-            />
-            <Stat
-              testId="ops-usage-documents"
-              label="Documents read"
-              value={count(data.total.documents)}
-              note={`${plural(data.total.externalActions, "change")} made to clients' tools`}
-            />
-            <Stat
-              testId="ops-usage-tokens"
-              label="Tokens"
-              value={tokens(data.total)}
-              note={`${count(data.total.tokensIn)} in, ${count(data.total.tokensOut)} out`}
-            />
-          </StatRow>
+      <Loaded state={usage}>
+        {(data) => (
+          <UsageReportView
+            data={data}
+            view={view}
+            onTemplate={(id) => set({ template: id, view: "agents" })}
+          />
+        )}
+      </Loaded>
+    </Page>
+  );
+}
 
-          <section className="mb-8">
-            <SectionLabel>By month</SectionLabel>
-            <div className="dt dt-ana overflow-x-auto">
-              <table data-testid="ops-usage-months">
-                <thead>
-                  <tr className="dt-cols">
-                    <th>Month</th>
-                    {["Runs", "Steps", "Documents", "Changes", "Tokens", "Cost"].map((h) => (
-                      <th key={h} className="n">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...data.byMonth].reverse().map((m) => (
-                    <tr key={m.month}>
-                      <td className="text-ink">{monthLabel(m.month)}</td>
-                      <td className="n">{count(m.figures.runs)}</td>
-                      <td className="n">{count(m.figures.steps)}</td>
-                      <td className="n">{count(m.figures.documents)}</td>
-                      <td className="n">{count(m.figures.externalActions)}</td>
-                      <td className="n">{tokens(m.figures)}</td>
-                      <td className="n">{cost(m.figures.costUsd)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+function UsageReportView({
+  data,
+  view,
+  onTemplate,
+}: {
+  data: UsageReport;
+  view: View;
+  onTemplate: (id: string) => void;
+}) {
+  const thisMonth = data.byMonth.at(-1);
+  const rows = rowsFor(view, data, onTemplate);
+  const viewName = VIEWS.find(([v]) => v === view)?.[1];
+  return (
+    <>
+      <Columns count={4}>
+        <StatTile
+          testId="ops-usage-cost"
+          label="Model cost"
+          value={cost(data.total.costUsd)}
+          note={`${periodLabel(data.from, data.to)}${
+            thisMonth
+              ? ` · ${cost(thisMonth.figures.costUsd)} in ${monthLabel(thisMonth.month)}`
+              : ""
+          }`}
+        />
+        <StatTile
+          testId="ops-usage-runs"
+          label="Runs"
+          value={count(data.total.runs)}
+          note={`${count(data.total.steps)} steps, test runs included`}
+        />
+        <StatTile
+          testId="ops-usage-documents"
+          label="Documents read"
+          value={count(data.total.documents)}
+          note={`${plural(data.total.externalActions, "change")} made to clients' tools`}
+        />
+        <StatTile
+          testId="ops-usage-tokens"
+          label="Tokens"
+          value={tokens(data.total)}
+          note={`${count(data.total.tokensIn)} in, ${count(data.total.tokensOut)} out`}
+        />
+      </Columns>
 
-          <section>
-            <SectionLabel>{VIEWS.find(([v]) => v === view)?.[1]}: cost by month</SectionLabel>
-            {rows.length === 0 ? (
-              <EmptyState>
-                No usage in this period. Runs and their cost show here once agents run.
-              </EmptyState>
-            ) : (
-              <div className="dt dt-ana overflow-x-auto">
-                <table data-testid={`ops-usage-${view}`}>
-                  <thead>
-                    <tr className="dt-cols">
-                      <th>
-                        {view === "clients" ? "Client" : view === "agents" ? "Agent" : "Template"}
-                      </th>
-                      {data.months.map((m) => (
-                        <th key={m} className="n">
-                          {monthLabel(m)}
-                        </th>
-                      ))}
-                      <th className="n">Runs</th>
-                      <th className="n">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.key} data-testid={`ops-usage-row-${r.key}`}>
-                        <td>
-                          <span className="flex flex-col py-1">
-                            {r.name}
-                            {r.sub}
-                          </span>
-                        </td>
-                        {r.byMonth.map((m) => (
-                          <td key={m.month} className="n">
-                            {cost(m.figures.costUsd)}
-                          </td>
-                        ))}
-                        <td className="n">{count(r.total.runs)}</td>
-                        <td className="n text-ink">{cost(r.total.costUsd)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+      <Section>
+        {rows.length === 0 ? (
+          <EmptyState>
+            No usage in this period. Runs and their cost show here once agents run.
+          </EmptyState>
+        ) : (
+          <TableCard
+            title={`${viewName}: cost by month`}
+            meta={plural(
+              rows.length,
+              view === "clients" ? "client" : view === "agents" ? "agent" : "template",
             )}
-          </section>
-        </>
-      ) : null}
-    </div>
+          >
+            <table data-testid={`ops-usage-${view}`}>
+              <thead>
+                <tr className="dt-cols">
+                  <th>
+                    {view === "clients" ? "Client" : view === "agents" ? "Agent" : "Template"}
+                  </th>
+                  {data.months.map((m) => (
+                    <th key={m} className="n">
+                      {monthLabel(m)}
+                    </th>
+                  ))}
+                  <th className="n">Runs</th>
+                  <th className="n">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key} data-testid={`ops-usage-row-${r.key}`}>
+                    <td>
+                      <span className="flex flex-col py-1">
+                        {r.name}
+                        {r.sub}
+                      </span>
+                    </td>
+                    {r.byMonth.map((m) => (
+                      <td key={m.month} className="n">
+                        {cost(m.figures.costUsd)}
+                      </td>
+                    ))}
+                    <td className="n">{count(r.total.runs)}</td>
+                    <td className="n text-ink">{cost(r.total.costUsd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableCard>
+        )}
+      </Section>
+
+      <Section>
+        <TableCard title="By month" meta={periodLabel(data.from, data.to)}>
+          <table data-testid="ops-usage-months">
+            <thead>
+              <tr className="dt-cols">
+                <th>Month</th>
+                {["Runs", "Steps", "Documents", "Changes", "Tokens", "Cost"].map((h) => (
+                  <th key={h} className="n">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...data.byMonth].reverse().map((m) => (
+                <tr key={m.month}>
+                  <td className="text-ink">{monthLabel(m.month)}</td>
+                  <td className="n">{count(m.figures.runs)}</td>
+                  <td className="n">{count(m.figures.steps)}</td>
+                  <td className="n">{count(m.figures.documents)}</td>
+                  <td className="n">{count(m.figures.externalActions)}</td>
+                  <td className="n">{tokens(m.figures)}</td>
+                  <td className="n">{cost(m.figures.costUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableCard>
+      </Section>
+    </>
   );
 }

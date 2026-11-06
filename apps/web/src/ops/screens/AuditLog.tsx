@@ -2,6 +2,8 @@
 // filters in the URL (`?client=`, `?user=`, `?action=`, `?outcome=`, `?from=`, `?to=`) and "Load
 // older" paging; and the access review (`?view=access`): every user, their role in each client and
 // when they last signed in, with a CSV download. Operator only; clients don't see the log in v1.
+// Drafted in the prototype's back-office style (no prototype screen; docs/ui-plan.md, like O9 Runs):
+// the filters in a bar, the entries as a table in a card with "Load older" in its foot.
 import {
   type AccessReviewUser,
   AUDIT_RETENTION_YEARS,
@@ -15,16 +17,18 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { useSession } from "../../session/session";
 import { Field, Select, TextInput } from "../../ui/forms";
+import { Page } from "../../ui/page";
 import {
   Badge,
   Button,
+  Card,
   EmptyState,
   ErrorNotice,
   Loading,
   PageHeader,
-  SectionLabel,
   Tag,
 } from "../../ui/primitives";
+import { TableCard } from "./business";
 
 type Outcome = AuditEventRow["outcome"];
 type View = "log" | "access";
@@ -93,7 +97,7 @@ export function OpsAuditScreen() {
   };
 
   return (
-    <div>
+    <Page testId="ops-audit">
       <PageHeader
         title="Audit log"
         subtitle={`Who read or changed what, newest first. We keep it for ${AUDIT_RETENTION_YEARS} years.`}
@@ -112,7 +116,7 @@ export function OpsAuditScreen() {
       ) : (
         <AccessReview onActivity={(user) => set({ view: "", user })} />
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -197,93 +201,97 @@ function AuditLog({ params, set }: { params: URLSearchParams; set: Set }) {
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-end gap-3" data-testid="ops-audit-filters">
-        <Field label="Client" className="w-48">
-          <Select
-            data-testid="ops-audit-client"
-            value={client}
-            onChange={(e) => set({ client: e.target.value })}
-            className="h-8 w-48 text-sm"
+      <Card pad>
+        <div className="flex flex-wrap items-end gap-3" data-testid="ops-audit-filters">
+          <Field label="Client" className="w-48">
+            <Select
+              data-testid="ops-audit-client"
+              value={client}
+              onChange={(e) => set({ client: e.target.value })}
+              className="h-8 w-48 text-sm"
+            >
+              <option value="">All clients</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="User id"
+            error={userInvalid ? "Not a user id." : undefined}
+            className="w-72"
+            testId="ops-audit-user"
           >
-            <option value="">All clients</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field
-          label="User id"
-          error={userInvalid ? "Not a user id." : undefined}
-          className="w-72"
-          testId="ops-audit-user"
-        >
-          <TextInput
-            data-testid="ops-audit-user"
-            value={userText}
-            invalid={userInvalid}
-            placeholder="Any user"
-            onChange={(e) => setUserText(e.target.value)}
-            className="h-8 w-72 text-sm reference"
-          />
-        </Field>
-        <Field label="Action starts with" className="w-56">
-          <TextInput
-            data-testid="ops-audit-action"
-            value={actionText}
-            maxLength={200}
-            placeholder="session. or GET /api/runs"
-            onChange={(e) => setActionText(e.target.value)}
-            className="h-8 w-56 text-sm"
-          />
-        </Field>
-        <Field label="Outcome" className="w-36">
-          <Select
-            data-testid="ops-audit-outcome"
-            value={outcome}
-            onChange={(e) => set({ outcome: e.target.value })}
-            className="h-8 w-36 text-sm"
-          >
-            <option value="">Any</option>
-            {OUTCOMES.map(([o, label]) => (
-              <option key={o} value={o}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="From" className="w-40">
-          <TextInput
-            type="date"
-            data-testid="ops-audit-from"
-            value={from}
-            max={to || undefined}
-            onChange={(e) => set({ from: e.target.value })}
-            className="h-8 w-40 text-sm"
-          />
-        </Field>
-        <Field label="To" className="w-40">
-          <TextInput
-            type="date"
-            data-testid="ops-audit-to"
-            value={to}
-            min={from || undefined}
-            onChange={(e) => set({ to: e.target.value })}
-            className="h-8 w-40 text-sm"
-          />
-        </Field>
-        {filtered ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid="ops-audit-clear"
-            onClick={() => set({ client: "", user: "", action: "", outcome: "", from: "", to: "" })}
-          >
-            Clear filters
-          </Button>
-        ) : null}
-      </div>
+            <TextInput
+              data-testid="ops-audit-user"
+              value={userText}
+              invalid={userInvalid}
+              placeholder="Any user"
+              onChange={(e) => setUserText(e.target.value)}
+              className="h-8 w-72 text-sm reference"
+            />
+          </Field>
+          <Field label="Action starts with" className="w-56">
+            <TextInput
+              data-testid="ops-audit-action"
+              value={actionText}
+              maxLength={200}
+              placeholder="session. or GET /api/runs"
+              onChange={(e) => setActionText(e.target.value)}
+              className="h-8 w-56 text-sm"
+            />
+          </Field>
+          <Field label="Outcome" className="w-36">
+            <Select
+              data-testid="ops-audit-outcome"
+              value={outcome}
+              onChange={(e) => set({ outcome: e.target.value })}
+              className="h-8 w-36 text-sm"
+            >
+              <option value="">Any</option>
+              {OUTCOMES.map(([o, label]) => (
+                <option key={o} value={o}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="From" className="w-40">
+            <TextInput
+              type="date"
+              data-testid="ops-audit-from"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => set({ from: e.target.value })}
+              className="h-8 w-40 text-sm"
+            />
+          </Field>
+          <Field label="To" className="w-40">
+            <TextInput
+              type="date"
+              data-testid="ops-audit-to"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => set({ to: e.target.value })}
+              className="h-8 w-40 text-sm"
+            />
+          </Field>
+          {filtered ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="ops-audit-clear"
+              onClick={() =>
+                set({ client: "", user: "", action: "", outcome: "", from: "", to: "" })
+              }
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+      </Card>
 
       {first.loading && !first.data ? <Loading /> : null}
       {first.error ? (
@@ -303,49 +311,52 @@ function AuditLog({ params, set }: { params: URLSearchParams; set: Set }) {
         </EmptyState>
       ) : null}
       {events.length > 0 ? (
-        <>
-          <div className="dt dt-ana overflow-x-auto">
-            <table data-testid="ops-audit-table">
-              <thead>
-                <tr className="dt-cols">
-                  <th>When</th>
-                  <th>Who</th>
-                  <th>Client</th>
-                  <th>Action</th>
-                  <th>Outcome</th>
-                  <th>Target</th>
-                  <th>IP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((e) => (
-                  <AuditRow key={e.id} event={e} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-3 text-sm text-ink-muted">
-            <span className="figures" data-testid="ops-audit-count">
-              {events.length === 1 ? "1 entry" : `${events.length.toLocaleString()} entries`}
-              {nextBefore ? "" : ". No older entries."}
-            </span>
-            {nextBefore ? (
-              <Button
-                size="sm"
-                data-testid="ops-audit-older"
-                disabled={loadingOlder}
-                onClick={() => void loadOlder()}
-              >
-                {loadingOlder ? "Loading" : "Load older"}
-              </Button>
-            ) : null}
-          </div>
-          {olderError ? (
-            <div className="mt-3">
-              <ErrorNotice error={olderError} onRetry={() => void loadOlder()} />
+        <TableCard
+          title="Entries"
+          meta="Newest first"
+          footer={
+            <div className="flex w-full flex-col gap-3">
+              <div className="flex items-center justify-between gap-3 text-sm text-ink-muted">
+                <span className="figures" data-testid="ops-audit-count">
+                  {events.length === 1 ? "1 entry" : `${events.length.toLocaleString()} entries`}
+                  {nextBefore ? "" : ". No older entries."}
+                </span>
+                {nextBefore ? (
+                  <Button
+                    size="sm"
+                    data-testid="ops-audit-older"
+                    disabled={loadingOlder}
+                    onClick={() => void loadOlder()}
+                  >
+                    {loadingOlder ? "Loading" : "Load older"}
+                  </Button>
+                ) : null}
+              </div>
+              {olderError ? (
+                <ErrorNotice error={olderError} onRetry={() => void loadOlder()} />
+              ) : null}
             </div>
-          ) : null}
-        </>
+          }
+        >
+          <table data-testid="ops-audit-table">
+            <thead>
+              <tr className="dt-cols">
+                <th>When</th>
+                <th>Who</th>
+                <th>Client</th>
+                <th>Action</th>
+                <th>Outcome</th>
+                <th>Target</th>
+                <th>IP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((e) => (
+                <AuditRow key={e.id} event={e} />
+              ))}
+            </tbody>
+          </table>
+        </TableCard>
       ) : null}
     </>
   );
@@ -486,42 +497,37 @@ function AccessReview({ onActivity }: { onActivity: (user: string) => void }) {
   const { data, error, loading, reload } = useApi(apiRoutes.opsAccessReview);
 
   return (
-    <section data-testid="ops-access-review">
-      <SectionLabel
-        action={
-          data ? (
-            <Button
-              size="sm"
-              data-testid="ops-access-review-csv"
-              onClick={() =>
-                download(
-                  `access-review-${data.generatedAt.slice(0, 10)}.csv`,
-                  accessReviewCsv(data.users),
-                )
-              }
-            >
-              Download CSV
-            </Button>
-          ) : null
-        }
-      >
-        Access review
-      </SectionLabel>
-      <p className="mb-4 text-ink-muted">
+    <section data-testid="ops-access-review" className="ui-section">
+      <p className="text-ink-muted">
         Everyone who can sign in to your clients, their role in each, and when we last saw them.
         Read it and remove access that should go.
-        {data ? (
-          <span data-testid="ops-access-review-generated">
-            {" "}
-            Generated {auditTime(data.generatedAt)}.
-          </span>
-        ) : null}
       </p>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.users.length === 0 ? <EmptyState>No users yet.</EmptyState> : null}
       {data && data.users.length > 0 ? (
-        <div className="dt dt-ana overflow-x-auto">
+        <TableCard
+          title="Access review"
+          meta={
+            <>
+              <span data-testid="ops-access-review-generated">
+                Generated {auditTime(data.generatedAt)}.
+              </span>
+              <Button
+                size="sm"
+                data-testid="ops-access-review-csv"
+                onClick={() =>
+                  download(
+                    `access-review-${data.generatedAt.slice(0, 10)}.csv`,
+                    accessReviewCsv(data.users),
+                  )
+                }
+              >
+                Download CSV
+              </Button>
+            </>
+          }
+        >
           <table data-testid="ops-access-review-table">
             <thead>
               <tr className="dt-cols">
@@ -583,7 +589,7 @@ function AccessReview({ onActivity }: { onActivity: (user: string) => void }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableCard>
       ) : null}
     </section>
   );

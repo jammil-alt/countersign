@@ -2,7 +2,9 @@
 // operator serves, newest first, open by default. An open request waits on us (signal, "Open"). A
 // request about a service hands off to the Builder on that agent's page; it is resolved here, as
 // done (linking the client agent or template versions made for it) or declined, with a note the
-// client reads.
+// client reads. Drafted in the prototype's back-office style (no prototype screen;
+// docs/ui-plan.md): each request a card with its client and who asked in the head, the actions in
+// its foot.
 import type { OpsRequest, RequestLink, RequestStatus } from "@countersign/core";
 import { REQUEST_LINKS_MAX, REQUEST_NOTE_MAX } from "@countersign/core";
 import { useState } from "react";
@@ -14,14 +16,13 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { Field, Select, TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
+import { Loaded, Page } from "../../ui/page";
 import {
   Badge,
   Button,
   buttonClass,
   Card,
   EmptyState,
-  ErrorNotice,
-  Loading,
   PageHeader,
   type Tone,
 } from "../../ui/primitives";
@@ -56,26 +57,26 @@ export function OpsRequestsScreen() {
   const session = useSession();
   const [filter, setFilter] = useState<Filter>("open");
   const [client, setClient] = useState("");
-  const { data, error, loading, reload } = useApi(apiRoutes.opsRequests, {
+  const requests = useApi(apiRoutes.opsRequests, {
     query: { status: filter, ...(client ? { client } : {}) },
   });
-  usePoll(reload, filter === "open", 30_000, loading);
-  const items = data?.items ?? [];
+  usePoll(requests.reload, filter === "open", 30_000, requests.loading);
+  const items = requests.data?.items ?? [];
   const open = items.filter((i) => i.status === "open").length;
 
   return (
-    <div className="max-w-5xl">
+    <Page testId="ops-requests">
       <PageHeader
         title="Requests"
         subtitle={
-          data
+          requests.data
             ? filter === "resolved"
-              ? `${items.length} answered`
+              ? `${items.length} answered. Clients' asks for changes and new services.`
               : `${open} open${filter === "all" ? ` of ${items.length}` : ""}. Clients' asks for changes and new services.`
             : "Clients' asks for changes and new services."
         }
       />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <StatusFilter
           value={filter}
           onChange={setFilter}
@@ -90,7 +91,7 @@ export function OpsRequestsScreen() {
         <Select
           aria-label="Client"
           data-testid="ops-requests-client"
-          className="w-56"
+          className="h-8 w-56 text-sm"
           value={client}
           onChange={(e) => setClient(e.target.value)}
         >
@@ -102,19 +103,24 @@ export function OpsRequestsScreen() {
           ))}
         </Select>
       </div>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && items.length === 0 ? (
-        <EmptyState>
-          {filter === "open" ? "Nothing open. Clients' requests show here." : "No requests here."}
-        </EmptyState>
-      ) : null}
-      <div data-testid="ops-requests-list" className="flex flex-col gap-4">
-        {items.map((item) => (
-          <RequestCard key={item.id} item={item} onChanged={reload} />
-        ))}
-      </div>
-    </div>
+      <Loaded state={requests}>
+        {(data) =>
+          data.items.length === 0 ? (
+            <EmptyState>
+              {filter === "open"
+                ? "Nothing open. Clients' requests show here."
+                : "No requests here."}
+            </EmptyState>
+          ) : (
+            <div data-testid="ops-requests-list" className="flex flex-col gap-4">
+              {data.items.map((item) => (
+                <RequestCard key={item.id} item={item} onChanged={requests.reload} />
+              ))}
+            </div>
+          )
+        }
+      </Loaded>
+    </Page>
   );
 }
 
@@ -122,56 +128,28 @@ function RequestCard({ item, onChanged }: { item: OpsRequest; onChanged: () => v
   const [resolving, setResolving] = useState(false);
   const status = STATUS[item.status];
   const who = item.raisedBy ? (item.raisedBy.name ?? item.raisedBy.email) : "Someone";
+  const open = item.status === "open";
 
   return (
-    <Card testId={`ops-request-${item.id}`} className="p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-medium text-ink" data-testid="ops-request-subject">
-            {item.subject}
-          </p>
-          <p className="text-sm text-ink-muted">
+    <Card
+      testId={`ops-request-${item.id}`}
+      title={
+        <span className="flex min-w-0 flex-col">
+          <span data-testid="ops-request-subject">{item.subject}</span>
+          <span className="text-sm font-normal text-ink-muted">
             <span data-testid="ops-request-client">{item.client.name}</span>
             {` · ${who} · ${when(item.createdAt)}`}
-          </p>
-        </div>
+          </span>
+        </span>
+      }
+      meta={
         <Badge tone={status.tone} testId="ops-request-status">
           {status.label}
         </Badge>
-      </div>
-      <p className="mt-3 whitespace-pre-wrap text-ink" data-testid="ops-request-text">
-        {item.text}
-      </p>
-      <p className="mt-3 text-sm text-ink-muted" data-testid="ops-request-about">
-        {item.agent ? (
+      }
+      footer={
+        open && !resolving ? (
           <>
-            About{" "}
-            <Link
-              className="text-link underline"
-              to={`/ops/clients/${item.client.id}/agents/${item.agent.slug}`}
-            >
-              {item.agent.serviceName}
-            </Link>
-          </>
-        ) : (
-          "Something new, or not about one service"
-        )}
-      </p>
-
-      {item.status !== "open" ? <Resolution item={item} /> : null}
-
-      {item.status === "open" ? (
-        resolving ? (
-          <ResolveForm
-            item={item}
-            onCancel={() => setResolving(false)}
-            onResolved={() => {
-              setResolving(false);
-              onChanged();
-            }}
-          />
-        ) : (
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
             {item.agent ? (
               <Link
                 to={`/ops/clients/${item.client.id}/agents/${item.agent.slug}/revise?request=${item.id}`}
@@ -188,9 +166,41 @@ function RequestCard({ item, onChanged }: { item: OpsRequest; onChanged: () => v
             >
               Resolve
             </Button>
-          </div>
-        )
-      ) : null}
+          </>
+        ) : undefined
+      }
+    >
+      <div className="ui-card__body flex flex-col gap-3">
+        <p className="whitespace-pre-wrap text-ink" data-testid="ops-request-text">
+          {item.text}
+        </p>
+        <p className="text-sm text-ink-muted" data-testid="ops-request-about">
+          {item.agent ? (
+            <>
+              About{" "}
+              <Link
+                className="text-link underline"
+                to={`/ops/clients/${item.client.id}/agents/${item.agent.slug}`}
+              >
+                {item.agent.serviceName}
+              </Link>
+            </>
+          ) : (
+            "Something new, or not about one service"
+          )}
+        </p>
+        {open ? null : <Resolution item={item} />}
+        {open && resolving ? (
+          <ResolveForm
+            item={item}
+            onCancel={() => setResolving(false)}
+            onResolved={() => {
+              setResolving(false);
+              onChanged();
+            }}
+          />
+        ) : null}
+      </div>
     </Card>
   );
 }
@@ -198,7 +208,7 @@ function RequestCard({ item, onChanged }: { item: OpsRequest; onChanged: () => v
 function Resolution({ item }: { item: OpsRequest }) {
   const by = item.resolvedBy ? (item.resolvedBy.name ?? item.resolvedBy.email) : "someone";
   return (
-    <div className="mt-4 border-t border-line pt-4" data-testid="ops-request-resolution">
+    <div className="border-t border-line pt-3" data-testid="ops-request-resolution">
       <p className="text-sm text-ink-muted">
         {item.status === "done" ? "Done" : "Declined"} by {by}
         {item.resolvedAt ? ` on ${when(item.resolvedAt)}` : ""}
@@ -270,10 +280,7 @@ function ResolveForm({
   }
 
   return (
-    <div
-      className="mt-4 flex flex-col gap-4 border-t border-line pt-4"
-      data-testid="ops-request-form"
-    >
+    <div className="flex flex-col gap-4 border-t border-line pt-4" data-testid="ops-request-form">
       <StatusFilter
         value={outcome}
         onChange={setOutcome}
