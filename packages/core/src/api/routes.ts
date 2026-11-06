@@ -27,6 +27,9 @@ import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { usageRoutes } from "./usage";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyRoutes } from "./notify";
+import { tableRoutes } from "./table";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -1791,5 +1794,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 W1-B: notifications, the Table and the Weekly Table
+  ...notifyRoutes,
+  ...tableRoutes,
 } as const;
 export type Routes = typeof routes;

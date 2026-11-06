@@ -88,3 +88,12 @@ export * from "./template/template";
 export * from "./template/typer";
 export * from "./workflow/validate";
 export * from "./workflow/walk";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+export * from "./api/notify";
+export * from "./api/table";
+export * from "./i18n/notify";
+export * from "./i18n/weekly";
+export * from "./notify/notify";
+export * from "./notify/render";
+export * from "./weekly/schemas";
+export * from "./weekly/week";
