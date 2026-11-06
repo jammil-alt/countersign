@@ -34,7 +34,15 @@ function message(error: unknown): string {
 // Workflow retry after a lost response completes the write instead of stranding it.
 export async function executeAction(
   deps: RuntimeDeps,
-  input: { tenantId: string; actionId: string },
+  input: {
+    tenantId: string;
+    actionId: string;
+    /**
+     * v0.12 W1-E: the run executing it, when not the one that proposed it (a retry carrying the
+     * original's approved action, ARCHITECTURE §10.10): its release is the one that must cover it.
+     */
+    runId?: string;
+  },
 ): Promise<ActionOutcome> {
   const { actions, store } = deps.ports;
   const found = await actions.get(input.tenantId, input.actionId);
@@ -50,7 +58,7 @@ export async function executeAction(
   // asks for one: without it the write fails.
   // DECISION: the check is made before the action is claimed, so a refused write never starts.
   if (found.status === "approved" || found.status === "executing") {
-    const refused = await releaseRefusal(deps, input.tenantId, found);
+    const refused = await releaseRefusal(deps, input.tenantId, found, input.runId);
     if (refused) {
       const failed = await actions.fail(input.tenantId, found.id, {
         message: refused,
@@ -140,16 +148,18 @@ async function releaseRefusal(
   deps: RuntimeDeps,
   tenantId: string,
   action: ExternalActionRecord,
+  executingRunId?: string,
 ): Promise<string | null> {
   const conn = await deps.ports.store.connection(tenantId, action.connectionId);
   if (!conn || releaseOf(conn.config).mode !== "code") return null;
-  const run = action.runId ? await deps.ports.store.run(tenantId, action.runId) : null;
+  const runId = executingRunId ?? action.runId;
+  const run = runId ? await deps.ports.store.run(tenantId, runId) : null;
   const covered =
-    run && action.runId
+    run && runId
       ? await deps.ports.release?.covers(tenantId, {
           connection: conn,
           agentId: run.agentId,
-          runId: action.runId,
+          runId,
         })
       : false;
   return covered

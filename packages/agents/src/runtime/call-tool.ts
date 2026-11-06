@@ -26,6 +26,7 @@ import {
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
+import { carryApproval } from "./carry";
 import {
   asJsonObject,
   connectionContext,
@@ -37,7 +38,14 @@ import {
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
 
 export type ToolOutcome =
-  | { status: "done"; output: unknown; summary?: string | undefined; actionId?: string }
+  | {
+      status: "done";
+      output: unknown;
+      summary?: string | undefined;
+      actionId?: string;
+      /** v0.12 W1-E: a retry's write carried from the run retried (`approved_via: retry_of`). */
+      carried?: { retryOf: string };
+    }
   /** A write waiting for a person: the action and its inbox item. */
   | { status: "awaiting_approval"; actionId: string; inboxItemId: string | null; before: unknown }
   /** Test runs: the write was recorded as proposed and will never run. */
@@ -114,7 +122,10 @@ export async function callTool(
     status: LOG_STATUS[outcome.status],
     output:
       outcome.status === "done"
-        ? outcome.output
+        ? // v0.12 W1-E: a carried write says whose approval it ran under (§10.10).
+          outcome.carried
+          ? { approvedVia: "retry_of", retryOf: outcome.carried.retryOf, output: outcome.output }
+          : outcome.output
         : outcome.status === "refused"
           ? { refused: outcome.reason }
           : outcome.status === "failed"
@@ -254,6 +265,10 @@ async function dispatch(
 
   // A write to the client's tool: always an external_action, with its before state.
   const captured = await captureBefore(tool.connector, tool.spec.id, input, ctx);
+  // v0.12 W1-E: a retry carries the run retried's approved, not-done write with the same input,
+  // under its original key; the gate above (stage included) has just allowed the write again.
+  const carried = await carryApproval(deps, step, tool.spec.id, captured.input, decision);
+  if (carried) return carried;
   const key = idempotencyKey(step);
   const test = step.mode === "test";
   const automatic = decision === "run" && !test;

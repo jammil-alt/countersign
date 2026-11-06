@@ -9,6 +9,9 @@ export {
   pool,
   type RunEndStatus,
   type RunResult,
+  // v0.12 W1-E
+  type RunResume,
+  resumePoint,
 } from "./executor";
 export {
   type FakeCall,
