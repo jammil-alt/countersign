@@ -27,6 +27,8 @@ import { approverRuleRoutes } from "./routes/approver-rules";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
+// v0.12 W2-F: the command center, search and plain-words questions
+import { commandCenterRoutes } from "./routes/command-center";
 import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
@@ -140,6 +142,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);
   labRoutes(app);
+  // v0.12 W2-F: the command center, search and plain-words questions
+  commandCenterRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

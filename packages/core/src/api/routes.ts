@@ -15,6 +15,8 @@ import { automationRoutes, BuilderAutomation } from "./automations";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
+// v0.12 W2-F: the command center, search and plain-words questions
+import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
 import { defineRoute } from "./contract";
 import { deskRoutes } from "./desk";
@@ -1836,5 +1838,7 @@ export const routes = {
   ...threadRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   ...testbenchRoutes,
+  // v0.12 W2-F: the command center, search and plain-words questions
+  ...commandCenterRoutes,
 } as const;
 export type Routes = typeof routes;
