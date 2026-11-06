@@ -287,8 +287,8 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
       retryOf: r.id,
       resumeFrom,
     };
-    // The same checks as any live run: the agent must be active (and, with W1-A, at a stage that
-    // runs); the gate checks matrix, grant and release again for every write.
+    // The same checks as any live run: the agent must be active; the gate checks matrix, grant,
+    // go-live stage and release again for every write (a trial agent has every write signed).
     await createRunRow(tx, req);
     await tx
       .update(run)

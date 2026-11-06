@@ -2,7 +2,9 @@
 // looks for a write the same step proposed in the run retried with the same input (hash). One
 // already done is never redone: its recorded result stands. One approved and not done, signed less
 // than 72 hours ago, is executed under its original idempotency key without a new approval, the
-// gate having just allowed the write again (matrix, grant, stage, release as they are now).
+// gate having just allowed the write again (matrix, grant, the go-live stage through W1-A's
+// effectiveMode, release, as they are now). A write the system approved is carried only while that
+// decision is still `run`: an agent in trial or signoff has every write signed.
 // Otherwise the write is proposed again, for a new approval.
 
 import { carryDecision, hashJson, type WriteDecision } from "@countersign/core";
@@ -34,14 +36,15 @@ export async function carryApproval(
     // the gate would still run it without asking; a client who tightened its matrix since is asked
     // (docs/plan.md M17). A person's signature stands while the gate allows the write at all.
     if (carry === "execute" && c.approvedBy === null && decision !== "run") continue;
-    // The key this write would have taken, so later writes of the step keep their own (a
-    // Workflow retry of the step finds them by key again).
-    idempotencyKey(step);
     const carried = { retryOf };
     if (carry === "done") {
+      // The key this write would have taken, so later writes of the step keep their own (a
+      // Workflow retry of the step finds them by key again).
+      idempotencyKey(step);
       return { status: "done", output: c.result, actionId: c.id, carried };
     }
     if (!(await port.reopen(step.tenantId, c.id))) return null;
+    idempotencyKey(step);
     const r = await executeAction(deps, {
       tenantId: step.tenantId,
       actionId: c.id,

@@ -11,6 +11,7 @@ import {
 import {
   changeFacts,
   decideToolCall,
+  effectiveMode,
   fixedInputProblem,
   grantAllowsTool,
   type JsonObject,
@@ -142,7 +143,6 @@ async function dispatch(
   tool: RegisteredTool,
   input: unknown,
 ): Promise<ToolOutcome> {
-  const mode = step.agent.bundle.definition.permissions.mode;
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
     const resumed = await resumeProposed(deps, step, tool);
@@ -207,6 +207,15 @@ async function dispatch(
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
   }
+  // v0.12 W1-A: the go-live stage, read fresh like the matrix: in trial and signoff every write
+  // needs a signature, whatever the step, matrix or mode say (ARCHITECTURE §10.9). Reads don't ask.
+  const mode =
+    tool.spec.sideEffect === "external"
+      ? effectiveMode(
+          step.agent.bundle.definition,
+          await deps.ports.store.agentStage(step.tenantId, step.agent.agentId),
+        )
+      : step.agent.bundle.definition.permissions.mode;
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
     verb: tool.spec.verb,
@@ -244,7 +253,7 @@ async function dispatch(
   // A write to the client's tool: always an external_action, with its before state.
   const captured = await captureBefore(tool.connector, tool.spec.id, input, ctx);
   // v0.12 W1-E: a retry carries the run retried's approved, not-done write with the same input,
-  // under its original key; the gate above has just allowed the write again (§10.10).
+  // under its original key; the gate above (stage included) has just allowed the write again.
   const carried = await carryApproval(deps, step, tool.spec.id, captured.input, decision);
   if (carried) return carried;
   const key = idempotencyKey(step);

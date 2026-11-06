@@ -37,9 +37,21 @@ export interface RoutableEvent {
 
 /** What `run.trigger` records about why a run started. */
 export type RunTrigger =
-  | { triggerId: string; type: "event"; eventId: string; eventType: string }
+  | {
+      triggerId: string;
+      type: "event";
+      eventId: string;
+      eventType: string;
+      // v0.12 W1-A: an operator who started this live run on a past event (ARCHITECTURE §10.9).
+      replayedBy?: string;
+    }
   | { triggerId: string; type: "schedule"; cron: string; tz: string; scheduledAt: string }
-  | { triggerId: string; type: "manual" | "command" };
+  | {
+      triggerId: string;
+      type: "manual" | "command";
+      // v0.12 W1-A: a client person who started it with Run now (ARCHITECTURE §11.5).
+      startedBy?: { userId: string };
+    };
 
 export interface RunRequest {
   runId: string;
