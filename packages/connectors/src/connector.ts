@@ -104,6 +104,12 @@ export type ToolContext = ConnectionContext;
 /** A write runs with the external action's idempotency key (`<run id>:<step id>:<index>`). */
 export interface WriteContext extends ToolContext {
   idempotencyKey: string;
+  // v0.14 W4-D
+  /**
+   * The before state the approver saw when the change was proposed (`external_action.before`),
+   * when there was a proposal. A tool may refuse a write whose record changed since (Sheets).
+   */
+  proposedBefore?: unknown;
 }
 
 /** A read tool (`sideEffect: 'none'`). Input and output are validated around `run`. */

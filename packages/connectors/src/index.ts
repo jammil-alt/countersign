@@ -2,7 +2,8 @@
 // permissions, credential encryption, shared OAuth plumbing and object storage. Connectors: `upload`
 // (uploads, purchase CSVs and email forwarding), `browser` (website logins, signed in by code),
 // `webhook` (in and out, for Zapier/Make/n8n), `gmail` (send only), `qbo` (QuickBooks Online),
-// `zoho_crm`, `podio`, `gdrive` (Google Drive, only the files we make), `outlook` (send only), and
+// `zoho_crm`, `podio`, `gdrive` (Google Drive, only the files we make), `outlook` (send only),
+// `gsheets` (Google Sheets, only the sheets the client picks), and
 // `testkit`, the test connector. Also `stripe/`, Mezonas' own billing client (not a connector: no
 // manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
@@ -17,6 +18,9 @@ export * from "./gdrive/index";
 export * from "./gdrive/path";
 export * from "./gmail/index";
 export * from "./gmail/mime";
+// v0.14 W4-D: Google Sheets (picked sheets only).
+export * from "./gsheets/a1";
+export * from "./gsheets/index";
 export * from "./http";
 export * from "./invoke";
 export * from "./logger";

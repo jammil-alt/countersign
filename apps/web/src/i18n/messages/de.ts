@@ -1170,4 +1170,27 @@ export const de: Messages = {
     one: "{count} Person",
     other: "{count} Personen",
   },
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Lesen Sie Zeilen in den Google-Tabellen, die Sie auswählen, und fügen Sie neue hinzu. Andere Tabellen können wir nicht öffnen.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Agenten können nur die Tabellen öffnen, die Sie hier auswählen. Sie wählen sie im Fenster von Google aus.",
+  "gsheets.none": "Noch keine Tabellen ausgewählt.",
+  "gsheets.choose": "Tabellen auswählen",
+  "gsheets.remove": "Entfernen",
+  "gsheets.otherAccount":
+    "Mit einem anderen Google-Konto ausgewählt. Wählen Sie sie erneut aus, um sie zu verwenden.",
+  "gsheets.notSetUp":
+    "Das Auswählen von Tabellen ist hier noch nicht eingerichtet. Wir sagen Ihnen Bescheid, sobald es so weit ist.",
+  "gsheets.pick.title": "Google-Tabellen auswählen",
+  "gsheets.pick.subtitle":
+    "Google öffnet ein Fenster, in dem Sie die Tabellen auswählen, die Agenten verwenden dürfen. Wir sehen nur diese.",
+  "gsheets.pick.open": "Auswahl von Google öffnen",
+  "gsheets.pick.loading": "Auswahl von Google wird geladen…",
+  "gsheets.pick.saving": "Ihre Auswahl wird gespeichert…",
+  "gsheets.pick.cancelled":
+    "Nichts ausgewählt. Öffnen Sie die Auswahl erneut oder gehen Sie zurück.",
+  "gsheets.pick.failed":
+    "Die Auswahl von Google hat sich nicht geöffnet. Prüfen Sie, ob Pop-ups erlaubt sind, und versuchen Sie es erneut.",
 };

@@ -21,6 +21,8 @@ import {
   PortalPeopleScreen,
 } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
+// v0.14 W4-D
+import { GsheetsPickScreen } from "./screens/GsheetsPick";
 import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
@@ -127,6 +129,8 @@ export function PortalApp() {
         <Route path="reports/*" element={<PortalReportsScreen />} />
         <Route path="connections" element={<PortalConnectionsScreen />} />
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
+        {/* v0.14 W4-D: Google Sheets' picking page (always loaded as a document). */}
+        <Route path="connections/gsheets/pick" element={<GsheetsPickScreen />} />
         <Route path="access" element={<PortalAccessScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
         <Route path="records" element={<PortalRecordsScreen />} />

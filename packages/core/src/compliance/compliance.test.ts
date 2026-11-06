@@ -74,6 +74,8 @@ describe("processors", () => {
       // v0.12 W3-B
       "gdrive",
       "outlook",
+      // v0.14 W4-D
+      "gsheets",
     ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }

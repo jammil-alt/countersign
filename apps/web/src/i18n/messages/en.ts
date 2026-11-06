@@ -1117,4 +1117,24 @@ export const en = {
     one: "{count} person",
     other: "{count} people",
   },
+  // v0.14 W4-D: Google Sheets (Connections and the picking page).
+  "connections.gsheets.description":
+    "Read and add rows in the Google Sheets you choose. We can't open any other sheet.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Agents can open only the sheets you choose here. You choose them in Google's own window.",
+  "gsheets.none": "No sheets chosen yet.",
+  "gsheets.choose": "Choose sheets",
+  "gsheets.remove": "Remove",
+  "gsheets.otherAccount": "Chosen with another Google account. Choose it again to use it.",
+  "gsheets.notSetUp": "Choosing sheets isn't set up here yet. We'll tell you when it is.",
+  "gsheets.pick.title": "Choose Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google opens a window where you pick the sheets agents may use. We see only those.",
+  "gsheets.pick.open": "Open Google's picker",
+  "gsheets.pick.loading": "Loading Google's picker…",
+  "gsheets.pick.saving": "Saving your choice…",
+  "gsheets.pick.cancelled": "Nothing was chosen. Open the picker again, or go back.",
+  "gsheets.pick.failed":
+    "Google's picker didn't open. Check that pop-ups are allowed, then try again.",
 } as const;

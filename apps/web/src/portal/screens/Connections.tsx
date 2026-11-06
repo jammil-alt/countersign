@@ -10,6 +10,8 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
+// v0.14 W4-D
+import { GsheetsSetup } from "../../connections/GsheetsSetup";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { WebhookSetup } from "../../connections/WebhookSetup";
 import type { PlainKey } from "../../i18n/catalog";
@@ -35,6 +37,8 @@ type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][num
 /** Connectors whose description we show in the reader's language (else the API's English). */
 const DESCRIPTIONS: Record<string, PlainKey> = {
   gmail: "connections.gmail.description",
+  // v0.14 W4-D
+  gsheets: "connections.gsheets.description",
 };
 
 function descriptionOf(item: Offered, { t }: Pick<I18n, "t">): string {
@@ -120,6 +124,9 @@ export function PortalConnectionsScreen() {
                   <WebhookSetup key={c.connector} connectionId={c.connection?.id ?? ""} />
                 ))
             : null}
+
+          {/* v0.14 W4-D: the sheets agents may use, and Google's Picker to choose them. */}
+          {isAdmin && connected.some((c) => c.connector === "gsheets") ? <GsheetsSetup /> : null}
 
           {withRows.length > 0 ? (
             <MatrixTable
