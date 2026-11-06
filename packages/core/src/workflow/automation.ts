@@ -237,7 +237,7 @@ export function stepsToAutomation(input: FromStepsInput): FromStepsResult {
   const keptApprovals: Record<string, Approval> = {};
   const copied = selected.map((s) => {
     const moved = mapRefs(renumber(s, ids), intoInput) as Step;
-    // New steps start with approval on (invariant 8). A client agent keeps a setting the operator
+    // DECISION: new steps start with approval on (invariant 8). A client agent keeps a setting the operator
     // loosened through the use step's `approvals`, so its runs behave as before.
     walkSteps({ steps: [moved] }, ({ step }) => {
       if ((step.kind === "skill" || step.kind === "action") && step.approval) {

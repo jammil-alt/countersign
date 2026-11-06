@@ -125,6 +125,8 @@ export async function executeWorkflow(
 ): Promise<RunResult> {
   // v0.12 W2-B: automations expand before execution (ARCHITECTURE §10.7; docs/plan.md §1.45).
   // Pure and over immutable versions, so a replay or a retry expands the same steps and ids.
+  // DECISION: a pinned version the run can't load fails the run at its use step before any step
+  // runs, rather than part-way through.
   let expansions: Expansions;
   try {
     expansions = expandAutomations(workflow, ctx.automations ?? {});
@@ -755,6 +757,9 @@ class Executor {
       await log.update(id, { status: "running" });
       return { stepRunId: id, input };
     });
+    // DECISION: inside, only `{{input...}}` and the automation's own steps: not the trigger, not
+    // an enclosing loop's item, not the workflow's steps (ARCHITECTURE §10.7). A stop step inside
+    // ends the run, as anywhere.
     const inner: Frame = {
       prefix: `${name}/`,
       scope: { trigger: undefined, input: started.input, steps: {} },

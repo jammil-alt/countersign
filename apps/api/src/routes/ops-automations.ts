@@ -346,6 +346,8 @@ async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromStep
     clientAgent: row.kind === "client",
   });
   if (!result.ok) throw new HttpError(422, result.code, result.message);
+  // DECISION: "Save as automation" always makes a new automation (its slug must be free) at v1,
+  // a draft; the agent's new draft pins `slug@1` and publishes once the automation is published.
   // DECISION: a template's steps become a shared automation; a client agent's become that
   // client's own, so one client's steps never reach another (invariant 1).
   const created = await createAutomation(tx, {

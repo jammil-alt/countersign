@@ -344,6 +344,9 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     def = resolved.definition;
     const id = parseSkillRef(skillRef).id;
     const own = agent.bundle.definition.skills.find((s) => parseSkillRef(s.skill).id === id);
+    // DECISION: an automation's skill steps run as the using agent though it doesn't list their
+    // skills (using an automation brings them in, ARCHITECTURE §10.7); the step's settings over the
+    // skill's defaults, plus the agent's own if it lists the skill too.
     if (!own && input.automation === undefined) {
       return fail(`agent ${agent.slug} has no skill ${id}`);
     }

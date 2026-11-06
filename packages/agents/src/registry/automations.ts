@@ -398,6 +398,8 @@ export async function automationContext(
 }
 
 /** Publish-time errors for use steps whose automation is missing or still a draft. */
+// DECISION: an agent publishes only on published automation versions (live or retired): a pinned
+// draft could still change meaning, and only a valid version publishes.
 export function automationPublishErrors(
   bundle: AgentBundle,
   found: { drafts: string[] },
