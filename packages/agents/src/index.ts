@@ -21,6 +21,8 @@ export * from "./log/health-port";
 export * from "./log/inbound-port";
 export * from "./log/knowledge-port";
 export * from "./log/model-calls";
+// v0.13 W2-I: run oversight
+export * from "./log/oversight";
 export * from "./log/platform-store";
 export * from "./log/ports";
 export * from "./log/run-log";
@@ -42,6 +44,8 @@ export * from "./runtime/carry";
 export * from "./runtime/context";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";
+// v0.13 W2-I
+export * from "./runtime/oversee";
 export * from "./runtime/planned";
 export * from "./runtime/ports";
 export * from "./runtime/run-agent";

@@ -2,6 +2,8 @@ import { z } from "zod";
 // v0.12 W2-G
 import { ClientView } from "../kpi/schema";
 import { DecimalString } from "../money";
+// v0.13 W2-I
+import { OversightSettings } from "../oversight/decision";
 import { PersonRole } from "../reach/rules";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
@@ -54,6 +56,9 @@ export const AgentDefinition = z
     // v0.12 W2-G: what the client sees of this agent (ARCHITECTURE §9.9). Optional with no
     // default, so bundles without it parse and hash as they were.
     clientView: ClientView.optional(),
+    // v0.13 W2-I: run oversight (ARCHITECTURE §10.11). Optional with no default: absent means
+    // `off`, so bundles without it parse, hash and run as they were.
+    oversight: OversightSettings.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

@@ -46,6 +46,8 @@ import type { Hono } from "hono";
 import { changeDisplay, itemDisplay, plainTitle } from "../change-display";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
+// v0.13 W2-I
+import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
 import { dispatchEvents } from "../runs/dispatch";
 import { matrixEdit } from "./mappers";
@@ -292,6 +294,8 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
   })
     ? await leadFirstName(tx, tenantId)
     : null;
+  // v0.13 W2-I: run oversight in the platform's words only, never the agent's note (§10.11).
+  const oversight = await timelineOversight(tx, tenantId, runId, platform, workflow);
   const timeline = steps.flatMap((s) => {
     const step = stepOfNode(lookup, s.nodeId);
     // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
@@ -305,6 +309,8 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
         sources: sourcesOf(s.output),
         startedAt: iso(s.startedAt),
         finishedAt: iso(s.finishedAt),
+        // v0.13 W2-I
+        ...(oversight.has(s.id) ? { oversight: oversight.get(s.id) } : {}),
       },
     ];
   });

@@ -37,6 +37,8 @@ import { modelRoutes } from "./models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+// v0.13 W2-I: run oversight
+import { OversightDecisionView, oversightRoutes } from "./oversight";
 // v0.12 W1-G: people (autonomy).
 import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { qboRoutes } from "./qbo";
@@ -397,6 +399,9 @@ export const TimelineStep = z.object({
   sources: z.array(z.string()),
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // v0.13 W2-I: run oversight in the platform's words ("Corrected the vendor name and tried
+  // again"), one line per decision, in the client's language; never the agent's note (§10.11).
+  oversight: z.array(z.string()).optional(),
 });
 
 export const PortalInboxItem = z.object({
@@ -1374,6 +1379,8 @@ export const opsRoutes = {
       workflow: z
         .object({ slug: z.string(), name: z.string(), definition: z.unknown() })
         .nullable(),
+      // v0.13 W2-I: the run's oversight decisions, oldest first (ARCHITECTURE §10.11).
+      oversight: z.array(OversightDecisionView).optional(),
     }),
   }),
   opsInbox: defineRoute({
@@ -1858,5 +1865,7 @@ export const routes = {
   ...triggerRoutes,
   // v0.13 W2-H: models for task skills and skill steps.
   ...modelRoutes,
+  // v0.13 W2-I: run oversight decisions for the agent lab.
+  ...oversightRoutes,
 } as const;
 export type Routes = typeof routes;

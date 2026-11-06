@@ -38,6 +38,8 @@ export * from "./api/models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 export * from "./api/notify";
 export * from "./api/onboarding";
+// v0.13 W2-I: run oversight
+export * from "./api/oversight";
 export * from "./api/people";
 export * from "./api/qbo";
 export * from "./api/reach";
@@ -97,6 +99,8 @@ export * from "./i18n/gmail-test";
 export * from "./i18n/lifecycle";
 export * from "./i18n/locale";
 export * from "./i18n/notify";
+// v0.13 W2-I
+export * from "./i18n/oversight";
 export * from "./i18n/release";
 export * from "./i18n/supervisor";
 export * from "./i18n/threads";
@@ -117,6 +121,8 @@ export * from "./messaging/rules";
 export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";
+// v0.13 W2-I: run oversight
+export * from "./oversight/decision";
 export * from "./permissions/decide";
 export * from "./permissions/explain";
 export * from "./permissions/grants";
