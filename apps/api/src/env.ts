@@ -96,6 +96,8 @@ export interface OptionalBindings {
   CODES?: CodesService;
   /** QboSyncWorkflow: one instance per QuickBooks sync (cron, webhook, "sync now"). */
   QBO_SYNC?: Workflow;
+  /** ExportWorkflow: one instance per client data export (docs/plan.md §1.36). */
+  EXPORT_WORKFLOW?: Workflow;
   BROWSER?: BrowserWorker;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;
