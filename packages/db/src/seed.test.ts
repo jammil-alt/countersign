@@ -7,7 +7,7 @@ import { eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator, withTenant } from "./client";
 import { agent, agentVersion, appUser, membership } from "./schema";
-import { loadSeedTemplates, SEED_USERS, seed } from "./seed";
+import { loadSeedTemplates, loadSeedVersions, SEED_USERS, seed } from "./seed";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -29,6 +29,24 @@ describe("seed files", () => {
       expect(t.bundle.definition.permissions.mode).toBe("suggest_only");
       expect(t.hash).toBe(await bundleHash(t.bundle));
     }
+  });
+
+  // v0.12 W2-D: the supervisor's v2 is Sloan (docs/plan.md §1.47).
+  it("hold the supervisor's v2, Sloan: the three watch workflows unchanged plus chat", async () => {
+    const [v1] = (await loadSeedTemplates()).filter((t) => t.slug === "supervisor");
+    const later = await loadSeedVersions();
+    expect(later.map((v) => `${v.slug}.v${v.version}`)).toEqual(["supervisor.v2"]);
+    const v2 = later[0];
+    if (!v1 || !v2) throw new Error("no supervisor seed");
+    expect(v2.bundle.definition.identity.name).toBe("Sloan");
+    expect(v2.bundle.definition.permissions.mode).toBe("suggest_only");
+    expect(v2.bundle.definition.budgets).toEqual({ maxSteps: 8, maxCostUsd: "0.30" });
+    for (const w of v1.bundle.workflows) {
+      expect(v2.bundle.workflows.find((x) => x.slug === w.slug)?.workflow).toEqual(w.workflow);
+    }
+    const chat = v2.bundle.workflows.find((w) => w.slug === "chat")?.workflow;
+    expect(chat?.trigger.on).toMatchObject({ type: "event", event: "thread.message_posted" });
+    expect(chat?.steps).toMatchObject([{ kind: "skill", skill: "account.chat" }]);
   });
 });
 
@@ -58,7 +76,7 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 5 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 6 });
 
     const second = await seed(t.db);
     expect(second).toEqual(first);
@@ -80,16 +98,24 @@ describe.skipIf(!online)("seed", () => {
       "document-clerk",
       "supervisor",
     ]);
+    const versions = await t.db.select().from(agentVersion);
+    const supervisor = first.templates.supervisor;
     for (const r of templates) {
       expect(r.kind).toBe("template");
       expect(r.tenantId).toBeNull();
-      expect(r.live).toBe(first.templates[r.slug]?.versionId);
+      // v0.12 W2-D: the supervisor's live version is its seeded v2 (Sloan); v1 is retired.
+      if (r.slug === "supervisor") {
+        const live = versions.find((v) => v.id === r.live);
+        expect(live?.version).toBe(2);
+        expect(live?.parentVersionId).toBe(supervisor?.versionId);
+      } else {
+        expect(r.live).toBe(first.templates[r.slug]?.versionId);
+      }
     }
 
-    const versions = await t.db.select().from(agentVersion);
     for (const v of versions) {
-      expect(v.status).toBe("live");
-      expect(v.version).toBe(1);
+      const retired = v.id === supervisor?.versionId;
+      expect(v.status).toBe(retired ? "retired" : "live");
       expect(validateBundle(v.bundle).valid).toBe(true);
       expect(v.bundleHash).toBe(await bundleHash(v.bundle));
     }
