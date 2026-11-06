@@ -69,15 +69,19 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
           .onConflictDoUpdate({
             target: [stepRun.runId, stepRun.nodeId],
             set:
-              entry.attempt === undefined
-                ? { nodeId: sql`excluded.node_id` }
-                : // v0.13 W2-I: an oversight retry keeps the step's one row: its attempts rise and
-                  // it holds the input the attempt runs with (ARCHITECTURE §5.6).
+              entry.attempt !== undefined
+                ? // v0.13 W2-I: an oversight retry keeps the step's one row: its attempts rise and
+                  // it holds the input the attempt runs with (ARCHITECTURE §5.6). v0.14 W4-B:
+                  // by one at least, so platform retries before it stay counted.
                   {
-                    attempts: sql`greatest(${stepRun.attempts}, excluded.attempts)`,
+                    attempts: sql`greatest(${stepRun.attempts} + 1, excluded.attempts)`,
                     input: sql`excluded.input`,
                     status: "running",
-                  },
+                  }
+                : entry.retried
+                  ? // v0.14 W4-B: the platform retried the step's work: one more attempt.
+                    { attempts: sql`${stepRun.attempts} + 1`, status: "running" }
+                  : { nodeId: sql`excluded.node_id` },
           })
           .returning({ id: stepRun.id });
         if (!row) throw new Error("step_run upsert returned nothing");

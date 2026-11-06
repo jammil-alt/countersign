@@ -76,6 +76,8 @@ import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
 import { triggerRoutes } from "./triggers";
 import { usageRoutes } from "./usage";
+// v0.14 W4-B
+import { zohoRoutes } from "./zoho";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -1864,6 +1866,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.14 W4-B: Zoho CRM notifications
+  ...zohoRoutes,
   // v0.12 bankfeed: Plaid's webhook
   ...bankfeedRoutes,
   // v0.12 W1-G: people (autonomy).
