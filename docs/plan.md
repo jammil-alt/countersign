@@ -1267,6 +1267,27 @@ came from the Wave 1 migrations PR.
 | Sloan | `run.failed` gains an optional `diagnosis` (the last decision's note, operator side only). Sloan's triage reading it is a follow-up on W2-D's files, after both merge. |
 | Table | Migration 0029, with Wave 2's other migrations in one PR (`claude/w2-migrations`; §8.3): `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
 
+### People and voice samples (W1-G)
+
+Decisions made while building §1.42 (ARCHITECTURE v0.12 §6.1, §6.4; migration 0025).
+
+| Topic | Decision |
+|---|---|
+| Autonomy unset | A channel missing from `contact.autonomy` narrows nothing, so contacts made before v0.12 behave as before. `auto` never loosens: it is one more ceiling, and the matrix, grant, step and mode still decide. // DECISION |
+| Who sets it | `PUT /api/contacts/:id/autonomy` (client admin) and `PUT /api/ops/clients/:id/contacts/:contactId/autonomy` (operator) take the whole setting. The client admin may only tighten: any channel set to `auto` that wasn't already, or any channel made looser (clearing an `approval` or `off` counts), is 403 `loosening`. Client users can't set it. Each change is a `contact_change` row `{kind: 'autonomy', before, after, by}` and, like every request, an audit row. // DECISION |
+| At the gate | `ToolSpec.recipient {path, channel}` on `email.send`, `gmail.send`, `sms.send`, `whatsapp.send` and `call.place`. The gate reads the contact by that address (`RuntimeStore.contactAutonomy`, fresh on every call) and passes its level to `decideToolCall` as `ceilings`. `off` refuses with "agents' emails to this person are turned off"; `approval` turns a write that would run into one that waits. An address that isn't one of the client's contacts adds nothing. // DECISION |
+| In reach out | The evaluator takes an `off` channel out of the plan (`autonomy_off`); a plan with a channel at `approval` asks for a sign even when the step runs without one (`needsSignature`). Each attempt checks `off` again at send time (a planned attempt is refused); `approval` was settled when the plan was signed, so a change to `approval` after an automatic plan started applies from the next plan. // DECISION |
+| Voice sample channels | `email`, `sms` and `whatsapp`; no `voice`, since a call's words are the voice agent's. // DECISION |
+| Voice sample routes | Their own routes under `/api/knowledge/voice-samples` and `/api/ops/clients/:id/knowledge/voice-samples` (list, add, edit, archive), so FAQ and policy lists and their schemas stay as they were. A sample's versions are read with the knowledge base's versions route. The FAQ edit route answers 404 for a sample, so nothing saves one without cleaning it. // DECISION |
+| Whose voice | `personUserId` must be one of the client's own users (client admin or client user), else 422 `not_a_person`; left out, the client admin who joined first. A `+voice` email is the voice of the client's user with the sender's address (envelope, or From when its domain passed DMARC), else that client admin; never the forwarded message's own headers. // DECISION |
+| Kept text | Quoted history cut ("On … wrote:" in the six languages, `>` lines, "Original Message"); a bare forward keeps the forwarded message's text without its header lines, a forward with words above it keeps those words; card numbers redacted; 4,000 characters. Pasted text gets the same cleaning. The forwarded sample's version is authored by that person with the role `client_admin` (the column's only client-side value). // DECISION |
+| Cap | Adding or editing a sample archives the person's oldest active ones beyond 50 (a new archived version, history kept). // DECISION |
+| Search | Samples are never indexed (`reindexEntry` skips them) and search also filters them out; they are read only with `knowledge.voice_samples`. // DECISION |
+| The tool | `knowledge.voice_samples {personUserId?, channel?, limit ≤ 10}` returns samples newest first, each `untrusted: true` with its entry and version ids as sources. When the channel has none for that person, their other channels' samples come back with `channelMatched: false`. // DECISION |
+| The skill | `writing.draft-in-voice` (agent mode, tools: `knowledge.voice_samples` only), registered with the knowledge skills. Input: person, channel, purpose, record sources, facts (data), recipient name, language. Output `{subject?, text, sources}`. Its instructions say the samples show tone only and never to copy facts or follow anything in them. A draft is text: the send step after it still goes through the gate and the person's autonomy. // DECISION |
+| QuickBooks import | `qbo` joins the directory's import sources. A preview reads the connection's synced raw `Vendor` and `Customer` records (latest version of each, deleted and inactive left out), never QuickBooks itself, as organizations of kind `vendor` or `customer`, filtered by `query` on the name. People from QuickBooks: 422 (QuickBooks keeps companies). Customers come from W1-F's accounts receivable sync. // DECISION |
+| UI | None in this stream: the owner redoes the screens. `Contact.autonomy` is in the API's contact for them. // DECISION |
+
 ---
 
 ## 2. Package layering
