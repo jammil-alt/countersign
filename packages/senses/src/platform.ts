@@ -3,12 +3,15 @@
 // from the record the event points at.
 
 import {
+  AccountRequestPassedPayload,
   ConnectionNeedsAttentionPayload,
   DecimalString,
   type EventTypeSpec,
   HealthSummary,
+  InboundMessagePayload,
   type PlatformEventType,
   RunFailedPayload,
+  RunSucceededPayload,
   ThreadMessagePostedPayload,
 } from "@countersign/core";
 import { z } from "zod";
@@ -317,6 +320,49 @@ export const PLATFORM_EVENTS = {
       senderId: "0192f7a0-0000-7000-8000-000000000004",
       audience: "client",
       command: { name: "remy", agentId: "0192f7a0-0000-7000-8000-000000000005" },
+    },
+  },
+  // v0.12 W2-E: triggers (docs/plan.md §1.48). Ids only, never a message's words.
+  "inbound.message": {
+    description:
+      "Someone sent one of the client's agents a message: an email to its address, or a text or WhatsApp to its number.",
+    subjectType: "raw_record",
+    payload: InboundMessagePayload,
+    sample: {
+      agentId: SAMPLE_ID,
+      channel: "email",
+      contactId: SAMPLE_ID_2,
+      userId: null,
+      rawRecordId: "0192f7a0-0000-7000-8000-000000000003",
+      documents: [],
+      receivedAt: "2026-11-06T15:00:00.000Z",
+    },
+  },
+  "run.succeeded": {
+    description:
+      "A live run of one of the client's agents finished well, with what its workflow hands off.",
+    subjectType: "run",
+    payload: RunSucceededPayload,
+    sample: {
+      runId: SAMPLE_ID,
+      agentId: SAMPLE_ID_2,
+      agentSlug: "bill-clerk",
+      agentVersionId: "0192f7a0-0000-7000-8000-000000000003",
+      workflowSlug: "check-bills",
+      output: { billId: "0192f7a0-0000-7000-8000-000000000004" },
+      sources: ["0192f7a0-0000-7000-8000-000000000004"],
+      depth: 1,
+    },
+  },
+  "account.request_passed": {
+    description: "Sloan passed a client's request to one of its agents.",
+    subjectType: "thread",
+    payload: AccountRequestPassedPayload,
+    sample: {
+      agentId: SAMPLE_ID,
+      threadId: SAMPLE_ID_2,
+      messageId: "0192f7a0-0000-7000-8000-000000000003",
+      userId: "0192f7a0-0000-7000-8000-000000000004",
     },
   },
 } as const satisfies Record<PlatformEventType, PlatformEventDef>;

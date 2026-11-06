@@ -71,6 +71,7 @@ describe("tool registry", () => {
       "health.connections",
       "health.inbox",
       "health.runs",
+      "inbound.get",
       "inbox.create",
       "knowledge.search",
       "knowledge.voice_samples",

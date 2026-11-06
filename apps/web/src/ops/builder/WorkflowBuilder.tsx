@@ -897,8 +897,9 @@ function AddWorkflowForm({
         return { type, cron };
       case "command":
         return { type, command: command.trim().replace(/^\//, "") };
-      case "manual":
-        return { type, input: { type: "object", properties: {} } };
+      // v0.12 W2-E: the new kinds aren't offered here yet; anything else starts by hand.
+      default:
+        return { type: "manual", input: { type: "object", properties: {} } };
     }
   };
 

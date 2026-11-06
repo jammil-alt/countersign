@@ -71,6 +71,8 @@ import { tableRouteHandlers } from "./routes/table";
 import { testbenchRoutes } from "./routes/testbench";
 // v0.12 W1-C
 import { threadRouteHandlers } from "./routes/threads";
+// v0.12 W2-E
+import { triggerRouteHandlers } from "./routes/triggers";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
@@ -148,6 +150,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   labRoutes(app);
   // v0.12 W2-F: the command center, search and plain-words questions
   commandCenterRoutes(app);
+  // v0.12 W2-E: the triggers list
+  triggerRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

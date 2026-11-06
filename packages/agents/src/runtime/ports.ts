@@ -16,6 +16,8 @@ import type { ModelCallPort } from "../log/model-calls";
 import type { ResolvedSkill } from "../registry/skills";
 // v0.12 W2-D
 import type { AccountPort } from "../tools/account";
+// v0.12 W2-E
+import type { InboundPort } from "../tools/inbound";
 import type { ThreadsPort } from "../tools/threads";
 import type {
   DirectoryPort,
@@ -338,6 +340,9 @@ export interface RuntimePorts {
   // v0.12 W1-C
   /** The client's threads for `threads.post` and `threads.read`; absent: an operator note only. */
   threads?: ThreadsPort;
+  // v0.12 W2-E
+  /** The message behind `inbound.get`; absent: the tool fails. */
+  inbound?: InboundPort;
   // v0.12 W1-E
   /** A retry's carried approvals; absent: a retry proposes every write again. */
   carried?: CarriedActionsPort;

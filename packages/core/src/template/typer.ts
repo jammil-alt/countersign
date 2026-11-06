@@ -5,7 +5,9 @@ import { parseSkillRef } from "../schemas/common";
 import type { EventTypeSpec } from "../schemas/event";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
-import type { Step, Workflow } from "../schemas/workflow";
+import type { Step, TriggerOn, Workflow } from "../schemas/workflow";
+import { allTriggers, HANDOFF_PAYLOAD, MESSAGE_PAYLOAD } from "../triggers/kinds";
+import { mergeTriggerSchemas } from "../triggers/typing";
 import { type StepLocation, walkSteps } from "../workflow/walk";
 import { singleRef } from "./template";
 
@@ -58,9 +60,23 @@ export function lookupSkill(ref: string, ctx: TypingContext): SkillDefinition | 
   return ctx.skills?.[ref] ?? ctx.skills?.[parseSkillRef(ref).id];
 }
 
+// v0.12 W2-E: every trigger of the workflow (`moreTriggers`) types `{{trigger.…}}`; a field some
+// triggers lack is optional (docs/plan.md §1.48).
 export function triggerSchema(workflow: Workflow, ctx: TypingContext): JsonSchema | undefined {
-  const on = workflow.trigger.on;
+  return mergeTriggerSchemas(allTriggers(workflow).map((t) => triggerOnSchema(t.on, ctx)));
+}
+
+/** What one trigger puts in `{{trigger.…}}`. */
+export function triggerOnSchema(on: TriggerOn, ctx: TypingContext): JsonSchema | undefined {
   switch (on.type) {
+    // v0.12 W2-E: a webhook trigger is sugar over `webhook.received`; messages and handoffs have
+    // their own payloads.
+    case "webhook":
+      return ctx.events?.["webhook.received"]?.payload;
+    case "message":
+      return MESSAGE_PAYLOAD;
+    case "handoff":
+      return HANDOFF_PAYLOAD;
     case "event":
       return ctx.events?.[on.event]?.payload;
     case "manual":
