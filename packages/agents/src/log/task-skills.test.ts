@@ -22,16 +22,29 @@ const SKILLS = [
 
 describe.skipIf(!harness)("task skills and a model per step", () => {
   const h = harness as Harness;
-  /** Two of client A's agents, with different instructions and models. */
+  /**
+   * Client A's agents: two with different instructions and models, and (v0.12 W2-B) a third that
+   * doesn't list the task skill, so it reaches it only through an automation.
+   */
   const agents: { agentId: string; versionId: string }[] = [];
 
   beforeAll(async () => {
     const specs = [
       { slug: "reader-one", instructions: "Always be brief. AGENT-ONE-RULES.", model: "sonnet" },
       { slug: "reader-two", instructions: "Write warmly. AGENT-TWO-RULES.", model: "opus" },
+      {
+        slug: "automation-user",
+        instructions: "Use automations. AGENT-THREE-RULES.",
+        model: "sonnet",
+        skills: [{ skill: "test.lookup", settings: {} }],
+      },
     ];
     for (const spec of specs) {
-      const bundle = makeBundle({ instructions: spec.instructions, skills: SKILLS, workflows: [] });
+      const bundle = makeBundle({
+        instructions: spec.instructions,
+        skills: spec.skills ?? SKILLS,
+        workflows: [],
+      });
       bundle.definition.model = { id: `claude-${spec.model}-5-5`, maxTokens: 2048 };
       bundle.definition.identity.name = spec.slug === "reader-one" ? "Remy" : "Iris";
       const a = await h.ops(async (tx) => {
@@ -63,6 +76,7 @@ describe.skipIf(!harness)("task skills and a model per step", () => {
     skill: string,
     input: unknown,
     stepModel?: { id: string; maxTokens?: number },
+    automation?: string,
   ) {
     const a = agentAt(i);
     const r = await h.client(h.A, (tx) =>
@@ -81,6 +95,7 @@ describe.skipIf(!harness)("task skills and a model per step", () => {
       runId: r.id,
       stepId: "step-read",
       ...(stepModel ? { model: stepModel } : {}),
+      ...(automation ? { automation } : {}),
     });
   }
 
@@ -173,6 +188,32 @@ describe.skipIf(!harness)("task skills and a model per step", () => {
     expect(draft.requests[0]?.model).toBe("claude-haiku-5-5");
     expect(draft.requests[0]?.max_tokens).toBe(300);
     expect(JSON.stringify(draft.requests[0]?.system)).toContain("AGENT-TWO-RULES");
+  });
+
+  // v0.12 W2-B: an automation's inner steps run as the using agent, with their own step settings.
+  it("runs a task skill inside an automation on its own model, or the inner step's", async () => {
+    const plain = finishRead();
+    const r1 = await run(2, plain, "test.read", { note: "Elm, 2.00" }, undefined, "read-notes@1");
+    expect(r1.status).toBe("succeeded");
+    expect(plain.requests[0]?.model).toBe("claude-haiku-5-5");
+    expect(plain.requests[0]?.max_tokens).toBe(512);
+    expect(JSON.stringify(plain.requests[0]?.system)).not.toContain("AGENT-THREE-RULES");
+
+    const overridden = finishRead();
+    const r2 = await run(
+      2,
+      overridden,
+      "test.read",
+      { note: "Elm, 2.00" },
+      { id: "claude-opus-5-5" },
+      "read-notes@1",
+    );
+    expect(r2.status).toBe("succeeded");
+    expect(overridden.requests[0]?.model).toBe("claude-opus-5-5");
+
+    // Without the automation, the agent can't run a skill it doesn't list.
+    const refused = await run(2, finishRead(), "test.read", { note: "Elm, 2.00" });
+    expect(refused.status).toBe("failed");
   });
 
   it("records a task skill's calls as model calls on its own model, like any other", async () => {
