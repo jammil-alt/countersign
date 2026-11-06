@@ -59,6 +59,8 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./slack";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
@@ -1892,5 +1894,7 @@ export const routes = {
   ...oversightRoutes,
   // v0.14 W4-D: Google Sheets' picking
   ...gsheetsRoutes,
+  // v0.14 W4-C: the Slack channel picker.
+  ...slackRoutes,
 } as const;
 export type Routes = typeof routes;

@@ -49,6 +49,10 @@ export interface Secrets {
   /** The Entra app registration "Mezonas": Outlook, send only (ARCHITECTURE §6.11). */
   OUTLOOK_CLIENT_ID?: string;
   OUTLOOK_CLIENT_SECRET?: string;
+  // v0.14 W4-C
+  /** Our Slack app "Mezonas": posts to the channels a client picks (ARCHITECTURE §6.11). */
+  SLACK_CLIENT_ID?: string;
+  SLACK_CLIENT_SECRET?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;

@@ -1050,7 +1050,8 @@ export const TRANSACTION_STATUSES = [
   "processed",
 ] as const;
 export const LINE_DETAIL_TYPES = ["account", "item"] as const;
-export const DOCUMENT_SOURCES = ["connector", "upload", "email", "request"] as const;
+// v0.14 capture: `message`, a file sent in a WhatsApp message (migration 0031, docs/plan.md §1.55).
+export const DOCUMENT_SOURCES = ["connector", "upload", "email", "request", "message"] as const;
 export const DOCUMENT_STATUSES = [
   "stored",
   "extracting",
@@ -3070,6 +3071,127 @@ export const builderTurn = pgTable(
   ],
 );
 
+// ── v0.14 capture: WhatsApp passive capture (migration 0031; ARCHITECTURE §6.12, docs/plan.md §1.55) ──
+
+export const CONVERSATION_CHANNELS = ["whatsapp", "sms"] as const;
+export type ConversationChannel = (typeof CONVERSATION_CHANNELS)[number];
+export const CONVERSATION_KINDS = ["direct", "group"] as const;
+export type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+export const CAPTURE_ATTACHMENTS = ["off", "documents", "all"] as const;
+export type CaptureAttachments = (typeof CAPTURE_ATTACHMENTS)[number];
+export const CONVERSATION_CHANGE_SIDES = ["client", "operator", "system"] as const;
+export type ConversationChangeSide = (typeof CONVERSATION_CHANGE_SIDES)[number];
+/** 20 MB: a conversation's default per-file limit. */
+export const CAPTURE_DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
+/** 32 MB: never above the documents capability's limit (`MAX_DOCUMENT_BYTES`). */
+export const CAPTURE_MAX_BYTES_CAP = 32 * 1024 * 1024;
+
+/** What a conversation keeps (`conversation.capture`); validated by core where it is written. */
+export interface ConversationCapture {
+  /** Keep the message text (false: the envelope only). */
+  archive: boolean;
+  attachments: CaptureAttachments;
+  /** Per file, 1 … `CAPTURE_MAX_BYTES_CAP`. */
+  maxBytes: number;
+  /** A client agent of this client started with the new documents. */
+  agentId?: string;
+}
+
+/**
+ * One WhatsApp chat on one connection: `direct` (one contact; Twilio) or `group` (the provider's
+ * group id; Meta, later). Made on the first inbound message with the client's default capture.
+ * Only `capture`, `title` and `updated_at` change (trigger); never deleted.
+ */
+// DECISION: `channel` allows `sms` though only WhatsApp makes conversations in v0.14, so SMS can
+// join without a migration. `capture.agentId` has no foreign key (it lives in jsonb); the routes
+// check it is this client's agent.
+export const conversation = pgTable(
+  "conversation",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    channel: text("channel").$type<ConversationChannel>().notNull(),
+    kind: text("kind").$type<ConversationKind>().notNull(),
+    contactId: uuid("contact_id"),
+    externalId: text("external_id"),
+    title: text("title").notNull(),
+    capture: json<ConversationCapture>("capture")
+      .notNull()
+      .default({ archive: true, attachments: "off", maxBytes: CAPTURE_DEFAULT_MAX_BYTES }),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("conversation_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "conversation_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    foreignKey({
+      name: "conversation_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    uniqueIndex("conversation_direct_key")
+      .on(t.connectionId, t.channel, t.contactId)
+      .where(sql`${t.kind} = 'direct'`),
+    uniqueIndex("conversation_group_key")
+      .on(t.connectionId, t.channel, t.externalId)
+      .where(sql`${t.kind} = 'group'`),
+    index("conversation_contact_idx").on(t.contactId),
+    index("conversation_tenant_idx").on(t.tenantId, t.updatedAt),
+    check("conversation_channel_check", oneOf(t.channel, CONVERSATION_CHANNELS)),
+    check("conversation_kind_check", oneOf(t.kind, CONVERSATION_KINDS)),
+    check(
+      "conversation_shape_check",
+      sql`(${t.kind} = 'direct' and ${t.contactId} is not null and ${t.externalId} is null) or (${t.kind} = 'group' and ${t.externalId} is not null)`,
+    ),
+    check("conversation_title_check", sql`length(${t.title}) between 1 and 200`),
+    check(
+      "conversation_external_id_check",
+      sql`${t.externalId} is null or length(${t.externalId}) between 1 and 200`,
+    ),
+    check(
+      "conversation_capture_check",
+      sql`jsonb_typeof(${t.capture}) = 'object' and coalesce(jsonb_typeof(${t.capture}->'archive') = 'boolean', false) and coalesce(${t.capture}->>'attachments' in ('off', 'documents', 'all'), false) and case when jsonb_typeof(${t.capture}->'maxBytes') = 'number' then (${t.capture}->>'maxBytes')::numeric between 1 and 33554432 else false end`,
+    ),
+  ],
+);
+
+/**
+ * Every change to a conversation's capture: who (null: the system), from which side, the setting
+ * before and after, and the reason when one was given. Append-only (trigger), like contact_change.
+ */
+export const conversationChange = pgTable(
+  "conversation_change",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    conversationId: uuid("conversation_id").notNull(),
+    actorId: uuid("actor_id").references(() => appUser.id),
+    side: text("side").$type<ConversationChangeSide>().notNull(),
+    /** `{setting: 'capture', before, after, reason?}`. */
+    change: json("change").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "conversation_change_conversation_fk",
+      columns: [t.conversationId, t.tenantId],
+      foreignColumns: [conversation.id, conversation.tenantId],
+    }),
+    index("conversation_change_conversation_idx").on(t.conversationId, t.createdAt),
+    index("conversation_change_tenant_idx").on(t.tenantId),
+    check("conversation_change_side_check", oneOf(t.side, CONVERSATION_CHANGE_SIDES)),
+    check("conversation_change_change_check", sql`jsonb_typeof(${t.change}) = 'object'`),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -3136,6 +3258,9 @@ export const TENANT_TABLES = [
   "oversight_decision",
   "builder_session",
   "builder_turn",
+  // v0.14 capture (0031)
+  "conversation",
+  "conversation_change",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

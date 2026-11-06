@@ -218,6 +218,13 @@
       "when": 1793956189191,
       "tag": "0030_builder_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793971912678,
+      "tag": "0031_whatsapp_capture",
+      "breakpoints": true
     }
   ]
 }
