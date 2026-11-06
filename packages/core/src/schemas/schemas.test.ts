@@ -72,6 +72,29 @@ describe("refinements", () => {
     ).toBe(false);
   });
 
+  // v0.13 W2-H (docs/plan.md §1.53).
+  it("a task skill names its own model; tool and agent skills don't", () => {
+    const agentSkill = skills["test.summarize"];
+    const task = { ...agentSkill, mode: "task", model: { id: "claude-haiku-5-5" } };
+    expect(SkillDefinition.safeParse(task).success).toBe(true);
+    expect(SkillDefinition.safeParse({ ...task, model: undefined }).success).toBe(false);
+    expect(SkillDefinition.safeParse({ ...task, handler: "docs.extract" }).success).toBe(false);
+    expect(
+      SkillDefinition.safeParse({ ...agentSkill, model: { id: "claude-haiku-5-5" } }).success,
+    ).toBe(false);
+    expect(
+      SkillDefinition.safeParse({ ...skills["docs.extract"], model: { id: "claude-haiku-5-5" } })
+        .success,
+    ).toBe(false);
+    expect(
+      SkillDefinition.safeParse({ ...task, model: { id: "claude-haiku-5-5", maxTokens: 0 } })
+        .success,
+    ).toBe(false);
+    // Skills stored before v0.13 parse unchanged.
+    expect(SkillDefinition.parse(agentSkill)).toEqual(SkillDefinition.parse({ ...agentSkill }));
+    expect(SkillDefinition.parse(agentSkill).model).toBeUndefined();
+  });
+
   it("checks a connector's tools belong to it", () => {
     const m = {
       id: "qbo",

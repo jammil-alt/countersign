@@ -117,6 +117,22 @@ describe("an automation on its own", () => {
     );
   });
 
+  // v0.13 W2-H: an inner skill step may name a model, one the platform prices.
+  it("checks an inner step's model like any step's", () => {
+    const withModel = (id: string) =>
+      edit(followUp(), (d) => {
+        const step = d.steps.find((x) => x.id === "d1");
+        if (step?.kind === "skill") step.model = { id };
+      });
+    const models = ["claude-haiku-5-5"];
+    expect(
+      validateAutomation(withModel("claude-haiku-5-5"), { ...baseCtx, models }).errors,
+    ).toEqual([]);
+    expect(codes(validateAutomation(withModel("claude-nonesuch"), { ...baseCtx, models }))).toEqual(
+      ["unknown_model@d1:model.id"],
+    );
+  });
+
   it("types its output against its own steps and input", () => {
     const bad = followUp();
     bad.output = { x: "{{steps.d1.output.nope}}", y: "{{steps.zz.output}}" };

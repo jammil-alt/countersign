@@ -36,6 +36,7 @@ export * from "./api/language";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/messaging";
+export * from "./api/models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 export * from "./api/notify";
 export * from "./api/onboarding";

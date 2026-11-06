@@ -292,6 +292,51 @@ describe.skipIf(!h)("API", () => {
         "inbox.resolved",
       );
     });
+
+    // v0.13 W2-H (docs/plan.md §1.53): the models a step may name, checked the way the builder does.
+    it("lists the models a step may run on and refuses one it doesn't know", async () => {
+      const models = await H.call(OPERATOR, "GET", "/api/ops/models");
+      expect(models.status).toBe(200);
+      const ids = j(models.json).models.map((m: { id: string }) => m.id);
+      expect(ids).toContain("claude-haiku-5-5");
+      expect(j(models.json).models[0]).toMatchObject({ label: "Fast (Haiku)" });
+      expect((await H.call(admin("a"), "GET", "/api/ops/models")).status).toBe(403);
+
+      const wf = testBundle().workflows[0]?.workflow;
+      if (!wf) throw new Error("no workflow");
+      // An agent-mode built-in skill step, overridden to another model.
+      const withModel = (skill: string, id: string) => ({
+        ...wf,
+        steps: [
+          {
+            id: "triage",
+            name: "Triage",
+            kind: "skill",
+            skill,
+            input: { event: "run.failed", facts: {} },
+            model: { id },
+          },
+        ],
+      });
+      const validate = async (skill: string, id: string) =>
+        j(
+          (
+            await H.call(OPERATOR, "POST", "/api/ops/workflows/validate", {
+              workflow: withModel(skill, id),
+            })
+          ).json,
+        );
+      expect(await validate("supervisor.triage", "claude-haiku-5-5")).toEqual({
+        valid: true,
+        errors: [],
+      });
+      const codesOf = async (skill: string, id: string) =>
+        (await validate(skill, id)).errors.map((e: { code: string }) => e.code);
+      expect(await codesOf("supervisor.triage", "claude-nonesuch")).toEqual(["unknown_model"]);
+      expect(await codesOf("supervisor.daily-check", "claude-haiku-5-5")).toContain(
+        "model_not_allowed",
+      );
+    });
   });
 
   describe("connections and permissions", () => {

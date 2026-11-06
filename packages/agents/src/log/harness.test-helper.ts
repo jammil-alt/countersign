@@ -108,6 +108,33 @@ export const UPDATE_SKILL: SkillDefinition = {
   producesAlerts: false,
 };
 
+// v0.13 W2-H: a task skill, a typed job on its own model with no agent instructions or memory.
+export const READ_SKILL: SkillDefinition = {
+  schemaVersion: 1,
+  id: "test.read",
+  name: "Read a note",
+  description: "Turn a note into a name and an amount",
+  category: "test",
+  mode: "task",
+  model: { id: "claude-haiku-5-5", maxTokens: 512 },
+  instructions: "Read the note and return the name and the amount it gives.",
+  tools: [],
+  input: {
+    type: "object",
+    properties: { note: { type: "string" } },
+    required: ["note"],
+  },
+  output: {
+    type: "object",
+    properties: { name: { type: "string" }, amount: { type: "string" } },
+    required: ["name"],
+  },
+  settings: [],
+  requiresConnectors: [],
+  requiresPacks: [],
+  producesAlerts: false,
+};
+
 export const TRIGGER_ID = "trg-manual";
 export const LOOKUP_STEP = "step-lookup";
 export const UPDATE_STEP = "step-update";
@@ -263,7 +290,7 @@ export async function createHarness(): Promise<Harness | null> {
     platform: PLATFORM_TOOLS,
     connectors: new ConnectorRegistry([createTestkitConnector(backend)]),
   });
-  const catalog = new SkillCatalog([LOOKUP_SKILL, ALERT_SKILL, UPDATE_SKILL], tools);
+  const catalog = new SkillCatalog([LOOKUP_SKILL, ALERT_SKILL, UPDATE_SKILL, READ_SKILL], tools);
   const ports = createDbPorts(db);
   return {
     t,

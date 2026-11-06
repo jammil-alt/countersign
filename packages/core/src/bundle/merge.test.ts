@@ -153,6 +153,24 @@ describe("mergeBundles golden cases", () => {
     expect(custom.unusedResolutions).toEqual(["step:nope#/for"]);
   });
 
+  // v0.13 W2-H (docs/plan.md §1.53): a step's model merges like any step field.
+  it("takes a step's model from one side, and conflicts when both sides set different ones", () => {
+    const setModel = (id: string) =>
+      change((b) => {
+        (step(b, "s6") as { model?: { id: string } }).model = { id };
+      });
+    const one = mergeBundles(base(), setModel("claude-haiku-5-5"), base());
+    expect(one.conflicts).toEqual([]);
+    expect((step(one.bundle, "s6") as { model?: { id: string } }).model).toEqual({
+      id: "claude-haiku-5-5",
+    });
+    const both = mergeBundles(base(), setModel("claude-haiku-5-5"), setModel("claude-opus-5-5"));
+    expect(both.conflicts.length).toBeGreaterThan(0);
+    expect(both.conflicts.every((c) => c.path.startsWith("step:s6#/model"))).toBe(true);
+    const same = mergeBundles(base(), setModel("claude-opus-5-5"), setModel("claude-opus-5-5"));
+    expect(same.conflicts).toEqual([]);
+  });
+
   it("merges agent fields and skills by key", () => {
     const ours = change((b) => {
       (b.definition.skills[1] as { settings: Record<string, unknown> }).settings.threshold = 9;

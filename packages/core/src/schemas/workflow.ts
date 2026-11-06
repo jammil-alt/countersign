@@ -14,6 +14,7 @@ import {
   ToolId,
 } from "./common";
 import { Rules } from "./rules";
+import { ModelChoice } from "./skill";
 
 /** Where a step shows in the client's run timeline (ARCHITECTURE §10.6). */
 export const ClientVisibility = z.object({
@@ -37,6 +38,9 @@ export const SkillStep = z.object({
   settings: z.record(z.string(), z.unknown()).optional(),
   /** Only when the skill's tools can write to a client tool (validation checks). */
   approval: Approval.optional(),
+  // v0.13 W2-H: the model this step runs on, over the skill's (task) or the agent's (agent).
+  /** Overrides the model of a `task` or `agent` skill; not allowed on a `tool` skill (§10.11). */
+  model: ModelChoice.optional(),
 });
 
 export const ActionStep = z.object({
