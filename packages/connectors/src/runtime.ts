@@ -120,9 +120,16 @@ export function toBase64(bytes: Uint8Array): string {
   return out;
 }
 
+/** The text without its trailing `=`s; linear in the length (no regular expression). */
+function trimPadding(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 61) end--;
+  return text.slice(0, end);
+}
+
 /** Accepts standard and URL-safe base64, with or without padding; throws on anything else. */
 export function fromBase64(input: string): Uint8Array {
-  const s = input.trim().replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+  const s = trimPadding(input.trim().replace(/-/g, "+").replace(/_/g, "/"));
   if (s.length % 4 === 1) throw new Error("invalid base64");
   const out = new Uint8Array(Math.floor((s.length * 3) / 4));
   let bits = 0;
@@ -143,7 +150,7 @@ export function fromBase64(input: string): Uint8Array {
 
 /** URL-safe base64 without padding (OAuth state, tokens in URLs). */
 export function toBase64Url(bytes: Uint8Array): string {
-  return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return trimPadding(toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_"));
 }
 
 export function fromBase64Url(input: string): Uint8Array {

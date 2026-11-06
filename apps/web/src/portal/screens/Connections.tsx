@@ -10,6 +10,10 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
+// v0.14 W4-E
+import { GchatSetup } from "../../connections/GchatSetup";
+// v0.14 W4-D
+import { GsheetsSetup } from "../../connections/GsheetsSetup";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { openPlaidLink } from "../../connections/plaidLink";
 // v0.14 W4-C
@@ -32,21 +36,29 @@ import {
 } from "../../ui/primitives";
 import { PortalApproverRules } from "./ApproverRules";
 import { UploadSection } from "./Upload";
+// v0.14 W4-A
+import { WHATSAPP_META_SIGNUP_PATH } from "./WhatsappMetaSignup";
 
 type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][number];
 
 /** Connectors whose description we show in the reader's language (else the API's English). */
 const DESCRIPTIONS: Record<string, PlainKey> = {
   gmail: "connections.gmail.description",
+  // v0.14 W4-D
+  gsheets: "connections.gsheets.description",
   // v0.14 W4-C
   slack: "connections.slack.description",
   // v0.12 bankfeed
   bankfeed: "connections.bankfeed.description",
+  // v0.14 W4-A
+  whatsapp_meta: "connections.whatsappMeta.description",
 };
 
 /** v0.12 bankfeed: the connect button's words, where "Connect" alone says too little. */
 const CONNECT_LABELS: Record<string, PlainKey> = {
   bankfeed: "connections.bankfeed.connect",
+  // v0.14 W4-A
+  whatsapp_meta: "connections.whatsappMeta.connect",
 };
 
 function descriptionOf(item: Offered, { t }: Pick<I18n, "t">): string {
@@ -132,8 +144,17 @@ export function PortalConnectionsScreen() {
                   <WebhookSetup key={c.connector} connectionId={c.connection?.id ?? ""} />
                 ))
             : null}
+          {/* v0.14 W4-E: Google Chat's spaces and binding code, for the client admin. */}
+          {isAdmin
+            ? connected
+                .filter((c) => c.connector === "gchat" && c.connection)
+                .map((c) => <GchatSetup key={c.connector} connectionId={c.connection?.id ?? ""} />)
+            : null}
           {/* v0.14 W4-C: the client admin picks the Slack channels agents may post to. */}
           {isAdmin && connected.some((c) => c.connector === "slack") ? <SlackChannels /> : null}
+
+          {/* v0.14 W4-D: the sheets agents may use, and Google's Picker to choose them. */}
+          {isAdmin && connected.some((c) => c.connector === "gsheets") ? <GsheetsSetup /> : null}
 
           {withRows.length > 0 ? (
             <MatrixTable
@@ -181,13 +202,19 @@ export function PortalConnectionsScreen() {
                     isAdmin={isAdmin}
                     onConnect={() =>
                       act(async () => {
+                        // v0.14 W4-A: Meta's Embedded Signup runs on a page of its own (Meta's
+                        // SDK is allowed only there), loaded as a document.
+                        if (c.connector === "whatsapp_meta") {
+                          window.location.assign(WHATSAPP_META_SIGNUP_PATH);
+                          return;
+                        }
                         const res = await api.call(apiRoutes.portalAuthorize, {
                           params: { connector: c.connector },
                         });
                         // An OAuth connector answers where the provider's sign-in starts.
                         if (res.redirectUrl) window.location.assign(res.redirectUrl);
                         // v0.12 bankfeed: Plaid Link opens here; its result goes to the callback.
-                        if (res.link) {
+                        if (res.link?.provider === "plaid") {
                           const done = await openPlaidLink(res.link);
                           if (done) {
                             await api.call(apiRoutes.portalAuthorizeCallback, {
@@ -390,7 +417,7 @@ function AvailableCard({
           isAdmin ? (
             <Link
               data-testid="portal-connection-enter-key"
-              to="/access"
+              to="/accounts/access"
               className={buttonClass("secondary", "w-full justify-center")}
             >
               {t("connections.enterKey")}

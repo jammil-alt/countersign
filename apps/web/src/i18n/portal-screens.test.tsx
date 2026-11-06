@@ -298,7 +298,7 @@ describe("records and documents", () => {
       `/records/${TXN}`,
     );
     expect(screen.getByTestId("portal-document-original")).toHaveTextContent("Abrir el original");
-    expect(screen.getAllByRole("link", { name: "Conexiones" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Cuentas" })).toHaveLength(2);
   });
 });
 

@@ -109,6 +109,12 @@ export type ToolContext = ConnectionContext;
 /** A write runs with the external action's idempotency key (`<run id>:<step id>:<index>`). */
 export interface WriteContext extends ToolContext {
   idempotencyKey: string;
+  // v0.14 W4-D
+  /**
+   * The before state the approver saw when the change was proposed (`external_action.before`),
+   * when there was a proposal. A tool may refuse a write whose record changed since (Sheets).
+   */
+  proposedBefore?: unknown;
 }
 
 /** A read tool (`sideEffect: 'none'`). Input and output are validated around `run`. */
@@ -276,6 +282,13 @@ export interface CallbackRequest {
    * hosted link flow's reconnect keeps the same grant: Plaid Link's update mode). Absent otherwise.
    */
   existing?: ConnectionContext;
+  // v0.14 W4-A
+  /**
+   * Whether this account (a grant's `externalAccountId`) is connected for this connector by another
+   * client. A connector whose account must belong to one client only (a WhatsApp number: inbound
+   * messages are routed by it) asks before it changes anything at the provider.
+   */
+  accountTaken?(externalAccountId: string): Promise<boolean>;
 }
 
 // v0.12 bankfeed (docs/plan.md §1.52): a provider whose sign-in is its own hosted widget opened in
@@ -296,10 +309,19 @@ export interface LinkRequest {
 }
 
 export interface LinkStart {
-  provider: "plaid";
-  /** Short-lived and single-use: it opens the widget, and reads nothing by itself. */
+  /** v0.14 W4-A: `meta` is Meta's Embedded Signup (WhatsApp), opened with Meta's JS SDK. */
+  provider: "plaid" | "meta";
+  /**
+   * Plaid: short-lived and single-use; it opens the widget, and reads nothing by itself. Meta:
+   * the Embedded Signup configuration's id (public; the signed state goes with it).
+   */
   token: string;
   expiresAt: string | null;
+  // v0.14 W4-A: Meta's public values for its SDK.
+  /** Meta: the app's id. */
+  appId?: string;
+  /** Meta: the Graph API version the SDK is set to. */
+  graphVersion?: string;
 }
 
 /**
@@ -351,6 +373,13 @@ export interface Connector {
    * key that doesn't) refuses the call like an unbound connector.
    */
   bindingKey?(input: unknown): string | null;
+  // v0.14 W4-A
+  /**
+   * For a tool id several connectors supply (a shared namespace: `message.get` from Twilio and
+   * Meta), whether this connector's handler is for this input (Meta's `message.get` takes only a
+   * `wamid.`). Absent: every input. Used only to choose among connectors an agent is bound to.
+   */
+  handlesInput?(toolId: string, input: unknown): boolean;
 }
 
 /**

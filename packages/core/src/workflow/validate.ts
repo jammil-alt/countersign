@@ -5,6 +5,8 @@ import { isPlainObject } from "../json";
 // v0.12 W2-G
 import { validateClientView } from "../kpi/validate";
 import { levelFor } from "../permissions/decide";
+// v0.14 W4-B
+import { type EntityGrant, entityOffBy, publishEntity } from "../permissions/entities";
 import { compileRule, RuleCompileError } from "../rules/compile";
 import {
   type AgentBundle,
@@ -17,7 +19,7 @@ import {
 } from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
-import type { PermissionMatrix, Verb } from "../schemas/permissions";
+import type { PermissionEntity, PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
@@ -106,7 +108,9 @@ export type ValidationCode =
   | "reply_not_fixed"
   // v0.13 W2-H: a step's model (ARCHITECTURE §10.11).
   | "unknown_model"
-  | "model_not_allowed";
+  | "model_not_allowed"
+  // v0.14 W4-B: an entity the client's connection or the agent's grant turned off.
+  | "entity_off";
 
 export interface ValidationError {
   /** The step, fork path or trigger id; null for workflow- or bundle-level errors. */
@@ -126,7 +130,14 @@ export interface ValidationContext extends TypingContext {
    * Publish-time checks for a client agent: the client's connection matrices by connector id
    * (from its bindings). When absent, connection checks are skipped (templates, drafts).
    */
-  publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> };
+  publish?: {
+    matrices: Record<string, Partial<PermissionMatrix> | undefined>;
+    // v0.14 W4-B (docs/plan.md §1.44 "Off at publish"): the agent's grants on those connections
+    // (null: no narrowing) and each connector's declared entities, for scopes. Both optional: what
+    // isn't passed isn't checked here, and the gate checks it at the call.
+    grants?: Record<string, EntityGrant | null | undefined>;
+    entities?: Record<string, readonly PermissionEntity[] | undefined>;
+  };
   // v0.12 W2-G: the packs installed where the bundle runs (pack panels of the client view).
   packs?: readonly string[];
   // v0.12 W2-B
@@ -523,6 +534,8 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
           "verb_off",
           `this connection doesn't allow ${VERB_NOUN[tool.verb]} ("${tool.id}")`,
         );
+      } else if (checkEntityOff(c, step, tool, connector)) {
+        // v0.14 W4-B: reported there.
       } else if (approval?.required === "not_required" && level !== "auto") {
         c.add(
           step.id,
@@ -533,6 +546,40 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
       }
     }
   }
+}
+
+// v0.14 W4-B (docs/plan.md §1.44 "Off at publish"): an entity turned off on the client's connection
+// or in the agent's grant is refused at publish, as a verb turned off is. Returns whether it was.
+function checkEntityOff(c: Checker, step: Step, tool: ToolSpec, connector: string): boolean {
+  const publish = c.ctx.publish;
+  if (!publish) return false;
+  // A skill's model chooses its tools' input, so only an action step's own input names an entity.
+  const entity = publishEntity(tool, step.kind === "action" ? step.input : undefined);
+  if (entity === undefined) return false;
+  const at = step.kind === "action" ? "tool" : "skill";
+  if (entity === "") {
+    const f = tool.entityInput?.field ?? "";
+    c.add(step.id, `input.${f}`, "entity_off", `"${tool.id}" can't work on that ${f}`);
+    return true;
+  }
+  const grants = publish.grants ?? {};
+  const declared = publish.entities ?? {};
+  const by = entityOffBy({
+    tool,
+    entity,
+    matrix: publish.matrices[connector],
+    grant: Object.hasOwn(grants, connector) ? grants[connector] : null,
+    declared: Object.hasOwn(declared, connector) ? declared[connector] : undefined,
+  });
+  if (by === null) return false;
+  const who = by === "matrix" ? "this connection" : "this agent's access";
+  c.add(
+    step.id,
+    at,
+    "entity_off",
+    `${who} doesn't allow ${VERB_NOUN[tool.verb]} of ${entity} records ("${tool.id}")`,
+  );
+  return true;
 }
 
 const CRON_FIELD = /^[0-9A-Za-z*/,?#LW-]+$/;

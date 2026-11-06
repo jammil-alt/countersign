@@ -437,7 +437,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     ensureFilterClients(ctx, query.filter);
     const where: SQL[] = [
       inArray(run.tenantId, [...ctx.tenantIds]),
-      ...runFilterWhere(query.filter),
+      ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs()),
     ];
     const rows = await tx
       .select()

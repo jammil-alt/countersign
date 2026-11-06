@@ -66,6 +66,8 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           version: row.v.version,
           bundle: row.v.bundle,
           bindings: row.a.bindings,
+          // v0.14 W4-A
+          channels: row.a.channels,
           approver: row.a.approver,
         };
       });

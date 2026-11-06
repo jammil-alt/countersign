@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBundleInput } from "../schemas/agent";
 import type { SkillDefinition } from "../schemas/skill";
-import { ToolSpec as ToolSpecSchema } from "../schemas/tool";
+import { type ToolSpec, ToolSpec as ToolSpecSchema } from "../schemas/tool";
 import type { ActionStep, ForEachStep, ForkStep, SkillStep, Workflow } from "../schemas/workflow";
 import { bundleInput, ctx, edit, workflowInput } from "../testing/fixtures";
 import {
@@ -447,6 +447,127 @@ describe("publish-time connection checks", () => {
       field: "skill",
     });
     expect(publish({ update: "auto" }, wf)).toEqual([]);
+  });
+});
+
+// v0.14 W4-B (docs/plan.md §1.44 "Off at publish").
+describe("publish-time entity checks", () => {
+  const withEntities = {
+    ...ctx,
+    tools: {
+      ...ctx.tools,
+      "qbo.attachable.upload": {
+        ...(ctx.tools?.["qbo.attachable.upload"] as ToolSpec),
+        entity: "attachment",
+      },
+      "qbo.bill.update_lines": {
+        ...(ctx.tools?.["qbo.bill.update_lines"] as ToolSpec),
+        entity: "bill",
+      },
+      "zoho.record.create": ToolSpecSchema.parse({
+        id: "zoho.record.create",
+        description: "Create a record",
+        input: { type: "object", properties: { module: { type: "string" } } },
+        output: { type: "object" },
+        sideEffect: "external",
+        verb: "create",
+        source: "zoho",
+        connector: "zoho",
+        entityInput: { field: "module", values: { Leads: "lead", Deals: "deal" } },
+      }),
+    },
+  } satisfies ValidationContext;
+  const declared = [
+    { id: "attachment", label: "Attachments", verbs: ["create" as const] },
+    {
+      id: "bill",
+      label: "Bills",
+      verbs: ["update" as const],
+      scopes: [
+        { id: "lines_only", label: "Lines only", verb: "update" as const, tools: ["x.other"] },
+      ],
+    },
+  ];
+  const run = (
+    publish: NonNullable<ValidationContext["publish"]>,
+    mutate: (w: Workflow) => void = () => {},
+  ) => codes(edit(workflowInput(), mutate), { ...withEntities, publish });
+  const itemize = (w: Workflow) => {
+    loop(w).steps[0] = { ...(loop(w).steps[0] as SkillStep), skill: "test.itemize", input: {} };
+  };
+
+  it("passes when no entity is off", () => {
+    expect(run({ matrices: { qbo: { entities: { bill: { update: "approval" } } } } })).toEqual([]);
+  });
+
+  it("refuses an action whose entity the connection turned off", () => {
+    expect(run({ matrices: { qbo: { entities: { attachment: { create: "off" } } } } })).toEqual([
+      { code: "entity_off", stepId: "s7", field: "tool" },
+    ]);
+  });
+
+  it("refuses an entity the agent's grant turned off, and says so", () => {
+    const r = validateWorkflow(workflowInput(), {
+      ...withEntities,
+      publish: {
+        matrices: { qbo: {} },
+        grants: { qbo: { entities: { attachment: { create: "off" } } } },
+      },
+    });
+    expect(r.errors).toEqual([
+      expect.objectContaining({
+        code: "entity_off",
+        stepId: "s7",
+        message: `this agent's access doesn't allow creates of attachment records ("qbo.attachable.upload")`,
+      }),
+    ]);
+  });
+
+  it("checks a skill step's writing tools", () => {
+    expect(run({ matrices: { qbo: { entities: { bill: { update: "off" } } } } }, itemize)).toEqual([
+      { code: "entity_off", stepId: "s6", field: "skill" },
+    ]);
+  });
+
+  it("reads a scope only with the connector's declared entities", () => {
+    const matrix = { entities: { bill: { scope: { update: "lines_only" } } } };
+    // Without the manifest's entities the scope can't be read: not refused here.
+    expect(run({ matrices: { qbo: matrix } }, itemize)).toEqual([]);
+    expect(run({ matrices: { qbo: matrix }, entities: { qbo: declared } }, itemize)).toEqual([
+      { code: "entity_off", stepId: "s6", field: "skill" },
+    ]);
+  });
+
+  it("reads an entity input written in an action step, never a templated one", () => {
+    const zoho = (module: string) => (w: Workflow) => {
+      w.steps[3] = {
+        id: "s7",
+        name: "Create",
+        kind: "action",
+        tool: "zoho.record.create",
+        input: { module },
+        approval: { required: "required", onReject: "stop" },
+      };
+    };
+    const matrices = { zoho: { entities: { deal: { create: "off" as const } } } };
+    expect(run({ matrices }, zoho("Deals"))).toEqual([
+      { code: "entity_off", stepId: "s7", field: "tool" },
+    ]);
+    expect(run({ matrices }, zoho("Leads"))).toEqual([]);
+    expect(run({ matrices }, zoho("{{steps.s1.output.documentId}}"))).toEqual([]);
+    expect(run({ matrices }, zoho("Invoices"))).toEqual([
+      { code: "entity_off", stepId: "s7", field: "input.module" },
+    ]);
+  });
+
+  it("never loosens: the verb's own check comes first", () => {
+    expect(
+      run({ matrices: { qbo: { create: "off", entities: { attachment: { create: "auto" } } } } }),
+    ).toEqual([{ code: "verb_off", stepId: "s7", field: "tool" }]);
+  });
+
+  it("is skipped where there is no publish context (templates, drafts)", () => {
+    expect(codes(workflowInput(), withEntities)).toEqual([]);
   });
 });
 

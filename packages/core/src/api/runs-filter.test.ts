@@ -95,6 +95,36 @@ describe("RunFilter query parameters", () => {
     });
   });
 
+  // v0.14 W4-B (docs/plan.md §1.49 "Amounts").
+  it("reads an amount range with its currency on both lists, and round-trips it", () => {
+    const ops = OpsRunsQuery.parse({ amountOver: "5000", amountCurrency: "USD" });
+    expect(ops.filter.amount).toEqual({ over: "5000", currency: "USD" });
+    const portal = PortalRunsQuery.parse({
+      amountOver: "10.5",
+      amountUnder: "20",
+      amountCurrency: "EUR",
+    });
+    expect(portal.filter.amount).toEqual({ over: "10.5", under: "20", currency: "EUR" });
+    const filter = RunFilter.parse({ agents: [A], amount: { under: "99.99", currency: "CAD" } });
+    expect(runFilterQuery(filter)).toEqual({
+      agents: A,
+      amountUnder: "99.99",
+      amountCurrency: "CAD",
+    });
+    expect(OpsRunsQuery.parse(runFilterQuery(filter)).filter).toEqual(filter);
+  });
+
+  it("refuses an amount without a currency, a currency alone, and amounts that aren't decimals", () => {
+    expect(OpsRunsQuery.safeParse({ amountOver: "5000" }).success).toBe(false);
+    expect(PortalRunsQuery.safeParse({ amountCurrency: "USD" }).success).toBe(false);
+    expect(OpsRunsQuery.safeParse({ amountOver: "5,000", amountCurrency: "USD" }).success).toBe(
+      false,
+    );
+    expect(OpsRunsQuery.safeParse({ amountOver: "-1", amountCurrency: "USD" }).success).toBe(false);
+    expect(RunFilter.safeParse({ amount: { currency: "USD" } }).success).toBe(false);
+    expect(RunFilter.safeParse({ amount: { over: 5000, currency: "USD" } }).success).toBe(false);
+  });
+
   it("is what both runs lists take", () => {
     expect(routes.opsRuns.query).toBe(OpsRunsQuery);
     expect(routes.portalRuns.query).toBe(PortalRunsQuery);

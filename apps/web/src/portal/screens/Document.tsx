@@ -25,8 +25,8 @@ export function PortalDocumentScreen() {
   return (
     <div className="max-w-6xl">
       <p className="mb-2 text-sm">
-        <Link to="/connections" className="text-ink-muted hover:underline">
-          {t("nav.connections")}
+        <Link to="/accounts" className="text-ink-muted hover:underline">
+          {t("nav.accounts")}
         </Link>
       </p>
       {loading && !data ? <Loading /> : null}

@@ -13,6 +13,8 @@ import {
   type ConnectionRef,
   type Connector,
   completeAuthorization,
+  // v0.14 W4-E
+  GCHAT_CONNECTOR_ID,
   GMAIL_CONNECTOR_ID,
   GmailApiError,
   GmailNoAddressError,
@@ -46,6 +48,8 @@ import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { connectionCredentials, vaultFor } from "../secrets";
+// v0.14 W4-A
+import { accountTakenElsewhere } from "../whatsapp-meta/inbound";
 import { opsConnection } from "./mappers";
 import { offeredConnectors, sandboxClient } from "./ops-clients";
 import { newConnectionMatrix } from "./ops-connectors";
@@ -80,7 +84,8 @@ export async function connectNoAuth(
 ): Promise<string> {
   const { tenantId } = input;
   const connector = input.platform.connectors.get(input.connector);
-  if (connector?.manifest.auth !== "none") {
+  // v0.14 W4-E: `canSignIn` also asks the deployment (Google Chat needs its app's keys).
+  if (connector?.manifest.auth !== "none" || !canSignIn(connector)) {
     throw new HttpError(
       409,
       "not_available",
@@ -297,6 +302,8 @@ export async function disconnect(
   }
   // The vault's read model of the credentials goes with them (docs/plan.md §1.26).
   const { vault: _vault, ...config } = row.config as Record<string, unknown>;
+  // v0.14 W4-E: a disconnected Google Chat keeps no space, so another client may bind them later.
+  if (row.connector === GCHAT_CONNECTOR_ID) config.spaces = [];
   await tx
     .update(connection)
     .set({ status: "disconnected", credentialsEncrypted: null, config })
@@ -364,6 +371,9 @@ async function finishSignIn(
       redirectUri: oauthRedirectUri(c, services.env, connectorId),
       stateSecret: stateSecret(services.env),
       cipher: await vaultFor(tx, services.env),
+      // v0.14 W4-A: one client per account where the connector asks (a WhatsApp number).
+      accountTaken: (externalAccountId) =>
+        accountTakenElsewhere(services.db, { tenantId, connector: connectorId, externalAccountId }),
     });
   } catch (error) {
     if (error instanceof OAuthCallbackError) {

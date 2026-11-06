@@ -45,6 +45,10 @@ export interface StoreDocumentInput {
   mimeType: string;
   /** Who uploaded it, or a forwarded email's headers. Never a body. */
   meta?: Record<string, unknown>;
+  // v0.14 capture: a message's attachment under `all` may be a voice note or an office file
+  // (core's `attachmentKind`); stored, never read. Default: PDFs and images only.
+  /** Which types are kept; default `isDocumentType`. */
+  allowType?: (mimeType: string) => boolean;
 }
 
 export interface StoredDocument {
@@ -68,7 +72,7 @@ export async function storeDocument(
   if (input.bytes.length > MAX_DOCUMENT_BYTES) {
     throw new DocumentError("too_large", "documents can be at most 32 MB");
   }
-  if (!isDocumentType(input.mimeType)) {
+  if (!(input.allowType ?? isDocumentType)(input.mimeType)) {
     throw new DocumentError(
       "unsupported_type",
       "documents are PDFs or images (PNG, JPEG, GIF, WebP)",

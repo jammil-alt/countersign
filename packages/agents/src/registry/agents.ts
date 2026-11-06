@@ -18,9 +18,12 @@ import {
   bindingConnector,
   bundleHash,
   type EventTypeSpec,
+  GrantLimits,
   isExternalTool,
+  type PermissionEntity,
   type PermissionMatrix,
   parseSkillRef,
+  REVOKED_GRANT,
   type SkillDefinition,
   skillTools,
   type ValidationError,
@@ -30,6 +33,7 @@ import {
 import {
   agent,
   agentChange,
+  agentGrant,
   agentVersion,
   connection,
   run,
@@ -210,11 +214,56 @@ export async function boundMatrices(
   return out;
 }
 
+// v0.14 W4-B (docs/plan.md §1.44 "Off at publish"): the agent's grants on its bound connections
+// and each bound connector's declared entities, so publish refuses an entity turned off.
+/** A client agent's grants by binding key (null: no grant row, no narrowing). */
+export async function boundGrants(
+  tx: Tx,
+  row: Pick<AgentRow, "tenantId" | "bindings"> & { id?: string },
+): Promise<Record<string, GrantLimits | null>> {
+  const ids = Object.values(row.bindings);
+  if (!row.tenantId || !row.id || ids.length === 0) return {};
+  const rows = await tx
+    .select()
+    .from(agentGrant)
+    .where(
+      and(
+        eq(agentGrant.tenantId, row.tenantId),
+        eq(agentGrant.agentId, row.id),
+        inArray(agentGrant.connectionId, ids),
+      ),
+    );
+  // Built with fromEntries (binding keys are data): no assignment by key.
+  return Object.fromEntries(
+    Object.entries(row.bindings).map(([key, id]): [string, GrantLimits | null] => {
+      const g = rows.find((r) => r.connectionId === id);
+      if (!g) return [key, null];
+      // As grantOf reads a row: one that no longer parses is every verb off and narrows everything.
+      const parsed = GrantLimits.safeParse(g.limits);
+      return [key, parsed.success ? parsed.data : REVOKED_GRANT];
+    }),
+  );
+}
+
+/** The declared entities of each bound connector, from the registered manifests. */
+function boundEntities(
+  bindings: Record<string, string>,
+  tools: ToolRegistry,
+): Record<string, readonly PermissionEntity[] | undefined> {
+  return Object.fromEntries(
+    Object.keys(bindings).map((key) => [
+      key,
+      tools.connectors.get(bindingConnector(key))?.manifest.permissionEntities,
+    ]),
+  );
+}
+
 /** Validates a version's bundle as it would be published (client agents: against their bindings). */
 export async function validateForPublish(
   tx: Tx,
   // v0.12 W2-D: `slug`, for the account agent's guard (rows without one skip it).
-  row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string },
+  // v0.14 W4-B: `id`, for the agent's grants (a row without one, a draft not yet saved, has none).
+  row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string; id?: string },
   bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<ValidationError[]> {
@@ -231,10 +280,21 @@ export async function validateForPublish(
   });
   const result = validateBundle(bundle, {
     skills: { ...used.skills, ...skills },
-    tools: ctx.tools.specs(),
+    // v0.14 W4-A: a client agent's shared ids (`whatsapp.send`) are checked against the connector
+    // its bindings name (Twilio or Meta).
+    tools: ctx.tools.specs(row.kind === "client" ? row.bindings : undefined),
     models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
-    ...(row.kind === "client" ? { publish: { matrices: await boundMatrices(tx, row) } } : {}),
+    ...(row.kind === "client"
+      ? {
+          publish: {
+            matrices: await boundMatrices(tx, row),
+            // v0.14 W4-B
+            grants: await boundGrants(tx, row),
+            entities: boundEntities(row.bindings, ctx.tools),
+          },
+        }
+      : {}),
     // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.
     ...(row.kind === "client" && row.tenantId
       ? {
@@ -728,6 +788,9 @@ export function requiredConnectors(
   tools: ToolRegistry,
   // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
   automations: Record<string, AutomationDefinition> = {},
+  // v0.14 W4-A: a client agent's bindings, so a shared id needs the connector it is bound to
+  // (Twilio or Meta for `whatsapp.send`); without them, the first that supplies it.
+  bindings?: Readonly<Record<string, string>>,
 ): string[] {
   const out = new Set<string>();
   for (const w of bundle.workflows) {
@@ -753,7 +816,7 @@ export function requiredConnectors(
   }
   for (const id of toolIds) {
     const t = tools.get(id);
-    if (t?.kind === "connector") out.add(t.connector.manifest.id);
+    if (t?.kind === "connector") out.add(tools.connectorFor(id, bindings));
     else if (t && isExternalTool(t.spec) && t.spec.connector) out.add(t.spec.connector);
   }
   return [...out].sort();
@@ -795,7 +858,13 @@ export async function activationProblems(
   for (const ref of used.missing)
     problems.push(`automation ${ref} is not available to this client`);
 
-  const connectors = requiredConnectors(live.bundle, skills, input.ctx.tools, used.automations);
+  const connectors = requiredConnectors(
+    live.bundle,
+    skills,
+    input.ctx.tools,
+    used.automations,
+    row.bindings,
+  );
   const bound = Object.values(row.bindings);
   const rows = bound.length
     ? await tx

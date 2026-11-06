@@ -7,6 +7,7 @@ import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError
 import { workosStateOf } from "./config";
 import {
   IDLE_TIMEOUT_SEC,
+  isRestartState,
   newSession,
   OUTAGE_GRACE_SEC,
   RACE_GRACE_SEC,
@@ -15,6 +16,7 @@ import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SEC,
   STATE_COOKIE,
+  STATE_MAX_AGE_SEC,
   safeReturnTo,
   sealSession,
 } from "./session";
@@ -167,6 +169,140 @@ describe("sign-in flow", () => {
       at(T0),
     );
     expect(none).toMatchObject({ ok: false, code: "unauthenticated" });
+  });
+
+  describe("refused callbacks say why", () => {
+    async function started(adapter = setup().adapter, restart = false) {
+      const start = await adapter.signIn({ returnTo: "/ops/runs", restart }, at(T0));
+      if (!start.ok) throw new Error(start.code);
+      return {
+        state: new URL(start.redirectTo).searchParams.get("state") ?? "",
+        cookie: `${STATE_COOKIE}=${cookieValue(start.setCookies, STATE_COOKIE)}`,
+      };
+    }
+    const callbackUrl = (state: string, code = "c1") =>
+      `${ORIGIN}/api/auth/callback?code=${code}&state=${encodeURIComponent(state)}`;
+
+    it("callback_incomplete: no code or no state on the URL, and it never restarts", async () => {
+      const { adapter } = setup();
+      const { state, cookie } = await started(adapter);
+      for (const url of [
+        `${ORIGIN}/api/auth/callback?state=${state}`,
+        `${ORIGIN}/api/auth/callback?code=c1`,
+        `${ORIGIN}/api/auth/callback?error=access_denied&state=${state}`,
+      ]) {
+        expect(await adapter.callback(withCookie(cookie, url), at(T0 + 5))).toMatchObject({
+          ok: false,
+          code: "unauthenticated",
+          failure: { reason: "callback_incomplete", restart: false },
+        });
+      }
+    });
+
+    it("state_missing: no state cookie, or one that does not open", async () => {
+      const { adapter } = setup();
+      const { state } = await started(adapter);
+      const none = await adapter.callback(new Request(callbackUrl(state)), at(T0 + 5));
+      expect(none).toMatchObject({
+        ok: false,
+        code: "unauthenticated",
+        failure: { reason: "state_missing", returnTo: null, restart: true },
+      });
+      const garbled = await adapter.callback(
+        withCookie(`${STATE_COOKIE}=not-a-sealed-state`, callbackUrl(state)),
+        at(T0 + 5),
+      );
+      expect(garbled).toMatchObject({ failure: { reason: "state_missing" } });
+    });
+
+    it("state_expired: after 30 minutes, keeping where it meant to land", async () => {
+      const workos = fakeWorkOS();
+      const { adapter } = setup(workos);
+      const { state, cookie } = await started(adapter);
+      expect(STATE_MAX_AGE_SEC).toBe(30 * 60);
+      const late = await adapter.callback(
+        withCookie(cookie, callbackUrl(state)),
+        at(T0 + STATE_MAX_AGE_SEC),
+      );
+      expect(late).toMatchObject({
+        ok: false,
+        failure: { reason: "state_expired", returnTo: "/ops/runs", restart: true },
+      });
+      expect(workos.authenticateWithCode).not.toHaveBeenCalled();
+      // A slow emailed-code step inside the limit still finishes.
+      const slow = await adapter.callback(
+        withCookie(cookie, callbackUrl(state)),
+        at(T0 + STATE_MAX_AGE_SEC - 1),
+      );
+      expect(slow).toMatchObject({ ok: true, redirectTo: "/ops/runs" });
+    });
+
+    it("state_mismatch: another sign-in's state cookie, and no session is made", async () => {
+      const workos = fakeWorkOS();
+      const { adapter } = setup(workos);
+      const first = await started(adapter);
+      const second = await started(adapter);
+      // The second tab's start replaced the first's state cookie.
+      const r = await adapter.callback(
+        withCookie(second.cookie, callbackUrl(first.state)),
+        at(T0 + 5),
+      );
+      expect(r).toMatchObject({
+        ok: false,
+        failure: { reason: "state_mismatch", returnTo: "/ops/runs", restart: true },
+      });
+      expect(r.setCookies.some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(false);
+      expect(workos.authenticateWithCode).not.toHaveBeenCalled();
+    });
+
+    it("code_rejected and workos_unavailable: a used code, or WorkOS down", async () => {
+      const used = fakeWorkOS({
+        authenticateWithCode: vi.fn(async () => {
+          throw new WorkOSError("WorkOS answered 400", 400, "invalid_grant");
+        }),
+      });
+      const a = setup(used).adapter;
+      const s1 = await started(a);
+      expect(await a.callback(withCookie(s1.cookie, callbackUrl(s1.state)), at(T0))).toMatchObject({
+        ok: false,
+        failure: { reason: "code_rejected", returnTo: "/ops/runs", restart: true },
+      });
+      for (const error of [new WorkOSError("down", null), new WorkOSError("5xx", 502)]) {
+        const down = setup(
+          fakeWorkOS({
+            authenticateWithCode: vi.fn(async () => {
+              throw error;
+            }),
+          }),
+        ).adapter;
+        const s = await started(down);
+        expect(
+          await down.callback(withCookie(s.cookie, callbackUrl(s.state)), at(T0)),
+        ).toMatchObject({ ok: false, failure: { reason: "workos_unavailable", restart: true } });
+      }
+    });
+
+    it("a restarted sign-in still needs its own state, and does not restart again", async () => {
+      const workos = fakeWorkOS();
+      const { adapter } = setup(workos);
+      const restarted = await started(adapter, true);
+      expect(isRestartState(restarted.state)).toBe(true);
+      expect(isRestartState((await started(adapter)).state)).toBe(false);
+      // A failure of the restarted sign-in is final, even when its state cookie is gone.
+      const gone = await adapter.callback(new Request(callbackUrl(restarted.state)), at(T0));
+      expect(gone).toMatchObject({ failure: { reason: "state_missing", restart: false } });
+      const forged = await adapter.callback(
+        withCookie(restarted.cookie, callbackUrl(`2.${"x".repeat(43)}`)),
+        at(T0),
+      );
+      expect(forged).toMatchObject({ failure: { reason: "state_mismatch", restart: false } });
+      // With its own state it signs in as any sign-in does.
+      const done = await adapter.callback(
+        withCookie(restarted.cookie, callbackUrl(restarted.state)),
+        at(T0 + 5),
+      );
+      expect(done).toMatchObject({ ok: true, redirectTo: "/ops/runs" });
+    });
   });
 
   it("refuses an uninvited sign-in and revokes its WorkOS session", async () => {

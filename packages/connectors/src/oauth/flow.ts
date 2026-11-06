@@ -125,6 +125,8 @@ export async function completeAuthorization(input: {
   now?: Date;
   /** v0.12 bankfeed: the connection signed in again, when it still holds credentials. */
   existing?: ConnectionContext;
+  /** v0.14 W4-A: whether another client has this account connected (CallbackRequest). */
+  accountTaken?: (externalAccountId: string) => Promise<boolean>;
 }): Promise<{ grant: Omit<ConnectionGrant, "credentials">; credentials: CredentialEnvelope }> {
   const { connector, params } = input;
   if (!connector.handleCallback) {
@@ -150,6 +152,7 @@ export async function completeAuthorization(input: {
     ...input.session,
     redirectUri: input.redirectUri,
     ...(input.existing ? { existing: input.existing } : {}),
+    ...(input.accountTaken ? { accountTaken: input.accountTaken } : {}),
   });
   const binding: CredentialBinding = {
     tenantId: input.session.tenantId,

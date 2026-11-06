@@ -19,9 +19,11 @@ import {
   organization,
   searchDirectory,
   type Tx,
+  transaction,
+  vendor,
   withTenant,
 } from "@countersign/db";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, gte, ne, sql } from "drizzle-orm";
 import type { DirectoryPort } from "../tools/types";
 
 /** A suggestion an agent can't make; the tool call fails with this message. */
@@ -196,6 +198,45 @@ export function dbDirectoryPort(db: Db): DirectoryPort {
           .returning({ id: inboxItem.id });
         if (!item) throw new Error("inbox item insert returned nothing");
         return { status: "suggested" as const, inboxItemId: item.id };
+      });
+    },
+    // v0.14 W4-B (docs/plan.md §1.28 "Directory upkeep"): one grouped query, the exclusions in
+    // the WHERE clause (no subquery in the select list).
+    unlistedVendors(tenantId, input) {
+      const since = new Date(input.now.getTime() - input.sinceDays * 24 * 60 * 60 * 1000);
+      const suggestedName = sql`lower(${inboxItem.payload}->'directorySuggestion'->'change'->'organization'->>'name')`;
+      return withTenant(db, tenantId, async (tx) => {
+        const rows = await tx
+          .select({
+            vendorId: vendor.id,
+            name: vendor.name,
+            sources: sql<
+              string[]
+            >`to_jsonb((array_agg(${transaction.id}::text order by ${transaction.createdAt} desc))[1:5])`,
+          })
+          .from(transaction)
+          .innerJoin(
+            vendor,
+            and(eq(vendor.id, transaction.vendorId), eq(vendor.tenantId, transaction.tenantId)),
+          )
+          .where(
+            and(
+              eq(transaction.tenantId, tenantId),
+              gte(transaction.createdAt, since),
+              sql`not exists (select 1 from ${organization}
+                where ${organization.tenantId} = ${vendor.tenantId}
+                  and (${organization.vendorId} = ${vendor.id} or lower(${organization.name}) = lower(${vendor.name})))`,
+              sql`not exists (select 1 from ${inboxItem}
+                where ${inboxItem.tenantId} = ${vendor.tenantId}
+                  and ${inboxItem.subjectType} = ${DIRECTORY_SUGGESTION_SUBJECT}
+                  and ${inboxItem.payload}->'directorySuggestion'->'change'->>'action' = 'add_organization'
+                  and ${suggestedName} = lower(${vendor.name}))`,
+            ),
+          )
+          .groupBy(vendor.id, vendor.name)
+          .orderBy(sql`max(${transaction.createdAt}) desc`)
+          .limit(input.limit);
+        return rows.map((r) => ({ vendorId: r.vendorId, name: r.name, sources: r.sources ?? [] }));
       });
     },
   };

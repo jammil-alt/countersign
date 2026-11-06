@@ -12,10 +12,15 @@
 import {
   type FetchLike,
   globalFetch,
+  // v0.14 W4-A
+  metaCredentialsOf,
   readTwilioConfig,
+  readWhatsappMetaConfig,
+  sendMetaReply,
   sendReleaseText,
   TWILIO_CONNECTOR_ID,
   twilioCredentialsOf,
+  WHATSAPP_META_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
   type InboundChannel,
@@ -166,6 +171,8 @@ export async function sendReplies(
         });
         continue;
       }
+      // v0.14 W4-A: a WhatsApp message to the client's own number (Meta) is answered from it.
+      if (r.channel === "whatsapp" && (await replyThroughMeta(db, tenantId, deps, r))) continue;
       await withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
           .select()
@@ -195,4 +202,34 @@ export async function sendReplies(
       console.warn(`a reply on ${r.channel} for client ${tenantId} was not sent`, String(error));
     }
   }
+}
+
+// v0.14 W4-A: the reply through the client's own WhatsApp number (Meta), when the message came to
+// it: free text inside the window the sender's message just opened; nothing recorded, as Twilio's
+// replies aren't. False when no connected Meta number is the reply's sender.
+async function replyThroughMeta(
+  db: Db,
+  tenantId: string,
+  deps: ReplyDeps,
+  r: Extract<InboundReply, { channel: "sms" | "whatsapp" }>,
+): Promise<boolean> {
+  return withTenant(db, tenantId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(connection)
+      .where(
+        and(
+          eq(connection.tenantId, tenantId),
+          eq(connection.connector, WHATSAPP_META_CONNECTOR_ID),
+          eq(connection.status, "connected"),
+        ),
+      );
+    const row = rows.find((c) => readWhatsappMetaConfig(c.config)?.phoneNumber === r.from);
+    if (!row) return false;
+    const creds = metaCredentialsOf(
+      await (await connectionCredentials(tx, deps.secrets, row)).get(),
+    );
+    if (creds) await sendMetaReply(deps.fetch, creds, { to: r.to, body: r.body });
+    return true;
+  });
 }

@@ -37,6 +37,9 @@ export async function routeInboundText(
     now: Date;
     registry: EventTypeRegistry;
     collect: EventRow[];
+    // v0.14 capture
+    /** The conversation's capture agent: told after the downloads, so not here (§1.55). */
+    skipAgentId?: string | null;
   },
 ): Promise<InboundReply[]> {
   const { tenantId } = input;
@@ -62,6 +65,8 @@ export async function routeInboundText(
     );
   const bound = rows.filter(
     (r) =>
+      // v0.14 capture
+      r.id !== input.skipAgentId &&
       r.channels?.[input.channel] === input.connectionId &&
       messageTriggersOn(r.bundle, input.channel).length > 0,
   );
