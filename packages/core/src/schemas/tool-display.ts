@@ -55,27 +55,27 @@ export const EDITABLE_KINDS = ["text", "number", "date", "money"] as const;
 
 export const DisplayField = z
   .strictObject({
-  label: LocalizedString,
-  kind: DisplayKind,
-  /** The value now; absent when the record has no such value before the change. */
-  now: ChangePath.optional(),
-  /** The value after the change; absent when the change leaves it as it is now. */
-  after: ChangePath.optional(),
-  /** Money: where the currency code is (else `currency`, else USD). */
-  currencyPath: ChangePath.optional(),
-  currency: CurrencyCode.optional(),
-  /** Lists: `after`'s items are added to the items now, rather than replacing them. */
-  adds: z.boolean().optional(),
-  /** Lists: the ids of the items now that the change removes (with `adds`, e.g. replaced lines). */
-  removes: ChangePath.optional(),
-  columns: DisplayColumns.optional(),
-  // v0.12 W1-D: edit before signing (ARCHITECTURE §11.1).
-  /**
-   * The person signing may change this value before they sign: only a plain value (text, number,
-   * date, money) the change sets from its input (`after: input.<field>`). Never ids, guards,
-   * version tokens or fixed inputs; the edit is validated and routed again on the server.
-   */
-  editable: z.boolean().optional(),
+    label: LocalizedString,
+    kind: DisplayKind,
+    /** The value now; absent when the record has no such value before the change. */
+    now: ChangePath.optional(),
+    /** The value after the change; absent when the change leaves it as it is now. */
+    after: ChangePath.optional(),
+    /** Money: where the currency code is (else `currency`, else USD). */
+    currencyPath: ChangePath.optional(),
+    currency: CurrencyCode.optional(),
+    /** Lists: `after`'s items are added to the items now, rather than replacing them. */
+    adds: z.boolean().optional(),
+    /** Lists: the ids of the items now that the change removes (with `adds`, e.g. replaced lines). */
+    removes: ChangePath.optional(),
+    columns: DisplayColumns.optional(),
+    // v0.12 W1-D: edit before signing (ARCHITECTURE §11.1).
+    /**
+     * The person signing may change this value before they sign: only a plain value (text, number,
+     * date, money) the change sets from its input (`after: input.<field>`). Never ids, guards,
+     * version tokens or fixed inputs; the edit is validated and routed again on the server.
+     */
+    editable: z.boolean().optional(),
   })
   .refine(
     (f) =>

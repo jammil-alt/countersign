@@ -4,9 +4,10 @@ import { explainWrite, readWhyApproval } from "./explain";
 
 describe("explainWrite", () => {
   it("names the step's default approval and the connection's approval level", () => {
-    expect(
-      explainWrite({ verb: "create", matrix: undefined, agentMode: "act" }).reasons,
-    ).toEqual(["step", "matrix"]);
+    expect(explainWrite({ verb: "create", matrix: undefined, agentMode: "act" }).reasons).toEqual([
+      "step",
+      "matrix",
+    ]);
   });
 
   it("lists only what asks for a signature", () => {
@@ -45,8 +46,9 @@ describe("explainWrite", () => {
       stage: "trial",
       route: { source: "rule", ruleId: "r1" },
     });
-    expect(explainWrite({ verb: "create", matrix: {}, agentMode: "act", stage: "live" }).stage)
-      .toBeUndefined();
+    expect(
+      explainWrite({ verb: "create", matrix: {}, agentMode: "act", stage: "live" }).stage,
+    ).toBeUndefined();
   });
 
   it("never changes the gate's decision", () => {

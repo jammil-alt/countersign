@@ -5,12 +5,12 @@
 
 import { z } from "zod";
 import type { ApprovalSource } from "../approvals/rules";
-import {
-  type AgentMode,
-  type ApprovalRequirement,
-  type PermissionLevel,
-  type PermissionMatrix,
-  type Verb,
+import type {
+  AgentMode,
+  ApprovalRequirement,
+  PermissionLevel,
+  PermissionMatrix,
+  Verb,
 } from "../schemas/permissions";
 import { levelFor } from "./decide";
 import { type GrantLimits, grantLevel } from "./grants";

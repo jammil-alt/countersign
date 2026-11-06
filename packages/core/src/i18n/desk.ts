@@ -52,7 +52,13 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       everythingElse: "Every change no rule sends to someone else.",
       rule: ({ what, verb, amount, agent }) =>
         [
-          verb === "create" ? "New records" : verb === "update" ? "Updates" : verb === "delete" ? "Deletions" : "Changes",
+          verb === "create"
+            ? "New records"
+            : verb === "update"
+              ? "Updates"
+              : verb === "delete"
+                ? "Deletions"
+                : "Changes",
           what ? `in ${what}` : null,
           amount ? `over ${amount}` : null,
           agent ? `by ${agent}` : null,
@@ -79,7 +85,13 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       everythingElse: "Todo cambio que ninguna regla envía a otra persona.",
       rule: ({ what, verb, amount, agent }) =>
         [
-          verb === "create" ? "Registros nuevos" : verb === "update" ? "Actualizaciones" : verb === "delete" ? "Eliminaciones" : "Cambios",
+          verb === "create"
+            ? "Registros nuevos"
+            : verb === "update"
+              ? "Actualizaciones"
+              : verb === "delete"
+                ? "Eliminaciones"
+                : "Cambios",
           what ? `en ${what}` : null,
           amount ? `de más de ${amount}` : null,
           agent ? `de ${agent}` : null,
@@ -106,7 +118,13 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       everythingElse: "Tout changement qu'aucune règle n'envoie à quelqu'un d'autre.",
       rule: ({ what, verb, amount, agent }) =>
         [
-          verb === "create" ? "Nouveaux enregistrements" : verb === "update" ? "Mises à jour" : verb === "delete" ? "Suppressions" : "Changements",
+          verb === "create"
+            ? "Nouveaux enregistrements"
+            : verb === "update"
+              ? "Mises à jour"
+              : verb === "delete"
+                ? "Suppressions"
+                : "Changements",
           what ? `dans ${what}` : null,
           amount ? `de plus de ${amount}` : null,
           agent ? `par ${agent}` : null,
@@ -133,7 +151,13 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       everythingElse: "Toda mudança que nenhuma regra envia para outra pessoa.",
       rule: ({ what, verb, amount, agent }) =>
         [
-          verb === "create" ? "Novos registros" : verb === "update" ? "Atualizações" : verb === "delete" ? "Exclusões" : "Mudanças",
+          verb === "create"
+            ? "Novos registros"
+            : verb === "update"
+              ? "Atualizações"
+              : verb === "delete"
+                ? "Exclusões"
+                : "Mudanças",
           what ? `em ${what}` : null,
           amount ? `acima de ${amount}` : null,
           agent ? `de ${agent}` : null,
@@ -160,7 +184,13 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       everythingElse: "Ogni modifica che nessuna regola invia a qualcun altro.",
       rule: ({ what, verb, amount, agent }) =>
         [
-          verb === "create" ? "Nuovi record" : verb === "update" ? "Aggiornamenti" : verb === "delete" ? "Eliminazioni" : "Modifiche",
+          verb === "create"
+            ? "Nuovi record"
+            : verb === "update"
+              ? "Aggiornamenti"
+              : verb === "delete"
+                ? "Eliminazioni"
+                : "Modifiche",
           what ? `in ${what}` : null,
           amount ? `oltre ${amount}` : null,
           agent ? `di ${agent}` : null,
@@ -187,7 +217,13 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       everythingElse: "Jede Änderung, die keine Regel an jemand anderen sendet.",
       rule: ({ what, verb, amount, agent }) =>
         [
-          verb === "create" ? "Neue Datensätze" : verb === "update" ? "Aktualisierungen" : verb === "delete" ? "Löschungen" : "Änderungen",
+          verb === "create"
+            ? "Neue Datensätze"
+            : verb === "update"
+              ? "Aktualisierungen"
+              : verb === "delete"
+                ? "Löschungen"
+                : "Änderungen",
           what ? `in ${what}` : null,
           amount ? `über ${amount}` : null,
           agent ? `von ${agent}` : null,
@@ -200,7 +236,11 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
 
 /** The lines that say why an item waits, in the reader's language. */
 export function whyLines(
-  why: { reasons: readonly WhyCode[]; stage?: "trial" | "signoff" | undefined; route?: { source: string } | undefined },
+  why: {
+    reasons: readonly WhyCode[];
+    stage?: "trial" | "signoff" | undefined;
+    route?: { source: string } | undefined;
+  },
   locale: Locale,
 ): string[] {
   const w = DESK_WORDS[locale];

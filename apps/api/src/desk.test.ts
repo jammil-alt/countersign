@@ -5,11 +5,7 @@
 
 import { executeAction } from "@countersign/agents";
 import { defineConnector, defineWriteTool } from "@countersign/connectors";
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  DecimalString,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, DecimalString } from "@countersign/core";
 import { agent, connection, externalAction, inboxItem, membership, tenant } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
@@ -115,7 +111,12 @@ function bundle(): AgentBundle {
           schemaVersion: 3,
           trigger: { id: "trg-one", on: { type: "manual", input: {} } },
           steps: [
-            send("send1", { to: "pat@example.com", subject: "Your invoice", body: "Hi", total: "10.00" }),
+            send("send1", {
+              to: "pat@example.com",
+              subject: "Your invoice",
+              body: "Hi",
+              total: "10.00",
+            }),
           ],
         },
       },
@@ -244,7 +245,9 @@ describe.skipIf(!h)("the Desk", () => {
   beforeAll(async () => {
     await H.t.db
       .update(tenant)
-      .set({ settings: { connectors_offered: ["testkit", "deskkit"] } })
+      .set({
+        settings: { connectors_offered: ["testkit", "deskkit"], approvals: { undoSeconds: 60 } },
+      })
       .where(eq(tenant.id, H.A.tenantId));
     const [conn] = await H.t.db
       .insert(connection)
@@ -272,7 +275,11 @@ describe.skipIf(!h)("the Desk", () => {
       bindings: { deskkit: conn?.id },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
-    const live = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions/${v1}/publish`);
+    const live = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${agentId}/versions/${v1}/publish`,
+    );
     expect(live.status, JSON.stringify(live.json)).toBe(200);
     // Activation's test-run check is covered elsewhere; here the agent is simply live.
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
@@ -348,8 +355,9 @@ describe.skipIf(!h)("the Desk", () => {
       });
       expect(early.status).toBe("awaiting_approval");
       expect(sent.size).toBe(0);
-      expect(await redeliverResolutions(deps(), H.A.tenantId, new Date(Date.now() + 61_000)))
-        .toMatchObject({ sent: 0 });
+      expect(
+        await redeliverResolutions(deps(), H.A.tenantId, new Date(Date.now() + 61_000)),
+      ).toMatchObject({ sent: 0 });
 
       // Undo inside the window: open again, the change proposed again, the undo recorded.
       expect((await H.call(user("a"), "POST", `${path}/undo`)).status).toBe(404);
@@ -358,7 +366,7 @@ describe.skipIf(!h)("the Desk", () => {
       expect(j(undone.json).item).toMatchObject({ status: "open", deliverAfter: null });
       expect((await actionOf(item.id)).status).toBe("proposed");
       const [reopened] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
-      expect((reopened?.payload as { undos?: unknown[] }).undos).toHaveLength(1);
+      expect((reopened?.payload as { undos?: unknown[] } | undefined)?.undos).toHaveLength(1);
       expect((await H.call(admin("a"), "POST", `${path}/undo`)).status).toBe(409);
 
       // Approve again and let the window pass: too late to undo; the cron's resume delivers it.
@@ -438,10 +446,7 @@ describe.skipIf(!h)("the Desk", () => {
         expect((await batch({ batchKey: "other", approve: [a] })).status).toBe(422);
         expect((await batch({ batchKey: key, approve: [a], reject: [a] })).status).toBe(400);
         // All or nothing: one item the person can't sign fails the whole batch.
-        await H.t.db
-          .update(inboxItem)
-          .set({ assigneeRole: "operator" })
-          .where(eq(inboxItem.id, c));
+        await H.t.db.update(inboxItem).set({ assigneeRole: "operator" }).where(eq(inboxItem.id, c));
         expect((await batch({ batchKey: key, approve: [a, b], reject: [c] })).status).toBe(404);
         await H.t.db
           .update(inboxItem)
@@ -473,7 +478,10 @@ describe.skipIf(!h)("the Desk", () => {
     expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
       status: "succeeded",
     });
-    const added = [...sent.values()].slice(before).map((s) => s.to).sort();
+    const added = [...sent.values()]
+      .slice(before)
+      .map((s) => s.to)
+      .sort();
     expect(added).toEqual(["a@example.com", "b@example.com"]);
     await setUndo(60);
   });
@@ -569,9 +577,7 @@ describe.skipIf(!h)("the Desk", () => {
         name: "WorkflowTimeoutError",
       });
     });
-    expect((await executeRun(deps(), params, cloudflareStepRunner(step))).status).toBe(
-      "cancelled",
-    );
+    expect((await executeRun(deps(), params, cloudflareStepRunner(step))).status).toBe("cancelled");
   });
 
   it("invites a viewer, never a viewer admin, and sets the undo window within its limits", async () => {
@@ -593,6 +599,8 @@ describe.skipIf(!h)("the Desk", () => {
     expect((await set({ undoSeconds: 301 })).status).toBe(400);
     expect((await set({ undoSeconds: 30 }, user("a"))).status).toBe(403);
     const [t] = await H.t.db.select().from(tenant).where(eq(tenant.id, H.A.tenantId));
-    expect((t?.settings as { approvals?: unknown }).approvals).toEqual({ undoSeconds: 120 });
+    expect((t?.settings as { approvals?: unknown } | undefined)?.approvals).toEqual({
+      undoSeconds: 120,
+    });
   });
 });

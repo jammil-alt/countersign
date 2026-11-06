@@ -10,9 +10,9 @@ import {
   clientApproverSetting,
   mayResolve,
   proposedActionTx,
+  type RuntimeDeps,
   recordEditTx,
   reopenApprovedTx,
-  type RuntimeDeps,
 } from "@countersign/agents";
 import {
   type ApproverRule,
@@ -130,7 +130,11 @@ export async function undoItem(
   const item = await lockItem(tx, input.tenantId, input.itemId);
   const own = item.resolvedBy === input.by.userId;
   if (!own && input.by.role !== "client_admin") {
-    throw new HttpError(403, "not_signer", "only the person who signed, or the client admin, can undo");
+    throw new HttpError(
+      403,
+      "not_signer",
+      "only the person who signed, or the client admin, can undo",
+    );
   }
   const [live] = await tx
     .select({
@@ -174,7 +178,13 @@ export async function undoItem(
 async function routeFor(
   tx: Tx,
   platform: Platform,
-  input: { tenantId: string; item: InboxRow; toolId: string; runId: string | null; edited: unknown },
+  input: {
+    tenantId: string;
+    item: InboxRow;
+    toolId: string;
+    runId: string | null;
+    edited: unknown;
+  },
 ) {
   const tool = platform.tools.get(input.toolId);
   if (tool?.kind !== "connector") return null;
@@ -295,7 +305,10 @@ export async function editItem(
   const [row] = await tx
     .update(inboxItem)
     .set({
-      payload: { ...payload, edited: { input: checked.input, by: by.userId, at: at.toISOString() } },
+      payload: {
+        ...payload,
+        edited: { input: checked.input, by: by.userId, at: at.toISOString() },
+      },
     })
     .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, input.tenantId)))
     .returning();

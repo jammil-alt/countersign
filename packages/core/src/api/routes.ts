@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
@@ -7,7 +8,6 @@ import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
-import { DESK_ITEM_FIELDS } from "../desk/item";
 import { accessRoutes } from "./access";
 import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";

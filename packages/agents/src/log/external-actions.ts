@@ -378,9 +378,7 @@ async function lockedAction(tx: Tx, tenantId: string, inboxItemId: string): Prom
   const [action] = await tx
     .select()
     .from(externalAction)
-    .where(
-      and(eq(externalAction.tenantId, tenantId), eq(externalAction.inboxItemId, inboxItemId)),
-    )
+    .where(and(eq(externalAction.tenantId, tenantId), eq(externalAction.inboxItemId, inboxItemId)))
     .for("update");
   if (!action) throw notFound(`the external action of inbox item ${inboxItemId}`);
   return action;

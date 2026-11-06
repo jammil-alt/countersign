@@ -297,7 +297,8 @@ async function dispatch(
               matrix: conn.permissions,
               grant,
               stepApproval: step.approval?.required,
-              agentMode: mode,
+              // The definition's own mode; a stage that forces signatures is passed as `stage`.
+              agentMode: step.agent.bundle.definition.permissions.mode,
               route: { source: approver.source, ruleId: approver.ruleId },
             }) as JsonObject,
           },

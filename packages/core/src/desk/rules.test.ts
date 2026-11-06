@@ -35,7 +35,10 @@ describe("undo window setting", () => {
 describe("snoozeUntil", () => {
   const now = new Date("2026-11-06T10:00:00Z");
   it("refuses the past and more than 14 days", () => {
-    expect(snoozeUntil({ until: now, now, dueAt: null })).toMatchObject({ ok: false, code: "in_the_past" });
+    expect(snoozeUntil({ until: now, now, dueAt: null })).toMatchObject({
+      ok: false,
+      code: "in_the_past",
+    });
     expect(
       snoozeUntil({ until: new Date("2026-11-21T10:00:00Z"), now, dueAt: null }),
     ).toMatchObject({ ok: false, code: "too_far" });
@@ -79,7 +82,12 @@ describe("edits before signing", () => {
   });
 
   it("accepts a change to editable fields only", () => {
-    const original = { to: "a@x.test", subject: "Hi", body: "B", amount: { value: "1.00", currency: "USD" } };
+    const original = {
+      to: "a@x.test",
+      subject: "Hi",
+      body: "B",
+      amount: { value: "1.00", currency: "USD" },
+    };
     const paths = editablePaths(display);
     expect(editProblem({ original, edited: { ...original, subject: "Hello" }, paths })).toBeNull();
     expect(
@@ -89,7 +97,9 @@ describe("edits before signing", () => {
         paths,
       }),
     ).toBeNull();
-    expect(editProblem({ original, edited: { ...original, to: "b@x.test" }, paths })).toMatch(/to can't/);
+    expect(editProblem({ original, edited: { ...original, to: "b@x.test" }, paths })).toMatch(
+      /to can't/,
+    );
     expect(
       editProblem({
         original,

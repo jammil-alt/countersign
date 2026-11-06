@@ -117,7 +117,8 @@ export class DeskProbeWorkflow extends WorkflowEntrypoint<Bindings, DeskProbePar
       byKey: async () => ({ ...action }),
       propose: async () => ({ action: { ...action }, created: false }),
       claim: async () => {
-        if (action.status !== "approved" || held()) return { action: { ...action }, claimed: false };
+        if (action.status !== "approved" || held())
+          return { action: { ...action }, claimed: false };
         action.status = "executing";
         return { action: { ...action }, claimed: true };
       },

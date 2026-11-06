@@ -238,10 +238,7 @@ export function InboxCard({
   const open = item.status === "open";
   const choices = item.kind === "request" ? quickAnswers(item.payload, i18n.locale) : null;
   const undoable =
-    !open &&
-    !!onUndo &&
-    !!item.deliverAfter &&
-    new Date(item.deliverAfter).getTime() > Date.now();
+    !open && !!onUndo && !!item.deliverAfter && new Date(item.deliverAfter).getTime() > Date.now();
   const badge = statusBadge(item, outcome ?? null, i18n);
   const isChange = item.kind === "external_action";
   const isRelease =

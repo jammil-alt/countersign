@@ -111,10 +111,15 @@ export async function executeAction(
   try {
     // v0.12 W1-D: the signer's edit, when there is one, is what is written; `input` stays the
     // agent's version (ARCHITECTURE §11.1).
-    const written = await executeWrite(tool.connector, action.tool, action.editedInput ?? action.input, {
-      ...connectionContext(deps, input.tenantId, conn),
-      idempotencyKey: action.idempotencyKey,
-    });
+    const written = await executeWrite(
+      tool.connector,
+      action.tool,
+      action.editedInput ?? action.input,
+      {
+        ...connectionContext(deps, input.tenantId, conn),
+        idempotencyKey: action.idempotencyKey,
+      },
+    );
     const done = await actions.complete(input.tenantId, action.id, {
       output: written.output,
       before: written.before,

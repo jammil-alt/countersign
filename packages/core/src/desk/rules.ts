@@ -3,9 +3,9 @@
 // applies them; the portal may use them to show the same limits before a request.
 
 import { z } from "zod";
-import { isPlainObject, deepEqual } from "../json";
-import type { PersonChoice } from "../schemas/workflow";
+import { deepEqual, isPlainObject } from "../json";
 import { EDITABLE_KINDS, type ToolDisplay } from "../schemas/tool-display";
+import type { PersonChoice } from "../schemas/workflow";
 
 // ── Undo window ──────────────────────────────────────────────────────────────────────────────────
 
@@ -87,13 +87,18 @@ export function editablePaths(
 function getAt(value: unknown, path: readonly string[]): { found: boolean; value: unknown } {
   let node: unknown = value;
   for (const key of path) {
-    if (!isPlainObject(node) || !Object.hasOwn(node, key)) return { found: false, value: undefined };
+    if (!isPlainObject(node) || !Object.hasOwn(node, key))
+      return { found: false, value: undefined };
     node = node[key];
   }
   return { found: true, value: node };
 }
 
-function setAt(target: Record<string, unknown>, path: readonly string[], hit: { found: boolean; value: unknown }) {
+function setAt(
+  target: Record<string, unknown>,
+  path: readonly string[],
+  hit: { found: boolean; value: unknown },
+) {
   let node: Record<string, unknown> = target;
   for (const key of path.slice(0, -1)) {
     const next = node[key];

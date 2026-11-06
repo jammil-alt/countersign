@@ -170,7 +170,8 @@ export const fr: Messages = {
   "inbox.decline": "Décliner",
   "inbox.sendAnswer": "Envoyer la réponse",
   "inbox.undo": "Annuler",
-  "inbox.undoWindow": "Signé. Nous faisons le changement dans une minute ; vous pouvez encore l'annuler.",
+  "inbox.undoWindow":
+    "Signé. Nous faisons le changement dans une minute ; vous pouvez encore l'annuler.",
   "inbox.reject": "Refuser",
   "inbox.sign": "Signer",
   "inbox.findingSteps": "Que faire",

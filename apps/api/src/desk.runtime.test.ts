@@ -29,7 +29,10 @@ const workflow: WorkflowDef = {
   ],
 };
 
-const approved = { type: inboxEventType(probeItemId("send")), payload: { approved: true, by: "u" } };
+const approved = {
+  type: inboxEventType(probeItemId("send")),
+  payload: { approved: true, by: "u" },
+};
 
 describe("the undo window under the Workflows engine", () => {
   it("is not taken inside the window, then writes once after it, and the run resumes", async () => {
