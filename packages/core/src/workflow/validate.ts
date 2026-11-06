@@ -11,7 +11,7 @@ import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
-import { skillTools } from "../schemas/skill";
+import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import { type Step, type Workflow, Workflow as WorkflowSchema } from "../schemas/workflow";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
@@ -63,7 +63,10 @@ export type ValidationCode =
   | "approval_not_write"
   | "connection_missing"
   | "verb_off"
-  | "approval_required_by_connection";
+  | "approval_required_by_connection"
+  // v0.13 W2-H: a step's model (ARCHITECTURE §10.11).
+  | "unknown_model"
+  | "model_not_allowed";
 
 export interface ValidationError {
   /** The step, fork path or trigger id; null for workflow- or bundle-level errors. */
@@ -84,6 +87,11 @@ export interface ValidationContext extends TypingContext {
    * (from its bindings). When absent, connection checks are skipped (templates, drafts).
    */
   publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> };
+  /**
+   * v0.13 W2-H: the model ids the platform knows and prices (`packages/llm`). Core can't import
+   * `llm`, so the caller passes them; when absent, a step's model id isn't checked.
+   */
+  models?: readonly string[];
 }
 
 export interface ValidationResult<T> {
@@ -326,6 +334,7 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
         c.add(step.id, "agent", "agent_not_commandable", `the agent may not ask "${step.agent}"`);
       }
       if (skill) checkInput(c, step.id, step.input, skill.input, scope);
+      checkStepModel(c, step, skill);
       break;
     }
     case "action": {
@@ -465,6 +474,29 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
 }
 
 const CRON_FIELD = /^[0-9A-Za-z*/,?#LW-]+$/;
+
+// v0.13 W2-H: a skill step's model override (ARCHITECTURE §10.11, docs/plan.md §1.53).
+/** A step may override the model of a `task` or `agent` skill, with an id the platform knows. */
+function checkStepModel(
+  c: Checker,
+  step: Extract<Step, { kind: "skill" }>,
+  skill: SkillDefinition | undefined,
+) {
+  if (step.model === undefined) return;
+  if (skill?.mode === "tool") {
+    c.add(
+      step.id,
+      "model",
+      "model_not_allowed",
+      `"${skill.id}" runs as code, so it has no model to choose`,
+    );
+    return;
+  }
+  const known = c.ctx.models;
+  if (known && !known.includes(step.model.id)) {
+    c.add(step.id, "model.id", "unknown_model", `no model "${step.model.id}"`);
+  }
+}
 
 function validTimezone(tz: string): boolean {
   try {

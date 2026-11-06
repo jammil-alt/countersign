@@ -28,6 +28,7 @@ import {
   isPlainObject,
   type JsonObject,
   levelFor,
+  type ModelChoice,
   nextEscalation,
   type PeopleBinding,
   parseDuration,
@@ -106,6 +107,8 @@ export interface StoredPlan {
   data: JsonObject;
   /** Why each channel the urgency asked for passed or not, when planned. */
   checks: { channel: ReachChannel; block: string | null }[];
+  /** v0.13: the step's model override for composed messages (absent: the agent's). */
+  model?: ModelChoice;
 }
 
 export interface Attempt {
@@ -684,6 +687,7 @@ export function reachPort(deps: ReachDeps): ReachPort {
           replyTag: "",
           data: truncateData({ about: input.about, trigger: loaded.trigger }),
           checks: plan.checks,
+          ...(req.step.model ? { model: req.step.model } : {}),
         };
         let row: ReachOutRow | undefined;
         try {
@@ -1043,6 +1047,7 @@ export async function attemptFrom(
               contactName: who.name,
               clientName: state.t.name,
               maxChars: channel === "sms" ? 320 : channel === "voice" ? 300 : 1500,
+              model: plan.model,
             });
     } catch (error) {
       await failed(`couldn't write the message: ${error instanceof Error ? error.message : error}`);

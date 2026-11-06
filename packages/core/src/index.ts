@@ -18,6 +18,7 @@ export * from "./api/feedback";
 export * from "./api/knowledge";
 export * from "./api/language";
 export * from "./api/messaging";
+export * from "./api/models";
 export * from "./api/onboarding";
 export * from "./api/qbo";
 export * from "./api/reach";

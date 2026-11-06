@@ -135,6 +135,7 @@ export function agentPort(
         skill: step.skill,
         input,
         ...(step.settings ? { settings: step.settings } : {}),
+        ...(step.model ? { model: step.model } : {}),
         runId: run.id,
         // The durable name, so each for_each iteration keys its own external actions.
         stepId: nodeId,

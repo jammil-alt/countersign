@@ -37,6 +37,7 @@ import {
   validateWorkflow,
 } from "@countersign/core";
 import { connection, tenant } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { type RoutableAgent, type RunRequest, requestRun } from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -421,6 +422,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     const result = validateWorkflow(body.workflow, {
       skills,
       tools: platform.tools.specs(),
+      models: knownModelIds(),
       events: platform.events.byType(),
       ...(agentDef ? { agent: agentDef } : {}),
     });

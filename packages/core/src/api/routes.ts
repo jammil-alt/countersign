@@ -21,6 +21,7 @@ import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { messagingRoutes } from "./messaging";
+import { modelRoutes } from "./models";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
@@ -1793,5 +1794,7 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.13 W2-H: models for task skills and skill steps.
+  ...modelRoutes,
 } as const;
 export type Routes = typeof routes;

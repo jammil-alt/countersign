@@ -31,6 +31,7 @@ export * from "./runtime/attention";
 export * from "./runtime/call-tool";
 export * from "./runtime/context";
 export * from "./runtime/json-schema";
+export * from "./runtime/model";
 export * from "./runtime/planned";
 export * from "./runtime/ports";
 export * from "./runtime/run-agent";

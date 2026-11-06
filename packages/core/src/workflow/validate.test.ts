@@ -450,6 +450,51 @@ describe("publish-time connection checks", () => {
   });
 });
 
+// v0.13 W2-H (docs/plan.md §1.53).
+describe("a skill step's model", () => {
+  const summarize = (w: Workflow) => loop(w).steps[0] as SkillStep;
+  const models = ["claude-haiku-5-5", "claude-sonnet-5-5"];
+
+  it("lets a step override the model of an agent or task skill", () => {
+    const wf = edit(workflowInput(), (w) => {
+      summarize(w).model = { id: "claude-haiku-5-5", maxTokens: 300 };
+    });
+    expect(codes(wf, { ...ctx, models })).toEqual([]);
+  });
+
+  it("refuses a model on a tool-mode skill step", () => {
+    const wf = edit(workflowInput(), (w) => {
+      extract(w).model = { id: "claude-haiku-5-5" };
+    });
+    expect(codes(wf, { ...ctx, models })).toEqual([
+      { code: "model_not_allowed", stepId: "s1", field: "model" },
+    ]);
+  });
+
+  it("refuses a model the platform doesn't know, when it is told which it knows", () => {
+    const wf = edit(workflowInput(), (w) => {
+      summarize(w).model = { id: "claude-nonesuch" };
+    });
+    expect(codes(wf, { ...ctx, models })).toEqual([
+      { code: "unknown_model", stepId: "s6", field: "model.id" },
+    ]);
+    // Without the list (a client-side draft check), the id isn't checked.
+    expect(codes(wf)).toEqual([]);
+  });
+
+  it("refuses a malformed model at the schema", () => {
+    const wf = edit(workflowInput(), (w) => {
+      (summarize(w) as { model?: unknown }).model = { id: "" };
+    });
+    expect(codes(wf).map((e) => e.code)).toEqual(["schema"]);
+  });
+
+  it("leaves a bundle without step models as it was", () => {
+    const parsed = validateWorkflow(workflowInput(), ctx).value;
+    expect(parsed && "model" in (parsed.steps[0] as object)).toBe(false);
+  });
+});
+
 describe("validateBundle", () => {
   it("accepts the fixture bundle", () => {
     const r = validateBundle(bundleInput(), ctx);

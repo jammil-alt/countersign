@@ -41,6 +41,7 @@ import { opsClientRoutes } from "./routes/ops-clients";
 import { opsEventRoutes } from "./routes/ops-events";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
+import { opsModelRoutes } from "./routes/ops-models";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
@@ -77,6 +78,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsBuilderRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
+  // v0.13 W2-H: models for task skills and skill steps.
+  opsModelRoutes(app);
   supervisorRouteHandlers(app);
   portalRouteHandlers(app);
   qboRoutes(app);

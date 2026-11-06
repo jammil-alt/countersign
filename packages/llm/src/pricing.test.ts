@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { costOf, PRICES, sumCosts } from "./pricing";
+import { MODELS } from "./models";
+import { costOf, knownModelIds, knownModels, PRICES, sumCosts } from "./pricing";
 import { type LlmUsage, ZERO_USAGE } from "./usage";
 
 const usage = (u: Partial<LlmUsage>): LlmUsage => ({ ...ZERO_USAGE, ...u });
@@ -55,5 +56,21 @@ describe("costOf", () => {
 describe("sumCosts", () => {
   it("adds decimal strings without float drift and skips unpriced calls", () => {
     expect(sumCosts(["0.100000", "0.200000", null, "0.000001"])).toBe("0.300001");
+  });
+});
+
+// v0.13 W2-H (docs/plan.md §1.53).
+describe("knownModels", () => {
+  it("lists every priced model, cheapest output first, with the builder's labels", () => {
+    const models = knownModels();
+    expect(models.map((m) => m.id).sort()).toEqual(Object.keys(PRICES).sort());
+    expect(models[0]).toMatchObject({ id: MODELS.haiku, label: "Fast (Haiku)" });
+    expect(models.find((m) => m.id === MODELS.opus)?.label).toBe("Strong (Opus)");
+    expect(knownModelIds()).toEqual(Object.keys(PRICES).sort());
+  });
+
+  it("names only models with a price", () => {
+    const one = { [MODELS.haiku]: PRICES[MODELS.haiku] as (typeof PRICES)[string] };
+    expect(knownModelIds(one)).toEqual([MODELS.haiku]);
   });
 });

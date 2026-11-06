@@ -32,6 +32,7 @@ import {
   type Tx,
   tenantPack,
 } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
@@ -214,6 +215,7 @@ export async function validateForPublish(
   const result = validateBundle(bundle, {
     skills,
     tools: ctx.tools.specs(),
+    models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
     ...(row.kind === "client" ? { publish: { matrices: await boundMatrices(tx, row) } } : {}),
   });
