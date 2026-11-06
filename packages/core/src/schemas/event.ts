@@ -31,5 +31,15 @@ export const PLATFORM_EVENT_TYPES = [
   "run.failed",
   "connection.needs_attention",
   "health.checked",
+  // v0.12 W1-F: accounts receivable (ARCHITECTURE §6.2); payloads in packages/senses/src/platform.ts.
+  "receivable.created",
+  "receivable.updated",
+  "receivable.paid",
+  // v0.12 W1-C: payload in ../threads/schemas.ts.
+  "thread.message_posted",
+  // v0.12 W2-E: triggers (docs/plan.md §1.48); payloads in ../triggers/kinds.ts.
+  "inbound.message",
+  "run.succeeded",
+  "account.request_passed",
 ] as const;
 export type PlatformEventType = (typeof PLATFORM_EVENT_TYPES)[number];

@@ -30,6 +30,20 @@ export interface RuntimeDeps {
   services?: (connection: ConnectionRef) => ConnectorServices;
   logger?: Logger;
   now?: () => Date;
+  /**
+   * The platform's data-handling policy (apps/api: a client's HIPAA mode, docs/plan.md §1.35): a
+   * reason to refuse this tool call for this client, or null. Absent: nothing is refused.
+   */
+  policy?: ToolPolicy;
+}
+
+export interface ToolPolicy {
+  refuseTool(call: {
+    tenantId: string;
+    toolId: string;
+    /** The tool's connector, or null for a platform or pack tool. */
+    connectorId: string | null;
+  }): Promise<string | null> | string | null;
 }
 
 /** One step of one run, for one client agent version. */
@@ -61,6 +75,12 @@ export interface StepContext {
   ask?: ((input: AskInput) => Promise<AskAnswer>) | undefined;
   /** The client's language, for tools that write words a client reads. */
   language?: Locale | undefined;
+  // v0.12 W1-E
+  /**
+   * A retry's step: the failed run it repeats. A write the same step proposed there, approved and
+   * not done, with the same input, is carried under its original key (ARCHITECTURE §10.10).
+   */
+  retryOf?: string | undefined;
 }
 
 export function connectionContext(deps: RuntimeDeps, tenantId: string, connection: ConnectionRef) {

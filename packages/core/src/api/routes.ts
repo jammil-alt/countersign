@@ -1,30 +1,70 @@
 import { z } from "zod";
+import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
-import { PermissionLevel } from "../schemas/permissions";
+import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 import { accessRoutes } from "./access";
+// v0.12 W2-D: Sloan, the account agent
+import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
+// v0.12 W2-B: automations
+import { automationRoutes, BuilderAutomation } from "./automations";
+// v0.12 bankfeed
+import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
+// v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+import { clientViewRoutes } from "./client-view";
+// v0.12 W2-F: the command center, search and plain-words questions
+import { commandCenterRoutes } from "./command-center";
+import { complianceRoutes } from "./compliance";
+// v0.12 W2-A: the connectors catalog
+import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
+import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
+import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
+import { modelRoutes } from "./models";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+// v0.13 W2-I: run oversight
+import { OversightDecisionView, oversightRoutes } from "./oversight";
+// v0.12 W1-G: people (autonomy).
+import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
+import { runControlRoutes } from "./run-controls";
+import {
+  OpsRunsQuery,
+  PortalRunsQuery,
+  RunErrorGroup,
+  RunStatusSchema,
+  RunsPerDay,
+} from "./runs-filter";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
+import { tableRoutes } from "./table";
+// v0.12 W2-C: the test bench
+import { testbenchRoutes } from "./testbench";
+// v0.12 W1-C: threads, the lead and `/commands`
+import { PortalLead, threadRoutes } from "./threads";
+// v0.12 W2-E: the triggers list
+import { triggerRoutes } from "./triggers";
 import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -44,6 +84,8 @@ export type SessionBase = z.infer<typeof SessionBase>;
 export const SessionResponse = SessionBase.extend({
   /** The language the app reads in, and the choices behind it (docs/plan.md §1.18). */
   language: SessionLanguage,
+  // v0.12 W1-C: the active client's lead, by name ("Message Ana"); null when none is set.
+  lead: PortalLead.nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
@@ -72,6 +114,8 @@ export const MatrixEdit = z.strictObject({
   update: PermissionLevel.optional(),
   delete: PermissionLevel.optional(),
   scope: z.unknown().optional(),
+  // v0.12 W2-A: when sent, the matrix's entities, whole; left out, they are kept (docs/plan.md §1.44).
+  entities: EntityPermissions.optional(),
 });
 
 export const ConnectionMatrix = z.object({
@@ -80,6 +124,8 @@ export const ConnectionMatrix = z.object({
   update: PermissionLevel,
   delete: PermissionLevel,
   scope: z.unknown().optional(),
+  // v0.12 W2-A: levels per entity (absent: every entity takes the verb's level).
+  entities: EntityPermissions.optional(),
 });
 
 export const ValidationErrorSchema = z.object({
@@ -90,14 +136,7 @@ export const ValidationErrorSchema = z.object({
   workflow: z.string().optional(),
 });
 
-export const RunStatusSchema = z.enum([
-  "queued",
-  "running",
-  "waiting",
-  "succeeded",
-  "failed",
-  "cancelled",
-]);
+// v0.12 W1-E: RunStatusSchema lives with RunFilter (./runs-filter.ts).
 export const InboxStatusSchema = z.enum(["open", "resolved", "expired"]);
 export const InboxKindSchema = z.enum([
   "approval",
@@ -213,6 +252,9 @@ export const OpsStep = z.object({
   tokensOut: z.number().int(),
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // v0.13 W2-H: the models the step's calls ran on, from its model calls (ARCHITECTURE §10.11).
+  /** Distinct, in the order first called; absent where the route doesn't read model calls. */
+  models: z.array(z.string()).optional(),
 });
 
 export const OpsToolCall = z.object({
@@ -252,6 +294,10 @@ export const OpsAction = z.object({
   approvedBy: z.string().nullable(),
   approvedAt: NullableTimestamp,
   executedAt: NullableTimestamp,
+  // v0.12 W1-D: the signer's edit before signing; `input` stays the agent's (both show).
+  editedInput: z.unknown().optional(),
+  editedBy: z.string().nullable().optional(),
+  editedAt: NullableTimestamp.optional(),
 });
 
 export const OpsInboxItem = z.object({
@@ -280,6 +326,8 @@ export const OpsInboxItem = z.object({
    * server decides; the back office only reads it.
    */
   resolvableByOperator: z.boolean(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
 });
 
 /** The client agent a run or inbox item belongs to, for the back office's lists (Track B). */
@@ -359,6 +407,9 @@ export const TimelineStep = z.object({
   sources: z.array(z.string()),
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // v0.13 W2-I: run oversight in the platform's words ("Corrected the vendor name and tried
+  // again"), one line per decision, in the client's language; never the agent's note (§10.11).
+  oversight: z.array(z.string()).optional(),
 });
 
 export const PortalInboxItem = z.object({
@@ -374,6 +425,8 @@ export const PortalInboxItem = z.object({
   createdAt: Timestamp,
   resolvedAt: NullableTimestamp,
   resolvedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
 });
 
 export const ToolAccessSchema = z.object({
@@ -382,6 +435,8 @@ export const ToolAccessSchema = z.object({
   verb: z.string(),
   level: PermissionLevel,
   access: z.enum(["runs", "asks_first", "steps_may_skip_approval", "not_allowed"]),
+  // v0.12 W2-A: the tool's entity; null when it has none or its input names it.
+  entity: z.string().nullable().optional(),
 });
 
 export const PortalConnection = z.object({
@@ -398,6 +453,8 @@ export const PortalConnection = z.object({
    * connected it; other tools are the client admin's.
    */
   personal: z.boolean().optional(),
+  // v0.12 W2-A: the record types the connector declares, for the entity rows of the matrix.
+  permissionEntities: z.array(PermissionEntity).optional(),
   connection: z
     .object({
       id: z.string(),
@@ -602,6 +659,8 @@ export const BuilderCatalog = z.object({
   ),
   tools: z.array(ToolSpec),
   connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
+  // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
+  automations: z.array(BuilderAutomation).default([]),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
@@ -1304,16 +1363,14 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary: "Runs across the clients served",
-    query: z.object({
-      client: ApiId.optional(),
-      status: RunStatusSchema.optional(),
-      agent: ApiId.optional(),
-      mode: z.enum(["live", "test"]).optional(),
-      /** Runs created at or after this time (ISO 8601). */
-      since: z.iso.datetime({ offset: true }).optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
+    // v0.12 W1-E: RunFilter as query parameters, `perDay=1`, `groupBy=error` (docs/plan.md §1.40).
+    query: OpsRunsQuery,
+    response: z.object({
+      runs: z.array(OpsRun),
+      agents: z.array(OpsAgentRef),
+      perDay: RunsPerDay.optional(),
+      groups: z.array(RunErrorGroup).optional(),
     }),
-    response: z.object({ runs: z.array(OpsRun), agents: z.array(OpsAgentRef) }),
   }),
   opsRun: defineRoute({
     method: "GET",
@@ -1334,6 +1391,8 @@ export const opsRoutes = {
       workflow: z
         .object({ slug: z.string(), name: z.string(), definition: z.unknown() })
         .nullable(),
+      // v0.13 W2-I: the run's oversight decisions, oldest first (ARCHITECTURE §10.11).
+      oversight: z.array(OversightDecisionView).optional(),
     }),
   }),
   opsInbox: defineRoute({
@@ -1521,6 +1580,8 @@ export const portalRoutes = {
     query: z.object({
       status: InboxStatusSchema.default("open"),
       kind: InboxKindSchema.optional(),
+      // v0.12 W1-D: open items leave "waiting" while snoozed; `snoozed` lists them.
+      view: z.enum(["waiting", "snoozed"]).optional(),
     }),
     response: z.object({ items: z.array(PortalInboxItem) }),
   }),
@@ -1540,12 +1601,9 @@ export const portalRoutes = {
     auth: "session",
     roles: CLIENT,
     summary: "Runs of your services (never test runs)",
-    query: z.object({
-      service: ApiId.optional(),
-      status: RunStatusSchema.optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-    }),
-    response: z.object({ runs: z.array(PortalRunSummary) }),
+    // v0.12 W1-E: RunFilter without the back office's keys (docs/plan.md §1.40).
+    query: PortalRunsQuery,
+    response: z.object({ runs: z.array(PortalRunSummary), perDay: RunsPerDay.optional() }),
   }),
   portalRun: defineRoute({
     method: "GET",
@@ -1603,9 +1661,14 @@ export const portalRoutes = {
     auth: "session",
     roles: ["client_admin", "client_user"],
     summary:
-      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
+      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts (a URL, or a link widget to open)",
     params: z.object({ connector: ConnectorId }),
-    response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
+    response: z.object({
+      connection: PortalConnection,
+      redirectUrl: z.string().nullable(),
+      // v0.12 bankfeed: Plaid Link, opened in the page, in place of a redirect.
+      link: LinkStartView.nullable().optional(),
+    }),
   }),
   portalAuthorizeCallback: defineRoute({
     method: "POST",
@@ -1773,6 +1836,8 @@ export const routes = {
   ...opsRoutes,
   ...portalRoutes,
   ...feedbackRoutes,
+  ...complianceRoutes,
+  ...exportRoutes,
   ...onboardingRoutes,
   ...requestRoutes,
   ...languageRoutes,
@@ -1789,5 +1854,39 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 bankfeed: Plaid's webhook
+  ...bankfeedRoutes,
+  // v0.12 W1-G: people (autonomy).
+  ...peopleRoutes,
+  ...voiceSampleRoutes,
+  // v0.12 W1-E
+  ...runControlRoutes,
+  // v0.12 W1-A: go-live stages and client controls
+  ...lifecycleRoutes,
+  // v0.12 W1-B: notifications, the Table and the Weekly Table
+  ...notifyRoutes,
+  ...tableRoutes,
+  // v0.12 W1-D: the Desk
+  ...deskRoutes,
+  // v0.12 W2-B: automations
+  ...automationRoutes,
+  // v0.12 W1-C
+  ...threadRoutes,
+  // v0.12 W2-D: Sloan, the account agent
+  ...accountRoutes,
+  // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+  ...clientViewRoutes,
+  // v0.12 W2-C: the test bench, skill tests and the agent lab
+  ...testbenchRoutes,
+  // v0.12 W2-F: the command center, search and plain-words questions
+  ...commandCenterRoutes,
+  // v0.12 W2-A: the connectors catalog
+  ...connectorRoutes,
+  // v0.12 W2-E
+  ...triggerRoutes,
+  // v0.13 W2-H: models for task skills and skill steps.
+  ...modelRoutes,
+  // v0.13 W2-I: run oversight decisions for the agent lab.
+  ...oversightRoutes,
 } as const;
 export type Routes = typeof routes;

@@ -112,7 +112,7 @@ describe("qbo connector: manifest and sign-in", () => {
     }
   });
 
-  it("declares five reads and six approval-gated writes, no delete", () => {
+  it("declares nine reads and eight approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -128,7 +128,25 @@ describe("qbo connector: manifest and sign-in", () => {
       [QBO_TOOLS.purchaseUpdateMemo, "external", "update"],
       [QBO_TOOLS.itemUpdatePurchaseCost, "external", "update"],
       [QBO_TOOLS.attachableUpload, "external", "create"],
+      // v0.12: accounts receivable and create bill.
+      [QBO_TOOLS.invoiceQuery, "none", "read"],
+      [QBO_TOOLS.customerQuery, "none", "read"],
+      [QBO_TOOLS.paymentQuery, "none", "read"],
+      [QBO_TOOLS.agingReport, "none", "read"],
+      [QBO_TOOLS.invoiceAddNote, "external", "update"],
+      [QBO_TOOLS.billCreate, "external", "create"],
     ]);
+    // The record types the v0.12 tools name (ToolSpec.entity), for per-entity permissions.
+    const entity = (id: string) => connector.manifest.tools.find((t) => t.id === id)?.entity;
+    expect(entity(QBO_TOOLS.invoiceAddNote)).toBe("invoice");
+    expect(entity(QBO_TOOLS.billCreate)).toBe("bill");
+    expect(entity(QBO_TOOLS.agingReport)).toBe("invoice");
+    // Create bill declares its amount for approver rules.
+    expect(connector.manifest.tools.find((t) => t.id === QBO_TOOLS.billCreate)?.amount).toEqual({
+      path: "expectedTotal",
+      currencyPath: "currency",
+      currency: "USD",
+    });
     expect(connector.manifest.tools.every((t) => t.verb !== "delete")).toBe(true);
     // Every write says how it reads on an approval card, in all six languages, and shows no
     // guard (the SyncToken, the expected total, the line ids it replaces) to the person signing.
@@ -146,7 +164,12 @@ describe("qbo connector: manifest and sign-in", () => {
         );
       }
       const shown = display.fields.flatMap((f) => [f.now, f.after]).filter(Boolean);
-      expect(shown.join(" "), t.id).not.toMatch(/syncToken|expectedTotal|\.id\b|Ids?\b/);
+      // A new bill's expected total is its total, not a guard on a record that exists.
+      const guards =
+        t.id === QBO_TOOLS.billCreate
+          ? /syncToken|\.id\b|Ids?\b/
+          : /syncToken|expectedTotal|\.id\b|Ids?\b/;
+      expect(shown.join(" "), t.id).not.toMatch(guards);
     }
     expect(createQboConnector().isConfigured?.()).toBe(false);
     expect(connector.isConfigured?.()).toBe(true);
@@ -713,15 +736,23 @@ describe("qbo sync", () => {
         "Bill:146:2",
         "VendorCredit:301:0",
         "Attachable:5000000000000401:0",
+        // v0.12: customers whole, invoices and payments for 365 days.
+        "Customer:8:2",
+        "Invoice:130:1",
+        "Invoice:134:3",
+        "Payment:501:0",
       ]),
     );
+    expect(seen).not.toContain("Invoice:120:1");
     expect(new Set(seen).size).toBe(seen.length);
-    const initialQuery =
-      s.qbo
-        .apiCalls("GET", "query")
-        .map((r) => decodeURIComponent(r.url.replace(/\+/g, " ")))
-        .find((u) => u.includes("from Bill")) ?? "";
+    const queries = s.qbo
+      .apiCalls("GET", "query")
+      .map((r) => decodeURIComponent(r.url.replace(/\+/g, " ")));
+    const initialQuery = queries.find((u) => u.includes("from Bill")) ?? "";
     expect(initialQuery).toContain("TxnDate >= '2026-08-07'");
+    expect(queries.find((u) => u.includes("from Invoice"))).toContain("TxnDate >= '2025-11-05'");
+    expect(queries.find((u) => u.includes("from Payment"))).toContain("TxnDate >= '2025-11-05'");
+    expect(queries.find((u) => u.includes("from Customer"))).not.toContain("where");
 
     // Later: a bill comes in with its invoice attached, a purchase is deleted, a bill changes.
     now = new Date("2026-11-05T18:15:00.000Z");
@@ -757,9 +788,14 @@ describe("qbo sync", () => {
     ]);
     const cdcCall = s.qbo.apiCalls("GET", "cdc").at(-1)?.url ?? "";
     expect(decodeURIComponent(cdcCall)).toContain(
-      "entities=Vendor,Item,Purchase,Bill,VendorCredit,Attachable",
+      "entities=Vendor,Item,Customer,Purchase,Bill,VendorCredit,Invoice,Payment,Attachable",
     );
-    expect(page.next).toEqual({ v: 1, phase: "cdc", changedSince: "2026-11-05T18:14:00.000Z" });
+    expect(page.next).toEqual({
+      v: 1,
+      phase: "cdc",
+      ar: true,
+      changedSince: "2026-11-05T18:14:00.000Z",
+    });
   });
 
   it("starts over when CDC would look back more than 30 days", async () => {

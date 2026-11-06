@@ -89,6 +89,7 @@ export const en = {
   "nav.people": "People",
   "nav.access": "Access",
   "nav.directory": "Directory",
+  "nav.records": "Records",
   "page.service": "Service",
 
   // ── Overview ──
@@ -160,6 +161,8 @@ export const en = {
   "inbox.openRequestsQueue": "Open the requests queue",
   "inbox.decline": "Decline",
   "inbox.sendAnswer": "Send answer",
+  "inbox.undo": "Undo",
+  "inbox.undoWindow": "Signed. We make the change in a minute; you can still undo it.",
   "inbox.reject": "Reject",
   "inbox.sign": "Sign",
   "inbox.findingSteps": "What to do",
@@ -284,6 +287,12 @@ export const en = {
   "callback.subtitle": "Finishing the sign-in to your tool.",
   "callback.back": "Back to Connections",
   "callback.connecting": "Connecting…",
+  // v0.12 bankfeed: bank and card feeds through Plaid.
+  "connections.bankfeed.description":
+    "Read the transactions of your bank accounts and cards. Nothing here can move money.",
+  "connections.bankfeed.connect": "Connect bank or card",
+  "callback.linkLost":
+    "This bank sign-in started in another tab or window. Start again from Connections.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Access",
@@ -668,6 +677,28 @@ export const en = {
   "record.notFound":
     "There's no record page for this id. It may be a record of a tool or pack we don't show here.",
   "record.source": "Record ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Records",
+  "records.subtitle":
+    "What your tools brought in, newest first. Open one to see where it came from.",
+  "records.kind.transactions": "Transactions",
+  "records.kind.vendors": "Vendors",
+  "records.kind.items": "Items",
+  "records.search": "Search records",
+  "records.empty": "Nothing here yet. Records arrive when your tools sync.",
+  "records.noMatch": "Nothing matches “{q}”.",
+  "records.col.date": "Date",
+  "records.col.type": "Type",
+  "records.col.vendor": "Vendor",
+  "records.col.number": "Number",
+  "records.col.total": "Total",
+  "records.col.name": "Name",
+  "records.col.transactions": "Transactions",
+  "records.col.description": "Description",
+  "records.col.source": "Source",
+  "records.range": "{from}–{to} of {total}",
+  "records.previous": "Previous",
+  "records.next": "Next",
 
   // ── Who approves ──
   "approvers.title": "Who approves",

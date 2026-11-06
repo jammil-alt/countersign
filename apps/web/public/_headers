@@ -1,0 +1,17 @@
+# Security headers for the app's static files (docs/plan.md §1.35). Cloudflare's static assets
+# read this file; the API's responses get theirs from apps/api/src/security-headers.ts.
+# The CSP allows only this origin, plus Sentry's ingest for error reports. Inline style attributes
+# (React's `style`) need 'unsafe-inline' for styles; scripts stay 'self' only. data: and blob: images
+# and fonts are what the feedback screenshot (modern-screenshot) draws with.
+# v0.12 bankfeed (docs/plan.md §1.52): Plaid Link, the narrowest we know works: its one script by
+# full path, its frames from cdn.plaid.com, and Plaid's API hosts for what the script calls from
+# the page (production and sandbox; the file is the same for staging and production). No inline
+# scripts. Verify in Plaid's sandbox with an OAuth bank (packages/connectors/src/bankfeed/NOTES.md).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.plaid.com/link/v2/stable/link-initialize.js; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://production.plaid.com https://sandbox.plaid.com; frame-src 'self' https://cdn.plaid.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Strict-Transport-Security: max-age=63072000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin

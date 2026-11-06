@@ -27,6 +27,8 @@ import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, iso, mount, notFound } from "../http";
 import type { Platform } from "../platform";
+// v0.12 W2-C: the publish gate
+import { assertSkillTestsPass } from "../testbench/gate";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 type SkillRow = typeof skill.$inferSelect;
@@ -370,6 +372,9 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsPublishSkill, async (ctx) => {
     const row = await skillInScope(ctx, ctx.params.id);
+    // v0.12 W2-C: the publish gate. With `require_tests`, the latest suite run of this version
+    // must have passed every required case (422 tests_failing).
+    await assertSkillTestsPass(ctx.tx, row, ctx.params.vid);
     const v = await publishSkill(ctx.tx, { skillId: row.id, versionId: ctx.params.vid });
     return { version: skillVersionView(v) };
   });

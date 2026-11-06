@@ -5,6 +5,7 @@ import {
   type PermissionMatrix,
   type ToolAmount,
   type ToolDisplay,
+  type ToolRecipient,
   type ToolSpec,
   type Verb,
 } from "@countersign/core";
@@ -54,6 +55,23 @@ export interface ConnectorServices {
   browser?: BrowserServices;
   /** The client's stored documents, for tools that send one to the tool (QBO attachments). */
   documents?: DocumentServices;
+  // v0.12 W1-F
+  /** What sync already stored for this connection (QBO: duplicate bills, receivable ids). */
+  records?: SyncedRecordServices;
+}
+
+// v0.12 W1-F: synced records, read for the call's one client and connection (apps/api/src/qbo).
+export interface SyncedRecordServices {
+  /**
+   * Synced bills (not deleted) from the vendor with this id in the tool whose document number
+   * normalizes to the same letters and digits: their transaction ids and ids in the tool.
+   */
+  syncedBills(q: {
+    vendorExternalId: string;
+    docNumber: string;
+  }): Promise<{ transactionId: string; externalId: string }[]>;
+  /** Receivable ids by the invoice's id in the tool, for those synced (others are left out). */
+  receivableIds(externalIds: string[]): Promise<Record<string, string>>;
 }
 
 /** A stored document's bytes, read for one client (the call's). */
@@ -130,6 +148,10 @@ export function defineReadTool<I extends z.ZodType, O extends z.ZodType>(def: {
   id: string;
   description: string;
   summary?: string;
+  /** The record type it reads (ToolSpec `entity`, v0.12). */
+  entity?: string;
+  /** v0.12 W2-A: the input field that names its record type (ToolSpec `entityInput`). */
+  entityInput?: { field: string; values: Record<string, string> };
   input: I;
   output: O;
   run(input: z.output<I>, ctx: ToolContext): Promise<z.input<O>>;
@@ -143,6 +165,8 @@ export function defineReadTool<I extends z.ZodType, O extends z.ZodType>(def: {
       sideEffect: "none",
       verb: "read",
       ...(def.summary === undefined ? {} : { summary: def.summary }),
+      ...(def.entity === undefined ? {} : { entity: def.entity }),
+      ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),
     },
     handler: {
       kind: "read",
@@ -169,6 +193,12 @@ export function defineWriteTool<
   amount?: ToolAmount;
   /** How the change reads on its approval card (ToolSpec `display`). */
   display?: ToolDisplay;
+  // v0.12 W1-G: the input field naming the person a send messages (ToolSpec `recipient`).
+  recipient?: ToolRecipient;
+  /** The record type it touches (ToolSpec `entity`, v0.12). */
+  entity?: string;
+  /** v0.12 W2-A: the input field that names its record type (ToolSpec `entityInput`). */
+  entityInput?: { field: string; values: Record<string, string> };
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -188,6 +218,9 @@ export function defineWriteTool<
       ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
       ...(def.amount === undefined ? {} : { amount: def.amount }),
       ...(def.display === undefined ? {} : { display: def.display }),
+      ...(def.recipient === undefined ? {} : { recipient: def.recipient }),
+      ...(def.entity === undefined ? {} : { entity: def.entity }),
+      ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),
     },
     handler: {
       kind: "write",
@@ -233,6 +266,35 @@ export interface CallbackRequest {
   tenantId: string;
   userId: string;
   redirectUri: string;
+  /**
+   * v0.12 bankfeed: the connection being signed in again, when it still holds credentials (a
+   * hosted link flow's reconnect keeps the same grant: Plaid Link's update mode). Absent otherwise.
+   */
+  existing?: ConnectionContext;
+}
+
+// v0.12 bankfeed (docs/plan.md §1.52): a provider whose sign-in is its own hosted widget opened in
+// the page (Plaid Link), not a redirect. The platform signs a state as for OAuth; the connector
+// makes a short-lived token the portal opens the widget with; the widget's result comes back
+// through the same callback route (`handleCallback`) with that state.
+export interface LinkRequest {
+  tenantId: string;
+  userId: string;
+  /** Where an OAuth bank sends the person back to (the portal's callback page). */
+  redirectUri: string;
+  /** Where the provider posts this client's notifications. */
+  webhookUrl: string;
+  /** The reader's language (a portal locale); the widget may support fewer. */
+  language?: string;
+  /** The connection being reconnected, when it still holds credentials (update mode). */
+  reconnect?: ConnectionContext;
+}
+
+export interface LinkStart {
+  provider: "plaid";
+  /** Short-lived and single-use: it opens the widget, and reads nothing by itself. */
+  token: string;
+  expiresAt: string | null;
 }
 
 /**
@@ -253,6 +315,8 @@ export interface Connector {
   /** Handlers by tool id, one for each of `manifest.tools`. */
   tools: Readonly<Record<string, ToolHandler>>;
   authorize?(req: AuthorizeRequest): Promise<{ redirectUrl: string }>;
+  /** v0.12 bankfeed: a hosted link widget in place of `authorize`'s redirect (Plaid Link). */
+  beginLink?(req: LinkRequest): Promise<LinkStart>;
   handleCallback?(params: Record<string, string>, req: CallbackRequest): Promise<ConnectionGrant>;
   /**
    * Whether this deployment has what signing in needs (e.g. the OAuth client id and secret).
@@ -352,6 +416,7 @@ export function defineConnector(
     events,
     sharedNamespaces,
     credentialFields,
+    permissionEntities,
     tools,
     ...hooks
   } = def;
@@ -373,6 +438,8 @@ export function defineConnector(
     ...(events === undefined ? {} : { events }),
     ...(sharedNamespaces === undefined ? {} : { sharedNamespaces }),
     ...(credentialFields === undefined ? {} : { credentialFields }),
+    // v0.12 W2-A
+    ...(permissionEntities === undefined ? {} : { permissionEntities }),
   });
   if (!parsed.success) {
     problems.push(
@@ -395,8 +462,9 @@ export function defineConnector(
     }
     handlers[t.spec.id] = t.handler;
   }
-  if (auth === "oauth2" && (!hooks.authorize || !hooks.handleCallback)) {
-    problems.push("oauth2 connectors need authorize and handleCallback");
+  // v0.12 bankfeed: a hosted link widget (beginLink) starts a sign-in in place of a redirect.
+  if (auth === "oauth2" && (!(hooks.authorize || hooks.beginLink) || !hooks.handleCallback)) {
+    problems.push("oauth2 connectors need authorize and handleCallback (or beginLink for a link)");
   }
   problems.push(...manifestDefaultProblems({ defaultPermissions }));
   if (problems.length > 0 || !parsed.success) throw new ConnectorDefinitionError(id, problems);

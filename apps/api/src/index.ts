@@ -7,8 +7,11 @@ import { handleEmail } from "./email";
 import type { Bindings } from "./env";
 
 export { app } from "./app";
+export { ExportWorkflow } from "./exports/workflow";
 export { QboSyncWorkflow } from "./qbo/workflow";
 export { RunWorkflow } from "./runs/workflow";
+// v0.12 W2-C: the test bench
+export { TestSuiteWorkflow } from "./testbench/workflow";
 
 export default {
   fetch: app.fetch,

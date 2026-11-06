@@ -93,6 +93,7 @@ export const fr: Messages = {
   "nav.people": "Personnes",
   "nav.access": "Accès",
   "nav.directory": "Annuaire",
+  "nav.records": "Enregistrements",
   "page.service": "Service",
 
   // ── Overview ──
@@ -169,6 +170,9 @@ export const fr: Messages = {
   "inbox.openRequestsQueue": "Ouvrir la file des demandes",
   "inbox.decline": "Décliner",
   "inbox.sendAnswer": "Envoyer la réponse",
+  "inbox.undo": "Annuler",
+  "inbox.undoWindow":
+    "Signé. Nous faisons le changement dans une minute ; vous pouvez encore l'annuler.",
   "inbox.reject": "Refuser",
   "inbox.sign": "Signer",
   "inbox.findingSteps": "Que faire",
@@ -299,6 +303,12 @@ export const fr: Messages = {
   "callback.subtitle": "Fin de la connexion à votre outil.",
   "callback.back": "Retour aux connexions",
   "callback.connecting": "Connexion…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lisez les opérations de vos comptes bancaires et de vos cartes. Rien ici ne peut déplacer d'argent.",
+  "connections.bankfeed.connect": "Connecter une banque ou une carte",
+  "callback.linkLost":
+    "Cette connexion bancaire a commencé dans un autre onglet ou une autre fenêtre. Recommencez depuis Connexions.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accès",
@@ -698,6 +708,29 @@ export const fr: Messages = {
   "record.notFound":
     "Il n'y a pas de page pour cet identifiant. Il s'agit peut-être d'un enregistrement d'un outil ou d'un pack que nous n'affichons pas ici.",
   "record.source": "Enregistrement ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Enregistrements",
+  "records.subtitle":
+    "Ce que vos outils ont apporté, du plus récent au plus ancien. Ouvrez-en un pour voir d’où il vient.",
+  "records.kind.transactions": "Transactions",
+  "records.kind.vendors": "Fournisseurs",
+  "records.kind.items": "Articles",
+  "records.search": "Rechercher",
+  "records.empty":
+    "Rien pour l’instant. Les enregistrements arrivent quand vos outils se synchronisent.",
+  "records.noMatch": "Rien ne correspond à « {q} ».",
+  "records.col.date": "Date",
+  "records.col.type": "Type",
+  "records.col.vendor": "Fournisseur",
+  "records.col.number": "Numéro",
+  "records.col.total": "Total",
+  "records.col.name": "Nom",
+  "records.col.transactions": "Transactions",
+  "records.col.description": "Description",
+  "records.col.source": "Source",
+  "records.range": "{from}–{to} sur {total}",
+  "records.previous": "Précédent",
+  "records.next": "Suivant",
 
   // ── Who approves ──
   "approvers.title": "Qui approuve",

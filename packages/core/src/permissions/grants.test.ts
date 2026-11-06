@@ -91,11 +91,12 @@ describe("tools subset", () => {
 describe("loosening (client roles may only tighten)", () => {
   it("raising a verb, dropping it, or widening tools loosens", () => {
     expect(grantLoosening({ verbs: { create: "off" } }, { verbs: { create: "approval" } })).toEqual(
-      { verbs: ["create"], tools: false },
+      { verbs: ["create"], tools: false, entities: [] },
     );
     expect(grantLoosening({ verbs: { create: "off" } }, {})).toEqual({
       verbs: ["create"],
       tools: false,
+      entities: [],
     });
     expect(grantLoosening({ tools: ["a"] }, {}).tools).toBe(true);
     expect(grantLoosening({ tools: ["a"] }, { tools: ["a", "b"] }).tools).toBe(true);
@@ -105,6 +106,7 @@ describe("loosening (client roles may only tighten)", () => {
     expect(grantLoosening(null, { verbs: { update: "approval" } })).toEqual({
       verbs: [],
       tools: false,
+      entities: [],
     });
     expect(grantLoosening({ tools: ["a", "b"] }, { tools: ["a"] }).tools).toBe(false);
     expect(grantLoosening(null, { tools: ["a"] }).tools).toBe(false);

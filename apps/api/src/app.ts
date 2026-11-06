@@ -3,9 +3,11 @@
 
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
+import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
+import { purgeRetiredFiles } from "./compliance/retention";
 import type { Bindings } from "./env";
 import {
   type AppDeps,
@@ -15,29 +17,57 @@ import {
   requestState,
   stripeFor,
 } from "./http";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
+// v0.12 W2-G
+import { originOf } from "./notify/outbox";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
+// v0.12 W2-D: Sloan, the account agent
+import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
+import { auditExportRoutes } from "./routes/audit-export";
+// v0.12 bankfeed
+import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
+import { clientViewRoutes } from "./routes/client-view";
+// v0.12 W2-F: the command center, search and plain-words questions
+import { commandCenterRoutes } from "./routes/command-center";
+import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
+import { deskRoutes } from "./routes/desk";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
+// v0.12 W2-C: the test bench, skill tests and the agent lab
+import { labRoutes } from "./routes/lab";
 import { languageRouteHandlers } from "./routes/language";
+import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
+import { notifyRouteHandlers } from "./routes/notify";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
+// v0.12 W2-B: automations
+import { opsAutomationRoutes } from "./routes/ops-automations";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
+// v0.12 W2-A: the connectors catalog
+import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
+import { opsModelRoutes } from "./routes/ops-models";
+// v0.13 W2-I
+import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
@@ -45,19 +75,32 @@ import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
 import { supervisorRouteHandlers } from "./routes/supervisor";
+import { tableRouteHandlers } from "./routes/table";
+// v0.12 W2-C
+import { testbenchRoutes } from "./routes/testbench";
+// v0.12 W1-C
+import { threadRouteHandlers } from "./routes/threads";
+// v0.12 W2-E
+import { triggerRouteHandlers } from "./routes/triggers";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
-import { reachDepsFor, runDepsFromEnv } from "./runs/execute";
+import { forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+import { securityHeaders } from "./security-headers";
 import { vaultTick } from "./vault/upkeep";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+  app.use("/api/*", securityHeaders);
+  // The MCP server (/mcp) and its OAuth metadata get the same headers (docs/plan.md §1.35).
+  app.use("/mcp", securityHeaders);
+  app.use("/.well-known/*", securityHeaders);
   // Liveness needs nothing: no database, no session.
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
   app.use("/api/*", requestState(deps));
@@ -69,9 +112,16 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsBuilderRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
+  // v0.13 W2-H: models for task skills and skill steps.
+  opsModelRoutes(app);
   supervisorRouteHandlers(app);
+  // v0.12 W1-D: before the portal's routes, so `/api/inbox/batch/resolve` is not read as an item
+  // id by `/api/inbox/:id/resolve` (Hono runs handlers in the order they were added).
+  deskRoutes(app);
   portalRouteHandlers(app);
   qboRoutes(app);
+  // v0.12 bankfeed: Plaid's webhook
+  bankfeedRoutes(app);
   connectionRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
@@ -96,6 +146,35 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   accessRoutes(app);
   releaseRoutes(app);
   browserRoutes(app);
+  complianceRouteHandlers(app);
+  // v0.12 W1-E
+  runControlRoutes(app);
+  // v0.12 W1-A: go-live stages and client controls
+  lifecycleRoutes(app);
+  exportRoutes(app);
+  // v0.12 W1-B: notifications, the Table and the Weekly Table
+  notifyRouteHandlers(app);
+  tableRouteHandlers(app);
+  // v0.12 W2-B: automations
+  opsAutomationRoutes(app);
+  // v0.12 W1-C
+  threadRouteHandlers(app);
+  // v0.12 W2-D: Sloan, the account agent
+  accountRoutes(app);
+  // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+  clientViewRoutes(app);
+  auditExportRoutes(app);
+  // v0.12 W2-C: the test bench, skill tests and the agent lab
+  testbenchRoutes(app);
+  labRoutes(app);
+  // v0.12 W2-F: the command center, search and plain-words questions
+  commandCenterRoutes(app);
+  // v0.12 W2-A: the connectors catalog
+  opsConnectorRoutes(app);
+  // v0.12 W2-E: the triggers list
+  triggerRouteHandlers(app);
+  // v0.13 W2-I: run oversight decisions for the agent lab
+  opsOversightRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -122,7 +201,7 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         instances,
         reachTick: (tenantId, at) =>
           reachOutTick(
-            reachDepsFor(runDepsFromEnv(env, { db, platform, instances })),
+            reachDepsFor(forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId)),
             tenantId,
             at,
           ),
@@ -132,16 +211,35 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       },
       scheduledTime,
     );
+    // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
+    // move to signoff (hourly, at the usage sweep's minute).
+    await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
+      console.error("lifecycle tick failed", error),
+    );
+    // v0.12 W1-B: the Weekly Table every minute (Friday draft, Monday send) and the notification
+    // pass every 5 minutes.
+    await notifyTick(db, notifyDepsFromEnv(env, deps.fetch?.(env)), platform, scheduledTime).catch(
+      (error: unknown) => console.error("notification tick failed", error),
+    );
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       console.error("qbo sync tick failed", error),
     );
+    // v0.12 bankfeed: every connected bank feed once an hour, behind Plaid's webhook (§1.52).
+    await bankfeedCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
+      console.error("bank feed sync tick failed", error),
+    );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
+      // v0.12 W2-G: `origin` for the credits notifications the pass queues.
+      await billingTick({ db, stripe: stripeFor(deps, env), origin: originOf(env) }, scheduledTime);
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
         console.error("vault upkeep failed", error),
+      );
+      // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
+      await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
+        console.error("retention sweep failed", error),
       );
     }
   } finally {

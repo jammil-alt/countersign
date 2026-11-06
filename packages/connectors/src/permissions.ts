@@ -2,11 +2,17 @@ import {
   type ConnectorManifest,
   DEFAULT_PERMISSIONS,
   deepEqual,
+  effectiveLevel,
+  entityProblems,
   levelFor,
+  loosenedEntities,
   loosenedVerbs,
+  type PermissionEntity,
   type PermissionLevel,
   PermissionMatrix,
+  readEntities,
   type SideEffect,
+  type ToolSpec,
   type Verb,
 } from "@countersign/core";
 
@@ -19,7 +25,10 @@ export function stricter(a: PermissionLevel, b: PermissionLevel): PermissionLeve
   return STRICTNESS[a] >= STRICTNESS[b] ? a : b;
 }
 
-/** A complete matrix: missing verbs take the platform defaults; scope is kept as given. */
+/**
+ * A complete matrix: missing verbs take the platform defaults; scope is kept as given. v0.12 W2-A:
+ * entities are kept when there are any (an unreadable value is kept as it is, and reads as `off`).
+ */
 export function normalizeMatrix(matrix: Partial<PermissionMatrix> | undefined): PermissionMatrix {
   const out: PermissionMatrix = {
     read: levelFor(matrix, "read"),
@@ -28,7 +37,17 @@ export function normalizeMatrix(matrix: Partial<PermissionMatrix> | undefined): 
     delete: levelFor(matrix, "delete"),
   };
   if (matrix?.scope !== undefined) out.scope = matrix.scope;
-  return PermissionMatrix.parse(out);
+  const parsed = PermissionMatrix.parse(out);
+  // v0.12 W2-A
+  const entities = readEntities(matrix);
+  if (entities === null) {
+    // DECISION: an unreadable `entities` is never dropped (dropping it would loosen every entity it
+    // narrowed); readEntities makes the gate read it as `off` until the operator sets it again.
+    (parsed as Record<string, unknown>).entities = (matrix as { entities?: unknown }).entities;
+  } else if (Object.keys(entities).length > 0) {
+    parsed.entities = entities;
+  }
+  return parsed;
 }
 
 /**
@@ -44,10 +63,40 @@ export function manifestDefaultProblems(manifest: Pick<ConnectorManifest, "defau
   );
 }
 
-/** The matrix a new connection starts with: the connector's defaults, else the platform's. */
+// v0.12 W2-A: the operator's default access for new clients (connector_setting, ARCHITECTURE
+// §6.1 "Connectors catalog"), checked like a manifest's: no verb looser than the platform's
+// defaults, delete off, entities the connector's own.
+// DECISION: the default access may only be stricter than the platform defaults, as a manifest's:
+// it applies to a client's connection before anyone at the client has seen it, so it never
+// starts looser than "approval on" (invariant 8). The operator loosens one client's matrix after.
+export function defaultAccessProblems(
+  manifest: Pick<ConnectorManifest, "permissionEntities">,
+  matrix: Partial<PermissionMatrix>,
+): string[] {
+  const problems = loosenedVerbs(DEFAULT_PERMISSIONS, matrix).map(
+    (v) =>
+      `${v} can't start ${levelFor(matrix, v)}: new connections start at ${DEFAULT_PERMISSIONS[v]} at most`,
+  );
+  const entities = readEntities(matrix);
+  if (entities === null) problems.push("the entities don't read");
+  problems.push(...entityProblems(entities ?? {}, manifest.permissionEntities));
+  return problems;
+}
+
+/**
+ * The matrix a new connection starts with: the operator's default access for the connector
+ * (v0.12 W2-A, when set and valid), else the connector's defaults, else the platform's.
+ */
 export function connectionDefaults(
-  manifest?: Pick<ConnectorManifest, "defaultPermissions">,
+  manifest?: Pick<ConnectorManifest, "defaultPermissions" | "permissionEntities">,
+  // v0.12 W2-A: `connector_setting.default_permissions`.
+  operatorDefault?: Partial<PermissionMatrix> | null,
 ): PermissionMatrix {
+  // DECISION: an operator default that no longer fits the manifest (an entity removed since) is
+  // passed over for the manifest's, so a client's first connection never fails over it.
+  if (operatorDefault && defaultAccessProblems(manifest ?? {}, operatorDefault).length === 0) {
+    return normalizeMatrix(operatorDefault);
+  }
   const problems = manifest ? manifestDefaultProblems(manifest) : [];
   if (problems.length > 0) throw new Error(problems.join("; "));
   return normalizeMatrix(manifest?.defaultPermissions ?? DEFAULT_PERMISSIONS);
@@ -57,9 +106,11 @@ export function connectionDefaults(
 export type MatrixEditor = "operator" | "client";
 
 export type MatrixChangeRefusal =
-  | { reason: "loosening"; verbs: Verb[]; message: string }
+  | { reason: "loosening"; verbs: Verb[]; entities: string[]; message: string }
   | { reason: "scope"; message: string }
-  | { reason: "delete_not_off"; message: string };
+  | { reason: "delete_not_off"; message: string }
+  // v0.12 W2-A: entities, verbs or scopes the connector doesn't declare.
+  | { reason: "invalid_entities"; message: string };
 
 export type MatrixChangeResult =
   | {
@@ -79,6 +130,8 @@ export interface MatrixChange {
   after: PermissionMatrix;
   loosened: Verb[];
   tightened: Verb[];
+  // v0.12 W2-A: entity levels and scopes made looser (`bill.create`, `invoice.update scope`).
+  loosenedEntities?: string[];
 }
 
 /**
@@ -90,14 +143,21 @@ export interface MatrixChange {
  *   a client edit that changes it is refused, because the platform can't tell whether a
  *   connector-specific scope got narrower.
  * - `delete` stays `off` for everyone in v1 (invariant 8: delete is off; v1 has no delete tools).
+ * - v0.12 W2-A: `entities`, when sent, replaces the matrix's entities whole; left out, they are
+ *   kept (the old matrix editor sends verb levels only). They must be the connector's own
+ *   (`declared`); a client may only tighten them, entity by entity and scope by scope.
  */
 // DECISION: clients cannot edit scope (the platform can't judge "narrower" for an opaque scope);
 // they tighten per verb. Operators set scope.
 // DECISION: delete is pinned to `off` for every editor in v1, not just by default.
+// DECISION (v0.12 W2-A): an entity scope is not opaque (its tools are declared), so a client may
+// set one, or move to one that lets through fewer tools; dropping or widening one is loosening.
 export function applyMatrixChange(input: {
   current: Partial<PermissionMatrix> | undefined;
   proposed: Partial<PermissionMatrix>;
   by: MatrixEditor;
+  /** v0.12 W2-A: the connector's `permissionEntities`. */
+  declared?: readonly PermissionEntity[] | undefined;
 }): MatrixChangeResult {
   const before = normalizeMatrix(input.current);
   const merged: Partial<PermissionMatrix> = { ...before };
@@ -109,6 +169,17 @@ export function applyMatrixChange(input: {
     if (input.proposed.scope === undefined) delete merged.scope;
     else merged.scope = input.proposed.scope;
   }
+  // v0.12 W2-A
+  if (input.proposed.entities !== undefined) {
+    const problems = entityProblems(input.proposed.entities, input.declared);
+    if (problems.length > 0) {
+      const deleting = problems.find((p) => p.endsWith("delete stays off"));
+      return deleting
+        ? { ok: false, reason: "delete_not_off", message: deleting }
+        : { ok: false, reason: "invalid_entities", message: problems.join("; ") };
+    }
+    merged.entities = input.proposed.entities;
+  }
   const after = normalizeMatrix(merged);
 
   if (after.delete !== "off") {
@@ -116,13 +187,22 @@ export function applyMatrixChange(input: {
   }
   const loosened = loosenedVerbs(before, after);
   const tightened = VERBS.filter((v) => STRICTNESS[after[v]] > STRICTNESS[before[v]]);
+  // v0.12 W2-A: an entity's own level (its entry, else the verb's) made looser, or a scope widened.
+  const entities = loosenedEntities(
+    before,
+    after,
+    (m, v) => levelFor(m as Partial<PermissionMatrix> | undefined, v),
+    input.declared,
+  );
   if (input.by === "client") {
-    if (loosened.length > 0) {
+    if (loosened.length > 0 || entities.length > 0) {
+      const what = [...loosened, ...entities];
       return {
         ok: false,
         reason: "loosening",
         verbs: loosened,
-        message: `clients can only tighten permissions; ${loosened.join(", ")} would be loosened`,
+        entities,
+        message: `clients can only tighten permissions; ${what.join(", ")} would be loosened`,
       };
     }
     if (!deepEqual(before.scope, after.scope)) {
@@ -134,7 +214,15 @@ export function applyMatrixChange(input: {
     ok: true,
     matrix: after,
     changed,
-    change: { kind: "permissions", by: input.by, before, after, loosened, tightened },
+    change: {
+      kind: "permissions",
+      by: input.by,
+      before,
+      after,
+      loosened,
+      tightened,
+      ...(entities.length > 0 ? { loosenedEntities: entities } : {}),
+    },
   };
 }
 
@@ -152,6 +240,19 @@ export function tightenMatrix(
   return out;
 }
 
+/**
+ * v0.12 W2-A: the level a connection's matrix gives a tool for this input (verb, entity and scope;
+ * no grant): the connector framework's last line (invoke.ts).
+ */
+export function connectionLevel(
+  manifest: Pick<ConnectorManifest, "permissionEntities">,
+  spec: Pick<ToolSpec, "id" | "verb" | "entity" | "entityInput">,
+  matrix: Partial<PermissionMatrix> | undefined,
+  input?: unknown,
+): PermissionLevel {
+  return effectiveLevel({ tool: spec, input, matrix, declared: manifest.permissionEntities });
+}
+
 export interface ToolAccess {
   toolId: string;
   description: string;
@@ -163,19 +264,24 @@ export interface ToolAccess {
    * without asking; `off` is not allowed.
    */
   access: "runs" | "asks_first" | "steps_may_skip_approval" | "not_allowed";
+  /** v0.12 W2-A: the entity the tool works on; null when it has none or its input says which. */
+  entity: string | null;
 }
 
 /**
  * What a connection lets agents do, tool by tool (the portal's and back office's Connections
  * screens). `auto` on a write is a ceiling, not a promise: every step still asks unless the
- * operator set it to skip approval.
+ * operator set it to skip approval. v0.12 W2-A: a tool's entity and scope count; a tool whose input
+ * names its entity shows its verb's level (the entity rows show the rest).
  */
 export function describeAccess(
-  manifest: Pick<ConnectorManifest, "tools">,
+  manifest: Pick<ConnectorManifest, "tools" | "permissionEntities">,
   matrix: Partial<PermissionMatrix> | undefined,
 ): ToolAccess[] {
   return manifest.tools.map((t) => {
-    const level = levelFor(matrix, t.verb);
+    const level = t.entity
+      ? connectionLevel(manifest, t, matrix)
+      : connectionLevel(manifest, { id: t.id, verb: t.verb }, matrix);
     const access: ToolAccess["access"] =
       level === "off"
         ? "not_allowed"
@@ -191,6 +297,7 @@ export function describeAccess(
       sideEffect: t.sideEffect,
       level,
       access,
+      entity: t.entity ?? null,
     };
   });
 }

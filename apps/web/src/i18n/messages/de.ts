@@ -94,6 +94,7 @@ export const de: Messages = {
   "nav.people": "Personen",
   "nav.access": "Zugriff",
   "nav.directory": "Verzeichnis",
+  "nav.records": "Einträge",
   "page.service": "Service",
 
   // ── Overview ──
@@ -170,6 +171,9 @@ export const de: Messages = {
   "inbox.openRequestsQueue": "Anfragen öffnen",
   "inbox.decline": "Zurückweisen",
   "inbox.sendAnswer": "Antwort senden",
+  "inbox.undo": "Rückgängig",
+  "inbox.undoWindow":
+    "Unterschrieben. Wir nehmen die Änderung in einer Minute vor; Sie können sie noch rückgängig machen.",
   "inbox.reject": "Ablehnen",
   "inbox.sign": "Freigeben",
   "inbox.findingSteps": "Was zu tun ist",
@@ -298,6 +302,12 @@ export const de: Messages = {
   "callback.subtitle": "Die Anmeldung bei Ihrem Tool wird abgeschlossen.",
   "callback.back": "Zurück zu den Verbindungen",
   "callback.connecting": "Wird verbunden…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lesen Sie die Umsätze Ihrer Bankkonten und Karten. Hier kann kein Geld bewegt werden.",
+  "connections.bankfeed.connect": "Bank oder Karte verbinden",
+  "callback.linkLost":
+    "Diese Bankanmeldung wurde in einem anderen Tab oder Fenster begonnen. Beginnen Sie unter Verbindungen neu.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Zugriff",
@@ -707,6 +717,28 @@ export const de: Messages = {
   "record.notFound":
     "Für diese ID gibt es keine Seite. Vielleicht ist es ein Eintrag eines Tools oder Pakets, das wir hier nicht zeigen.",
   "record.source": "Eintrag ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Einträge",
+  "records.subtitle":
+    "Was Ihre Tools gebracht haben, das Neueste zuerst. Öffnen Sie einen, um zu sehen, woher er kommt.",
+  "records.kind.transactions": "Buchungen",
+  "records.kind.vendors": "Lieferanten",
+  "records.kind.items": "Artikel",
+  "records.search": "Einträge durchsuchen",
+  "records.empty": "Noch nichts da. Einträge kommen, wenn Ihre Tools synchronisieren.",
+  "records.noMatch": "Nichts passt zu „{q}“.",
+  "records.col.date": "Datum",
+  "records.col.type": "Art",
+  "records.col.vendor": "Lieferant",
+  "records.col.number": "Nummer",
+  "records.col.total": "Summe",
+  "records.col.name": "Name",
+  "records.col.transactions": "Buchungen",
+  "records.col.description": "Beschreibung",
+  "records.col.source": "Quelle",
+  "records.range": "{from}–{to} von {total}",
+  "records.previous": "Zurück",
+  "records.next": "Weiter",
 
   // ── Who approves ──
   "approvers.title": "Wer freigibt",

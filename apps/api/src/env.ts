@@ -39,9 +39,18 @@ export interface Secrets {
   /** Google Cloud's OAuth client "Mezonas web": Gmail, send only (ARCHITECTURE §6.4). */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  // v0.12 W3-B: Google Drive signs in with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET above.
+  /** The Entra app registration "Mezonas": Outlook, send only (ARCHITECTURE §6.11). */
+  OUTLOOK_CLIENT_ID?: string;
+  OUTLOOK_CLIENT_SECRET?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
+  // v0.12 bankfeed: bank and card feeds through Plaid (ARCHITECTURE §6.11, docs/plan.md §1.52).
+  /** Mezonas' Plaid client id (the same in every Plaid environment). */
+  PLAID_CLIENT_ID?: string;
+  /** The secret of the Plaid environment PLAID_ENV names (sandbox and production differ). */
+  PLAID_SECRET?: string;
   /** Mezonas' own Stripe account (billing, docs/plan.md §1.24); unset: billing is off. */
   STRIPE_SECRET_KEY?: string;
   /** The Stripe webhook endpoint's signing secret (`whsec_…`) for /api/billing/stripe/webhook. */
@@ -71,11 +80,18 @@ export interface Vars {
   EMAIL_FORWARDING_DOMAIN?: string;
   /** `sandbox` (default) or `production`: which QuickBooks the qbo connector talks to. */
   QBO_ENV?: string;
+  /** v0.12 bankfeed: `sandbox` (default) or `production`: which Plaid the bank feed talks to. */
+  PLAID_ENV?: string;
   /**
    * Where Google sends the person back after Gmail's consent screen; it must match a redirect URI
    * registered on the OAuth client exactly. Unset: `<APP_ORIGIN>/api/connections/gmail/callback`.
    */
   GOOGLE_REDIRECT_URI?: string;
+  /**
+   * The vendors with a signed BAA (docs/plan.md §1.35), e.g. `cloudflare,neon,workos,anthropic`:
+   * what a client in HIPAA mode may send data to. Unset: none, so no client can be in HIPAA mode.
+   */
+  BAA_PROCESSORS?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */
@@ -91,6 +107,11 @@ export interface OptionalBindings {
   CODES?: CodesService;
   /** QboSyncWorkflow: one instance per QuickBooks sync (cron, webhook, "sync now"). */
   QBO_SYNC?: Workflow;
+  /** ExportWorkflow: one instance per client data export (docs/plan.md §1.36). */
+  EXPORT_WORKFLOW?: Workflow;
+  // v0.12 W2-C
+  /** TestSuiteWorkflow: one instance per test suite run (docs/plan.md §1.46). */
+  TEST_SUITE_WORKFLOW?: Workflow;
   BROWSER?: BrowserWorker;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;

@@ -17,17 +17,23 @@ import {
 } from "@countersign/agents";
 import {
   type AgentBundle,
+  type AgentMode,
+  type ApprovalRequirement,
+  type ApprovalSource,
   channelAddress,
   channelTool,
   consentBlockFor,
   contactHours,
   DEFAULT_QUIET_HOURS,
   type Duration,
+  effectiveMode,
+  explainWrite,
   fixedInputProblem,
   hoursBlock,
   isPlainObject,
   type JsonObject,
   levelFor,
+  type ModelChoice,
   nextEscalation,
   type PeopleBinding,
   parseDuration,
@@ -47,6 +53,7 @@ import {
   reachSubject,
   routeApproval,
   type Urgency,
+  type WhyApproval,
 } from "@countersign/core";
 import {
   agent,
@@ -106,6 +113,8 @@ export interface StoredPlan {
   data: JsonObject;
   /** Why each channel the urgency asked for passed or not, when planned. */
   checks: { channel: ReachChannel; block: string | null }[];
+  /** v0.13: the step's model override for composed messages (absent: the agent's). */
+  model?: ModelChoice;
 }
 
 export interface Attempt {
@@ -416,6 +425,35 @@ export interface ReachPort {
   afterWait(req: WaitRequest & { timedOut: boolean }): Promise<StepOutcome>;
 }
 
+/**
+ * Why a reach-out's plan waits for a person (ARCHITECTURE §11.1), over the inputs its decision
+ * used: the step, each planned channel's `create` level, the agent's mode and go-live stage, and
+ * the person's own autonomy (`person`). Stored as the plan approval's `payload.whyApproval`.
+ */
+// DECISION: a plan is one approval over several channels, so `matrix` is named when any planned
+// channel's connection allows `create` only with approval (the plan runs on its own only when every
+// one is `auto`), and `person` when the contact set any planned channel to `approval`. A plan has
+// no grant (reach out uses the agent's bound channels).
+export function planWhyApproval(input: {
+  levels: readonly (string | undefined)[];
+  stepApproval: ApprovalRequirement | undefined;
+  definitionMode: AgentMode;
+  stage: string | null | undefined;
+  needsSignature: boolean;
+  route: { source: ApprovalSource; ruleId: string | null };
+}): WhyApproval {
+  return explainWrite({
+    verb: "create",
+    matrix: { create: input.levels.every((l) => l === "auto") ? "auto" : "approval" },
+    stepApproval: input.stepApproval,
+    agentMode: effectiveMode({ permissions: { mode: input.definitionMode } }, input.stage),
+    definitionMode: input.definitionMode,
+    stage: input.stage,
+    person: input.needsSignature ? "approval" : null,
+    route: input.route,
+  });
+}
+
 /** Whether a resume's pending state is a reach-out's plan approval. */
 export function reachOutState(state: unknown): string | null {
   const id = isPlainObject(state) ? state.reachOutId : undefined;
@@ -666,8 +704,11 @@ export function reachPort(deps: ReachDeps): ReachPort {
         const definition = loaded.bundle.definition;
         const automatic =
           req.approval.required === "not_required" &&
-          definition.permissions.mode === "act" &&
-          plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto");
+          // v0.12 W1-A: in trial and signoff the plan always needs a signature (§10.9).
+          effectiveMode(definition, loaded.agentRow.stage) === "act" &&
+          plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto") &&
+          // v0.12 W1-G: the person's `approval` on a planned channel asks for a sign (§1.42).
+          !plan.needsSignature;
         // The person's language, else their organization's, else the client's (§1.27).
         const language = (await contactLanguage(tx, who)).language;
         const stored: StoredPlan = {
@@ -684,6 +725,7 @@ export function reachPort(deps: ReachDeps): ReachPort {
           replyTag: "",
           data: truncateData({ about: input.about, trigger: loaded.trigger }),
           checks: plan.checks,
+          ...(req.step.model ? { model: req.step.model } : {}),
         };
         let row: ReachOutRow | undefined;
         try {
@@ -785,6 +827,15 @@ export function reachPort(deps: ReachDeps): ReachPort {
                     : "Written for them when it is sent, from the purpose and the record",
               },
               sources,
+              // v0.12 W1-D: why the plan waits, with the reasons a tool proposal gives.
+              whyApproval: planWhyApproval({
+                levels: plan.channels.map((ch) => loaded.channels.get(ch)?.create),
+                stepApproval: req.approval.required,
+                definitionMode: definition.permissions.mode,
+                stage: loaded.agentRow.stage,
+                needsSignature: plan.needsSignature,
+                route: { source: route.source, ruleId: route.ruleId },
+              }) as JsonObject,
             },
             dueAt: req.approval.timeout
               ? new Date(t.getTime() + parseDuration(req.approval.timeout))
@@ -1043,6 +1094,7 @@ export async function attemptFrom(
               contactName: who.name,
               clientName: state.t.name,
               maxChars: channel === "sms" ? 320 : channel === "voice" ? 300 : 1500,
+              model: plan.model,
             });
     } catch (error) {
       await failed(`couldn't write the message: ${error instanceof Error ? error.message : error}`);

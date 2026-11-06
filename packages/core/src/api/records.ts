@@ -119,11 +119,13 @@ export function connectionAccountName(config: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null;
 }
 
-// The back office's Records page: what a client's connections brought in, by kind. Transactions
-// and vendors are the shared records sync maps into; items are the tool's own (QuickBooks keeps
-// them as raw records), so an item row's id is its latest raw record's.
+// The back office's Records page: what a client's connections brought in, by kind. Transactions,
+// vendors and receivables are the shared records sync maps into; items are the tool's own
+// (QuickBooks keeps them as raw records), so an item row's id is its latest raw record's.
 
-export const RECORD_LIST_KINDS = ["transactions", "vendors", "items"] as const;
+// v0.12 W1-F/W1-H: `receivables` are QuickBooks invoices the client is owed (the `receivable`
+// rows sync keeps, docs/plan.md §1.41, §1.43).
+export const RECORD_LIST_KINDS = ["transactions", "vendors", "items", "receivables"] as const;
 export const RecordListKind = z.enum(RECORD_LIST_KINDS);
 export type RecordListKind = z.infer<typeof RecordListKind>;
 
@@ -201,10 +203,34 @@ export const RecordListItem = z.object({
 });
 export type RecordListItem = z.infer<typeof RecordListItem>;
 
+export const RecordListReceivable = z.object({
+  id: z.string(),
+  /** The invoice's number in QuickBooks; null when it has none. */
+  docNumber: z.string().nullable(),
+  customer: z.object({
+    name: z.string(),
+    /** Its organization in the client's directory, once matched or imported. */
+    organizationId: z.string().nullable(),
+  }),
+  txnDate: z.string(),
+  dueDate: z.string().nullable(),
+  total: z.string(),
+  /** What is still owed. */
+  balance: z.string(),
+  currency: z.string(),
+  /** open, paid, void or deleted. */
+  status: z.string(),
+  /** When its latest version arrived. */
+  syncedAt: z.string(),
+  sourceId: z.string(),
+});
+export type RecordListReceivable = z.infer<typeof RecordListReceivable>;
+
 export const RecordListPage = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("transactions"), rows: z.array(RecordListTransaction) }),
   z.object({ kind: z.literal("vendors"), rows: z.array(RecordListVendor) }),
   z.object({ kind: z.literal("items"), rows: z.array(RecordListItem) }),
+  z.object({ kind: z.literal("receivables"), rows: z.array(RecordListReceivable) }),
 ]);
 
 export const RecordList = z.object({
@@ -213,6 +239,7 @@ export const RecordList = z.object({
     transactions: z.number().int(),
     vendors: z.number().int(),
     items: z.number().int(),
+    receivables: z.number().int(),
   }),
   /** The latest sync among the sources counted. */
   lastSyncAt: z.string().nullable(),
@@ -226,7 +253,27 @@ export const RecordList = z.object({
 });
 export type RecordList = z.infer<typeof RecordList>;
 
+/** The portal's records list (v0.12 W1-H): the back office's query without the source filter. */
+export const PortalRecordListQuery = z.object({
+  kind: RecordListKind.optional(),
+  /** Matches a doc number, memo, vendor or name, or an amount. */
+  q: z.string().trim().max(200).optional(),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
 export const recordRoutes = {
+  // v0.12 W1-H: the portal's records list (docs/plan.md §1.43).
+  portalRecords: defineRoute({
+    method: "GET",
+    path: "/api/records",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "Your records, newest first: the transactions, vendors, items and receivables your tools brought in, with counts and a search",
+    query: PortalRecordListQuery,
+    response: RecordList,
+  }),
   portalRecord: defineRoute({
     method: "GET",
     path: "/api/records/:id",
@@ -251,7 +298,7 @@ export const recordRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "What a client's connections brought in, newest first: transactions, vendors or items, with counts, a search and a source filter",
+      "What a client's connections brought in, newest first: transactions, vendors, items or receivables, with counts, a search and a source filter",
     params: z.object({ id: Id }),
     query: z.object({
       kind: RecordListKind.optional(),

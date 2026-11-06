@@ -11,6 +11,10 @@
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
+  type AutomationDefinition,
+  // v0.12 W2-D: the account agent's publish guard
+  accountAgentProblems,
+  automationRefs,
   bindingConnector,
   bundleHash,
   type EventTypeSpec,
@@ -32,8 +36,15 @@ import {
   type Tx,
   tenantPack,
 } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
+// v0.12 W2-B: automations
+import {
+  automationContext,
+  automationPublishErrors,
+  snapshotSharedAutomations,
+} from "./automations";
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
 import { stripForPromotion } from "./lineage";
 import { type SkillCatalog, skillContext, snapshotSharedSkills } from "./skills";
@@ -202,7 +213,8 @@ export async function boundMatrices(
 /** Validates a version's bundle as it would be published (client agents: against their bindings). */
 export async function validateForPublish(
   tx: Tx,
-  row: Pick<AgentRow, "tenantId" | "kind" | "bindings">,
+  // v0.12 W2-D: `slug`, for the account agent's guard (rows without one skip it).
+  row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string },
   bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<ValidationError[]> {
@@ -211,13 +223,46 @@ export async function validateForPublish(
     bundle,
     catalog: ctx.catalog,
   });
+  // v0.12 W2-B: the automations its use steps pin, and the skills their steps name.
+  const used = await automationContext(tx, {
+    tenantId: row.tenantId,
+    bundle,
+    catalog: ctx.catalog,
+  });
   const result = validateBundle(bundle, {
-    skills,
+    skills: { ...used.skills, ...skills },
     tools: ctx.tools.specs(),
+    models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
     ...(row.kind === "client" ? { publish: { matrices: await boundMatrices(tx, row) } } : {}),
+    // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.
+    ...(row.kind === "client" && row.tenantId
+      ? {
+          packs: (
+            await tx
+              .select({ pack: tenantPack.pack })
+              .from(tenantPack)
+              .where(eq(tenantPack.tenantId, row.tenantId))
+          ).map((p) => p.pack),
+        }
+      : {}),
+    // v0.12 W2-B
+    automations: used.automations,
+    clientAgent: row.kind === "client",
   });
-  const errors = [...result.errors];
+  const errors = [...result.errors, ...automationPublishErrors(bundle, used)];
+  // v0.12 W2-D: the account agent (the supervisor and its forks) never reaches a client's tool:
+  // no connector or external tool, no binding (docs/plan.md §1.47 "Guards").
+  errors.push(
+    ...accountAgentProblems({
+      slug: row.slug,
+      bundle,
+      skills: { ...used.skills, ...skills },
+      tools: ctx.tools.specs(),
+      bindings: row.kind === "client" ? row.bindings : undefined,
+      automations: used.automations,
+    }),
+  );
   for (const ref of missing) {
     // Workflow steps are reported by validateBundle; the agent's own skill list is checked here.
     if (!errors.some((e) => e.code === "unknown_skill" && e.message.includes(ref))) {
@@ -255,6 +300,12 @@ export async function publish(
   }
   if (row.kind === "client" && row.tenantId) {
     await snapshotSharedSkills(tx, {
+      tenantId: row.tenantId,
+      bundle: v.bundle,
+      catalog: input.ctx.catalog,
+    });
+    // v0.12 W2-B: and the shared automations its use steps pin (with their skills).
+    await snapshotSharedAutomations(tx, {
       tenantId: row.tenantId,
       bundle: v.bundle,
       catalog: input.ctx.catalog,
@@ -675,8 +726,16 @@ export function requiredConnectors(
   bundle: AgentBundle,
   skills: Record<string, SkillDefinition>,
   tools: ToolRegistry,
+  // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
+  automations: Record<string, AutomationDefinition> = {},
 ): string[] {
   const out = new Set<string>();
+  for (const w of bundle.workflows) {
+    if (!w.enabled) continue;
+    for (const ref of automationRefs([w.workflow])) {
+      for (const c of automations[ref]?.requires.connectors ?? []) out.add(c);
+    }
+  }
   const toolIds = new Set(bundle.definition.extraTools);
   const addSkill = (ref: string) => {
     const def = skills[ref] ?? skills[parseSkillRef(ref).id];
@@ -727,8 +786,16 @@ export async function activationProblems(
     catalog: input.ctx.catalog,
   });
   for (const ref of missing) problems.push(`skill ${ref} is not available to this client`);
+  // v0.12 W2-B: the automations it pins, in this client (its own, or its copies of shared ones).
+  const used = await automationContext(tx, {
+    tenantId: row.tenantId,
+    bundle: live.bundle,
+    catalog: input.ctx.catalog,
+  });
+  for (const ref of used.missing)
+    problems.push(`automation ${ref} is not available to this client`);
 
-  const connectors = requiredConnectors(live.bundle, skills, input.ctx.tools);
+  const connectors = requiredConnectors(live.bundle, skills, input.ctx.tools, used.automations);
   const bound = Object.values(row.bindings);
   const rows = bound.length
     ? await tx

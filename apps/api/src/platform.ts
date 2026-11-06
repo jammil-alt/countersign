@@ -3,6 +3,8 @@
 // place that names connectors (and, later, packs); nothing in packages/* does.
 
 import {
+  // v0.12 W2-D
+  ACCOUNT_SKILLS,
   DIRECTORY_SKILLS,
   DOCS_SKILLS,
   KNOWLEDGE_SKILLS,
@@ -16,8 +18,12 @@ import {
 import {
   type Connector,
   ConnectorRegistry,
+  // v0.12 bankfeed
+  createBankfeedConnector,
   createBrowserConnector,
+  createGdriveConnector,
   createGmailConnector,
+  createOutlookConnector,
   createPodioConnector,
   createQboConnector,
   createResendConnector,
@@ -26,6 +32,7 @@ import {
   createUploadConnector,
   createWebhookConnector,
   createZohoCrmConnector,
+  plaidEnvironment,
   QBO_CONNECTOR_ID,
   QBO_SKILLS,
   TESTKIT_SAMPLE_RECORDS,
@@ -100,6 +107,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...DIRECTORY_SKILLS,
       ...REACH_SKILLS,
       ...SUPERVISOR_SKILLS,
+      // v0.12 W2-D: Sloan's conversation (account.chat)
+      ...ACCOUNT_SKILLS,
       ...(options.skills ?? []),
       // DECISION: QuickBooks' one agent-mode skill (the Bill clerk's line mapping) ships with the
       // connector, beside the tools it reads with, and is offered wherever qbo is registered.
@@ -148,7 +157,14 @@ type OAuthEnvKey =
   | "PODIO_CLIENT_ID"
   | "PODIO_CLIENT_SECRET"
   | "GOOGLE_CLIENT_ID"
-  | "GOOGLE_CLIENT_SECRET";
+  | "GOOGLE_CLIENT_SECRET"
+  // v0.12 W3-B: Outlook's Entra app.
+  | "OUTLOOK_CLIENT_ID"
+  | "OUTLOOK_CLIENT_SECRET"
+  // v0.12 bankfeed: Plaid.
+  | "PLAID_CLIENT_ID"
+  | "PLAID_SECRET"
+  | "PLAID_ENV";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -164,6 +180,12 @@ export function platformFor(
     qboEnvironment(env),
     env.QBO_WEBHOOK_VERIFIER ? "qbo-hook" : "-",
     env.GOOGLE_CLIENT_ID ?? "-",
+    // v0.12 W3-B
+    env.OUTLOOK_CLIENT_ID ?? "-",
+    // v0.12 bankfeed
+    env.PLAID_CLIENT_ID ?? "-",
+    env.PLAID_SECRET ? "plaid-secret" : "-",
+    plaidEnvironment(env.PLAID_ENV),
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -193,6 +215,12 @@ export function deploymentConnectors(
   const googleReady = Boolean(
     env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
+  // v0.12 W3-B
+  const microsoftReady = Boolean(
+    env.OUTLOOK_CLIENT_ID && env.OUTLOOK_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
+  );
+  // v0.12 bankfeed
+  const plaidReady = Boolean(env.PLAID_CLIENT_ID && env.PLAID_SECRET && env.OAUTH_STATE_SECRET);
   return [
     // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
     createUploadConnector(),
@@ -218,9 +246,26 @@ export function deploymentConnectors(
     createGmailConnector(
       googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
     ),
+    // v0.12 W3-B: Google Drive (drive.file, on Gmail's Google client) and Outlook (send only), like
+    // Gmail: registered everywhere, signing in once their client and OAUTH_STATE_SECRET are set.
+    createGdriveConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
+    createOutlookConnector(
+      microsoftReady
+        ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
+        : {},
+    ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),
+    // v0.12 bankfeed: bank and card feeds through Plaid (ARCHITECTURE §6.11, docs/plan.md §1.52),
+    // registered everywhere like Zoho; a client connects in Plaid Link once PLAID_CLIENT_ID,
+    // PLAID_SECRET and OAUTH_STATE_SECRET are set. PLAID_ENV picks sandbox or production.
+    createBankfeedConnector({
+      ...(plaidReady ? { clientId: env.PLAID_CLIENT_ID, secret: env.PLAID_SECRET } : {}),
+      environment: plaidEnvironment(env.PLAID_ENV),
+    }),
     // Website logins (docs/plan.md §1.26): registered everywhere, so sites can be offered and
     // built with; agents sign in only where Browser Run is bound (BROWSER).
     createBrowserConnector({ available: Boolean(env.BROWSER) }),

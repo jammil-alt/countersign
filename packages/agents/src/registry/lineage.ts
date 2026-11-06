@@ -23,6 +23,7 @@ import {
   walkSteps,
 } from "@countersign/core";
 import type { Tx } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { AgentsError } from "../errors";
 import {
   type AgentRow,
@@ -132,6 +133,7 @@ async function requireMergeable(
   const valid = validateBundle(result.bundle, {
     skills,
     tools: ctx.tools.specs(),
+    models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
   });
   if (!valid.valid) {

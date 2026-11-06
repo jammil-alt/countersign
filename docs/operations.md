@@ -106,6 +106,13 @@ After the first run: save the project id from the run summary as the repository 
    fallback); Worker secrets `WORKOS_CLIENT_ID`,
    `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters). For the Claude
    connector, each environment's AuthKit domain in `WORKOS_AUTHKIT_DOMAIN` ("MCP server" below).
+   For HIPAA, SOC 2 and PCI (`docs/plan.md` §1.35), on both environments: **multi-factor
+   authentication required** for email and password sign-ins (Authentication → Features →
+   Multi-factor auth), and the AuthKit session no longer than ours (Applications → the app →
+   Sessions → Session lifetime: maximum 12 hours, inactivity 30 minutes; access token duration
+   stays 5 minutes). Our own cookie enforces both limits anyway, and an idle or expired session
+   also ends WorkOS's, so the next sign-in asks for the password and code again.
+
 
 ### The public site (mezonas.com)
 
@@ -308,6 +315,37 @@ CASA):
 - Then switch the consent screen to "In production" and submit for verification. Refresh tokens
   stop expiring after 7 days once it is in production.
 
+### Google Drive and Outlook (W3-B, M29)
+
+Built against fakes only; what we couldn't check is under "To verify" in
+`packages/connectors/src/gdrive/NOTES.md` and `packages/connectors/src/outlook/NOTES.md`. Both are
+registered everywhere and show "Not available yet" until their keys are set.
+
+Google Drive uses the same Google project and OAuth client as Gmail ("Mezonas web"):
+1. Enable the Google Drive API in the project `mezonas`.
+2. Add the scope `https://www.googleapis.com/auth/drive.file` to the consent screen (non-sensitive:
+   only the files Mezonas makes).
+3. Add the redirect URIs `https://staging.mezonas.com/connections/gdrive/callback`,
+   `https://app.mezonas.com/connections/gdrive/callback` and
+   `http://localhost:8787/connections/gdrive/callback` to the client.
+4. Drive's disconnect drops our tokens without revoking at Google, so it can't end a Gmail
+   connection made by the same Google account on the shared client (plan §1.52). To have it revoke,
+   give Drive an OAuth client of its own (two more secrets) and turn the revoke back on.
+
+Outlook needs an Entra app of Mezonas' own:
+1. A multi-tenant app registration "Mezonas" (supported accounts: any organizational directory and
+   personal Microsoft accounts), web platform, redirect URIs
+   `https://staging.mezonas.com/connections/outlook/callback`,
+   `https://app.mezonas.com/connections/outlook/callback` and
+   `http://localhost:8787/connections/outlook/callback`.
+2. Delegated API permissions `Mail.Send`, `openid`, `email`, `offline_access` (remove the default
+   `User.Read` if it can be; the connector accepts it but never uses it). No read permission.
+3. A client secret (note its expiry, 24 months at most) as the Worker secrets
+   `OUTLOOK_CLIENT_ID` (the application id) and `OUTLOOK_CLIENT_SECRET`, copied like the
+   others by `deploy.yml` when set.
+4. Publisher verification (a Microsoft Partner Network id tied to mezonas.com), so work tenants
+   show a verified publisher and allow their users to consent.
+
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
@@ -330,6 +368,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Gmail, M10; see "Google" above) and `QBO_CLIENT_ID`,
   `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (QuickBooks Online, M9) are copied like the API keys when
   set. Staging has the development keys of both apps (2026-11-05).
+- The new connectors (plan §1.52), copied like the API keys when set: `OUTLOOK_CLIENT_ID` and
+  `OUTLOOK_CLIENT_SECRET` (Outlook), `RAMP_CLIENT_ID` and `RAMP_CLIENT_SECRET` (Ramp),
+  `HUBSPOT_CLIENT_ID` and `HUBSPOT_CLIENT_SECRET` (HubSpot), `PLAID_CLIENT_ID` and `PLAID_SECRET`
+  (the Plaid bank and card feed). Google Drive uses `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+  Each connector stays "Not available yet" until its keys and `OAUTH_STATE_SECRET` are set. Add
+  each as a secret of the GitHub environment (`staging` first), then redeploy.
 - Needed by the Zoho CRM connector (stream G, 2026-11-04): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only
@@ -338,6 +382,25 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
+- Google Drive (W3-B, plan §1.52) needs no new secret: it signs in with `GOOGLE_CLIENT_ID` and
+  `GOOGLE_CLIENT_SECRET` (see "Google Drive and Outlook" above) and `OAUTH_STATE_SECRET`.
+- Needed by the Outlook connector (W3-B, plan §1.52), the same way: `OUTLOOK_CLIENT_ID` and
+  `OUTLOOK_CLIENT_SECRET` (the Entra app's application id and a client secret, redirect URI
+  `<APP_ORIGIN>/connections/outlook/callback`). Wiring them into `deploy.yml` is its own PR. Until
+  both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
+- Needed by the bank and card feed (`bankfeed`, Plaid; plan §1.52): `PLAID_CLIENT_ID` and
+  `PLAID_SECRET` (the secret of the environment `PLAID_ENV` names: Plaid's sandbox secret on
+  staging, its production secret in production), copied like the API keys; `PLAID_ENV` is a var in
+  `wrangler.jsonc` (`sandbox` locally and on staging, `production` in production). In Plaid's
+  dashboard: allowed redirect URIs `<APP_ORIGIN>/connections/bankfeed/callback` for each
+  environment (`https://staging.mezonas.com/…`, `https://app.mezonas.com/…`, and
+  `http://localhost:8787/…` for sandbox), the Link customization's name "Mezonas", and OAuth
+  institution registration (the company profile and the questionnaire Plaid asks for before
+  production). No webhook URL is set in the dashboard: each item's Link token names
+  `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
+  `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
+  sandbox first: `packages/connectors/src/bankfeed/NOTES.md`. Copying the two secrets in
+  `deploy.yml` is its own PR.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -403,7 +466,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook; not yet in `deploy.yml`), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds; not yet in `deploy.yml`) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
@@ -546,6 +609,71 @@ and, after approval, itemizes the bill, attaches the invoice and notes it in the
    asked, nothing is written. One bill with fewer lines than the invoice and the same total: three
    approvals in turn (itemize, attach, memo), each written once.
 
+## 1.2 Compliance: HIPAA mode, retiring a client, the audit log (`docs/plan.md` §1.35)
+
+**HIPAA mode.** A client whose records hold health information is put in HIPAA mode on its
+Settings page in the back office (with a reason). It can only be switched on once every vendor that
+would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
+`apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
+is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
+`openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
+HIPAA client. `anthropic` is needed for agents and document reading.
+
+**Retiring a client.** On the client's Settings page, Retire client (a reason, and the client's
+name typed again). Its users lose access at once, its agents are retired and its tools are
+disconnected. Then:
+1. By hand, the same day, close what other vendors keep for it:
+   - its Twilio subaccount (texts, voicemails);
+   - its ElevenLabs agents and call transcripts;
+   - its Resend sending domain;
+   - its Stripe customer, after the last invoice;
+   - its Sentry events, if any name it.
+2. 30 days later, the hourly cron deletes its files (`tenants/<id>/` in R2) and records
+   `client.purge_files` in the audit log.
+3. Then the owner purges its rows, as `cs_owner`:
+   `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
+   It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
+   quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
+   holds the deleted rows until its restore window passes.
+
+**Exporting a client's data.** The terms promise an export on request until 30 days after the
+service ends. Start it with `POST /api/ops/clients/<id>/exports` (a reason is optional) and list it
+with `GET /api/ops/clients/<id>/exports`; once ready, the list carries a link that works for 5
+minutes. Download it and send it to the client yourself: the client can no longer sign in once
+retired. It runs as its own Workflow, `ExportWorkflow` (binding `EXPORT_WORKFLOW`;
+`mezonas-staging-export` on staging), which wrangler creates on the next deploy. The ZIP lives
+under the client's files, so it is deleted with them; start a retired client's export well before
+its 30 days end (the deletion waits for an export being built, up to a day). Client admins download
+their accountant export and their own audit log from `/api/exports/accountant` and
+`/api/exports/audit` (`?from=YYYY-MM-DD&to=YYYY-MM-DD`).
+
+**Test suites.** `POST /api/ops/tests/run` runs a skill's or template's test cases as its own
+Workflow, `TestSuiteWorkflow` (binding `TEST_SUITE_WORKFLOW`; `mezonas-staging-test-suite` on
+staging), which wrangler creates on the next deploy. Skill cases call the model live (they need
+`ANTHROPIC_API_KEY`) and never reach a client's tools; template cases are test runs in the Sandbox
+client.
+
+**The audit log and access review** are at `/ops/audit` (operators only). Review access every
+quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
+date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must
+be disabled, as in `db:purge-client`.
+
+**Settings outside the code** (set by the owner, 2026-11-06; `docs/security.md` has the record):
+- WorkOS, both environments: Multi-factor auth on (Authentication → Features), and Session lifetime
+  of 12 hours with 30 minutes' inactivity (Applications → the app → Sessions). Access token duration
+  stays 5 minutes.
+- Cloudflare, zone `mezonas.com` (Free plan): the rate-limiting rule "API rate limit" (URI path
+  `/api/*` except the webhook paths `/api/twilio/`, `/api/voice/`, `/api/elevenlabs/`,
+  `/api/hooks/`, `/api/billing/stripe/` and `/api/connections/qbo/webhook`; 50 requests per 10
+  seconds per IP, then blocked for 10 seconds). Always Use HTTPS on. Minimum TLS 1.2. The
+  encryption mode stays Full (automatic), and Cloudflare's own HSTS stays off, since the app sends
+  its own. Add a new webhook path to the rule's exclusions when one is added.
+- GitHub: dependency graph, Dependabot alerts and security updates, secret scanning with push
+  protection, CodeQL Default setup off (we run `codeql.yml`), and the ruleset "Protect main": a pull
+  request, the checks `checks / check`, `checks / static` and `analyze`, no force pushes or
+  deletion, admin bypass.
+- Neon, project `mezonas` (Launch): History window 7 days (Settings → Postgres).
+
 ## 2. What CI does
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;
@@ -581,3 +709,11 @@ and, after approval, itemizes the bill, attaches the invoice and notes it in the
 
 Neon point-in-time restore covers both branches. To inspect the past without touching production,
 create a branch from a timestamp and connect to it directly.
+
+Test a restore every quarter (SOC 2 A1.3, HIPAA §164.308(a)(7)):
+1. Create a branch from a timestamp an hour back.
+2. Count the rows of a few tables against `main`.
+3. Delete the branch.
+4. Note the date and the result.
+
+Set Neon's history retention to at least 7 days on the production project.

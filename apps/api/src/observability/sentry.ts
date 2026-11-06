@@ -13,6 +13,7 @@
 // exception messages are cut short and stripped of query parameters and anything shaped like a
 // key or token. Set in `DATA_COLLECTION`, and again in `scrubEvent`.
 
+import { redactCardNumbers } from "@countersign/core";
 import type { Breadcrumb, ErrorEvent } from "@sentry/cloudflare";
 
 const MAX_MESSAGE = 500;
@@ -48,7 +49,8 @@ export function withoutSecrets(text: string): string {
 }
 
 const cap = (s: string) => (s.length > MAX_MESSAGE ? `${s.slice(0, MAX_MESSAGE)}…` : s);
-const clean = (s: string) => cap(withoutSecrets(withoutQueryParams(s)));
+// Card numbers too (PCI DSS 3.3, docs/plan.md §1.35): a message can quote a document's text.
+const clean = (s: string) => cap(redactCardNumbers(withoutSecrets(withoutQueryParams(s))));
 
 /** What the SDK may collect at all: the user agent, and nothing of the request's content. */
 export const DATA_COLLECTION = {

@@ -14,7 +14,9 @@ client's tools (QuickBooks Online and Gmail) within each connection's permission
 such as Pia (material cost management for a millwork shop, the Materials pack) are built separately
 from this plan, only from platform parts (ARCHITECTURE v0.9).
 
-- What to build: `docs/ARCHITECTURE.md` (v0.10). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.13). Do not add features outside its §1 v1 scope.
+  v0.12 (the owner's prototype) and v0.13 (run oversight and a model per step) are built API first in
+  streams: `docs/plan.md` §8.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
@@ -26,7 +28,8 @@ consistency, and code may be copied from it, but nothing is shared: no runtime d
 database, Worker, bucket, WorkOS application, key or secret. Never point anything here at Plenary Labs'
 resources.
 
-Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys).
+Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys),
+`docs/security.md` (the security controls and settings), `docs/hipaa-plan.md` (what's open for HIPAA, SOC 2 and PCI).
 
 ## Layout
 
@@ -103,16 +106,20 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    loosens; clients can tighten their matrix, which overrides steps at once. Delete is off. Clients sign in
    to their own tools, or, for a browser connection on a site the operator allows, the client admin
    enters the login of a dedicated agent account into the vault; the operator never sees a client's
-   credentials. Test runs never write.
+   credentials. Test runs never write. An agent in its trial or sign-off stage has every write signed;
+   an undo window or a person's edit before signing never writes outside the external-action path.
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
-   instructions. Agents cannot change their own permissions.
+   instructions. Agents cannot change their own permissions. During a run an agent may retry a step or
+   correct its input, never change its plan, approvals or permissions; a corrected write is decided
+   again by the gate (ARCHITECTURE §10.11).
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
 11. **The operator builds; clients use.** Only `operator` reaches `/api/ops` (templates, client agents, runs
     across clients, usage). Publishing a template changes no client agent; a client agent changes only by
     its own new version, including a reviewed update merge. Forks and promotions never carry one client's
     memory, records or connections anywhere else. No portal route returns agent bundles, instructions,
-    prompts or cost. Contract tests enforce these.
+    prompts or cost. Sloan, the client's account agent, sees only what the portal shows, writes only
+    internal records for the person asking, and never loosens a rule. Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 13. **Access is explicit and secrets stay apart.** An agent reaches a connection only through its binding,
@@ -121,6 +128,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     output or a screen; tool code gets them for one step. Second factors live only in `apps/mfa`, handed
     once to a login in progress. Browser sign-in is code on pinned origins, never the model; agents never
     sign in to blocked-tier sites (banks, payments, email accounts, identity providers).
+14. **Audited and held to its compliance mode** (`docs/plan.md` §1.35). Session routes go through
+    `mount()`, which writes the audit row; anything else that reads or changes client data on a
+    person's behalf writes its own (`auditAlone`). `audit_event` is never updated or deleted. A new
+    feature that sends client data to a vendor of ours names it in `packages/core/src/compliance`,
+    so HIPAA mode can refuse it. Card numbers are never stored. CI never copies client data.
 
 ## UI and copy
 

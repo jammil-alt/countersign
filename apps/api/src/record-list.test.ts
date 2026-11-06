@@ -10,12 +10,13 @@ import { ContentStore, createQboConnector } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT } from "@countersign/connectors/testing";
 import { connection, rawRecord, transaction, vendor } from "@countersign/db";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
   createApiHarness,
+  forbiddenKeys,
   OPERATOR,
   OTHER_OPERATOR,
   user,
@@ -238,7 +239,7 @@ describe.skipIf(!h)("the back office's records list", () => {
     const res = await list(OPERATOR, A());
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const body = res.json as J;
-    expect(body.counts).toEqual({ transactions: 5, vendors: 3, items: 2 });
+    expect(body.counts).toEqual({ transactions: 5, vendors: 3, items: 2, receivables: 0 });
     expect(body.lastSyncAt).toBe(SYNCED.toISOString());
     expect(body.total).toBe(5);
     expect(body.page.kind).toBe("transactions");
@@ -309,15 +310,15 @@ describe.skipIf(!h)("the back office's records list", () => {
 
   it("filters by source", async () => {
     const up = (await list(OPERATOR, A(), `?source=${ids.upload}`)).json as J;
-    expect(up.counts).toEqual({ transactions: 1, vendors: 0, items: 0 });
+    expect(up.counts).toEqual({ transactions: 1, vendors: 0, items: 0, receivables: 0 });
     expect(up.page.rows.map((t: J) => t.memo)).toEqual(["Screws"]);
     expect(up.lastSyncAt).toBeNull();
     const qbo = (await list(OPERATOR, A(), `?source=${ids.qbo}`)).json as J;
-    expect(qbo.counts).toEqual({ transactions: 4, vendors: 2, items: 2 });
+    expect(qbo.counts).toEqual({ transactions: 4, vendors: 2, items: 2, receivables: 0 });
     expect(qbo.lastSyncAt).toBe(SYNCED.toISOString());
     // Another client's connection names nothing here.
     const other = (await list(OPERATOR, A(), `?source=${ids.qboB}`)).json as J;
-    expect(other.counts).toEqual({ transactions: 0, vendors: 0, items: 0 });
+    expect(other.counts).toEqual({ transactions: 0, vendors: 0, items: 0, receivables: 0 });
     expect(other.page.rows).toEqual([]);
   });
 
@@ -390,13 +391,13 @@ describe.skipIf(!h)("the back office's records list", () => {
 
   it("keeps each client's records to itself", async () => {
     const b = (await list(OPERATOR, H.B.tenantId)).json as J;
-    expect(b.counts).toEqual({ transactions: 1, vendors: 1, items: 0 });
+    expect(b.counts).toEqual({ transactions: 1, vendors: 1, items: 0, receivables: 0 });
     expect(b.page.rows.map((t: J) => t.id)).not.toContain(ids.webhookBill);
     expect(b.sources.map((s: J) => s.id)).toEqual([ids.qboB]);
     // An operator who doesn't serve client A, and a client with nothing synced.
     expect((await list(OTHER_OPERATOR, A())).status).toBe(404);
     const c = (await list(OTHER_OPERATOR, H.C.tenantId)).json as J;
-    expect(c.counts).toEqual({ transactions: 0, vendors: 0, items: 0 });
+    expect(c.counts).toEqual({ transactions: 0, vendors: 0, items: 0, receivables: 0 });
     expect(c.sources).toEqual([]);
   });
 
@@ -409,6 +410,156 @@ describe.skipIf(!h)("the back office's records list", () => {
       expect(asClient.status).toBe(403);
     }
     expect((await list(null, A())).status).toBe(401);
+  });
+});
+
+// v0.12 W1-H: the portal's list (docs/plan.md §1.43): the same list, for the client's own records.
+describe.skipIf(!h)("the portal's records list", () => {
+  const H = h as ApiHarness;
+  const A = () => H.A.tenantId;
+
+  it("lists the client's own records, the back office's view of them", async () => {
+    for (const who of [admin("a"), user("a")]) {
+      const res = await H.call(who, "GET", "/api/records");
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const ops = (await H.call(OPERATOR, "GET", `/api/ops/clients/${A()}/records`)).json as J;
+      expect(res.json).toEqual(ops);
+    }
+    const vendors = (await H.call(admin("a"), "GET", "/api/records?kind=vendors&q=telephone"))
+      .json as J;
+    expect(vendors.page.rows.map((v: J) => v.name)).toEqual(["Cal Telephone"]);
+    const paged = (await H.call(admin("a"), "GET", "/api/records?offset=1&limit=2")).json as J;
+    expect([paged.offset, paged.limit, paged.page.rows.length]).toEqual([1, 2, 2]);
+    // Nothing a portal response may not carry (invariant 11).
+    expect(forbiddenKeys(paged)).toEqual([]);
+  });
+
+  it("shows each client its own records only, and only to its people", async () => {
+    const a = (await H.call(admin("a"), "GET", "/api/records")).json as J;
+    const b = (await H.call(admin("b"), "GET", "/api/records")).json as J;
+    expect(b.counts.transactions).toBe(1);
+    const aIds = a.page.rows.map((t: J) => t.id);
+    for (const t of b.page.rows) expect(aIds).not.toContain(t.id);
+    expect(JSON.stringify(b)).not.toContain("Sheet goods");
+    // Naming another client in the header gets none of its records.
+    const asA = await H.call(admin("b"), "GET", "/api/records", undefined, {
+      "x-countersign-client": A(),
+    });
+    expect(asA.status).not.toBe(200);
+    for (const id of aIds) expect(JSON.stringify(asA.json)).not.toContain(id);
+    expect((await H.call(null, "GET", "/api/records")).status).toBe(401);
+    expect((await H.call(admin("a"), "GET", "/api/records?kind=bundles")).status).toBe(400);
+  });
+
+  // v0.12 W1-F/W1-H: the invoices QuickBooks says the client is owed (docs/plan.md §1.43).
+  it("lists the client's receivables, found by number, customer or amount, and only its own", async () => {
+    const qboOf = async (tenantId: string) => {
+      const [c] = await H.t.db
+        .select()
+        .from(connection)
+        .where(and(eq(connection.tenantId, tenantId), eq(connection.connector, "qbo")));
+      if (!c) throw new Error("no QuickBooks connection");
+      return c.id;
+    };
+    const invoice = (id: string, fields: object) => ({
+      entityType: "Invoice",
+      externalId: id,
+      externalVersion: "0",
+      payload: { Id: id, SyncToken: "0", CurrencyRef: { value: "USD" }, ...fields },
+    });
+    const store = async (
+      tenantId: string,
+      records: Parameters<typeof storeQboPage>[2]["records"],
+    ) => {
+      const connectionId = await qboOf(tenantId);
+      await H.t.db.transaction((tx) =>
+        storeQboPage(tx, new ContentStore(H.objects), {
+          tenantId,
+          connectionId,
+          records,
+          files: new Map(),
+          cursor: {},
+          initial: true,
+          now: SYNCED,
+        }),
+      );
+      return connectionId;
+    };
+    const qboA = await store(A(), [
+      invoice("130", {
+        DocNumber: "1043",
+        TxnDate: "2026-10-20",
+        DueDate: "2026-11-19",
+        TotalAmt: 1200,
+        Balance: 450,
+        CustomerRef: { value: "7", name: "Lakeside Builders" },
+        PrivateNote: "Called about the balance",
+      }),
+      invoice("131", {
+        DocNumber: "1044",
+        TxnDate: "2026-10-27",
+        TotalAmt: 300,
+        Balance: 0,
+        CustomerRef: { value: "8", name: "Harbor Kitchens" },
+      }),
+    ]);
+    await store(H.B.tenantId, [
+      invoice("130", {
+        DocNumber: "9001",
+        TxnDate: "2026-10-20",
+        TotalAmt: 75,
+        Balance: 75,
+        CustomerRef: { value: "1", name: "Other Customer" },
+      }),
+    ]);
+
+    for (const who of [admin("a"), user("a")]) {
+      const res = await H.call(who, "GET", "/api/records?kind=receivables");
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const body = res.json as J;
+      expect(body.counts.receivables).toBe(2);
+      expect(body.total).toBe(2);
+      expect(body.page.kind).toBe("receivables");
+      // Newest first by the invoice's date.
+      expect(body.page.rows).toEqual([
+        expect.objectContaining({
+          docNumber: "1044",
+          customer: { name: "Harbor Kitchens", organizationId: null },
+          total: "300.0000",
+          balance: "0.0000",
+          status: "paid",
+          sourceId: qboA,
+        }),
+        expect.objectContaining({
+          docNumber: "1043",
+          txnDate: "2026-10-20",
+          dueDate: "2026-11-19",
+          balance: "450.0000",
+          currency: "USD",
+          status: "open",
+        }),
+      ]);
+      // The client's own note to its team stays in QuickBooks; nothing a portal may not carry.
+      expect(JSON.stringify(body)).not.toContain("Called about the balance");
+      expect(forbiddenKeys(body)).toEqual([]);
+      // The back office's list of the same client is the same.
+      const ops = await H.call(OPERATOR, "GET", `/api/ops/clients/${A()}/records?kind=receivables`);
+      expect(res.json).toEqual(ops.json);
+    }
+    const find = async (q: string) =>
+      (
+        (await H.call(admin("a"), "GET", `/api/records?kind=receivables&q=${q}`)).json as J
+      ).page.rows
+        .map((r: J) => r.docNumber)
+        .sort();
+    expect(await find("1043")).toEqual(["1043"]);
+    expect(await find("lakeside")).toEqual(["1043"]);
+    expect(await find("450")).toEqual(["1043"]);
+    expect(await find("300.00")).toEqual(["1044"]);
+    // Client B sees its one invoice, never A's.
+    const b = (await H.call(admin("b"), "GET", "/api/records?kind=receivables")).json as J;
+    expect(b.page.rows.map((r: J) => r.docNumber)).toEqual(["9001"]);
+    expect(JSON.stringify(b)).not.toContain("Lakeside");
   });
 });
 

@@ -37,10 +37,22 @@
 
   // One Workflow class runs any workflow of any client agent; the instance id is the run id
   // (ARCHITECTURE §10.3).
-  // QuickBooks sync runs as its own Workflow, one instance per sync of one connection (plan M9).
+  // QuickBooks sync runs as its own Workflow, one instance per sync of one connection (plan M9),
+  // and so does each client data export (docs/plan.md §1.36).
   "workflows": [
     { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
-    { "name": "mezonas-local-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" }
+    { "name": "mezonas-local-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
+    {
+      "name": "mezonas-local-export",
+      "binding": "EXPORT_WORKFLOW",
+      "class_name": "ExportWorkflow"
+    },
+    // v0.12 W2-C: one instance per test suite run (docs/plan.md §1.46).
+    {
+      "name": "mezonas-local-test-suite",
+      "binding": "TEST_SUITE_WORKFLOW",
+      "class_name": "TestSuiteWorkflow"
+    }
   ],
 
   // Non-secret configuration. Secrets (WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD, ANTHROPIC_API_KEY,
@@ -59,7 +71,9 @@
     "LLM_MODE": "live",
     // Which QuickBooks the qbo connector talks to: the Intuit app's development keys reach sandbox
     // companies only.
-    "QBO_ENV": "sandbox"
+    "QBO_ENV": "sandbox",
+    // Which Plaid the bank feed talks to (docs/plan.md §1.52): PLAID_SECRET must be this one's.
+    "PLAID_ENV": "sandbox"
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
@@ -80,6 +94,16 @@
           "name": "mezonas-staging-qbo-sync",
           "binding": "QBO_SYNC",
           "class_name": "QboSyncWorkflow"
+        },
+        {
+          "name": "mezonas-staging-export",
+          "binding": "EXPORT_WORKFLOW",
+          "class_name": "ExportWorkflow"
+        },
+        {
+          "name": "mezonas-staging-test-suite",
+          "binding": "TEST_SUITE_WORKFLOW",
+          "class_name": "TestSuiteWorkflow"
         }
       ],
       // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
@@ -103,7 +127,11 @@
         "WORKOS_AUTHKIT_DOMAIN": "https://patient-bedrock-89-staging.authkit.app",
         "APP_ORIGIN": "https://staging.mezonas.com",
         "LLM_MODE": "live",
-        "QBO_ENV": "sandbox"
+        "QBO_ENV": "sandbox",
+        "PLAID_ENV": "sandbox",
+        // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
+        // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
+        "BAA_PROCESSORS": ""
       }
     },
     "production": {
@@ -115,7 +143,13 @@
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas" }],
       "workflows": [
         { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
-        { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" }
+        { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
+        { "name": "mezonas-export", "binding": "EXPORT_WORKFLOW", "class_name": "ExportWorkflow" },
+        {
+          "name": "mezonas-test-suite",
+          "binding": "TEST_SUITE_WORKFLOW",
+          "class_name": "TestSuiteWorkflow"
+        }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
       "ratelimits": [
@@ -136,7 +170,12 @@
         "LLM_MODE": "live",
         // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off
         // in production (no QBO_CLIENT_ID).
-        "QBO_ENV": "production"
+        "QBO_ENV": "production",
+        // Plaid's production needs its review first; until PLAID_SECRET is set, feeds stay off.
+        "PLAID_ENV": "production",
+        // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
+        // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
+        "BAA_PROCESSORS": ""
       }
     }
   }

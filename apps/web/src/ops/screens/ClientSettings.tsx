@@ -1,7 +1,7 @@
 // `/ops/clients/:clientId/settings`: the settings a client was onboarded with (docs/plan.md §1.14):
 // name and timezone, who approves changes to its tools (with the log of who changed it and why),
 // the tools it is offered (changed on Connections), its people and invites, and the email choices
-// its admin made in the portal.
+// its admin made in the portal; then compliance (HIPAA mode, vendors) and retiring the client.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
@@ -20,6 +20,7 @@ import {
   SectionLabel,
   Tag,
 } from "../../ui/primitives";
+import { ClientComplianceSetting } from "./ClientComplianceSetting";
 import { ApproverChoice, type CreatedState } from "./NewClient";
 
 const APPROVER_LABEL: Record<ExternalApprover, string> = {
@@ -153,6 +154,8 @@ export function ClientSettingsScreen() {
           </p>
         </Card>
       </section>
+
+      <ClientComplianceSetting clientId={clientId} clientName={current.client.name} />
     </div>
   );
 }

@@ -3,12 +3,16 @@
 // from the record the event points at.
 
 import {
+  AccountRequestPassedPayload,
   ConnectionNeedsAttentionPayload,
   DecimalString,
   type EventTypeSpec,
   HealthSummary,
+  InboundMessagePayload,
   type PlatformEventType,
   RunFailedPayload,
+  RunSucceededPayload,
+  ThreadMessagePostedPayload,
 } from "@countersign/core";
 import { z } from "zod";
 
@@ -82,6 +86,30 @@ export const ScheduleTickPayload = z.strictObject({
   /** The tick (ISO instant) this is for. */
   scheduledAt: z.iso.datetime({ offset: true }),
 });
+
+// v0.12 W1-F: accounts receivable (ARCHITECTURE §6.2, docs/plan.md §1.41).
+/** An invoice to a customer in the client's books. */
+export const ReceivableCreatedPayload = z.strictObject({
+  receivableId: Id,
+  /** The connector it came from, e.g. `qbo`. */
+  source: z.string().min(1),
+  /** The directory organization it is linked to, when one has its customer's id. */
+  organizationId: NullableId,
+  total: Money,
+  /** What is still owed. */
+  balance: Money,
+  /** ISO date (yyyy-mm-dd), when it has one. */
+  dueDate: z.string().nullable(),
+  status: z.enum(["open", "paid", "void", "deleted"]),
+});
+
+export const ReceivableUpdatedPayload = ReceivableCreatedPayload.extend({
+  /** What changed: balance, total, status, dueDate, customer, docNumber, note. */
+  changed: z.array(z.string()),
+});
+
+export const ReceivablePaidPayload = ReceivableCreatedPayload.omit({ status: true });
+// end v0.12 W1-F
 
 interface PlatformEventDef {
   description: string;
@@ -232,6 +260,109 @@ export const PLATFORM_EVENTS = {
       agents: { active: 3, paused: 0 },
       openFindings: 1,
       sources: [SAMPLE_ID],
+    },
+  },
+  // v0.12 W1-F: accounts receivable.
+  "receivable.created": {
+    description: "An invoice to a customer arrived from the client's books (QuickBooks).",
+    subjectType: "receivable",
+    payload: ReceivableCreatedPayload,
+    sample: {
+      receivableId: SAMPLE_ID,
+      source: "qbo",
+      organizationId: SAMPLE_ID_2,
+      total: { amount: "4200.0000", currency: "USD" },
+      balance: { amount: "4200.0000", currency: "USD" },
+      dueDate: "2026-12-01",
+      status: "open",
+    },
+  },
+  "receivable.updated": {
+    description: "An invoice to a customer changed in the client's books (a payment, an edit).",
+    subjectType: "receivable",
+    payload: ReceivableUpdatedPayload,
+    sample: {
+      receivableId: SAMPLE_ID,
+      source: "qbo",
+      organizationId: SAMPLE_ID_2,
+      total: { amount: "4200.0000", currency: "USD" },
+      balance: { amount: "2100.0000", currency: "USD" },
+      dueDate: "2026-12-01",
+      status: "open",
+      changed: ["balance"],
+    },
+  },
+  "receivable.paid": {
+    description: "An invoice to a customer was paid in full (its balance reached zero).",
+    subjectType: "receivable",
+    payload: ReceivablePaidPayload,
+    sample: {
+      receivableId: SAMPLE_ID,
+      source: "qbo",
+      organizationId: SAMPLE_ID_2,
+      total: { amount: "4200.0000", currency: "USD" },
+      balance: { amount: "0.0000", currency: "USD" },
+      dueDate: "2026-12-01",
+    },
+  },
+  // v0.12 W1-C: threads (ARCHITECTURE §11.2). Ids only, never the text.
+  "thread.message_posted": {
+    description:
+      "Someone posted in a thread: a person, an agent or the system. A `/name` message names the agent it asks.",
+    subjectType: "thread",
+    payload: ThreadMessagePostedPayload,
+    sample: {
+      threadId: SAMPLE_ID,
+      subjectType: "lead",
+      subjectId: SAMPLE_ID_2,
+      messageId: "0192f7a0-0000-7000-8000-000000000003",
+      senderType: "user",
+      senderId: "0192f7a0-0000-7000-8000-000000000004",
+      audience: "client",
+      command: { name: "remy", agentId: "0192f7a0-0000-7000-8000-000000000005" },
+    },
+  },
+  // v0.12 W2-E: triggers (docs/plan.md §1.48). Ids only, never a message's words.
+  "inbound.message": {
+    description:
+      "Someone sent one of the client's agents a message: an email to its address, or a text or WhatsApp to its number.",
+    subjectType: "raw_record",
+    payload: InboundMessagePayload,
+    sample: {
+      agentId: SAMPLE_ID,
+      channel: "email",
+      contactId: SAMPLE_ID_2,
+      userId: null,
+      rawRecordId: "0192f7a0-0000-7000-8000-000000000003",
+      documents: [],
+      receivedAt: "2026-11-06T15:00:00.000Z",
+    },
+  },
+  "run.succeeded": {
+    description:
+      "A live run of one of the client's agents finished well, with what its workflow hands off.",
+    subjectType: "run",
+    payload: RunSucceededPayload,
+    sample: {
+      runId: SAMPLE_ID,
+      agentId: SAMPLE_ID_2,
+      agentSlug: "bill-clerk",
+      agentVersionId: "0192f7a0-0000-7000-8000-000000000003",
+      workflowSlug: "check-bills",
+      output: { billId: "0192f7a0-0000-7000-8000-000000000004" },
+      sources: ["0192f7a0-0000-7000-8000-000000000004"],
+      depth: 1,
+    },
+  },
+  "account.request_passed": {
+    description: "Sloan passed a client's request to one of its agents.",
+    subjectType: "thread",
+    payload: AccountRequestPassedPayload,
+    sample: {
+      agentId: SAMPLE_ID,
+      threadId: SAMPLE_ID_2,
+      messageId: "0192f7a0-0000-7000-8000-000000000003",
+      userId: "0192f7a0-0000-7000-8000-000000000004",
     },
   },
 } as const satisfies Record<PlatformEventType, PlatformEventDef>;

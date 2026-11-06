@@ -1,7 +1,7 @@
 // `POST /api/uploads` sends multipart form data, which the JSON client does not: this sends the
 // files and parses the answer with the same contract schema, failing the same way (ApiError). The
 // back office's Sandbox upload (`POST /api/ops/clients/:id/uploads`) answers the same.
-import { buildPath, routes } from "@countersign/core";
+import { buildPath, routes, SESSION_ACTIVITY_HEADER } from "@countersign/core";
 import { ApiError, type ResponseOf } from "./client";
 
 export type UploadResponse = ResponseOf<typeof routes.portalUploads>;
@@ -25,7 +25,8 @@ export async function uploadFiles(
       method: "POST",
       body: form,
       credentials: "same-origin",
-      headers: { accept: "application/json" },
+      // Choosing files is the person's own act (docs/plan.md §1.35).
+      headers: { accept: "application/json", [SESSION_ACTIVITY_HEADER]: "1" },
     });
   } catch (cause) {
     throw new ApiError({

@@ -88,3 +88,36 @@ Against the sandbox company (`9341458640918607`, QBO Plus, US):
 6. Update a memo and an item's purchase cost.
 7. Disconnect from the portal: the app disappears from the sandbox company's connected apps.
 8. Throttle by running a full sync and an agent at once; look for 429s in the logs.
+
+## Accounts receivable and create bill (v0.12, W1-F, 2026-11-06)
+
+Built the same way: against the fake, from what we knew of the API, nothing called live.
+
+| Fact we built on | Where in the code |
+|---|---|
+| `Customer`, `Invoice` and `Payment` are queryable (`select * from Invoice where TxnDate >= …`) and accepted in CDC's `entities` | `sync.ts`, `@countersign/core` `QBO_SYNCED_ENTITIES` |
+| Invoice: `CustomerRef {value, name}`, `DocNumber`, `TxnDate`, `DueDate`, `TotalAmt`, `Balance`, `PrivateNote`, `EmailStatus`, `Line[]` with `SalesItemLineDetail {ItemRef, Qty, UnitPrice}` and a `SubTotalLineDetail` line | core `QboInvoiceRaw`, `mapQboInvoice` |
+| A payment lowers its invoices' `Balance` and moves their `SyncToken`, so CDC brings the invoices again; Payment `Line[].LinkedTxn[{TxnId, TxnType: "Invoice"}]`, `UnappliedAmt`, `PaymentRefNum` | `records.ts` `toPayment`; `fake.ts` `receivePayment` |
+| A voided invoice keeps its row with `TotalAmt` 0, `Balance` 0 and a `PrivateNote` starting "Voided"; there is no void flag | core `isVoidedQboInvoice` |
+| Report: `GET /reports/AgedReceivableDetail?report_date=YYYY-MM-DD&aging_method=Report_Date[&customer=<id>]`; columns carry `MetaData[{Name: "ColKey", Value}]` with keys `tx_date`, `txn_type`, `doc_num`, `cust_name`, `due_date`, `subt_amount`, `subt_open_bal`; rows are sections titled "Current", "1 - 30 days past due" … "91 or more days past due", data rows' `txn_type` cell has the transaction's `id`, the customer cell the customer's `id`; money as plain strings ("2280.50") | `ar.ts` `readAgingReport`, `fixtures/qbo/report-aged-receivable-detail.json` |
+| Invoice filters `CustomerRef = '8'`, `Balance > '0'`, `DueDate < '…'`; Payment filter `CustomerRef = '…'`; `Bill` filter `DocNumber = '…'` matches exactly | `ar.ts`, `bill-create.ts` |
+| A sparse Invoice update with only `Id`, `SyncToken`, `sparse` and `PrivateNote` changes the private note alone; `PrivateNote` holds at most 4000 characters | `ar.ts` `addNoteTool`, `QBO_PRIVATE_NOTE_MAX` |
+| Create a bill: `POST /bill` with `VendorRef`, `DocNumber`, `TxnDate`, `DueDate`, `CurrencyRef`, `PrivateNote` and `Line[]` (both expense detail types), no `Id`; the answer is the bill with `Id` and `SyncToken` "0"; `requestid` makes it idempotent | `bill-create.ts` |
+
+To verify (docs, then the sandbox company):
+
+1. Every row above, especially the report's name, parameters, column keys, section titles and
+   whether `aging_method=Report_Date` is the default; whether the report includes credit memos and
+   journal entries (we keep invoices only).
+2. How a voided invoice reads in the API and in CDC (our `void` rule), and whether a deleted
+   invoice comes through CDC as `status: "Deleted"` like the other entities.
+3. The `PrivateNote` limit (4000?) and that a sparse update with only `PrivateNote` leaves lines,
+   totals and the email status alone.
+4. Whether a new bill in a company with automated sales tax or a home-currency mismatch gets a total
+   other than its lines (we fail the action for a person if so).
+5. Webhooks: the Intuit app's subscription is Account, Bill, Item, Purchase and Vendor. Add
+   Customer, Invoice and Payment so a payment syncs within a minute (CDC every 15 minutes covers it
+   meanwhile).
+6. Sandbox walk: connect, see invoices and payments sync (365 days), receive a payment and see the
+   receivable become paid with `receivable.paid`, read the aging report and compare it with
+   QuickBooks' own screen, add a note to an invoice, create a bill from an uploaded invoice.
