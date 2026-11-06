@@ -331,7 +331,8 @@ describe("run oversight on failures", () => {
       { vendor: "Acme " },
     );
     expect(result).toEqual({ status: "succeeded" });
-    expect(o2.requests).toHaveLength(1);
+    // v0.13 M32: `always` reviews the step after it succeeds too.
+    expect(o2.requests.map((r) => r.cause)).toEqual(["failed", "checkpoint"]);
   });
 
   it("never reviews a write that waits for approval or an escalation", async () => {

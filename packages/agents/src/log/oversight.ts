@@ -110,7 +110,9 @@ export function dbOversightStore(db: Db): OversightStore {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
           .select({
-            count: sql<number>`count(*)::int`,
+            // v0.13 M32: a `continue` changes nothing, so it is not an intervention (its cost
+            // still counts).
+            count: sql<number>`(count(*) filter (where ${oversightDecision.action} <> 'continue'))::int`,
             costUsd: sql<string>`coalesce(sum(${oversightDecision.costUsd}), 0)::text`,
           })
           .from(oversightDecision)

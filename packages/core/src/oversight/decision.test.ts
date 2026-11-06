@@ -194,6 +194,7 @@ describe("the client's words", () => {
         w.stopped,
         w.checked,
         w.askTitle("Find"),
+        w.askCheckTitle("Read"),
       ]) {
         expect(line.trim().length, l).toBeGreaterThan(0);
       }

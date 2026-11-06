@@ -25,6 +25,8 @@ export interface OversightWords {
   checked: string;
   /** An ask's inbox title, before the agent's question: `Before we try "Find the vendor" again`. */
   askTitle(step: string): string;
+  /** v0.13 M32: a checkpoint's ask, before the agent's question: `Before we go on from "Read…"`. */
+  askCheckTitle(step: string): string;
 }
 
 export const OVERSIGHT_WORDS: Record<Locale, OversightWords> = {
@@ -37,6 +39,7 @@ export const OVERSIGHT_WORDS: Record<Locale, OversightWords> = {
     stopped: "Stopped",
     checked: "Checked and went on",
     askTitle: (s) => `Before we try "${s}" again`,
+    askCheckTitle: (s) => `Before we go on from "${s}"`,
   },
   es: {
     triedAgain: "Se intentó de nuevo",
@@ -47,6 +50,7 @@ export const OVERSIGHT_WORDS: Record<Locale, OversightWords> = {
     stopped: "Se detuvo",
     checked: "Se revisó y se continuó",
     askTitle: (s) => `Antes de volver a intentar «${s}»`,
+    askCheckTitle: (s) => `Antes de continuar después de «${s}»`,
   },
   fr: {
     triedAgain: "Nouvel essai",
@@ -57,6 +61,7 @@ export const OVERSIGHT_WORDS: Record<Locale, OversightWords> = {
     stopped: "Arrêté",
     checked: "Vérifié, puis poursuivi",
     askTitle: (s) => `Avant de réessayer « ${s} »`,
+    askCheckTitle: (s) => `Avant de continuer après « ${s} »`,
   },
   "pt-BR": {
     triedAgain: "Tentamos de novo",
@@ -67,6 +72,7 @@ export const OVERSIGHT_WORDS: Record<Locale, OversightWords> = {
     stopped: "Interrompido",
     checked: "Verificado e seguimos",
     askTitle: (s) => `Antes de tentar "${s}" de novo`,
+    askCheckTitle: (s) => `Antes de seguir depois de "${s}"`,
   },
   it: {
     triedAgain: "Riprovato",
@@ -77,6 +83,7 @@ export const OVERSIGHT_WORDS: Record<Locale, OversightWords> = {
     stopped: "Interrotto",
     checked: "Controllato e proseguito",
     askTitle: (s) => `Prima di riprovare «${s}»`,
+    askCheckTitle: (s) => `Prima di proseguire dopo «${s}»`,
   },
   de: {
     triedAgain: "Erneut versucht",
@@ -87,6 +94,7 @@ export const OVERSIGHT_WORDS: Record<Locale, OversightWords> = {
     stopped: "Angehalten",
     checked: "Geprüft und fortgesetzt",
     askTitle: (s) => `Bevor wir „${s}“ erneut versuchen`,
+    askCheckTitle: (s) => `Bevor wir nach „${s}“ weitermachen`,
   },
 };
 
