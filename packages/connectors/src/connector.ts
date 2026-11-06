@@ -10,6 +10,8 @@ import {
   type Verb,
 } from "@countersign/core";
 import { z } from "zod";
+// v0.14 W4-C
+import type { WriteAttemptServices } from "./attempts";
 import type { BrowserServices } from "./browser/services";
 import type { CredentialsAccessor } from "./credentials-accessor";
 import type { Logger } from "./logger";
@@ -58,6 +60,9 @@ export interface ConnectorServices {
   // v0.12 W1-F
   /** What sync already stored for this connection (QBO: duplicate bills, receivable ids). */
   records?: SyncedRecordServices;
+  // v0.14 W4-C
+  /** Writes the provider takes no idempotency key for (Slack): attempts, refusals, results. */
+  attempts?: WriteAttemptServices;
 }
 
 // v0.12 W1-F: synced records, read for the call's one client and connection (apps/api/src/qbo).

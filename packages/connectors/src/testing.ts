@@ -319,5 +319,13 @@ export {
   type FakeResendEmail,
   fakeResend,
 } from "./resend/fake";
+// v0.14 W4-C
+export {
+  FAKE_SLACK,
+  type FakeSlack,
+  type FakeSlackChannel,
+  type FakeSlackPost,
+  fakeSlack,
+} from "./slack/fake";
 export * from "./stripe/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";
