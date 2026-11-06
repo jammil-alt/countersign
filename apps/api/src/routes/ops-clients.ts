@@ -19,6 +19,7 @@ import {
   externalAction,
   inboxItem,
   membership,
+  modelCall,
   run,
   stepRun,
   type Tx,
@@ -482,6 +483,18 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .from(externalAction)
       .where(and(eq(externalAction.runId, r.id), eq(externalAction.tenantId, r.tenantId)))
       .orderBy(externalAction.createdAt);
+    // v0.13 W2-H: which models each step ran on (a task skill's own, the agent's, or a step's).
+    const modelRows = await tx
+      .select({ stepRunId: modelCall.stepRunId, model: modelCall.model })
+      .from(modelCall)
+      .where(and(eq(modelCall.runId, r.id), eq(modelCall.tenantId, r.tenantId)))
+      .orderBy(modelCall.createdAt, modelCall.id);
+    const modelsByStep = new Map<string, string[]>();
+    for (const c of modelRows) {
+      const list = modelsByStep.get(c.stepRunId) ?? [];
+      if (!list.includes(c.model)) list.push(c.model);
+      modelsByStep.set(c.stepRunId, list);
+    }
     const items = await tx
       .select()
       .from(inboxItem)
@@ -496,7 +509,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
     return {
       run: opsRun(r),
-      steps: steps.map(opsStep),
+      steps: steps.map((s) => ({ ...opsStep(s), models: modelsByStep.get(s.id) ?? [] })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),
       inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId), services.platform)),

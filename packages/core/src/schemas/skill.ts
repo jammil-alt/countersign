@@ -12,6 +12,25 @@ export const SkillSetting = z.object({
 });
 export type SkillSetting = z.infer<typeof SkillSetting>;
 
+// v0.13 W2-H: task skills and a model per step (ARCHITECTURE §9.2, §10.11; docs/plan.md §1.53).
+/**
+ * A model by id, the same shape as the agent's `model`: a `task` skill's own default, or a skill
+ * step's override. `maxTokens` falls back along the same order (step, skill, agent).
+ */
+// DECISION: a model id, not named tiers (Fast, Standard, Strong are the builder's labels), so
+// skills, steps and agents name models the same way (docs/plan.md §1.53).
+export const ModelChoice = z
+  .object({
+    id: z.string().min(1),
+    maxTokens: z.number().int().positive().optional(),
+  })
+  .meta({ id: "ModelChoice" });
+export type ModelChoice = z.infer<typeof ModelChoice>;
+
+/** The skill modes (v0.13): code, a typed job on its own model, or the agent's own reasoning. */
+export const SKILL_MODES = ["tool", "task", "agent"] as const;
+export type SkillMode = (typeof SKILL_MODES)[number];
+
 /** ARCHITECTURE §9.2. */
 export const SkillDefinition = z
   .object({
@@ -20,11 +39,17 @@ export const SkillDefinition = z
     name: z.string(),
     description: z.string(),
     category: z.string(),
-    /** 'tool' = deterministic handler; 'agent' = reasoning loop. */
-    mode: z.enum(["tool", "agent"]),
+    /**
+     * 'tool' = deterministic handler; 'task' = a typed job on the skill's own `model`, with no
+     * agent instructions or memory, the same in any agent; 'agent' = the agent's reasoning loop,
+     * on its model with its instructions and memory (v0.13).
+     */
+    mode: z.enum(SKILL_MODES),
+    /** v0.13: required for `task` (the skill's default model); not allowed on `tool` or `agent`. */
+    model: ModelChoice.optional(),
     /** Tool id when mode = 'tool' (built-ins only). */
     handler: ToolId.optional(),
-    /** Added to the agent's prompt when mode = 'agent'. */
+    /** The task's instructions when mode = 'task' or 'agent' (with the agent's own for 'agent'). */
     instructions: z.string().optional(),
     /** Tools the agent may use while running this skill. */
     tools: z.array(ToolId),
@@ -52,9 +77,17 @@ export const SkillDefinition = z
     message: "a tool-mode skill needs a handler",
     path: ["handler"],
   })
-  .refine((s) => s.mode !== "agent" || s.handler === undefined, {
-    message: "an agent-mode skill has instructions, not a handler",
+  .refine((s) => s.mode === "tool" || s.handler === undefined, {
+    message: "a task- or agent-mode skill has instructions, not a handler",
     path: ["handler"],
+  })
+  .refine((s) => s.mode !== "task" || s.model !== undefined, {
+    message: "a task-mode skill names the model it runs on",
+    path: ["model"],
+  })
+  .refine((s) => s.mode === "task" || s.model === undefined, {
+    message: "only a task-mode skill names a model (an agent-mode skill runs on the agent's)",
+    path: ["model"],
   })
   .refine((s) => new Set(s.settings.map((x) => x.key)).size === s.settings.length, {
     message: "setting keys must be unique",

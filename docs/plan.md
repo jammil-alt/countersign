@@ -1325,6 +1325,9 @@ came from the Wave 1 migrations PR.
 | Defaults | Existing and built-in skills stay as they are, so their recorded fixtures are unchanged. Moving a built-in skill to `task` is its own change with re-recorded fixtures. The Materials pack and the documents capability keep their own model choices. |
 | Cost | Nothing new: W1-E's `model_call` rows already carry the model, and step cost already rolls up. |
 | Merge | `model` is a step field; three-way merge handles it like `input`. |
+| Reach-out | `comms.reach-out` composes its message later, from its stored plan, in the agent's voice: the step's `model`, if set, is stored on the plan (`StoredPlan.model`) and used by `composeReachMessage`; else the agent's model. |
+| Builder check | The browser's `validateLikeServer` passes no model list, so an unknown id is caught on save (the server passes `knownModelIds()` in the registry's publish and lineage checks and in `POST /api/ops/workflows/validate`). |
+| Built (2026-11-06) | Everything above, on `claude/w2h-step-models`, stacked on the v0.13 design PR, with tests at every layer (schema, validation, merge, resolution, the runtime against Postgres, the route). After W1-E merged: `GET /api/ops/runs/:id` gives each step its `models` (distinct, from its `model_call` rows), and task skills' calls are recorded like any other (same loop, same `onCall`). |
 
 ### 1.54 Run oversight (W2-I, M31–M32; migration 0029; ARCHITECTURE v0.13 §10.11, §5.6)
 

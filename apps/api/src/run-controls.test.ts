@@ -511,6 +511,13 @@ describe.skipIf(!h)("run controls", () => {
       durationMs: 812,
       stopReason: "end_turn",
     });
+    // v0.13 W2-H: the run page names the models each step ran on; steps without calls list none.
+    const detail = j((await H.call(OPERATOR, "GET", `/api/ops/runs/${r.id}`)).json);
+    const byId = new Map(
+      detail.steps.map((st: { id: string; models: string[] }) => [st.id, st.models]),
+    );
+    expect(byId.get(s.id)).toEqual(["claude-opus-5-5"]);
+    for (const [id, models] of byId) if (id !== s.id) expect(models).toEqual([]);
     const one = await H.call(OPERATOR, "GET", `/api/ops/model-calls/${call.id}`);
     const text = JSON.stringify(j(one.json).body);
     expect(text).toContain("[card ending 1111]");

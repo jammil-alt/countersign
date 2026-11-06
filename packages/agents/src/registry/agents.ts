@@ -36,6 +36,7 @@ import {
   type Tx,
   tenantPack,
 } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 // v0.12 W2-B: automations
@@ -231,6 +232,7 @@ export async function validateForPublish(
   const result = validateBundle(bundle, {
     skills: { ...used.skills, ...skills },
     tools: ctx.tools.specs(),
+    models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
     ...(row.kind === "client" ? { publish: { matrices: await boundMatrices(tx, row) } } : {}),
     // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.

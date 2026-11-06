@@ -142,3 +142,40 @@ export function sumCosts(costs: readonly (string | null)[]): string {
     .reduce<Decimal>((sum, c) => (c === null ? sum : sum.add(c)), new Decimal(0))
     .toFixed(COST_PLACES);
 }
+
+// v0.13 W2-H: the models a skill or a step may name (ARCHITECTURE §10.11, docs/plan.md §1.53).
+
+/** The builder's label for each model; the tiers are labels only, never stored. */
+export const MODEL_LABELS: Readonly<Record<ModelId, string>> = {
+  [MODELS.haiku]: "Fast (Haiku)",
+  [MODELS.sonnet]: "Standard (Sonnet)",
+  [MODELS.opus]: "Strong (Opus)",
+  [MODELS.gpt]: "OpenAI (GPT)",
+};
+
+export interface KnownModel {
+  id: ModelId;
+  label: string;
+  inputPerMtok: string;
+  outputPerMtok: string;
+}
+
+/**
+ * The models a skill or a step may name: those with a price, so every call's cost is known
+ * (plan §1.2 "Cost"). Cheapest output first, the order the builder lists them in.
+ */
+export function knownModels(prices: Readonly<Record<ModelId, ModelPrice>> = PRICES): KnownModel[] {
+  return Object.entries(prices)
+    .map(([id, p]) => ({
+      id,
+      label: MODEL_LABELS[id] ?? id,
+      inputPerMtok: p.inputPerMtok,
+      outputPerMtok: p.outputPerMtok,
+    }))
+    .sort((a, b) => new Decimal(a.outputPerMtok).cmp(b.outputPerMtok) || a.id.localeCompare(b.id));
+}
+
+/** The ids of `knownModels()`, for validation (core's `ValidationContext.models`). */
+export function knownModelIds(prices: Readonly<Record<ModelId, ModelPrice>> = PRICES): string[] {
+  return Object.keys(prices).sort();
+}
