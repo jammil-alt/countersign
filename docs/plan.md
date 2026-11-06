@@ -1525,9 +1525,9 @@ documents it used; the portal list shows only the client's records; "sync now" r
 starts a second sync (or queues it while the first runs).
 
 **Done when** the API e2e's upload starts its run without the sweep, its reading shows in usage and
+credits, the portal lists records, and "sync now" after connecting syncs again.
 
 Status (W1-H, 2026-11-06): built (§1 "Platform fixes (W1-H)"), PR #106. The API e2e's upload starts its run without the sweep, its reading shows in usage (`background`) and credits, the portal lists records, and "sync now" right after connecting is queued and runs after the first sync. Receivables join the portal list with W1-F.
-credits, the portal lists records, and "sync now" after connecting syncs again.
 
 ### M21: Permissions per record type and the connectors catalog (W2-A, §1.44)
 
