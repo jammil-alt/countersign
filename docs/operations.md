@@ -580,6 +580,17 @@ disconnected. Then:
    quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
    holds the deleted rows until its restore window passes.
 
+**Exporting a client's data.** The terms promise an export on request until 30 days after the
+service ends. Start it with `POST /api/ops/clients/<id>/exports` (a reason is optional) and list it
+with `GET /api/ops/clients/<id>/exports`; once ready, the list carries a link that works for 5
+minutes. Download it and send it to the client yourself: the client can no longer sign in once
+retired. It runs as its own Workflow, `ExportWorkflow` (binding `EXPORT_WORKFLOW`;
+`mezonas-staging-export` on staging), which wrangler creates on the next deploy. The ZIP lives
+under the client's files, so it is deleted with them; start a retired client's export well before
+its 30 days end (the deletion waits for an export being built, up to a day). Client admins download
+their accountant export and their own audit log from `/api/exports/accountant` and
+`/api/exports/audit` (`?from=YYYY-MM-DD&to=YYYY-MM-DD`).
+
 **The audit log and access review** are at `/ops/audit` (operators only). Review access every
 quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
 date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must
