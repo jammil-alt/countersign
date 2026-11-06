@@ -4,7 +4,14 @@
 // one short transaction scoped to that client (withTenant), never held across a model call.
 
 import type { ConnectionRef } from "@countersign/connectors";
-import type { AgentBundle, ApproverRule, GrantLimits, JsonObject } from "@countersign/core";
+import type {
+  AgentBundle,
+  ApproverRule,
+  GrantLimits,
+  JsonObject,
+  PermissionLevel,
+  ReachChannel,
+} from "@countersign/core";
 import type { ModelCallPort } from "../log/model-calls";
 import type { ResolvedSkill } from "../registry/skills";
 // v0.12 W2-D
@@ -63,6 +70,16 @@ export interface RuntimeStore {
    * client's tightening or revoke applies at once; null = no narrowing.
    */
   grant(tenantId: string, agentId: string, connectionId: string): Promise<GrantLimits | null>;
+  // v0.12 W1-G: the recipient's autonomy (docs/plan.md §1.42).
+  /**
+   * The autonomy for `channel` of the client's contact at this address (an email address or an
+   * E.164 number), read fresh for every send; null when the contact has none set or isn't one of
+   * the client's. Optional: a store without it narrows nothing.
+   */
+  contactAutonomy?(
+    tenantId: string,
+    recipient: { channel: ReachChannel; to: string },
+  ): Promise<PermissionLevel | null>;
   // v0.12 W1-A: go-live stages
   /**
    * The client agent's go-live stage (ARCHITECTURE §10.9), read fresh at every write decision like

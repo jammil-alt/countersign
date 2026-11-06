@@ -3,7 +3,7 @@
 // built-in upload connection. A new document is read in the background when a model key is
 // configured (DECISION below); otherwise it waits for an agent's `docs.extract`.
 
-import { documentForTool } from "@countersign/agents";
+import { documentForTool, rollupPlatformDaily, utcDay } from "@countersign/agents";
 import {
   ContentStore,
   documentMimeType,
@@ -37,7 +37,7 @@ import {
   storeDocument,
 } from "@countersign/documents";
 import { createLlmClient } from "@countersign/llm";
-import { type EventRow, emit } from "@countersign/senses";
+import { collectEmitted, EmittedEvents, type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { guardModels, profileReader } from "../compliance/policy";
@@ -52,7 +52,7 @@ import {
   type Services,
 } from "../http";
 import { reportHandled } from "../observability/report";
-import { dispatchEvents } from "../runs/dispatch";
+import { dispatchAfterCommit, dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
 import { sandboxClient } from "./ops-clients";
 
@@ -125,13 +125,31 @@ export async function extractInBackground(
   );
   const content = new ContentStore(services.deps.objects(services.env));
   const llm = createLlmClient({ transport });
+  // v0.12 W1-H: each document's events (read, failed, linked) are dispatched as soon as its
+  // transactions commit, so a run triggered by `document.extracted` starts at once (§8).
+  const dispatch = { db: services.db, instances: services.deps.instances(services.env) };
   for (const documentId of documentIds) {
+    const collect = new EmittedEvents();
     try {
-      await extractDocument({ db: services.db, content, llm }, { tenantId, documentId });
-      await withTenant(services.db, tenantId, (tx) => linkToTransaction(tx, tenantId, documentId));
+      await extractDocument({ db: services.db, content, llm }, { tenantId, documentId, collect });
+      await withTenant(services.db, tenantId, (tx) => {
+        collectEmitted(tx, collect);
+        return linkToTransaction(tx, tenantId, documentId);
+      });
     } catch (error) {
       reportHandled("extracting a document failed", error, { kind: "extraction" });
+    } finally {
+      await dispatchAfterCommit(dispatch, tenantId, collect);
     }
+  }
+  // v0.12 W1-H: the reading is the client's usage (ARCHITECTURE §13), rolled up now; the hourly
+  // sweep covers a rollup that fails.
+  try {
+    await withTenant(services.db, tenantId, (tx) =>
+      rollupPlatformDaily(tx, { tenantId, day: utcDay(new Date()) }),
+    );
+  } catch (error) {
+    reportHandled("rolling up reading usage failed", error, { kind: "extraction" });
   }
 }
 

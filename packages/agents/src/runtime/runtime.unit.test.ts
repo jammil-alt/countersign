@@ -63,6 +63,7 @@ describe("tool registry", () => {
       "health.runs",
       "inbox.create",
       "knowledge.search",
+      "knowledge.voice_samples",
       "memory.write",
       "supervisor.check",
       "supervisor.report",

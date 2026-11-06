@@ -7,3 +7,6 @@ export * from "./chunk";
 export * from "./documents";
 export * from "./entries";
 export * from "./search";
+// v0.12 W1-G: voice samples (docs/plan.md §1.42).
+export * from "./voice-email";
+export * from "./voice-samples";

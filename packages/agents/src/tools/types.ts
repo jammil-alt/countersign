@@ -13,6 +13,7 @@ import type {
   JsonObject,
   Locale,
   ToolSpec,
+  VoiceSampleChannel,
 } from "@countersign/core";
 import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
 import { z } from "zod";
@@ -168,6 +169,26 @@ export interface KnowledgePort {
       memory: { agentId: string; scopes: string[] };
     },
   ): Promise<KnowledgeHitForTool[]>;
+  // v0.12 W1-G: voice samples (docs/plan.md §1.42).
+  /** The client's voice samples, newest first; optional: absent, `knowledge.voice_samples` fails. */
+  voiceSamples?(
+    tenantId: string,
+    input: {
+      personUserId?: string | undefined;
+      channel?: VoiceSampleChannel | undefined;
+      limit: number;
+    },
+  ): Promise<{ samples: VoiceSampleForTool[]; channelMatched: boolean }>;
+}
+
+/** One voice sample as a tool reads it: how a person writes, as data. */
+export interface VoiceSampleForTool {
+  id: string;
+  versionId: string;
+  title: string;
+  text: string;
+  channel: VoiceSampleChannel;
+  person: { id: string; name: string | null };
 }
 
 /**

@@ -24,6 +24,7 @@ import {
   tenant,
   tenantPack,
   usageDaily,
+  usagePlatformDaily,
 } from "@countersign/db";
 import {
   and,
@@ -153,6 +154,35 @@ const byCost = (a: { s: Series; name: string }, b: { s: Series; name: string }) 
 
 const MONTH = sql<string>`to_char(${usageDaily.day}, 'YYYY-MM')`;
 
+const PLATFORM_MONTH = sql<string>`to_char(${usagePlatformDaily.day}, 'YYYY-MM')`;
+
+/** v0.12 W1-H: the clients' own usage (usage_platform_daily) by client and month. */
+function platformRows(
+  tx: Tx,
+  tenantIds: readonly string[],
+  query: { client?: string | undefined; from: string; to: string },
+) {
+  return tx
+    .select({
+      tenantId: usagePlatformDaily.tenantId,
+      month: PLATFORM_MONTH,
+      documents: sql<string>`sum(${usagePlatformDaily.documents})::text`,
+      tokensIn: sql<string>`sum(${usagePlatformDaily.tokensIn})::text`,
+      tokensOut: sql<string>`sum(${usagePlatformDaily.tokensOut})::text`,
+      cost: sql<string>`sum(${usagePlatformDaily.costUsd})::text`,
+    })
+    .from(usagePlatformDaily)
+    .where(
+      and(
+        inArray(usagePlatformDaily.tenantId, [...tenantIds]),
+        gte(usagePlatformDaily.day, query.from),
+        lte(usagePlatformDaily.day, query.to),
+        ...(query.client ? [eq(usagePlatformDaily.tenantId, query.client)] : []),
+      ),
+    )
+    .groupBy(usagePlatformDaily.tenantId, PLATFORM_MONTH);
+}
+
 async function usageReport(
   tx: Tx,
   tenantIds: readonly string[],
@@ -207,7 +237,11 @@ async function usageReport(
     )
     .where(and(...where))
     .groupBy(usageDaily.tenantId, usageDaily.agentId, MONTH);
-  if (rows.length === 0) return empty;
+  // v0.12 W1-H: the clients' own usage (background reading), unless narrowed to an agent or a
+  // template, which it is not part of.
+  const narrowed = Boolean(query.agent || query.template);
+  const platform = narrowed ? [] : await platformRows(tx, tenantIds, query);
+  if (rows.length === 0 && platform.length === 0) return empty;
 
   const agentIds = [...new Set(rows.map((r) => r.agentId))];
   const agents = await tx
@@ -232,7 +266,7 @@ async function usageReport(
           .from(agent)
           .where(and(inArray(agent.id, templateIds), isNull(agent.tenantId)))
       : [];
-  const clientIds = [...new Set(rows.map((r) => r.tenantId))];
+  const clientIds = [...new Set([...rows, ...platform].map((r) => r.tenantId))];
   const clients = await tx
     .select({ id: tenant.id, name: tenant.name })
     .from(tenant)
@@ -276,6 +310,22 @@ async function usageReport(
     }
   }
 
+  const background = new Series();
+  for (const r of platform) {
+    const x: Sum = {
+      ...zero(),
+      documents: Number(r.documents),
+      tokensIn: Number(r.tokensIn),
+      tokensOut: Number(r.tokensOut),
+      cost: new Decimal(r.cost ?? "0"),
+    };
+    all.add(r.month, x);
+    background.add(r.month, x);
+    const c = clientSeries.get(r.tenantId) ?? new Series();
+    c.add(r.month, x);
+    clientSeries.set(r.tenantId, c);
+  }
+
   const clientName = new Map(clients.map((c) => [c.id, c.name]));
   const template = new Map(templates.map((t) => [t.id, t]));
   return {
@@ -283,6 +333,7 @@ async function usageReport(
     to: query.to,
     months,
     ...all.out(months),
+    ...(narrowed ? {} : { background: background.out(months) }),
     clients: [...clientSeries]
       .map(([id, s]) => ({ id, name: clientName.get(id) ?? "", s }))
       .sort(byCost)

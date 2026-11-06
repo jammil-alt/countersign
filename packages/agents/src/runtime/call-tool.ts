@@ -9,6 +9,7 @@ import {
   runReadTool,
 } from "@countersign/connectors";
 import {
+  autonomyMessage,
   batchKeyOf,
   changeFacts,
   decideToolCall,
@@ -19,6 +20,7 @@ import {
   type JsonObject,
   levelFor,
   pickLocalized,
+  recipientOf,
   releaseOf,
   releaseSettingProblem,
   routeApproval,
@@ -213,6 +215,12 @@ async function dispatch(
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
   }
+  // v0.12 W1-G: a send's recipient's autonomy for the channel is one more ceiling, read fresh.
+  const recipient = recipientOf(tool.spec, input);
+  const autonomy =
+    recipient && deps.ports.store.contactAutonomy
+      ? await deps.ports.store.contactAutonomy(step.tenantId, recipient)
+      : null;
   // v0.12 W1-A: the go-live stage, read fresh like the matrix: in trial and signoff every write
   // needs a signature, whatever the step, matrix or mode say (ARCHITECTURE §10.9). Reads don't ask.
   // v0.12 W1-D: the stage is kept for the explanation (`whyApproval`).
@@ -231,7 +239,12 @@ async function dispatch(
     grant,
     stepApproval: step.approval?.required,
     agentMode: mode,
+    ceilings: autonomy ? [autonomy] : undefined,
   });
+  // v0.12 W1-G: the person's own setting refuses before the matrix's words would.
+  if (decision === "refused" && recipient && autonomy === "off") {
+    return { status: "refused", reason: autonomyMessage(recipient.channel, "off") };
+  }
   if (decision === "refused") {
     const verb = tool.spec.sideEffect === "none" ? "read" : tool.spec.verb;
     return {
@@ -331,6 +344,8 @@ async function dispatch(
               agentMode: mode,
               definitionMode: step.agent.bundle.definition.permissions.mode,
               stage,
+              // v0.12 W1-G: the recipient's autonomy (reason `person` when it is `approval`).
+              person: autonomy,
               route: { source: approver.source, ruleId: approver.ruleId },
             }) as JsonObject,
           },
