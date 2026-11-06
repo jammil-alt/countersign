@@ -26,7 +26,7 @@ import {
 import type { Bindings } from "./env";
 import { cloudflareStepRunner, type WorkflowStepLike } from "./runs/step-runner";
 
-export { default, QboSyncWorkflow, RunWorkflow } from "./index";
+export { default, ExportWorkflow, QboSyncWorkflow, RunWorkflow } from "./index";
 
 export interface ProbeParams {
   workflow: WorkflowDef;

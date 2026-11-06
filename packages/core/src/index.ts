@@ -13,6 +13,7 @@ export * from "./api/compliance";
 export * from "./api/contract";
 export * from "./api/directory";
 export * from "./api/documents";
+export * from "./api/exports";
 export * from "./api/feedback";
 export * from "./api/knowledge";
 export * from "./api/language";
