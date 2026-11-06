@@ -4,7 +4,8 @@
 //
 // The agent page (UI-2b) serves everything under `agents/:slug/*` with its tabs: Overview,
 // `workflow` (and `workflows/:workflow`, the builder), `triggers`, `runs`, `versions`, `tests` and
-// `settings`. UI-2c's O6 Workflow builder and O7 Triggers screens take over those two tabs.
+// `settings`. UI-2c: the Workflow tab is the O6 Workflow builder (ops/builder) and the Triggers tab
+// the O7 Triggers screen (ops/triggers); the sidebar lists both under the open agent.
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
@@ -59,10 +60,10 @@ export const opsRoutes = (
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
     <Route path="agents/:id/merge" element={<MergeScreen />} />
-    {/* O5 New agent (UI-2c) */}
+    {/* O5 New agent, by conversation with the Builder (UI-2c) */}
     <Route path="templates/new" element={<NewTemplateScreen />} />
     <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
-    {/* Back-office agent page, with O6 Workflow builder under it (UI-2b, UI-2c) */}
+    {/* Back-office agent page (UI-2b), with O6 Workflow builder and O7 Triggers as tabs (UI-2c) */}
     <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
     {/* O4 Skills and automations, O8 New skill, O3 Connectors (UI-2d) */}
     <Route path="skills" element={<SkillsScreen />} />

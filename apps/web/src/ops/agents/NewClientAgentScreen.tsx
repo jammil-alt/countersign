@@ -1,11 +1,10 @@
-// `/ops/clients/:clientId/agents/new` (design screen 4; ARCHITECTURE §9.3 "Forking"): a client
-// agent from a template version (fork: ids and base version kept), from scratch, or copied from
-// another client's agent (its live bundle without that client's values or bindings), or drafted by
-// the Builder from a description ("my description").
+// `/ops/clients/:clientId/agents/new` (O5, prototype `#O5-NewAgent`; ARCHITECTURE §9.3 "Forking"):
+// first the Builder conversation (NewAgentConversation), then the other ways to start: a template
+// version (fork: ids and base version kept), from scratch, or copied from another client's agent
+// (its live bundle without that client's values or bindings).
 import type { AgentBundle } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { useSession } from "../../session/session";
@@ -19,7 +18,6 @@ import {
   SectionLabel,
 } from "../../ui/primitives";
 import { parseBundle } from "../versions";
-import { BuilderDescribe, BuilderDraftResult } from "./BuilderParts";
 import {
   blankBundle,
   DEFAULT_MODEL,
@@ -27,6 +25,7 @@ import {
   SLUG_RE,
   slugify,
 } from "./definition-form";
+import { NewAgentConversation } from "./NewAgentConversation";
 import {
   BuilderOption,
   type JobErrors,
@@ -61,7 +60,7 @@ export function NewClientAgentScreen() {
   const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
   const templates = useApi(apiRoutes.opsTemplates);
 
-  const [start, setStart] = useState<Start>({ kind: "blank" });
+  const [start, setStart] = useState<Start>({ kind: "builder" });
   const [fields, setFields] = useState<NewAgentFields>({
     name: "",
     role: "",
@@ -76,7 +75,6 @@ export function NewClientAgentScreen() {
   const [copyClient, setCopyClient] = useState("");
   const [copyAgent, setCopyAgent] = useState("");
   const [touched, setTouched] = useState(false);
-  const [draft, setDraft] = useState<ResponseOf<typeof apiRoutes.opsDraftAgent> | null>(null);
   const action = useAction();
 
   const template =
@@ -147,9 +145,8 @@ export function NewClientAgentScreen() {
     action.clear();
   };
 
-  const startCard = (
-    <Card className="p-5">
-      <SectionLabel>Start from</SectionLabel>
+  const startChoices = (
+    <>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2" data-testid="new-agent-start">
         <BuilderOption
           selected={start.kind === "builder"}
@@ -187,25 +184,23 @@ export function NewClientAgentScreen() {
           <ErrorNotice error={templates.error} onRetry={templates.reload} />
         </div>
       ) : null}
+    </>
+  );
+  const startCard = (
+    <Card className="p-5">
+      <SectionLabel>Start from</SectionLabel>
+      {startChoices}
     </Card>
   );
 
   if (start.kind === "builder") {
     return (
-      <div>
-        <PageHeader
-          title="New agent"
-          subtitle={`An agent for ${client.data.client.name}. Say what the job is and the Builder drafts a starting workflow from what it has connected.`}
-          actions={<Stepper />}
-        />
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="flex flex-col gap-5">
-            {startCard}
-            <BuilderDescribe clientId={clientId} onDrafted={setDraft} />
-          </div>
-          <BuilderDraftResult draft={draft} />
-        </div>
-      </div>
+      <NewAgentConversation
+        clientId={clientId}
+        clientName={client.data.client.name}
+        connections={client.data.connections}
+        other={startChoices}
+      />
     );
   }
 
@@ -247,7 +242,7 @@ export function NewClientAgentScreen() {
       <PageHeader
         title="New agent"
         subtitle={`An agent for ${client.data.client.name}: start from a template, or blank, and build its workflow step by step.`}
-        actions={<Stepper />}
+        actions={<Stepper current={0} />}
       />
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="flex flex-col gap-5">
