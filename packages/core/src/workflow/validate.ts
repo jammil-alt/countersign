@@ -63,7 +63,10 @@ export type ValidationCode =
   | "approval_not_write"
   | "connection_missing"
   | "verb_off"
-  | "approval_required_by_connection";
+  | "approval_required_by_connection"
+  // v0.12 W1-D
+  | "choices_not_ask"
+  | "duplicate_choice";
 
 export interface ValidationError {
   /** The step, fork path or trigger id; null for workflow- or bundle-level errors. */
@@ -364,6 +367,13 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
     case "person":
       checkRefs(c, step.id, step.title, ["title"], scope);
       checkRefs(c, step.id, step.payload, ["payload"], scope);
+      // v0.12 W1-D: quick answers are for questions, one button per value.
+      if (step.choices && step.mode !== "ask") {
+        c.add(step.id, "choices", "choices_not_ask", "quick answers are only for questions");
+      }
+      if (step.choices && new Set(step.choices.map((ch) => ch.value)).size < step.choices.length) {
+        c.add(step.id, "choices", "duplicate_choice", "each quick answer needs its own value");
+      }
       break;
     case "notify":
       checkRefs(c, step.id, step.message, ["message"], scope);

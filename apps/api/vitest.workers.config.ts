@@ -22,6 +22,11 @@ export default defineConfig({
       miniflare: {
         workflows: {
           PROBE_WORKFLOW: { name: "countersign-test-probe", className: "ProbeWorkflow" },
+          // v0.12 W1-D: the undo window (src/desk.runtime.test.ts).
+          DESK_PROBE_WORKFLOW: {
+            name: "countersign-test-desk-probe",
+            className: "DeskProbeWorkflow",
+          },
         },
       },
     }),
