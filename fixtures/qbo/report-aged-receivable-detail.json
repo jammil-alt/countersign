@@ -1,0 +1,207 @@
+{
+  "Header": {
+    "Time": "2026-11-05T10:00:00-08:00",
+    "ReportName": "AgedReceivableDetail",
+    "DateMacro": "today",
+    "StartPeriod": "2026-11-05",
+    "EndPeriod": "2026-11-05",
+    "Currency": "USD",
+    "Option": [
+      { "Name": "report_date", "Value": "2026-11-05" },
+      { "Name": "NoReportData", "Value": "false" }
+    ]
+  },
+  "Columns": {
+    "Column": [
+      {
+        "ColTitle": "Date",
+        "ColType": "Date",
+        "MetaData": [{ "Name": "ColKey", "Value": "tx_date" }]
+      },
+      {
+        "ColTitle": "Transaction Type",
+        "ColType": "String",
+        "MetaData": [{ "Name": "ColKey", "Value": "txn_type" }]
+      },
+      {
+        "ColTitle": "Num",
+        "ColType": "String",
+        "MetaData": [{ "Name": "ColKey", "Value": "doc_num" }]
+      },
+      {
+        "ColTitle": "Customer",
+        "ColType": "String",
+        "MetaData": [{ "Name": "ColKey", "Value": "cust_name" }]
+      },
+      {
+        "ColTitle": "Due Date",
+        "ColType": "Date",
+        "MetaData": [{ "Name": "ColKey", "Value": "due_date" }]
+      },
+      {
+        "ColTitle": "Amount",
+        "ColType": "Money",
+        "MetaData": [{ "Name": "ColKey", "Value": "subt_amount" }]
+      },
+      {
+        "ColTitle": "Open Balance",
+        "ColType": "Money",
+        "MetaData": [{ "Name": "ColKey", "Value": "subt_open_bal" }]
+      }
+    ]
+  },
+  "Rows": {
+    "Row": [
+      {
+        "Header": {
+          "ColData": [
+            { "value": "Current" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                { "value": "2026-10-20" },
+                { "value": "Invoice", "id": "132" },
+                { "value": "1043" },
+                { "value": "Lakeside Builders", "id": "8" },
+                { "value": "2026-11-19" },
+                { "value": "2280.50" },
+                { "value": "2280.50" }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                { "value": "2026-10-28" },
+                { "value": "Credit Memo", "id": "140" },
+                { "value": "CM-12" },
+                { "value": "Lakeside Builders", "id": "8" },
+                { "value": "2026-10-28" },
+                { "value": "-150.00" },
+                { "value": "-150.00" }
+              ],
+              "type": "Data"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            { "value": "Total for Current" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "2130.50" },
+            { "value": "2130.50" }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "Header": {
+          "ColData": [
+            { "value": "1 - 30 days past due" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                { "value": "2026-09-20" },
+                { "value": "Invoice", "id": "133" },
+                { "value": "1044" },
+                { "value": "Oak Street Dental", "id": "9" },
+                { "value": "2026-10-20" },
+                { "value": "1840.00" },
+                { "value": "1840.00" }
+              ],
+              "type": "Data"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            { "value": "Total for 1 - 30 days past due" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "1840.00" },
+            { "value": "1840.00" }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "Header": {
+          "ColData": [
+            { "value": "61 - 90 days past due" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                { "value": "2026-07-15" },
+                { "value": "Invoice", "id": "130" },
+                { "value": "1041" },
+                { "value": "Lakeside Builders", "id": "8" },
+                { "value": "2026-08-14" },
+                { "value": "5100.00" },
+                { "value": "5100.00" }
+              ],
+              "type": "Data"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            { "value": "Total for 61 - 90 days past due" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "5100.00" },
+            { "value": "5100.00" }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "Summary": {
+          "ColData": [
+            { "value": "TOTAL" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "" },
+            { "value": "9070.50" },
+            { "value": "9070.50" }
+          ]
+        },
+        "type": "Section",
+        "group": "GrandTotal"
+      }
+    ]
+  }
+}
