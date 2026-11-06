@@ -6,6 +6,7 @@
 
 import type { ContentStore } from "@countersign/connectors";
 import {
+  Decimal,
   type InvoiceExtraction,
   InvoiceExtraction as InvoiceExtractionSchema,
   isExtractable,
@@ -169,6 +170,19 @@ async function markFailed(deps: DocumentsDeps, input: ExtractInput, message: str
   });
 }
 
+/** Input tokens as a step counts them: uncached, cache writes and cache reads. */
+function readTokensIn(record: LlmCallRecord): number {
+  const u = record.usage;
+  return u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens;
+}
+
+/** The call's cost at the column's 4 places (decimal, never a float); 0 when it has no price. */
+// DECISION: rounded half up to 4 places, as numeric(14,4) would store it; a model without a price
+// reads as 0, as on a step.
+function readCost(record: LlmCallRecord): string {
+  return new Decimal(record.costUsd ?? "0").toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
+}
+
 /** Reads a document with the model and records what it read. */
 export async function extractDocument(
   deps: DocumentsDeps,
@@ -216,6 +230,12 @@ export async function extractDocument(
         totalsMatch: check.ok,
         problems: check.problems,
         confidence: x.confidence.toFixed(3),
+        // v0.12 W1-H: what the reading cost, written once with the row (ARCHITECTURE §13). A
+        // background reading's (no agent version) is the client's usage (usage_platform_daily);
+        // an agent's is also on its step, and the rollup counts it there only.
+        tokensIn: readTokensIn(answer.record),
+        tokensOut: answer.record.usage.outputTokens,
+        costUsd: readCost(answer.record),
       })
       .returning({ id: docExtraction.id });
     if (!row) throw new Error("extraction insert returned nothing");

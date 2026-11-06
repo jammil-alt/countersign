@@ -3,7 +3,7 @@
 // built-in upload connection. A new document is read in the background when a model key is
 // configured (DECISION below); otherwise it waits for an agent's `docs.extract`.
 
-import { documentForTool } from "@countersign/agents";
+import { documentForTool, rollupPlatformDaily, utcDay } from "@countersign/agents";
 import {
   ContentStore,
   documentMimeType,
@@ -140,6 +140,15 @@ export async function extractInBackground(
     } finally {
       await dispatchAfterCommit(dispatch, tenantId, collect);
     }
+  }
+  // v0.12 W1-H: the reading is the client's usage (ARCHITECTURE §13), rolled up now; the hourly
+  // sweep covers a rollup that fails.
+  try {
+    await withTenant(services.db, tenantId, (tx) =>
+      rollupPlatformDaily(tx, { tenantId, day: utcDay(new Date()) }),
+    );
+  } catch (error) {
+    reportHandled("rolling up reading usage failed", error, { kind: "extraction" });
   }
 }
 

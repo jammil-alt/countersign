@@ -37,7 +37,7 @@ import {
   fakeQbo,
   fakeStripe,
 } from "@countersign/connectors/testing";
-import { billingAgentDay, event, transaction } from "@countersign/db";
+import { billingAgentDay, docExtraction, event, transaction } from "@countersign/db";
 import { loadSeedTemplates } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
@@ -652,18 +652,32 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
   it("usage rolls up for the client, its agent and the template", async () => {
     const usage = await ok(OPERATOR, "GET", `/api/ops/usage?client=${ids.client}`);
     const client = usage.clients.find((c: { id: string }) => c.id === ids.client);
-    // The live run and the two test runs (their model calls cost the same). `documents` counts
-    // only documents an agent's version extracted (packages/agents/src/log/usage.ts); uploads
-    // are read in the background with no agent, so the client's reading shows nowhere here yet.
-    expect(client.total).toMatchObject({ runs: 2, documents: 0, externalActions: 3 });
-    expect(Number(client.total.costUsd)).toBeGreaterThan(0);
+    // The live run and the two test runs (their model calls cost the same).
+    // v0.12 W1-H (ARCHITECTURE §13): the two uploads were read in the background, with no agent:
+    // that reading is the client's own usage (usage_platform_daily), in its row and the total,
+    // with what the model calls cost. The clerk's documents are the ones its live run cited.
+    expect(usage.background.total).toMatchObject({ runs: 0, documents: 2 });
+    expect(usage.background.total.tokensIn).toBeGreaterThan(0);
+    expect(Number(usage.background.total.costUsd)).toBeGreaterThan(0);
+    expect(client.total).toMatchObject({ runs: 2, documents: 3, externalActions: 3 });
+    expect(Number(client.total.costUsd)).toBeGreaterThan(Number(usage.background.total.costUsd));
     const clerk = usage.agents.find((a: { id: string }) => a.id === ids.clerk);
     expect(clerk).toMatchObject({
       name: "Bill clerk",
       template: { id: ids.template, slug: "bill-clerk" },
       testCopy: false,
     });
-    expect(clerk.total.externalActions).toBe(3);
+    expect(clerk.total).toMatchObject({ externalActions: 3, documents: 1 });
+    // Each reading's cost is on its extraction row, written once (the row is immutable).
+    const reads = await H.t.db
+      .select({ cost: docExtraction.costUsd, tokensIn: docExtraction.tokensIn })
+      .from(docExtraction)
+      .where(and(eq(docExtraction.tenantId, ids.client), isNull(docExtraction.agentVersionId)));
+    expect(reads).toHaveLength(2);
+    for (const r of reads) {
+      expect(Number(r.cost)).toBeGreaterThan(0);
+      expect(r.tokensIn).toBeGreaterThan(0);
+    }
     const tpl = usage.templates.find((t: { id: string }) => t.id === ids.template);
     expect(tpl).toMatchObject({ clients: 1 });
   });
