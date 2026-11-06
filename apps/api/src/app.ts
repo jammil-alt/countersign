@@ -108,12 +108,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   releaseRoutes(app);
   browserRoutes(app);
   complianceRouteHandlers(app);
-<<<<<<< HEAD
   // v0.12 W1-A: go-live stages and client controls
   lifecycleRoutes(app);
-=======
   exportRoutes(app);
->>>>>>> origin/main
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
