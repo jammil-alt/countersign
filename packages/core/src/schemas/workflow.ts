@@ -61,7 +61,10 @@ export const PersonStep = z.object({
   ...base,
   kind: z.literal("person"),
   mode: z.enum(["approve", "ask"]),
-  /** A role or a user id. */
+  /**
+   * A role or a user id; v0.12 W1-C: or `lead`, a lead check: the client's lead, else the operator
+   * role (ARCHITECTURE §11.2).
+   */
   assignee: z.string().min(1),
   title: TemplateString,
   payload: TemplateObject.default({}),

@@ -7,6 +7,7 @@ import type { ConnectionRef } from "@countersign/connectors";
 import type { AgentBundle, ApproverRule, GrantLimits, JsonObject } from "@countersign/core";
 import type { ModelCallPort } from "../log/model-calls";
 import type { ResolvedSkill } from "../registry/skills";
+import type { ThreadsPort } from "../tools/threads";
 import type {
   DirectoryPort,
   DocumentsPort,
@@ -315,6 +316,9 @@ export interface RuntimePorts {
   findings?: FindingsPort;
   /** Marks connections that need a person (an expired sign-in); absent: nothing is marked. */
   attention?: ConnectionAttentionPort;
+  // v0.12 W1-C
+  /** The client's threads for `threads.post` and `threads.read`; absent: an operator note only. */
+  threads?: ThreadsPort;
   // v0.12 W1-E
   /** A retry's carried approvals; absent: a retry proposes every write again. */
   carried?: CarriedActionsPort;

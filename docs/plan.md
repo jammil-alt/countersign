@@ -986,6 +986,25 @@ Decisions made while building §1.36 (ARCHITECTURE §10.9, §11.5; migration 001
 | Commands | An agent's command name per ARCHITECTURE §10.8, computed on read from the client's active agents. `/name rest` in a client thread posts a `command` message; the message trigger (W2-E) starts runs from `thread.message_posted`, so this stream starts nothing itself. Unknown name: a system message. |
 | Files | Owns `packages/threads/src/*`, `packages/core/src/threads/`, `packages/core/src/api/threads.ts`, `apps/api/src/routes/threads.ts`, `packages/agents/src/tools/threads.ts`, `packages/agents/src/log/threads-port.ts`; edits `createForPerson` in `apps/api/src/runs/ports.ts`, the person step's assignee in `packages/core/src/schemas/workflow.ts`, the session route. |
 
+#### Decisions made while building W1-C (2026-11-06)
+
+| Topic | Decision |
+|---|---|
+| Command words | `/word` is letters, digits and dashes, plus the dots, colons and underscores of a skill id, ending at whitespace or the end; `/path/to`, `/ x` and `//x` stay text. Names compare lower case. |
+| Command names | Computed on read from client agents (not test copies) with `run_status = 'active'` and a live version: the first word of the identity name, accents dropped; the slug when two agents share the word, when it is empty, or when it is another agent's slug. A paused agent answers to no command. |
+| The event | `thread.message_posted` carries §11.2's ids plus `audience`, and for a command the resolved target `command: {name, agentId, skill?}`, so W2-E starts the right agent without parsing again. Never the text or the command's words. Every message emits it, system answers included. |
+| Unknown commands | The person's message is kept as plain text (no command) and a system message answers in the client's language (`THREAD_WORDS`), with the same audience. Nothing names an agent, so nothing starts. |
+| `/skill` in the back office | On an agent's thread an operator's `/word` names one of the agent's live skills first (its id, or its last part when only one matches), then an agent. It is posted as a command with `skill` in the event; **nothing runs it yet** (W2-E/W3-A, or the owner, decides who starts the test run). |
+| Opening threads | `GET /api/threads?subject=lead` (and the back office's `?subject=lead`) opens the lead thread on first ask; `?subject=agent&service=` (`&subjectId=` in the back office) opens that agent's thread. Idempotent; listing without these opens nothing. One agent thread per agent through a transaction advisory lock (no unique index in 0021). |
+| Read state | `POST …/read` moves the person's mark to now, never back. Unread: messages the person may see, newer than the mark, not their own. The back office gets `POST /api/ops/threads/:id/read` too (§14 listed the portal's only), so the lead has unread counts. |
+| Who posts | Readers post (§11.2), except that operators don't post in a `contact` thread (409 `not_here`: its messages are texts and calls with that person). An operator's message must name its audience. `run`, `contact` and record threads are back office only: the portal answers 404. |
+| Names in the portal | The lead by name (else the part of their email before @); any other operator `null` ("Mezonas"); agents by service name; client members by name. Messages carry no audience field in the portal. |
+| Sources | People's sources must be records the records resolver knows in this client (transaction, document or reading, raw record, vendor): 422 `invalid_source` otherwise. Agents' sources are not resolved (they may cite a pack's rows); they stay inside the client by RLS. |
+| Agent tools | `threads.post` keeps its default (an operator note); `audience: 'client'` only from the client's account agent (`slug = supervisor`), in an `account` thread, in a live run. Agents never open an account thread. `threads.read` returns messages as data; the account agent reads only client-facing messages of the client's own kinds, with operators other than the lead named "Mezonas". Without the threads port (in-memory tests) `threads.post` falls back to the platform store's operator note. |
+| The lead | `PUT …/lead {userId: null}` clears it; `reason` is optional; a `tenant_change` row only when it changes. The session's `lead` is the active client's (also for an operator's switcher choice). |
+| Lead checks | Live runs: `assignee_role = 'operator'` with the lead's user, else no user. Test runs: the operator role, like every person step. The portal timeline label reads "Ana: Check new matches" (the lead's first name before the operator's label), so it needs no new words in six languages. The builder offers "The client's lead" for a person step's assignee. |
+| Notify steps | Notices the executor posts to a run's thread (the platform store) don't emit `thread.message_posted`; only people's posts and `threads.post` do. |
+
 ### 1.39 The Desk, sign-off and viewers (W1-D, M16; migration 0022)
 
 | Topic | Decision |
