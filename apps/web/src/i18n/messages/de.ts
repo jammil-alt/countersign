@@ -1189,6 +1189,25 @@ export const de: Messages = {
     one: "{count} Person",
     other: "{count} Personen",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · Bereiche",
+  "gchat.spacesTitle": "Verbundene Bereiche",
+  "gchat.help":
+    "Agenten posten nur in diesen Bereichen und erst, wenn Sie jede Nachricht freigegeben haben. Wir können Ihre Nachrichten nicht lesen.",
+  "gchat.noSpaces": "Noch keine Bereiche verbunden.",
+  "gchat.groupChat": "Gruppenchat",
+  "gchat.boundBy": "Verbunden {time} von {name}",
+  "gchat.boundAt": "Verbunden {time}",
+  "gchat.codeTitle": "Bereich verbinden",
+  "gchat.steps":
+    "Fügen Sie Mezonas in Google Chat dem Bereich hinzu und senden Sie dort diese Nachricht. Der Code gilt einmal.",
+  "gchat.codeExpires": "Gültig bis {time}.",
+  "gchat.codeWaiting":
+    "Ein Code ist bis {time} gültig. Falls Sie ihn nicht haben, holen Sie einen neuen.",
+  "gchat.getCode": "Code holen",
+  "gchat.newCode": "Neuen Code holen",
+  "gchat.adminAllow":
+    "Mezonas nicht in Google Chat zu finden? Ihr Google-Workspace-Admin muss die App zulassen.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
   "connections.gsheets.description":
     "Lesen Sie Zeilen in den Google-Tabellen, die Sie auswählen, und fügen Sie neue hinzu. Andere Tabellen können wir nicht öffnen.",

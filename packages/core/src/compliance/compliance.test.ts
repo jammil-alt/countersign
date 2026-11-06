@@ -75,6 +75,8 @@ describe("processors", () => {
       // v0.12 W3-B
       "gdrive",
       "outlook",
+      // v0.14 W4-E
+      "gchat",
       // v0.14 W4-D
       "gsheets",
       // v0.14 W4-C: the client's own workspace, not a processor of ours.

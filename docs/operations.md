@@ -384,6 +384,30 @@ are set. Slack needs an app of Mezonas' own:
    own PR).
 5. Leave Event Subscriptions, Interactivity and slash commands off.
 
+### Google Chat (W4-E, plan §1.60)
+
+A Google Chat app of Mezonas' own posts to the spaces a client connects. Built against a fake; what
+we couldn't check (Marketplace publishing, each Workspace admin's steps) is in
+`packages/connectors/src/gchat/NOTES.md`. Registered everywhere; "Not available yet" until both
+secrets are set.
+1. In the Google Cloud project (its own, or `mezonas`), enable the **Google Chat API**.
+2. A **service account** (e.g. `mezonas-chat`), no roles needed; create a JSON key. Its whole JSON
+   is the Worker secret `GOOGLE_CHAT_SERVICE_ACCOUNT` (one secret; it is never logged or shown).
+3. The Chat API's **Configuration**: app name "Mezonas", avatar (the design system's mark), a
+   description; functionality "Join spaces and group conversations" (1:1 messages can stay on: the
+   app only answers there); connection settings **HTTP endpoint URL**
+   `https://app.mezonas.com/api/hooks/gchat` (staging: `https://staging.mezonas.com/api/hooks/gchat`,
+   on a project of its own or a second app); **Authentication Audience: Project Number**. The
+   project number (Cloud console, project info) is the Worker secret `GOOGLE_CHAT_PROJECT_NUMBER`.
+   Visibility: Mezonas' own Workspace while testing.
+4. Publish the app on the **Google Workspace Marketplace** (the Marketplace SDK in the same
+   project: the Chat app integration, listing, privacy policy and terms on mezonas.com, and Google's
+   review) so clients' Workspaces can install it.
+5. Each client's **Google Workspace admin** allows the Marketplace app for their users (or installs
+   it for the domain) and lets users use Chat apps. Then the client admin, in the portal's
+   Connections, connects Google Chat, gets a code, adds Mezonas to a space and sends
+   `@Mezonas <code>` there.
+
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
@@ -448,6 +472,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `SLACK_CLIENT_SECRET` (our Slack app's client id and secret, redirect URL
   `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Wiring them into `deploy.yml` is
   its own PR. Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
+
+- Needed by the Google Chat connector (W4-E, plan §1.60), the same way:
+  `GOOGLE_CHAT_SERVICE_ACCOUNT` (the service account's key JSON, as one secret) and
+  `GOOGLE_CHAT_PROJECT_NUMBER` (the audience of Chat's tokens; see "Google Chat" above).
+  Wiring them into `deploy.yml` is its own PR. Until both are set, Google Chat shows
+  "Not available yet" in the portal and `/api/hooks/gchat` answers 503.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -513,7 +543,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack; not yet in `deploy.yml`), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values; not yet in `deploy.yml`) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack; not yet in `deploy.yml`), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values; not yet in `deploy.yml`), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat; not yet in `deploy.yml`) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
