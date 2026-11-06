@@ -2934,6 +2934,142 @@ export const oversightDecision = pgTable(
   ],
 );
 
+// ── The Builder as a conversation (migration 0030, ARCHITECTURE §9.6; plan §1.51) ───────────────
+// Rows follow the templates' policy: a session on a template or a shared skill has tenant_id null
+// (operator sessions only); a session on a client's agent or skill carries that client's id and is
+// seen only in its scope (CLAUDE.md invariant 1). Only operator routes read them.
+
+export const BUILDER_SESSION_KINDS = ["agent", "skill"] as const;
+export type BuilderSessionKind = (typeof BUILDER_SESSION_KINDS)[number];
+export const BUILDER_SESSION_STATUSES = ["open", "saved", "closed"] as const;
+export type BuilderSessionStatus = (typeof BUILDER_SESSION_STATUSES)[number];
+export const BUILDER_TURN_ROLES = ["operator", "builder"] as const;
+export type BuilderTurnRole = (typeof BUILDER_TURN_ROLES)[number];
+
+/** One labelled change a turn made (`builder_turn.changes`); validated by core where it is written. */
+export interface BuilderChangeEntry {
+  /** What undo names: core's selectable change id (`step:<id>`, `bundle#/definition/…`) or a field. */
+  id: string;
+  label: string;
+  before?: unknown;
+  after?: unknown;
+  /** An undo turn's entry: the turn and entry it reverted. */
+  undoes?: { turnId: string; changeId: string };
+}
+
+/**
+ * A Builder conversation about one agent (new or existing, template or client agent) or one skill.
+ * `bundle` is the working draft: an `AgentBundle` for `agent`, `{definition, cases}` for `skill`.
+ * `agent_id` / `skill_id` are set once the draft is saved (or from the start for an existing one);
+ * `base_version_id` is the version the conversation started from, then the last one it saved.
+ * Updated in place; never deleted.
+ */
+// DECISION: `base_version_id` has no foreign key: it names an `agent_version` or a `skill_version`
+// by `kind` (as test_case's target does). The routes check it belongs to the session's target.
+export const builderSession = pgTable(
+  "builder_session",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    kind: text("kind").$type<BuilderSessionKind>().notNull(),
+    agentId: uuid("agent_id"),
+    skillId: uuid("skill_id"),
+    baseVersionId: uuid("base_version_id"),
+    bundle: json<unknown>("bundle").notNull(),
+    status: text("status").$type<BuilderSessionStatus>().notNull().default("open"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("builder_session_id_tenant_key").on(t.id, t.tenantId),
+    // Same client as its agent or skill (enforced whenever tenant_id is set), and existing.
+    foreignKey({
+      name: "builder_session_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "builder_session_agent_id_fk",
+      columns: [t.agentId],
+      foreignColumns: [agent.id],
+    }),
+    foreignKey({
+      name: "builder_session_skill_fk",
+      columns: [t.skillId, t.tenantId],
+      foreignColumns: [skill.id, skill.tenantId],
+    }),
+    foreignKey({
+      name: "builder_session_skill_id_fk",
+      columns: [t.skillId],
+      foreignColumns: [skill.id],
+    }),
+    index("builder_session_agent_idx").on(t.agentId),
+    index("builder_session_skill_idx").on(t.skillId),
+    index("builder_session_tenant_idx").on(t.tenantId, t.createdAt),
+    check("builder_session_kind_check", oneOf(t.kind, BUILDER_SESSION_KINDS)),
+    check("builder_session_status_check", oneOf(t.status, BUILDER_SESSION_STATUSES)),
+    check(
+      "builder_session_target_check",
+      sql`(${t.kind} = 'agent' and ${t.skillId} is null) or (${t.kind} = 'skill' and ${t.agentId} is null)`,
+    ),
+  ],
+);
+
+/**
+ * One message of a Builder conversation: the operator's (`text`, the `/command` it was, an undo or
+ * a save) or the Builder's answer (`text`, the labelled `changes` it made). `bundle` is the working
+ * draft after the turn when the turn changed it (undo merges against it); `meta` holds the
+ * Builder's questions, gaps, the guards' notes, publish errors, the parsed command and the model.
+ * Immutable except `undone_at` (trigger), set once every change of the turn is undone.
+ */
+// DECISION: `bundle` and `meta` are two columns beyond ARCHITECTURE §5.5's list: undo needs the
+// bundle after the entry's turn (plan §1.51), and a reopened conversation shows the questions,
+// gaps and notes the answer had.
+// DECISION: `saved_version_id` has no foreign key: an `agent_version` or a `skill_version` by the
+// session's kind. It is set when the save turn is inserted, never later.
+export const builderTurn = pgTable(
+  "builder_turn",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    sessionId: uuid("session_id").notNull(),
+    seq: integer("seq").notNull(),
+    role: text("role").$type<BuilderTurnRole>().notNull(),
+    text: text("text").notNull(),
+    command: text("command"),
+    changes: json<BuilderChangeEntry[]>("changes").notNull().default([]),
+    bundle: json<unknown>("bundle"),
+    meta: json("meta").notNull().default({}),
+    undoneAt: ts("undone_at"),
+    savedVersionId: uuid("saved_version_id"),
+    costUsd: usd("cost_usd"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("builder_turn_session_seq_key").on(t.sessionId, t.seq),
+    // Same client as its session (enforced whenever tenant_id is set), and existing.
+    foreignKey({
+      name: "builder_turn_session_fk",
+      columns: [t.sessionId, t.tenantId],
+      foreignColumns: [builderSession.id, builderSession.tenantId],
+    }),
+    foreignKey({
+      name: "builder_turn_session_id_fk",
+      columns: [t.sessionId],
+      foreignColumns: [builderSession.id],
+    }),
+    index("builder_turn_tenant_idx").on(t.tenantId),
+    check("builder_turn_role_check", oneOf(t.role, BUILDER_TURN_ROLES)),
+    check("builder_turn_seq_check", sql`${t.seq} >= 1`),
+    check("builder_turn_changes_check", sql`jsonb_typeof(${t.changes}) = 'array'`),
+    check("builder_turn_cost_check", sql`${t.costUsd} >= 0`),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -2998,6 +3134,8 @@ export const TENANT_TABLES = [
   "test_suite_run",
   "test_case_result",
   "oversight_decision",
+  "builder_session",
+  "builder_turn",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -3015,6 +3153,8 @@ export const OPERATOR_TABLES = [
   "test_case",
   "test_suite_run",
   "test_case_result",
+  "builder_session",
+  "builder_turn",
 ] as const satisfies readonly TenantTable[];
 
 /** Global tables only operator sessions may read or write (row-level security on `app.operator`). */

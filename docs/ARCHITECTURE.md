@@ -755,7 +755,10 @@ builder_session(id, tenant_id null, kind /*agent|skill*/, agent_id null, skill_i
                 created_by, created_at, updated_at)
 builder_turn(id, tenant_id null, session_id, seq int, role /*operator|builder*/, text,
              command text null, changes jsonb /*[{id, label, before, after}]*/, undone_at null,
-             saved_version_id null, cost_usd, created_at)
+             saved_version_id null, cost_usd, created_at,
+             bundle jsonb null /*the working draft after the turn*/,
+             meta jsonb /*questions, gaps, notes, errors, the parsed command, the model*/)
+  unique(session_id, seq)            -- immutable except undone_at (trigger); nothing deleted
 ```
 
 Tables with `tenant_id null` here (`automation`, `test_case`, `test_suite_run`, `test_case_result`,

@@ -184,9 +184,15 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "test_suite_run",
       "test_case_result",
       "oversight_decision",
+      // Wave 3 (0030): a conversation is closed, never deleted.
+      "builder_session",
+      "builder_turn",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    // A session's draft changes in place; a turn only gains `undone_at` (trigger, 0030).
+    expect(await can("builder_session", "UPDATE")).toBe(true);
+    expect(await can("builder_turn", "UPDATE")).toBe(true);
     // Insert only (0028, 0029); a version's status changes (0027), like skill_version's.
     expect(await can("test_case_result", "UPDATE")).toBe(false);
     expect(await can("oversight_decision", "UPDATE")).toBe(false);

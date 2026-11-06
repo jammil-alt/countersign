@@ -21,6 +21,7 @@ import {
   billingStatement,
   billingStatementLine,
   billingUsageReport,
+  builderTurn,
   connectionChange,
   contactChange,
   docExtraction,
@@ -472,6 +473,68 @@ describe.skipIf(!online)("immutability", () => {
       );
       expect(code).toBe("42501");
     }
+  });
+
+  it("builder_turn: only undone_at changes; nothing is deleted, whoever tries (0030)", async () => {
+    for (const change of [
+      { text: "Rewritten." },
+      { changes: [] },
+      { bundle: null },
+      { seq: 9 },
+      { costUsd: "0" },
+      { savedVersionId: A.agentVersionId },
+    ]) {
+      expect(
+        await errorCode(
+          t.db.update(builderTurn).set(change).where(eq(builderTurn.id, A.builderTurnId)),
+        ),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    const at = new Date("2026-11-06T12:00:00Z");
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx.update(builderTurn).set({ undoneAt: at }).where(eq(builderTurn.id, A.builderTurnId));
+    });
+    // A shared turn, as the operator in the Worker's role.
+    await withOperator(t.db, [], async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(builderTurn)
+        .set({ undoneAt: at })
+        .where(eq(builderTurn.id, shared.builderTurnId));
+    });
+    expect(
+      await errorCode(
+        withOperator(t.db, [], async (tx) => {
+          await asWorker(tx);
+          await tx
+            .update(builderTurn)
+            .set({ text: "Rewritten." })
+            .where(eq(builderTurn.id, shared.builderTurnId));
+        }),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(t.db.delete(builderTurn).where(eq(builderTurn.id, A.builderTurnId))),
+    ).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`delete from builder_turn where id = ${A.builderTurnId}`,
+      sql`delete from builder_session where id = ${A.builderSessionId}`,
+    ]) {
+      const code = await errorCode(
+        withOperator(t.db, [A.tenantId], async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+    const [row] = await t.db
+      .select({ undoneAt: builderTurn.undoneAt })
+      .from(builderTurn)
+      .where(eq(builderTurn.id, A.builderTurnId));
+    expect(row?.undoneAt?.toISOString()).toBe(at.toISOString());
   });
 
   it("the Worker's role cannot update an extraction or delete a document", async () => {
