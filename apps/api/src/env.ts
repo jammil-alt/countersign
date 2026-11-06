@@ -98,6 +98,9 @@ export interface OptionalBindings {
   QBO_SYNC?: Workflow;
   /** ExportWorkflow: one instance per client data export (docs/plan.md §1.36). */
   EXPORT_WORKFLOW?: Workflow;
+  // v0.12 W2-C
+  /** TestSuiteWorkflow: one instance per test suite run (docs/plan.md §1.46). */
+  TEST_SUITE_WORKFLOW?: Workflow;
   BROWSER?: BrowserWorker;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;

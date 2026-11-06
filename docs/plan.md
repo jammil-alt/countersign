@@ -1153,6 +1153,22 @@ Code in `packages/core/src/schemas/automation.ts`, `packages/core/src/workflow/a
 | Lab | `GET /api/ops/lab`: templates with published version, drafts never published, client-only agents; per template: clients, behind, test bench summary (latest suite run of the live and latest versions). |
 | Files | Owns `packages/core/src/testbench/`, `packages/core/src/api/testbench.ts`, `packages/agents/src/testbench/`, `apps/api/src/testbench/`, `apps/api/src/routes/testbench.ts`, `apps/api/src/routes/lab.ts`; edits the skill publish handler in `apps/api/src/routes/ops-skills.ts`. |
 
+**Test bench (W2-C), as built.** Where the design left a choice, the simplest option, with a
+`// DECISION:` comment in the code:
+
+| Topic | Decision |
+|---|---|
+| Targets | `target_id` is a `skill` row (operator skills, shared or a client's own) or a template's `agent` row. Built-in skills have no row; their packages' goldens test them. A client's own skill holds only that client's cases; a shared skill or a template may hold shared cases and served clients' cases. |
+| Case shape | `TestCaseFields` in `core/src/testbench/case.ts`. Fixtures: `{tool, input?, output}`, the input matched as a subset, first match wins. Matcher: `{kind: exact\|subset\|fields\|label, tolerances: {path: equal\|number\|money\|date}, label?: {field, positive}}`; paths are dot keys and indexes with `*` for any index, never `__proto__`, `constructor` or `prototype`. Lists compare item by item and their lengths must match. A template case's input is `{workflow, payload}` and its expected output is keyed by step id. |
+| The bench agent | A skill case runs as a neutral "Test bench" agent: the platform's reasoning model (`DEFAULT_MODELS.reasoning`), default budgets, no memory, no bindings. Every port is in memory; a budget hit opens no inbox item. Task skills (W2-H) bring their own model through `runAgent`. |
+| Refusals | Writes (`internal` and `external`) are refused by the bench's tool policy, and the fixture handler refuses them again; a read no fixture answers is refused. Connector tools are never dispatched as connectors, so no connection, credential or external action is reached. `pure` is an optional flag on `InternalTool`; no built-in is marked yet, so tool-mode skills report an error on the bench. |
+| Template cases | Run to their end inside the case's step (`benchRunner`): waits for a person or an event time out at once and `wait` sleeps are skipped, so a case never hangs; the run is a normal test run (writes recorded as "would have done"). Its cost counts in its client's usage like any test run (the Sandbox's for shared cases) and is also recorded on the result and suite run. |
+| Suite runs | `TestSuiteWorkflow` (binding `TEST_SUITE_WORKFLOW`), one step per case with no retries (a failing case is an `error` result, and a retried template case would start a second run), then a step that writes the totals. Where the binding is absent the suite runs after the response. A replayed case step finds its result and returns it. |
+| Cases | `DELETE /api/ops/tests/:id` archives the case: its results stay and point at it. |
+| Gate | The latest finished suite run of the version, in the skill's own scope (shared cases for a shared skill). With the requirement on, a version needs a finished suite run even when no case is required. Rollback is not gated: it republishes a version that was live. The switch is `PUT /api/ops/skills/:id/require-tests {required, reason?}`. |
+| Switch-off log | `agent_change.agent_id` is a required reference to an agent, so a skill can't have a row there without a migration. Until the lead decides, the switch-off is an `audit_event` row (`action: skill.require_tests.off`, target `{skillId, reason}`, reason cut to 200 characters). |
+| Lab | Templates are `published` or `drafts`; client-only agents are client agents with no template, in served clients. `behind` counts linked forks based on an older version than the live one; `maxBehind` the most versions behind. The test summary shows shared suite runs only; a client's suite runs show on its cases list. |
+
 ### 1.47 Sloan, the account agent (W2-D, M24; no migration)
 
 | Topic | Decision |
