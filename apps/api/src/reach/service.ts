@@ -23,6 +23,7 @@ import {
   contactHours,
   DEFAULT_QUIET_HOURS,
   type Duration,
+  effectiveMode,
   fixedInputProblem,
   hoursBlock,
   isPlainObject,
@@ -666,7 +667,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
         const definition = loaded.bundle.definition;
         const automatic =
           req.approval.required === "not_required" &&
-          definition.permissions.mode === "act" &&
+          // v0.12 W1-A: in trial and signoff the plan always needs a signature (§10.9).
+          effectiveMode(definition, loaded.agentRow.stage) === "act" &&
           plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto");
         // The person's language, else their organization's, else the client's (§1.27).
         const language = (await contactLanguage(tx, who)).language;
