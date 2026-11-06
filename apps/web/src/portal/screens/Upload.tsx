@@ -1,6 +1,7 @@
-// Upload and forwarding (ARCHITECTURE §6.3, §6.5), built in on every client's Connections page:
-// drop invoices, receipts or a purchases CSV; see the private forwarding address and who may
-// forward to it (the client admin edits the list); and the documents that arrived.
+// Upload and forwarding (ARCHITECTURE §6.3, §6.5), built in on every client's Accounts page and on
+// `/upload` (UploadPage.tsx): drop invoices, receipts or a purchases CSV; see the private forwarding
+// address and who may forward to it (the client admin edits the list); and the documents that
+// arrived.
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -106,8 +107,7 @@ export function DropZone({
   }
 
   return (
-    <Card className="flex flex-col p-4">
-      <p className="font-medium text-ink">{t("upload.title")}</p>
+    <Card title={t("upload.title")} pad>
       <p className="mt-1 text-sm text-ink-muted">{t("upload.help")}</p>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the drop target; the button inside is the keyboard path. */}
       <div
@@ -182,7 +182,7 @@ export function DropZone({
   );
 }
 
-function Forwarding({ isAdmin }: { isAdmin: boolean }) {
+export function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   const api = useApiClient();
   const i18n = useI18n();
   const { t } = i18n;
@@ -209,8 +209,7 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   }
 
   return (
-    <Card testId="portal-forwarding" className="flex flex-col p-4">
-      <p className="font-medium text-ink">{t("forwarding.title")}</p>
+    <Card testId="portal-forwarding" title={t("forwarding.title")} pad>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {f && !f.available ? (
@@ -312,7 +311,7 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function RecentDocuments({
+export function RecentDocuments({
   state,
 }: {
   state: ReturnType<typeof useApi<typeof apiRoutes.portalDocuments>>;
@@ -321,13 +320,24 @@ function RecentDocuments({
   const i18n = useI18n();
   const { t } = i18n;
   return (
-    <div>
-      <p className="mb-2 text-sm font-medium text-ink">{t("documents.recent")}</p>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && data.documents.length === 0 ? <EmptyState>{t("documents.empty")}</EmptyState> : null}
+    <Card title={t("documents.recent")} testId="portal-recent-documents">
+      {loading && !data ? (
+        <div className="ui-card__body">
+          <Loading />
+        </div>
+      ) : null}
+      {error ? (
+        <div className="ui-card__body">
+          <ErrorNotice error={error} onRetry={reload} />
+        </div>
+      ) : null}
+      {data && data.documents.length === 0 ? (
+        <div className="ui-card__body">
+          <EmptyState>{t("documents.empty")}</EmptyState>
+        </div>
+      ) : null}
       {data && data.documents.length > 0 ? (
-        <div className="dt dt-ana">
+        <div className="dt dt-ana overflow-x-auto">
           <table data-testid="portal-documents">
             <thead>
               <tr className="dt-cols">
@@ -370,6 +380,6 @@ function RecentDocuments({
           </table>
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 }
