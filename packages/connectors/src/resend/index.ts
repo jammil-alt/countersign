@@ -264,6 +264,7 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
           "Email a contact from the client's address. Only contacts who agreed to email; plain text.",
         verb: "create",
         summary: "Emailed {{contactName}}",
+        recipient: { path: "to", channel: "email" },
         input: EmailSendInput,
         output: EmailSendOutput,
         beforeSchema: EmailSendBefore,
