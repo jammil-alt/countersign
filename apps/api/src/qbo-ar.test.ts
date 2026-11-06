@@ -246,8 +246,22 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
   it("a payment moves its invoice's balance and raises updated and paid; a deletion keeps the row", async () => {
     qbo.receivePayment("133", "1840");
     qbo.remove("Invoice", "134");
+    // A new invoice without a number (custom numbering off) keeps none.
+    qbo.put("Invoice", {
+      Id: "140",
+      SyncToken: "0",
+      TxnDate: "2026-11-05",
+      CustomerRef: { value: "9", name: "Oak Street Dental" },
+      Line: [],
+      TotalAmt: 90,
+      Balance: 90,
+    });
     await sync();
     const rows = await receivables();
+    expect(rows.find((r) => r.externalId === "140")).toMatchObject({
+      docNumber: null,
+      status: "open",
+    });
     expect(rows.find((r) => r.externalId === "133")).toMatchObject({
       balance: "0.0000",
       status: "paid",

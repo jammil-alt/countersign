@@ -80,12 +80,13 @@ function changes(before: ReceivableRow, after: ReceivableRow): string[] {
 }
 
 /** The columns a version sets (the table's NOT NULL columns get what the invoice lacks). */
-// DECISION: an invoice without a number, a customer name or a date (QuickBooks always sends a date)
-// is stored with an empty number, its customer's id as the name, and the day it was created.
+// DECISION: an invoice without a number keeps none (null); one without a customer name or a date
+// (QuickBooks always sends a date) is stored with its customer's id as the name and the day it was
+// created.
 function columns(r: ReceivableInput, raw: unknown) {
   const created = (raw as { MetaData?: { CreateTime?: string } })?.MetaData?.CreateTime;
   return {
-    docNumber: r.docNumber ?? "",
+    docNumber: r.docNumber,
     customerExternalId: r.customerExternalId,
     customerName: r.customerName ?? r.customerExternalId,
     txnDate: r.txnDate ?? (created ? created.slice(0, 10) : new Date().toISOString().slice(0, 10)),
