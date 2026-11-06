@@ -144,4 +144,23 @@ describe("the back office's routes", () => {
     expect(all).toContain(`/ops/templates/${ID}`);
     expect(all).toContain("/ops/templates/new");
   });
+
+  it("has a route for each of the client page's tabs, and new client", () => {
+    for (const tab of [
+      "",
+      "/agents",
+      "/connections",
+      "/messaging",
+      "/knowledge",
+      "/directory",
+      "/documents",
+      "/records",
+      "/settings",
+      "/exports",
+    ]) {
+      expect(all).toContain(`/ops/clients/${ID}${tab}`);
+    }
+    expect(all).toContain("/ops/clients");
+    expect(all).toContain("/ops/clients/new");
+  });
 });

@@ -7,15 +7,8 @@ import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { shortTime } from "../../runs/format";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  SectionLabel,
-  Tag,
-} from "../../ui/primitives";
+import { Section } from "../../ui/page";
+import { Badge, Button, Card, EmptyState, ErrorNotice, Tag } from "../../ui/primitives";
 
 const AUDIENCE: Record<OpsFinding["audience"], string> = {
   client_admin: "Client admin",
@@ -76,21 +69,20 @@ export function ClientHealthSection({
 
   const s = data.summary;
   return (
-    <section className="mt-8" data-testid="ops-client-health">
-      <SectionLabel
-        action={
-          data.supervisor ? (
-            <Link
-              to={`/ops/clients/${clientId}/agents/${data.supervisor.slug}`}
-              className="ds-btn ds-btn--link text-sm"
-            >
-              Open the supervisor
-            </Link>
-          ) : null
-        }
-      >
-        Health
-      </SectionLabel>
+    <Section
+      title="Health"
+      testId="ops-client-health"
+      action={
+        data.supervisor ? (
+          <Link
+            to={`/ops/clients/${clientId}/agents/${data.supervisor.slug}`}
+            className="ds-btn ds-btn--link text-sm"
+          >
+            Open the supervisor
+          </Link>
+        ) : null
+      }
+    >
       <Card className="flex flex-col gap-3 p-5">
         {data.supervisor ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -132,14 +124,14 @@ export function ClientHealthSection({
         ) : null}
       </Card>
 
-      <div className="mt-4 flex flex-col gap-3" data-testid="ops-client-findings">
+      <div className="flex flex-col gap-3" data-testid="ops-client-findings">
         {data.findings.length === 0 ? (
           <EmptyState>Nothing open.</EmptyState>
         ) : (
           data.findings.map((f) => <FindingCard key={f.id} finding={f} />)
         )}
       </div>
-    </section>
+    </Section>
   );
 }
 

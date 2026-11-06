@@ -19,19 +19,11 @@ import { useApi } from "../../api/useApi";
 import { figure, money } from "../../portal/documents";
 import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
-import { useSession } from "../../session/session";
 import { Icon } from "../../ui/icons";
-import {
-  Badge,
-  Button,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-  Tabs,
-} from "../../ui/primitives";
+import { Badge, Button, EmptyState, ErrorNotice, Loading, Tabs } from "../../ui/primitives";
 import { count, plural } from "../../usage/format";
 import { Select } from "../agents/ui";
+import { ClientFrame } from "../client/ClientFrame";
 
 const KINDS: [RecordListKind, string, string][] = [
   ["transactions", "Transactions", "transaction"],
@@ -61,8 +53,6 @@ export function countsLine(data: Pick<RecordList, "counts" | "lastSyncAt">): str
 
 export function OpsRecordsScreen() {
   const { clientId = "" } = useParams();
-  const session = useSession();
-  const clientName = session.tenants.find((t) => t.id === clientId)?.name ?? "This client";
   const [params, setParams] = useSearchParams();
   const kind = (KINDS.find(([k]) => k === params.get("kind"))?.[0] ??
     "transactions") as RecordListKind;
@@ -109,11 +99,10 @@ export function OpsRecordsScreen() {
   };
 
   return (
-    <div>
-      <PageHeader
-        title="Records"
-        subtitle={`${clientName}: what its connections brought in. Attachments are on the Documents page.`}
-      />
+    <ClientFrame
+      clientId={clientId}
+      intro="What its connections brought in. Attachments are on the Documents tab."
+    >
       {data ? (
         <p className="mb-4 text-ink figures" data-testid="ops-records-counts">
           {countsLine(data)}
@@ -196,7 +185,7 @@ export function OpsRecordsScreen() {
           <Pager data={data} onPage={(p) => set({ page: p === 1 ? "" : String(p) })} page={page} />
         </>
       ) : null}
-    </div>
+    </ClientFrame>
   );
 }
 
