@@ -106,7 +106,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
   });
   const inline = { do: <T>(_name: string, fn: () => Promise<T>) => fn() };
-  const sync = (dispatch?: (ids: string[]) => Promise<void>) =>
+  const sync = (dispatch?: (ids: string[]) => Promise<unknown>) =>
     runQboSync(
       syncDeps(),
       { tenantId: H.A.tenantId, connectionId, reason: "operator" },

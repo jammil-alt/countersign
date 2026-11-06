@@ -49,7 +49,7 @@ import { dbDocumentServices } from "../qbo/documents";
 import { type ReachDeps, reachPort } from "../reach/service";
 import { tenantLocale } from "../routes/language";
 import { signerFor } from "../storage";
-import { createRunRow, dispatchEvents, senseEmitter } from "./dispatch";
+import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from "./dispatch";
 import type { RunInstances, RunParams } from "./instances";
 import { agentPort, dbInboxPort, dbStepLog, threadNotifyPort } from "./ports";
 
@@ -373,7 +373,13 @@ export async function executeRun(
 
   let result: RunResult;
   try {
-    result = await executeWorkflow(runner, ctx, loaded.workflow, params.payload);
+    // v0.12 W1-H: each step's events are dispatched right after it (ARCHITECTURE §8).
+    const stepRunner = dispatchingRunner(
+      runner,
+      deps.instances ? { db, instances: deps.instances } : null,
+      emitted,
+    );
+    result = await executeWorkflow(stepRunner, ctx, loaded.workflow, params.payload);
   } catch (error) {
     await finish({
       status: "failed",

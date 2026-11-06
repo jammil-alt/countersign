@@ -20,11 +20,11 @@ import {
   readQboSyncCursor,
 } from "@countersign/connectors";
 import { mapQboAttachable } from "@countersign/core";
-import { connection, type Db, event, withTenant } from "@countersign/db";
+import { connection, type Db, withTenant } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Platform } from "../platform";
-import { type DispatchDeps, dispatchEvents, senseEmitter } from "../runs/dispatch";
+import { senseEmitter } from "../runs/dispatch";
 import type { QboSyncParams } from "./instances";
 import { type DownloadedFile, knownRecords, recordKey, storeQboPage } from "./store";
 
@@ -116,13 +116,19 @@ export async function qboSyncStep(
   } catch (error) {
     if (error instanceof ReconnectRequiredError) {
       // The client must sign in again: the connection needs attention (both surfaces show it).
-      const emit = senseEmitter(deps.platform.events);
+      // v0.12 W1-H: its event is dispatched after the step, with the pages'.
+      const collect: EventRow[] = [];
+      const emit = senseEmitter(deps.platform.events, { collect });
       await dbConnectionAttention(deps.db, { emit }).needsAttention(tenantId, {
         connectionId,
         reason: "signin_expired",
         detail: error.message,
       });
-      return skip("the client needs to sign in to QuickBooks again");
+      return {
+        ...skip("the client needs to sign in to QuickBooks again"),
+        eventIds: collect.map((e) => e.id),
+        events: collect,
+      };
     }
     throw error;
   }
@@ -198,7 +204,7 @@ export async function runQboSync(
   deps: QboSyncDeps,
   params: QboSyncParams,
   runner: SyncStepRunner,
-  dispatch: (eventIds: string[]) => Promise<void> = async () => {},
+  dispatch: (eventIds: string[]) => Promise<unknown> = async () => {},
 ): Promise<{ pages: number; stored: number; documents: number; skipped?: string }> {
   let stored = 0;
   let documents = 0;
@@ -221,18 +227,6 @@ export async function runQboSync(
   return { pages: MAX_SYNC_PAGES, stored, documents };
 }
 
-/** Dispatches a page's events by id (those still undispatched), after its step committed. */
-export async function dispatchByIds(
-  deps: DispatchDeps,
-  tenantId: string,
-  ids: string[],
-): Promise<void> {
-  if (ids.length === 0) return;
-  const rows = await withTenant(deps.db, tenantId, (tx) =>
-    tx
-      .select()
-      .from(event)
-      .where(and(eq(event.tenantId, tenantId), inArray(event.id, ids), isNull(event.dispatchedAt))),
-  );
-  await dispatchEvents(deps, rows);
-}
+// v0.12 W1-H: a page's events are dispatched by id after its step committed, under the claim
+// (runs/dispatch.ts), so the sweep and this never take one twice.
+export { dispatchByIds } from "../runs/dispatch";

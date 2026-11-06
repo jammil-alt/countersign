@@ -20,7 +20,7 @@ import {
   type LlmCallRecord,
   type LlmClient,
 } from "@countersign/llm";
-import { emit } from "@countersign/senses";
+import { type EmittedEvents, emit } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
 import { DocumentError, type DocumentRow } from "./store";
 import { validateTotals } from "./validate";
@@ -111,6 +111,8 @@ export interface ExtractInput {
   testRun?: boolean;
   /** Called with the model call's usage and cost (successes and failures), for the run's step. */
   onCall?: (record: LlmCallRecord) => void | Promise<void>;
+  /** Records the ids of the events it emits, for the caller to dispatch after commit (§8). */
+  collect?: EmittedEvents;
 }
 
 export interface ExtractResult {
@@ -159,7 +161,10 @@ async function markFailed(deps: DocumentsDeps, input: ExtractInput, message: str
         subjectId: input.documentId,
         payload: { documentId: input.documentId, error: message.slice(0, 500) },
       },
-      { testRun: input.testRun === true },
+      {
+        testRun: input.testRun === true,
+        ...(input.collect ? { collect: input.collect } : {}),
+      },
     );
   });
 }
@@ -272,7 +277,10 @@ export async function extractDocument(
           totalsValid: check.ok,
         },
       },
-      { testRun: input.testRun === true },
+      {
+        testRun: input.testRun === true,
+        ...(input.collect ? { collect: input.collect } : {}),
+      },
     );
     return {
       documentId: doc.id,

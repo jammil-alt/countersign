@@ -33,7 +33,7 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
-import { cronTick } from "./runs/dispatch";
+import { cronTick, dispatchByIds, dispatchTenant } from "./runs/dispatch";
 import { executeRun } from "./runs/execute";
 import { dbStepLog } from "./runs/ports";
 import { REDELIVER_AFTER_MS } from "./runs/resume";
@@ -690,5 +690,79 @@ describe.skipIf(!h)("runs", () => {
     if (!params) throw new Error("no event run");
     const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
     expect(result).toEqual({ status: "succeeded" });
+  });
+  // v0.12 W1-H: dispatch right after commit, once (ARCHITECTURE §8).
+  it("dispatches an event once when the after-commit dispatch and the sweep race", async () => {
+    // The watcher of the test above (client B) routes `inbox.resolved`.
+    const payload = {
+      inboxItemId: crypto.randomUUID(),
+      kind: "race",
+      runId: null,
+      approved: true,
+      resolvedBy: null,
+    };
+    const [e] = await H.t.db
+      .insert(event)
+      .values({
+        tenantId: H.B.tenantId,
+        type: "inbox.resolved",
+        payload,
+        createdAt: new Date(Date.now() - 120_000),
+      })
+      .returning();
+    if (!e) throw new Error("setup");
+    let starts = 0;
+    const counting = {
+      start: async (p: Parameters<typeof H.instances.start>[0]) => {
+        starts += 1;
+        // Slow enough that both dispatchers are in flight together.
+        await new Promise((r) => setTimeout(r, 30));
+        return H.instances.start(p);
+      },
+      sendEvent: H.instances.sendEvent.bind(H.instances),
+    };
+    const d = { db: H.db, instances: counting };
+    const [byId, sweep] = await Promise.all([
+      dispatchByIds(d, H.B.tenantId, [e.id]),
+      dispatchTenant(d, H.B.tenantId, { olderThanSeconds: 30 }),
+    ]);
+    expect(byId + sweep).toBe(1);
+    expect(starts).toBe(1);
+    const [row] = await H.t.db.select().from(event).where(eq(event.id, e.id));
+    expect(row?.dispatchedAt).not.toBeNull();
+    // Again, nothing: it is stamped.
+    expect(await dispatchByIds(d, H.B.tenantId, [e.id])).toBe(0);
+    expect(starts).toBe(1);
+  });
+
+  it("gives an event back to the sweep when its run's instance can't start", async () => {
+    const [e] = await H.t.db
+      .insert(event)
+      .values({
+        tenantId: H.B.tenantId,
+        type: "inbox.resolved",
+        payload: {
+          inboxItemId: crypto.randomUUID(),
+          kind: "down",
+          runId: null,
+          approved: true,
+          resolvedBy: null,
+        },
+      })
+      .returning();
+    if (!e) throw new Error("setup");
+    const down = {
+      start: async () => {
+        throw new Error("the Workflows engine is unreachable");
+      },
+      sendEvent: async () => {},
+    };
+    expect(await dispatchByIds({ db: H.db, instances: down }, H.B.tenantId, [e.id])).toBe(1);
+    const [given] = await H.t.db.select().from(event).where(eq(event.id, e.id));
+    expect(given?.dispatchedAt).toBeNull();
+    // The run row is there; the next dispatch starts its instance (the same run id).
+    const before = H.instances.started.size;
+    expect(await dispatchByIds({ db: H.db, instances: H.instances }, H.B.tenantId, [e.id])).toBe(1);
+    expect(H.instances.started.size).toBe(before + 1);
   });
 });
