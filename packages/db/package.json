@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
     "./seed": "./src/seed.ts",
-    "./purge": "./src/purge.ts"
+    "./purge": "./src/purge.ts",
+    "./seed/agents/*": "./seed/agents/*"
   },
   "scripts": {
     "typecheck": "tsc -p .",

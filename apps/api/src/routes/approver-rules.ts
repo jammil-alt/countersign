@@ -195,7 +195,7 @@ function referenceProblems(
   return problems;
 }
 
-async function save(
+export async function save(
   tx: Tx,
   input: {
     tenantId: string;

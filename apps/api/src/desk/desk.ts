@@ -373,7 +373,7 @@ export async function resolveBatch(
 
 // ── Team and settings ────────────────────────────────────────────────────────────────────────────
 
-function ruleWords(
+export function ruleWords(
   rule: ApproverRule,
   ctx: { locale: Locale; platform: Platform; agents: Map<string, string> },
 ): string {

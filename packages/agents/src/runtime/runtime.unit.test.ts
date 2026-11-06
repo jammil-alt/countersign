@@ -47,6 +47,16 @@ describe("tool registry", () => {
       ],
     });
     expect(Object.keys(tools.specs()).sort()).toEqual([
+      // v0.12 W2-D: Sloan's account tools
+      "account.draft_change",
+      "account.explain_wait",
+      "account.pass_to_lead",
+      "account.pause_agent",
+      "account.resume_agent",
+      "account.run",
+      "account.runs",
+      "account.services",
+      "account.waiting",
       "agents.ask",
       "comms.reach_out",
       "demo.thing.find",
