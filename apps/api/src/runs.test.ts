@@ -381,6 +381,8 @@ describe.skipIf(!h)("runs", () => {
       "external_action.done",
       "inbox.resolved",
       "inbox.resolved",
+      // v0.12 W2-E: the live run's finish (handoffs, docs/plan.md §1.48).
+      "run.succeeded",
     ]);
     // Approvals are dispatched by the API, the run's own event by the run.
     expect(events.every((e) => e.dispatchedAt !== null)).toBe(true);
