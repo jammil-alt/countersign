@@ -98,8 +98,8 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    // Five templates (six versions with Sloan) and the Demo client's one agent.
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 7 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 6 });
+    expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
     expect(second).toEqual(first);
@@ -175,8 +175,33 @@ describe.skipIf(!online)("seed", () => {
     expect(asOperator).toHaveLength(5);
   });
 
-  it("puts one change on the Demo client's Desk, on the test kit, in the runtime's shape", async () => {
-    const { tenants, users, demoDesk: d } = await seed(t.db);
+  // Staging's seed and the default `db:seed`: nothing of the e2e Desk item.
+  it("adds none of the e2e Desk item by default", async () => {
+    await seed(t.db);
+    const [row] = await t.db.$client<Record<string, number>[]>`select
+        (select count(*)::int from connection) as connections,
+        (select count(*)::int from raw_record) as records,
+        (select count(*)::int from agent where tenant_id is not null) as agents,
+        (select count(*)::int from run) as runs,
+        (select count(*)::int from step_run) as steps,
+        (select count(*)::int from tool_call) as calls,
+        (select count(*)::int from external_action) as actions,
+        (select count(*)::int from inbox_item) as items`;
+    expect(row).toEqual({
+      connections: 0,
+      records: 0,
+      agents: 0,
+      runs: 0,
+      steps: 0,
+      calls: 0,
+      actions: 0,
+      items: 0,
+    });
+  });
+
+  it("with e2e, puts one change on the Demo client's Desk, on the test kit, in the runtime's shape", async () => {
+    const { tenants, users, demoDesk: d } = await seed(t.db, { e2e: true });
+    if (!d) throw new Error("no Desk item seeded");
     const rows = await withTenant(t.db, tenants.demo, async (tx) => {
       await asWorker(tx);
       return {
@@ -301,8 +326,9 @@ describe.skipIf(!online)("seed", () => {
     expect(sandbox).toEqual([]);
   });
 
-  it("adds no second Desk item when run again, and leaves a signed one as it is", async () => {
-    const { demoDesk: d } = await seed(t.db);
+  it("with e2e, adds no second Desk item when run again, and leaves a signed one as it is", async () => {
+    const { demoDesk: d } = await seed(t.db, { e2e: true });
+    if (!d) throw new Error("no Desk item seeded");
     const deskCounts = async () => {
       const [row] = await t.db.$client<{ items: number; actions: number; runs: number }[]>`select
           (select count(*)::int from inbox_item) as items,
@@ -316,6 +342,9 @@ describe.skipIf(!online)("seed", () => {
       .update(inboxItem)
       .set({ status: "resolved", resolvedAt: new Date() })
       .where(eq(inboxItem.id, d.inboxItemId));
+    await seed(t.db, { e2e: true });
+    expect(await deskCounts()).toEqual({ items: 1, actions: 1, runs: 1 });
+    // A default seed afterwards neither adds nor removes anything of it.
     await seed(t.db);
     expect(await deskCounts()).toEqual({ items: 1, actions: 1, runs: 1 });
     const [item] = await t.db.select().from(inboxItem).where(eq(inboxItem.id, d.inboxItemId));

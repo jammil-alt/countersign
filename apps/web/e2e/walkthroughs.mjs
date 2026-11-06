@@ -9,7 +9,7 @@
 // Read-only: any request that would change something (a POST, PUT, PATCH or DELETE to /api other
 // than the dev sign-in) is stopped and fails the step, so nothing is sent or run, and no outside
 // service is ever written to (CLAUDE.md invariant 8). One exception: in "Sign and undo", the
-// Desk's sign and undo of the one item the seed puts there (packages/db/src/seed.ts
+// Desk's sign and undo of the one item the e2e seed puts there (SEED_E2E=1, packages/db/src/seed.ts
 // `seedDemoDesk`), a change on the in-memory testkit that no run ever executes. It is signed and
 // then undone inside the window, so it waits again for the next look and the next run.
 //
@@ -199,7 +199,9 @@ async function clientWalk(w) {
     const page = w.page;
     const entry = page.locator(`main [data-testid="desk-entry-${SEEDED_DESK_ITEM}"]`);
     if ((await entry.count()) === 0) {
-      throw new Skip("the seeded change isn't waiting on the Desk (signed and not undone?)");
+      throw new Skip(
+        "the e2e change isn't on the Desk (seed with SEED_E2E=1; or it was signed and not undone)",
+      );
     }
     await entry.first().click();
     await settle(page);

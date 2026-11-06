@@ -76,12 +76,30 @@ curl -s localhost:8787/cdn-cgi/local/scheduled            # fire the cron once
 
 Or open http://localhost:8787 and pick a user on the sign-in screen. The seed has one operator
 (`operator@example.com`, serving Sandbox and Demo client), one client admin
-(`admin@demo-client.example.com`) and the platform templates. The Demo client also has one agent,
-the Records clerk, on a testkit connection, with one change waiting on its Desk: a price on the
-testkit's record R-1002. Signing it writes nothing (the testkit is in memory, and the seeded run has
-no Workflow instance to execute it); undo it inside the window and it waits again. Seeding again
-never adds a second one. To start from an empty database, drop
+(`admin@demo-client.example.com`) and the platform templates. To start from an empty database, drop
 `countersign` and run `scripts/setup-postgres.sh` again.
+
+### The end-to-end seed (SEED_E2E=1)
+
+The browser walkthroughs sign and undo a change on the Demo client's Desk. That change is seeded
+only when `SEED_E2E=1` is set: the Records clerk (a Demo client agent on a testkit connection), a
+live run waiting on it, and its one proposed change, a price on the testkit's record R-1002.
+Signing it writes nothing: the testkit is in memory, and the seeded run has no Workflow instance to
+execute it. Undo it inside the window and it waits again; seeding again never adds a second one.
+Staging's seed and the default `db:seed` never add it: the run has no instance, so if it were signed
+and left past the undo window, the cron would retry sending it the approval every minute for 24
+hours.
+
+To run the sweep and the walkthroughs locally with it:
+
+```bash
+SEED_E2E=1 DIRECT_DATABASE_URL=postgresql://cs_owner:cs_owner@localhost:5432/countersign \
+  pnpm --filter @countersign/db run db:seed   # or: SEED_E2E=1 scripts/setup-postgres.sh (with the PG* variables above)
+pnpm dev                                      # in another terminal
+pnpm --filter @countersign/web sweep          # the route sweep, then the walkthroughs
+```
+
+Without it, the walkthroughs skip "Sign and undo" with a note.
 
 `wrangler dev` reads the root `.env` (`--env-file ../../.env`), which gives it
 `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`; without it the Worker cannot reach the

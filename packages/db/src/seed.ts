@@ -1,8 +1,8 @@
 // The seed (docs/plan.md §1.2 "Seeded and template definitions", "Sandbox client"): the operator,
 // the clients "Sandbox" and "Demo client" with their memberships, and the platform templates as v1
 // rows from packages/db/seed/agents/<slug>.v1.json, later seeded versions (`<slug>.v<n>.json`) as
-// the live version, and one change on the Demo client's Desk, on the test kit only
-// (`seedDemoDesk`). Idempotent: ids are uuid v5 of fixed names and every insert skips what is
+// the live version. With `e2e` (SEED_E2E=1) also one change on the Demo client's Desk, on the test
+// kit only (`seedDemoDesk`). Idempotent: ids are uuid v5 of fixed names and every insert skips what is
 // already there, so running it twice changes nothing.
 //
 // Node only (it reads the seed files); not exported from the package's Worker-safe index.
@@ -108,11 +108,22 @@ export interface SeedResult {
   users: { operator: string; demoAdmin: string };
   /** slug → ids of the template and its v1. */
   templates: Record<string, { agentId: string; versionId: string }>;
-  /** The Demo client's one Desk item and what stands behind it (`seedDemoDesk`). */
-  demoDesk: DemoDesk;
+  /**
+   * The Demo client's one Desk item and what stands behind it (`seedDemoDesk`), or null when the
+   * seed ran without `e2e`.
+   */
+  demoDesk: DemoDesk | null;
 }
 
-export async function seed(db: Db): Promise<SeedResult> {
+export interface SeedOptions {
+  /**
+   * Also seed the end-to-end Desk item (`seedDemoDesk`). Only for a throwaway database: local
+   * runs and CI's sweep, which set SEED_E2E=1 (packages/db/scripts/seed.ts). Never staging.
+   */
+  e2e?: boolean;
+}
+
+export async function seed(db: Db, options: SeedOptions = {}): Promise<SeedResult> {
   const templates = await loadSeedTemplates();
   const tenants = {
     sandbox: await seedId("tenant:sandbox"),
@@ -251,7 +262,9 @@ export async function seed(db: Db): Promise<SeedResult> {
       await tx.update(agent).set({ liveVersionId: id }).where(eq(agent.id, template.agentId));
     }
 
-    const demoDesk = await seedDemoDesk(tx, { tenantId: tenants.demo, adminId: users.demoAdmin });
+    const demoDesk = options.e2e
+      ? await seedDemoDesk(tx, { tenantId: tenants.demo, adminId: users.demoAdmin })
+      : null;
 
     return { tenants, users, templates: seeded, demoDesk };
   });
@@ -275,6 +288,10 @@ export async function seed(db: Db): Promise<SeedResult> {
 // never runs on production, where the testkit isn't registered at all.
 // DECISION: the agent is in its trial (every write signed, ARCHITECTURE §10.9) and active, with a
 // manual trigger only, so no event or schedule ever starts a run of it.
+// DECISION: seeded only with `e2e` (SEED_E2E=1: local runs and CI's sweep), never by default, so
+// never on staging. The run has no Workflow instance: if someone signed the item there and let
+// the undo window pass, the cron would try to send the run its approval every minute for 24 hours
+// (runs/resume.ts), logging a failed send each time. A throwaway database doesn't live that long.
 
 /** The seeded Demo client agent's bundle file (a client agent, not a template). */
 export const DEMO_AGENT_FILE = "demo-records-clerk.v1.json";
