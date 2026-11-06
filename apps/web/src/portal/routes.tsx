@@ -3,9 +3,6 @@
 // them; every old address redirects to its new home (params, query and hash kept), so links in
 // emails, texts and bookmarks keep working.
 //
-// Not here yet, added with their screens: `/sloan` (UI-1d, C6 Sloan) and `/weekly` (UI-1d, C8
-// Weekly Table).
-//
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
@@ -32,6 +29,8 @@ import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
 import { PortalServiceScreen } from "./screens/Service";
 import { PortalSettingsScreen } from "./screens/Settings";
+import { PortalSloanScreen } from "./screens/Sloan";
+import { PortalWeeklyScreen } from "./screens/Weekly";
 import { WhatsappMetaSignupScreen } from "./screens/WhatsappMetaSignup";
 
 export const portalRoutes = (
@@ -55,6 +54,11 @@ export const portalRoutes = (
     {/* C9, C10 Runs and run detail (UI-1d) */}
     <Route path="runs" element={<PortalRunsScreen />} />
     <Route path="runs/:id" element={<PortalRunScreen />} />
+    {/* C8 Weekly Table (UI-1d) */}
+    <Route path="weekly" element={<PortalWeeklyScreen />} />
+    {/* C6 Sloan (UI-1d) */}
+    <Route path="sloan" element={<PortalSloanScreen />} />
+    <Route path="sloan/:id" element={<PortalSloanScreen />} />
 
     {/* Pages the prototype doesn't show (UI-3) */}
     <Route path="reports/*" element={<PortalReportsScreen />} />

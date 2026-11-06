@@ -25,11 +25,25 @@ export interface SearchGroup {
 
 export type SearchRun = (q: string, signal: AbortSignal) => Promise<SearchGroup[]>;
 
+/** The portal's last line, under the hits: ask Sloan the words typed ("Ask Sloan: …"). */
+export interface SearchAsk {
+  label: (q: string) => string;
+  href: (q: string) => string;
+}
+
 /** How long typing pauses before a search goes out. */
 export const SEARCH_DEBOUNCE_MS = 200;
 
 /** The header's box and the dialog behind it. */
-export function SearchBox({ placeholder, run }: { placeholder: string; run: SearchRun }) {
+export function SearchBox({
+  placeholder,
+  run,
+  ask,
+}: {
+  placeholder: string;
+  run: SearchRun;
+  ask?: SearchAsk | undefined;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -71,6 +85,7 @@ export function SearchBox({ placeholder, run }: { placeholder: string; run: Sear
         <SearchDialog
           placeholder={placeholder}
           run={run}
+          ask={ask}
           onClose={() => {
             setOpen(false);
             trigger.current?.focus();
@@ -84,10 +99,12 @@ export function SearchBox({ placeholder, run }: { placeholder: string; run: Sear
 export function SearchDialog({
   placeholder,
   run,
+  ask,
   onClose,
 }: {
   placeholder: string;
   run: SearchRun;
+  ask?: SearchAsk | undefined;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -137,7 +154,10 @@ export function SearchDialog({
     };
   }, [q]);
 
-  const hits = state.groups.flatMap((g) => g.hits);
+  const found = state.groups.flatMap((g) => g.hits);
+  const askHit: SearchHit | null =
+    ask && q.trim() ? { key: "ask", href: ask.href(q.trim()), title: ask.label(q.trim()) } : null;
+  const hits = askHit ? [...found, askHit] : found;
   const activeHit = hits[active];
   const optionId = (key: string) => `${id}-hit-${key}`;
 
@@ -196,12 +216,12 @@ export function SearchDialog({
         <div className="ui-search__results">
           {state.error ? <ErrorNotice error={state.error} /> : null}
           {!q.trim() ? <p className="ui-search__note">{t("search.hint")}</p> : null}
-          {q.trim() && state.loading && hits.length === 0 ? (
+          {q.trim() && state.loading && found.length === 0 ? (
             <p role="status" className="ui-search__note">
               {t("common.loading")}
             </p>
           ) : null}
-          {q.trim() && !state.loading && !state.error && state.searched && hits.length === 0 ? (
+          {q.trim() && !state.loading && !state.error && state.searched && found.length === 0 ? (
             <p className="ui-search__note" data-testid="search-empty">
               {t("search.empty", { q: state.searched })}
             </p>
@@ -231,6 +251,20 @@ export function SearchDialog({
                 ))}
               </div>
             ))}
+            {askHit ? (
+              <Link
+                id={optionId(askHit.key)}
+                to={askHit.href}
+                role="option"
+                aria-selected={askHit === activeHit}
+                data-testid="search-ask"
+                onMouseEnter={() => setActive(hits.length - 1)}
+                onClick={onClose}
+                className={cx("ui-search__hit", askHit === activeHit && "is-active")}
+              >
+                <span className="min-w-0 truncate text-ink">{askHit.title}</span>
+              </Link>
+            ) : null}
           </div>
         </div>
       </div>
