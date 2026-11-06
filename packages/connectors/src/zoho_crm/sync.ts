@@ -119,12 +119,13 @@ const ListedRecord = z.looseObject({
 export function zohoRawRecord(module: ZohoSyncedModule, raw: unknown): RawRecordInput | null {
   const r = ListedRecord.safeParse(raw);
   if (!r.success || !/^\d{1,30}$/.test(r.data.id)) return null;
-  const payload: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(r.data)) {
-    // Zoho's own `$` keys (state, permissions) are not the record's.
-    if (k.startsWith("$")) continue;
-    payload[k] = v;
-  }
+  // Zoho's own `$` keys (state, permissions) are not the record's. Field names come from Zoho's
+  // answer: built with fromEntries, without the names that could reach an object's prototype.
+  const payload: Record<string, unknown> = Object.fromEntries(
+    Object.entries(r.data).filter(
+      ([k]) => !k.startsWith("$") && k !== "__proto__" && k !== "constructor" && k !== "prototype",
+    ),
+  );
   return {
     entityType: module,
     externalId: r.data.id,

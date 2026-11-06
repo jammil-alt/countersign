@@ -221,9 +221,8 @@ export async function boundGrants(
   tx: Tx,
   row: Pick<AgentRow, "tenantId" | "bindings"> & { id?: string },
 ): Promise<Record<string, GrantLimits | null>> {
-  const out: Record<string, GrantLimits | null> = {};
   const ids = Object.values(row.bindings);
-  if (!row.tenantId || !row.id || ids.length === 0) return out;
+  if (!row.tenantId || !row.id || ids.length === 0) return {};
   const rows = await tx
     .select()
     .from(agentGrant)
@@ -234,17 +233,16 @@ export async function boundGrants(
         inArray(agentGrant.connectionId, ids),
       ),
     );
-  for (const [key, id] of Object.entries(row.bindings)) {
-    const g = rows.find((r) => r.connectionId === id);
-    if (!g) {
-      out[key] = null;
-      continue;
-    }
-    // As grantOf reads a row: one that no longer parses is every verb off and narrows everything.
-    const parsed = GrantLimits.safeParse(g.limits);
-    out[key] = parsed.success ? parsed.data : REVOKED_GRANT;
-  }
-  return out;
+  // Built with fromEntries (binding keys are data): no assignment by key.
+  return Object.fromEntries(
+    Object.entries(row.bindings).map(([key, id]): [string, GrantLimits | null] => {
+      const g = rows.find((r) => r.connectionId === id);
+      if (!g) return [key, null];
+      // As grantOf reads a row: one that no longer parses is every verb off and narrows everything.
+      const parsed = GrantLimits.safeParse(g.limits);
+      return [key, parsed.success ? parsed.data : REVOKED_GRANT];
+    }),
+  );
 }
 
 /** The declared entities of each bound connector, from the registered manifests. */
@@ -252,11 +250,12 @@ function boundEntities(
   bindings: Record<string, string>,
   tools: ToolRegistry,
 ): Record<string, readonly PermissionEntity[] | undefined> {
-  const out: Record<string, readonly PermissionEntity[] | undefined> = {};
-  for (const key of Object.keys(bindings)) {
-    out[key] = tools.connectors.get(bindingConnector(key))?.manifest.permissionEntities;
-  }
-  return out;
+  return Object.fromEntries(
+    Object.keys(bindings).map((key) => [
+      key,
+      tools.connectors.get(bindingConnector(key))?.manifest.permissionEntities,
+    ]),
+  );
 }
 
 /** Validates a version's bundle as it would be published (client agents: against their bindings). */
