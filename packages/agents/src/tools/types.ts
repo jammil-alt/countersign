@@ -16,6 +16,7 @@ import type {
   VoiceSampleChannel,
 } from "@countersign/core";
 import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
+import type { LlmCallRecord, LlmExchange } from "@countersign/llm";
 import { z } from "zod";
 import type { ThreadsPort } from "./threads";
 
@@ -60,6 +61,8 @@ export interface ToolInvocation {
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
     | undefined;
+  /** v0.12 W1-E: records a model call a tool made (e.g. extraction) as the step's `model_call`. */
+  recordModelCall?: ((record: LlmCallRecord, exchange: LlmExchange) => Promise<void>) | undefined;
 }
 
 /** A document as tools see it: metadata, a short-lived link, and its latest reading. */
@@ -130,6 +133,7 @@ export interface DocumentsPort {
       agentVersionId: string;
       testRun: boolean;
       recordUsage?: ToolInvocation["recordUsage"];
+      recordModelCall?: ToolInvocation["recordModelCall"];
     },
   ): Promise<ExtractSummary>;
   findSupport(

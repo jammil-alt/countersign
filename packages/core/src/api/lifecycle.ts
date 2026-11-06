@@ -20,7 +20,8 @@ const Id = z.string().refine((v) => isUuid(v), "not an id");
 const IdParams = z.object({ id: Id });
 const OPS = ["operator"] as const;
 const CLIENT_ADMIN = ["client_admin"] as const;
-// TODO(W1-D): signing client users only, once `membership.can_sign` exists (viewers get 403).
+// v0.12 W1-D: a role can't say whether a client user signs (`membership.can_sign`), so Run now
+// lets both client roles in and its handler refuses a viewer (403 `cannot_sign`, like the Desk).
 const SIGNERS = ["client_admin", "client_user"] as const;
 
 /** Why the operator moved an agent: required to move forward past a stage, optional back. */
@@ -207,7 +208,8 @@ export const lifecycleRoutes = {
     path: "/api/services/:id/workflows/:slug/run",
     auth: "session",
     roles: SIGNERS,
-    summary: "Start a workflow of a service with your form; checked against its form",
+    summary:
+      "Start a workflow of a service with your form; checked against its form; viewers 403 cannot_sign",
     params: z.object({ id: Id, slug: Slug }),
     body: z.strictObject({ input: z.unknown().optional() }),
     response: z.object({ runId: z.string() }),

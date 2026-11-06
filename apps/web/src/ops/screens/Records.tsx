@@ -45,6 +45,7 @@ const EMPTY: Record<RecordListKind, string> = {
   vendors:
     "No vendors yet. They arrive with QuickBooks, or with the transactions and documents that name them.",
   items: "No items yet. They arrive when QuickBooks syncs the client's products and services.",
+  receivables: "No receivables yet. They arrive when QuickBooks syncs the client's invoices.",
 };
 
 /** What a person calls a source: the company's name, else the connector's. */
@@ -187,9 +188,9 @@ export function OpsRecordsScreen() {
                 <TransactionsTable rows={data.page.rows} sources={sources} base={base} />
               ) : data.page.kind === "vendors" ? (
                 <VendorsTable rows={data.page.rows} sources={sources} base={base} />
-              ) : (
+              ) : data.page.kind === "items" ? (
                 <ItemsTable rows={data.page.rows} sources={sources} base={base} />
-              )}
+              ) : null}
             </div>
           </div>
           <Pager data={data} onPage={(p) => set({ page: p === 1 ? "" : String(p) })} page={page} />

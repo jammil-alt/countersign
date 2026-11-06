@@ -39,6 +39,7 @@ import {
   type Tx,
   tenant,
 } from "@countersign/db";
+import { type EmitPosted, leadThread, postMessage } from "@countersign/threads";
 import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { type AuditEntry, auditInTx } from "../audit";
 import { HttpError } from "../http";
@@ -53,9 +54,6 @@ export type StageActor = Pick<AuditEntry, "actorKind" | "actorUserId" | "actorEm
 const stored = (state: StageState): AgentStageState => state as AgentStageState;
 
 export const SYSTEM_ACTOR: StageActor = { actorKind: "system" };
-
-/** The subject of the operator's item when a client rejects a go-live (until W1-C's lead thread). */
-export const GO_LIVE_REJECTED_SUBJECT = "go_live_rejected";
 
 /**
  * A client agent's stage. A client agent with no stage yet is on the bench.
@@ -559,7 +557,7 @@ export async function advanceTrials(tx: Tx, tenantId: string, now: Date): Promis
 
 /**
  * The client admin's answer on the go-live item, in the resolve transaction: approved → live;
- * rejected → back to trial with a new start, the reason kept and passed to the operator.
+ * rejected → back to trial with a new start, the reason kept and posted to the client's lead.
  */
 export async function resolveGoLive(
   tx: Tx,
@@ -570,6 +568,8 @@ export async function resolveGoLive(
     by: { userId: string; role: string };
     note?: string | undefined;
     now?: Date;
+    /** Emits the lead-thread message's `thread.message_posted` (the resolve's collector). */
+    emitPosted?: EmitPosted | undefined;
   },
 ): Promise<void> {
   const now = input.now ?? new Date();
@@ -616,17 +616,28 @@ export async function resolveGoLive(
     actor,
     via: input.item.id,
   });
-  // TODO(W1-C): post the reason to the client's lead thread instead, once threads exist.
-  await tx.insert(inboxItem).values({
-    tenantId: input.tenantId,
-    kind: "review",
-    agentId: row.id,
-    subjectType: GO_LIVE_REJECTED_SUBJECT,
-    subjectId: row.id,
-    assigneeRole: "operator",
-    title: `The client kept ${row.name} in trial`,
-    payload: { goLiveRejected: { agentId: row.id, reason, by: input.by.userId } },
-  });
+  // v0.12 W1-C: the reason goes to the client's lead in the lead thread (docs/plan.md §1.36).
+  // DECISION: an operator note from the person who rejected (sender type `user`, audience
+  // `operator`), so the notify pass tells the lead as it does for any client member's message;
+  // it replaces the operator review item the stage used before threads existed.
+  const lead = await leadThread(tx, input.tenantId);
+  await postMessage(
+    tx,
+    {
+      tenantId: input.tenantId,
+      thread: lead,
+      senderType: "user",
+      senderId: input.by.userId,
+      kind: "text",
+      body: {
+        text: `Kept ${row.name} in trial: ${reason}`.slice(0, 4000),
+        goLiveRejected: { agentId: row.id, inboxItemId: input.item.id },
+      },
+      sources: [input.item.id],
+      audience: "operator",
+    },
+    input.emitPosted,
+  );
 }
 
 // ── The back office's view ───────────────────────────────────────────────────────────────────────

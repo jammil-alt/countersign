@@ -100,6 +100,7 @@ export const docsExtract = defineInternalTool({
       agentVersionId: ctx.agentVersionId,
       testRun: ctx.mode === "test",
       recordUsage: ctx.recordUsage,
+      recordModelCall: ctx.recordModelCall,
     });
     return { ...r, sources: [r.documentId, r.extractionId] };
   },

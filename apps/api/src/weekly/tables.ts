@@ -2,7 +2,7 @@
 // the client's time zone a draft is made so the lead can write the note, the decisions and next
 // week; Monday 7:00 the stats are computed again for the week just ended, the row is marked
 // `sent` and every member is told (client setting `weeklyDigest`). A sent table is not edited
-// again (409 `sent`); its decisions take replies through the lead thread (W1-C).
+// again (409 `sent`); its decisions take replies, posted in the lead thread (W1-C).
 
 import {
   addDays,
@@ -29,6 +29,7 @@ import {
   vendor,
   weeklyTable,
 } from "@countersign/db";
+import { type EmitPosted, leadThread, postMessage } from "@countersign/threads";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { HttpError } from "../http";
 import { candidatesFor, enqueue, type NotificationRow } from "../notify/outbox";
@@ -251,6 +252,65 @@ export async function editWeek(
     .returning();
   if (!updated) throw new HttpError(409, "sent", "this week's summary was sent");
   return updated;
+}
+
+/**
+ * The client's answer to a decision of a sent table (ARCHITECTURE §11.4): a message in the
+ * client's lead thread, linked from the decision's `reply` (who, when, the message). Returns the
+ * message's id.
+ */
+// DECISION: one reply per decision (409 `replied` after; the conversation goes on in the lead
+// thread). The text is posted as written, never read as a `/command`; the message's body names
+// the week and decision, and the decision's sources go with it so the lead sees what it rests on.
+export async function replyToDecision(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    weekStart: string;
+    decisionId: string;
+    userId: string;
+    text: string;
+    now: Date;
+    emitPosted?: EmitPosted | undefined;
+  },
+): Promise<string> {
+  const [row] = await tx
+    .select()
+    .from(weeklyTable)
+    .where(
+      and(eq(weeklyTable.tenantId, input.tenantId), eq(weeklyTable.weekStart, input.weekStart)),
+    )
+    .for("update");
+  // Drafts are the back office's: the client sees (and answers) sent tables only.
+  if (row?.status !== "sent") throw new HttpError(404, "not_found", "weekly summary not found");
+  const decision = row.decisions.find((d) => d.id === input.decisionId);
+  if (!decision) throw new HttpError(404, "not_found", "decision not found");
+  if (decision.reply) throw new HttpError(409, "replied", "this decision has its answer");
+  const lead = await leadThread(tx, input.tenantId);
+  if (lead.status !== "open") throw new HttpError(409, "closed", "this conversation is closed");
+  const posted = await postMessage(
+    tx,
+    {
+      tenantId: input.tenantId,
+      thread: lead,
+      senderType: "user",
+      senderId: input.userId,
+      kind: "text",
+      body: {
+        text: input.text,
+        weeklyDecision: { weekStart: row.weekStart, decisionId: decision.id },
+      },
+      sources: decision.sources,
+      audience: "client",
+    },
+    input.emitPosted,
+  );
+  const reply = { by: input.userId, at: input.now.toISOString(), messageId: posted.id };
+  await tx
+    .update(weeklyTable)
+    .set({ decisions: row.decisions.map((d) => (d.id === decision.id ? { ...d, reply } : d)) })
+    .where(and(eq(weeklyTable.id, row.id), eq(weeklyTable.tenantId, input.tenantId)));
+  return posted.id;
 }
 
 /** A client's tables, newest first. */
