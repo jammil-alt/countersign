@@ -1,6 +1,8 @@
-// QuickBooks Online raw records → shared records (ARCHITECTURE §5.2, §6.2). The qbo connector stores
-// each entity as it came (`raw_record(connector='qbo')`); these mappers turn Purchase, Bill and
-// VendorCredit payloads into transactions with their lines, and Vendor payloads into vendors.
+// QuickBooks Online raw records → shared records (ARCHITECTURE §5.2, §5.5, §6.2). The qbo connector
+// stores each entity as it came (`raw_record(connector='qbo')`); these mappers turn Purchase, Bill
+// and VendorCredit payloads into transactions with their lines, Vendor payloads into vendors, and
+// Invoice payloads into receivables (accounts receivable, v0.12). Customers and payments stay raw
+// records: a payment moves its invoices' balance through the invoices' own versions.
 // Money stays decimal: QBO sends amounts as JSON numbers, which are read as their shortest decimal
 // text and never computed on as floats (invariant 6).
 
@@ -14,21 +16,33 @@ export const QBO_CONNECTOR_ID = "qbo";
 export const QBO_TRANSACTION_ENTITIES = ["Purchase", "Bill", "VendorCredit"] as const;
 export type QboTransactionEntity = (typeof QBO_TRANSACTION_ENTITIES)[number];
 
+/** Accounts receivable entities whose history reaches further back (ARCHITECTURE §6.2, v0.12). */
+export const QBO_AR_ENTITIES = ["Invoice", "Payment"] as const;
+export type QboArEntity = (typeof QBO_AR_ENTITIES)[number];
+
 /** Everything sync brings in (ARCHITECTURE §6.2), in the order an initial sync reads them. */
-// DECISION: vendors and items first (so transactions find their vendor), attachments last (so the
-// transactions they hang on already exist when their files are linked).
+// DECISION: name lists first (vendors, items and customers, so transactions and invoices find
+// theirs), attachments last (so the transactions they hang on already exist when their files are
+// linked). Customer, Invoice and Payment are the v0.12 accounts receivable entities.
 export const QBO_SYNCED_ENTITIES = [
   "Vendor",
   "Item",
+  "Customer",
   "Purchase",
   "Bill",
   "VendorCredit",
+  "Invoice",
+  "Payment",
   "Attachable",
 ] as const;
 export type QboEntity = (typeof QBO_SYNCED_ENTITIES)[number];
 
 export function isQboTransactionEntity(v: string): v is QboTransactionEntity {
   return (QBO_TRANSACTION_ENTITIES as readonly string[]).includes(v);
+}
+
+export function isQboArEntity(v: string): v is QboArEntity {
+  return (QBO_AR_ENTITIES as readonly string[]).includes(v);
 }
 
 /**
@@ -324,5 +338,159 @@ export function mapQboAttachable(raw: unknown): AttachableInput {
       .map((r) => r.EntityRef)
       .filter((r): r is QboRef => Boolean(r?.type))
       .map((r) => ({ entity: r.type as string, id: r.value })),
+  };
+}
+
+// ── Accounts receivable (v0.12) ─────────────────────────────────────────────────────────────────
+
+/** `receivable.status` (ARCHITECTURE §5.5). */
+export const RECEIVABLE_STATUSES = ["open", "paid", "void", "deleted"] as const;
+export type ReceivableStatus = (typeof RECEIVABLE_STATUSES)[number];
+
+const SalesLine = z.looseObject({
+  Id: z.union([z.string(), z.number()]).transform(String).optional(),
+  Description: z.string().optional(),
+  Amount: Num.optional(),
+  DetailType: z.string(),
+  SalesItemLineDetail: z
+    .looseObject({ ItemRef: Ref.optional(), Qty: Num.optional(), UnitPrice: Num.optional() })
+    .optional(),
+});
+
+/** An Invoice as far as the mapper and the tools read it; everything else is kept. */
+export const QboInvoiceRaw = z.looseObject({
+  Id: z.union([z.string(), z.number()]).transform(String),
+  SyncToken: z.union([z.string(), z.number()]).transform(String).optional(),
+  MetaData: MetaData.optional(),
+  DocNumber: z.string().optional(),
+  TxnDate: z.string().optional(),
+  DueDate: z.string().optional(),
+  CurrencyRef: Ref.optional(),
+  PrivateNote: z.string().optional(),
+  CustomerRef: Ref,
+  Line: z.array(SalesLine).optional(),
+  TotalAmt: Num,
+  Balance: Num.optional(),
+  EmailStatus: z.string().optional(),
+  TxnTaxDetail: z.looseObject({ TotalTax: Num.optional() }).optional(),
+});
+export type QboInvoiceRaw = z.infer<typeof QboInvoiceRaw>;
+
+export const QboCustomerRaw = z.looseObject({
+  Id: z.union([z.string(), z.number()]).transform(String),
+  SyncToken: z.union([z.string(), z.number()]).transform(String).optional(),
+  DisplayName: z.string().min(1),
+  CompanyName: z.string().optional(),
+  GivenName: z.string().optional(),
+  FamilyName: z.string().optional(),
+  Active: z.boolean().optional(),
+  Balance: Num.optional(),
+  CurrencyRef: Ref.optional(),
+  PrimaryEmailAddr: z.looseObject({ Address: z.string().optional() }).optional(),
+  PrimaryPhone: z.looseObject({ FreeFormNumber: z.string().optional() }).optional(),
+});
+export type QboCustomerRaw = z.infer<typeof QboCustomerRaw>;
+
+export const QboPaymentRaw = z.looseObject({
+  Id: z.union([z.string(), z.number()]).transform(String),
+  SyncToken: z.union([z.string(), z.number()]).transform(String).optional(),
+  TxnDate: z.string().optional(),
+  CustomerRef: Ref.optional(),
+  CurrencyRef: Ref.optional(),
+  TotalAmt: Num,
+  UnappliedAmt: Num.optional(),
+  PaymentRefNum: z.string().optional(),
+  PrivateNote: z.string().optional(),
+  Line: z
+    .array(
+      z.looseObject({
+        Amount: Num.optional(),
+        LinkedTxn: z
+          .array(
+            z.looseObject({
+              TxnId: z.union([z.string(), z.number()]).transform(String),
+              TxnType: z.string(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .optional(),
+});
+export type QboPaymentRaw = z.infer<typeof QboPaymentRaw>;
+
+/** What the qbo mapper produces for a receivable (one Invoice). */
+export interface ReceivableInput {
+  connector: string;
+  /** The invoice's QBO id (unique per connection, ARCHITECTURE §5.5). */
+  externalId: string;
+  docNumber: string | null;
+  customerExternalId: string;
+  customerName: string | null;
+  /** yyyy-mm-dd */
+  txnDate: string | null;
+  dueDate: string | null;
+  /** numeric(14,4) strings. */
+  total: string;
+  balance: string;
+  currency: string;
+  status: ReceivableStatus;
+  /** The invoice's private note: client data, never instructions (invariant 9). */
+  privateNote: string | null;
+  ext: Record<string, unknown>;
+}
+
+function isoDate(v: string | undefined): string | null {
+  return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+/** A voided invoice: QuickBooks zeroes it and marks its private note. */
+// DECISION (UNCHECKED, qbo/NOTES.md): QuickBooks has no void flag on an Invoice; a voided one has a
+// zero total and balance and a private note starting "Voided". Anything else with a zero balance
+// is paid.
+export function isVoidedQboInvoice(t: Pick<QboInvoiceRaw, "TotalAmt" | "Balance" | "PrivateNote">) {
+  return (
+    dec(qboAmount(t.TotalAmt)).isZero() &&
+    dec(qboAmount(t.Balance ?? 0)).isZero() &&
+    /^voided\b/i.test(t.PrivateNote?.trim() ?? "")
+  );
+}
+
+/** An Invoice → a receivable: its customer, dates, total, balance and status. */
+export function mapQboInvoice(raw: unknown): ReceivableInput {
+  const t = parse(QboInvoiceRaw, raw, "Invoice");
+  const currency = (t.CurrencyRef?.value ?? "USD").toUpperCase();
+  if (!CurrencyCode.safeParse(currency).success) {
+    throw new MapperError(`not a currency: ${JSON.stringify(currency)}`);
+  }
+  const total = qboAmount(t.TotalAmt);
+  // DECISION: an invoice without a Balance (QuickBooks always sends one; a payload without it is
+  // read as unpaid) is open for its whole total.
+  const balance = t.Balance === undefined ? total : qboAmount(t.Balance);
+  const status: ReceivableStatus = isVoidedQboInvoice(t)
+    ? "void"
+    : dec(balance).isZero() || dec(balance).isNegative()
+      ? "paid"
+      : "open";
+  return {
+    connector: QBO_CONNECTOR_ID,
+    externalId: t.Id,
+    docNumber: t.DocNumber ?? null,
+    customerExternalId: t.CustomerRef.value,
+    customerName: t.CustomerRef.name ?? null,
+    txnDate: isoDate(t.TxnDate),
+    dueDate: isoDate(t.DueDate),
+    total,
+    balance,
+    currency,
+    status,
+    privateNote: t.PrivateNote ?? null,
+    ext: {
+      qbo: {
+        syncToken: t.SyncToken ?? null,
+        emailStatus: t.EmailStatus ?? null,
+        tax: t.TxnTaxDetail?.TotalTax === undefined ? null : qboAmount(t.TxnTaxDetail.TotalTax),
+      },
+    },
   };
 }

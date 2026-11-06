@@ -54,6 +54,23 @@ export interface ConnectorServices {
   browser?: BrowserServices;
   /** The client's stored documents, for tools that send one to the tool (QBO attachments). */
   documents?: DocumentServices;
+  // v0.12 W1-F
+  /** What sync already stored for this connection (QBO: duplicate bills, receivable ids). */
+  records?: SyncedRecordServices;
+}
+
+// v0.12 W1-F: synced records, read for the call's one client and connection (apps/api/src/qbo).
+export interface SyncedRecordServices {
+  /**
+   * Synced bills (not deleted) from the vendor with this id in the tool whose document number
+   * normalizes to the same letters and digits: their transaction ids and ids in the tool.
+   */
+  syncedBills(q: {
+    vendorExternalId: string;
+    docNumber: string;
+  }): Promise<{ transactionId: string; externalId: string }[]>;
+  /** Receivable ids by the invoice's id in the tool, for those synced (others are left out). */
+  receivableIds(externalIds: string[]): Promise<Record<string, string>>;
 }
 
 /** A stored document's bytes, read for one client (the call's). */
@@ -130,6 +147,8 @@ export function defineReadTool<I extends z.ZodType, O extends z.ZodType>(def: {
   id: string;
   description: string;
   summary?: string;
+  /** The record type it reads (ToolSpec `entity`, v0.12). */
+  entity?: string;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: ToolContext): Promise<z.input<O>>;
@@ -143,6 +162,7 @@ export function defineReadTool<I extends z.ZodType, O extends z.ZodType>(def: {
       sideEffect: "none",
       verb: "read",
       ...(def.summary === undefined ? {} : { summary: def.summary }),
+      ...(def.entity === undefined ? {} : { entity: def.entity }),
     },
     handler: {
       kind: "read",
@@ -169,6 +189,8 @@ export function defineWriteTool<
   amount?: ToolAmount;
   /** How the change reads on its approval card (ToolSpec `display`). */
   display?: ToolDisplay;
+  /** The record type it touches (ToolSpec `entity`, v0.12). */
+  entity?: string;
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -188,6 +210,7 @@ export function defineWriteTool<
       ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
       ...(def.amount === undefined ? {} : { amount: def.amount }),
       ...(def.display === undefined ? {} : { display: def.display }),
+      ...(def.entity === undefined ? {} : { entity: def.entity }),
     },
     handler: {
       kind: "write",

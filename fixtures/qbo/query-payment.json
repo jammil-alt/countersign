@@ -1,0 +1,32 @@
+{
+  "QueryResponse": {
+    "Payment": [
+      {
+        "Id": "501",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-10-03T16:20:00-07:00",
+          "LastUpdatedTime": "2026-10-03T16:20:00-07:00"
+        },
+        "TxnDate": "2026-10-03",
+        "CustomerRef": { "value": "7", "name": "Henderson kitchen" },
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "DepositToAccountRef": { "value": "4" },
+        "PaymentRefNum": "4471",
+        "TotalAmt": 2400,
+        "UnappliedAmt": 0,
+        "Line": [
+          {
+            "Amount": 2400,
+            "LinkedTxn": [{ "TxnId": "131", "TxnType": "Invoice" }]
+          }
+        ]
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 1
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

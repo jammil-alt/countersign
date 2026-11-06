@@ -36,6 +36,7 @@ import {
 import { attach, DocumentError, storeDocument } from "@countersign/documents";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { deleteReceivable, upsertReceivable } from "./receivables";
 
 export interface DownloadedFile {
   bytes: Uint8Array;
@@ -59,6 +60,8 @@ export interface StorePageResult {
   /** Raw records new to this connection. */
   stored: number;
   transactions: { created: number; updated: number };
+  /** v0.12 W1-F: invoices stored as receivables. */
+  receivables: { created: number; updated: number };
   documents: number;
   /** Events for dispatch after commit. */
   events: EventRow[];
@@ -107,6 +110,7 @@ export async function storeQboPage(
   const out: StorePageResult = {
     stored: 0,
     transactions: { created: 0, updated: 0 },
+    receivables: { created: 0, updated: 0 },
     documents: 0,
     events: [],
   };
@@ -135,6 +139,23 @@ export async function storeQboPage(
     try {
       if (record.isDeleted) {
         await deleted(tx, tenantId, connectionId, record, news);
+        // v0.12 W1-F: a deleted invoice keeps its receivable, status `deleted`.
+        if (record.entityType === "Invoice") {
+          await deleteReceivable(
+            tx,
+            { tenantId, connectionId, externalId: record.externalId, rawId: raw.id },
+            news,
+          );
+        }
+      } else if (record.entityType === "Invoice") {
+        // v0.12 W1-F: customers and payments stay raw records; a payment moves its invoices'
+        // balance through the invoices' own versions.
+        const r = await upsertReceivable(
+          tx,
+          { tenantId, connectionId, rawId: raw.id, payload: record.payload },
+          news,
+        );
+        out.receivables[r] += 1;
       } else if (record.entityType === "Vendor") {
         await upsertVendor(tx, tenantId, mapQboVendor(record.payload));
       } else if (isQboTransactionEntity(record.entityType)) {
