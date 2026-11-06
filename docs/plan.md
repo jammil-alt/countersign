@@ -1407,6 +1407,17 @@ Decisions made while building M31 (oversight on failures):
 | Defaults | New agents from the back office's blank agent start with `oversight: { review: 'failures' }` (`NEW_AGENT_OVERSIGHT`); the API stores a bundle as given, and Builder drafts (W3-A) use the same constant. // DECISION |
 | Lab route | `GET /api/ops/oversight` ships with M31 (filters: client, agent, action, cause, limit); its totals are over the decisions it lists. // DECISION |
 
+Decisions made while building M32 (checkpoint reviews):
+
+| Topic | Decision |
+|---|---|
+| Computation | `checkpointSteps` and `workflowCheckpoints` in core's `workflow/validate.ts`: a skill or action step whose output a write step's input references (an action with an external tool, a skill whose tools write or that reaches people, or a use step whose automation has one), or one with `review: 'always'`, in forks and loops; an automation's inner checkpoints as `${useStepId}/${innerId}`. Computed when a run starts, from the run's catalog and the expansions; not stored and not a validation error. A step whose skill or tool the catalog doesn't know counts as not writing (no checkpoint: the run behaves as under `failures`). // DECISION |
+| When | After an attempt that is done (not a write a person turned down): `checkpoints` for a checkpoint, `all` for every skill and action step, `review: 'always'` on the step; `off` on the step wins; `failures` never reviews a step that succeeded. A checkpoint's `retry_with` runs the step again (its own keys) and the new output is reviewed again, within the 2 per step. // DECISION |
+| Counting | `continue` changes nothing, so it is not an intervention: it doesn't count toward `maxPerRun` (a row is still written, and its cost counts toward `maxCostUsd`). A step has at most 2 reviews whatever they decide. `maxPerRun: 0` reviews nothing. // DECISION |
+| After success | `continue` goes on; `retry_with` runs again with the corrected input; `ask` waits — approved, the run goes on with the output as it is; declined or unanswered, `onReject`: `continue` skips the step, `stop` cancels the run (`rejected`); `stop` cancels the run (`oversight_stop`) with the note as `diagnosis`. A run cancelled this way emits no `run.failed`. // DECISION |
+| A checkpoint that wrote | A write step reviewed after its change reached the client's tool (`review: 'always'` or `all`) may `continue`, `ask` or `stop`, never `retry_with`: the finish tool offers only those, and a `retry_with` is no intervention. // DECISION |
+| Words | A checkpoint's ask is titled "Before we go on from "{step}"" (six languages; the five other than English are drafts for the owner's fluent speakers); `continue` shows "Checked and went on" on the portal timeline. // DECISION |
+
 ### People and voice samples (W1-G)
 
 Decisions made while building §1.42 (ARCHITECTURE v0.12 §6.1, §6.4; migration 0025).

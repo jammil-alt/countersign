@@ -62,6 +62,22 @@ export function reviewsFailures(
   return settings !== undefined && settings.review !== "off";
 }
 
+/**
+ * v0.13 M32: whether the step is reviewed after it succeeds: `always` on the step, `all` on the
+ * agent, or `checkpoints` when the step is one (computed, `workflowCheckpoints`). `off` on the step
+ * wins, and `failures` never reviews a step that succeeded.
+ */
+export function reviewsAfterSuccess(
+  settings: Pick<OversightSettings, "review"> | undefined,
+  step: { review?: StepReview | undefined },
+  checkpoint: boolean,
+): boolean {
+  if (step.review === "off") return false;
+  if (step.review === "always") return true;
+  if (settings?.review === "all") return true;
+  return settings?.review === "checkpoints" && checkpoint;
+}
+
 // ── Decisions ───────────────────────────────────────────────────────────────────────────────────
 
 export const OVERSIGHT_CAUSES = ["failed", "checkpoint"] as const;
@@ -122,12 +138,20 @@ export type ParsedDecision =
  * The agent's answer, checked: the schema, the decisions its cause allows and `after`'s bounds.
  * A refusal means no intervention: the step fails (or goes on) as it would without oversight.
  */
-export function parseOversightDecision(raw: unknown, cause: OversightCause): ParsedDecision {
+export function parseOversightDecision(
+  raw: unknown,
+  cause: OversightCause,
+  // v0.13 M32: narrower, for a step that can't run again (its write reached the client's tool).
+  allowed: readonly OversightActionName[] = OVERSIGHT_ALLOWED[cause],
+): ParsedDecision {
   const r = OversightDecision.safeParse(raw);
   if (!r.success) return { ok: false, reason: `invalid decision: ${z.prettifyError(r.error)}` };
   const decision = r.data;
   if (!OVERSIGHT_ALLOWED[cause].includes(decision.action)) {
     return { ok: false, reason: `${decision.action} is not allowed after a ${cause} step` };
+  }
+  if (!allowed.includes(decision.action)) {
+    return { ok: false, reason: `${decision.action} is not allowed for this step` };
   }
   if (decision.action === "retry" && decision.after !== undefined) {
     if (parseDuration(decision.after) > OVERSIGHT_RETRY_AFTER_MAX_MS) {
@@ -141,11 +165,15 @@ export function parseOversightDecision(raw: unknown, cause: OversightCause): Par
  * The `finish` tool's input schema: one flat object, so every provider takes it. The answer is
  * then checked with OversightDecision (one validator, invariant 5).
  */
-export function oversightFinishSchema(cause: OversightCause): Record<string, unknown> {
+export function oversightFinishSchema(
+  cause: OversightCause,
+  // v0.13 M32
+  allowed: readonly OversightActionName[] = OVERSIGHT_ALLOWED[cause],
+): Record<string, unknown> {
   return {
     type: "object",
     properties: {
-      action: { type: "string", enum: [...OVERSIGHT_ALLOWED[cause]] },
+      action: { type: "string", enum: [...allowed] },
       note: {
         type: "string",
         description: "Your diagnosis for the operator: what went wrong and why you decided this.",

@@ -33,6 +33,8 @@ export function oversightPort(
         error: req.error,
         errorKey: req.errorKey,
         attempts: req.attempts,
+        // v0.13 M32: a checkpoint's output.
+        ...(req.output === undefined ? {} : { output: req.output }),
         automation: req.automation,
         settings,
       }),
