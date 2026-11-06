@@ -124,7 +124,7 @@ branches.
   own Postgres. It **never connects to Neon**, so client data never reaches a CI runner (in PR
   #81). Migrations meet real rows on staging first, in a transaction, before production.
 - **CodeQL** (security queries) runs on pull requests, on `main` and weekly (in PR #81).
-- **Dependabot** sends alerts and security updates, plus weekly grouped version updates.
+- **Dependabot** sends alerts and security updates, plus monthly grouped version updates (one pull request per ecosystem).
 - **Secret scanning** with push protection is on.
 - Migrations, CI changes and sign-in changes each get their own pull request, so each can be
   reverted alone.

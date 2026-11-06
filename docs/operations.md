@@ -287,8 +287,7 @@ we couldn't check against Google's docs is in `packages/connectors/src/gmail/NOT
    `gmail.compose`, `gmail.modify` or any other restricted scope (owner, 2026-11-05: no CASA), and
    the connector refuses a grant that carries one. Asking for any other Gmail scope needs the privacy
    policy changed first (`apps/site`).
-4. Worker secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (GitHub staging secrets exist;
-   wiring them into `deploy.yml` is the owner's own PR), copied like the other API keys, and
+4. Worker secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` copied like the other API keys by `deploy.yml`, and
    `OAUTH_STATE_SECRET`, which Zoho and Podio already use. Until all three are set the portal shows
    Gmail as "Not available yet".
 5. While the consent screen is in **Testing**: only listed test users can connect, Google shows a
@@ -380,8 +379,7 @@ are set. Slack needs an app of Mezonas' own:
 3. Manage Distribution: turn on public distribution, so clients can install it into their own
    workspaces. Marketplace listing is not needed.
 4. Basic Information: the client id and client secret become the Worker secrets `SLACK_CLIENT_ID`
-   and `SLACK_CLIENT_SECRET`, copied like the others by `deploy.yml` when set (not yet wired: its
-   own PR).
+   and `SLACK_CLIENT_SECRET`, copied like the others by `deploy.yml` when set.
 5. Leave Event Subscriptions, Interactivity and slash commands off.
 
 ### Google Chat (W4-E, plan §1.60)
@@ -518,7 +516,7 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   "Not available yet" in the portal and `/api/hooks/gchat` answers 503.
 - Needed by WhatsApp through Meta (W4-A, plan §1.57), the same way: `META_APP_ID`,
   `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` and `META_CONFIG_ID` (see "WhatsApp through Meta"
-  above). Wiring them into `deploy.yml` is its own PR. Until all four and `OAUTH_STATE_SECRET` are
+  above), copied by `deploy.yml` when set. Until all four and `OAUTH_STATE_SECRET` are
   set, it shows "Not available yet"; without the secret or the verify token,
   `/api/hooks/whatsapp_meta` answers 503.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
@@ -586,7 +584,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta; not yet in `deploy.yml`) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
@@ -808,7 +806,7 @@ be disabled, as in `db:purge-client`.
 - **`codeql.yml`**: CodeQL's security queries on ready pull requests, pushes to `main` and weekly.
   Findings are under Security → Code scanning.
 - **Dependabot** (`.github/dependabot.yml`): security updates as GitHub learns of them; npm and
-  Actions version updates weekly, grouped. Turn on Dependabot alerts and security updates, and
+  Actions version updates monthly, one grouped pull request each, majors included. Turn on Dependabot alerts and security updates, and
   secret scanning with push protection, in the repository's Settings → Code security.
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.

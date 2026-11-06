@@ -117,7 +117,7 @@ way: no card fields in our pages, and card numbers never stored (already enforce
 |---|---|---|
 | Every quarter | Access review: remove anyone who shouldn't be there; save the CSV with the date | `/ops/audit` → Access review |
 | Every quarter | Restore test from Neon's history; note the result | `docs/operations.md` §4 |
-| Weekly | Merge Dependabot's updates once green | GitHub |
+| Monthly | Merge Dependabot's grouped update once green; security updates as they arrive, within a month (PCI DSS 6.3.3) | GitHub |
 | As they come | Fix CodeQL findings and secret-scanning alerts | GitHub → Security |
 | Yearly | Risk analysis, policy review, training, penetration test (from T10) | — |
 | On each client exit | Retire, the vendor checklist, then the purge after 30 days | `docs/operations.md` §1.2 |
