@@ -13,7 +13,7 @@
 //
 // Exit 1 with the failures listed; patterns never reached are listed as a note.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
@@ -21,30 +21,39 @@ const BASE = (process.env.SWEEP_URL ?? "http://localhost:8787").replace(/\/$/, "
 const MAX_PAGES = Number(process.env.SWEEP_MAX_PAGES ?? 200);
 const SETTLE_MS = 400;
 
-/** The seeded people (packages/db/src/seed.ts): the operator, and the Demo client's admin. */
+/**
+ * The seeded people (packages/db/src/seed.ts): the operator, and the Demo client's admin. `files`:
+ * where each area's route table is, the first that exists (the UI plan moves it into routes.tsx).
+ */
 const AREAS = [
   {
     name: "back office",
     email: "operator@example.com",
     prefix: "/ops",
-    file: "../src/ops/OpsApp.tsx",
+    files: ["../src/ops/routes.tsx", "../src/ops/OpsApp.tsx"],
   },
   {
     name: "portal",
     email: "admin@demo-client.example.com",
     prefix: "",
-    file: "../src/portal/PortalApp.tsx",
+    files: ["../src/portal/routes.tsx", "../src/portal/PortalApp.tsx"],
   },
 ];
 
-/** Routes that do something on arrival (OAuth callbacks finish a sign-in): never visited. */
-const SKIP = /callback|sign-out|\/api\//;
+/**
+ * Routes that do something on arrival or only make sense inside a provider's flow (an OAuth
+ * callback finishing a sign-in, a sheet picker or a signup a provider opens): never visited.
+ */
+const SKIP = /callback|\/connections\/[^/]+\/(pick|signup)|sign-out|\/api\//;
 
 /** The route patterns a file declares: `path="…"` and the placeholders' `["…", "…"]` pairs. */
 export function routePatterns(source, prefix) {
+  // Comments can quote `path="…"` themselves (the route files mention this sweep): drop them, and
+  // take only values a route can have.
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
   const found = new Set();
-  for (const m of source.matchAll(/\bpath="([^"]+)"/g)) found.add(m[1]);
-  for (const m of source.matchAll(/\[\s*"([a-z][^"]*)",\s*"[^"]+"\s*\]/g)) found.add(m[1]);
+  for (const m of code.matchAll(/\bpath="([\w\-:/*.]+)"/g)) found.add(m[1]);
+  for (const m of code.matchAll(/\[\s*"([a-z][\w\-:/*.]*)",\s*"[^"]+"\s*\]/g)) found.add(m[1]);
   const out = [`${prefix}/`];
   for (const p of found) {
     if (p === "*" || p.startsWith("/")) continue;
@@ -76,12 +85,15 @@ function patternOf(patterns, path) {
 }
 
 async function sweepArea(browser, area, failures, unreached) {
-  const source = readFileSync(fileURLToPath(new URL(area.file, import.meta.url)), "utf8");
+  const file = area.files
+    .map((f) => fileURLToPath(new URL(f, import.meta.url)))
+    .find((f) => existsSync(f));
+  const source = file ? readFileSync(file, "utf8") : "";
   const patterns = routePatterns(source, area.prefix).filter((p) => !SKIP.test(p));
   // A route table that moved or changed shape would leave almost nothing to sweep: say so.
   if (patterns.length < 5) {
     failures.push(
-      `${area.name}: only ${patterns.length} routes found in ${area.file}; has the route table moved?`,
+      `${area.name}: only ${patterns.length} routes found in ${area.files.join(" or ")}; has the route table moved?`,
     );
   }
   const context = await browser.newContext();
