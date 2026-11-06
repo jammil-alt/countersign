@@ -19,6 +19,7 @@ import {
   validateAutomation,
 } from "@countersign/core";
 import { automation, automationVersion, type Tx } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { RegistryContext } from "./agents";
@@ -82,7 +83,7 @@ export async function prepareAutomation(
     throw new AgentsError("invalid_definition", parsed.error.message, parsed.error.issues);
   }
   const { skills } = await innerSkills(tx, input.tenantId, [parsed.data], input.ctx);
-  const typing = { skills, tools: input.ctx.tools.specs() };
+  const typing = { skills, tools: input.ctx.tools.specs(), models: knownModelIds() };
   const connectorIds = new Set(input.ctx.tools.connectors.list().map((c) => c.manifest.id));
   const definition: AutomationDefinition = {
     ...parsed.data,
@@ -246,7 +247,12 @@ export async function publishAutomation(
   if (!v || v.automationId !== row.id) throw notFound(`automation version ${input.versionId}`);
   if (v.status === "live") throw new AgentsError("invalid_state", "that version is already live");
   const { skills, missing } = await innerSkills(tx, row.tenantId, [v.definition], input.ctx);
-  const result = validateAutomation(v.definition, { skills, tools: input.ctx.tools.specs() });
+  const result = validateAutomation(v.definition, {
+    skills,
+    tools: input.ctx.tools.specs(),
+    // v0.13 W2-H: an inner step's model is one the platform prices.
+    models: knownModelIds(),
+  });
   const errors: ValidationError[] = [
     ...result.errors,
     ...missing.map(

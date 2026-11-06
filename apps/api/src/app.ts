@@ -60,6 +60,7 @@ import { opsClientRoutes } from "./routes/ops-clients";
 import { opsEventRoutes } from "./routes/ops-events";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
+import { opsModelRoutes } from "./routes/ops-models";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
@@ -104,6 +105,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsBuilderRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
+  // v0.13 W2-H: models for task skills and skill steps.
+  opsModelRoutes(app);
   supervisorRouteHandlers(app);
   // v0.12 W1-D: before the portal's routes, so `/api/inbox/batch/resolve` is not read as an item
   // id by `/api/inbox/:id/resolve` (Hono runs handlers in the order they were added).

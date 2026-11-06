@@ -33,6 +33,7 @@ import { languageRoutes, SessionLanguage } from "./language";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
+import { modelRoutes } from "./models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
@@ -241,6 +242,9 @@ export const OpsStep = z.object({
   tokensOut: z.number().int(),
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // v0.13 W2-H: the models the step's calls ran on, from its model calls (ARCHITECTURE §10.11).
+  /** Distinct, in the order first called; absent where the route doesn't read model calls. */
+  models: z.array(z.string()).optional(),
 });
 
 export const OpsToolCall = z.object({
@@ -1852,5 +1856,7 @@ export const routes = {
   ...commandCenterRoutes,
   // v0.12 W2-E
   ...triggerRoutes,
+  // v0.13 W2-H: models for task skills and skill steps.
+  ...modelRoutes,
 } as const;
 export type Routes = typeof routes;
