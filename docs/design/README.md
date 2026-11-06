@@ -1,4 +1,11 @@
-# Design: v1 screens (starting point)
+# Design
+
+> **The current design is the owner's prototype** (2026-11-06): [`prototype.html`](prototype.html), a
+> clickable 21-screen page (client portal and back office) on the Mezonas design system's tokens.
+> Open it in a browser; `#Start` lists every screen and the two walkthroughs. What gets built from it,
+> page by page, is in [`docs/ui-plan.md`](../ui-plan.md). The v1 screens below are history.
+
+## v1 screens (2026-11-03, superseded by the prototype)
 
 > **The design system is now Mezonas** (`packages/design-system`, owner, 2026-11-03): its tokens,
 > components, logos, icons, Geist fonts and brand book replace Groundwork. These v1 screens stay the
