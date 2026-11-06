@@ -39,13 +39,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # GitHub environments "staging" and "production" hold the Worker's per-environment secrets
-    # (WORKOS_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY); repository secrets stay available too.
+    # (WORKOS_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, GEMINI_API_KEY); repository
+    # secrets stay available too.
     environment: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
     env:
       TARGET: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
       WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       # Texts, calls, email and billing (plan §1.19–§1.25). Each is copied only when set, so a
       # provider stays off on an environment until its key exists.
       TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
@@ -253,6 +256,8 @@ jobs:
           if [ -n "${WORKOS_API_KEY:-}" ]; then put WORKOS_API_KEY "$WORKOS_API_KEY"; fi
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; fi
           if [ -n "${OPENAI_API_KEY:-}" ]; then put OPENAI_API_KEY "$OPENAI_API_KEY"; fi
+          if [ -n "${XAI_API_KEY:-}" ]; then put XAI_API_KEY "$XAI_API_KEY"; fi
+          if [ -n "${GEMINI_API_KEY:-}" ]; then put GEMINI_API_KEY "$GEMINI_API_KEY"; fi
           for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
             RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
             ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET \
