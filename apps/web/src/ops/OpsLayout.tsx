@@ -3,7 +3,7 @@
 // sidebar with the command center, the clients (each with what needs us), Build and Business, and
 // a folded "More" for the pages the prototype's sidebar leaves out. With a client selected, its
 // own pages and agents follow its row.
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
@@ -172,7 +172,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                   testId="ops-nav-connections"
                 />
                 <SidebarLink to={`${base}/settings`} label="Settings" testId="ops-nav-settings" />
-                <AgentRows clientId={clientId} state={client} />
+                <AgentRows clientId={clientId} state={client} selected={agentSlug} />
               </SidebarSection>
             ) : null}
             <SidebarSection label="Build">
@@ -265,19 +265,19 @@ function ClientSwitcher({
 function AgentRows({
   clientId,
   state,
+  selected,
 }: {
   clientId: string;
   state: ReturnType<typeof useApi<typeof apiRoutes.opsClient>>;
+  /** The agent whose page is open: its Workflow and Triggers (UI-2c) show under its row. */
+  selected?: string | undefined;
 }) {
   const { data, error } = state;
   return (
     <>
       <div className="mt-3 mb-1 flex items-center justify-between px-2.5">
         <h3 className="eyebrow text-ink-muted">Agents</h3>
-        <Link
-          to={`/ops/clients/${clientId}/agents/new`}
-          className="ds-btn ds-btn--link gap-1 text-xs"
-        >
+        <Link to={OPS_PATHS.newAgent(clientId)} className="ds-btn ds-btn--link gap-1 text-xs">
           <Icon name="add" size={14} />
           New
         </Link>
@@ -287,14 +287,29 @@ function AgentRows({
         <p className="px-2.5 text-sm text-ink-muted">No agents yet.</p>
       ) : null}
       {data?.agents.map((a) => (
-        <SidebarAgent
-          key={a.id}
-          to={`/ops/clients/${clientId}/agents/${a.slug}`}
-          name={a.name}
-          line={[a.role, a.liveVersionId === null ? "Draft" : null].filter(Boolean).join(" · ")}
-          badge={<AgentBadge name={a.name} size="sm" />}
-          testId={`ops-nav-agent-${a.slug}`}
-        />
+        <Fragment key={a.id}>
+          <SidebarAgent
+            to={OPS_PATHS.agent(clientId, a.slug)}
+            name={a.name}
+            line={[a.role, a.liveVersionId === null ? "Draft" : null].filter(Boolean).join(" · ")}
+            badge={<AgentBadge name={a.name} size="sm" />}
+            testId={`ops-nav-agent-${a.slug}`}
+          />
+          {a.slug === selected ? (
+            <div className="ml-6 flex flex-col gap-0.5">
+              <SidebarLink
+                to={OPS_PATHS.agentWorkflow(clientId, a.slug)}
+                label="Workflow"
+                testId="ops-nav-agent-workflow"
+              />
+              <SidebarLink
+                to={OPS_PATHS.agentTriggers(clientId, a.slug)}
+                label="Triggers"
+                testId="ops-nav-agent-triggers"
+              />
+            </div>
+          ) : null}
+        </Fragment>
       ))}
     </>
   );

@@ -1,10 +1,12 @@
-// The workflow builder (ARCHITECTURE §10.5, docs/design/screens/5-workflow-builder.png), one for
-// templates and client agents: `/ops/templates/:slug/workflows/:workflow` and
+// O6 Workflow builder (prototype `#O6-Builder`; ARCHITECTURE §10.5), one for templates and client
+// agents: `/ops/templates/:slug/workflows/:workflow` and
 // `/ops/clients/:id/agents/:slug/workflows/:workflow`. It edits the agent's latest version as a
 // whole bundle (every workflow, so switching workflows keeps unsaved edits), validates on every
 // change with core's validator (the server's own rules), and saves drafts, test-runs and publishes
-// through the agent routes. Loaded lazily inside the /ops chunk, so its drag-and-drop code is
-// fetched only when an operator opens a workflow.
+// through the agent routes. Left: the steps to add; centre: the workflow's tabs and its steps;
+// right: the Builder conversation (BuilderPanel) or the selected step. Steps picked with "Select
+// steps" can be saved as an automation. Loaded lazily inside the /ops chunk, so its drag-and-drop
+// code is fetched only when an operator opens a workflow.
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
@@ -29,17 +31,9 @@ import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
-import {
-  AgentAvatar,
-  Badge,
-  Button,
-  buttonClass,
-  cx,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-} from "../../ui/primitives";
+import { Badge, Button, buttonClass, cx, ErrorNotice, Loading } from "../../ui/primitives";
 import { slugify } from "../agents/definition-form";
 import {
   JSON_INPUT_PROPS,
@@ -62,6 +56,7 @@ import {
   useAction,
 } from "../agents/ui";
 import { KIND_LABEL } from "../workflow/describe";
+import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import { Canvas, collision, DragCard, type DragData, Palette, resolveDrop } from "./Canvas";
 import {
   type BuilderData,
@@ -162,15 +157,47 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
 }
 
 function Frame(props: WorkflowBuilderProps & { children: ReactNode }) {
-  const { agent } = props;
   return (
     <div>
-      <PageHeader
-        leading={<AgentAvatar name={agent.name} seed={agent.slug} size="lg" />}
-        title={agent.serviceName ?? agent.name}
-      />
-      {props.tabs}
+      <BuilderBar agent={props.agent} line={null} />
+      <div className="overflow-x-auto">{props.tabs}</div>
       <div className="pt-6">{props.children}</div>
+    </div>
+  );
+}
+
+/** "Remy · Card receipts": the agent's name, and its service's when that differs. */
+function agentTitle(agent: AgentSummary): string {
+  return agent.serviceName && agent.serviceName !== agent.name
+    ? `${agent.name} · ${agent.serviceName}`
+    : agent.name;
+}
+
+/** The builder's bar (prototype `#O6-Builder`): the agent, its version and counts, its actions. */
+function BuilderBar({
+  agent,
+  badge,
+  line,
+  actions,
+}: {
+  agent: AgentSummary;
+  badge?: ReactNode;
+  line: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 pb-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <AgentBadge name={agent.name} size="md" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="type-subheading text-ink">{agentTitle(agent)}</h1>
+            {badge}
+          </div>
+          {line ? <p className="text-sm text-ink-muted">{line}</p> : null}
+        </div>
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -256,6 +283,10 @@ function BuilderBody(
   const [overId, setOverId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState<{ title: string; kind: string } | null>(null);
   const [panel, setPanel] = useState<"test" | "add-workflow" | null>(null);
+  // The right rail: the Builder conversation, or the selected step or trigger.
+  const [rail, setRail] = useState<"builder" | "step">("builder");
+  // Top-level steps picked for "Save as automation"; null while not picking.
+  const [checked, setChecked] = useState<Set<string> | null>(null);
   const [notice, setNotice] = useState<{
     tone: "positive" | "warning" | "neutral";
     body: ReactNode;
@@ -268,6 +299,11 @@ function BuilderBody(
       : null,
   );
   const action = useAction();
+
+  // Selecting a step or the trigger shows it in the rail.
+  useEffect(() => {
+    if (selection) setRail("step");
+  }, [selection]);
 
   const slug = props.workflow;
   const entry = bundle.workflows.find((w) => w.slug === slug);
@@ -461,6 +497,28 @@ function BuilderBody(
     }
   };
 
+  const session = useBuilderSession({
+    agent,
+    bundle,
+    ensureSaved: async () => (dirty ? await save() : saved),
+    onDraft: (next) => apply(() => next),
+  });
+  const saveAutomation = async (name: string, automationSlug: string) => {
+    if (!checked || !workflow) return false;
+    // In the canvas's order, as the steps run.
+    const ids = workflow.steps.map((s) => s.id).filter((id) => checked.has(id));
+    const ok = await session.saveAutomation(ids, name, automationSlug);
+    if (ok) {
+      setChecked(null);
+      setRail("builder");
+      setNotice({
+        tone: "positive",
+        body: `Saved “${name}” as an automation draft and used it in place of ${plural(ids.length, "step")}. Save this draft to keep it.`,
+      });
+    }
+    return ok;
+  };
+
   const invalidReason = result.valid
     ? null
     : `Fix ${plural(result.errors.length, "problem")} first: only a valid workflow can be test-run or published.`;
@@ -486,9 +544,8 @@ function BuilderBody(
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+Z / Ctrl+Shift+Z anywhere in the builder.
     <div data-testid="builder" onKeyDown={onKeyDown}>
-      <PageHeader
-        leading={<AgentAvatar name={agent.name} seed={agent.slug} size="lg" />}
-        title={agent.serviceName ?? agent.name}
+      <BuilderBar
+        agent={agent}
         badge={
           <span className="flex gap-1.5">
             <Badge tone={saved.status === "live" ? "positive" : "neutral"} testId="builder-version">
@@ -502,7 +559,15 @@ function BuilderBody(
             {agent.kind === "template" ? <Badge tone="accent">Template</Badge> : null}
           </span>
         }
-        subtitle={<span data-testid="builder-counts">{subtitle}</span>}
+        line={
+          <>
+            <span data-testid="builder-counts">{subtitle}</span>
+            {" · "}
+            <span className={result.valid ? "text-positive" : "text-risk"}>
+              {result.valid ? "valid" : plural(result.errors.length, "problem")}
+            </span>
+          </>
+        }
         actions={
           <>
             <Button
@@ -533,7 +598,7 @@ function BuilderBody(
           </>
         }
       />
-      {props.tabs}
+      <div className="overflow-x-auto">{props.tabs}</div>
 
       {notice || action.error ? (
         <div className="mt-4 flex flex-col gap-2">
@@ -611,10 +676,10 @@ function BuilderBody(
         onDragEnd={onDragEnd}
         onDragCancel={endDrag}
       >
-        <div className="-mx-10 -mb-8 grid grid-cols-[260px_minmax(0,1fr)_340px]">
+        <div className="-mx-4 -mb-8 mt-4 grid grid-cols-1 border-t border-line md:-mx-10 md:-mb-12 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_360px]">
           <aside
             aria-label="Add a step"
-            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-r border-line bg-surface px-4 py-5"
+            className="max-h-80 overflow-y-auto border-b border-line bg-surface px-4 py-5 lg:sticky lg:top-header lg:h-[calc(100vh-var(--header-h))] lg:max-h-none lg:border-r lg:border-b-0"
           >
             <Palette
               sections={filterSections(paletteSections(bundle, data), search)}
@@ -624,13 +689,7 @@ function BuilderBody(
             />
           </aside>
 
-          <div
-            className="min-w-0 px-6 py-5"
-            style={{
-              backgroundImage: "radial-gradient(var(--line) 1px, transparent 1px)",
-              backgroundSize: "16px 16px",
-            }}
-          >
+          <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
             <WorkflowSwitcher
               bundle={bundle}
               current={slug}
@@ -653,11 +712,29 @@ function BuilderBody(
             ) : null}
 
             <div className="my-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-ink-muted">
-                Drag steps by their handle to reorder or move them between fork paths. Click a step
-                or fork to edit it.
-              </p>
+              {checked ? (
+                <SaveAsAutomation
+                  count={checked.size}
+                  busy={session.busy}
+                  onSave={saveAutomation}
+                  onClear={() => setChecked(null)}
+                />
+              ) : (
+                <p className="text-sm text-ink-muted">
+                  Drag steps by their handle to reorder or move them between fork paths. Click a
+                  step or fork to edit it.
+                </p>
+              )}
               <span className="flex items-center gap-2">
+                {workflow && workflow.steps.length > 0 && !checked ? (
+                  <Button
+                    variant="ghost"
+                    data-testid="builder-select-steps"
+                    onClick={() => setChecked(new Set())}
+                  >
+                    Select steps
+                  </Button>
+                ) : null}
                 {dirty ? (
                   <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
                     {draftAt ? `Draft kept on this device · ${clock(draftAt)}` : "Unsaved changes"}
@@ -693,10 +770,20 @@ function BuilderBody(
                 customized={customized}
                 activeId={activeId}
                 overId={overId}
-                onSelect={(id) =>
-                  setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id })
-                }
+                onSelect={(id) => {
+                  setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id });
+                  setRail("step");
+                }}
                 onDelete={remove}
+                checked={checked ?? undefined}
+                onCheck={(id, on) =>
+                  setChecked((c) => {
+                    const next = new Set(c ?? []);
+                    if (on) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  })
+                }
               />
             ) : bundle.workflows.length > 0 ? (
               <p className="text-ink-muted" data-testid="builder-no-workflow">
@@ -706,25 +793,59 @@ function BuilderBody(
           </div>
 
           <aside
-            aria-label="Inspector"
-            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-l border-line bg-surface px-5 py-5"
+            aria-label="Builder and step"
+            className="flex flex-col border-t border-line bg-surface px-5 py-4 lg:col-span-2 xl:sticky xl:top-header xl:col-span-1 xl:h-[calc(100vh-var(--header-h))] xl:border-t-0 xl:border-l"
           >
-            {workflow ? (
-              <Inspector
-                workflow={workflow}
-                bundle={bundle}
-                selection={selection}
-                data={data}
-                ctx={ctx}
-                env={env}
-                errors={workflowErrors}
-                template={template ? { bundle: template, workflow: templateWorkflow } : null}
-                members={props.members ?? []}
-                focus={focus}
-                onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
-                onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
-                onDelete={remove}
-              />
+            <div
+              className="mb-4 flex gap-1 border-b border-line"
+              role="tablist"
+              aria-label="Side panel"
+            >
+              {(
+                [
+                  ["builder", "Builder"],
+                  ["step", selection ? "Step" : "Inspector"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={rail === key}
+                  data-testid={`builder-rail-${key}`}
+                  onClick={() => setRail(key)}
+                  className={cx(
+                    "-mb-px border-b-2 px-3 py-2 text-sm",
+                    rail === key
+                      ? "border-slate font-medium text-ink"
+                      : "border-transparent text-ink-muted hover:text-ink",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className={cx("min-h-0 flex-1 overflow-y-auto", rail !== "builder" && "hidden")}>
+              <BuilderPanel session={session} />
+            </div>
+            {workflow && rail === "step" ? (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <Inspector
+                  workflow={workflow}
+                  bundle={bundle}
+                  selection={selection}
+                  data={data}
+                  ctx={ctx}
+                  env={env}
+                  errors={workflowErrors}
+                  template={template ? { bundle: template, workflow: templateWorkflow } : null}
+                  members={props.members ?? []}
+                  focus={focus}
+                  onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
+                  onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
+                  onDelete={remove}
+                />
+              </div>
             ) : null}
           </aside>
         </div>
@@ -817,8 +938,10 @@ function WorkflowSwitcher({
   onAdd(): void;
 }) {
   return (
-    <nav aria-label="Workflows" className="flex flex-wrap items-center gap-2">
-      <span className="eyebrow mr-1 text-ink-muted">Workflows</span>
+    <nav
+      aria-label="Workflows"
+      className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border border-line bg-surface p-1"
+    >
       {bundle.workflows.map((w) => (
         <Link
           key={w.slug}
@@ -826,10 +949,10 @@ function WorkflowSwitcher({
           data-testid={`builder-workflow-${w.slug}-select`}
           aria-current={w.slug === current ? "page" : undefined}
           className={cx(
-            "rounded-sm border px-2.5 py-1 text-sm",
+            "rounded-sm px-3 py-1.5 text-sm",
             w.slug === current
-              ? "border-slate bg-slate-tint font-medium text-slate"
-              : "border-line bg-surface text-ink hover:bg-surface-subtle",
+              ? "bg-slate-tint font-medium text-ink"
+              : "text-ink-muted hover:bg-surface-subtle hover:text-ink",
           )}
         >
           {w.name}
@@ -839,12 +962,13 @@ function WorkflowSwitcher({
       <button
         type="button"
         data-testid="builder-workflow-add"
+        aria-label="Add a workflow"
         aria-expanded={adding}
         onClick={onAdd}
-        className="ds-btn ds-btn--link text-sm"
+        className="ds-btn ds-btn--link px-3 text-sm"
       >
         <Icon name="add" />
-        Add workflow
+        Workflow
       </button>
     </nav>
   );

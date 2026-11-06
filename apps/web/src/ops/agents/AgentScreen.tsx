@@ -35,6 +35,7 @@ import {
 } from "../../ui/primitives";
 import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
+import { TriggersScreen } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
 import { workflowStats } from "../workflow/describe";
 import { StepList } from "../workflow/StepList";
@@ -45,7 +46,6 @@ import { OperationPanel, ServicePanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
 import { PricePanel } from "./PricePanel";
 import { TestsTab } from "./TestsTab";
-import { TriggersTab } from "./TriggersTab";
 import { detailMessages, errorText, Notice, notifyAgentsChanged, plural, useAction } from "./ui";
 import { VersionsTab } from "./VersionsTab";
 
@@ -248,14 +248,12 @@ export function AgentScreen({
           <Route
             path="triggers"
             element={
-              isClient ? (
-                <TriggersTab agentId={view.id} base={base} />
-              ) : (
-                <EmptyState>
-                  A template's triggers are part of its workflows: set them in the workflow builder.
-                  Each client agent forked from it lists its own on its page.
-                </EmptyState>
-              )
+              <TriggersScreen
+                agent={view}
+                latest={agent.data.latest}
+                bundle={latestBundle}
+                onChanged={reload}
+              />
             }
           />
           <Route
