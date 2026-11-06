@@ -6,6 +6,7 @@
 // whatever AuthKit publishes is what is checked. Cached per isolate for an hour; a failure is not
 // cached, so the next request tries again.
 
+import { trimTrailingSlashes } from "@countersign/core";
 import { createRemoteJWKSet, type JWTVerifyGetKey } from "jose";
 
 export interface DiscoveredServer {
@@ -53,7 +54,7 @@ async function fetchMetadata(origin: string, doFetch: typeof fetch): Promise<Dis
     throw new DiscoveryError("the authorization server's metadata is not JSON");
   }
   // RFC 8414 §3.3: the issuer must be the URL the metadata was found under.
-  const issuer = typeof body.issuer === "string" ? body.issuer.replace(/\/+$/, "") : "";
+  const issuer = typeof body.issuer === "string" ? trimTrailingSlashes(body.issuer) : "";
   if (issuer !== origin) throw new DiscoveryError("the metadata names another issuer");
   const jwks = httpsUrl(body.jwks_uri);
   if (!jwks) throw new DiscoveryError("the metadata has no jwks_uri");

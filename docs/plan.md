@@ -1631,6 +1631,23 @@ number 1.60 leaves 1.55–1.59 to the other Wave 4 streams; the lead renumbers i
 | Portal | A Google Chat card under Connections for the client admin (`GchatSetup`): the bound spaces with "Disconnect", "Get a code" showing `@Mezonas MZ-…` once with its expiry, and a line that the Workspace admin may need to allow the app. Design-system classes; six languages, the new strings need a fluent speaker's review. // DECISION |
 | Tests | `packages/connectors/src/gchat/gchat.test.ts` (token verification: valid, wrong audience, expired, bad signature, unknown key, wrong issuer, `alg`; key caching; codes; spaces; mention stripping; the post once, after a lost answer, unbound refused, approval by default); `apps/api/src/gchat.test.ts` through the routes (codes bind only their client, once, and expire; another client's space refused; unbinding; an approved post once; no token, key or hash in any response); `apps/web/src/connections/GchatSetup.test.tsx`. |
 
+### 1.61 Error tracking and platform health (owner, 2026-11-06; no migration)
+
+QA and error tracking as one loop: every failure we can see reaches Sentry with a tag that says where,
+the cron says when it stops, and failures that are not exceptions (a run that failed, a write that
+did not go through) reach it too. Triage in `docs/operations.md` "Error tracking (Sentry)".
+
+| Topic | Decision |
+|---|---|
+| Handled errors | `reportHandled(what, error, tags)` (`apps/api/src/observability/report.ts`) wherever the Worker catches an error and carries on: each cron pass (`job`: `lifecycle`, `notify`, `qbo_sync`, `bankfeed_sync`, `ramp_poll`, `zoho_sync`, `capture`, `vault`, `retention`, `dispatch`, `schedules`, `billing`, `reach`, `release`, `resume`, `health`, `export`, `audit_export`), deferred and after-commit work (`kind`: `deferred`, `after_commit`), the MCP server (`kind: mcp`). A client's id goes in the `client` tag; never a client's text. `console.warn` stays for expected per-record outcomes (a QuickBooks record not mapped, a revoke the provider refused). // DECISION |
+| Problems that are not exceptions | `reportProblem(what, tags)`: a Sentry warning grouped by `what` (no ids in it). Used for an unreadable client view, the MCP server misconfigured, vault envelopes not re-encrypted. // DECISION |
+| Response contracts | A handler whose answer breaks its route's contract sends the Zod error (paths and expectations, not values) tagged `kind: contract` and `route`, once; the caller still gets the plain 500. Before, Sentry got a generic "something went wrong" with no cause. // DECISION |
+| Cron monitor | `apps/api/src/scheduled.ts` wraps each tick in Sentry's `withMonitor("mezonas-cron")` with the crontab `* * * * *`, created by the first check-in. An issue after 3 missed or failed ticks in a row (2 minutes' margin, 10 minutes' run time at most), resolved by the next good one. A pass that fails inside the tick is reported by the pass and does not fail the check-in. // DECISION |
+| Platform health | `apps/api/src/observability/health.ts`. Hourly at minute 12, each client inside its own `withTenant`: failed live runs (`run.error` grouped by `errorGroupKey`, §1.40) and failed external actions (`<tool>:<code>`, `unconfirmed` when the write may have happened) finished in the hour before. Once a day at 13:12 UTC also what is stuck: runs `queued` or `running` 2 hours after they were created, signed inbox items their run has not taken 30 minutes after signing (or after the undo window), connections in `error` or that sync (`sync_cursor` set) and have not for 2 hours. Test runs never count. Approvals waiting on people are the supervisor's (client health), not here. // DECISION |
+| Health in Sentry | One message per client and group, fingerprint `["ops_health", kind, key]` so each error key is one issue across clients with the client as a tag; `level` warning for failed runs and connections, error for failed writes and stuck work; extras: the count and up to 5 record ids (for `run_get`). An error key that is expected (`skill:escalated`, say) is ignored in Sentry, not in code. // DECISION |
+| `ops_health` (MCP) | Read tool on the back office's MCP server: `{client?, hours 1–168 = 24}`, the same findings for the clients the operator serves (failures over `hours`, states now), each with its client's name. No back-office route or screen (the owner is redesigning the UI). // DECISION |
+| Files | `apps/api/src/observability/{report,health}.ts`, `apps/api/src/scheduled.ts`; the call sites' `console.error` lines only. |
+
 ---
 
 ## 2. Package layering

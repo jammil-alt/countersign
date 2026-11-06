@@ -14,6 +14,7 @@ import {
 } from "@countersign/core";
 import { type agent, agentVersion, type Tx, tenantPack } from "@countersign/db";
 import { and, eq, isNull } from "drizzle-orm";
+import { reportProblem } from "../observability/report";
 import { computeKpis } from "./compute";
 
 type AgentRow = typeof agent.$inferSelect;
@@ -38,7 +39,9 @@ export async function liveClientView(
   if (raw === undefined) return { versionId: a.liveVersionId, view: null };
   const parsed = ClientView.safeParse(raw);
   if (!parsed.success) {
-    console.error(`agent version ${a.liveVersionId} has an unreadable client view`);
+    reportProblem("an agent version has an unreadable client view", {
+      agent_version: a.liveVersionId,
+    });
     return { versionId: a.liveVersionId, view: null };
   }
   return { versionId: a.liveVersionId, view: parsed.data };

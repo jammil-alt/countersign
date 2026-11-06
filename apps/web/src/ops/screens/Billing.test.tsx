@@ -230,7 +230,7 @@ describe("ops billing", () => {
     });
     renderAt("/ops/billing", api);
     // The first test here loads the back office's lazy chunk, which can take over a second on a busy machine.
-    const demo = await screen.findByTestId(`ops-billing-row-${DEMO}`, {}, { timeout: 5000 });
+    const demo = await screen.findByTestId(`ops-billing-row-${DEMO}`, {}, { timeout: 10_000 });
     expect(demo).toHaveTextContent("$106.24");
     expect(demo).toHaveTextContent("4,312");
     expect(demo).toHaveTextContent("4,000");

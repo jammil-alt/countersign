@@ -27,6 +27,8 @@ import { mcpRoutes } from "./mcp/routes";
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
+import { healthTick } from "./observability/health";
+import { reportHandled } from "./observability/report";
 // v0.12 W3-B
 import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
@@ -244,20 +246,25 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
     // move to signoff (hourly, at the usage sweep's minute).
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
-      console.error("lifecycle tick failed", error),
+      reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),
     );
     // v0.12 W1-B: the Weekly Table every minute (Friday draft, Monday send) and the notification
     // pass every 5 minutes.
     await notifyTick(db, notifyDepsFromEnv(env, deps.fetch?.(env)), platform, scheduledTime).catch(
-      (error: unknown) => console.error("notification tick failed", error),
+      (error: unknown) => reportHandled("notification tick failed", error, { job: "notify" }),
     );
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
-      console.error("qbo sync tick failed", error),
+      reportHandled("qbo sync tick failed", error, { job: "qbo_sync" }),
+    );
+    // The platform's own health, hourly (observability/health.ts): failed runs and writes, and once
+    // a day what is stuck, to Sentry by error key.
+    await healthTick(db, scheduledTime).catch((error: unknown) =>
+      reportHandled("health tick failed", error, { job: "health" }),
     );
     // v0.12 W3-B: Ramp's new card transactions every 15 minutes, as events (docs/plan.md §1.52).
     await rampCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
-      console.error("ramp poll tick failed", error),
+      reportHandled("ramp poll tick failed", error, { job: "ramp_poll" }),
     );
     // v0.14 W4-B: Zoho CRM, every 15 minutes: the watch renewed when due, then a poll of each
     // connected Zoho (docs/plan.md §1.9 "Sync (W4-B)"). Needs the credentials' key.
@@ -272,18 +279,20 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         },
         (tenantId, ids) => dispatchByIds({ db, instances }, tenantId, ids),
         scheduledTime,
-      ).catch((error: unknown) => console.error("zoho sync tick failed", error));
+      ).catch((error: unknown) =>
+        reportHandled("zoho sync tick failed", error, { job: "zoho_sync" }),
+      );
     }
     // v0.14 capture: captures left pending start again (every 10 minutes, docs/plan.md §1.55).
     if (scheduledTime.getUTCMinutes() % 10 === CAPTURE_CRON_MINUTE) {
       const capture = captureDepsFor({ db, env, deps, platform });
       await captureCronTick(db, captureJobsFor(env, capture), scheduledTime).catch(
-        (error: unknown) => console.error("capture restart tick failed", error),
+        (error: unknown) => reportHandled("capture restart tick failed", error, { job: "capture" }),
       );
     }
     // v0.12 bankfeed: every connected bank feed once an hour, behind Plaid's webhook (§1.52).
     await bankfeedCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
-      console.error("bank feed sync tick failed", error),
+      reportHandled("bank feed sync tick failed", error, { job: "bankfeed_sync" }),
     );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
@@ -291,11 +300,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
-        console.error("vault upkeep failed", error),
+        reportHandled("vault upkeep failed", error, { job: "vault" }),
       );
       // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
       await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
-        console.error("retention sweep failed", error),
+        reportHandled("retention sweep failed", error, { job: "retention" }),
       );
     }
   } finally {

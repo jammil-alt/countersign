@@ -3,7 +3,7 @@
 // we answer with when no agent may take a call (voicemail or a forward). The voice agent itself is
 // ElevenLabs' (../elevenlabs). What we couldn't check is in NOTES.md.
 
-import { E164, normalizePhone } from "@countersign/core";
+import { E164, normalizePhone, trimTrailingSlashes } from "@countersign/core";
 import { z } from "zod";
 import type { FetchLike } from "../http";
 import { AccountSid, accountUrl, type TwilioAuth, twilioRequest } from "./api";
@@ -43,7 +43,7 @@ export function readVoiceConfig(config: unknown): TwilioVoiceConfig | null {
 }
 
 export function twilioVoiceUrls(origin: string, tenantId: string) {
-  const base = `${origin.replace(/\/+$/, "")}/api/twilio/${tenantId}/voice`;
+  const base = `${trimTrailingSlashes(origin)}/api/twilio/${tenantId}/voice`;
   return { voice: base, answer: `${base}/answer`, status: `${base}/status` };
 }
 

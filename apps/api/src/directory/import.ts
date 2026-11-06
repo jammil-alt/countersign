@@ -49,6 +49,7 @@ import type { z } from "zod";
 import type { Bindings } from "../env";
 import { HttpError, notFound } from "../http";
 import { type ContactRow, createContact, updateContact } from "../messaging/contacts";
+import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { connectionCredentials } from "../secrets";
 import { createOrganization, updateOrganization } from "./organizations";
@@ -697,7 +698,9 @@ export async function applyImport(
         problem: null,
       });
     } catch (error) {
-      if (!(error instanceof HttpError)) console.warn("directory import row failed", error);
+      if (!(error instanceof HttpError)) {
+        reportHandled("directory import row failed", error, { kind: "directory_import" });
+      }
       results.push({ row: p.row, status: "failed", id: null, name, problem: problemOf(error) });
     }
   }

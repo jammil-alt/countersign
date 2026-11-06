@@ -26,6 +26,7 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, ne } from "drizzle-orm";
 import { type ContactRow, contactThread, type ThreadMessageBody } from "../messaging/contacts";
+import { reportHandled } from "../observability/report";
 import type { RunInstances } from "../runs/instances";
 import { endReachOut, type ReachOutRow, reachOutEventType } from "./service";
 
@@ -192,7 +193,7 @@ export async function wakeAll(instances: RunInstances | undefined, woken: readon
         payload: { reachOutId: w.id },
       });
     } catch (error) {
-      console.error(`waking run ${w.runId} for reach-out ${w.id} failed`, error);
+      reportHandled(`waking run ${w.runId} for reach-out ${w.id} failed`, error, { job: "reach" });
     }
   }
 }

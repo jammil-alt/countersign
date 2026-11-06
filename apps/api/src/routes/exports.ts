@@ -28,6 +28,7 @@ import {
   mountFile,
   notFound,
 } from "../http";
+import { reportHandled } from "../observability/report";
 import { signerFor } from "../storage";
 import { purgeAfter } from "./compliance";
 
@@ -171,7 +172,7 @@ export function exportRoutes(app: Hono<AppEnv>): void {
       try {
         await jobs.start({ tenantId: t.id, exportId: manifest.id });
       } catch (error) {
-        console.error("export job not started", error);
+        reportHandled("export job not started", error, { job: "export" });
         await writeManifest(objects, {
           ...manifest,
           status: "failed",
