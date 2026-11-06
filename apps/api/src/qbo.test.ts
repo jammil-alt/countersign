@@ -35,7 +35,7 @@ import {
 } from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
 import { FakeModel } from "@countersign/llm";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import cdcFixture from "../../../fixtures/qbo/webhook-notification.json";
 import {
@@ -106,6 +106,14 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
   });
   const inline = { do: <T>(_name: string, fn: () => Promise<T>) => fn() };
+  /**
+   * Lets go of the connection's sync claim (v0.12 W1-H): the syncs these tests start are run
+   * inline with runQboSync, not as instances that end and let go.
+   */
+  const forgetClaims = () =>
+    H.t.db.execute(
+      sql`update connection set sync_cursor = sync_cursor - 'running' - 'pending' where id = ${connectionId}`,
+    );
   const sync = (dispatch?: (ids: string[]) => Promise<unknown>) =>
     runQboSync(
       syncDeps(),
@@ -485,6 +493,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     const sig = await qboWebhookSignature(VERIFIER, new TextEncoder().encode(body));
     // Syncs share one-minute slots: forget the sign-in's, so this minute's slot is free.
     syncs.started.clear();
+    await forgetClaims();
     const before = syncs.started.size;
     const ok = await H.app.request(
       "/api/connections/qbo/webhook",
@@ -504,13 +513,15 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       connectionId,
       reason: "webhook",
     } satisfies QboSyncParams);
-    // A burst of notifications in the same minute starts no second sync.
+    // A burst of notifications while it runs starts no second sync: one more is queued.
     const burst = await H.app.request(
       "/api/connections/qbo/webhook",
       { method: "POST", headers: { "intuit-signature": sig }, body },
       H.env,
     );
     expect(await burst.json()).toEqual({ syncs: 0 });
+    expect(syncs.started.size).toBe(before + 1);
+    await forgetClaims();
 
     for (const headers of [
       { "intuit-signature": `${sig.slice(0, -4)}AAA=` },
@@ -538,9 +549,20 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
   });
 
   it("lets the operator start a sync, and only for QuickBooks connections it serves", async () => {
+    await forgetClaims();
     const res = await call(OPERATOR, "POST", `/api/ops/connections/${connectionId}/sync`);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
-    expect(j(res.json).instanceId).toMatch(new RegExp(`^qbo-${connectionId}-n`));
+    expect(j(res.json)).toMatchObject({ started: true, queued: false });
+    expect(j(res.json).instanceId).toMatch(new RegExp(`^qbo-${connectionId}-now-`));
+    // Asked again while it runs: queued, not lost (202).
+    const again = await call(OPERATOR, "POST", `/api/ops/connections/${connectionId}/sync`);
+    expect(again.status).toBe(202);
+    expect(j(again.json)).toEqual({
+      started: false,
+      queued: true,
+      instanceId: j(res.json).instanceId,
+    });
+    await forgetClaims();
     expect(
       (await call(admin("a"), "POST", `/api/ops/connections/${connectionId}/sync`)).status,
     ).toBe(403);

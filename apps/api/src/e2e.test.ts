@@ -54,7 +54,8 @@ import {
 } from "./api.test-helper";
 import { billingTick } from "./billing/jobs";
 import { MemoryQboSyncInstances } from "./qbo/instances";
-import { dispatchByIds, runQboSync } from "./qbo/sync";
+import { dispatchByIds } from "./qbo/sync";
+import { runQboSyncInstance } from "./qbo/sync-now";
 import { QBO_CRON_MINUTE, qboCronTick } from "./routes/qbo";
 import { cronTick } from "./runs/dispatch";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -162,14 +163,17 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       if (ranSyncs.has(id)) continue;
       ranSyncs.add(id);
       n += 1;
-      await runQboSync(
+      // As QboSyncWorkflow runs it: holding the connection, handing on to a sync asked for meanwhile.
+      await runQboSyncInstance(
         {
           db: H.db,
           platform: H.platform,
           content: new ContentStore(H.objects),
           credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+          instances: syncs,
         },
         params,
+        id,
         { do: (_name, fn) => fn() },
         (eventIds) =>
           dispatchByIds({ db: H.db, instances: H.instances }, params.tenantId, eventIds),
@@ -318,10 +322,25 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     expect(JSON.stringify(done)).not.toMatch(/access_?token|refresh_?token|"credentials"/i);
     await H.settle();
 
-    // Connecting started the first sync; QboSyncWorkflow runs it.
+    // Connecting started the first sync.
     expect([...syncs.started.values()]).toEqual([
       { tenantId: ids.client, connectionId: ids.connection, reason: "connected" },
     ]);
+    // The operator asks for a sync within the minute, while the first one runs: it is queued,
+    // not merged into the first one and lost (v0.12 W1-H, ARCHITECTURE §6.2).
+    const now = await H.call(OPERATOR, "POST", `/api/ops/connections/${ids.connection}/sync`);
+    expect(now.status, JSON.stringify(now.json)).toBe(202);
+    expect(j(now.json)).toMatchObject({ started: false, queued: true });
+    expect(syncs.started.size).toBe(1);
+    // QboSyncWorkflow runs the first sync; its last step starts the one asked for, which runs
+    // after it (never two at once), and then nothing more.
+    expect(await runStartedSyncs()).toBe(2);
+    expect([...syncs.started.values()].map((p) => p.reason)).toEqual(["connected", "operator"]);
+    expect([...syncs.started.keys()][1]).toMatch(new RegExp(`^qbo-${ids.connection}-now-`));
+    expect(await runStartedSyncs()).toBe(0);
+    // With none running, "sync now" starts one at once.
+    const again = await ok(OPERATOR, "POST", `/api/ops/connections/${ids.connection}/sync`);
+    expect(again).toMatchObject({ started: true, queued: false });
     expect(await runStartedSyncs()).toBe(1);
     const [bill] = await H.t.db
       .select()
