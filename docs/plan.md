@@ -1280,12 +1280,13 @@ Code in `packages/core/src/schemas/automation.ts`, `packages/core/src/workflow/a
 | Similarity | `packages/core/src/bundle/similarity.ts`: Jaccard over skills, tools and trigger kinds, plus a sequence score over step kinds, weighted 0.4, 0.3, 0.1, 0.2. |
 | New skill | `draft-skill` beside `draft-agent`: a `SkillDefinition` draft and test cases from attached examples (W2-C's `test_case`; a client's examples carry its id). |
 | Files | Owns `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `packages/core/src/api/builder.ts`, `packages/core/src/bundle/similarity.ts`. |
+| Tables (0030) | // v0.12 W3-A. `builder_session` and `builder_turn` as ARCHITECTURE §5.5, plus two turn columns: `bundle` (the working draft after the turn, which undo merges against) and `meta` (questions, gaps, notes, errors, the parsed command, the model). // DECISION: the templates' policy, as `automation` and `test_case` (0027, 0028): a session on a template or a shared skill has `tenant_id` null and shows only in operator sessions; a session on a client's agent or skill carries the client's id, and same-client foreign keys tie its agent, skill and turns to it. `base_version_id` and `saved_version_id` have no foreign key (an agent or a skill version by `kind`, like `test_case.target_id`). `cs_runtime` gets SELECT, INSERT, UPDATE, never DELETE; a turn is immutable except `undone_at` (trigger), set once every change of the turn is undone; a save is its own turn, inserted with `saved_version_id`. |
 
-### 1.52 New connectors (W3-B, M29; migration 0031 spare, likely unused)
+### 1.52 New connectors (W3-B, M29; no migration: the 0031 spare went to WhatsApp capture, §1.55)
 
 | Topic | Decision |
 |---|---|
-| Order | Google Drive, Outlook, then Ramp and HubSpot; the bank and card aggregator after the owner picks a vendor; Slack when the owner asks (ARCHITECTURE §6.11). |
+| Order | Google Drive, Outlook, then Ramp and HubSpot; the bank and card aggregator after the owner picks a vendor (owner, 2026-11-06: **Plaid**, below); Slack when the owner asks (ARCHITECTURE §6.11). |
 | Build | Each in `packages/connectors/src/<id>/` with `NOTES.md` (facts to verify), a fake in `testing`, manifest with entities, registration in `apps/api/src/platform.ts` (one line each), portal sign-in through the generic OAuth routes. |
 | Drive | The connection creates its folder (`Mezonas` + the client's chosen name) at sign-in and keeps its id in `config`; `drive.file.upload` takes a document id and a path template; before state: whether a file of that name exists in the target folder. |
 | Outlook | Same input and once-only rules as `gmail.send` (§1.31); Graph `sendMail` takes no idempotency key, so the attempt is recorded first. |
@@ -1308,6 +1309,42 @@ Unchecked facts about Google and Microsoft are in `packages/connectors/src/{gdri
 | Outlook sign-in | Connector `outlook`, the `common` endpoint (work and personal accounts), scopes `openid email offline_access Mail.Send`, `prompt=select_account`; new secrets `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (ARCHITECTURE §17's names; an Entra app with publisher verification, owner). A grant may carry only those plus `profile` and Graph's `User.Read`; anything else (`Mail.Read`, `Files.*`, …) is refused. Address from the ID token's `email`, else `preferred_username` (issuer on Microsoft's login host for the token's own `tid`, audience, expiry checked; signature not, as for Gmail). Refresh tokens rotate and the new one is kept. No `revoke`: Microsoft has no per-app revoke for delegated tokens, so disconnect drops ours and the person removes the app in their account. Only the client admin connects (not a `PERSONAL_CONNECTORS` entry yet). // DECISION |
 | `outlook.send` | `email.send`'s input and output; entity `message`, verb `create`, `recipient` for the person's autonomy. Plain-text Graph JSON with `Reply-To` the tagged forwarding address and our `X-Mezonas-Ref` header; output `id` is that reference, `messageId` empty (Graph's 202 has no body). Sent once as `gmail.send`: attempt recorded first, a started unrecorded send never resent (`UnconfirmedWriteError`, with the reference to search for). `CHANNEL_TOOLS.outlook = {email: "outlook.send"}` so reach out can bind an agent's email channel to it. // DECISION |
 | Tests | Each connector against its fake in `packages/connectors` (sign-in, refusals, refresh, tools, once-only, approval on by default through `decideToolCall`); `apps/api/src/drive-outlook.test.ts` signs both in through the generic routes and runs an approved upload by month and an approved send, each once on replay. |
+
+Decisions made building the bank and card feed (`claude/plaid-bankfeed`, 2026-11-06; no migration,
+0031 not taken). Unchecked facts about Plaid are in `packages/connectors/src/bankfeed/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Vendor (owner, 2026-11-06) | **Plaid.** Still open (§7, item 9): the price per connected account and whether it is absorbed or passed into credits; Plaid's production review; HIPAA mode (whether Plaid signs a BAA). |
+| Connector | Id `bankfeed` as ARCHITECTURE §6.11 names it (vendor Plaid; the id stays vendor-neutral so the events and tools outlive a vendor change). `auth: "oauth2"`: Plaid Link is a hosted sign-in like OAuth's, through the same routes. Entities `transaction` (read) and `account` (read); tools `bankfeed.transaction.query` (Plaid's `/transactions/get`: dates, default the last 30 days, an account, pages of up to 500 by offset) and `bankfeed.account.query` (`/accounts/get`, balances as decimals). No write tools, no `defaultPermissions` (the platform's: approval on, delete off). Events `card.charge.created` and `bank.transaction.created` through the manifest's shared namespaces `card` and `bank`. // DECISION |
+| Never money movement | Only Plaid's `transactions` product is requested. An item whose `products` or `billed_products` include `auth`, `transfer`, `payment_initiation` or `signal` is removed at Plaid and refused (422 `sign_in_refused`), nothing stored. Agents never sign in to a bank's site (§6.10). // DECISION |
+| Link in the generic flow | A new optional connector hook `beginLink` beside `authorize` (packages/connectors `connector.ts`, `oauth/flow.ts` `beginLinkAuthorization`). `POST /api/connections/bankfeed/authorize` answers `redirectUrl: null` and `link: {provider: "plaid", token, expiresAt, state}` (an optional field on the existing response); the portal opens Link with the token and posts `{public_token, state}` to the usual `POST /api/connections/bankfeed/callback`, where the state is checked as for OAuth. `client_user_id` is 40 hex of sha256(`mezonas/bankfeed/user:<client id>`): one per client, nothing about the client in it. `redirect_uri` is `<APP_ORIGIN>/connections/bankfeed/callback` (OAuth banks come back there and Link reopens with the token kept in the tab's sessionStorage). Link's language: `es` for a Spanish reader, else `en`. 90 days of history. The Sandbox client can't connect Plaid from the back office (no Link screen there; 409). // DECISION |
+| Vault | The access token and item id are the connection's credentials, encrypted with the client's own key like every grant (§1.26); the item id is also `external_account_id`; `config` holds the institution's name (`accountName`), its id and the accounts' names, masks and types. The token is in no response, log, error message, step output or event; Plaid's client id and secret go in Plaid's headers, never a body. // DECISION |
+| Reconnect and disconnect | A connection in `error` (or `connected`) with credentials reconnects in Link's update mode on the same item (`access_token`, no `products`); the callback checks the item with `/item/get` and keeps its token. If Plaid says the item is gone (`ITEM_NOT_FOUND`, `INVALID_ACCESS_TOKEN`), a new item is made instead. Disconnect calls `/item/remove` (best effort, as every revoke) and drops the token. One item (one institution) per client in v1: the platform keeps one connection per connector; a second bank waits for several connections per connector. // DECISION |
+| Sync | `/transactions/sync` with Plaid's cursor in `connection.sync_cursor` (`{plaid: true, itemId, cursor, announcing}`; no new table), up to 20 pages of 500 a pass, restarted from the pass's first cursor on `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`. Network first, then one client transaction that locks the connection and drops the pass if another moved the cursor meanwhile. Each transaction version is a raw record (`Transaction`, version `v1:` + 40 hex of sha256 of what we store): added and modified store a new row when the content is new; removed adds a `removed` row with `is_deleted` (only for one we stored). Nothing is updated (invariant 3). The client's matrix applies: transactions' read off, nothing is read. // DECISION |
+| Amounts | Plaid's number becomes a decimal from its shortest text (decimal.js, `numeric(14,4)`), never computed as a float. Plaid's sign (positive = money out) becomes an absolute `amount` and `direction` `out` or `in`. Currency: ISO code, else Plaid's unofficial code when it is three capitals, else `XXX`. // DECISION |
+| Events | Only for a transaction seen for the first time: `card.charge.created` on `credit` accounts, `bank.transaction.created` on `depository` ones, none for loans and investments. A posted transaction whose `pending_transaction_id` we stored isn't announced again. Changes and removals are not events. A connection's first sync announces nothing, and announcing starts only after a sync that ends with Plaid's `HISTORICAL_UPDATE_COMPLETE`, so the history Plaid backfills isn't announced. Payload: connection, raw record, the transaction as the tool returns it (the bank's text is data). // DECISION |
+| Triggers | Plaid's webhook `POST /api/connections/bankfeed/webhook/:clientId` (the URL each Link token names, so the lookup is in that one client, like inbound hooks): the `Plaid-Verification` JWT must be ES256 with a key from `/webhook_verification_key/get` (cached per isolate, 16 keys, unknown ids remembered 5 minutes), `iat` within 5 minutes, and the body's sha256 equal in constant time; 64 KB at most. `SYNC_UPDATES_AVAILABLE` (and the older update codes) starts a sync after the response; `ITEM`/`ERROR` (`ITEM_LOGIN_REQUIRED` and the like), `USER_PERMISSION_REVOKED` and `USER_ACCOUNT_REVOKED` put the connection in `error` (connection attention). An item no connection of that client has is acknowledged and left. The cron syncs every connected feed hourly at minute 26 as a backstop. An item error found while syncing or in a tool also puts it in `error`. // DECISION |
+| Environment | `PLAID_CLIENT_ID`, `PLAID_SECRET` (secrets) and `PLAID_ENV` (`sandbox` or `production`, a var in `wrangler.jsonc`: sandbox locally and on staging, production in production). Registered everywhere; Link opens only once both secrets and `OAUTH_STATE_SECRET` are set, else "Not available yet". `deploy.yml` wiring is the owner's PR. // DECISION |
+| Web | "Connect bank or card" on the portal's Connections page (design-system button), loading `https://cdn.plaid.com/link/v2/stable/link-initialize.js` on click. `apps/web/public/_headers` allows that one script by path, frames from `https://cdn.plaid.com`, and `connect-src` to `production.plaid.com` and `sandbox.plaid.com`; no inline scripts. New strings in six languages, for the fluent speakers' review. // DECISION |
+| Compliance | Plaid is a processor (Mezonas holds the account and contract; the client's bank data passes through it to us), so `plaid` joins `PROCESSORS` and the `bankfeed` connector needs it: a client in HIPAA mode can't be offered the feed until `plaid` is in `BAA_PROCESSORS`. Listed on the site's subprocessors page (dated 2026-11-06); the page promises 30 days' notice to client admins before a new subprocessor handles client data. // DECISION |
+| Not built | Several banks per client; `/item/webhook/update` for items made before a webhook URL change; warnings for `PENDING_EXPIRATION`/`PENDING_DISCONNECT`; events for changed or removed transactions; Plaid Link from the back office. |
+
+Decisions made building Google Sheets (W4-D, ARCHITECTURE §6.11 row 7, `claude/w4d-gsheets`,
+2026-11-06; no migration). Unchecked facts about Google are in
+`packages/connectors/src/gsheets/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Sheets sign-in | Connector `gsheets` on the Google client Gmail and Drive use, registered everywhere, signing in once `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `OAUTH_STATE_SECRET` are set. One scope, `drive.file`, as Drive: a grant without it or with any other (`spreadsheets`, `drive`, …) is refused (422 `sign_in_refused`), nothing stored. Address from Drive's `about.get`. Redirect `<origin>/connections/gsheets/callback`. Disconnect drops our tokens, never revokes (the shared client, as Drive). Tool ids keep Sheets' name with `sheets` as the shared namespace; one entity `row` (read, create, update). // DECISION |
+| Picking | The portal's page `/connections/gsheets/pick`, always loaded as its own document, opens Google's Picker on spreadsheets. The Picker's token comes from Google Identity Services in the browser (the connected account as `hint`) and stays in that page: the connection's tokens never leave the Worker (invariant 13), and the page never revokes it (that would end our grant too). Picked ids go to `PUT /api/connections/gsheets/sheets` (client admin), which checks each new one with the connection's own grant (Drive `files.get`: a spreadsheet, not in the bin; else 422 `sheet_not_available`) and keeps `config.sheets = [{id, name, url, account, addedAt}]` (50 at most), recording the change. `GET /api/connections/gsheets/picker` serves the public values: `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (the Picker's app id) and the client id. // DECISION |
+| CSP | Only the picking path gets a wider policy (`apps/web/public/_headers`: the global CSP and COOP detached and replaced): scripts `https://apis.google.com` and `https://accounts.google.com/gsi/client`, frames `https://docs.google.com` and `https://accounts.google.com/gsi/`, calls to `https://accounts.google.com/gsi/`, and `Cross-Origin-Opener-Policy: same-origin-allow-popups` for the sign-in pop-up. The page is reached and left by full loads, so no other screen runs under it. // DECISION |
+| Picked only | Every tool refuses a spreadsheet not in `config.sheets` before calling Google (`SheetNotPickedError`), and one picked by another Google account than the one connected now: a reconnect keeps the list (shown, removable) but those sheets need picking again. // DECISION |
+| `sheets.rows.append` | `external`, create. Before state: the tab's rows down to the last with data (first 100 columns), the last row, the next row number. Once per action: one atomic `batchUpdate` inserts the rows after the last row with data (`insertDimension`, so a row added meanwhile is pushed down, never overwritten), fills them with typed values, and puts developer metadata `mezonasAction` = first 40 hex of sha256(`gsheets:`+key) on those rows. A retried step searches for it first and returns those rows (`alreadyDone`). No separate attempt record: the marker is written in the same atomic request as the rows, so either both exist or neither. Residual risk (NOTES): if Google's metadata search lagged behind the write, a fast retry could add the rows twice. // DECISION |
+| `sheets.range.update` | `external`, update. Before state: the cells' contents (formulas as written). The run returns `alreadyDone` if the cells already hold the new values (a retry after a lost answer), and refuses (`SheetChangedError`, nothing written) if they differ from what the approver saw: `WriteContext.proposedBefore`, which `executeAction` now passes from `external_action.before` (a generic, optional field; one line in `packages/agents`). `null` keeps a cell, `""` empties it; the values must have the range's exact shape. // DECISION |
+| Formulas | Nothing we write runs as a formula: values go as `valueInputOption=RAW` (update) or typed `userEnteredValue` (append, RAW's equivalent; never `formulaValue`), **and** text starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'` (OWASP), except plain numbers as text, so a CSV export opened elsewhere can't run it either. // DECISION |
+| Limits | Reads: 1000 rows and 100 columns at a time (one row more is asked, to say `truncated`). Writes: 100 rows, 100 columns, 2000 cells. A1 ranges, tab names and file ids parsed with index loops. Not built: `sheets.spreadsheet.create` (optional), clearing or deleting, shared drives. |
+| Tests | `packages/connectors/src/gsheets/gsheets.test.ts` against the fake (scope refusal, vault, unpicked refused, append once after a lost answer, stale update refused, formula escaping, approval on by default); `apps/api/src/gsheets.test.ts` signs in and picks through the routes and appends once after approval, an unpicked sheet refused; the web card and the CSP rule in `apps/web/src/connections/GsheetsSetup.test.tsx`. Portal strings in six languages need the fluent speakers' review. |
 
 ### Platform fixes (W1-H)
 
@@ -1393,6 +1430,69 @@ Decisions made while building M31 (oversight on failures):
 | Defaults | New agents from the back office's blank agent start with `oversight: { review: 'failures' }` (`NEW_AGENT_OVERSIGHT`); the API stores a bundle as given, and Builder drafts (W3-A) use the same constant. // DECISION |
 | Lab route | `GET /api/ops/oversight` ships with M31 (filters: client, agent, action, cause, limit); its totals are over the decisions it lists. // DECISION |
 
+Decisions made while building M32 (checkpoint reviews):
+
+| Topic | Decision |
+|---|---|
+| Computation | `checkpointSteps` and `workflowCheckpoints` in core's `workflow/validate.ts`: a skill or action step whose output a write step's input references (an action with an external tool, a skill whose tools write or that reaches people, or a use step whose automation has one), or one with `review: 'always'`, in forks and loops; an automation's inner checkpoints as `${useStepId}/${innerId}`. Computed when a run starts, from the run's catalog and the expansions; not stored and not a validation error. A step whose skill or tool the catalog doesn't know counts as not writing (no checkpoint: the run behaves as under `failures`). // DECISION |
+| When | After an attempt that is done (not a write a person turned down): `checkpoints` for a checkpoint, `all` for every skill and action step, `review: 'always'` on the step; `off` on the step wins; `failures` never reviews a step that succeeded. A checkpoint's `retry_with` runs the step again (its own keys) and the new output is reviewed again, within the 2 per step. // DECISION |
+| Counting | `continue` changes nothing, so it is not an intervention: it doesn't count toward `maxPerRun` (a row is still written, and its cost counts toward `maxCostUsd`). A step has at most 2 reviews whatever they decide. `maxPerRun: 0` reviews nothing. // DECISION |
+| After success | `continue` goes on; `retry_with` runs again with the corrected input; `ask` waits — approved, the run goes on with the output as it is; declined or unanswered, `onReject`: `continue` skips the step, `stop` cancels the run (`rejected`); `stop` cancels the run (`oversight_stop`) with the note as `diagnosis`. A run cancelled this way emits no `run.failed`. // DECISION |
+| A checkpoint that wrote | A write step reviewed after its change reached the client's tool (`review: 'always'` or `all`) may `continue`, `ask` or `stop`, never `retry_with`: the finish tool offers only those, and a `retry_with` is no intervention. // DECISION |
+| Words | A checkpoint's ask is titled "Before we go on from "{step}"" (six languages; the five other than English are drafts for the owner's fluent speakers); `continue` shows "Checked and went on" on the portal timeline. // DECISION |
+
+### 1.55 WhatsApp passive capture (v0.14, M33; migration 0031; ARCHITECTURE §6.12, §5.5)
+
+Owner-approved 2026-11-06: parity with Respaldo's capture of documents sent by WhatsApp. Patterns
+only (claim once by message id, fetch in the background, size checked before and after, storage
+keys from ids): no code, package, key or Meta app is shared with Respaldo. Builds on §1.22 (every
+inbound Twilio WhatsApp message is already a raw record in the contact's thread), which listed "MMS
+media download" as not built. Hot-spot edits are blocks marked `// v0.14 capture`.
+
+| Topic | Decision |
+|---|---|
+| Passive | Nothing on the capture path replies or sends. Agents bound to the number keep §1.48's behaviour (their triggers, `reply.confirm`, the stranger reply); capture adds no reply of its own. |
+| Conversation | New tenant table `conversation` (migration 0031): one WhatsApp chat on one connection. `kind` `direct` (one `contact_id`; Twilio, built now) or `group` (`external_id`, the provider's group id; Meta, schema only). `channel` `whatsapp`, with `sms` allowed by the check but not made yet. `title` (the contact's name, else the number; a group's subject later), `capture` jsonb, `created_at`, `updated_at`. Unique per (connection, channel, contact) for direct and (connection, channel, external id) for groups. Forced RLS on `app.tenant_ids`; `cs_runtime` selects, inserts and updates; no DELETE. |
+| Change log | `conversation_change` (who, side `client`/`operator`/`system`, `{setting: 'capture', before, after, reason?}`, when): insert and select only, immutable by trigger, like `contact_change`. The client default's changes are `tenant_change` rows (`setting: messaging.capture`), as approver rules' are (§1.20). |
+| When it is made | On the first inbound WhatsApp message from a contact on a connection, in the webhook's transaction, after the contact is found or made (insert, conflict does nothing, then read). Its capture is copied from the client default at that moment; a later change to the default doesn't move existing conversations. |
+| Client default | `tenant.settings.messaging.capture` (beside `messaging.quietHours`): jsonb, so no migration. Absent: `{archive: true, attachments: 'off', maxBytes: 20 MB}`. The operator sets it on the client's messaging page. |
+| Unknown senders | §1.22 makes them contacts with no consent. Their conversation gets the default with `attachments: 'off'` whatever the default says (a `system` change row records it), so a stranger's files are fetched only after a person turns it on. // DECISION |
+| `archive` | `true` (default) is today's behaviour. `false`: the raw record keeps the envelope only (SID, time, sender, channel, attachment facts) for dedupe, STOP and START, and counts; the thread line says "Not kept"; `message.get` and `inbound.get` answer `text: null, kept: false`. STOP still opts out (it is read before the text is dropped). // DECISION |
+| `attachments` | `off` (default): the raw record keeps each attachment's index, content type and media SID (an id, no link, no credential); Twilio sends no size. `documents`: PDF, PNG, JPEG, GIF, WebP (`isDocumentType`). `all`: those plus a fixed list in core (audio: OGG, MPEG, MP4, AMR; video: MP4, 3GPP; Word, Excel, CSV, plain text). Anything else, or an executable type, is refused under every setting. // DECISION |
+| Raw record shape | From v0.14 the inbound raw record's `media` is `[{index, contentType, mediaSid}]`, no URL: the fetch URL is rebuilt from validated SIDs on Twilio's origin, never taken from input. Records made before v0.14 keep their `url` (immutable); download now reads only the media SID out of it (`ME` + 32 hex, checked). // DECISION |
+| `maxBytes` | 20 MB default, 32 MB cap (the documents capability's `MAX_DOCUMENT_BYTES`, the model's request limit). // DECISION |
+| `agentId` | Optional: a client agent of this client, not a test copy, whose live version has a message trigger on `whatsapp`; else 422 `invalid_agent`. Checked again when it would start. |
+| Who changes it | The client admin (`PUT /api/conversations/:id/capture`: `archive`, `attachments`) and the operator (`PUT /api/ops/clients/:id/conversations/:conversationId/capture`: all four fields, with a reason). Either may turn either switch on or off: it is the client's data and choice, not a permission on the client's tools, so it isn't tighten-only (invariant 8 is about writes to tools). `maxBytes`, `agentId` and the default are the operator's (setup). Client users have no access (403), as with `/contacts`. A save names the `updatedAt` it read; a newer one is 409 `stale`; no change is 409 `no_op`. // DECISION |
+| Durable job | `CaptureWorkflow` (binding `CAPTURE_WORKFLOW`), one instance per message (`capture-<tenant>-<message sid>`; `create` refuses a used id), one `step.do` per media index with retries and backoff, started after the inbound transaction commits (`deferred`). Without the binding (local, tests) it runs after the response. The minute cron restarts a message whose media is wanted and has no `MessageMedia` outcome after 10 minutes, for 3 days. // DECISION: a Workflow, like the QuickBooks sync, rather than the event dispatch, so a slow or failing download never holds up a run's start. |
+| Fetch and SSRF | `GET https://api.twilio.com/2010-04-01/Accounts/<subaccount>/Messages/<message sid>/Media/<media sid>` with the client's subaccount credentials (Basic). The URL is built from SIDs checked against fixed shapes, and its `new URL(x).origin` must equal Twilio's API origin. `redirect: 'manual'`: one redirect followed, HTTPS only, without our `Authorization` header, only to an origin on a fixed list (to verify); anything else is `failed` (`redirect_refused`). No string `startsWith`/`includes` checks on URLs. Credentials and links are never logged; errors record a code. // DECISION |
+| Size and type | `Content-Length` over `maxBytes` is refused before reading; the body is read in chunks into a buffer that never grows past `maxBytes` (the read stops and refuses at the limit). The response's type must equal the declared one, and PDFs and images must start with their magic bytes; otherwise `refused` (`too_large`, `type_not_allowed`, `type_mismatch`). |
+| Once per media | Raw record `MessageMedia`, external id `<message sid>:<index>`, on the Twilio connection, inserted in the same transaction as `storeDocument`, holding `{status: filed\|refused\|failed, reason?, documentId?, contentType, sizeBytes?, sha256?}`. A retried webhook, step or download now finds it and stops. A crash between the R2 put and the commit leaves only an object under its sha256, which the retry reuses. // DECISION |
+| Documents | `storeDocument` with `source: 'message'` (0031 widens `document_source_check`), the Twilio connection, filename `whatsapp-<message sid>-<index>.<ext>` (ids only, never the sender's filename), `meta {channel, conversationId, rawRecordId, messageSid, mediaIndex, contactId}`. `document.received` fires and the background reading (§1.43) reads PDFs and images; `all`'s other types are stored, not read. The same bytes sent twice are one document (§7's per-client sha256), named by both messages' `MessageMedia` rows. |
+| Download now | `POST …/conversations/:id/messages/:rawRecordId/download` (client admin, operator): the conversation's setting at that moment must allow the attachment (else 409 `capture_off`); it starts the same job. Attachments with an outcome are left alone, except `failed` ones, tried again as the next version of their `MessageMedia` record (`external_version` 2, 3; at most 3 tries). // DECISION |
+| Agents | `message.get` and `messages.search` (through `ctx.services.messaging`; connectors still read no database) gain `conversation {id, kind, title}` and `attachments [{index, contentType, sizeBytes?, status: not_downloaded\|pending\|filed\|refused\|failed, documentId?}]`. Text and files stay data in tool results (invariant 9); a document's content is read with `docs.*`. |
+| `agentId` start | When all of a message's wanted attachments have an outcome, the job emits `inbound.message` (§1.48) for `capture.agentId` with `channel: 'whatsapp'`, the contact, the raw record and the filed document ids, through that agent's existing message trigger and People filter. No new trigger kind. A sender the filter doesn't take starts nothing and gets no reply (passive). `routeInboundText` doesn't emit for that agent when the message has media the capture will fetch, so it starts once, after the downloads. // DECISION |
+| Twilio's copy | We never delete media at Twilio. **Open (owner):** delete it there once filed, to keep one copy. |
+| Groups | Design only, with `whatsapp_meta` (§1.19). **To verify** (third-party guides, unverified): Meta's groups API needs Official Business Account status, a Tech Provider registration, groups the business creates, and about 8 participants at most. Twilio has no WhatsApp groups (**to verify** on Twilio's docs: search results show its WhatsApp FAQ saying WhatsApp retired the groups API in April 2020, and its "group messaging" sample fans out one-to-one chats through Conversations). Unofficial WhatsApp clients are out (WhatsApp's terms). |
+| Compliance | Twilio is a processor already; `meta_whatsapp` is listed for `whatsapp.*`. `apps/site`'s privacy page gains one plain line: we archive messages sent to a client's number and, where the client turns it on, their attachments, on the client's behalf. Retention: the client's existing handling (exports include conversations and their documents; retirement purges them). |
+| Screens | Minimal: portal `/conversations` (client admin; sidebar link like Contacts): each conversation with "Keep messages" and "Download attachments" switches, and "Download now" on a message. Back office: a Conversations section on `/ops/clients/:id/messaging` with the same, plus the client default. Design-system classes only. Portal words in six languages; the five other than English need a fluent review. The full screen is the owner's redesign. |
+| Files | Owns the inbound media pieces in `packages/connectors/src/twilio/` (`media.ts`, the fake's media), `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `packages/core/src/api/conversations.ts`, `packages/core/src/schemas/conversation.ts`. Marked blocks in `core/src/api/routes.ts`, `core/src/index.ts`, `apps/api/src/app.ts`, `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts`. Stays out of the bank-feed connector and `platform.ts`. |
+| To verify (Twilio) | Recorded in `packages/connectors/src/twilio/NOTES.md` when built. From search results only, not the live docs (`twilio.com` is outside this environment's network): Twilio keeps inbound media until its Media resource is deleted; media URLs need HTTP Basic auth (an older page says public unless a Console setting is on); with auth on, the fetch redirects to a signed link valid about 4 hours. Unchecked: the redirect's host, whether the subaccount's auth token (not only an API key) works for media, `Content-Length` on the signed link, and Twilio's charge for stored media. |
+| Migration 0031 (as built) | `conversation`: the capture check holds the shape (`archive` a boolean, `attachments` one of three, `maxBytes` a number from 1 to 32 MB); a trigger lets only `capture`, `title` and `updated_at` change and refuses deletes, so a conversation never moves to another client, connection, channel or contact. `conversation_change`: insert and select only, append-only trigger. Both have forced RLS on `app.tenant_ids` and same-client foreign keys (connection, contact, conversation). `document_source_check` is replaced with one that adds `message`. Constants in `packages/db` (`CAPTURE_DEFAULT_MAX_BYTES`, `CAPTURE_MAX_BYTES_CAP`). // DECISION |
+
+Decisions made while building M33 (`claude/whatsapp-capture`, 2026-11-06; `// v0.14 capture` blocks):
+
+| Topic | Decision |
+|---|---|
+| Order in the webhook | For WhatsApp, the contact (made with no consent if new) and its conversation come before the raw record, so the record names the conversation and keeps what its setting says (`payload.capture {conversationId, archive, wanted}`). `knownContact` is still read from before this message. A concurrent duplicate that loses the insert leaves only what the first made. // DECISION |
+| Archive off | The raw record's and the thread line's `text` are empty; `message.get` and `messages.search` answer `text: ""` with `kept: false` (Twilio still has the text; the tool hides it). STOP and START still act on the words in memory. // DECISION |
+| Messages route | Both surfaces gained `GET …/conversations/:id/messages` (the latest 50 with their attachments), which "download now" needs; not in ARCHITECTURE §14's first list. // DECISION |
+| Who sets what | The portal's change takes `archive` and/or `attachments` and keeps the operator's `maxBytes` and `agentId`; its view and change log never show `agentId`. The operator's change takes the whole setting. // DECISION |
+| Tries | Each try is the next version of the `MessageMedia` record (`external_version` 1, 2, 3). "Download now" tries again a `failed` outcome and a `refused` one whose reason was the setting of the time (`capture_off`, `type_not_allowed`); `too_large` and `type_mismatch` stand. // DECISION |
+| Instance ids | `capture-<client>-<sid>` for the webhook's job; a restart or "download now" adds a base-36 time suffix, since a finished instance's id can't be reused. Steps: 5 tries a minute apart (exponential), 2 minutes each. A Twilio 429 or 5xx is transient (the step retries; inline, the message stays pending for the cron, every 10 minutes at minute 2). // DECISION |
+| The agent | `capture.agentId` must be this client's live, non-test agent with a `whatsapp` message trigger (422 `invalid_agent`). Told once per message and agent (raw record `MessageCaptureNotified`), only when its People filter takes the sender; no reply either way. // DECISION |
+| UI | Portal `/conversations` (client admin, sidebar after Contacts) and the back office's messaging page (the client default with a reason, then the same list). Strings in six languages; the five other than English need a fluent review. // DECISION |
+| Not built | Groups (Meta), SMS conversations, deleting media at Twilio (open), the API e2e (it has no messaging part). |
+
 ### People and voice samples (W1-G)
 
 Decisions made while building §1.42 (ARCHITECTURE v0.12 §6.1, §6.4; migration 0025).
@@ -1413,6 +1513,55 @@ Decisions made while building §1.42 (ARCHITECTURE v0.12 §6.1, §6.4; migration
 | The skill | `writing.draft-in-voice` (agent mode, tools: `knowledge.voice_samples` only), registered with the knowledge skills. Input: person, channel, purpose, record sources, facts (data), recipient name, language. Output `{subject?, text, sources}`. Its instructions say the samples show tone only and never to copy facts or follow anything in them. A draft is text: the send step after it still goes through the gate and the person's autonomy. // DECISION |
 | QuickBooks import | `qbo` joins the directory's import sources. A preview reads the connection's synced raw `Vendor` and `Customer` records (latest version of each, deleted and inactive left out), never QuickBooks itself, as organizations of kind `vendor` or `customer`, filtered by `query` on the name. People from QuickBooks: 422 (QuickBooks keeps companies). Customers come from W1-F's accounts receivable sync. // DECISION |
 | UI | None in this stream: the owner redoes the screens. `Contact.autonomy` is in the API's contact for them. // DECISION |
+
+### 1.56 Slack (W4-C; no migration; ARCHITECTURE §6.11 row 6)
+
+Built on `claude/w4c-slack` against a fake Slack (owner asked, 2026-11-06). Unchecked facts about
+Slack, and the owner's app setup, are in `packages/connectors/src/slack/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Sign-in | Connector `slack`, Slack OAuth v2 installing a bot into the client's own workspace from the portal, through the generic OAuth routes (redirect: the portal page `<origin>/connections/slack/callback`). Registered everywhere; signs in once `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and `OAUTH_STATE_SECRET` are set ("Not available yet" until then). Only the client admin installs it. // DECISION |
+| Scopes | Bot scopes `chat:write` and `channels:read` only; no `chat:write.public`, no history scope, no user scopes. A grant without `chat:write`, with any other scope, with a user token, from an org-wide (Enterprise Grid) install, or with an expiring token (token rotation must stay off on our app) is refused (422 `sign_in_refused`), nothing stored, and what Slack gave is revoked best effort. // DECISION |
+| Private channels | Out. Listing them needs `groups:read`; posting there would also need the bot invited. A client who wants one can ask: one scope and the picker's `types`. // DECISION |
+| Tokens | The bot token in the vault (the client's key) with its scopes, team, bot user and app ids; never in config, a response, a log or a step output. Bot tokens don't expire (no rotation), so there is no refresher; Slack's token errors mark the connection as needing the client to install again. Disconnect calls `auth.revoke` (an already revoked token is fine), then drops the credentials. // DECISION |
+| Channels | The client admin picks the channels agents may post to: `GET /api/connections/slack/channels` lists the workspace's public channels live from Slack (not archived, with whether the bot is in each, at most 2,000) and `PUT` takes channel ids (at most 50); names come from Slack, never the request, and an id Slack doesn't list is 422 `unknown_channel` (one already picked may stay while Slack no longer lists it). Kept as `config.picked = {teamId, channels}`, so picks from another workspace don't count after a reconnect; each change is a `connection_change` (`kind: "slack_channels"`). Listing is not an agent tool. // DECISION |
+| `slack.message.post` | External, verb `create`, entity `message`, behind approval by default (an `auto` matrix in act mode still waits unless the operator sets the step to `not_required`). Input `{channel, text}`, strict: a picked channel by name or id, plain text up to 3,000 characters. A channel not picked is refused before approval and again at the post. Before state: workspace, channel and the text as it will show. Output: channel id and name, Slack's `ts`, workspace. // DECISION |
+| The message | Built by us: one `plain_text` section (shown as written) and the notification `text` with Slack's `&`, `<`, `>` escapes, so no `<!channel>`, `<!here>`, `<@U…>`, `<#C…>` or link can form; bare `@channel`, `@here`, `@everyone` get a word joiner after the `@`; `parse: none`, `link_names: false`, no unfurls. The model never supplies blocks or mentions. // DECISION: mentions are never let through, even ones a client might want; asking a person is the inbox's job. |
+| Posted once | `chat.postMessage` takes no idempotency key and we can't read the channel, so the attempt is recorded first, through a new generic `ConnectorServices.attempts` (`WriteAttemptServices`; apps/api's `dbWriteAttempts`: raw records `WriteAttempt` per key and attempt number, claimed once, `WriteRefused`, `WriteDone`). A re-run returns the recorded post; a refusal Slack answered (`ok: false` or 429) posted nothing and may be tried again (at most 5 attempts); no answer, a 5xx or an unreadable answer leaves the attempt open and the action is never posted again (`UnconfirmedWriteError`, the operator checks the channel). // DECISION |
+| Portal | A Slack card like the others (its words in six languages) and, for the client admin, a channel picker under it (design-system classes; the bot's missing membership shown as a waiting word). New strings need the fluent speaker's review. // DECISION |
+| Compliance | Slack is the client's own tool, not our processor (the exact-list test lists it). // DECISION |
+| Tests | `packages/connectors/src/slack/slack.test.ts` (sign-in and refusals, revoke, listing and picks, approval by default, unpicked channels, once-only with a lost answer and a refusal, mention stripping); `apps/api/src/slack.test.ts` through the routes (state, refusal, token in the vault and never in a response, picker, an approved post once in act mode on an `auto` matrix, a channel not picked, a lost answer, revoke); `apps/web/src/connections/SlackChannels.test.tsx`. |
+
+Open after W4-C: everything under "To verify" in `slack/NOTES.md`; the owner's Slack app (redirect
+URLs, the two bot scopes, rotation off, public distribution); `SLACK_CLIENT_ID` and
+`SLACK_CLIENT_SECRET` into `deploy.yml` (owner's PR); the fluent speaker's review of the new
+strings. The operator's general config edit (`PATCH /api/ops/connections/:id` with `config`) can
+replace a connection's whole config, picks included; it is recorded, but a narrower edit is a
+follow-up.
+
+### 1.60 Google Chat (W4-E; no migration; ARCHITECTURE §6.11 row 8)
+
+Built against a fake Google (`claude/w4e-gchat`, 2026-11-06). Unchecked facts about Google, the
+Marketplace and each client's Workspace are in `packages/connectors/src/gchat/NOTES.md`. The
+number 1.60 leaves 1.55–1.59 to the other Wave 4 streams; the lead renumbers if needed.
+
+| Topic | Decision |
+|---|---|
+| The app | Connector `gchat`, a Google Chat app of Mezonas' own authenticating as itself: a service account's key JSON as one secret, `GOOGLE_CHAT_SERVICE_ACCOUNT`, signs a one-hour JWT for the `chat.bot` scope (Web Crypto RS256, `kid` the key's id) exchanged at `https://oauth2.googleapis.com/token`; the access token is kept in the isolate until a minute before it expires, and a 401 from Chat drops it for one retry. The key file's `token_uri` is not used. No per-client user tokens. // DECISION |
+| Connecting | `auth: "none"`: the client admin connects Google Chat in one click (`connectNoAuth`), only where `GOOGLE_CHAT_SERVICE_ACCOUNT` and `GOOGLE_CHAT_PROJECT_NUMBER` are set: `canSignIn` now asks `isConfigured()` of no-auth connectors too, so the portal shows "not available yet" until then (`apps/api/src/routes/portal.ts`, `connections.ts`, one marked line each). Registered everywhere. // DECISION |
+| Inbound endpoint | `POST /api/hooks/gchat`, public. The bearer token is verified before the body is read: a JWT with `alg` RS256 and a `kid` among the x509 certificates Google publishes for `chat@system.gserviceaccount.com` (the official samples' URL; kept for Cache-Control's max-age, 1 h without it, 24 h at most; an unknown `kid` refetches at most once a minute), `iss` exactly that address, `aud` exactly `GOOGLE_CHAT_PROJECT_NUMBER` (the Chat API's audience set to Project Number), not expired (60 s skew). Anything else 401 with one fixed message. Body at most 64 KB. The answer is synchronous: `{"text": …}` (one fixed line in the space) or `{}`. Workspace add-on events are not supported. // DECISION |
+| Binding codes | `MZ-XXXX-XXXX-XXXX`: 12 symbols of Crockford base32 from the CSPRNG (60 bits), forgiving case, dashes, O/0 and I/L/1. Made by the client admin only (`POST /api/connections/:id/gchat/code`), shown once; kept as SHA-256 over `gchat-bind:v1:<client>:<connection>:<code>` inside the connection's encrypted credentials (never in `config`, so the operator's view and `connection_change` never hold it), 15 minutes, one pending per connection (a new code replaces it), at most 5 made per connection per hour (counted from `connection_change` rows of kind `gchat_code`, 429 after). Compared in constant time, before the expiry is looked at. // DECISION |
+| Binding a space | A `MESSAGE` (or an `ADDED_TO_SPACE` carrying the mention) from a person whose text after the mention holds a code: each client's Google Chat connection is looked at in its own `withTenant` (as QuickBooks' webhook finds a company; no table outside RLS learns which client uses which space); the code matches only the client and connection it was hashed for. Then, in that client's transaction under the connection's row lock, the code is checked again, spent, and the space added to `config.spaces` (`name`, `displayName`, `kind`, `boundAt`, `boundBy` = the person's Chat display name; at most 50), with a `connection_change` `gchat_space_bound` whose actor is the admin who made the code. A space bound to another client is refused ("already connected to another Mezonas account") and the code is kept; a space already this client's spends the code. DMs are refused (spaces and group chats only). Never by email domain. // DECISION |
+| Race | Two clients' valid codes posted in one space at the same instant could both bind it: there is no lock across clients without a table (and a migration, 0032). Both clients see the space in their portal, and either can disconnect it. Accepted as a follow-up if it is ever seen. // DECISION |
+| Wrong codes | Counted per space in the isolate (`BindAttemptLimiter`: 10 in 15 minutes, 1,000 spaces tracked), then "wait 15 minutes". No storage: a code is 60 bits and lives 15 minutes, so the limit is about load, not odds. Unknown, expired and used codes get the same answer. // DECISION |
+| Other messages | Not stored, not logged, not read beyond looking for a code. The app answers every mention with a fixed line (spaces deliver messages to an app only when it is mentioned): `ADDED_TO_SPACE` without a code gets the welcome line, any other message "I only post updates from Mezonas here. I can't read or answer messages." A bot's message is ignored. The lines are fixed English (events carry no reliable language for the space). // DECISION |
+| Unbinding | `REMOVED_FROM_SPACE` removes the space from whichever client has it (`gchat_space_unbound`, `by: google_chat`). The client admin disconnects a space in the portal (`DELETE /api/connections/:id/gchat/spaces/:spaceId`); the app stays a member until someone removes it. Disconnecting Google Chat drops every space (and, with the credentials, any pending code), so another client may bind them later. // DECISION |
+| `gchat.message.post` | `external`, verb `create`, entity `message`; approval on by default (the matrix, the step and the mode). Input `{space: "spaces/…", text ≤ 4000}`. Refused at the proposal and again at the write unless the space is in this connection's `config.spaces`. Plain text: every `<…/…>` without a scheme (`<users/all>`, `<users/123>`) is dropped, any `<target|label>` becomes `label (target)` (no label hides a link), control characters other than line breaks and tabs go, repeated until nothing changes. Before state: the space and the text as it will be posted. // DECISION |
+| Posted once | Chat takes both a `requestId` (a repeat answers the message already made) and a client-assigned `messageId` (`client-` + 32 hex, unique per space): both come from the action's idempotency key, so a retry after a lost answer gets the same message, and where Chat no longer knows the request the 409 on the message id is read back (`alreadyPosted: true`). No attempt record is needed. // DECISION |
+| Compliance | Google Chat is the client's own tool, not a processor of ours: added to the exact list of client tools in `packages/core/src/compliance/`. // DECISION |
+| Portal | A Google Chat card under Connections for the client admin (`GchatSetup`): the bound spaces with "Disconnect", "Get a code" showing `@Mezonas MZ-…` once with its expiry, and a line that the Workspace admin may need to allow the app. Design-system classes; six languages, the new strings need a fluent speaker's review. // DECISION |
+| Tests | `packages/connectors/src/gchat/gchat.test.ts` (token verification: valid, wrong audience, expired, bad signature, unknown key, wrong issuer, `alg`; key caching; codes; spaces; mention stripping; the post once, after a lost answer, unbound refused, approval by default); `apps/api/src/gchat.test.ts` through the routes (codes bind only their client, once, and expire; another client's space refused; unbinding; an approved post once; no token, key or hash in any response); `apps/web/src/connections/GchatSetup.test.tsx`. |
 
 ---
 
@@ -1999,6 +2148,33 @@ call on a clean run; `ask` waits and resumes on approval; `stop` at a checkpoint
 the bill is proposed and the approver sees the corrected input, and with `review: 'failures'` a clean
 run makes no oversight call.
 
+### M33: WhatsApp passive capture (v0.14, §1.55)
+
+Three PRs in order: this design (`claude/whatsapp-capture-design`); migration 0031 alone
+(`claude/whatsapp-capture-migration`: `conversation`, `conversation_change`, the document source
+check, grants, forced RLS, the log's immutability trigger, journal and snapshot, fixtures in the RLS,
+purge and migration test loops); then the build (`claude/whatsapp-capture`).
+
+Work: core's capture schema, type lists and route contract; conversations made in the webhook's
+transaction; the raw record's media without links; `CaptureWorkflow` with the after-commit start, the
+local fallback and the cron restart; the media fetch on Twilio's origin (one manual redirect, size and
+type checks); `MessageMedia` outcomes and `storeDocument` with `source: 'message'`; download now;
+`message.get` and `messages.search` with conversation and attachments; the `capture.agentId` start;
+the routes for both surfaces with change rows; the portal's `/conversations` and the back office's
+section; the privacy page's line; Twilio's fake with media; `NOTES.md`.
+
+Tests (against the fake Twilio): capture on gives one document, read and linked to its message;
+off keeps only the attachment's facts (no bytes, no link); a duplicate webhook and a retried step make
+no second document; refusals for size (declared and counted) and type (not allowed, mismatched); a
+redirect to another origin is refused; download now; capture changed by the client admin and by the
+operator, each with a change row; a client user refused; client isolation; no portal answer carries a
+bundle, prompt, cost or Twilio link; the routes in the contract test; the API e2e's messaging part,
+if it has one.
+
+**Done when** a WhatsApp photo from a contact whose conversation has attachments on becomes one
+document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
+retried webhook makes nothing twice; the client admin toggles it and the change is logged.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -2086,7 +2262,7 @@ Open
 6. Access (§1.26, owner 2026-11-05: build it): open: the agent email domain (default `agents.mezonas.com`, routed to `apps/mfa` by Cloudflare Email Routing); the codes Twilio subaccount; the first real low-tier site for the pilot; legal review of agent accounts on third-party sites, with the review of calls and texts; `developers.cloudflare.com` allowed in the session's network to check Browser Run's limits (handoff time limit, whether recordings capture typed input, Live View link access).
 4. Texts and calls (§1.19): WhatsApp through Twilio first, then Meta directly so clients can use their own number (owner, 2026-11-04); register Mezonas as a Meta Tech Provider ahead of the Meta step. Open: Mezonas-owned Twilio subaccounts per client (default) or each client's own Twilio; which countries first (US texting needs A2P 10DLC registration); Twilio and ElevenLabs accounts and keys; `api.twilio.com`, `graph.facebook.com` and `api.elevenlabs.io` allowed in the network. Legal review of consent, calling hours, recording consent and AI disclosure for each country before any live client calls.
 8. **Before Wave 2:** (a) Sloan is the supervisor renamed and extended, one free agent per client; existing "Account check" forks become Sloan by a reviewed update: confirm the name and the merge. (b) The agent's email address: v0.12 builds `<agent>.<client>-<id>@<forwarding domain>`; the prototype's `<agent>@<client>.agents.mezonas.com` needs Email Routing per client subdomain, a Cloudflare API token to add them, and a domain apart from the code service's `agents.` (e.g. `<client>.mail.mezonas.com`). (c) Test cases from a client's own records stay in that client and never gate a shared skill: confirm. (d) A person's channel set to "on its own" is the operator's to set (the client asks the lead), as invariant 8 says: the prototype shows the client setting it. (e) Are trial and sign-off days billed (default yes: the agent is active)?
-9. **Before Wave 3:** the bank and card aggregator (Plaid, MX, Finicity or Teller; price per connected account; production review; HIPAA mode), developer apps for Outlook (Entra, publisher verification), Ramp and HubSpot, Google Drive's `drive.file` on the consent screen, and Slack's timing.
+9. **Before Wave 3:** the bank and card aggregator: answered (owner, 2026-11-06): **Plaid** (§1.52, built against a fake). Open: the price per connected account, and whether it is absorbed or passed into credits; Plaid's production review; HIPAA mode (whether Plaid signs a BAA; until then a HIPAA client isn't offered the feed). Also open: developer apps for Outlook (Entra, publisher verification), Ramp and HubSpot, Google Drive's `drive.file` on the consent screen, and Slack's timing.
 10. Smaller defaults to confirm when convenient: the undo window (60 s, delivered at the next minute, so 60–120 s); US federal holidays only; notifications by text only from the client's own Twilio number; replay as a test run in the same client, never in the Sandbox.
 
 ---
@@ -2142,6 +2318,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | `apps/api/src/email.ts` | W1-G: the `+voice` branch; W2-E: agent addresses |
 | Senses event catalog | Append event types (W1-C, W1-F, W2-E) |
 | `apps/api/src/platform.ts` | One registration line per new connector (W3-B) |
+| `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
 
 ### 8.3 Reserved migrations
 
@@ -2160,7 +2337,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0028 | W2-C | `test_case`, `test_suite_run`, `test_case_result`, `skill.require_tests` |
 | 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
 | 0030 | W3-A | `builder_session`, `builder_turn` |
-| 0031 | spare (W3-B, if a connector needs one) | |
+| 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -2168,6 +2345,10 @@ written as 0029, the next number after 0028: the journal's tags must ascend in t
 migrations merge (`packages/db/src/migrations.test.ts`), and Wave 2 merges before Wave 3, so a gap
 left for 0029–0030 could never be filled. The Builder's tables move from 0029 to 0030 and the spare
 from 0030 to 0031.
+
+// DECISION (v0.14, 2026-11-06): 0031 is WhatsApp capture's, replacing the W3-B spare. W3-B built
+Drive and Outlook with no migration, and the bank-feed connector being built in parallel needs none.
+A later connector that needs a table takes 0032.
 
 The exports (data export and accountant export, running outside the waves) needed no migration.
 
@@ -2197,7 +2378,15 @@ The exports (data export and accountant export, running outside the waves) neede
 | W2-I | Run oversight (M31–M32, v0.13) | 0029 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
 | **Wave 3** | | | | |
 | W3-A | The Builder as a conversation (M28) | 0030 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
-| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0031 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | none | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| **v0.14** | | | | |
+| v0.14 capture | WhatsApp passive capture (M33, §1.55): design, migration, build as three PRs | 0031 | `packages/connectors/src/twilio/` inbound media pieces, `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `core/src/api/conversations.ts`, `core/src/schemas/conversation.ts`; blocks marked `// v0.14 capture` in the hot spots | W2-E (inbound routing), W1-H (background reading) |
+| **Wave 4** (owner, 2026-11-06; after Wave 3) | | | | |
+| W4-A | WhatsApp through Meta (`whatsapp_meta`, §1.19) | none expected | `packages/connectors/src/whatsapp_meta/`, its webhook route, one line in `apps/api/src/platform.ts` | M33 (WhatsApp passive capture: `conversation`, media download) |
+| W4-B | Follow-ups from Waves 1–3 | none expected (0032 spare) | each item's own files, small marked blocks elsewhere | — |
+| W4-C | Slack (ARCHITECTURE §6.11, row 6; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/slack/`, one line in `apps/api/src/platform.ts` | W2-A (entities) |
+| W4-D | Google Sheets (ARCHITECTURE §6.11, row 7) | none expected | `packages/connectors/src/gsheets/`, one line in `apps/api/src/platform.ts` | W3-B's Drive (shared Google client) |
+| W4-E | Google Chat (ARCHITECTURE §6.11, row 8; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/gchat/`, its interaction route, one line in `apps/api/src/platform.ts` | W4-C's pattern (Slack) |
 
 **Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
 
@@ -2326,3 +2515,61 @@ cases, save as automation. Drafts start with `oversight.review: 'failures'` and 
 **W3-B: New connectors (M29, §1.52).** ARCHITECTURE §6.11. Google Drive, then Outlook, against fakes;
 Ramp and HubSpot after; nothing for the aggregator or Slack until the owner decides. Done when M29's
 check holds.
+
+**v0.14 capture: WhatsApp passive capture (M33, §1.55).** ARCHITECTURE §6.12, §5.5. Three PRs, each a
+draft from `origin/main`: the design; migration 0031 alone (merged with a merge commit before the
+build); the build against the fake Twilio, extended with media. Stay out of the bank-feed connector
+and `platform.ts`. Done when M33's check holds.
+
+**Wave 4 (owner, 2026-11-06).** Plan §8 had no Wave 4; the owner added it. Migrations: 0031 belongs to
+WhatsApp passive capture (M33, §1.55); 0032 is Wave 4's spare. The bank and card feed (W3-B's row 5,
+vendor Plaid, owner 2026-11-06) is being built alongside and is not a Wave 4 stream.
+
+**W4-A: WhatsApp through Meta (§1.19).** The `whatsapp_meta` connector: the client connects its own
+WhatsApp Business Account from the portal through Meta's Embedded Signup (the operator never holds its
+credentials); the same `whatsapp.*` tool ids as Twilio (`sharedNamespaces`), resolved by the agent's
+binding; Meta's webhook verified by `X-Hub-Signature-256` over the raw body; inbound messages once per
+`wamid`; media by Meta's two-step download into M33's capture, under each conversation's setting;
+groups (`conversation.kind = group`) only where the client has Official Business Account status
+(to verify against Meta's docs). Against a fake. Going live needs Mezonas registered as a Meta Tech
+Provider (owner). Starts once M33 merges. Done when a Meta-connected client's direct conversation
+captures a document exactly as M33's check does on Twilio, and `whatsapp.send` works through either
+connector without the workflow changing.
+
+**W4-B: Follow-ups.** Small items the Wave 1–3 streams left open, none needing an owner decision:
+an entity set to off is caught at publish, not only at run time (W2-A); PDFs over the model's page
+limit are split for extraction (stream D); run questions keep an amount filter (W2-F); a step's real
+attempt count (W2-B's clean-run rate); `/remind` for a connection to fix, by email through Resend
+(M5); Zoho CRM and Podio sync and webhooks (stream G); directory upkeep through `directory.suggest`
+(§1.27). Each item its own commit; record decisions where the item's section is.
+
+**W4-C: Slack (ARCHITECTURE §6.11, row 6).** The `slack` connector: Slack OAuth v2 installing a bot
+with `chat:write` (and `channels:read` to list channels); the client admin installs it into the
+client's own workspace from the portal and picks the channels an agent may post to;
+`slack.message.post` is `external` (create, entity `message`), behind approval, posted once (the
+attempt recorded before Slack is called, as `gmail.send`); no reading of messages. Against a fake.
+Owner: a Slack app with the redirect URI and public distribution. Done when an approved post goes
+once to a picked channel and a channel not picked is refused.
+
+**W4-D: Google Sheets (ARCHITECTURE §6.11, row 7).** The `gsheets` connector on the Google client
+Drive and Gmail use, with the `drive.file` scope only (non-sensitive): sheets Mezonas creates, and
+sheets the client picks with Google's file picker. Tools: `sheets.range.read` (read),
+`sheets.rows.append` (`external`, create) and `sheets.range.update` (`external`, update, the cells'
+current values as before state, refused if they changed since). Behind approval, once per action.
+Disconnect drops our tokens without revoking (the shared client, as Drive). Against a fake. Owner:
+the Sheets API enabled, the picker's browser key restricted to our origins. Done when an agent
+appends a row once to a picked sheet after approval, and a sheet the client didn't pick is refused.
+
+**W4-E: Google Chat (ARCHITECTURE §6.11, row 8).** Slack's counterpart for clients on Google
+Workspace: a Google Chat app of Mezonas' own that posts to the spaces the client adds it to. The
+app authenticates as itself (a service account with the `chat.bot` scope; no per-client user tokens).
+A space belongs to a client only after proof: the client admin gets a one-time code in the portal and
+mentions the app with it in the space; the app's interaction endpoint (Google-signed bearer token
+verified) binds that space to that client. Never by email domain alone. `gchat.message.post` is
+`external` (create, entity `message`), behind approval, posted once (a client-assigned message id
+where the API takes one, else the attempt recorded first), plain text with mentions of everyone
+stripped; only to bound spaces; no reading of messages beyond the binding mention. Removing the app
+from a space unbinds it. Against a fake. Owner: the Chat API configured on the Google project (app
+name, avatar, HTTP endpoint), the service account and its key as a secret, and the app published to
+the Google Workspace Marketplace (each client's Workspace admin must allow it). Done when an approved
+post goes once to a bound space, an unbound space is refused, and a space is bound only by its code.

@@ -3,6 +3,7 @@ import { luhnValid, redactCardNumbers, redactCardNumbersDeep } from "./card-numb
 import {
   complianceOf,
   hipaaReadiness,
+  PROCESSORS,
   parseCoveredProcessors,
   processingRefusal,
   processorForModel,
@@ -76,10 +77,37 @@ describe("processors", () => {
       "hubspot",
       "gdrive",
       "outlook",
+      // v0.14 W4-E
+      "gchat",
+      // v0.14 W4-D
+      "gsheets",
+      // v0.14 W4-C: the client's own workspace, not a processor of ours.
+      "slack",
     ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }
     expect(processorsForOffer("twilio").sort()).toEqual(["elevenlabs", "meta_whatsapp", "twilio"]);
+    // v0.12 bankfeed: Plaid is Mezonas' processor, not the client's tool.
+    expect(processorsForOffer("bankfeed")).toEqual(["plaid"]);
+    expect(processorsForTool("bankfeed.transaction.query", "bankfeed")).toEqual(["plaid"]);
+  });
+
+  it("lists exactly these processors", () => {
+    expect([...PROCESSORS]).toEqual([
+      "cloudflare",
+      "neon",
+      "workos",
+      "anthropic",
+      "openai",
+      "twilio",
+      "meta_whatsapp",
+      "elevenlabs",
+      "resend",
+      "plaid",
+    ]);
+    expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
+      "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",
+    ]);
   });
 
   it("refuses only in HIPAA mode, and only what isn't covered", () => {

@@ -1050,7 +1050,8 @@ export const TRANSACTION_STATUSES = [
   "processed",
 ] as const;
 export const LINE_DETAIL_TYPES = ["account", "item"] as const;
-export const DOCUMENT_SOURCES = ["connector", "upload", "email", "request"] as const;
+// v0.14 capture: `message`, a file sent in a WhatsApp message (migration 0031, docs/plan.md §1.55).
+export const DOCUMENT_SOURCES = ["connector", "upload", "email", "request", "message"] as const;
 export const DOCUMENT_STATUSES = [
   "stored",
   "extracting",
@@ -2934,6 +2935,263 @@ export const oversightDecision = pgTable(
   ],
 );
 
+// ── The Builder as a conversation (migration 0030, ARCHITECTURE §9.6; plan §1.51) ───────────────
+// Rows follow the templates' policy: a session on a template or a shared skill has tenant_id null
+// (operator sessions only); a session on a client's agent or skill carries that client's id and is
+// seen only in its scope (CLAUDE.md invariant 1). Only operator routes read them.
+
+export const BUILDER_SESSION_KINDS = ["agent", "skill"] as const;
+export type BuilderSessionKind = (typeof BUILDER_SESSION_KINDS)[number];
+export const BUILDER_SESSION_STATUSES = ["open", "saved", "closed"] as const;
+export type BuilderSessionStatus = (typeof BUILDER_SESSION_STATUSES)[number];
+export const BUILDER_TURN_ROLES = ["operator", "builder"] as const;
+export type BuilderTurnRole = (typeof BUILDER_TURN_ROLES)[number];
+
+/** One labelled change a turn made (`builder_turn.changes`); validated by core where it is written. */
+export interface BuilderChangeEntry {
+  /** What undo names: core's selectable change id (`step:<id>`, `bundle#/definition/…`) or a field. */
+  id: string;
+  label: string;
+  before?: unknown;
+  after?: unknown;
+  /** An undo turn's entry: the turn and entry it reverted. */
+  undoes?: { turnId: string; changeId: string };
+}
+
+/**
+ * A Builder conversation about one agent (new or existing, template or client agent) or one skill.
+ * `bundle` is the working draft: an `AgentBundle` for `agent`, `{definition, cases}` for `skill`.
+ * `agent_id` / `skill_id` are set once the draft is saved (or from the start for an existing one);
+ * `base_version_id` is the version the conversation started from, then the last one it saved.
+ * Updated in place; never deleted.
+ */
+// DECISION: `base_version_id` has no foreign key: it names an `agent_version` or a `skill_version`
+// by `kind` (as test_case's target does). The routes check it belongs to the session's target.
+export const builderSession = pgTable(
+  "builder_session",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    kind: text("kind").$type<BuilderSessionKind>().notNull(),
+    agentId: uuid("agent_id"),
+    skillId: uuid("skill_id"),
+    baseVersionId: uuid("base_version_id"),
+    bundle: json<unknown>("bundle").notNull(),
+    status: text("status").$type<BuilderSessionStatus>().notNull().default("open"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("builder_session_id_tenant_key").on(t.id, t.tenantId),
+    // Same client as its agent or skill (enforced whenever tenant_id is set), and existing.
+    foreignKey({
+      name: "builder_session_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "builder_session_agent_id_fk",
+      columns: [t.agentId],
+      foreignColumns: [agent.id],
+    }),
+    foreignKey({
+      name: "builder_session_skill_fk",
+      columns: [t.skillId, t.tenantId],
+      foreignColumns: [skill.id, skill.tenantId],
+    }),
+    foreignKey({
+      name: "builder_session_skill_id_fk",
+      columns: [t.skillId],
+      foreignColumns: [skill.id],
+    }),
+    index("builder_session_agent_idx").on(t.agentId),
+    index("builder_session_skill_idx").on(t.skillId),
+    index("builder_session_tenant_idx").on(t.tenantId, t.createdAt),
+    check("builder_session_kind_check", oneOf(t.kind, BUILDER_SESSION_KINDS)),
+    check("builder_session_status_check", oneOf(t.status, BUILDER_SESSION_STATUSES)),
+    check(
+      "builder_session_target_check",
+      sql`(${t.kind} = 'agent' and ${t.skillId} is null) or (${t.kind} = 'skill' and ${t.agentId} is null)`,
+    ),
+  ],
+);
+
+/**
+ * One message of a Builder conversation: the operator's (`text`, the `/command` it was, an undo or
+ * a save) or the Builder's answer (`text`, the labelled `changes` it made). `bundle` is the working
+ * draft after the turn when the turn changed it (undo merges against it); `meta` holds the
+ * Builder's questions, gaps, the guards' notes, publish errors, the parsed command and the model.
+ * Immutable except `undone_at` (trigger), set once every change of the turn is undone.
+ */
+// DECISION: `bundle` and `meta` are two columns beyond ARCHITECTURE §5.5's list: undo needs the
+// bundle after the entry's turn (plan §1.51), and a reopened conversation shows the questions,
+// gaps and notes the answer had.
+// DECISION: `saved_version_id` has no foreign key: an `agent_version` or a `skill_version` by the
+// session's kind. It is set when the save turn is inserted, never later.
+export const builderTurn = pgTable(
+  "builder_turn",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    sessionId: uuid("session_id").notNull(),
+    seq: integer("seq").notNull(),
+    role: text("role").$type<BuilderTurnRole>().notNull(),
+    text: text("text").notNull(),
+    command: text("command"),
+    changes: json<BuilderChangeEntry[]>("changes").notNull().default([]),
+    bundle: json<unknown>("bundle"),
+    meta: json("meta").notNull().default({}),
+    undoneAt: ts("undone_at"),
+    savedVersionId: uuid("saved_version_id"),
+    costUsd: usd("cost_usd"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("builder_turn_session_seq_key").on(t.sessionId, t.seq),
+    // Same client as its session (enforced whenever tenant_id is set), and existing.
+    foreignKey({
+      name: "builder_turn_session_fk",
+      columns: [t.sessionId, t.tenantId],
+      foreignColumns: [builderSession.id, builderSession.tenantId],
+    }),
+    foreignKey({
+      name: "builder_turn_session_id_fk",
+      columns: [t.sessionId],
+      foreignColumns: [builderSession.id],
+    }),
+    index("builder_turn_tenant_idx").on(t.tenantId),
+    check("builder_turn_role_check", oneOf(t.role, BUILDER_TURN_ROLES)),
+    check("builder_turn_seq_check", sql`${t.seq} >= 1`),
+    check("builder_turn_changes_check", sql`jsonb_typeof(${t.changes}) = 'array'`),
+    check("builder_turn_cost_check", sql`${t.costUsd} >= 0`),
+  ],
+);
+
+// ── v0.14 capture: WhatsApp passive capture (migration 0031; ARCHITECTURE §6.12, docs/plan.md §1.55) ──
+
+export const CONVERSATION_CHANNELS = ["whatsapp", "sms"] as const;
+export type ConversationChannel = (typeof CONVERSATION_CHANNELS)[number];
+export const CONVERSATION_KINDS = ["direct", "group"] as const;
+export type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+export const CAPTURE_ATTACHMENTS = ["off", "documents", "all"] as const;
+export type CaptureAttachments = (typeof CAPTURE_ATTACHMENTS)[number];
+export const CONVERSATION_CHANGE_SIDES = ["client", "operator", "system"] as const;
+export type ConversationChangeSide = (typeof CONVERSATION_CHANGE_SIDES)[number];
+/** 20 MB: a conversation's default per-file limit. */
+export const CAPTURE_DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
+/** 32 MB: never above the documents capability's limit (`MAX_DOCUMENT_BYTES`). */
+export const CAPTURE_MAX_BYTES_CAP = 32 * 1024 * 1024;
+
+/** What a conversation keeps (`conversation.capture`); validated by core where it is written. */
+export interface ConversationCapture {
+  /** Keep the message text (false: the envelope only). */
+  archive: boolean;
+  attachments: CaptureAttachments;
+  /** Per file, 1 … `CAPTURE_MAX_BYTES_CAP`. */
+  maxBytes: number;
+  /** A client agent of this client started with the new documents. */
+  agentId?: string;
+}
+
+/**
+ * One WhatsApp chat on one connection: `direct` (one contact; Twilio) or `group` (the provider's
+ * group id; Meta, later). Made on the first inbound message with the client's default capture.
+ * Only `capture`, `title` and `updated_at` change (trigger); never deleted.
+ */
+// DECISION: `channel` allows `sms` though only WhatsApp makes conversations in v0.14, so SMS can
+// join without a migration. `capture.agentId` has no foreign key (it lives in jsonb); the routes
+// check it is this client's agent.
+export const conversation = pgTable(
+  "conversation",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    channel: text("channel").$type<ConversationChannel>().notNull(),
+    kind: text("kind").$type<ConversationKind>().notNull(),
+    contactId: uuid("contact_id"),
+    externalId: text("external_id"),
+    title: text("title").notNull(),
+    capture: json<ConversationCapture>("capture")
+      .notNull()
+      .default({ archive: true, attachments: "off", maxBytes: CAPTURE_DEFAULT_MAX_BYTES }),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("conversation_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "conversation_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    foreignKey({
+      name: "conversation_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    uniqueIndex("conversation_direct_key")
+      .on(t.connectionId, t.channel, t.contactId)
+      .where(sql`${t.kind} = 'direct'`),
+    uniqueIndex("conversation_group_key")
+      .on(t.connectionId, t.channel, t.externalId)
+      .where(sql`${t.kind} = 'group'`),
+    index("conversation_contact_idx").on(t.contactId),
+    index("conversation_tenant_idx").on(t.tenantId, t.updatedAt),
+    check("conversation_channel_check", oneOf(t.channel, CONVERSATION_CHANNELS)),
+    check("conversation_kind_check", oneOf(t.kind, CONVERSATION_KINDS)),
+    check(
+      "conversation_shape_check",
+      sql`(${t.kind} = 'direct' and ${t.contactId} is not null and ${t.externalId} is null) or (${t.kind} = 'group' and ${t.externalId} is not null)`,
+    ),
+    check("conversation_title_check", sql`length(${t.title}) between 1 and 200`),
+    check(
+      "conversation_external_id_check",
+      sql`${t.externalId} is null or length(${t.externalId}) between 1 and 200`,
+    ),
+    check(
+      "conversation_capture_check",
+      sql`jsonb_typeof(${t.capture}) = 'object' and coalesce(jsonb_typeof(${t.capture}->'archive') = 'boolean', false) and coalesce(${t.capture}->>'attachments' in ('off', 'documents', 'all'), false) and case when jsonb_typeof(${t.capture}->'maxBytes') = 'number' then (${t.capture}->>'maxBytes')::numeric between 1 and 33554432 else false end`,
+    ),
+  ],
+);
+
+/**
+ * Every change to a conversation's capture: who (null: the system), from which side, the setting
+ * before and after, and the reason when one was given. Append-only (trigger), like contact_change.
+ */
+export const conversationChange = pgTable(
+  "conversation_change",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    conversationId: uuid("conversation_id").notNull(),
+    actorId: uuid("actor_id").references(() => appUser.id),
+    side: text("side").$type<ConversationChangeSide>().notNull(),
+    /** `{setting: 'capture', before, after, reason?}`. */
+    change: json("change").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "conversation_change_conversation_fk",
+      columns: [t.conversationId, t.tenantId],
+      foreignColumns: [conversation.id, conversation.tenantId],
+    }),
+    index("conversation_change_conversation_idx").on(t.conversationId, t.createdAt),
+    index("conversation_change_tenant_idx").on(t.tenantId),
+    check("conversation_change_side_check", oneOf(t.side, CONVERSATION_CHANGE_SIDES)),
+    check("conversation_change_change_check", sql`jsonb_typeof(${t.change}) = 'object'`),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -2998,6 +3256,11 @@ export const TENANT_TABLES = [
   "test_suite_run",
   "test_case_result",
   "oversight_decision",
+  "builder_session",
+  "builder_turn",
+  // v0.14 capture (0031)
+  "conversation",
+  "conversation_change",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -3015,6 +3278,8 @@ export const OPERATOR_TABLES = [
   "test_case",
   "test_suite_run",
   "test_case_result",
+  "builder_session",
+  "builder_turn",
 ] as const satisfies readonly TenantTable[];
 
 /** Global tables only operator sessions may read or write (row-level security on `app.operator`). */

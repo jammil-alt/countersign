@@ -211,6 +211,20 @@
       "when": 1793944996206,
       "tag": "0029_oversight_decision",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793956189191,
+      "tag": "0030_builder_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793971912678,
+      "tag": "0031_whatsapp_capture",
+      "breakpoints": true
     }
   ]
 }

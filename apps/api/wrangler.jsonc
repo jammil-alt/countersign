@@ -52,6 +52,12 @@
       "name": "mezonas-local-test-suite",
       "binding": "TEST_SUITE_WORKFLOW",
       "class_name": "TestSuiteWorkflow"
+    },
+    // v0.14 capture: one instance per WhatsApp message whose attachments are fetched (§1.55).
+    {
+      "name": "mezonas-local-capture",
+      "binding": "CAPTURE_WORKFLOW",
+      "class_name": "CaptureWorkflow"
     }
   ],
 
@@ -71,7 +77,9 @@
     "LLM_MODE": "live",
     // Which QuickBooks the qbo connector talks to: the Intuit app's development keys reach sandbox
     // companies only.
-    "QBO_ENV": "sandbox"
+    "QBO_ENV": "sandbox",
+    // Which Plaid the bank feed talks to (docs/plan.md §1.52): PLAID_SECRET must be this one's.
+    "PLAID_ENV": "sandbox"
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
@@ -102,6 +110,12 @@
           "name": "mezonas-staging-test-suite",
           "binding": "TEST_SUITE_WORKFLOW",
           "class_name": "TestSuiteWorkflow"
+        },
+        // v0.14 capture
+        {
+          "name": "mezonas-staging-capture",
+          "binding": "CAPTURE_WORKFLOW",
+          "class_name": "CaptureWorkflow"
         }
       ],
       // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
@@ -126,6 +140,7 @@
         "APP_ORIGIN": "https://staging.mezonas.com",
         "LLM_MODE": "live",
         "QBO_ENV": "sandbox",
+        "PLAID_ENV": "sandbox",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
         "BAA_PROCESSORS": ""
@@ -146,6 +161,12 @@
           "name": "mezonas-test-suite",
           "binding": "TEST_SUITE_WORKFLOW",
           "class_name": "TestSuiteWorkflow"
+        },
+        // v0.14 capture
+        {
+          "name": "mezonas-capture",
+          "binding": "CAPTURE_WORKFLOW",
+          "class_name": "CaptureWorkflow"
         }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
@@ -168,6 +189,8 @@
         // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off
         // in production (no QBO_CLIENT_ID).
         "QBO_ENV": "production",
+        // Plaid's production needs its review first; until PLAID_SECRET is set, feeds stay off.
+        "PLAID_ENV": "production",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
         "BAA_PROCESSORS": ""

@@ -89,6 +89,8 @@ export const fr: Messages = {
   "nav.settings": "Paramètres",
   "nav.knowledge": "Connaissances",
   "nav.contacts": "Contacts",
+  // v0.14 capture
+  "nav.conversations": "Conversations",
   "nav.billing": "Facturation",
   "nav.people": "Personnes",
   "nav.access": "Accès",
@@ -273,6 +275,19 @@ export const fr: Messages = {
   "connections.gmail.testSend": "Envoyer un e-mail de test",
   "connections.gmail.testSent":
     "Envoyé à {address}. Vérifiez le dossier Messages envoyés et la boîte de réception de cette adresse.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publiez des messages dans les canaux Slack de votre choix. Nous ne pouvons pas lire vos messages.",
+  "slack.section": "Slack · canaux",
+  "slack.workspace": "Espace de travail : {name}",
+  "slack.help":
+    "Les agents publient uniquement dans les canaux que vous choisissez. Ajoutez l'app Mezonas à un canal dans Slack avant de le choisir.",
+  "slack.noChannels": "Aucun canal public dans cet espace de travail.",
+  "slack.notMember": "Ajoutez Mezonas à ce canal dans Slack",
+  "slack.gone": "ne figure plus dans Slack",
+  "slack.noPicks": "Aucun canal choisi : les agents ne peuvent pas publier dans Slack.",
+  "slack.picked": { one: "{count} canal choisi", other: "{count} canaux choisis" },
+  "slack.saved": "Enregistré.",
   "connection.status.connected": "Connecté",
   "connection.status.pending": "Non connecté",
   "connection.status.disconnected": "Déconnecté",
@@ -303,6 +318,12 @@ export const fr: Messages = {
   "callback.subtitle": "Fin de la connexion à votre outil.",
   "callback.back": "Retour aux connexions",
   "callback.connecting": "Connexion…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lisez les opérations de vos comptes bancaires et de vos cartes. Rien ici ne peut déplacer d'argent.",
+  "connections.bankfeed.connect": "Connecter une banque ou une carte",
+  "callback.linkLost":
+    "Cette connexion bancaire a commencé dans un autre onglet ou une autre fenêtre. Recommencez depuis Connexions.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accès",
@@ -827,6 +848,37 @@ export const fr: Messages = {
   "contacts.subtitle":
     "Les personnes que nous pouvons contacter pour vous par e-mail, SMS, WhatsApp ou téléphone. Nous ne contactons que celles qui ont accepté, et jamais pendant les heures de silence.",
   "contacts.adminOnly": "Votre administrateur tient la liste des contacts.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversations",
+  "conversations.subtitle":
+    "Les discussions WhatsApp avec votre numéro. Choisissez ce que nous gardons de chacune : les messages, et leurs pièces jointes comme documents.",
+  "conversations.adminOnly":
+    "Votre administrateur choisit ce que nous gardons des conversations WhatsApp.",
+  "conversations.empty":
+    "Aucune conversation WhatsApp pour l'instant. Une conversation commence quand quelqu'un écrit à votre numéro.",
+  "conversations.lastMessage": "Dernier message {when}",
+  "conversations.noMessages": "Aucun message pour l'instant.",
+  "conversations.keepMessages": "Garder les messages",
+  "conversations.attachments": "Télécharger les pièces jointes",
+  "conversations.attachments.off": "Non",
+  "conversations.attachments.documents": "PDF et images",
+  "conversations.attachments.all": "Tous les fichiers",
+  "conversations.yes": "Oui",
+  "conversations.no": "Non",
+  "conversations.showMessages": "Voir les messages",
+  "conversations.hideMessages": "Masquer les messages",
+  "conversations.notKept": "Non gardé",
+  "conversations.downloadNow": "Télécharger maintenant",
+  "conversations.downloading": {
+    one: "Téléchargement de {count} pièce jointe.",
+    other: "Téléchargement de {count} pièces jointes.",
+  },
+  "conversations.failed": "Cela n'a pas marché. Réessayez.",
+  "conversations.attachment.not_downloaded": "Non téléchargée",
+  "conversations.attachment.pending": "Téléchargement",
+  "conversations.attachment.filed": "Classée",
+  "conversations.attachment.refused": "Non prise",
+  "conversations.attachment.failed": "Téléchargement impossible",
   "contacts.empty":
     "Aucun contact pour l'instant. Ajoutez les personnes que vos agents peuvent contacter, avec la façon dont elles ont accepté.",
   "contacts.channel.sms": "SMS",
@@ -1167,4 +1219,46 @@ export const fr: Messages = {
     one: "{count} personne",
     other: "{count} personnes",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · espaces",
+  "gchat.spacesTitle": "Espaces connectés",
+  "gchat.help":
+    "Les agents publient uniquement dans ces espaces, et seulement après votre accord pour chaque message. Nous ne pouvons pas lire vos messages.",
+  "gchat.noSpaces": "Aucun espace connecté pour l'instant.",
+  "gchat.groupChat": "Discussion de groupe",
+  "gchat.boundBy": "Connecté {time} par {name}",
+  "gchat.boundAt": "Connecté {time}",
+  "gchat.codeTitle": "Connecter un espace",
+  "gchat.steps":
+    "Dans Google Chat, ajoutez Mezonas à l'espace, puis envoyez-y ce message. Le code ne sert qu'une fois.",
+  "gchat.codeExpires": "Valable jusqu'à {time}.",
+  "gchat.codeWaiting":
+    "Un code est valable jusqu'à {time}. Si vous ne l'avez plus, demandez-en un nouveau.",
+  "gchat.getCode": "Obtenir un code",
+  "gchat.newCode": "Obtenir un nouveau code",
+  "gchat.adminAllow":
+    "Vous ne trouvez pas Mezonas dans Google Chat ? L'administrateur de Google Workspace doit autoriser l'application.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Lisez et ajoutez des lignes dans les feuilles Google Sheets que vous choisissez. Nous ne pouvons ouvrir aucune autre feuille.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Les agents ne peuvent ouvrir que les feuilles que vous choisissez ici. Vous les choisissez dans la fenêtre de Google.",
+  "gsheets.none": "Aucune feuille choisie pour l'instant.",
+  "gsheets.choose": "Choisir des feuilles",
+  "gsheets.remove": "Retirer",
+  "gsheets.otherAccount":
+    "Choisie avec un autre compte Google. Choisissez-la à nouveau pour l'utiliser.",
+  "gsheets.notSetUp":
+    "Le choix des feuilles n'est pas encore disponible ici. Nous vous préviendrons dès qu'il le sera.",
+  "gsheets.pick.title": "Choisir des feuilles Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google ouvre une fenêtre où vous choisissez les feuilles que les agents peuvent utiliser. Nous ne voyons que celles-là.",
+  "gsheets.pick.open": "Ouvrir le sélecteur de Google",
+  "gsheets.pick.loading": "Chargement du sélecteur de Google…",
+  "gsheets.pick.saving": "Enregistrement de votre choix…",
+  "gsheets.pick.cancelled":
+    "Aucune feuille choisie. Ouvrez à nouveau le sélecteur, ou revenez en arrière.",
+  "gsheets.pick.failed":
+    "Le sélecteur de Google ne s'est pas ouvert. Vérifiez que les fenêtres pop-up sont autorisées, puis réessayez.",
 };

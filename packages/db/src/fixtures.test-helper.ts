@@ -21,11 +21,15 @@ import {
   billingStatement,
   billingStatementLine,
   billingUsageReport,
+  builderSession,
+  builderTurn,
   connection,
   connectionChange,
   connectorSetting,
   contact,
   contactChange,
+  conversation,
+  conversationChange,
   docExtraction,
   docLine,
   document,
@@ -127,6 +131,9 @@ export interface ClientFixture {
   suiteRunId: string;
   testCaseResultId: string;
   oversightDecisionId: string;
+  builderSessionId: string;
+  builderTurnId: string;
+  conversationId: string;
 }
 
 /** A shared automation's definition, as core's `Automation` (W2-B) will check it. */
@@ -619,6 +626,57 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     })
     .returning();
   if (!od) throw new Error("no oversight decision");
+  // Wave 3 (0030): a Builder conversation about the client's agent.
+  const [bs] = await db
+    .insert(builderSession)
+    .values({
+      tenantId,
+      kind: "agent",
+      agentId: a.id,
+      baseVersionId: av.id,
+      bundle: BUNDLE,
+      createdBy: u.id,
+    })
+    .returning();
+  if (!bs) throw new Error("no builder session");
+  const [bt] = await db
+    .insert(builderTurn)
+    .values({
+      tenantId,
+      sessionId: bs.id,
+      seq: 1,
+      role: "builder",
+      text: "Added a check step.",
+      changes: [{ id: "step:s2", label: "+1 step, step 2", after: { id: "s2" } }],
+      bundle: BUNDLE,
+      costUsd: "0.0120",
+    })
+    .returning();
+  if (!bt) throw new Error("no builder turn");
+  // v0.14 capture (0031): the contact's WhatsApp conversation and one change to its capture.
+  const [cv] = await db
+    .insert(conversation)
+    .values({
+      tenantId,
+      connectionId: c.id,
+      channel: "whatsapp",
+      kind: "direct",
+      contactId: ct.id,
+      title: "Pat Lee",
+    })
+    .returning();
+  if (!cv) throw new Error("no conversation");
+  await db.insert(conversationChange).values({
+    tenantId,
+    conversationId: cv.id,
+    actorId: u.id,
+    side: "client",
+    change: {
+      setting: "capture",
+      before: cv.capture,
+      after: { ...cv.capture, attachments: "documents" },
+    },
+  });
 
   await db.insert(auditEvent).values({
     tenantId,
@@ -652,17 +710,24 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     suiteRunId: ts.id,
     testCaseResultId: tr.id,
     oversightDecisionId: od.id,
+    builderSessionId: bs.id,
+    builderTurnId: bt.id,
+    conversationId: cv.id,
   };
 }
 
 /**
  * A template with a version and a change, a shared skill with a version, a shared automation with
- * a version and a shared test case with a suite run and result (all tenant_id null), and the
+ * a version, a shared test case with a suite run and result and a Builder conversation about the
+ * template (all tenant_id null), and the
  * operator-only rows (a saved view, a connector setting).
  */
-export async function insertOperatorRows(
-  db: Db,
-): Promise<{ agentVersionId: string; automationVersionId: string; testCaseResultId: string }> {
+export async function insertOperatorRows(db: Db): Promise<{
+  agentVersionId: string;
+  automationVersionId: string;
+  testCaseResultId: string;
+  builderTurnId: string;
+}> {
   const [s] = await db.insert(skill).values({ slug: "shared", name: "Shared" }).returning();
   if (!s) throw new Error("no skill");
   const [sv] = await db
@@ -744,5 +809,20 @@ export async function insertOperatorRows(
     .values({ suiteRunId: ts.id, testCaseId: tc.id, status: "fail", got: {}, diff: [] })
     .returning();
   if (!tr) throw new Error("no test case result");
-  return { agentVersionId: av?.id ?? "", automationVersionId: auv.id, testCaseResultId: tr.id };
+  const [bs] = await db
+    .insert(builderSession)
+    .values({ kind: "agent", agentId: a.id, bundle: BUNDLE, createdBy: op.id })
+    .returning();
+  if (!bs) throw new Error("no builder session");
+  const [bt] = await db
+    .insert(builderTurn)
+    .values({ sessionId: bs.id, seq: 1, role: "operator", text: "Draft a card receipts agent." })
+    .returning();
+  if (!bt) throw new Error("no builder turn");
+  return {
+    agentVersionId: av?.id ?? "",
+    automationVersionId: auv.id,
+    testCaseResultId: tr.id,
+    builderTurnId: bt.id,
+  };
 }

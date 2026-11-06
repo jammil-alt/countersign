@@ -964,3 +964,84 @@ export function validateAutomation(
   for (const e of errors) if (e.stepId === "") e.stepId = null;
   return { valid: errors.length === 0, errors, value: def };
 }
+
+// ── v0.13 W2-I: checkpoints (ARCHITECTURE §10.11; docs/plan.md §1.54, M32) ─────────────────────
+
+/** What checkpoint computation reads: skills and tools, and the automations use steps pin. */
+export interface CheckpointContext extends Pick<TypingContext, "skills" | "tools"> {
+  /** Automation versions by pinned reference (`slug@version`): their steps are enough. */
+  automations?: Readonly<Record<string, { steps: readonly Step[] }>>;
+}
+
+/**
+ * Whether a step can write to a client's tool: an action with an external tool, a skill whose tools
+ * write (or that reaches people), or a use step whose automation has such a step.
+ */
+function writesForCheckpoints(step: Step, ctx: CheckpointContext): boolean {
+  if (step.kind === "use_automation") {
+    const def = Object.hasOwn(ctx.automations ?? {}, step.automation)
+      ? ctx.automations?.[step.automation]
+      : undefined;
+    return def !== undefined && stepsOf(def.steps).some((s) => writesForCheckpoints(s, ctx));
+  }
+  const typing: TypingContext = {
+    ...(ctx.skills ? { skills: ctx.skills } : {}),
+    ...(ctx.tools ? { tools: ctx.tools } : {}),
+  };
+  if (step.kind === "skill" && lookupSkill(step.skill, typing)?.reachesPeople === true) return true;
+  // DECISION: a step whose skill or tool the context doesn't know counts as not writing: it makes
+  // no checkpoint, so its run behaves as with `failures` (never less safe than without oversight).
+  return (stepWrites(step, typing)?.length ?? 0) > 0;
+}
+
+/**
+ * The checkpoints of one step list (forks and loops included, not inside automations): every skill
+ * or action step whose output a write step's input references (`{{steps.<id>…}}`), and every
+ * skill or action step with `review: 'always'`. Computed from the definition, never guessed by the
+ * model (ARCHITECTURE §10.11). A write's input can only reference steps that ran before it.
+ */
+export function checkpointSteps(steps: readonly Step[], ctx: CheckpointContext): Set<string> {
+  const all = stepsOf(steps);
+  const fed = new Set<string>();
+  for (const step of all) {
+    if (step.kind !== "skill" && step.kind !== "action" && step.kind !== "use_automation") {
+      continue;
+    }
+    if (!writesForCheckpoints(step, ctx)) continue;
+    for (const r of collectRefs(step.input).refs) {
+      const [root, id] = r.path;
+      if (root === "steps" && id !== undefined) fed.add(id);
+    }
+  }
+  const out = new Set<string>();
+  for (const step of all) {
+    if (step.kind !== "skill" && step.kind !== "action") continue;
+    if (step.review === "always" || fed.has(step.id)) out.add(step.id);
+  }
+  return out;
+}
+
+/**
+ * Every checkpoint of a workflow, with its automations' expanded steps: a step in the workflow (in
+ * a fork or a loop too) by its id, an automation's inner step as `${useStepId}/${innerId}` (inner
+ * steps read only the automation's input and each other, so their checkpoints are the
+ * automation's own).
+ */
+// DECISION: computed when a run starts (and wherever the builder wants to label steps), not stored
+// on the version and not a validation error: it follows from the steps, and a version's bundle
+// stays as the operator wrote it (docs/plan.md §1.54).
+export function workflowCheckpoints(
+  workflow: Pick<Workflow, "steps">,
+  ctx: CheckpointContext,
+): string[] {
+  const out = [...checkpointSteps(workflow.steps, ctx)];
+  for (const use of stepsOf(workflow.steps)) {
+    if (use.kind !== "use_automation") continue;
+    const def = Object.hasOwn(ctx.automations ?? {}, use.automation)
+      ? ctx.automations?.[use.automation]
+      : undefined;
+    if (!def) continue;
+    for (const id of checkpointSteps(def.steps, ctx)) out.push(`${use.id}/${id}`);
+  }
+  return out;
+}

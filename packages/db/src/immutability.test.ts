@@ -21,8 +21,11 @@ import {
   billingStatement,
   billingStatementLine,
   billingUsageReport,
+  builderTurn,
   connectionChange,
   contactChange,
+  conversation,
+  conversationChange,
   docExtraction,
   docLine,
   document,
@@ -160,8 +163,14 @@ describe.skipIf(!online)("immutability", () => {
     );
   });
 
-  it("connection_change, agent_change, contact_change and organization_change are append-only", async () => {
-    for (const table of [connectionChange, agentChange, contactChange, organizationChange]) {
+  it("connection_change, agent_change, contact_change, organization_change and conversation_change are append-only", async () => {
+    for (const table of [
+      connectionChange,
+      agentChange,
+      contactChange,
+      organizationChange,
+      conversationChange,
+    ]) {
       expect(await errorCode(t.db.update(table).set({ change: { edited: true } }))).toBe(
         RESTRICT_VIOLATION,
       );
@@ -466,6 +475,104 @@ describe.skipIf(!online)("immutability", () => {
     ]) {
       const code = await errorCode(
         withOperator(t.db, [A.tenantId], async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+  });
+
+  it("builder_turn: only undone_at changes; nothing is deleted, whoever tries (0030)", async () => {
+    for (const change of [
+      { text: "Rewritten." },
+      { changes: [] },
+      { bundle: null },
+      { seq: 9 },
+      { costUsd: "0" },
+      { savedVersionId: A.agentVersionId },
+    ]) {
+      expect(
+        await errorCode(
+          t.db.update(builderTurn).set(change).where(eq(builderTurn.id, A.builderTurnId)),
+        ),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    const at = new Date("2026-11-06T12:00:00Z");
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx.update(builderTurn).set({ undoneAt: at }).where(eq(builderTurn.id, A.builderTurnId));
+    });
+    // A shared turn, as the operator in the Worker's role.
+    await withOperator(t.db, [], async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(builderTurn)
+        .set({ undoneAt: at })
+        .where(eq(builderTurn.id, shared.builderTurnId));
+    });
+    expect(
+      await errorCode(
+        withOperator(t.db, [], async (tx) => {
+          await asWorker(tx);
+          await tx
+            .update(builderTurn)
+            .set({ text: "Rewritten." })
+            .where(eq(builderTurn.id, shared.builderTurnId));
+        }),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(t.db.delete(builderTurn).where(eq(builderTurn.id, A.builderTurnId))),
+    ).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`delete from builder_turn where id = ${A.builderTurnId}`,
+      sql`delete from builder_session where id = ${A.builderSessionId}`,
+    ]) {
+      const code = await errorCode(
+        withOperator(t.db, [A.tenantId], async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+    const [row] = await t.db
+      .select({ undoneAt: builderTurn.undoneAt })
+      .from(builderTurn)
+      .where(eq(builderTurn.id, A.builderTurnId));
+    expect(row?.undoneAt?.toISOString()).toBe(at.toISOString());
+  });
+
+  it("conversation: only capture, title and updated_at change; nothing is deleted (0031)", async () => {
+    const where = eq(conversation.id, A.conversationId);
+    for (const change of [
+      { channel: "sms" as const },
+      { kind: "group" as const, externalId: "g1", contactId: null },
+      { connectionId: A.connectionId, createdAt: new Date("2020-01-01T00:00:00Z") },
+    ]) {
+      expect(
+        await errorCode(t.db.update(conversation).set(change).where(where)),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    const capture = { archive: false, attachments: "all" as const, maxBytes: 1024 };
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx.update(conversation).set({ capture, title: "Pat" }).where(where);
+    });
+    const [row] = await t.db.select().from(conversation).where(where);
+    expect(row?.capture).toEqual(capture);
+    expect(row?.title).toBe("Pat");
+    expect(await errorCode(t.db.delete(conversation).where(where))).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`delete from conversation where id = ${A.conversationId}`,
+      sql`delete from conversation_change where conversation_id = ${A.conversationId}`,
+      sql`update conversation_change set side = 'operator' where conversation_id = ${A.conversationId}`,
+    ]) {
+      const code = await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
           await asWorker(tx);
           await tx.execute(statement);
         }),

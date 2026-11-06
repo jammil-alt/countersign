@@ -88,6 +88,8 @@ export const ptBR: Messages = {
   "nav.settings": "Configurações",
   "nav.knowledge": "Conhecimento",
   "nav.contacts": "Contatos",
+  // v0.14 capture
+  "nav.conversations": "Conversas",
   "nav.billing": "Faturamento",
   "nav.people": "Pessoas",
   "nav.access": "Acessos",
@@ -269,6 +271,19 @@ export const ptBR: Messages = {
   "connections.gmail.testSend": "Enviar um e-mail de teste",
   "connections.gmail.testSent":
     "Enviado para {address}. Confira a pasta Enviados e a caixa de entrada desse endereço.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publique mensagens nos canais do Slack que você escolher. Não podemos ler suas mensagens.",
+  "slack.section": "Slack · canais",
+  "slack.workspace": "Workspace: {name}",
+  "slack.help":
+    "Os agentes publicam só nos canais que você escolher. Adicione o app Mezonas a um canal no Slack antes de escolhê-lo.",
+  "slack.noChannels": "Nenhum canal público neste workspace.",
+  "slack.notMember": "Adicione o Mezonas a este canal no Slack",
+  "slack.gone": "não aparece mais no Slack",
+  "slack.noPicks": "Nenhum canal escolhido: os agentes não podem publicar no Slack.",
+  "slack.picked": { one: "{count} canal escolhido", other: "{count} canais escolhidos" },
+  "slack.saved": "Salvo.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Não conectada",
   "connection.status.disconnected": "Desconectada",
@@ -298,6 +313,12 @@ export const ptBR: Messages = {
   "callback.subtitle": "Concluindo a entrada na sua ferramenta.",
   "callback.back": "Voltar para Conexões",
   "callback.connecting": "Conectando…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Leia as transações das suas contas bancárias e cartões. Nada aqui pode movimentar dinheiro.",
+  "connections.bankfeed.connect": "Conectar banco ou cartão",
+  "callback.linkLost":
+    "Este acesso ao banco começou em outra aba ou janela. Comece de novo em Conexões.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Acessos",
@@ -817,6 +838,36 @@ export const ptBR: Messages = {
   "contacts.subtitle":
     "As pessoas para quem podemos mandar e-mail, SMS ou WhatsApp, ou ligar, por você. Só contatamos quem concordou, e nunca em horários de silêncio.",
   "contacts.adminOnly": "Seu administrador mantém a lista de contatos.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversas",
+  "conversations.subtitle":
+    "Conversas de WhatsApp com o seu número. Escolha o que guardamos de cada uma: as mensagens e os anexos como documentos.",
+  "conversations.adminOnly": "Seu administrador escolhe o que guardamos das conversas de WhatsApp.",
+  "conversations.empty":
+    "Ainda não há conversas de WhatsApp. Uma começa quando alguém escreve para o seu número.",
+  "conversations.lastMessage": "Última mensagem {when}",
+  "conversations.noMessages": "Ainda não há mensagens.",
+  "conversations.keepMessages": "Guardar mensagens",
+  "conversations.attachments": "Baixar anexos",
+  "conversations.attachments.off": "Não",
+  "conversations.attachments.documents": "PDFs e imagens",
+  "conversations.attachments.all": "Todos os arquivos",
+  "conversations.yes": "Sim",
+  "conversations.no": "Não",
+  "conversations.showMessages": "Ver mensagens",
+  "conversations.hideMessages": "Ocultar mensagens",
+  "conversations.notKept": "Não guardada",
+  "conversations.downloadNow": "Baixar agora",
+  "conversations.downloading": {
+    one: "Baixando {count} anexo.",
+    other: "Baixando {count} anexos.",
+  },
+  "conversations.failed": "Não deu certo. Tente de novo.",
+  "conversations.attachment.not_downloaded": "Não baixado",
+  "conversations.attachment.pending": "Baixando",
+  "conversations.attachment.filed": "Arquivado",
+  "conversations.attachment.refused": "Não aceito",
+  "conversations.attachment.failed": "Não foi possível baixar",
   "contacts.empty":
     "Nenhum contato ainda. Adicione as pessoas que seus agentes podem contatar, com a forma como concordaram.",
   "contacts.channel.sms": "SMS",
@@ -1149,4 +1200,43 @@ export const ptBR: Messages = {
     one: "{count} pessoa",
     other: "{count} pessoas",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · espaços",
+  "gchat.spacesTitle": "Espaços conectados",
+  "gchat.help":
+    "Os agentes publicam só nestes espaços e só depois que você aprova cada mensagem. Não conseguimos ler suas mensagens.",
+  "gchat.noSpaces": "Nenhum espaço conectado ainda.",
+  "gchat.groupChat": "Chat em grupo",
+  "gchat.boundBy": "Conectado {time} por {name}",
+  "gchat.boundAt": "Conectado {time}",
+  "gchat.codeTitle": "Conectar um espaço",
+  "gchat.steps":
+    "No Google Chat, adicione o Mezonas ao espaço e envie esta mensagem lá. O código funciona uma vez.",
+  "gchat.codeExpires": "Vale até {time}.",
+  "gchat.codeWaiting": "Há um código válido até {time}. Se você não tiver, gere um novo.",
+  "gchat.getCode": "Gerar um código",
+  "gchat.newCode": "Gerar um novo código",
+  "gchat.adminAllow":
+    "Não encontra o Mezonas no Google Chat? O administrador do Google Workspace precisa permitir o app.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Leia e adicione linhas nas planilhas do Google Sheets que você escolher. Não conseguimos abrir nenhuma outra.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Os agentes só podem abrir as planilhas que você escolher aqui. Você as escolhe na própria janela do Google.",
+  "gsheets.none": "Nenhuma planilha escolhida ainda.",
+  "gsheets.choose": "Escolher planilhas",
+  "gsheets.remove": "Remover",
+  "gsheets.otherAccount": "Escolhida com outra conta do Google. Escolha de novo para usá-la.",
+  "gsheets.notSetUp":
+    "A escolha de planilhas ainda não está disponível aqui. Avisaremos você quando estiver.",
+  "gsheets.pick.title": "Escolher planilhas do Google Sheets",
+  "gsheets.pick.subtitle":
+    "O Google abre uma janela onde você escolhe as planilhas que os agentes podem usar. Só vemos essas.",
+  "gsheets.pick.open": "Abrir o seletor do Google",
+  "gsheets.pick.loading": "Carregando o seletor do Google…",
+  "gsheets.pick.saving": "Salvando sua escolha…",
+  "gsheets.pick.cancelled": "Nada foi escolhido. Abra o seletor de novo ou volte.",
+  "gsheets.pick.failed":
+    "O seletor do Google não abriu. Verifique se as janelas pop-up estão permitidas e tente de novo.",
 };

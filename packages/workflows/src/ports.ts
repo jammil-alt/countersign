@@ -277,15 +277,17 @@ export interface OversightRequest {
   stepRunId: string;
   /** 1.. per node: the review's place in the step's interventions. */
   seq: number;
-  /** M31 reviews failures; checkpoints come with M32. */
-  cause: "failed";
-  /** The input the failed attempt ran with (resolved, or the corrected one). */
+  /** A failed step, or (M32) one that succeeded and is reviewed before the run goes on. */
+  cause: "failed" | "checkpoint";
+  /** The input the attempt ran with (resolved, or the corrected one). */
   input: unknown;
-  /** The step's error, as it would fail the run. */
+  /** A failure: the step's error, as it would fail the run. A checkpoint: "". */
   error: string;
-  /** `<tool id or step kind>:<code>` (ARCHITECTURE §10.10). */
+  /** A failure: `<tool id or step kind>:<code>` (ARCHITECTURE §10.10). A checkpoint: "". */
   errorKey: string;
-  /** Attempts so far, the failed one included. */
+  /** M32: a checkpoint's output, as the steps after it would see it. */
+  output?: unknown;
+  /** Attempts so far, the last one included. */
   attempts: number;
   /** Inside a use step: the automation (`slug@version`) the step comes from. */
   automation?: string;
