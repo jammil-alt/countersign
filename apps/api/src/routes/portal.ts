@@ -159,12 +159,15 @@ export function sourcesOf(output: unknown): string[] {
 // connect at once; OAuth connectors (Zoho CRM) sign in through the provider once the deployment
 // has their client and the state secret (`isConfigured`); others show "not available yet".
 export function canSignIn(
-  connector: Pick<Connector, "manifest" | "isConfigured" | "authorize"> | undefined,
+  connector: Pick<Connector, "manifest" | "isConfigured" | "authorize" | "beginLink"> | undefined,
 ): boolean {
   if (!connector) return false;
   if (connector.manifest.auth === "none") return true;
   if (connector.manifest.auth === "oauth2") {
-    return Boolean(connector.authorize) && connector.isConfigured?.() !== false;
+    // v0.12 bankfeed: or a hosted link widget (Plaid Link) in place of a redirect.
+    return (
+      Boolean(connector.authorize || connector.beginLink) && connector.isConfigured?.() !== false
+    );
   }
   // API-key connectors with a credential form: the client admin enters the key (Access page).
   return hasCredentialForm(connector);

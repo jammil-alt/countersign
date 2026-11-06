@@ -269,6 +269,19 @@ export const ptBR: Messages = {
   "connections.gmail.testSend": "Enviar um e-mail de teste",
   "connections.gmail.testSent":
     "Enviado para {address}. Confira a pasta Enviados e a caixa de entrada desse endereço.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publique mensagens nos canais do Slack que você escolher. Não podemos ler suas mensagens.",
+  "slack.section": "Slack · canais",
+  "slack.workspace": "Workspace: {name}",
+  "slack.help":
+    "Os agentes publicam só nos canais que você escolher. Adicione o app Mezonas a um canal no Slack antes de escolhê-lo.",
+  "slack.noChannels": "Nenhum canal público neste workspace.",
+  "slack.notMember": "Adicione o Mezonas a este canal no Slack",
+  "slack.gone": "não aparece mais no Slack",
+  "slack.noPicks": "Nenhum canal escolhido: os agentes não podem publicar no Slack.",
+  "slack.picked": { one: "{count} canal escolhido", other: "{count} canais escolhidos" },
+  "slack.saved": "Salvo.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Não conectada",
   "connection.status.disconnected": "Desconectada",
@@ -298,6 +311,12 @@ export const ptBR: Messages = {
   "callback.subtitle": "Concluindo a entrada na sua ferramenta.",
   "callback.back": "Voltar para Conexões",
   "callback.connecting": "Conectando…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Leia as transações das suas contas bancárias e cartões. Nada aqui pode movimentar dinheiro.",
+  "connections.bankfeed.connect": "Conectar banco ou cartão",
+  "callback.linkLost":
+    "Este acesso ao banco começou em outra aba ou janela. Comece de novo em Conexões.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Acessos",
@@ -1149,4 +1168,25 @@ export const ptBR: Messages = {
     one: "{count} pessoa",
     other: "{count} pessoas",
   },
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Leia e adicione linhas nas planilhas do Google Sheets que você escolher. Não conseguimos abrir nenhuma outra.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Os agentes só podem abrir as planilhas que você escolher aqui. Você as escolhe na própria janela do Google.",
+  "gsheets.none": "Nenhuma planilha escolhida ainda.",
+  "gsheets.choose": "Escolher planilhas",
+  "gsheets.remove": "Remover",
+  "gsheets.otherAccount": "Escolhida com outra conta do Google. Escolha de novo para usá-la.",
+  "gsheets.notSetUp":
+    "A escolha de planilhas ainda não está disponível aqui. Avisaremos você quando estiver.",
+  "gsheets.pick.title": "Escolher planilhas do Google Sheets",
+  "gsheets.pick.subtitle":
+    "O Google abre uma janela onde você escolhe as planilhas que os agentes podem usar. Só vemos essas.",
+  "gsheets.pick.open": "Abrir o seletor do Google",
+  "gsheets.pick.loading": "Carregando o seletor do Google…",
+  "gsheets.pick.saving": "Salvando sua escolha…",
+  "gsheets.pick.cancelled": "Nada foi escolhido. Abra o seletor de novo ou volte.",
+  "gsheets.pick.failed":
+    "O seletor do Google não abriu. Verifique se as janelas pop-up estão permitidas e tente de novo.",
 };

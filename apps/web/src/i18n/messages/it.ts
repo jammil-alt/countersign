@@ -269,6 +269,19 @@ export const it: Messages = {
   "connections.gmail.testSend": "Invia un'email di prova",
   "connections.gmail.testSent":
     "Inviata a {address}. Controlla la cartella Inviati e la posta in arrivo di quella casella.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Pubblica messaggi nei canali Slack che scegli. Non possiamo leggere i tuoi messaggi.",
+  "slack.section": "Slack · canali",
+  "slack.workspace": "Workspace: {name}",
+  "slack.help":
+    "Gli agenti pubblicano solo nei canali che scegli. Aggiungi l'app Mezonas a un canale in Slack prima di sceglierlo.",
+  "slack.noChannels": "Nessun canale pubblico in questo workspace.",
+  "slack.notMember": "Aggiungi Mezonas a questo canale in Slack",
+  "slack.gone": "non compare più in Slack",
+  "slack.noPicks": "Nessun canale scelto: gli agenti non possono pubblicare su Slack.",
+  "slack.picked": { one: "{count} canale scelto", other: "{count} canali scelti" },
+  "slack.saved": "Salvato.",
   "connection.status.connected": "Collegato",
   "connection.status.pending": "Non collegato",
   "connection.status.disconnected": "Scollegato",
@@ -298,6 +311,12 @@ export const it: Messages = {
   "callback.subtitle": "Stiamo completando l'accesso al tuo strumento.",
   "callback.back": "Torna a Connessioni",
   "callback.connecting": "Collegamento…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Leggi i movimenti dei tuoi conti bancari e delle tue carte. Niente qui può spostare denaro.",
+  "connections.bankfeed.connect": "Collega banca o carta",
+  "callback.linkLost":
+    "Questo accesso alla banca è iniziato in un'altra scheda o finestra. Ricomincia da Connessioni.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accessi",
@@ -1156,4 +1175,25 @@ export const it: Messages = {
     one: "{count} persona",
     other: "{count} persone",
   },
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Leggi e aggiungi righe nei fogli Google Sheets che scegli. Non possiamo aprire nessun altro foglio.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Gli agenti possono aprire solo i fogli che scegli qui. Li scegli nella finestra di Google.",
+  "gsheets.none": "Nessun foglio scelto per ora.",
+  "gsheets.choose": "Scegli i fogli",
+  "gsheets.remove": "Rimuovi",
+  "gsheets.otherAccount": "Scelto con un altro account Google. Sceglilo di nuovo per usarlo.",
+  "gsheets.notSetUp":
+    "La scelta dei fogli non è ancora disponibile qui. Ti avviseremo quando lo sarà.",
+  "gsheets.pick.title": "Scegli i fogli Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google apre una finestra in cui scegli i fogli che gli agenti possono usare. Vediamo solo quelli.",
+  "gsheets.pick.open": "Apri il selettore di Google",
+  "gsheets.pick.loading": "Caricamento del selettore di Google…",
+  "gsheets.pick.saving": "Salvataggio della tua scelta…",
+  "gsheets.pick.cancelled": "Nessun foglio scelto. Apri di nuovo il selettore o torna indietro.",
+  "gsheets.pick.failed":
+    "Il selettore di Google non si è aperto. Controlla che i pop-up siano consentiti e riprova.",
 };

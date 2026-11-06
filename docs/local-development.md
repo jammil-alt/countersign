@@ -51,6 +51,7 @@ pnpm format       # Biome: format and organise imports
 | Podio | Sign-in starts but needs a real Podio API key to finish; tests use a fake Podio | `PODIO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Google Drive | Sign-in starts but needs the Google client to finish; tests use a fake Drive | `GOOGLE_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Outlook | Sign-in starts but needs an Entra app to finish; tests use a fake Microsoft | `OUTLOOK_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Slack | Sign-in starts but needs our Slack app to finish (Slack may want an https redirect: a tunnel); tests use a fake Slack | `SLACK_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Email (sending) | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
 | Email forwarding (receiving) | Post a `.eml` to `wrangler dev` (below) | `EMAIL_FORWARDING_DOMAIN` (e.g. `in.mezonas.test`) |
 | Document links | The Worker signs its own 5-minute links | `STORAGE_*` (R2 presigned URLs) |

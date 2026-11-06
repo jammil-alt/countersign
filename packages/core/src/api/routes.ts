@@ -14,6 +14,8 @@ import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
+// v0.12 bankfeed
+import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
@@ -30,6 +32,8 @@ import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 // v0.12 W1-A: go-live stages and client controls
@@ -55,6 +59,8 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./slack";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
@@ -1661,9 +1667,14 @@ export const portalRoutes = {
     auth: "session",
     roles: ["client_admin", "client_user"],
     summary:
-      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
+      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts (a URL, or a link widget to open)",
     params: z.object({ connector: ConnectorId }),
-    response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
+    response: z.object({
+      connection: PortalConnection,
+      redirectUrl: z.string().nullable(),
+      // v0.12 bankfeed: Plaid Link, opened in the page, in place of a redirect.
+      link: LinkStartView.nullable().optional(),
+    }),
   }),
   portalAuthorizeCallback: defineRoute({
     method: "POST",
@@ -1851,6 +1862,8 @@ export const routes = {
   ...qboRoutes,
   // v0.14 W4-B: Zoho CRM notifications
   ...zohoRoutes,
+  // v0.12 bankfeed: Plaid's webhook
+  ...bankfeedRoutes,
   // v0.12 W1-G: people (autonomy).
   ...peopleRoutes,
   ...voiceSampleRoutes,
@@ -1883,5 +1896,9 @@ export const routes = {
   ...modelRoutes,
   // v0.13 W2-I: run oversight decisions for the agent lab.
   ...oversightRoutes,
+  // v0.14 W4-D: Google Sheets' picking
+  ...gsheetsRoutes,
+  // v0.14 W4-C: the Slack channel picker.
+  ...slackRoutes,
 } as const;
 export type Routes = typeof routes;

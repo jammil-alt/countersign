@@ -126,6 +126,8 @@ export async function executeAction(
       {
         ...connectionContext(deps, input.tenantId, conn),
         idempotencyKey: action.idempotencyKey,
+        // v0.14 W4-D: what the approver saw, for tools that refuse a change made since.
+        proposedBefore: action.before,
       },
     );
     const done = await actions.complete(input.tenantId, action.id, {

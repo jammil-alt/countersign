@@ -1,4 +1,10 @@
-import type { ConnectionGrant, Connector } from "../connector";
+import type {
+  ConnectionContext,
+  ConnectionGrant,
+  Connector,
+  LinkRequest,
+  LinkStart,
+} from "../connector";
 import type { CredentialBinding, CredentialEnvelope, CredentialSealer } from "../credentials";
 import {
   createOAuthState,
@@ -46,6 +52,49 @@ export async function beginAuthorization(input: {
   return { redirectUrl, state };
 }
 
+/**
+ * v0.12 bankfeed: the start of a hosted link widget's sign-in (Plaid Link, docs/plan.md §1.52). As
+ * `beginAuthorization`, with a state bound to the client, connector, user and origin; the connector
+ * answers a token the portal opens the widget with instead of a URL to go to. The state comes
+ * back with the widget's result through `completeAuthorization`, unchanged.
+ */
+export async function beginLinkAuthorization(input: {
+  connector: Connector;
+  tenantId: string;
+  userId: string;
+  redirectUri: string;
+  webhookUrl: string;
+  stateSecret: string | Uint8Array;
+  language?: string;
+  /** The connection being signed in again, when it still holds credentials (update mode). */
+  reconnect?: LinkRequest["reconnect"];
+  origin?: OAuthOrigin;
+  now?: Date;
+}): Promise<{ link: LinkStart; state: string }> {
+  const { connector } = input;
+  if (connector.manifest.auth !== "oauth2" || !connector.beginLink) {
+    throw new Error(`connector ${connector.manifest.id} does not sign in with a link widget`);
+  }
+  const { state } = await createOAuthState(
+    {
+      tenantId: input.tenantId,
+      connector: connector.manifest.id,
+      userId: input.userId,
+      ...(input.origin ? { origin: input.origin } : {}),
+    },
+    { secret: input.stateSecret, ...(input.now ? { now: input.now } : {}) },
+  );
+  const link = await connector.beginLink({
+    tenantId: input.tenantId,
+    userId: input.userId,
+    redirectUri: input.redirectUri,
+    webhookUrl: input.webhookUrl,
+    ...(input.language ? { language: input.language } : {}),
+    ...(input.reconnect ? { reconnect: input.reconnect } : {}),
+  });
+  return { link, state };
+}
+
 export class OAuthCallbackError extends Error {
   constructor(
     readonly reason: OAuthStateFailure | "missing_state" | "provider_error",
@@ -74,6 +123,8 @@ export async function completeAuthorization(input: {
   /** Where the sign-in must have started (default the portal). */
   origin?: OAuthOrigin;
   now?: Date;
+  /** v0.12 bankfeed: the connection signed in again, when it still holds credentials. */
+  existing?: ConnectionContext;
 }): Promise<{ grant: Omit<ConnectionGrant, "credentials">; credentials: CredentialEnvelope }> {
   const { connector, params } = input;
   if (!connector.handleCallback) {
@@ -98,6 +149,7 @@ export async function completeAuthorization(input: {
   const grant = await connector.handleCallback(params, {
     ...input.session,
     redirectUri: input.redirectUri,
+    ...(input.existing ? { existing: input.existing } : {}),
   });
   const binding: CredentialBinding = {
     tenantId: input.session.tenantId,

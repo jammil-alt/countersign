@@ -313,6 +313,20 @@ export function fakePodio(opts: { acceptAccessTokens?: string[]; rateLimitNext?:
   };
 }
 
+// v0.12 bankfeed: Plaid (docs/plan.md §1.52).
+export {
+  FAKE_CARD,
+  FAKE_CHECKING,
+  FAKE_INSTITUTION,
+  FAKE_PLAID,
+  type FakePlaid,
+  type FakePlaidAccount,
+  type FakePlaidItem,
+  type FakePlaidTransaction,
+  fakePlaid,
+  fakePlaidAccounts,
+  fakePlaidTransaction,
+} from "./bankfeed/fake";
 export {
   FAKE_ELEVENLABS,
   type FakeElevenLabs,
@@ -334,6 +348,13 @@ export {
   fakeGoogle,
   readSentEmail,
 } from "./gmail/fake";
+// v0.14 W4-D: Google Sheets.
+export {
+  FAKE_GOOGLE_SHEETS,
+  type FakeGoogleSheets,
+  type FakeSpreadsheet,
+  fakeGoogleSheets,
+} from "./gsheets/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,
@@ -349,5 +370,13 @@ export {
   type FakeResendEmail,
   fakeResend,
 } from "./resend/fake";
+// v0.14 W4-C
+export {
+  FAKE_SLACK,
+  type FakeSlack,
+  type FakeSlackChannel,
+  type FakeSlackPost,
+  fakeSlack,
+} from "./slack/fake";
 export * from "./stripe/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";

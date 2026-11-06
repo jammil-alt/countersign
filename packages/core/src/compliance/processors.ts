@@ -3,7 +3,9 @@
 // client's data only when it is listed in `BAA_PROCESSORS` (a Worker variable the owner sets once
 // that vendor's BAA is signed). The client's own tools (QuickBooks, Gmail, Zoho CRM, Podio, its
 // webhook endpoints, the sites of its browser logins) are the client's vendors, not ours: they are
-// not processors here.
+// not processors here. Plaid, which carries the bank feed on Mezonas' own account, is.
+// v0.14 W4-D: Google Drive and Google Sheets (`gdrive`, `gsheets`) are not: the client's own Google
+// account, which only the client signs in to; we send its data nowhere else.
 
 import { z } from "zod";
 
@@ -20,6 +22,8 @@ export const PROCESSORS = [
   "meta_whatsapp",
   "elevenlabs",
   "resend",
+  // v0.12 bankfeed: bank and card feeds (docs/plan.md §1.52).
+  "plaid",
 ] as const;
 export type Processor = (typeof PROCESSORS)[number];
 
@@ -36,6 +40,7 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   meta_whatsapp: "WhatsApp (Meta)",
   elevenlabs: "ElevenLabs",
   resend: "Resend",
+  plaid: "Plaid",
 };
 
 /** `BAA_PROCESSORS`: comma- or space-separated processor ids; unknown words are ignored. */
@@ -61,6 +66,11 @@ const CONNECTOR_PROCESSORS: Record<string, readonly Processor[]> = {
   twilio: ["twilio"],
   resend: ["resend"],
   elevenlabs: ["elevenlabs"],
+  // DECISION: v0.12 bankfeed: Plaid is ours, not the client's tool. Mezonas holds the Plaid
+  // account and contract, and the client's bank data passes through it to us, so it is a
+  // processor (a subprocessor on the site), unlike the bank itself or QuickBooks. A client in
+  // HIPAA mode can't be offered the bank feed until `plaid` is in BAA_PROCESSORS.
+  bankfeed: ["plaid"],
 };
 
 /** The processors a connector sends a client's data to, whichever of its tools is used. */
