@@ -76,7 +76,11 @@ curl -s localhost:8787/cdn-cgi/local/scheduled            # fire the cron once
 
 Or open http://localhost:8787 and pick a user on the sign-in screen. The seed has one operator
 (`operator@example.com`, serving Sandbox and Demo client), one client admin
-(`admin@demo-client.example.com`) and the platform templates. To start from an empty database, drop
+(`admin@demo-client.example.com`) and the platform templates. The Demo client also has one agent,
+the Records clerk, on a testkit connection, with one change waiting on its Desk: a price on the
+testkit's record R-1002. Signing it writes nothing (the testkit is in memory, and the seeded run has
+no Workflow instance to execute it); undo it inside the window and it waits again. Seeding again
+never adds a second one. To start from an empty database, drop
 `countersign` and run `scripts/setup-postgres.sh` again.
 
 `wrangler dev` reads the root `.env` (`--env-file ../../.env`), which gives it
