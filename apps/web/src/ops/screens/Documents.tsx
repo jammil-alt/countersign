@@ -123,7 +123,7 @@ export function OpsDocumentScreen() {
   const params = { id: clientId, documentId };
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientDocument, { params });
   const reading = data?.document.status === "stored" || data?.document.status === "extracting";
-  usePoll(reload, reading, 3_000);
+  usePoll(reload, reading, 3_000, loading);
   const base = `/ops/clients/${clientId}`;
 
   async function openOriginal() {

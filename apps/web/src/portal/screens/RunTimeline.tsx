@@ -56,7 +56,7 @@ export function PortalRunScreen() {
   const { t, locale } = i18n;
   const time = (iso: string | null) => shortTime(iso, undefined, i18n);
   const { data, error, loading, reload } = useApi(apiRoutes.portalRun, { params: { id } });
-  usePoll(reload, data ? isRunGoing(data.run.status) : false, 2_000);
+  usePoll(reload, data ? isRunGoing(data.run.status) : false, 2_000, loading);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;

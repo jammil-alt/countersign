@@ -1,4 +1,10 @@
-import { DEFAULT_PERMISSIONS, dec, type JsonObject, ToolDisplay } from "@countersign/core";
+import {
+  DEFAULT_PERMISSIONS,
+  dec,
+  type JsonObject,
+  pickLocalized,
+  ToolDisplay,
+} from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import cloudEvents from "../../../../fixtures/qbo/webhook-cloudevents.json";
 import notification from "../../../../fixtures/qbo/webhook-notification.json";
@@ -94,6 +100,18 @@ async function signedIn(s: ReturnType<typeof setup>) {
 }
 
 describe("qbo connector: manifest and sign-in", () => {
+  it("fills every summary from fields its tool's output has", () => {
+    const { connector } = setup();
+    for (const t of connector.manifest.tools) {
+      if (!t.summary) continue;
+      const props = Object.keys((t.output as { properties?: object }).properties ?? {});
+      const refs = [...pickLocalized(t.summary).matchAll(/\{\{\s*([A-Za-z0-9_-]+)/g)].map(
+        (m) => m[1],
+      );
+      for (const r of refs) expect(props, `${t.id} summary uses {{${r}}}`).toContain(r);
+    }
+  });
+
   it("declares five reads and six approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);

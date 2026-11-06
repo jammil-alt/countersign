@@ -18,7 +18,7 @@ export function PortalInboxScreen() {
   const { t } = i18n;
   const [status, setStatus] = useState<"open" | "resolved">("open");
   const { data, error, loading, reload } = useApi(apiRoutes.portalInbox, { query: { status } });
-  usePoll(reload, status === "open", 20_000);
+  usePoll(reload, status === "open", 20_000, loading);
   const refreshCount = useRefreshInboxCount();
 
   return (

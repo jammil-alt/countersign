@@ -24,6 +24,8 @@ import {
   externalAction,
   inboxItem,
   message,
+  stepRun,
+  thread,
   transaction,
   withTenant,
 } from "@countersign/db";
@@ -404,6 +406,25 @@ describe.skipIf(!h)("the Bill clerk", () => {
     );
     expect(actions).toHaveLength(3);
     expect((await itemsOf(params.runId)).filter((i) => i.assigneeRole !== "operator")).toEqual([]);
+
+    // The timeline says what would have been done, with no empty slots, and the notice was
+    // never posted: no thread message for the run, for anyone.
+    const steps = await H.t.db
+      .select({ nodeId: stepRun.nodeId, summary: stepRun.summary, output: stepRun.output })
+      .from(stepRun)
+      .where(eq(stepRun.runId, params.runId));
+    const summary = (nodeId: string) => steps.find((s) => s.nodeId === nodeId)?.summary;
+    expect(summary("itemize")).toBe("Would itemize the bill (test run, not written)");
+    expect(summary("attach")).toBe("Would attach the invoice (test run, not written)");
+    expect(summary("memo")).toBe("Would note the invoice on the bill (test run, not written)");
+    expect(summary("done")).toBe("Would say what changed (test run, not sent)");
+    expect(j(steps.find((s) => s.nodeId === "done")?.output)).toEqual({ sent: false });
+    const posted = await H.t.db
+      .select({ id: message.id })
+      .from(message)
+      .innerJoin(thread, eq(thread.id, message.threadId))
+      .where(and(eq(thread.subjectType, "run"), eq(thread.subjectId, params.runId)));
+    expect(posted).toEqual([]);
 
     const act = await H.call(OPERATOR, "POST", `/api/ops/agents/${clerkId}/activate`);
     expect(act.status, JSON.stringify(act.json)).toBe(200);

@@ -4,6 +4,7 @@ import { ToolSpec } from "../schemas/tool";
 import { renderSummary } from "../template/template";
 import {
   clientLanguage,
+  LOCALES,
   LocalizedString,
   matchLocale,
   parseAcceptLanguage,
@@ -11,6 +12,7 @@ import {
   resolveLocale,
   userLanguage,
 } from "./locale";
+import { TIMELINE_WORDS } from "./timeline";
 
 describe("resolveLocale", () => {
   it("takes the user's choice over the client's, the browser's and English", () => {
@@ -128,5 +130,26 @@ describe("localized text", () => {
     expect(
       ToolSpec.parse({ ...tool, summary: { en: "Read {{id}}", it: "Letto {{id}}" } }).summary,
     ).toEqual({ en: "Read {{id}}", it: "Letto {{id}}" });
+  });
+});
+
+describe("timeline words for a test run", () => {
+  it("say a write or a notice would have been made, in every language", () => {
+    expect(TIMELINE_WORDS.en.wouldWrite("Itemize the bill")).toBe(
+      "Would itemize the bill (test run, not written)",
+    );
+    expect(TIMELINE_WORDS.en.wouldSend("Say what changed")).toBe(
+      "Would say what changed (test run, not sent)",
+    );
+    // A name that starts with a product's own capitals keeps them.
+    expect(TIMELINE_WORDS.en.wouldWrite("QuickBooks memo")).toBe(
+      "Would QuickBooks memo (test run, not written)",
+    );
+    for (const locale of LOCALES) {
+      const words = TIMELINE_WORDS[locale];
+      expect(words.wouldWrite("Itemize the bill")).toMatch(/itemize the bill/i);
+      expect(words.wouldSend("Say what changed")).toMatch(/say what changed/i);
+      expect(words.wouldWrite("x")).not.toBe(words.wouldSend("x"));
+    }
   });
 });

@@ -86,6 +86,29 @@ export function payloadFor(
 }
 
 /**
+ * The typed input as JSON: blank is `{}`; anything else must parse. The box starts blank (with a
+ * `{}` placeholder), never prefilled with `{}`: typing or pasting `{…}` into a box that already
+ * held `{}` left an extra closing brace, which read as the box closing braces by itself.
+ */
+export function parsePayload(text: string): { ok: true; value: unknown } | { ok: false } {
+  if (!text.trim()) return { ok: true, value: {} };
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** A plain text box for JSON: no spelling, capitals or smart quotes changing what is typed. */
+export const JSON_INPUT_PROPS = {
+  spellCheck: false,
+  autoCapitalize: "off",
+  autoCorrect: "off",
+  autoComplete: "off",
+  placeholder: "{}",
+} as const;
+
+/**
  * The payload's source: the sample (when there is one), "Use a recent event" with the client's
  * latest events of the trigger's type, or manual input.
  */

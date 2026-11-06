@@ -59,7 +59,7 @@ export function OpsRequestsScreen() {
   const { data, error, loading, reload } = useApi(apiRoutes.opsRequests, {
     query: { status: filter, ...(client ? { client } : {}) },
   });
-  usePoll(reload, filter === "open", 30_000);
+  usePoll(reload, filter === "open", 30_000, loading);
   const items = data?.items ?? [];
   const open = items.filter((i) => i.status === "open").length;
 

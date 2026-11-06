@@ -85,6 +85,21 @@ describe("resolving", () => {
     ).toBe("Extracted 3 lines from Acme");
   });
 
+  it("never renders a summary with an empty slot", () => {
+    const itemized = "Itemized the bill into {{lineCount}} lines; total unchanged at {{total}}";
+    // A test run's output is the recorded proposal, not the tool's: nothing to fill the slots.
+    expect(renderSummary(itemized, { wouldHaveDone: true, actionId: "a1" })).toBeNull();
+    expect(renderSummary("Attached {{fileName}} to the {{entity}} in QuickBooks", {})).toBeNull();
+    expect(renderSummary("Checked bill {{billNumber}}", { billNumber: "  " })).toBeNull();
+    expect(renderSummary("Found {{count}} rows", { count: null })).toBeNull();
+    // Zero and false are values.
+    expect(renderSummary("Found {{count}} rows", { count: 0 })).toBe("Found 0 rows");
+    expect(renderSummary(itemized, { lineCount: 6, total: "9742.35" })).toBe(
+      "Itemized the bill into 6 lines; total unchanged at 9742.35",
+    );
+    expect(renderSummary("Updated the bill's memo", null)).toBe("Updated the bill's memo");
+  });
+
   it("collects every reference with where it sits, and syntax errors", () => {
     const { refs, errors } = collectRefs({
       a: "{{trigger.x}}",

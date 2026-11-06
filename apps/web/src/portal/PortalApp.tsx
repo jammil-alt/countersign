@@ -50,7 +50,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
     firstPath.current = pathname;
     reloadOverview();
   }, [pathname, reloadOverview]);
-  usePoll(reloadOverview, true, INBOX_COUNT_POLL_MS);
+  usePoll(reloadOverview, true, INBOX_COUNT_POLL_MS, overview.loading);
   // The operator switches the Feedback button on per client; off, there is no button.
   const feedback = useApi(apiRoutes.portalFeedbackStatus);
 

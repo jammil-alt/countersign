@@ -42,8 +42,10 @@ import {
 } from "../../ui/primitives";
 import { slugify } from "../agents/definition-form";
 import {
+  JSON_INPUT_PROPS,
   type PayloadSource,
   PayloadSourceSelect,
+  parsePayload,
   payloadFor,
   samplePayload,
   triggerEventType,
@@ -1030,7 +1032,9 @@ function TestRunPanel({
   onClose(): void;
 }) {
   const hasSample = sample !== undefined;
-  const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "{}";
+  // No sample: a blank box (`{}` is its placeholder), never a prefilled `{}` that typing `{…}`
+  // would leave an extra brace after.
+  const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "";
   const isTemplate = agent.kind === "template";
   // A template can run on the Sandbox's fixture data or on a client the operator serves.
   const clients = useApi(apiRoutes.opsClients, isTemplate ? {} : null);
@@ -1044,8 +1048,8 @@ function TestRunPanel({
   const firstSource: PayloadSource = hasSample ? "sample" : "manual";
   const [source, setSource] = useState<PayloadSource>(firstSource);
   const [text, setText] = useState(sampleText);
-  const [problem, setProblem] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  const parsed = parsePayload(text);
   return (
     <div
       data-testid="builder-test-panel"
@@ -1104,11 +1108,13 @@ function TestRunPanel({
         }}
       />
       <TextArea
+        {...JSON_INPUT_PROPS}
         aria-label="Trigger payload (JSON)"
         data-testid="builder-test-payload"
         rows={6}
         value={text}
         readOnly={source === "sample"}
+        invalid={!parsed.ok}
         className="font-mono text-xs"
         onChange={(e) => {
           setText(e.target.value);
@@ -1116,7 +1122,11 @@ function TestRunPanel({
           if (source !== "manual") setSource("manual");
         }}
       />
-      {problem ? <p className="text-sm text-risk">{problem}</p> : null}
+      {parsed.ok ? null : (
+        <p className="text-sm text-risk" data-testid="builder-test-payload-error">
+          The payload isn't valid JSON.
+        </p>
+      )}
       <div className="flex items-center justify-between gap-3">
         {runId ? (
           <Link
@@ -1132,17 +1142,10 @@ function TestRunPanel({
         <Button
           variant="primary"
           data-testid="builder-test-run-start"
-          disabled={busy}
+          disabled={busy || !parsed.ok}
           onClick={async () => {
-            let payload: unknown;
-            try {
-              payload = text.trim() ? JSON.parse(text) : {};
-            } catch {
-              setProblem("The payload isn't valid JSON.");
-              return;
-            }
-            setProblem(null);
-            const id = await run(payload, clientId || null);
+            if (!parsed.ok) return;
+            const id = await run(parsed.value, clientId || null);
             if (id) setRunId(id);
           }}
         >

@@ -1,6 +1,6 @@
 // The back-office run view: the checklist names steps from the workflow that ran, with cost; the
 // change waiting on the operator shows now / after and approves through the ops resolve route.
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -280,6 +280,36 @@ describe("back-office run view", () => {
     expect(within(watched).queryByTestId("ops-run-action-approve")).toBeNull();
     expect(screen.queryByTestId("ops-run-waiting")).toBeNull();
   });
+
+  it("shows Done when the run is done, even when each answer takes longer than the poll", async () => {
+    // Staging can take over 2 s to answer. Polling every 2 s regardless aborted each answer before
+    // it landed, so the header kept saying "Running" after the run had finished.
+    let n = 0;
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: async () => {
+        const first = n++ === 0;
+        const d = detail("resolved");
+        if (first) return d;
+        await new Promise((r) => setTimeout(r, 2_300));
+        return {
+          ...d,
+          run: { ...d.run, status: "succeeded", finishedAt: "2026-11-03T10:01:00.000Z" },
+        };
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("ops-run-status")).toHaveTextContent("Running");
+    await waitFor(() => expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Done"), {
+      timeout: 8_000,
+    });
+  }, 12_000);
 
   it("lists only reached steps once a run is over", () => {
     const rows = checklistRows({
