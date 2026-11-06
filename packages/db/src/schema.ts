@@ -644,7 +644,8 @@ export const SAVED_VIEW_SURFACES = ["ops_runs", "portal_runs"] as const;
 /**
  * An operator's named filters for a runs list (migration 0023, ARCHITECTURE §10.10): `filters` is
  * core's `RunFilter`. Operator table (no client owns a row; RLS on `app.operator`); each user reads
- * and writes their own rows, by `user_id` in the query. Updated in place; no DELETE grant (§5.5).
+ * and writes their own rows, by `user_id` in the query (RLS can't: operator sessions carry no user
+ * id). Updated in place, and deleted (not history).
  */
 export const savedView = pgTable(
   "saved_view",
