@@ -1,7 +1,7 @@
 // The back-office inbox: the operator resolves what the server marks as theirs
 // (`resolvableByOperator`), which in the Sandbox is every item; elsewhere a client's own items only
 // say who they wait on.
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -34,7 +34,7 @@ const item = (id: string, tenantId: string, resolvableByOperator: boolean) => ({
   resolvableByOperator,
 });
 
-describe("back-office inbox", () => {
+describe("escalations", () => {
   it("lets the operator answer the Sandbox's client-admin items, not a real client's", async () => {
     const resolved: unknown[] = [];
     const api = fakeApi({
@@ -63,5 +63,60 @@ describe("back-office inbox", () => {
     expect(sandbox).not.toHaveTextContent("Waiting on");
     await userEvent.click(within(sandbox).getByTestId("inbox-item-approve"));
     expect(resolved).toEqual([{ decision: "approve" }]);
+  });
+
+  it("keeps what we just approved on screen with Undo, and takes it back", async () => {
+    const undone: string[] = [];
+    let open = true;
+    const later = new Date(Date.now() + 60_000).toISOString();
+    const resolved = {
+      ...item(SANDBOX_ITEM, SANDBOX, true),
+      status: "resolved",
+      resolvedBy: OPERATOR_SESSION.user.id,
+      resolution: { decision: "approve" },
+      resolvedAt: new Date().toISOString(),
+      deliverAfter: later,
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": () => ({
+        items: open ? [item(SANDBOX_ITEM, SANDBOX, true)] : [],
+        agents: [],
+      }),
+      [`POST /api/ops/inbox/${SANDBOX_ITEM}/resolve`]: () => {
+        open = false;
+        return { item: resolved };
+      },
+      [`POST /api/ops/inbox/${SANDBOX_ITEM}/undo`]: () => {
+        undone.push(SANDBOX_ITEM);
+        open = true;
+        return {
+          item: {
+            id: SANDBOX_ITEM,
+            status: "open",
+            deliverAfter: null,
+            snoozedUntil: null,
+            batchKey: null,
+            resolvedAt: null,
+          },
+        };
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={["/ops/inbox"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("heading", { name: "Escalations" })).toBeInTheDocument();
+    expect(await screen.findByText("1 item waits on us.", { exact: false })).toBeInTheDocument();
+    const card = await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
+    await userEvent.click(within(card).getByTestId("inbox-item-approve"));
+    const recent = await screen.findByTestId("ops-inbox-recent");
+    await userEvent.click(within(recent).getByTestId("inbox-item-undo"));
+    await waitFor(() => expect(undone).toEqual([SANDBOX_ITEM]));
+    await waitFor(() => expect(screen.queryByTestId("ops-inbox-recent")).toBeNull());
+    expect(await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
   });
 });

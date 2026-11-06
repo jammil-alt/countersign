@@ -7,21 +7,16 @@
 import { Route } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
 import { Redirect } from "../shell/Redirect";
-import { PortalAccessScreen } from "./screens/Access";
+import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
 import { AgentScreen } from "./screens/Agent";
 import { PortalBillingScreen } from "./screens/Billing";
-import { PortalConnectionsScreen } from "./screens/Connections";
-import {
-  PortalContactsScreen,
-  PortalDirectoryScreen,
-  PortalPeopleScreen,
-} from "./screens/Contacts";
 import { PortalConversationsScreen } from "./screens/Conversations";
+import { PortalDeskScreen } from "./screens/Desk";
 import { PortalDocumentScreen } from "./screens/Document";
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
-import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
+import { PeopleScreen } from "./screens/People";
 import { PortalRecordsScreen } from "./screens/Records";
 import { PortalReportsScreen } from "./screens/Reports";
 import { PortalRequestsScreen } from "./screens/Requests";
@@ -40,14 +35,18 @@ export const portalRoutes = (
     {/* C2 Agent (UI-1a) */}
     <Route path="agents/:id" element={<AgentScreen />} />
     {/* C3 Your Desk (UI-1b) */}
-    <Route path="desk" element={<PortalInboxScreen />} />
+    <Route path="desk" element={<PortalDeskScreen />} />
     {/* C4 Accounts and vault (UI-1c) */}
-    <Route path="accounts" element={<PortalConnectionsScreen />} />
-    <Route path="accounts/access" element={<PortalAccessScreen />} />
+    <Route path="accounts" element={<AccountsScreen />} />
+    <Route path="accounts/access" element={<VaultRedirect />} />
     {/* C5 People (UI-1c) */}
-    <Route path="people" element={<PortalPeopleScreen />} />
-    <Route path="people/directory" element={<PortalDirectoryScreen />} />
-    <Route path="people/contacts" element={<PortalContactsScreen />} />
+    <Route path="people" element={<PeopleScreen tab="people" />} />
+    <Route path="people/organizations" element={<PeopleScreen tab="organizations" />} />
+    <Route path="people/contacts" element={<PeopleScreen tab="consent" />} />
+    <Route path="people/reach" element={<PeopleScreen tab="reach" />} />
+    <Route path="people/voice" element={<PeopleScreen tab="voice" />} />
+    <Route path="people/import" element={<PeopleScreen tab="import" />} />
+    <Route path="people/directory" element={<Redirect to="/people" />} />
     {/* C7 Settings and billing (UI-1d) */}
     <Route path="settings" element={<PortalSettingsScreen />} />
     <Route path="settings/billing" element={<PortalBillingScreen />} />
@@ -78,8 +77,9 @@ export const portalRoutes = (
     <Route path="services/:id" element={<Redirect to="/agents/:id" />} />
     <Route path="inbox" element={<Redirect to="/desk" />} />
     <Route path="connections" element={<Redirect to="/accounts" />} />
-    <Route path="access" element={<Redirect to="/accounts/access" />} />
-    <Route path="directory" element={<Redirect to="/people/directory" />} />
+    <Route path="access" element={<VaultRedirect />} />
+    <Route path="access/*" element={<VaultRedirect />} />
+    <Route path="directory" element={<Redirect to="/people" />} />
     <Route path="contacts" element={<Redirect to="/people/contacts" />} />
     <Route path="billing" element={<Redirect to="/settings/billing" />} />
   </>
