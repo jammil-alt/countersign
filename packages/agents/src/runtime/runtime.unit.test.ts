@@ -69,6 +69,7 @@ describe("tool registry", () => {
       "testkit.record.query",
       "testkit.record.update",
       "threads.post",
+      "threads.read",
     ]);
     expect(tools.get(TESTKIT_UPDATE_TOOL)?.kind).toBe("connector");
     expect(tools.get("memory.write")?.spec.sideEffect).toBe("internal");
