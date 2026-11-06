@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import report from "../../../../fixtures/qbo/report-aged-receivable-detail.json";
 import type { SyncedRecordServices, ToolContext, WriteContext } from "../connector";
 import { memoryCredentials } from "../credentials-accessor";
+import { formDecode, parseUrl } from "../http";
 import { captureBefore, executeWrite, runReadTool, ToolCallError } from "../invoke";
 import { memoryLogger } from "../logger";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "../testing";
@@ -28,6 +29,9 @@ const connectionId = "0190f0c8-0000-7000-8000-0000000000c1";
 const REDIRECT = "https://staging.mezonas.com/api/connections/qbo/callback";
 const RECEIVABLE_130 = "0190f0c8-0000-7000-8000-000000000130";
 const RECEIVABLE_133 = "0190f0c8-0000-7000-8000-000000000133";
+
+/** A request's query parameters, decoded. */
+const queryOf = (url: string) => formDecode(url.split("?")[1] ?? "");
 
 /** What sync stored, as the platform answers it (apps/api reads the tables). */
 function records(over: { bills?: { transactionId: string; externalId: string }[] } = {}) {
@@ -212,8 +216,9 @@ describe("qbo: the aging report", () => {
     );
     expect(out.sources.sort()).toEqual([RECEIVABLE_130, RECEIVABLE_133].sort());
     const call = s.qbo.apiCalls("GET", "reports").at(-1)?.url ?? "";
-    expect(call).toContain("/reports/AgedReceivableDetail?");
-    expect(call).toContain("report_date=2026-11-05");
+    const url = parseUrl(call);
+    expect(url?.pathname.endsWith("/reports/AgedReceivableDetail")).toBe(true);
+    expect(queryOf(call).report_date).toBe("2026-11-05");
   });
 
   it("refuses to report without the synced records its sources come from", async () => {
@@ -250,7 +255,7 @@ describe("qbo: a note on an invoice", () => {
     expect(Object.keys(JSON.parse(post[0]?.body ?? "{}")).sort()).toEqual(
       ["Id", "PrivateNote", "SyncToken", "sparse"].sort(),
     );
-    expect(post[0]?.url).toContain("requestid=");
+    expect(queryOf(post[0]?.url ?? "").requestid).toMatch(/^[0-9a-f]{36}$/);
     const inv = s.qbo.get("Invoice", "132") as Record<string, unknown> & { Id: string };
     expect(inv?.PrivateNote).toBe(
       "Deposit received by check\n2026-11-05: Called Pat; promised a check Friday",
@@ -339,7 +344,7 @@ describe("qbo: create a bill", () => {
     });
     const post = s.qbo.apiCalls("POST", "bill");
     expect(post).toHaveLength(1);
-    expect(post[0]?.url).toContain("requestid=");
+    expect(queryOf(post[0]?.url ?? "").requestid).toMatch(/^[0-9a-f]{36}$/);
     // Amounts went out as JSON numbers written from their decimal text.
     expect(post[0]?.body).toContain('"Amount":162.5');
 

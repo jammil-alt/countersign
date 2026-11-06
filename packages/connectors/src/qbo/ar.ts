@@ -365,7 +365,7 @@ export function noteLine(day: string, note: string): string {
 
 /** The private note after appending a line (on a new line, unless it was empty). */
 export function appendNote(current: string | null, line: string): string {
-  const now = current?.replace(/\s+$/, "") ?? "";
+  const now = current?.trimEnd() ?? "";
   return now ? `${now}\n${line}` : line;
 }
 
