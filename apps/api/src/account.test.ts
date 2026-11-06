@@ -94,7 +94,7 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
       .from(toolCall)
       .innerJoin(stepRun, eq(stepRun.id, toolCall.stepRunId))
       .where(eq(stepRun.runId, params.runId))
-      .orderBy(toolCall.createdAt);
+      .orderBy(toolCall.createdAt, toolCall.id);
     return { runId: params.runId, messageId, calls };
   }
 
@@ -482,7 +482,8 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
       .from(toolCall)
       .innerJoin(stepRun, eq(stepRun.id, toolCall.stepRunId))
       .where(eq(stepRun.runId, params.runId));
-    expect(j(calls[0]?.output)).toMatchObject({ status: "test_run", service: null });
+    const pause = calls.find((c) => c.tool === "account.pause_agent");
+    expect(j(pause?.output)).toMatchObject({ status: "test_run", service: null });
     const [w] = await H.t.db.select().from(agent).where(eq(agent.id, workerId));
     expect(w?.runStatus).toBe("active");
   });
