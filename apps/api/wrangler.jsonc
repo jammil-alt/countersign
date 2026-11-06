@@ -103,7 +103,10 @@
         "WORKOS_AUTHKIT_DOMAIN": "https://patient-bedrock-89-staging.authkit.app",
         "APP_ORIGIN": "https://staging.mezonas.com",
         "LLM_MODE": "live",
-        "QBO_ENV": "sandbox"
+        "QBO_ENV": "sandbox",
+        // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
+        // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
+        "BAA_PROCESSORS": ""
       }
     },
     "production": {
@@ -136,7 +139,10 @@
         "LLM_MODE": "live",
         // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off
         // in production (no QBO_CLIENT_ID).
-        "QBO_ENV": "production"
+        "QBO_ENV": "production",
+        // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
+        // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
+        "BAA_PROCESSORS": ""
       }
     }
   }

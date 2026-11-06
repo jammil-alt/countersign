@@ -12,6 +12,7 @@ import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
+import { complianceRoutes } from "./compliance";
 import { defineRoute } from "./contract";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
@@ -1773,6 +1774,7 @@ export const routes = {
   ...opsRoutes,
   ...portalRoutes,
   ...feedbackRoutes,
+  ...complianceRoutes,
   ...onboardingRoutes,
   ...requestRoutes,
   ...languageRoutes,

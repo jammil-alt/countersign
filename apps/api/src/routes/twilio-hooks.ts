@@ -27,7 +27,7 @@ import {
   twilioCredentialsOf,
   verifyTwilioSignature,
 } from "@countersign/connectors";
-import { routes, TWIML_EMPTY } from "@countersign/core";
+import { redactCardNumbers, routes, TWIML_EMPTY } from "@countersign/core";
 import { connection, message, rawRecord, type Tx, withTenant } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -121,8 +121,10 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       let released: Wake | null = null;
       await withTenant(services.db, tenantId, async (tx) => {
         const { row, config } = await verified(tx, c, tenantId, form, "messages");
-        const msg = parseInbound(form);
-        if (!msg) throw new HttpError(400, "invalid_body", "not a Twilio message");
+        // A card number in a text is never stored (PCI DSS 3.3, docs/plan.md §1.35).
+        const parsed = parseInbound(form);
+        if (!parsed) throw new HttpError(400, "invalid_body", "not a Twilio message");
+        const msg = { ...parsed, text: redactCardNumbers(parsed.text) };
         if (!config.numbers.some((n) => n.phoneNumber === msg.to)) throw refuse();
         // A code for a pending human release is consumed before anything is stored: no raw
         // record of its text, no thread line, no event, so no agent or person reads it there

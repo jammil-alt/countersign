@@ -19,7 +19,7 @@ import {
   type UploadConnectionRow,
   updateForwarding,
 } from "@countersign/connectors";
-import { type ExtractedHeader, routes } from "@countersign/core";
+import { type ExtractedHeader, parseCoveredProcessors, routes } from "@countersign/core";
 import {
   docExtraction,
   document,
@@ -40,6 +40,7 @@ import { createLlmClient } from "@countersign/llm";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
+import { guardModels, profileReader } from "../compliance/policy";
 import {
   type AppContext,
   type AppEnv,
@@ -112,8 +113,15 @@ export async function extractInBackground(
   tenantId: string,
   documentIds: readonly string[],
 ): Promise<void> {
-  const transport = services.deps.extractionTransport(services.env);
-  if (!transport || documentIds.length === 0) return;
+  const inner = services.deps.extractionTransport(services.env);
+  if (!inner || documentIds.length === 0) return;
+  // A client in HIPAA mode: only a model whose provider has a signed BAA reads its documents.
+  const transport = guardModels(
+    inner,
+    tenantId,
+    profileReader(services.db),
+    parseCoveredProcessors(services.env.BAA_PROCESSORS),
+  );
   const content = new ContentStore(services.deps.objects(services.env));
   const llm = createLlmClient({ transport });
   for (const documentId of documentIds) {

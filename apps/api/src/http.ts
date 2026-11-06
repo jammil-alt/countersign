@@ -35,6 +35,7 @@ import { captureException } from "@sentry/cloudflare";
 import type { Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
+import { type AuditEntry, auditAction, auditAlone, auditInTx, auditTarget } from "./audit";
 import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
 import type { Bindings } from "./env";
 import type { McpDeps } from "./mcp/routes";
@@ -429,31 +430,100 @@ export function mount<R extends RouteSpec>(
   handlers.set(spec, handler as AnyHandler);
   app.on(spec.method, spec.path, async (c) => {
     let setCookies: readonly string[] = [];
+    // The audit row (docs/plan.md §1.35): who, once known, and the client acted in.
+    let actor: AuditActor = { actorKind: "anonymous" };
+    let auditTenant: string | null = null;
+    const entry = (outcome: AuditEntry["outcome"], httpStatus: number): AuditEntry => ({
+      ...actor,
+      tenantId: auditTenant,
+      action: auditAction(c),
+      outcome,
+      httpStatus,
+      target: auditTarget(c, requestedClient(c)),
+    });
+    const refused = async (refusal: AuthRefusal) => {
+      // No credentials at all is a signed-out browser asking, not an access attempt worth a row.
+      if (refusal.code !== "unauthenticated") {
+        await auditAlone(c.get("req").services().db, c, entry("refused", refusal.status));
+      }
+      return refusalResponse(c, refusal);
+    };
     try {
       const services = c.get("req").services();
       const choice = services.auth();
-      if (!choice.ok) return refusalResponse(c, choice.refusal);
+      if (!choice.ok) return refused(choice.refusal);
       const result = await getSession(c.req.raw, {
         adapter: choice.adapter,
         directory: authDirectory(services.db),
         tenantId: requestedClient(c),
       });
-      if (!result.ok) return refusalResponse(c, result);
+      if (!result.ok) return refused(result);
       setCookies = result.setCookies;
       const { session } = result;
+      actor = auditActor(session);
       const scope = scopeOf(session, spec.roles, family);
-      if (!scope.ok) return refusalResponse(c, { ...scope, setCookies });
+      if (!scope.ok) return refused({ ...scope, setCookies });
+      auditTenant = auditClient(scope, requestedClient(c), routeParams(c));
 
       const input = await parseInput(c, spec);
-      const output = await inScope(c, scope, (scoped) =>
-        handler({ c, session, ...scoped, ...input, services }),
-      );
+      const output = await inScope(c, scope, async (scoped) => {
+        const out = await handler({ c, session, ...scoped, ...input, services });
+        // In the request's own transaction: it commits with what the request wrote.
+        await auditInTx(scoped.tx, c, entry("ok", 200));
+        return out;
+      });
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
       return respond(c, spec, output);
     } catch (error) {
+      const status = toHttpError(error).status;
+      await auditAlone(
+        c.get("req").services().db,
+        c,
+        entry(status >= 500 ? "error" : "refused", status),
+      );
       return errorResponse(c, error, setCookies);
     }
   });
+}
+
+type AuditActor = Pick<AuditEntry, "actorKind" | "actorUserId" | "actorEmail" | "actorRole">;
+
+function auditActor(session: Session): AuditActor {
+  return {
+    actorKind: "user",
+    actorUserId: session.user.id,
+    actorEmail: session.user.email,
+    actorRole: session.activeRole ?? (session.isOperator ? "operator" : null),
+  };
+}
+
+function routeParams(c: AppContext): Record<string, string> {
+  try {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(c.req.param() as Record<string, unknown>)) {
+      if (typeof v === "string") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The client a request acted in, for its audit row: the portal's one client; for the back office,
+ * the client it named (`?client=`, or a path id that is one of its clients), or null for a list
+ * across clients.
+ */
+export function auditClient(
+  scope: Pick<Scope, "tenantIds" | "operator">,
+  requested: string | null,
+  params: Record<string, string>,
+): string | null {
+  const ids = scope.tenantIds;
+  if (!scope.operator) return ids[0] ?? null;
+  if (requested && ids.includes(requested)) return requested;
+  for (const v of Object.values(params)) if (ids.includes(v)) return v;
+  return ids.length === 1 ? (ids[0] ?? null) : null;
 }
 
 /** Raw inputs for `invokeRoute`, as a request carries them (query values are strings). */
@@ -485,10 +555,32 @@ export async function invokeRoute<R extends RouteSpec>(
     body: spec.body ? spec.body.parse(raw.body) : undefined,
   };
   const services = c.get("req").services();
-  const output = await inScope(c, scope, (scoped) =>
-    handler({ c, session, ...scoped, ...input, services }),
-  );
-  return spec.response.parse(output) as z.output<R["response"]>;
+  // Audited like the route itself, marked as through the MCP server (docs/plan.md §1.35).
+  const entry = (outcome: AuditEntry["outcome"], httpStatus: number): AuditEntry => ({
+    ...auditActor(session),
+    tenantId: auditClient(scope, raw.query?.client ?? null, raw.params ?? {}),
+    action: `mcp ${spec.method} ${spec.path}`,
+    outcome,
+    httpStatus,
+    target: {
+      ...Object.fromEntries(
+        Object.entries(raw.params ?? {}).map(([k, v]) => [k, String(v).slice(0, 200)]),
+      ),
+      ...(raw.query?.client ? { client: raw.query.client.slice(0, 200) } : {}),
+    },
+  });
+  try {
+    const output = await inScope(c, scope, async (scoped) => {
+      const out = await handler({ c, session, ...scoped, ...input, services });
+      await auditInTx(scoped.tx, c, entry("ok", 200));
+      return out;
+    });
+    return spec.response.parse(output) as z.output<R["response"]>;
+  } catch (error) {
+    const status = toHttpError(error).status;
+    await auditAlone(services.db, c, entry(status >= 500 ? "error" : "refused", status));
+    throw error;
+  }
 }
 
 /** Throws 404 unless `tenantId` is one of the request's clients (ids in paths are untrusted). */

@@ -30,6 +30,20 @@ export interface RuntimeDeps {
   services?: (connection: ConnectionRef) => ConnectorServices;
   logger?: Logger;
   now?: () => Date;
+  /**
+   * The platform's data-handling policy (apps/api: a client's HIPAA mode, docs/plan.md §1.35): a
+   * reason to refuse this tool call for this client, or null. Absent: nothing is refused.
+   */
+  policy?: ToolPolicy;
+}
+
+export interface ToolPolicy {
+  refuseTool(call: {
+    tenantId: string;
+    toolId: string;
+    /** The tool's connector, or null for a platform or pack tool. */
+    connectorId: string | null;
+  }): Promise<string | null> | string | null;
 }
 
 /** One step of one run, for one client agent version. */

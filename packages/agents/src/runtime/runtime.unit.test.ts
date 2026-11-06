@@ -15,7 +15,7 @@ import { inboxCreate, PLATFORM_TOOLS } from "../tools/platform";
 import { defineInternalTool } from "../tools/types";
 import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
-import { releaseGate } from "./call-tool";
+import { callTool, releaseGate } from "./call-tool";
 import { type RuntimeDeps, resolveApprover, type StepContext } from "./context";
 import { checkAgainst, objectSchema } from "./json-schema";
 import { runPlannedAction } from "./planned";
@@ -364,5 +364,50 @@ describe("noteReconnect", () => {
     ]);
     // Without the port (a call's tools) nothing happens, and nothing throws.
     await noteReconnect({ ports: {} } as RuntimeDeps, "t1", conn, new ReconnectRequiredError());
+  });
+});
+
+describe("the platform's tool policy", () => {
+  it("refuses a call the policy names, logs it as refused, and never dispatches it", async () => {
+    const finished: unknown[] = [];
+    const asked: unknown[] = [];
+    const d = {
+      tools: new ToolRegistry({ platform: PLATFORM_TOOLS, connectors: connectors() }),
+      ports: {
+        log: {
+          startToolCall: async () => "tc1",
+          finishToolCall: async (_t: string, _id: string, done: unknown) => {
+            finished.push(done);
+          },
+        },
+      },
+      policy: {
+        refuseTool: (call: unknown) => {
+          asked.push(call);
+          return "sends data to Twilio, which has no signed BAA";
+        },
+      },
+    } as unknown as RuntimeDeps;
+    const step = {
+      tenantId: "t1",
+      runId: "r1",
+      stepRunId: "s1",
+      stepId: "x",
+      mode: "live",
+      agent: { agentId: "a1" },
+      externalIndex: { next: 0 },
+    } as unknown as StepContext;
+    const out = await callTool(d, step, {
+      toolId: TESTKIT_UPDATE_TOOL,
+      input: { connectionId: "c1", id: "r1", amount: "1.00" },
+    });
+    expect(out).toEqual({
+      status: "refused",
+      reason: "sends data to Twilio, which has no signed BAA",
+    });
+    expect(asked).toEqual([
+      { tenantId: "t1", toolId: TESTKIT_UPDATE_TOOL, connectorId: "testkit" },
+    ]);
+    expect(finished).toMatchObject([{ status: "refused" }]);
   });
 });

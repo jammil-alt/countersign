@@ -14,7 +14,12 @@ import {
   tenantKeysInDb,
   type UrlSigner,
 } from "@countersign/connectors";
-import type { Locale, Workflow } from "@countersign/core";
+import {
+  type Locale,
+  type Processor,
+  parseCoveredProcessors,
+  type Workflow,
+} from "@countersign/core";
 import { agentVersion, connection, type Db, run, withTenant } from "@countersign/db";
 import {
   anthropicTransport,
@@ -36,6 +41,7 @@ import { browserRunOpener } from "../browser/driver";
 import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import { codesFor } from "../codes/client";
+import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/policy";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 import type { Platform } from "../platform";
@@ -51,6 +57,11 @@ export interface RunDeps {
   db: Db;
   platform: Platform;
   transport: LlmTransport;
+  /**
+   * The vendors with a signed BAA (docs/plan.md §1.35): with it, clients in HIPAA mode are held to
+   * them (tool policy and model guard). Absent (tests): nothing is refused.
+   */
+  covered?: ReadonlySet<Processor>;
   instances?: RunInstances;
   credentials?: RuntimeDeps["credentials"];
   /** Object storage and links for the `docs.*` tools; extraction uses `transport`. */
@@ -136,6 +147,7 @@ export function runDepsFromEnv(
   const open = browserRunOpener(env);
   return {
     ...base,
+    covered: parseCoveredProcessors(env.BAA_PROCESSORS),
     transport: workerTransport(env),
     voice: voiceDepsFromEnv(env),
     documents: { content, signer: signerFor(env, env.APP_ORIGIN ?? "") },
@@ -178,6 +190,7 @@ export function runtimeFor(
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,
     transport: deps.transport,
+    ...(deps.covered ? { policy: hipaaToolPolicy(profileReader(db), deps.covered) } : {}),
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
     ...(deps.now ? { now: deps.now } : {}),
     // Contacts and consent for messaging connectors, scoped to the connection's client; the
@@ -214,6 +227,15 @@ function withBrowser(
 ): NonNullable<RuntimeDeps["services"]> {
   if (!browser) return base;
   return (conn) => ({ ...base(conn), browser: dbBrowserServices(db, conn, browser) });
+}
+
+/** RunDeps for one client: its model calls held to its HIPAA mode (docs/plan.md §1.35). */
+export function forClient(deps: RunDeps, tenantId: string): RunDeps {
+  if (!deps.covered) return deps;
+  return {
+    ...deps,
+    transport: guardModels(deps.transport, tenantId, profileReader(deps.db), deps.covered),
+  };
 }
 
 /** The reach-out service outside a run (the cron's escalation). */
@@ -324,7 +346,10 @@ export async function executeRun(
     return result;
   }
 
-  const runtime = runtimeFor(deps, { collect: emitted, testRun: info.mode === "test" });
+  const runtime = runtimeFor(forClient(deps, info.tenantId), {
+    collect: emitted,
+    testRun: info.mode === "test",
+  });
   info.language = loaded.language;
   const ctx: ExecutorContext = {
     run: info,

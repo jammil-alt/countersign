@@ -237,7 +237,7 @@ type ConnectionRow = typeof connection.$inferSelect;
  * recorded with who made it. The row, its matrix and its history stay (bindings keep pointing at
  * it, so reconnecting puts the agents back to work). Already disconnected: nothing happens.
  */
-async function disconnect(
+export async function disconnect(
   tx: Tx,
   services: Services,
   row: ConnectionRow,

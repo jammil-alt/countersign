@@ -122,6 +122,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     output or a screen; tool code gets them for one step. Second factors live only in `apps/mfa`, handed
     once to a login in progress. Browser sign-in is code on pinned origins, never the model; agents never
     sign in to blocked-tier sites (banks, payments, email accounts, identity providers).
+14. **Audited and held to its compliance mode** (`docs/plan.md` §1.35). Session routes go through
+    `mount()`, which writes the audit row; anything else that reads or changes client data on a
+    person's behalf writes its own (`auditAlone`). `audit_event` is never updated or deleted. A new
+    feature that sends client data to a vendor of ours names it in `packages/core/src/compliance`,
+    so HIPAA mode can refuse it. Card numbers are never stored. CI never copies client data.
 
 ## UI and copy
 

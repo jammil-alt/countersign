@@ -76,6 +76,11 @@ export interface Vars {
    * registered on the OAuth client exactly. Unset: `<APP_ORIGIN>/api/connections/gmail/callback`.
    */
   GOOGLE_REDIRECT_URI?: string;
+  /**
+   * The vendors with a signed BAA (docs/plan.md §1.35), e.g. `cloudflare,neon,workos,anthropic`:
+   * what a client in HIPAA mode may send data to. Unset: none, so no client can be in HIPAA mode.
+   */
+  BAA_PROCESSORS?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */

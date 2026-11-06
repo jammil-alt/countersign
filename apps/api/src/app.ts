@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
+import { purgeRetiredFiles } from "./compliance/retention";
 import type { Bindings } from "./env";
 import {
   type AppDeps,
@@ -22,6 +23,7 @@ import { approverRuleRoutes } from "./routes/approver-rules";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
+import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
 import { directoryRoutes } from "./routes/directory";
@@ -53,11 +55,16 @@ import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
-import { reachDepsFor, runDepsFromEnv } from "./runs/execute";
+import { forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+import { securityHeaders } from "./security-headers";
 import { vaultTick } from "./vault/upkeep";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+  app.use("/api/*", securityHeaders);
+  // The MCP server (/mcp) and its OAuth metadata get the same headers (docs/plan.md §1.35).
+  app.use("/mcp", securityHeaders);
+  app.use("/.well-known/*", securityHeaders);
   // Liveness needs nothing: no database, no session.
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
   app.use("/api/*", requestState(deps));
@@ -96,6 +103,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   accessRoutes(app);
   releaseRoutes(app);
   browserRoutes(app);
+  complianceRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -122,7 +130,7 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         instances,
         reachTick: (tenantId, at) =>
           reachOutTick(
-            reachDepsFor(runDepsFromEnv(env, { db, platform, instances })),
+            reachDepsFor(forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId)),
             tenantId,
             at,
           ),
@@ -142,6 +150,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
         console.error("vault upkeep failed", error),
+      );
+      // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
+      await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
+        console.error("retention sweep failed", error),
       );
     }
   } finally {

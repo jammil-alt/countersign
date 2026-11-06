@@ -553,6 +553,54 @@ and, after approval, itemizes the bill, attaches the invoice and notes it in the
    asked, nothing is written. One bill with fewer lines than the invoice and the same total: three
    approvals in turn (itemize, attach, memo), each written once.
 
+## 1.2 Compliance: HIPAA mode, retiring a client, the audit log (`docs/plan.md` §1.35)
+
+**HIPAA mode.** A client whose records hold health information is put in HIPAA mode on its
+Settings page in the back office (with a reason). It can only be switched on once every vendor that
+would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
+`apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
+is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
+`openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
+HIPAA client. `anthropic` is needed for agents and document reading.
+
+**Retiring a client.** On the client's Settings page, Retire client (a reason, and the client's
+name typed again). Its users lose access at once, its agents are retired and its tools are
+disconnected. Then:
+1. By hand, the same day, close what other vendors keep for it:
+   - its Twilio subaccount (texts, voicemails);
+   - its ElevenLabs agents and call transcripts;
+   - its Resend sending domain;
+   - its Stripe customer, after the last invoice;
+   - its Sentry events, if any name it.
+2. 30 days later, the hourly cron deletes its files (`tenants/<id>/` in R2) and records
+   `client.purge_files` in the audit log.
+3. Then the owner purges its rows, as `cs_owner`:
+   `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
+   It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
+   quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
+   holds the deleted rows until its restore window passes.
+
+**The audit log and access review** are at `/ops/audit` (operators only). Review access every
+quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
+date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must
+be disabled, as in `db:purge-client`.
+
+**Settings outside the code** (set by the owner, 2026-11-06; `docs/security.md` has the record):
+- WorkOS, both environments: Multi-factor auth on (Authentication → Features), and Session lifetime
+  of 12 hours with 30 minutes' inactivity (Applications → the app → Sessions). Access token duration
+  stays 5 minutes.
+- Cloudflare, zone `mezonas.com` (Free plan): the rate-limiting rule "API rate limit" (URI path
+  `/api/*` except the webhook paths `/api/twilio/`, `/api/voice/`, `/api/elevenlabs/`,
+  `/api/hooks/`, `/api/billing/stripe/` and `/api/connections/qbo/webhook`; 50 requests per 10
+  seconds per IP, then blocked for 10 seconds). Always Use HTTPS on. Minimum TLS 1.2. The
+  encryption mode stays Full (automatic), and Cloudflare's own HSTS stays off, since the app sends
+  its own. Add a new webhook path to the rule's exclusions when one is added.
+- GitHub: dependency graph, Dependabot alerts and security updates, secret scanning with push
+  protection, CodeQL Default setup off (we run `codeql.yml`), and the ruleset "Protect main": a pull
+  request, the checks `checks / check`, `checks / static` and `analyze`, no force pushes or
+  deletion, admin bypass.
+- Neon, project `mezonas` (Launch): History window 7 days (Settings → Postgres).
+
 ## 2. What CI does
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;
@@ -588,3 +636,11 @@ and, after approval, itemizes the bill, attaches the invoice and notes it in the
 
 Neon point-in-time restore covers both branches. To inspect the past without touching production,
 create a branch from a timestamp and connect to it directly.
+
+Test a restore every quarter (SOC 2 A1.3, HIPAA §164.308(a)(7)):
+1. Create a branch from a timestamp an hour back.
+2. Count the rows of a few tables against `main`.
+3. Delete the branch.
+4. Note the date and the result.
+
+Set Neon's history retention to at least 7 days on the production project.
