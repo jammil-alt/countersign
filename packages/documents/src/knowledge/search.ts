@@ -91,6 +91,8 @@ export async function searchKnowledge(
         eq(knowledgeChunk.tenantId, tenantId),
         sql`${knowledgeChunk.tsv} @@ ${q}`,
         sql`(${knowledgeChunk.sourceType} = 'document' or ${knowledgeEntry.status} = 'active')`,
+        // Voice samples (migration 0025) are read only as samples, never as answers.
+        sql`(${knowledgeEntry.kind} is null or ${knowledgeEntry.kind} <> 'voice_sample')`,
       ),
     )
     .orderBy(sql`${rank} desc`, knowledgeChunk.id)
@@ -99,6 +101,7 @@ export async function searchKnowledge(
   const hits = new Map<string, KnowledgeHit>();
   for (const c of chunks) {
     const id = c.sourceType === "entry" ? c.entryId : c.documentId;
+    if (c.kind === "voice_sample") continue;
     if (!id || hits.has(id)) continue; // rows come best first: keep each source's best passage
     hits.set(id, {
       kind: c.sourceType === "entry" ? (c.kind ?? "faq") : "document",
