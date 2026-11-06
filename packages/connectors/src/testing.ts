@@ -289,6 +289,14 @@ export {
   type FakeRegisteredCall,
   fakeElevenLabs,
 } from "./elevenlabs/fake";
+// v0.12 W3-B: Google Drive and Outlook (docs/plan.md §1.52).
+export {
+  FAKE_GOOGLE_DRIVE,
+  type FakeDriveFile,
+  type FakeGoogleDrive,
+  fakeDriveText,
+  fakeGoogleDrive,
+} from "./gdrive/fake";
 export {
   FAKE_GOOGLE,
   type FakeGmailMessage,
@@ -296,6 +304,14 @@ export {
   fakeGoogle,
   readSentEmail,
 } from "./gmail/fake";
+// v0.12 W3-B
+export {
+  FAKE_MICROSOFT,
+  type FakeMicrosoft,
+  type FakeOutlookMessage,
+  fakeMicrosoft,
+  MICROSOFT_CONSUMER_TENANT,
+} from "./outlook/fake";
 export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
 export {
   FAKE_RESEND_MAIN,
