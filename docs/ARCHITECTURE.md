@@ -658,7 +658,8 @@ Every change is additive, so the previous Worker keeps working while a migration
 deploy. Tenant tables have `tenant_id`, forced RLS on `app.tenant_ids` and no DELETE grant unless
 stated. Operator tables (no client) use the `browser_site` pattern: forced RLS `app_is_operator()`.
 Migration numbers are reserved in `docs/plan.md` §8; Wave 1's (0018–0025) are written together in
-one PR (`claude/w1-migrations`) so their Drizzle snapshots chain.
+one PR (`claude/w1-migrations`) so their Drizzle snapshots chain, and Wave 2's (0026–0029, run
+oversight's from §5.6 included) in another (`claude/w2-migrations`).
 
 ```
 -- 0018 platform fixes (§8, §13, plan §1.43)
@@ -748,7 +749,7 @@ test_case_result(id, tenant_id null, suite_run_id, test_case_id, status /*pass|f
                  got jsonb, diff jsonb, cost_usd, run_id null, created_at)          -- insert only
 skill + require_tests boolean not null default false
 
--- 0029 the Builder as a conversation (§9.6)
+-- 0030 the Builder as a conversation (§9.6)
 builder_session(id, tenant_id null, kind /*agent|skill*/, agent_id null, skill_id null,
                 base_version_id null, bundle jsonb /*the working draft*/, status /*open|saved|closed*/,
                 created_by, created_at, updated_at)
@@ -765,7 +766,7 @@ or shows outside it (invariant 1).
 ### 5.6 v0.13 additions
 
 ```sql
--- 0031 run oversight (§10.11)
+-- 0029 run oversight (§10.11)
 oversight_decision(id, tenant_id, run_id, step_run_id, node_id, seq int /*1.. per node*/,
                    cause /*failed|checkpoint*/, action /*continue|retry|retry_with|ask|stop*/,
                    input_before jsonb null, input_after jsonb null /*retry_with only*/,

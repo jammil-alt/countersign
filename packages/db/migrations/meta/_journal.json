@@ -183,6 +183,34 @@
       "when": 1793939160014,
       "tag": "0025_people_voice_samples",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793944900024,
+      "tag": "0026_connector_setting",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793944931040,
+      "tag": "0027_automations",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793944969085,
+      "tag": "0028_test_bench",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793944996206,
+      "tag": "0029_oversight_decision",
+      "breakpoints": true
     }
   ]
 }
