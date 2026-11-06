@@ -42,7 +42,7 @@ export const notifyRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Ask the client to reconnect a connection: once a day per connection (409 already_sent), logged",
+      "Ask the client to reconnect a connection by email: once a day per connection (409 already_sent), logged; nothing without our mail (409 not_configured)",
     params: z.object({ id: Id }),
     response: RemindResult,
   }),

@@ -25,6 +25,7 @@ import {
   user,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
+import { dbStepLog } from "./runs/ports";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -429,6 +430,24 @@ describe.skipIf(!h)("run controls", () => {
     expect(j(signed.json).runs.length).toBeGreaterThanOrEqual(1);
     const changed = await H.call(OPERATOR, "GET", "/api/ops/runs?changedConnector=testkit");
     expect(j(changed.json).runs.length).toBeGreaterThanOrEqual(1);
+    // v0.14 W4-B: the amount of a change, where its tool declares it (the testkit: 12.00 USD).
+    const over = await H.call(OPERATOR, "GET", "/api/ops/runs?amountOver=11&amountCurrency=USD");
+    expect(over.status, JSON.stringify(over.json)).toBe(200);
+    expect(j(over.json).runs.length).toBeGreaterThanOrEqual(1);
+    for (const q of [
+      "amountOver=12&amountCurrency=USD",
+      "amountUnder=12&amountCurrency=USD",
+      "amountOver=11&amountCurrency=EUR",
+    ]) {
+      expect(j((await H.call(OPERATOR, "GET", `/api/ops/runs?${q}`)).json).runs).toEqual([]);
+    }
+    const between = await H.call(
+      admin("a"),
+      "GET",
+      "/api/runs?amountOver=11&amountUnder=13&amountCurrency=USD",
+    );
+    expect(j(between.json).runs.length).toBeGreaterThanOrEqual(1);
+    expect((await H.call(OPERATOR, "GET", "/api/ops/runs?amountOver=11")).status).toBe(400);
     const manual = await H.call(OPERATOR, "GET", "/api/ops/runs?startedBy=schedule");
     expect(j(manual.json).runs).toEqual([]);
 
@@ -445,6 +464,33 @@ describe.skipIf(!h)("run controls", () => {
       const refused = await H.call(admin("a"), "GET", `/api/runs?${q}`);
       expect(refused.status, q).toBe(400);
     }
+  });
+
+  // v0.14 W4-B (docs/plan.md §1.45 "Clean-run rate"): a step's row counts its real attempts.
+  it("counts a step's platform retries and oversight retries on its one row", async () => {
+    const [r] = await H.t.db.select().from(run).where(eq(run.tenantId, H.A.tenantId)).limit(1);
+    if (!r) throw new Error("no run");
+    const log = dbStepLog(H.db, {
+      id: r.id,
+      tenantId: r.tenantId,
+      agentId: r.agentId,
+      agentVersionId: r.agentVersionId,
+      workflowSlug: r.workflowSlug,
+      mode: r.mode,
+    });
+    const at = { runId: r.id, nodeId: "w4b-attempts", nodeType: "skill" } as const;
+    const attempts = async () =>
+      (await H.t.db.select().from(stepRun).where(eq(stepRun.id, id)))[0]?.attempts;
+    const id = await log.start(at);
+    expect(await attempts()).toBe(1);
+    expect(await log.start({ ...at, retried: true })).toBe(id);
+    expect(await attempts()).toBe(2);
+    // Finding the row (a failure record) counts nothing.
+    await log.start(at);
+    expect(await attempts()).toBe(2);
+    // An oversight retry's own number never lowers it; it counts one more.
+    await log.start({ ...at, attempt: 2, input: { fixed: true } });
+    expect(await attempts()).toBe(3);
   });
 
   it("downloads the runs list as CSV", async () => {

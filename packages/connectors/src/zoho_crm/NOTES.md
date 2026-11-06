@@ -63,6 +63,17 @@ follow-up if clients hit the cap.
 - Per-DC client secrets from env (`ZOHO_CLIENT_SECRETS`).
 - Field metadata (`/settings/fields`) for typed inputs in the builder.
 
+## Sync and notifications (W4-B, 2026-11-06; nothing below was checked against live docs)
+
+| Fact | Status |
+|---|---|
+| List records: `GET /crm/v8/{module}?fields=…&sort_by=Modified_Time&sort_order=asc&page&per_page` with `If-Modified-Since` (ISO, offset); answers `{data, info:{more_records}}`, 304 when nothing changed | **UNCHECKED**: `fields` mandatory in v8 (at most 50), the sort, the header's format, and 304 (204 is also handled) |
+| Page numbers reach only the first 2,000 records (10 pages of 200); past that the window moves on by the last record's `Modified_Time` | **UNCHECKED** (v8 offers `page_token` past 2,000; not used) |
+| Field API names of a standard org (`ZOHO_SYNC_FIELDS`) | **UNCHECKED**; a renamed or removed field comes back absent |
+| Notifications: `POST /crm/v8/actions/watch` `{watch:[{channel_id (number), events:["Leads.all",…], channel_expiry (≤ 1 day), token (≤ 50 chars), notify_url}]}`, answered under `watch` | **UNCHECKED**: the shapes, the one-day expiry, the token length; we renew after 20 hours |
+| A notification is a POST to `notify_url` with `channel_id`, `token` (as given), `module`, `operation`, `ids` | **UNCHECKED** shape; we only check the token and channel, then poll |
+| Scopes `ZohoCRM.notifications.READ` and `.CREATE` for the watch | **UNCHECKED**; added to the sign-in, so connections made before need a new sign-in for notifications (the poll works without) |
+
 ## Sources
 
 - [Multi DC support (Zoho Accounts)](https://zoho.com/accounts/protocol/oauth/multi-dc.html)
