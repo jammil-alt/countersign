@@ -123,8 +123,14 @@ export function WhatsappMetaSignupScreen() {
   useEffect(() => {
     let live = true;
     const onMessage = (event: MessageEvent) => {
-      // Only Meta's own windows (also checked in sessionInfoOf; here so the guard is plain).
-      if (!META_MESSAGE_ORIGINS.has(event.origin)) return;
+      // Only Meta's own windows (META_MESSAGE_ORIGINS, also checked in sessionInfoOf). Spelled
+      // out so the guard is plain where the message arrives.
+      if (
+        event.origin !== "https://www.facebook.com" &&
+        event.origin !== "https://web.facebook.com"
+      ) {
+        return;
+      }
       const info = sessionInfoOf(event.origin, event.data);
       if (info?.kind === "finish") chosen.current = info;
       if (info?.kind === "cancel" && live) setPhase("cancelled");
