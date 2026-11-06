@@ -28,17 +28,20 @@ import {
   type Tx,
   thread,
 } from "@countersign/db";
+import type { EventRow } from "@countersign/senses";
+import { senseEmitPosted } from "@countersign/threads";
 import { and, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { plainTitle } from "../change-display";
-import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+import { type AppEnv, ensureClient, mount, notFound } from "../http";
 // v0.12 W2-G
 import { readerLocale, weekKpis } from "../kpi/view";
 import { leadUserId, type TenantRow, tenantRow } from "../notify/people";
 import { LEAD_SUBJECT } from "../notify/scan";
+import { dispatchEvents } from "../runs/dispatch";
 import { paperFor, weeklyPdf } from "../weekly/pdf";
 import { runsDone, serviceName, services, toolChanges } from "../weekly/stats";
-import { editWeek, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
+import { editWeek, replyToDecision, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
 import { portalInboxFilter, sourcesOf } from "./portal";
 
 const ACTIVE_RUN = ["queued", "running", "waiting"] as const;
@@ -305,10 +308,23 @@ export function tableRouteHandlers(app: Hono<AppEnv>): void {
     return { ok: true };
   });
 
-  mount(app, routes.portalWeeklyReply, async () => {
-    // DECISION: replies to a decision are lead-thread messages (W1-C, docs/plan.md §1.38); until
-    // threads are built this answers 501 `not_yet`.
-    throw new HttpError(501, "not_yet", "replies come with the lead thread");
+  // v0.12 W1-C: a reply to a decision is the client's message in the lead thread (§11.4).
+  mount(app, routes.portalWeeklyReply, async (ctx) => {
+    const { tx, tenantIds, params, body, session, services } = ctx;
+    const collect: EventRow[] = [];
+    const messageId = await replyToDecision(tx, {
+      tenantId: tenantIds[0] as string,
+      weekStart: params.weekStart,
+      decisionId: params.decisionId,
+      userId: session.user.id,
+      text: body.text,
+      now: new Date(),
+      emitPosted: senseEmitPosted({ registry: services.platform.events, collect }),
+    });
+    if (collect.length > 0) {
+      ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
+    }
+    return { messageId };
   });
 
   mount(app, routes.opsWeekly, async ({ tx, params, ...ctx }) => {

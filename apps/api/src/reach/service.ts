@@ -17,6 +17,9 @@ import {
 } from "@countersign/agents";
 import {
   type AgentBundle,
+  type AgentMode,
+  type ApprovalRequirement,
+  type ApprovalSource,
   channelAddress,
   channelTool,
   consentBlockFor,
@@ -24,6 +27,7 @@ import {
   DEFAULT_QUIET_HOURS,
   type Duration,
   effectiveMode,
+  explainWrite,
   fixedInputProblem,
   hoursBlock,
   isPlainObject,
@@ -49,6 +53,7 @@ import {
   reachSubject,
   routeApproval,
   type Urgency,
+  type WhyApproval,
 } from "@countersign/core";
 import {
   agent,
@@ -418,6 +423,35 @@ export interface ReachPort {
   resume(req: ResumeRequest): Promise<StepOutcome>;
   waitDone(req: WaitRequest): Promise<boolean>;
   afterWait(req: WaitRequest & { timedOut: boolean }): Promise<StepOutcome>;
+}
+
+/**
+ * Why a reach-out's plan waits for a person (ARCHITECTURE §11.1), over the inputs its decision
+ * used: the step, each planned channel's `create` level, the agent's mode and go-live stage, and
+ * the person's own autonomy (`person`). Stored as the plan approval's `payload.whyApproval`.
+ */
+// DECISION: a plan is one approval over several channels, so `matrix` is named when any planned
+// channel's connection allows `create` only with approval (the plan runs on its own only when every
+// one is `auto`), and `person` when the contact set any planned channel to `approval`. A plan has
+// no grant (reach out uses the agent's bound channels).
+export function planWhyApproval(input: {
+  levels: readonly (string | undefined)[];
+  stepApproval: ApprovalRequirement | undefined;
+  definitionMode: AgentMode;
+  stage: string | null | undefined;
+  needsSignature: boolean;
+  route: { source: ApprovalSource; ruleId: string | null };
+}): WhyApproval {
+  return explainWrite({
+    verb: "create",
+    matrix: { create: input.levels.every((l) => l === "auto") ? "auto" : "approval" },
+    stepApproval: input.stepApproval,
+    agentMode: effectiveMode({ permissions: { mode: input.definitionMode } }, input.stage),
+    definitionMode: input.definitionMode,
+    stage: input.stage,
+    person: input.needsSignature ? "approval" : null,
+    route: input.route,
+  });
 }
 
 /** Whether a resume's pending state is a reach-out's plan approval. */
@@ -793,6 +827,15 @@ export function reachPort(deps: ReachDeps): ReachPort {
                     : "Written for them when it is sent, from the purpose and the record",
               },
               sources,
+              // v0.12 W1-D: why the plan waits, with the reasons a tool proposal gives.
+              whyApproval: planWhyApproval({
+                levels: plan.channels.map((ch) => loaded.channels.get(ch)?.create),
+                stepApproval: req.approval.required,
+                definitionMode: definition.permissions.mode,
+                stage: loaded.agentRow.stage,
+                needsSignature: plan.needsSignature,
+                route: { source: route.source, ruleId: route.ruleId },
+              }) as JsonObject,
             },
             dueAt: req.approval.timeout
               ? new Date(t.getTime() + parseDuration(req.approval.timeout))

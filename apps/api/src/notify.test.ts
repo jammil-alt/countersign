@@ -23,13 +23,14 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { addDays, weeklySchedule, weekStartOf } from "@countersign/core";
+import { addDays, uuidv7, weeklySchedule, weekStartOf } from "@countersign/core";
 import {
   agent,
   connection,
   connectionChange,
   docExtraction,
   document,
+  event,
   externalAction,
   inboxItem,
   membership,
@@ -407,11 +408,13 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       await pass(B, at(6, "09:10"));
       const signoffs = (await rows(B)).filter((r) => r.kind === "signoff");
       expect(signoffs.map((r) => r.dedupeKey)).toEqual([`signoff:${item}:${H.B.admin}`]);
-      // The same pass may also send the hourly digest, in either order: count, don't take the last.
-      const signoffMails = emailsTo(admin("b")).filter(
+      // The same pass also tells them an item waits; rows of one pass share their time, so the
+      // two emails may go in either order. The sign-off email goes exactly once.
+      const told = emailsTo(admin("b")).filter(
         (e) => e.subject === "An agent waits for your sign-off to go live",
       );
-      expect(signoffMails).toHaveLength(1);
+      expect(told).toHaveLength(1);
+      expect(told[0]?.text).toContain(`${ORIGIN}/inbox`);
     });
   });
 
@@ -618,15 +621,41 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       const late = await put({ note: "too late" });
       expect(late.status).toBe(409);
       expect(j(late.json).error.code).toBe("sent");
-      // The reply route waits for the lead thread.
-      const reply = await H.call(
-        user("b"),
-        "POST",
-        `/api/weekly/${W}/decisions/${decisionId}/reply`,
-        { text: "Switch" },
-      );
-      expect(reply.status).toBe(501);
-      expect(j(reply.json).error.code).toBe("not_yet");
+      // v0.12 W1-C: the client answers a decision with a message in the lead thread, linked
+      // from the decision's reply.
+      const replyTo = (who: string, id: string, text = "Switch") =>
+        H.call(who, "POST", `/api/weekly/${W}/decisions/${id}/reply`, { text });
+      const reply = await replyTo(user("b"), decisionId);
+      expect(reply.status, JSON.stringify(reply.json)).toBe(200);
+      const messageId = j(reply.json).messageId as string;
+      const [msg] = await H.t.db.select().from(message).where(eq(message.id, messageId));
+      expect(msg).toMatchObject({
+        tenantId: B(),
+        senderType: "user",
+        senderId: H.B.user,
+        kind: "text",
+        audience: "client",
+        sources: [runIds[0]],
+        body: { text: "Switch", weeklyDecision: { weekStart: W, decisionId } },
+      });
+      const [leadRow] = await H.t.db
+        .select()
+        .from(thread)
+        .where(eq(thread.id, msg?.threadId ?? ""));
+      expect(leadRow).toMatchObject({ tenantId: B(), subjectType: "lead" });
+      const posted = await H.t.db
+        .select()
+        .from(event)
+        .where(and(eq(event.tenantId, B()), eq(event.type, "thread.message_posted")));
+      expect(posted.map((e) => j(e.payload).messageId)).toContain(messageId);
+      const [answered] = await weekly(B());
+      expect(answered?.decisions[0]?.reply).toMatchObject({ by: H.B.user, messageId });
+      // One answer per decision; another decision, week or client is not found.
+      const again = await replyTo(admin("b"), decisionId, "Wait");
+      expect([again.status, j(again.json).error.code]).toEqual([409, "replied"]);
+      expect((await replyTo(user("b"), uuidv7())).status).toBe(404);
+      expect((await replyTo(user("c"), decisionId)).status).toBe(404);
+      expect((await replyTo(OPERATOR, decisionId)).status).toBe(403);
     });
 
     it("the portal reads sent tables and downloads the PDF; nothing carries cost or prompts", async () => {

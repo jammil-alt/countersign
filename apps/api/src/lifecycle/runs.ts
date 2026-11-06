@@ -8,11 +8,12 @@
 // Writes behave as in any live run: behind approval, and in trial or signoff every one is signed.
 
 import { checkAgainst } from "@countersign/agents";
-import { type AgentBundle, type RunForm, uuidv7 } from "@countersign/core";
+import { type AgentBundle, type Role, type RunForm, uuidv7 } from "@countersign/core";
 import { agent, agentChange, agentVersion, event, run, type Tx } from "@countersign/db";
 import { type RoutableAgent, type RunRequest, routeEvent } from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
+import { withCanSign } from "../inbox";
 import { createRunRow } from "../runs/dispatch";
 import { type AgentRow, stageOf } from "./stages";
 
@@ -162,8 +163,22 @@ export async function runForms(tx: Tx, tenantId: string, agentId: string): Promi
 /** Starts a client-runnable workflow with the person's form; checked against the trigger's schema. */
 export async function runNow(
   tx: Tx,
-  input: { tenantId: string; agentId: string; slug: string; input: unknown; userId: string },
+  input: {
+    tenantId: string;
+    agentId: string;
+    slug: string;
+    input: unknown;
+    userId: string;
+    role: Role;
+  },
 ): Promise<RunRequest> {
+  // v0.12 W1-D: only people who sign start a run (docs/plan.md §1.36 "Run now").
+  // DECISION: a viewer still lists the forms (they see everything) but starting one is 403
+  // `cannot_sign`, as on the Desk; the membership is read here, not in the session.
+  const who = await withCanSign(tx, input.tenantId, { userId: input.userId, role: input.role });
+  if (who.canSign === false) {
+    throw new HttpError(403, "cannot_sign", "you can see this, but you don't sign for your team");
+  }
   const row = await clientAgent(tx, input.tenantId, input.agentId);
   ensureRunsLive(row);
   const bundle = await liveBundleOf(tx, row);
