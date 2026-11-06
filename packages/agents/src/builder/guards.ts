@@ -71,14 +71,38 @@ export function workflowNodeIds(w: BundleWorkflow["workflow"]): string[] {
   return ids;
 }
 
+/**
+ * `text.replace(/\{\{([^}]*)\}\}/g, (_, inner) => fn(inner))` without the regular expression,
+ * which is quadratic on a long run of `{{` with no `}}` (CodeQL js/polynomial-redos). Same
+ * matches: from each `{{`, the inner text runs to the first `}`, which must start `}}`.
+ */
+export function replaceTemplates(text: string, fn: (inner: string) => string): string {
+  let out = "";
+  let from = 0;
+  let at = text.indexOf("{{");
+  while (at !== -1) {
+    const close = text.indexOf("}", at + 2);
+    if (close === -1) break;
+    if (text.charCodeAt(close + 1) === 125) {
+      out += text.slice(from, at) + fn(text.slice(at + 2, close));
+      from = close + 2;
+      at = text.indexOf("{{", from);
+    } else {
+      // Every `{{` before this `}` meets the same lone `}`, so none of them can match.
+      at = text.indexOf("{{", close + 1);
+    }
+  }
+  return out + text.slice(from);
+}
+
 /** Rewrites `steps.<old>` inside every `{{…}}` of every string under `value`. */
 export function rewriteRefs(value: unknown, map: ReadonlyMap<string, string>): unknown {
   if (typeof value === "string") {
     if (!value.includes("{{")) return value;
     const ref = /(^|[^A-Za-z0-9_.])steps\.([A-Za-z0-9][A-Za-z0-9_-]*)/g;
-    return value.replace(
-      /\{\{([^}]*)\}\}/g,
-      (_whole, inner: string) =>
+    return replaceTemplates(
+      value,
+      (inner) =>
         `{{${inner.replace(ref, (m, pre: string, id: string) => {
           const to = map.get(id);
           return to ? `${pre}steps.${to}` : m;
