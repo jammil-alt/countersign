@@ -28,6 +28,8 @@ import { messagingRoutes } from "./messaging";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+// v0.12 W1-G: people (autonomy).
+import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
@@ -1810,6 +1812,9 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 W1-G: people (autonomy).
+  ...peopleRoutes,
+  ...voiceSampleRoutes,
   // v0.12 W1-E
   ...runControlRoutes,
   // v0.12 W1-A: go-live stages and client controls

@@ -4,6 +4,8 @@
 
 import { routes } from "@countersign/core";
 import type { Hono } from "hono";
+import { setContactAutonomy } from "../directory/autonomy";
+import { voiceSampleRouteHandlers } from "../directory/voice-samples";
 import { type AppEnv, ensureClient, mount } from "../http";
 import {
   changeConsent,
@@ -86,4 +88,30 @@ export function contactRoutes(app: Hono<AppEnv>): void {
     await getContact(ctx.tx, tenantId, ctx.params.id);
     return { items: await contactMessages(ctx.tx, tenantId, ctx.params.id) };
   });
+
+  // ── v0.12 W1-G: a person's autonomy per channel (docs/plan.md §1.42) ──
+  mount(app, routes.opsContactAutonomy, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    const row = await setContactAutonomy(
+      ctx.tx,
+      ctx.params.id,
+      ctx.params.contactId,
+      ctx.body.autonomy,
+      { id: ctx.session.user.id, role: "operator" },
+    );
+    return { contact: await contactOut(ctx.tx, row) };
+  });
+  mount(app, routes.portalContactAutonomy, async (ctx) => {
+    const row = await setContactAutonomy(
+      ctx.tx,
+      ctx.tenantIds[0] as string,
+      ctx.params.id,
+      ctx.body.autonomy,
+      { id: ctx.session.user.id, role: ctx.role },
+    );
+    return { contact: await contactOut(ctx.tx, row) };
+  });
+
+  // ── v0.12 W1-G: voice samples (docs/plan.md §1.42) ──
+  voiceSampleRouteHandlers(app);
 }

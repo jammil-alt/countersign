@@ -370,3 +370,44 @@ export function rowFromPodio(
     externalId: external,
   });
 }
+
+// ── v0.12 W1-G: QuickBooks vendors and customers (docs/plan.md §1.42) ──────────────────────────
+
+/** The QuickBooks entities the directory imports, and the organization kind each one gives. */
+export const QBO_DIRECTORY_ENTITIES = { Vendor: "vendor", Customer: "customer" } as const;
+export type QboDirectoryEntity = keyof typeof QBO_DIRECTORY_ENTITIES;
+
+const qboText = (v: unknown, key: string): string | undefined =>
+  v && typeof v === "object" ? str((v as Record<string, unknown>)[key]) : undefined;
+
+/**
+ * A synced QuickBooks Vendor or Customer (its raw record's payload) as an organization row, kind
+ * `vendor` or `customer`, matched later by its QuickBooks id (`external_refs.qbo`).
+ */
+// DECISION: QuickBooks vendors and customers import as organizations (QuickBooks keeps one
+// record per company or person it pays or bills); their people are added by hand or from a CRM.
+export function rowFromQbo(
+  entity: QboDirectoryEntity,
+  payload: Record<string, unknown>,
+  row: number,
+): ParsedImportRow<OrganizationImportRow> {
+  const bill = payload.BillAddr;
+  const parts = {
+    line1: qboText(bill, "Line1"),
+    city: qboText(bill, "City"),
+    region: qboText(bill, "CountrySubDivisionCode"),
+    postalCode: qboText(bill, "PostalCode"),
+    country: qboText(bill, "Country"),
+  };
+  const address: OrganizationAddress = {};
+  for (const [key, v] of Object.entries(parts)) if (v) address[key as keyof typeof parts] = v;
+  return check(OrganizationImportRow, row, {
+    name: str(payload.DisplayName) ?? str(payload.CompanyName),
+    kinds: [QBO_DIRECTORY_ENTITIES[entity]],
+    website: qboText(payload.WebAddr, "URI"),
+    email: qboText(payload.PrimaryEmailAddr, "Address")?.toLowerCase(),
+    phone: qboText(payload.PrimaryPhone, "FreeFormNumber"),
+    address: Object.keys(address).length ? address : undefined,
+    externalId: str(payload.Id),
+  });
+}
