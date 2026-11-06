@@ -12,7 +12,8 @@ import { useEffect, useRef, useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
 import { useI18n } from "../../i18n/i18n";
-import { Button, buttonClass, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { Button, buttonClass, ErrorNotice, Loading } from "../../ui/primitives";
+import { ConnectFrame } from "./ConnectFrame";
 
 /** Meta's JS SDK: the only script this page adds. */
 export const META_SDK_SCRIPT = "https://connect.facebook.net/en_US/sdk.js";
@@ -208,11 +209,10 @@ export function WhatsappMetaSignupScreen() {
   }
 
   return (
-    <div>
-      <PageHeader
-        title={t("whatsappMeta.signup.title")}
-        subtitle={t("whatsappMeta.signup.subtitle")}
-      />
+    <ConnectFrame
+      title={t("whatsappMeta.signup.title")}
+      subtitle={t("whatsappMeta.signup.subtitle")}
+    >
       {error ? (
         <div className="mb-3">
           <ErrorNotice error={error} />
@@ -250,6 +250,6 @@ export function WhatsappMetaSignupScreen() {
           {t("callback.back")}
         </a>
       </div>
-    </div>
+    </ConnectFrame>
   );
 }

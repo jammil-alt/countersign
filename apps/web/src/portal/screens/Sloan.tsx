@@ -6,7 +6,7 @@
 // loosens a rule (invariant 11): this page shows what the thread routes return and nothing else.
 import type { PortalMessage, PortalThread } from "@countersign/core";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
@@ -337,7 +337,19 @@ function SloanRail() {
         </Section>
       ) : null}
 
-      <Section title={t("sloan.canTitle")}>
+      <Section
+        title={t("sloan.canTitle")}
+        action={
+          // UI-3a: what Sloan passes to us lands on Requests, with our answers.
+          <Link
+            to={PORTAL_PATHS.requests}
+            className="text-sm text-link hover:underline"
+            data-testid="portal-sloan-requests"
+          >
+            {t("sloan.requests")}
+          </Link>
+        }
+      >
         <Card testId="portal-sloan-can">
           {CAN.map(([k, yes]) => (
             <ActivityRow

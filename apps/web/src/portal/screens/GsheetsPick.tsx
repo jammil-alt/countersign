@@ -9,7 +9,8 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { useI18n } from "../../i18n/i18n";
-import { Button, buttonClass, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { Button, buttonClass, ErrorNotice, Loading } from "../../ui/primitives";
+import { ConnectFrame } from "./ConnectFrame";
 
 type Picker = ResponseOf<typeof apiRoutes.portalGsheetsPicker>;
 
@@ -189,8 +190,7 @@ export function GsheetsPickScreen() {
   }
 
   return (
-    <div>
-      <PageHeader title={t("gsheets.pick.title")} subtitle={t("gsheets.pick.subtitle")} />
+    <ConnectFrame title={t("gsheets.pick.title")} subtitle={t("gsheets.pick.subtitle")}>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {saveError ? (
@@ -232,6 +232,6 @@ export function GsheetsPickScreen() {
           </a>
         </div>
       ) : null}
-    </div>
+    </ConnectFrame>
   );
 }

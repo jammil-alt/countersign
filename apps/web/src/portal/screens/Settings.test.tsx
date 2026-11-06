@@ -1,11 +1,11 @@
-// The portal's Settings: a client admin's people and invites, the stored email choices (emails start
+// The portal's Settings: links to a client admin's team and exports, the stored email choices (emails start
 // later), and who approves; a client user is told only the admin changes settings.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { CLIENT_SESSION, fakeApi, Reply } from "../../test/fixtures";
+import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 
@@ -35,23 +35,13 @@ const person = (email: string, role: string) => ({
 });
 
 describe("portal settings", () => {
-  it("lists people, invites one, saves email choices and says who approves", async () => {
+  it("links the team and exports, saves email choices and says who approves", async () => {
     const users = [person("admin@demo.example.com", "client_admin")];
     const patches: unknown[] = [];
-    const invites: unknown[] = [];
-    let unavailable = false;
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
       "GET /api/users": () => ({ users }),
-      "POST /api/users": ({ init }) => {
-        if (unavailable) return new Reply(409, { error: { code: "unavailable", message: "x" } });
-        const body = JSON.parse(String(init.body));
-        invites.push(body);
-        const added = person(body.email, body.role);
-        users.push(added);
-        return { member: added, email: { status: "not_sent", reason: "dev_sign_in" } };
-      },
       "GET /api/settings": () => ({
         client: { id: DEMO, name: "Demo client", timezone: "UTC" },
         approvals: "operator",
@@ -66,30 +56,14 @@ describe("portal settings", () => {
     });
     renderAt("/settings", api);
     expect(await screen.findByText("1 person uses your portal.")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-users-admin@demo.example.com")).toHaveTextContent("Admin");
-
-    const form = screen.getByTestId("portal-invite");
-    await userEvent.type(within(form).getByTestId("portal-invite-email"), "buyer@demo.example.com");
-    await userEvent.selectOptions(within(form).getByTestId("portal-invite-role"), "client_admin");
-    await userEvent.click(within(form).getByTestId("portal-invite-send"));
-    expect(await within(form).findByTestId("portal-invite-done")).toHaveTextContent(
-      "Invited buyer@demo.example.com.",
+    // UI-3a: the team and the exports have their own pages.
+    expect(screen.getByTestId("portal-settings-team-link")).toHaveAttribute(
+      "href",
+      "/settings/team",
     );
-    expect(invites).toEqual([{ email: "buyer@demo.example.com", role: "client_admin" }]);
-    expect(await screen.findByTestId("portal-users-buyer@demo.example.com")).toBeInTheDocument();
-    expect(screen.getByText("2 people use your portal.")).toBeInTheDocument();
-
-    // A refusal never says why (it could be about another client).
-    unavailable = true;
-    await userEvent.type(
-      within(form).getByTestId("portal-invite-email"),
-      "someone@else.example.com",
-    );
-    await userEvent.click(within(form).getByTestId("portal-invite-send"));
-    await waitFor(() =>
-      expect(within(form).getByTestId("portal-invite-email-error")).toHaveTextContent(
-        "That address can't be invited here.",
-      ),
+    expect(screen.getByTestId("portal-settings-exports-link")).toHaveAttribute(
+      "href",
+      "/settings/exports",
     );
 
     const emails = screen.getByTestId("portal-settings-notifications");
