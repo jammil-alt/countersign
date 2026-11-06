@@ -187,6 +187,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       // Wave 3 (0030): a conversation is closed, never deleted.
       "builder_session",
       "builder_turn",
+      // v0.14 capture (0031): a WhatsApp conversation and its log stay.
+      "conversation",
+      "conversation_change",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
@@ -196,6 +199,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     // Insert only (0028, 0029); a version's status changes (0027), like skill_version's.
     expect(await can("test_case_result", "UPDATE")).toBe(false);
     expect(await can("oversight_decision", "UPDATE")).toBe(false);
+    // v0.14 capture (0031): a conversation's capture changes in place; its log is insert only.
+    expect(await can("conversation", "UPDATE")).toBe(true);
+    expect(await can("conversation_change", "UPDATE")).toBe(false);
     for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
     }

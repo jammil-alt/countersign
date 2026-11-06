@@ -273,6 +273,19 @@ export const fr: Messages = {
   "connections.gmail.testSend": "Envoyer un e-mail de test",
   "connections.gmail.testSent":
     "Envoyé à {address}. Vérifiez le dossier Messages envoyés et la boîte de réception de cette adresse.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publiez des messages dans les canaux Slack de votre choix. Nous ne pouvons pas lire vos messages.",
+  "slack.section": "Slack · canaux",
+  "slack.workspace": "Espace de travail : {name}",
+  "slack.help":
+    "Les agents publient uniquement dans les canaux que vous choisissez. Ajoutez l'app Mezonas à un canal dans Slack avant de le choisir.",
+  "slack.noChannels": "Aucun canal public dans cet espace de travail.",
+  "slack.notMember": "Ajoutez Mezonas à ce canal dans Slack",
+  "slack.gone": "ne figure plus dans Slack",
+  "slack.noPicks": "Aucun canal choisi : les agents ne peuvent pas publier dans Slack.",
+  "slack.picked": { one: "{count} canal choisi", other: "{count} canaux choisis" },
+  "slack.saved": "Enregistré.",
   "connection.status.connected": "Connecté",
   "connection.status.pending": "Non connecté",
   "connection.status.disconnected": "Déconnecté",
@@ -303,6 +316,12 @@ export const fr: Messages = {
   "callback.subtitle": "Fin de la connexion à votre outil.",
   "callback.back": "Retour aux connexions",
   "callback.connecting": "Connexion…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lisez les opérations de vos comptes bancaires et de vos cartes. Rien ici ne peut déplacer d'argent.",
+  "connections.bankfeed.connect": "Connecter une banque ou une carte",
+  "callback.linkLost":
+    "Cette connexion bancaire a commencé dans un autre onglet ou une autre fenêtre. Recommencez depuis Connexions.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accès",

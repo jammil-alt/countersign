@@ -18,6 +18,8 @@ import {
 import {
   type Connector,
   ConnectorRegistry,
+  // v0.12 bankfeed
+  createBankfeedConnector,
   createBrowserConnector,
   createGdriveConnector,
   createGmailConnector,
@@ -25,11 +27,14 @@ import {
   createPodioConnector,
   createQboConnector,
   createResendConnector,
+  // v0.14 W4-C
+  createSlackConnector,
   createTestkitConnector,
   createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
   createZohoCrmConnector,
+  plaidEnvironment,
   QBO_CONNECTOR_ID,
   QBO_SKILLS,
   TESTKIT_SAMPLE_RECORDS,
@@ -157,7 +162,14 @@ type OAuthEnvKey =
   | "GOOGLE_CLIENT_SECRET"
   // v0.12 W3-B: Outlook's Entra app.
   | "OUTLOOK_CLIENT_ID"
-  | "OUTLOOK_CLIENT_SECRET";
+  | "OUTLOOK_CLIENT_SECRET"
+  // v0.14 W4-C: our Slack app.
+  | "SLACK_CLIENT_ID"
+  | "SLACK_CLIENT_SECRET"
+  // v0.12 bankfeed: Plaid.
+  | "PLAID_CLIENT_ID"
+  | "PLAID_SECRET"
+  | "PLAID_ENV";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -175,6 +187,12 @@ export function platformFor(
     env.GOOGLE_CLIENT_ID ?? "-",
     // v0.12 W3-B
     env.OUTLOOK_CLIENT_ID ?? "-",
+    // v0.14 W4-C
+    env.SLACK_CLIENT_ID ?? "-",
+    // v0.12 bankfeed
+    env.PLAID_CLIENT_ID ?? "-",
+    env.PLAID_SECRET ? "plaid-secret" : "-",
+    plaidEnvironment(env.PLAID_ENV),
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -208,6 +226,12 @@ export function deploymentConnectors(
   const microsoftReady = Boolean(
     env.OUTLOOK_CLIENT_ID && env.OUTLOOK_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
+  // v0.14 W4-C
+  const slackReady = Boolean(
+    env.SLACK_CLIENT_ID && env.SLACK_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
+  );
+  // v0.12 bankfeed
+  const plaidReady = Boolean(env.PLAID_CLIENT_ID && env.PLAID_SECRET && env.OAUTH_STATE_SECRET);
   return [
     // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
     createUploadConnector(),
@@ -243,9 +267,22 @@ export function deploymentConnectors(
         ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
         : {},
     ),
+    // v0.14 W4-C: Slack (posts to the channels a client picks), like Outlook: registered
+    // everywhere, signing in once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and OAUTH_STATE_SECRET
+    // are set.
+    createSlackConnector(
+      slackReady ? { clientId: env.SLACK_CLIENT_ID, clientSecret: env.SLACK_CLIENT_SECRET } : {},
+    ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),
+    // v0.12 bankfeed: bank and card feeds through Plaid (ARCHITECTURE §6.11, docs/plan.md §1.52),
+    // registered everywhere like Zoho; a client connects in Plaid Link once PLAID_CLIENT_ID,
+    // PLAID_SECRET and OAUTH_STATE_SECRET are set. PLAID_ENV picks sandbox or production.
+    createBankfeedConnector({
+      ...(plaidReady ? { clientId: env.PLAID_CLIENT_ID, secret: env.PLAID_SECRET } : {}),
+      environment: plaidEnvironment(env.PLAID_ENV),
+    }),
     // Website logins (docs/plan.md §1.26): registered everywhere, so sites can be offered and
     // built with; agents sign in only where Browser Run is bound (BROWSER).
     createBrowserConnector({ available: Boolean(env.BROWSER) }),
