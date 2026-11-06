@@ -16,6 +16,8 @@ import {
   requestState,
   stripeFor,
 } from "./http";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
@@ -35,6 +37,7 @@ import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 import { languageRouteHandlers } from "./routes/language";
+import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { notifyRouteHandlers } from "./routes/notify";
 import { onboardingRouteHandlers } from "./routes/onboarding";
@@ -109,6 +112,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   releaseRoutes(app);
   browserRoutes(app);
   complianceRouteHandlers(app);
+  // v0.12 W1-A: go-live stages and client controls
+  lifecycleRoutes(app);
   exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);
@@ -148,6 +153,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           : {}),
       },
       scheduledTime,
+    );
+    // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
+    // move to signoff (hourly, at the usage sweep's minute).
+    await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
+      console.error("lifecycle tick failed", error),
     );
     // v0.12 W1-B: the Weekly Table every minute (Friday draft, Monday send) and the notification
     // pass every 5 minutes.

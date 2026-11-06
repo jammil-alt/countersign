@@ -84,7 +84,10 @@ describe.skipIf(!harness)("runtime", () => {
         });
         await publish(tx, { agentId: forked.agent.id, versionId: forked.version.id, ctx: h.ctx });
         // Activation itself is tested in the registry tests; here the agent just has to be live.
-        await tx.update(agent).set({ runStatus: "active" }).where(eq(agent.id, forked.agent.id));
+        await tx
+          .update(agent)
+          .set({ runStatus: "active", stage: "live" })
+          .where(eq(agent.id, forked.agent.id));
         return { agentId: forked.agent.id, versionId: forked.version.id };
       });
       agents.set(c.tenantId, a);
@@ -206,6 +209,50 @@ describe.skipIf(!harness)("runtime", () => {
       input: {},
     });
     expect(read2.status).toBe("done");
+  });
+
+  // v0.12 W1-A: go-live stages (ARCHITECTURE §10.9).
+  it("the stage: only a live agent writes without a signature; read fresh at every call", async () => {
+    const setStage = (stage: "bench" | "trial" | "signoff" | "live") =>
+      h.ops((tx) =>
+        tx
+          .update(agent)
+          .set({ stage })
+          .where(eq(agent.id, agentOf(h.A).agentId)),
+      );
+    await h.setPermissions(h.A, { update: "auto" });
+    let n = 500;
+    try {
+      for (const stage of ["bench", "trial", "signoff", "live"] as const) {
+        await setStage(stage);
+        for (const approval of ["required", "not_required"] as const) {
+          for (const mode of ["suggest_only", "act"] as const) {
+            n += 1;
+            const s = await step(h.A, { mode, approval });
+            const out = await callTool(h.deps(), s, update(`${n}.00`));
+            const expected =
+              stage === "live" && approval === "not_required" && mode === "act"
+                ? "done"
+                : "awaiting_approval";
+            expect(out.status, `${stage} × ${approval} × ${mode}`).toBe(expected);
+          }
+        }
+      }
+      // Mid-run: the same step context, the stage moved back to trial between two calls.
+      const s = await step(h.A, { mode: "act", approval: "not_required" });
+      expect((await callTool(h.deps(), s, update("601.00"))).status).toBe("done");
+      await setStage("trial");
+      expect((await callTool(h.deps(), s, update("602.00"))).status).toBe("awaiting_approval");
+      // Reads never ask, whatever the stage.
+      const read = await callTool(h.deps(), await step(h.A), {
+        toolId: TESTKIT_QUERY_TOOL,
+        input: {},
+      });
+      expect(read.status).toBe("done");
+    } finally {
+      await setStage("live");
+      await h.setPermissions(h.A, {});
+    }
   });
 
   it("a client tightening the matrix overrides a step set to skip approval, at once", async () => {

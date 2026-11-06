@@ -17,6 +17,8 @@ export * from "./api/exports";
 export * from "./api/feedback";
 export * from "./api/knowledge";
 export * from "./api/language";
+// v0.12 W1-A: go-live stages and client controls
+export * from "./api/lifecycle";
 export * from "./api/messaging";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 export * from "./api/notify";
@@ -57,6 +59,7 @@ export * from "./directory/search";
 export * from "./documents/extraction";
 export * from "./duration";
 export * from "./i18n/gmail-test";
+export * from "./i18n/lifecycle";
 export * from "./i18n/locale";
 export * from "./i18n/notify";
 export * from "./i18n/release";
@@ -65,6 +68,8 @@ export * from "./i18n/timeline";
 export * from "./i18n/weekly";
 export * from "./ids";
 export * from "./json";
+export * from "./lifecycle/pause";
+export * from "./lifecycle/stage";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
 export * from "./messaging/rules";

@@ -20,6 +20,8 @@ import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
@@ -1796,6 +1798,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 W1-A: go-live stages and client controls
+  ...lifecycleRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   ...tableRoutes,
