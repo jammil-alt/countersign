@@ -50,6 +50,8 @@ import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
+// v0.14 W4-E: Google Chat
+import { gchatRoutes } from "./routes/gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
@@ -185,6 +187,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   triggerRouteHandlers(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // v0.14 W4-E: Google Chat's events and the portal's card
+  gchatRoutes(app);
   // v0.14 W4-C: the Slack channel picker
   slackRoutes(app);
   // v0.14 capture: WhatsApp conversations and their capture

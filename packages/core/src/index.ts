@@ -35,6 +35,8 @@ export * from "./api/directory";
 export * from "./api/documents";
 export * from "./api/exports";
 export * from "./api/feedback";
+// v0.14 W4-E: Google Chat
+export * from "./api/gchat";
 // v0.14 W4-D
 export * from "./api/gsheets";
 export * from "./api/knowledge";

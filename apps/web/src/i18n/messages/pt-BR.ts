@@ -1200,6 +1200,24 @@ export const ptBR: Messages = {
     one: "{count} pessoa",
     other: "{count} pessoas",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · espaços",
+  "gchat.spacesTitle": "Espaços conectados",
+  "gchat.help":
+    "Os agentes publicam só nestes espaços e só depois que você aprova cada mensagem. Não conseguimos ler suas mensagens.",
+  "gchat.noSpaces": "Nenhum espaço conectado ainda.",
+  "gchat.groupChat": "Chat em grupo",
+  "gchat.boundBy": "Conectado {time} por {name}",
+  "gchat.boundAt": "Conectado {time}",
+  "gchat.codeTitle": "Conectar um espaço",
+  "gchat.steps":
+    "No Google Chat, adicione o Mezonas ao espaço e envie esta mensagem lá. O código funciona uma vez.",
+  "gchat.codeExpires": "Vale até {time}.",
+  "gchat.codeWaiting": "Há um código válido até {time}. Se você não tiver, gere um novo.",
+  "gchat.getCode": "Gerar um código",
+  "gchat.newCode": "Gerar um novo código",
+  "gchat.adminAllow":
+    "Não encontra o Mezonas no Google Chat? O administrador do Google Workspace precisa permitir o app.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
   "connections.gsheets.description":
     "Leia e adicione linhas nas planilhas do Google Sheets que você escolher. Não conseguimos abrir nenhuma outra.",

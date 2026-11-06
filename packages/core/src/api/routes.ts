@@ -34,6 +34,8 @@ import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
+// v0.14 W4-E: Google Chat
+import { gchatRoutes } from "./gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
@@ -1894,6 +1896,8 @@ export const routes = {
   ...modelRoutes,
   // v0.13 W2-I: run oversight decisions for the agent lab.
   ...oversightRoutes,
+  // v0.14 W4-E: Google Chat
+  ...gchatRoutes,
   // v0.14 W4-D: Google Sheets' picking
   ...gsheetsRoutes,
   // v0.14 W4-C: the Slack channel picker.
