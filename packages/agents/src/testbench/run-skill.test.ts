@@ -98,6 +98,33 @@ describe("runSkillCase", () => {
     expect(Number(run.costUsd)).toBeGreaterThan(0);
   });
 
+  // v0.13 W2-H: the bench runs a task skill on its own model, an agent skill on the bench agent's.
+  it("runs a task skill on its own model and an agent skill on the bench's", async () => {
+    const { tools } = registry();
+    const finish = () => new FakeModel([{ toolUse: { name: "finish", input: { amount: "1" } } }]);
+    const task: SkillDefinition = {
+      ...skill,
+      mode: "task",
+      model: { id: "claude-haiku-5-5", maxTokens: 300 },
+      tools: [],
+    };
+    const onTask = finish();
+    const t = await runSkillCase(
+      { tools, transport: onTask, model: { id: "claude-opus-5-5" } },
+      { definition: task, tenantId: null, input: { id: "r1" }, fixtures: [] },
+    );
+    expect(t.status).toBe("succeeded");
+    expect(onTask.requests[0]?.model).toBe("claude-haiku-5-5");
+    expect(onTask.requests[0]?.max_tokens).toBe(300);
+
+    const onAgent = finish();
+    await runSkillCase(
+      { tools, transport: onAgent, model: { id: "claude-opus-5-5" } },
+      { definition: skill, tenantId: null, input: { id: "r1" }, fixtures: [] },
+    );
+    expect(onAgent.requests[0]?.model).toBe("claude-opus-5-5");
+  });
+
   it("reports an invalid output as a failure, not a throw", async () => {
     const { tools } = registry();
     const model = new FakeModel([{ toolUse: { name: "finish", input: {} } }, { refusal: true }]);
