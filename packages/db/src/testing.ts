@@ -12,6 +12,9 @@
 
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { sql } from "drizzle-orm";
@@ -112,18 +115,44 @@ async function ensureWorker(admin: postgres.Sql, dbUrl: string): Promise<void> {
   }
 }
 
-/** Applies every migration as cs_owner, the role that migrates on Neon. */
-export async function migrateAsOwner(url: string): Promise<void> {
+export interface MigrateOptions {
+  /**
+   * Stop after this journal tag (e.g. `0018_extraction_cost`), to put data in a database as an
+   * earlier Worker saw it and then apply the rest (a backfill's test).
+   */
+  upTo?: string;
+}
+
+/** Applies every migration (or those up to `upTo`) as cs_owner, the role that migrates on Neon. */
+export async function migrateAsOwner(url: string, options: MigrateOptions = {}): Promise<void> {
   const client = postgres(url, {
     max: 1,
     onnotice: () => {},
     connection: { options: "-c role=cs_owner" },
   });
+  const folder = options.upTo ? migrationsUpTo(options.upTo) : MIGRATIONS;
   try {
-    await migrate(drizzle({ client }), { migrationsFolder: MIGRATIONS });
+    await migrate(drizzle({ client }), { migrationsFolder: folder });
   } finally {
     await client.end();
+    if (folder !== MIGRATIONS) rmSync(folder, { recursive: true, force: true });
   }
+}
+
+/** A temporary copy of the migrations folder whose journal ends at `tag`. */
+function migrationsUpTo(tag: string): string {
+  const journal = JSON.parse(readFileSync(join(MIGRATIONS, "meta", "_journal.json"), "utf8")) as {
+    entries: { tag: string }[];
+  };
+  const last = journal.entries.findIndex((e) => e.tag === tag);
+  if (last < 0) throw new Error(`no migration ${tag}`);
+  const entries = journal.entries.slice(0, last + 1);
+  const dir = mkdtempSync(join(tmpdir(), "cs-migrations-"));
+  mkdirSync(join(dir, "meta"));
+  for (const e of entries)
+    copyFileSync(join(MIGRATIONS, `${e.tag}.sql`), join(dir, `${e.tag}.sql`));
+  writeFileSync(join(dir, "meta", "_journal.json"), JSON.stringify({ ...journal, entries }));
+  return dir;
 }
 
 export interface TestDatabase {

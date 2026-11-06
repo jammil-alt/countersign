@@ -36,11 +36,15 @@ import {
   membership,
   memoryNote,
   message,
+  modelCall,
+  notification,
   organization,
   organizationChange,
   rawRecord,
   reachOut,
+  receivable,
   run,
+  savedView,
   skill,
   skillVersion,
   stepRun,
@@ -49,11 +53,14 @@ import {
   tenantKey,
   tenantPack,
   thread,
+  threadRead,
   toolCall,
   transaction,
   transactionLine,
   usageDaily,
+  usagePlatformDaily,
   vendor,
+  weeklyTable,
 } from "./schema";
 
 export const BUNDLE: AgentBundle = {
@@ -102,6 +109,11 @@ export interface ClientFixture {
   documentId: string;
   extractionId: string;
   docLineId: string;
+  stepRunId: string;
+  threadId: string;
+  notificationId: string;
+  modelCallId: string;
+  receivableId: string;
 }
 
 let counter = 0;
@@ -229,6 +241,47 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .insert(memoryNote)
     .values({ tenantId, agentId: a.id, note: "remember", sourceMessageId: m.id });
   await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
+  await db.insert(usagePlatformDaily).values({
+    tenantId,
+    day: "2026-11-03",
+    documents: 1,
+    tokensIn: 1200,
+    tokensOut: 300,
+    costUsd: "0.0123",
+  });
+  await db.insert(threadRead).values({ tenantId, threadId: th.id, userId: u.id });
+  const [mc] = await db
+    .insert(modelCall)
+    .values({
+      tenantId,
+      runId: r.id,
+      stepRunId: sr.id,
+      agentVersionId: av.id,
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      tokensIn: 100,
+      tokensOut: 20,
+      costUsd: "0.0040",
+      durationMs: 900,
+      stopReason: "end_turn",
+      bodyKey: `tenants/${tenantId}/model-calls/${sr.id}.json`,
+    })
+    .returning();
+  if (!mc) throw new Error("no model call");
+  const [nt] = await db
+    .insert(notification)
+    .values({
+      tenantId,
+      userId: u.id,
+      channel: "email",
+      kind: "items_waiting",
+      dedupeKey: `items_waiting:${u.id}:2026-11-06T09`,
+      link: "/desk",
+      counts: { items: 1 },
+    })
+    .returning();
+  if (!nt) throw new Error("no notification");
+  await db.insert(weeklyTable).values({ tenantId, weekStart: "2026-11-02", stats: { runs: 1 } });
   const [ct] = await db
     .insert(contact)
     .values({ tenantId, name: "Pat Lee", phone: "+15555550100" })
@@ -268,6 +321,26 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .values({ tenantId, name: "Acme Lumber", kinds: ["vendor"], vendorId: v?.id ?? null })
     .returning();
   if (!org) throw new Error("no organization");
+  const [rv] = await db
+    .insert(receivable)
+    .values({
+      tenantId,
+      connectionId: c.id,
+      connector: "test",
+      externalId: "inv-1",
+      docNumber: "1043",
+      customerExternalId: "cust-1",
+      customerName: "Lakeside Builders",
+      organizationId: org.id,
+      txnDate: "2026-10-01",
+      dueDate: "2026-10-31",
+      total: "500.0000",
+      balance: "500.0000",
+      status: "open",
+      sourceRawRecordId: rr?.id ?? "",
+    })
+    .returning();
+  if (!rv) throw new Error("no receivable");
   await db
     .insert(organizationChange)
     .values({ tenantId, organizationId: org.id, change: { created: true } });
@@ -457,6 +530,11 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     documentId: d.id,
     extractionId: ex.id,
     docLineId: dl?.id ?? "",
+    stepRunId: sr.id,
+    threadId: th.id,
+    notificationId: nt.id,
+    modelCallId: mc.id,
+    receivableId: rv.id,
   };
 }
 
@@ -492,6 +570,9 @@ export async function insertOperatorRows(db: Db): Promise<{ agentVersionId: stri
     path: "/ops",
     viewport: { width: 1280, height: 800 },
   });
+  await db
+    .insert(savedView)
+    .values({ userId: op.id, surface: "ops_runs", name: "Failed this week", filters: {} });
   await db.insert(auditEvent).values({
     actorKind: "anonymous",
     action: "session.sign_in",
