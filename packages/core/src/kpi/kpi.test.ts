@@ -131,6 +131,33 @@ describe("clientView in the bundle", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("reads an automation's use step, never its inner steps", () => {
+    const sumOf = (step: string) => ({
+      kpis: [
+        {
+          id: "k",
+          label: "Follow-ups sent",
+          period: "30d",
+          format: "count",
+          measure: { kind: "sum", step, path: "sent" },
+        },
+      ],
+      panels: [],
+    });
+    const withUse = (v: unknown) =>
+      edit(withView(v), (b) => {
+        b.workflows[0]?.workflow.steps.push({
+          id: "follow",
+          name: "Follow up",
+          kind: "use_automation",
+          automation: "follow-up@2",
+        } as never);
+      });
+    const kpiCodes = (input: unknown) => codes(input).filter((c) => c.startsWith("kpi"));
+    expect(kpiCodes(withUse(sumOf("follow")))).toEqual([]);
+    expect(kpiCodes(withUse(sumOf("send")))).toEqual(["kpi_unknown_step"]);
+  });
+
   it("measures ratio depth", () => {
     expect(ratioDepth(plain)).toBe(0);
     expect(ratioDepth({ kind: "ratio", numerator: plain, denominator: plain })).toBe(1);

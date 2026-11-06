@@ -47,6 +47,8 @@ import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { notifyRouteHandlers } from "./routes/notify";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
+// v0.12 W2-B: automations
+import { opsAutomationRoutes } from "./routes/ops-automations";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsClientRoutes } from "./routes/ops-clients";
 import { opsEventRoutes } from "./routes/ops-events";
@@ -131,6 +133,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);
   tableRouteHandlers(app);
+  // v0.12 W2-B: automations
+  opsAutomationRoutes(app);
   // v0.12 W1-C
   threadRouteHandlers(app);
   // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export

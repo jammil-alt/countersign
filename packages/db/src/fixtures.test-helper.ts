@@ -2,7 +2,7 @@
 // Written through the superuser connection, which bypasses RLS, so the tests can then look at the
 // same rows through cs_worker's eyes.
 
-import type { AgentBundle } from "@countersign/core";
+import type { AgentBundle, AutomationDefinition } from "@countersign/core";
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
@@ -130,7 +130,7 @@ export interface ClientFixture {
 }
 
 /** A shared automation's definition, as core's `Automation` (W2-B) will check it. */
-export const AUTOMATION_DEFINITION = {
+export const AUTOMATION_DEFINITION: AutomationDefinition = {
   schemaVersion: 1,
   slug: "lookup",
   name: "Lookup",

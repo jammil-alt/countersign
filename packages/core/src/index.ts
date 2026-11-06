@@ -6,6 +6,8 @@
 
 export * from "./api/access";
 export * from "./api/approver-rules";
+// v0.12 W2-B: automations
+export * from "./api/automations";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
@@ -105,6 +107,8 @@ export * from "./roles";
 export * from "./rules/compile";
 export * from "./schemas/agent";
 export * from "./schemas/approval";
+// v0.12 W2-B
+export * from "./schemas/automation";
 export * from "./schemas/common";
 export * from "./schemas/connector";
 export * from "./schemas/event";
@@ -124,5 +128,7 @@ export * from "./threads/command";
 export * from "./threads/schemas";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
+// v0.12 W2-B
+export * from "./workflow/automation";
 export * from "./workflow/validate";
 export * from "./workflow/walk";

@@ -6,7 +6,12 @@
 // `agent_change` row (`kind: 'stage'`) and an audit row. Each function runs in the caller's
 // transaction, scoped to the agent's client (invariant 1).
 
-import { activate, type RegistryContext, skillContext } from "@countersign/agents";
+import {
+  activate,
+  automationContext,
+  type RegistryContext,
+  skillContext,
+} from "@countersign/agents";
 import {
   type AgentBundle,
   type AgentStage,
@@ -76,7 +81,7 @@ export function stageOf(row: Pick<AgentRow, "kind" | "stage">): AgentStage | nul
  */
 // DECISION: reaching people counts as a write, though `comms.reach_out` itself is `internal`: its
 // attempts are external actions on the client's own channels (docs/plan.md §1.25). Automations
-// (W2-B) don't exist yet; their steps join this walk when they do.
+// (W2-B) join the walk: an enabled workflow's use steps bring in their automation's steps.
 export async function bundleWrites(
   tx: Tx,
   tenantId: string,
@@ -97,6 +102,19 @@ export async function bundleWrites(
     if (!w.enabled) continue;
     walkSteps(w.workflow, ({ step }) => {
       if (step.kind === "skill") addSkill(step.skill);
+      if (step.kind === "action") toolIds.add(step.tool);
+    });
+  }
+  // v0.12 W2-B: the steps of the automations enabled workflows use.
+  const enabled = { ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) };
+  const used = await automationContext(tx, { tenantId, bundle: enabled, catalog: ctx.catalog });
+  for (const def of Object.values(used.automations)) {
+    walkSteps(def, ({ step }) => {
+      if (step.kind === "skill") {
+        const inner = used.skills[step.skill] ?? skills[step.skill];
+        if (inner?.reachesPeople) reaches = true;
+        for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
+      }
       if (step.kind === "action") toolIds.add(step.tool);
     });
   }

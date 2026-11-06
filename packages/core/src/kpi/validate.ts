@@ -16,7 +16,13 @@ export interface ClientViewContext {
   packs?: readonly string[];
 }
 
-/** Every step id of every workflow of the bundle, at any depth. */
+/**
+ * Every step id of every workflow of the bundle, at any depth. A `use_automation` step is one of
+ * them: a KPI may read its output (the automation's declared `output`).
+ */
+// DECISION: a KPI never names an automation's inner steps: they are not in the bundle and nothing
+// outside the use step sees them (ARCHITECTURE §10.7); a KPI on an automation's work reads the use
+// step's output. Their node ids (`<use>/<inner>`) never match a step measure in compute.ts.
 function stepIds(bundle: AgentBundle): Set<string> {
   const ids = new Set<string>();
   for (const w of bundle.workflows) walkSteps(w.workflow, ({ step }) => ids.add(step.id));
