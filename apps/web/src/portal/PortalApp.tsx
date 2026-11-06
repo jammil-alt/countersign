@@ -154,8 +154,8 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                 testId="portal-nav-accounts"
               />
               <SidebarLink
-                // Client users read the directory; the client admin also manages who agents reach.
-                to={isAdmin ? PORTAL_PATHS.people : PORTAL_PATHS.directory}
+                // Everyone reads it; the client admin also edits it (consent, reach, voice).
+                to={PORTAL_PATHS.people}
                 icon="team"
                 label={t("nav.people")}
                 testId="portal-nav-people"
@@ -190,23 +190,9 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                 label={t("nav.requests")}
                 testId="portal-nav-requests"
               />
-              <SidebarLink
-                to={PORTAL_PATHS.vault}
-                label={t("nav.access")}
-                testId="portal-nav-access"
-              />
+              {/* The vault, the directory and contacts live on Accounts and People (UI-1c). */}
               {isAdmin ? (
                 <>
-                  <SidebarLink
-                    to={PORTAL_PATHS.directory}
-                    label={t("nav.directory")}
-                    testId="portal-nav-directory"
-                  />
-                  <SidebarLink
-                    to={PORTAL_PATHS.contacts}
-                    label={t("nav.contacts")}
-                    testId="portal-nav-contacts"
-                  />
                   <SidebarLink
                     to={PORTAL_PATHS.knowledge}
                     label={t("nav.knowledge")}

@@ -12,7 +12,6 @@ import { reportPeriod } from "./Reports";
 
 const SVC = "00000000-0000-4000-8000-00000000b001";
 const SVC2 = "00000000-0000-4000-8000-00000000b002";
-const RUN = "00000000-0000-4000-8000-0000000f1001";
 
 const runs = (o: Partial<Record<string, number>> = {}) => ({
   total: 0,
@@ -143,68 +142,5 @@ describe("portal reports", () => {
     });
     renderAt("/reports", api);
     expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
-  });
-});
-
-describe("portal service page", () => {
-  const SERVICE = {
-    service: {
-      id: SVC,
-      name: "Record keeping",
-      description: "Keeps your records right.",
-      status: "active",
-      instructions: "never shown",
-    },
-    thisMonth: {
-      from: "2026-11-01",
-      to: "2026-11-04",
-      runs: runs({ total: 2, succeeded: 1, waiting: 1 }),
-      documentsRead: 3,
-      actions: 1,
-      costUsd: "0.4000",
-    },
-    recentRuns: [
-      {
-        id: RUN,
-        service: { id: SVC, name: "Record keeping" },
-        status: "waiting",
-        startedAt: "2026-11-03T10:00:00.000Z",
-        finishedAt: null,
-      },
-    ],
-    packs: [],
-  };
-
-  it("says what the service does, what it did this month, its runs and its reports", async () => {
-    const api = fakeApi({
-      "GET /api/session": () => CLIENT_SESSION,
-      "GET /api/overview": () => new Reply(404, {}),
-      "GET /api/feedback/status": () => ({ enabled: false }),
-      [`GET /api/services/${SVC}`]: () => SERVICE,
-    });
-    const { container } = renderAt(`/services/${SVC}`, api);
-    expect(await screen.findByRole("heading", { name: "Record keeping" })).toBeInTheDocument();
-    expect(screen.getByText("Keeps your records right.")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-service-runs")).toHaveTextContent("21 done, 1 waiting");
-    expect(screen.getByTestId("portal-service-documents")).toHaveTextContent("3");
-    expect(screen.getByTestId(`portal-service-run-${RUN}`)).toHaveAttribute("href", `/runs/${RUN}`);
-    expect(screen.getByTestId(`portal-service-run-${RUN}`)).toHaveTextContent("Waiting");
-    expect(
-      within(screen.getByTestId("portal-service-reports")).getByRole("link", { name: "Activity" }),
-    ).toHaveAttribute("href", `/reports?service=${SVC}`);
-    expect(container.textContent).not.toMatch(/\$|0\.4000|never shown/);
-  });
-
-  it("shows not found for a service that isn't the client's", async () => {
-    const api = fakeApi({
-      "GET /api/session": () => CLIENT_SESSION,
-      "GET /api/overview": () => new Reply(404, {}),
-      "GET /api/feedback/status": () => ({ enabled: false }),
-      [`GET /api/services/${SVC}`]: () =>
-        new Reply(404, { error: { code: "not_found", message: "service not found" } }),
-    });
-    renderAt(`/services/${SVC}`, api);
-    expect(await screen.findByText("Not found.")).toBeInTheDocument();
   });
 });

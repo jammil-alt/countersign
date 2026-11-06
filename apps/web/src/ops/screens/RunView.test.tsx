@@ -171,6 +171,12 @@ describe("back-office run view", () => {
       </MemoryRouter>,
     );
 
+    // A change waits on us, so the page opens on Changes; the timeline is a tab away.
+    expect(await screen.findByTestId("ops-run-tab-changes")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await userEvent.click(screen.getByTestId("ops-run-tab-timeline"));
     const checklist = await screen.findByTestId("ops-run-checklist");
     const rows = within(checklist).getAllByRole("listitem");
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
@@ -186,8 +192,10 @@ describe("back-office run view", () => {
     expect(rows[3]).toHaveTextContent("hidden from client");
     expect(within(checklist).getByText("1 of 4 steps · $0.09")).toBeInTheDocument();
     expect(screen.getByTestId("ops-run-waiting")).toHaveTextContent("Waiting on you · 1");
-    expect(screen.getByText("Records clerk", { selector: "h1" })).toBeInTheDocument();
+    expect(screen.getByText("Fix a record", { selector: "h1" })).toBeInTheDocument();
+    expect(screen.getByTestId("ops-run-about")).toHaveTextContent("Records clerk v3");
 
+    await userEvent.click(screen.getByTestId("ops-run-tab-changes"));
     const panel = screen.getByTestId("ops-run-action-00000000-0000-4000-8000-0000000f4001");
     expect(panel).toHaveTextContent("Testkit · r1 · Oak board");
     expect(within(panel).getByTestId("change-now-row-amount")).toHaveTextContent("10.00");
@@ -274,6 +282,7 @@ describe("back-office run view", () => {
         </AppProviders>
       </MemoryRouter>,
     );
+    await userEvent.click(await screen.findByTestId("ops-run-tab-changes"));
     const watched = await screen.findByTestId(
       "ops-run-action-00000000-0000-4000-8000-0000000f4001",
     );
@@ -373,10 +382,128 @@ describe("run controls", () => {
     expect(await screen.findByTestId("ops-run-short-id")).toHaveTextContent("R-0f1001");
     // Failed runs are retried; a run that has ended isn't cancelled.
     expect(screen.queryByTestId("ops-run-cancel")).toBeNull();
+    // The failed step is named, and the retry says where it starts.
+    expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Failed at step 1");
+    expect(screen.getByTestId("ops-run-retry")).toHaveTextContent("Retry from step 1");
+    await userEvent.click(screen.getByTestId("ops-run-tab-calls"));
     const calls = await screen.findByTestId("ops-run-model-calls");
     await waitFor(() => expect(calls).toHaveTextContent("anthropic · claude-opus-5-5"));
     expect(calls).toHaveTextContent("end_turn");
     await userEvent.click(screen.getByTestId("ops-run-retry"));
     await waitFor(() => expect(retried).toEqual([RUN_ID]));
+  });
+});
+
+describe("run oversight and the same error elsewhere", () => {
+  it("shows the oversight's decisions, other runs with the error, and a model call's body", async () => {
+    const OTHER = "00000000-0000-4000-8000-0000000f1009";
+    const CALL = "00000000-0000-4000-8000-0000000f5001";
+    const base = detail("resolved");
+    const failed = {
+      ...base,
+      run: {
+        ...base.run,
+        status: "failed",
+        error: { reason: "HTTP 401", nodeId: "update", key: "testkit.record.update:unauthorized" },
+        finishedAt: "2026-11-03T10:01:00.000Z",
+      },
+      oversight: [
+        {
+          id: "00000000-0000-4000-8000-0000000f6001",
+          runId: RUN_ID,
+          stepRunId: "00000000-0000-4000-8000-0000000f2001",
+          nodeId: "update",
+          seq: 1,
+          cause: "failed",
+          action: "retry_with",
+          inputBefore: { amount: "12,00" },
+          inputAfter: { amount: "12.00" },
+          note: "The amount used a comma.",
+          proposal: { summary: "Normalise amounts before the update step", change: null },
+          inboxItemId: null,
+          sources: [],
+          model: "claude-opus-5-5",
+          costUsd: "0.0100",
+          tokensIn: 900,
+          tokensOut: 40,
+          agentVersionId: "00000000-0000-4000-8000-0000000e0001",
+          createdAt: "2026-11-03T10:00:30.000Z",
+        },
+      ],
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => failed,
+      [`GET /api/ops/runs/${RUN_ID}/model-calls`]: () => ({
+        modelCalls: [
+          {
+            id: CALL,
+            runId: RUN_ID,
+            stepRunId: "00000000-0000-4000-8000-0000000f2001",
+            agentVersionId: null,
+            provider: "anthropic",
+            model: "claude-opus-5-5",
+            tokensIn: 1200,
+            tokensOut: 80,
+            costUsd: "0.0123",
+            durationMs: 900,
+            stopReason: "end_turn",
+            createdAt: "2026-11-03T10:00:20.000Z",
+          },
+        ],
+      }),
+      [`GET /api/ops/model-calls/${CALL}`]: () => ({
+        modelCall: {
+          id: CALL,
+          runId: RUN_ID,
+          stepRunId: null,
+          agentVersionId: null,
+          provider: "anthropic",
+          model: "claude-opus-5-5",
+          tokensIn: 1200,
+          tokensOut: 80,
+          costUsd: "0.0123",
+          durationMs: 900,
+          stopReason: "end_turn",
+          createdAt: "2026-11-03T10:00:20.000Z",
+        },
+        body: { request: { system: "Read the record" }, answer: { text: "ok" }, error: null },
+      }),
+      "GET /api/ops/runs": ({ url }) => ({
+        runs:
+          url.searchParams.get("errorKey") === "testkit.record.update:unauthorized"
+            ? [failed.run, { ...failed.run, id: OTHER }]
+            : [],
+        agents: [],
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=oversight`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const decision = await screen.findByTestId(
+      "ops-run-decision-00000000-0000-4000-8000-0000000f6001",
+    );
+    expect(decision).toHaveTextContent("Retried with a corrected input after a failed step");
+    expect(decision).toHaveTextContent("The amount used a comma.");
+    expect(decision).toHaveTextContent("Normalise amounts before the update step");
+    expect(decision).toHaveTextContent("Corrected input");
+
+    // The rail: the sign-in failed, so the client's connections; and the same error elsewhere.
+    expect(screen.getByTestId("ops-run-next")).toHaveTextContent(
+      "Only the client can sign in again",
+    );
+    const same = await screen.findByTestId("ops-run-same-error");
+    expect(within(same).getAllByRole("link")).toHaveLength(1);
+    expect(within(same).getByRole("link")).toHaveAttribute("href", `/ops/runs/${OTHER}`);
+
+    await userEvent.click(screen.getByTestId("ops-run-tab-calls"));
+    await userEvent.click(await screen.findByTestId(`ops-run-model-call-${CALL}-open`));
+    expect(await screen.findByTestId(`ops-model-body-${CALL}`)).toHaveTextContent(
+      "Read the record",
+    );
   });
 });
