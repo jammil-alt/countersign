@@ -35,5 +35,7 @@ export const PLATFORM_EVENT_TYPES = [
   "receivable.created",
   "receivable.updated",
   "receivable.paid",
+  // v0.12 W1-C: payload in ../threads/schemas.ts.
+  "thread.message_posted",
 ] as const;
 export type PlatformEventType = (typeof PLATFORM_EVENT_TYPES)[number];

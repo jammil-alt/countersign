@@ -17,6 +17,7 @@ import type {
 } from "@countersign/core";
 import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
 import { z } from "zod";
+import type { ThreadsPort } from "./threads";
 
 export type RunMode = "live" | "test";
 
@@ -43,6 +44,9 @@ export interface ToolInvocation {
   health?: HealthPort | undefined;
   /** The supervisor's findings and summaries (`supervisor.*`); absent where none is given. */
   findings?: FindingsPort | undefined;
+  // v0.12 W1-C
+  /** The client's threads (`threads.post`, `threads.read`); absent where none is given. */
+  threads?: ThreadsPort | undefined;
   /**
    * Asks another agent of the same client (`agents.ask`): set by the runtime for a skill's tool
    * calls, absent inside an ask (no asks within asks) and in action steps.

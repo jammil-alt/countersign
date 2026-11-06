@@ -19,6 +19,7 @@ import {
   billingStatementLine,
   tenant,
   usageDaily,
+  usagePlatformDaily,
   withOperator,
   withTenant,
 } from "@countersign/db";
@@ -29,6 +30,7 @@ import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.t
 import { billingTick, buildMonthStatement } from "./billing/jobs";
 import {
   creditsBetween,
+  dailyTotals,
   loadBillingConfig,
   type UsageTable,
   usageMeasures,
@@ -1008,6 +1010,30 @@ describe.skipIf(!h)("billing", () => {
       );
       // 7 × 0.03 / 2 = 0.105: 11 credits.
       expect(priced).toEqual({ credits: 11, cost: "0.1050" });
+    });
+
+    // v0.12 W1-H (ARCHITECTURE §13): reading no agent asked for is the client's usage, priced
+    // with its agents' work, day by day.
+    it("count the client's own usage (background reading) with its agents'", async () => {
+      const base = await config();
+      const range = { tenantId: H.A.tenantId, from: "2026-05-01", to: "2026-05-31" };
+      const credits = () =>
+        withTenant(H.db, H.A.tenantId, (tx) => creditsBetween(tx, { ...range, config: base }));
+      await usage(H.A.tenantId, ids.orders, "2026-05-04", "0.0420");
+      const agentsOnly = await credits();
+      await db.insert(usagePlatformDaily).values([
+        { tenantId: H.A.tenantId, day: "2026-05-04", documents: 2, costUsd: "0.0130" },
+        { tenantId: H.A.tenantId, day: "2026-05-05", documents: 1, costUsd: "0.0061" },
+        // Another client's reading never counts here.
+        { tenantId: H.B.tenantId, day: "2026-05-04", documents: 9, costUsd: "1.0000" },
+      ]);
+      const both = await credits();
+      expect(Number(both.cost)).toBeCloseTo(Number(agentsOnly.cost) + 0.0191, 4);
+      expect(both.credits).toBeGreaterThan(agentsOnly.credits);
+      const days = await withTenant(H.db, H.A.tenantId, (tx) =>
+        dailyTotals(tx, { ...range, unitCosts: base.unitCosts }),
+      );
+      expect(days.map((d) => d.day)).toEqual(["2026-05-04", "2026-05-05"]);
     });
   });
 });

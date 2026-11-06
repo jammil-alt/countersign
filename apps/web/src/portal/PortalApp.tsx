@@ -25,6 +25,7 @@ import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
+import { PortalRecordsScreen } from "./screens/Records";
 import { PortalReportsScreen } from "./screens/Reports";
 import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
@@ -73,6 +74,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             <SidebarLink to="/inbox" label={t("nav.inbox")} testId="portal-nav-inbox" />
             <SidebarLink to="/runs" label={t("nav.runs")} testId="portal-nav-runs" />
             <SidebarLink to="/reports" label={t("nav.reports")} testId="portal-nav-reports" />
+            <SidebarLink to="/records" label={t("nav.records")} testId="portal-nav-records" />
             <SidebarLink
               to="/connections"
               label={t("nav.connections")}
@@ -127,6 +129,7 @@ export function PortalApp() {
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         <Route path="access" element={<PortalAccessScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
+        <Route path="records" element={<PortalRecordsScreen />} />
         <Route path="records/:id" element={<PortalRecordScreen />} />
         <Route path="requests" element={<PortalRequestsScreen />} />
         <Route path="knowledge" element={<PortalKnowledgeScreen />} />

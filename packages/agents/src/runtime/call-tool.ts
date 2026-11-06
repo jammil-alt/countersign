@@ -179,6 +179,8 @@ async function dispatch(
       directory: deps.ports.directory,
       health: deps.ports.health,
       findings: deps.ports.findings,
+      // v0.12 W1-C
+      threads: deps.ports.threads,
       ask: step.ask,
       language: step.language,
       now: deps.now,

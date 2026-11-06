@@ -159,8 +159,12 @@ export async function purgeClient(
     for (const l of clear) {
       const column = columnOf.get(l.child);
       if (!column) continue;
-      const sets = l.columns.map((col) => `${ident(col)} = null`).join(", ");
-      const anySet = l.columns.map((col) => `${ident(col)} is not null`).join(" or ");
+      // The client column stays: a same-client link where it may be null (test_case_result's run,
+      // 0028) is broken by its other columns, and clearing it would make the row look shared.
+      const cols = l.columns.filter((col) => col !== column);
+      if (cols.length === 0) continue;
+      const sets = cols.map((col) => `${ident(col)} = null`).join(", ");
+      const anySet = cols.map((col) => `${ident(col)} is not null`).join(" or ");
       await tx.execute(
         sql`update ${sql.raw(ident(l.child))} set ${sql.raw(sets)}
             where ${sql.raw(ident(column))} = ${tenantId} and (${sql.raw(anySet)})`,

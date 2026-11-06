@@ -1,6 +1,8 @@
 // Starting QboSyncWorkflow instances, behind a small interface so the webhook, the cron and the
 // operator's "sync now" can be tested without the Workflows engine.
 
+import { uuidv7 } from "@countersign/core";
+
 export interface QboSyncParams {
   tenantId: string;
   connectionId: string;
@@ -14,15 +16,22 @@ export interface QboSyncInstances {
 }
 
 /**
- * The instance id: the connection and a time slot, so a burst of webhooks or a repeated cron tick
- * starts one sync per slot, not one per notification.
+ * The instance id. Cron and webhook syncs: the connection and a time slot, so a burst of webhooks
+ * or a repeated cron tick starts one sync per slot, not one per notification. "Sync now" (the
+ * operator, a new connection, the follow-on of a sync asked for while one ran): a fresh id each
+ * time (v0.12 W1-H, ARCHITECTURE §6.2), so it never merges into another sync's slot.
  */
-// DECISION: webhook and operator syncs share one-minute slots; the cron's are its 15-minute ticks.
+// DECISION: webhook syncs have one-minute slots; the cron's are its 15-minute ticks. A "now" id is
+// `qbo-<connection>-now-<uuid v7>`: ARCHITECTURE §6.2 writes `<connection>:now:<uuid v7>`, but
+// Workflows instance ids take only letters, digits, `-` and `_`.
 export function qboSyncInstanceId(
   connectionId: string,
   reason: QboSyncParams["reason"],
   at: Date,
 ): string {
+  if (reason === "operator" || reason === "connected") {
+    return `qbo-${connectionId}-now-${uuidv7(at.getTime())}`;
+  }
   const slotMs = reason === "cron" ? 15 * 60_000 : 60_000;
   const slot = Math.floor(at.getTime() / slotMs) * slotMs;
   const stamp = new Date(slot).toISOString().replace(/[-:]/g, "").slice(0, 13);
