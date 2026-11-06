@@ -427,7 +427,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.opsRun, async ({ tx, params, tenantIds, session }) => {
+  mount(app, routes.opsRun, async ({ tx, params, tenantIds, session, services }) => {
     const [r] = await tx
       .select()
       .from(run)
@@ -474,8 +474,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       run: opsRun(r),
       steps: steps.map(opsStep),
       toolCalls: calls.map(opsToolCall),
-      actions: actions.map(opsAction),
-      inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId))),
+      actions: actions.map((a) => opsAction(a, services.platform)),
+      inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId), services.platform)),
       agent: ref ?? null,
       version: version?.version ?? null,
       workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
@@ -513,7 +513,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       rows.map((i) => i.tenantId),
     );
     return {
-      items: rows.map((i) => opsInboxItem(i, operatorIn(i.tenantId))),
+      items: rows.map((i) => opsInboxItem(i, operatorIn(i.tenantId), ctx.services.platform)),
       agents: await agentRefs(
         tx,
         ctx.tenantIds,
@@ -549,6 +549,6 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
     }
-    return { item: opsInboxItem(outcome.item, by) };
+    return { item: opsInboxItem(outcome.item, by, services.platform) };
   });
 }

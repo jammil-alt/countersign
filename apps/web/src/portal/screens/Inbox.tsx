@@ -9,6 +9,7 @@ import { InboxCard } from "../../inbox/InboxCard";
 import { openResolved, StatusFilter } from "../../inbox/StatusFilter";
 import { usePoll } from "../../runs/usePoll";
 import { EmptyState, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { useRefreshInboxCount } from "../inboxCount";
 import { ReleaseCodeEntry } from "./AccessRelease";
 
 export function PortalInboxScreen() {
@@ -18,6 +19,7 @@ export function PortalInboxScreen() {
   const [status, setStatus] = useState<"open" | "resolved">("open");
   const { data, error, loading, reload } = useApi(apiRoutes.portalInbox, { query: { status } });
   usePoll(reload, status === "open", 20_000, loading);
+  const refreshCount = useRefreshInboxCount();
 
   return (
     <div className="max-w-5xl">
@@ -60,6 +62,7 @@ export function PortalInboxScreen() {
                       body,
                     });
                     reload();
+                    refreshCount();
                   }
                 : null
             }

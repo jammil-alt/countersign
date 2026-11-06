@@ -1,4 +1,10 @@
-import { DEFAULT_PERMISSIONS, dec, type JsonObject, pickLocalized } from "@countersign/core";
+import {
+  DEFAULT_PERMISSIONS,
+  dec,
+  type JsonObject,
+  pickLocalized,
+  ToolDisplay,
+} from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import cloudEvents from "../../../../fixtures/qbo/webhook-cloudevents.json";
 import notification from "../../../../fixtures/qbo/webhook-notification.json";
@@ -124,6 +130,24 @@ describe("qbo connector: manifest and sign-in", () => {
       [QBO_TOOLS.attachableUpload, "external", "create"],
     ]);
     expect(connector.manifest.tools.every((t) => t.verb !== "delete")).toBe(true);
+    // Every write says how it reads on an approval card, in all six languages, and shows no
+    // guard (the SyncToken, the expected total, the line ids it replaces) to the person signing.
+    const writes = connector.manifest.tools.filter((t) => t.sideEffect === "external");
+    for (const t of writes) {
+      const display = ToolDisplay.parse(t.display);
+      const texts = [
+        display.name,
+        ...(display.description ? [display.description] : []),
+        ...display.fields.map((f) => f.label),
+      ];
+      for (const text of texts) {
+        expect(Object.keys(text as object).sort(), t.id).toEqual(
+          ["de", "en", "es", "fr", "it", "pt-BR"].sort(),
+        );
+      }
+      const shown = display.fields.flatMap((f) => [f.now, f.after]).filter(Boolean);
+      expect(shown.join(" "), t.id).not.toMatch(/syncToken|expectedTotal|\.id\b|Ids?\b/);
+    }
     expect(createQboConnector().isConfigured?.()).toBe(false);
     expect(connector.isConfigured?.()).toBe(true);
   });
@@ -417,6 +441,12 @@ describe("qbo connector: itemizing lines", () => {
       syncToken: "0",
       total: "1352.7500",
       lines: [{ id: "1", detailType: "account", amount: "1352.7500" }],
+      // The names of the items and accounts the new lines use, for the approval card: those the
+      // record names, the rest read from QuickBooks (the fake company has no accounts to read).
+      names: {
+        items: { "21": "Baltic birch 3/4in 5x5" },
+        accounts: { "80": "Job Materials" },
+      },
     });
     const written = await executeWrite(s.connector, QBO_TOOLS.billUpdateLines, itemize, ctx());
     expect(written.output).toEqual({
@@ -612,7 +642,19 @@ describe("qbo connector: memo, purchase cost, attachments", () => {
     const { ctx } = await signedIn(s);
     const input = { documentId: DOC, entity: "Bill", entityId: "145" };
     const out = await executeWrite(s.connector, QBO_TOOLS.attachableUpload, input, ctx());
-    expect(out.before).toEqual({ entity: "Bill", entityId: "145", attachments: [] });
+    // The bill's number and vendor and the file being attached name the change on its card.
+    expect(out.before).toEqual({
+      entity: "Bill",
+      entityId: "145",
+      docNumber: "INV-20931",
+      vendor: { id: "56", name: "Northwest Plywood Supply" },
+      attachments: [],
+      adding: {
+        fileName: "nwp-INV-20931.pdf",
+        size: INVOICE.length,
+        contentType: "application/pdf",
+      },
+    });
     expect(out.output).toMatchObject({
       fileName: "nwp-INV-20931.pdf",
       entity: "Bill",

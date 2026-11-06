@@ -181,6 +181,16 @@ export const fr: Messages = {
   "change.noFields": "Aucun champ.",
   "change.field": "Champ",
   "change.value": "Valeur",
+  "change.noneYet": "Aucun.",
+  "change.lines.description": "Description",
+  "change.lines.bookedTo": "Compte ou article",
+  "change.lines.qtyPrice": "Qté × prix",
+  "change.lines.amount": "Montant",
+  "change.lines.total": "Total",
+  "change.files.name": "Fichier",
+  "change.files.size": "Taille",
+  "change.item.added": "ajouté",
+  "change.item.removed": "retiré",
 
   // ── Runs ──
   "runs.title": "Exécutions",

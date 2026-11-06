@@ -313,10 +313,27 @@ describe.skipIf(!h)("inbox and run views", () => {
           input: { id: "r1", amount: "12.00" },
           before: { id: "r1", amount: "10.00" },
         });
+        // The card names the connector as people know it; a tool without a display falls back
+        // to the record's fields. No tool id in the title.
+        expect(item.display).toEqual({ connectorName: "Testkit", tool: null });
+        expect(item.title).not.toContain(TESTKIT_UPDATE_TOOL);
+        // The header's count (overview `needsYou.inbox`) includes the open change: the same
+        // items the inbox lists, for the client admin; a client user is not asked.
+        const overview = await H.call(admin("a"), "GET", "/api/overview");
+        expect(j(overview.json).needsYou.inbox).toBe(j(portal.json).items.length);
+        expect(j(overview.json).needsYou.inbox).toBeGreaterThanOrEqual(1);
+        const theirs = await H.call(user("a"), "GET", "/api/inbox");
+        const userOverview = await H.call(user("a"), "GET", "/api/overview");
+        expect(j(userOverview.json).needsYou.inbox).toBe(j(theirs.json).items.length);
+        expect(j(theirs.json).items.map((i: { id: string }) => i.id)).not.toContain(item.id);
         // The operator sees every served client's items with their agents, and only its own
         // when asked for "operator".
         const all = await H.call(OPERATOR, "GET", "/api/ops/inbox?assigned=all");
         expect(j(all.json).items.map((i: { id: string }) => i.id)).toContain(item.id);
+        expect(j(all.json).items.find((i: { id: string }) => i.id === item.id)?.display).toEqual({
+          connectorName: "Testkit",
+          tool: null,
+        });
         expect(j(all.json).agents).toEqual([
           expect.objectContaining({ id: agentId, serviceName: "Record keeping" }),
         ]);
@@ -355,6 +372,7 @@ describe.skipIf(!h)("inbox and run views", () => {
       status: "done",
       before: { amount: "10.00" },
       input: { amount: "12.00" },
+      display: { connectorName: "Testkit", tool: null },
     });
   });
 

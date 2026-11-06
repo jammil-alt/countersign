@@ -172,6 +172,16 @@ export const en = {
   "change.noFields": "No fields.",
   "change.field": "Field",
   "change.value": "Value",
+  "change.noneYet": "None.",
+  "change.lines.description": "Description",
+  "change.lines.bookedTo": "Account or item",
+  "change.lines.qtyPrice": "Qty × price",
+  "change.lines.amount": "Amount",
+  "change.lines.total": "Total",
+  "change.files.name": "File",
+  "change.files.size": "Size",
+  "change.item.added": "added",
+  "change.item.removed": "removed",
 
   // ── Runs ──
   "runs.title": "Runs",

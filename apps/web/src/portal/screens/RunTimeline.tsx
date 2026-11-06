@@ -2,6 +2,7 @@
 // label, status, time and the one-line summary; the records they cite; who approved what; and the
 // changes made in the client's tools. No costs, no instructions, no internal steps: the API sends
 // none, and this screen only renders the fields the contract names. Polls while the run is going.
+import { pickLocalized } from "@countersign/core";
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -52,7 +53,7 @@ const ACTION_TONE: Record<string, Tone> = {
 export function PortalRunScreen() {
   const { id = "" } = useParams();
   const i18n = useI18n();
-  const { t } = i18n;
+  const { t, locale } = i18n;
   const time = (iso: string | null) => shortTime(iso, undefined, i18n);
   const { data, error, loading, reload } = useApi(apiRoutes.portalRun, { params: { id } });
   usePoll(reload, data ? isRunGoing(data.run.status) : false, 2_000, loading);
@@ -148,8 +149,14 @@ export function PortalRunScreen() {
                       className="flex items-start justify-between gap-4 border-b border-line px-4 py-3 last:border-b-0"
                     >
                       <div className="min-w-0">
-                        <p className="font-medium text-ink">{connectorName(connectorOf(a.tool))}</p>
-                        <p className="text-sm text-ink">{a.description}</p>
+                        <p className="font-medium text-ink">
+                          {a.display?.connectorName ?? connectorName(connectorOf(a.tool))}
+                        </p>
+                        <p className="text-sm text-ink">
+                          {a.display?.tool?.description
+                            ? pickLocalized(a.display.tool.description, locale)
+                            : a.description}
+                        </p>
                       </div>
                       <div className="shrink-0 text-right">
                         <Badge tone={ACTION_TONE[a.status] ?? "neutral"}>

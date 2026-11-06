@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
+import { BILL_BEFORE, BILL_INPUT, BILL_LINES_VIEW } from "../../test/changes";
 import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
 import { checklistRows, parseNodeId } from "../run/checklist";
 
@@ -194,6 +195,51 @@ describe("back-office run view", () => {
     await userEvent.click(within(panel).getByTestId("ops-run-action-approve"));
     expect(resolved).toEqual([{ decision: "approve" }]);
     expect(await within(panel).findByTestId("ops-run-action-status")).toHaveTextContent("Approved");
+  });
+
+  it("reads a QuickBooks change through the tool's display: lines, totals, names", async () => {
+    const base = detail("open");
+    const action = base.actions[0] as (typeof base.actions)[number];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => ({
+        ...base,
+        actions: [
+          {
+            ...action,
+            tool: "qbo.bill.update_lines",
+            input: BILL_INPUT,
+            before: BILL_BEFORE,
+            display: BILL_LINES_VIEW,
+          },
+        ],
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const panel = await screen.findByTestId(`ops-run-action-${action.id}`);
+    expect(within(panel).getByRole("heading", { level: 3 })).toHaveTextContent(
+      "QuickBooks bill 20418 · Northline Panel Supply",
+    );
+    // The operator also sees which tool it is.
+    expect(within(panel).getByText("qbo.bill.update_lines")).toBeInTheDocument();
+    expect(within(panel).getByTestId("ops-run-action-description")).toHaveTextContent(
+      "The total stays the same.",
+    );
+    expect(within(panel).getByTestId("change-now-row-total")).toHaveTextContent("$9,742.35");
+    expect(within(panel).getByTestId("change-lines-after-item-0")).toHaveTextContent(
+      "60 × $142.50",
+    );
+    expect(within(panel).getByTestId("change-lines-after-total")).toHaveTextContent("$9,742.35");
+    expect(panel.textContent).not.toContain("Replace line ids");
+    expect(within(panel).getByTestId("ops-run-action-approve")).toHaveTextContent(
+      "Sign and update QuickBooks Online",
+    );
   });
 
   it("lets the operator sign the client admin's change only where the server says so", async () => {

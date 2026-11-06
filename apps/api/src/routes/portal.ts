@@ -39,6 +39,7 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
 import type { Hono } from "hono";
+import { changeDisplay, itemDisplay, plainTitle } from "../change-display";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
 import type { Platform } from "../platform";
@@ -74,7 +75,7 @@ async function userNames(tx: Tx, ids: (string | null)[]) {
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 
-async function portalItems(tx: Tx, rows: InboxRow[]) {
+async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) {
   const names = await userNames(
     tx,
     rows.map((r) => r.resolvedBy),
@@ -82,8 +83,9 @@ async function portalItems(tx: Tx, rows: InboxRow[]) {
   return rows.map((i) => ({
     id: i.id,
     kind: i.kind,
-    title: i.title,
+    title: plainTitle(i),
     payload: scrubForPortal(i.payload) as Record<string, unknown>,
+    display: itemDisplay(platform, i),
     status: i.status,
     runId: i.runId,
     dueAt: iso(i.dueAt),
@@ -283,7 +285,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.portalInbox, async ({ tx, tenantIds, role, session, query }) => {
+  mount(app, routes.portalInbox, async ({ tx, tenantIds, role, session, query, services }) => {
     const tenantId = tenantIds[0] as string;
     const rows = await tx
       .select()
@@ -298,7 +300,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       )
       .orderBy(desc(inboxItem.createdAt))
       .limit(200);
-    return { items: await portalItems(tx, rows) };
+    return { items: await portalItems(tx, rows, services.platform) };
   });
 
   mount(app, routes.portalResolveInbox, async (ctx) => {
@@ -333,7 +335,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
     }
-    const [item] = await portalItems(tx, [outcome.item]);
+    const [item] = await portalItems(tx, [outcome.item], services.platform);
     return { item: item as NonNullable<typeof item> };
   });
 
@@ -410,7 +412,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
             : res.decision === "approve";
       return {
         id: i.id,
-        title: i.title,
+        title: plainTitle(i),
         status: i.status,
         approved: i.status === "resolved" ? approved : null,
         by: i.resolvedBy ? { id: i.resolvedBy, name: names.get(i.resolvedBy) ?? null } : null,
@@ -431,6 +433,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         id: a.id,
         tool: a.tool,
         description: services.platform.tools.get(a.tool)?.spec.description ?? a.tool,
+        display: changeDisplay(services.platform, a.tool),
         status: a.status,
         executedAt: iso(a.executedAt),
       })),

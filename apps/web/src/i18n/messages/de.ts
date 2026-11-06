@@ -182,6 +182,16 @@ export const de: Messages = {
   "change.noFields": "Keine Felder.",
   "change.field": "Feld",
   "change.value": "Wert",
+  "change.noneYet": "Keine.",
+  "change.lines.description": "Beschreibung",
+  "change.lines.bookedTo": "Konto oder Artikel",
+  "change.lines.qtyPrice": "Menge × Preis",
+  "change.lines.amount": "Betrag",
+  "change.lines.total": "Gesamt",
+  "change.files.name": "Datei",
+  "change.files.size": "Größe",
+  "change.item.added": "hinzugefügt",
+  "change.item.removed": "entfernt",
 
   // ── Runs ──
   "runs.title": "Abläufe",

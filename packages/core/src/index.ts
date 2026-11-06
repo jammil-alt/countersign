@@ -77,6 +77,7 @@ export * from "./schemas/permissions";
 export * from "./schemas/rules";
 export * from "./schemas/skill";
 export * from "./schemas/tool";
+export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
 export * from "./supervisor/health";
 export * from "./template/template";

@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { changeRows, changeTarget, fieldLabel, formatValue } from "./change";
+import { changeModel, changeTarget } from "./change";
 import { InboxCard, type InboxCardItem } from "./InboxCard";
 
 const CHANGE: InboxCardItem = {
@@ -35,28 +35,23 @@ function renderCard(props: Partial<Parameters<typeof InboxCard>[0]> = {}) {
   );
 }
 
-describe("change rows", () => {
+describe("change model without a display", () => {
   it("pairs the record now with the record after the input, hiding id and version tokens", () => {
-    expect(changeRows(CHANGE.payload.before, CHANGE.payload.input)).toEqual([
-      { field: "name", now: "Oak board", after: "Oak board", changed: false },
-      { field: "amount", now: "10.00", after: "12.00", changed: true },
+    const model = changeModel(null, CHANGE.payload.before, CHANGE.payload.input);
+    expect(model.fields.map((f) => [f.key, f.now, f.after, f.changed])).toEqual([
+      ["name", { type: "text", text: "Oak board" }, { type: "text", text: "Oak board" }, false],
+      ["amount", { type: "text", text: "10.00" }, { type: "text", text: "12.00" }, true],
     ]);
     expect(changeTarget(CHANGE.payload.before, CHANGE.payload.input)).toBe("r1 · Oak board");
   });
 
   it("has no 'now' for a record the change creates", () => {
-    expect(changeRows(null, { name: "Walnut", amount: "5.00" })).toEqual([
-      { field: "name", now: undefined, after: "Walnut", changed: true },
-      { field: "amount", now: undefined, after: "5.00", changed: true },
+    const model = changeModel(null, null, { name: "Walnut", amount: "5.00" });
+    expect(model.create).toBe(true);
+    expect(model.fields.map((f) => [f.key, f.now.type, f.changed])).toEqual([
+      ["name", "none", true],
+      ["amount", "none", true],
     ]);
-  });
-
-  it("writes labels and values plainly", () => {
-    expect(fieldLabel("unitPrice")).toBe("Unit price");
-    expect(fieldLabel("vendor_name")).toBe("Vendor name");
-    expect(formatValue(null)).toBe("—");
-    expect(formatValue(["a", 2])).toBe("a, 2");
-    expect(formatValue({ qty: 2 })).toBe('{"qty":2}');
   });
 });
 
@@ -67,7 +62,11 @@ describe("InboxCard: external action", () => {
     expect(within(card).getByRole("heading", { level: 3 })).toHaveTextContent(
       "Testkit · r1 · Oak board",
     );
-    expect(within(card).getByText("testkit.record.update")).toBeInTheDocument();
+    // Tool ids are not for clients; the back office shows them.
+    expect(within(card).queryByText("testkit.record.update")).toBeNull();
+    expect(within(card).getByTestId("inbox-item-description")).toHaveTextContent(
+      "Change a record's name or amount.",
+    );
     expect(within(card).getByTestId("inbox-item-status")).toHaveTextContent("Needs approval");
 
     const now = screen.getByTestId("change-now");
@@ -84,6 +83,11 @@ describe("InboxCard: external action", () => {
     // Identity and concurrency fields are not part of the change.
     expect(within(card).queryByText("Sync token")).toBeNull();
     expect(within(now).queryByTestId("change-now-row-id")).toBeNull();
+  });
+
+  it("names the tool by its id in the back office", () => {
+    renderCard({ showToolId: true });
+    expect(screen.getByText("testkit.record.update")).toBeInTheDocument();
   });
 
   it("says a create has nothing there yet", () => {

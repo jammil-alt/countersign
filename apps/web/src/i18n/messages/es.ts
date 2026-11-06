@@ -176,6 +176,16 @@ export const es: Messages = {
   "change.noFields": "Sin campos.",
   "change.field": "Campo",
   "change.value": "Valor",
+  "change.noneYet": "Ninguno.",
+  "change.lines.description": "Descripción",
+  "change.lines.bookedTo": "Cuenta o producto",
+  "change.lines.qtyPrice": "Cant. × precio",
+  "change.lines.amount": "Importe",
+  "change.lines.total": "Total",
+  "change.files.name": "Archivo",
+  "change.files.size": "Tamaño",
+  "change.item.added": "añadido",
+  "change.item.removed": "quitado",
 
   // ── Runs ──
   "runs.title": "Ejecuciones",

@@ -16,6 +16,12 @@ import {
 } from "../connector";
 import { QboApiError, type QboClient, QboStaleObjectError, qboLiteral, qboRequestId } from "./api";
 import {
+  attachDisplay,
+  updateLinesDisplay,
+  updateMemoDisplay,
+  updatePurchaseCostDisplay,
+} from "./display";
+import {
   QboAttachment,
   QboId,
   QboItem,
@@ -312,6 +318,69 @@ function itemizeProblem(txn: QboTxn, input: UpdateLinesInput): QboApiError | nul
   return null;
 }
 
+/** Names by id of the items and accounts new lines use: `{ items: { "12": "Oak board 4/4" } }`. */
+const RefNames = z.object({
+  items: z.record(z.string(), z.string()),
+  accounts: z.record(z.string(), z.string()),
+});
+type RefNames = z.infer<typeof RefNames>;
+
+/**
+ * The names of the items and accounts the new lines use, for the approval card: those the record
+ * already names, then the rest read from QuickBooks.
+ */
+// DECISION: the lines tools keep these names in their before state (`names`), read when the change
+// is proposed (and again before it is written), so the card shows "Oak board 4/4" rather than an
+// id. A failed lookup leaves the ids on the card and never stops the write.
+async function refNames(
+  client: QboClient,
+  txn: QboTxn,
+  lines: NewLine[],
+  ctx: ToolContext,
+): Promise<RefNames> {
+  const names: RefNames = { items: {}, accounts: {} };
+  for (const l of txn.lines) {
+    if (l.item?.name) names.items[l.item.id] = l.item.name;
+    if (l.account?.name) names.accounts[l.account.id] = l.account.name;
+  }
+  const missing = (ids: (string | undefined)[], known: Record<string, string>) => [
+    ...new Set(ids.filter((id): id is string => id !== undefined && !Object.hasOwn(known, id))),
+  ];
+  const items = missing(
+    lines.map((l) => l.itemId),
+    names.items,
+  );
+  const accounts = missing(
+    lines.map((l) => l.accountId),
+    names.accounts,
+  );
+  const named = async (entity: "Item" | "Account", ids: string[], into: Record<string, string>) => {
+    if (ids.length === 0) return;
+    const { rows } = await client.query(
+      `select * from ${entity} where Id in (${ids.map(qboLiteral).join(", ")}) maxresults 100`,
+      entity,
+    );
+    for (const row of rows) {
+      const r = row as { Id?: unknown; Name?: unknown; FullyQualifiedName?: unknown };
+      // An account reads with its parent ("Job materials:Lumber"), as its refs on lines do.
+      const name =
+        entity === "Account" && typeof r.FullyQualifiedName === "string"
+          ? r.FullyQualifiedName
+          : r.Name;
+      if (typeof r.Id === "string" && typeof name === "string") into[r.Id] = name;
+    }
+  };
+  try {
+    await named("Item", items, names.items);
+    await named("Account", accounts, names.accounts);
+  } catch (error) {
+    ctx.logger.warn("could not read names for the approval card", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return names;
+}
+
 function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinition {
   const word = entity === "Bill" ? "bill" : "purchase";
   return defineWriteTool({
@@ -320,6 +389,7 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
     verb: "update",
     summary: `Itemized the ${word} into {{lineCount}} lines; total unchanged at {{total}}`,
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
+    display: updateLinesDisplay(entity),
     input: UpdateLinesInput,
     output: z.object({
       entity: z.string(),
@@ -329,16 +399,18 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
       lineCount: z.number().int(),
       alreadyDone: z.boolean(),
     }),
-    beforeSchema: QboTxn,
+    beforeSchema: QboTxn.extend({ names: RefNames.optional() }),
     // DECISION: a change that would move the total is refused when it is proposed, before anyone
     // is asked to approve it, and checked again right before writing.
     async before(input, ctx) {
-      const txn = (await readTxn(await clientFor(ctx), entity, input.id))?.txn ?? null;
-      if (txn && txn.syncToken === input.syncToken) {
+      const client = await clientFor(ctx);
+      const txn = (await readTxn(client, entity, input.id))?.txn ?? null;
+      if (!txn) return null;
+      if (txn.syncToken === input.syncToken) {
         const problem = itemizeProblem(txn, input);
         if (problem) throw problem;
       }
-      return txn;
+      return { ...txn, names: await refNames(client, txn, input.lines, ctx) };
     },
     async run(input, ctx: WriteContext) {
       const client = await clientFor(ctx);
@@ -401,6 +473,7 @@ function updateMemoTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinit
     description: `Set the memo of a QuickBooks ${word} (its private note). Nothing else changes.`,
     verb: "update",
     summary: `Updated the ${word}'s memo`,
+    display: updateMemoDisplay(entity),
     input: z.object({ id: QboId, syncToken: SyncToken, memo: z.string().max(4000) }),
     output: z.object({
       entity: z.string(),
@@ -409,16 +482,32 @@ function updateMemoTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinit
       memo: z.string().nullable(),
       alreadyDone: z.boolean(),
     }),
-    beforeSchema: z.object({
-      entity: z.string(),
-      id: z.string(),
-      syncToken: z.string(),
-      memo: z.string().nullable(),
-      total: DecimalString,
-    }),
+    beforeSchema: QboTxn.pick({
+      id: true,
+      syncToken: true,
+      docNumber: true,
+      txnDate: true,
+      vendor: true,
+      memo: true,
+      total: true,
+      currency: true,
+    }).extend({ entity: z.string() }),
     async before(input, ctx) {
       const t = (await readTxn(await clientFor(ctx), entity, input.id))?.txn;
-      return t ? { entity, id: t.id, syncToken: t.syncToken, memo: t.memo, total: t.total } : null;
+      return t
+        ? {
+            entity,
+            id: t.id,
+            syncToken: t.syncToken,
+            // The bill's number, date and vendor name it on the approval card.
+            docNumber: t.docNumber,
+            txnDate: t.txnDate,
+            vendor: t.vendor,
+            memo: t.memo,
+            total: t.total,
+            currency: t.currency,
+          }
+        : null;
     },
     async run(input, ctx) {
       const client = await clientFor(ctx);
@@ -476,6 +565,7 @@ function updatePurchaseCostTool(clientFor: ClientFor): ToolDefinition {
     verb: "update",
     summary: "Set {{name}}'s purchase cost to {{purchaseCost}}",
     amount: { path: "purchaseCost", currencyPath: "currency", currency: "USD" },
+    display: updatePurchaseCostDisplay,
     input: z.object({
       id: QboId,
       syncToken: SyncToken,
@@ -537,6 +627,21 @@ async function attachmentsOf(
   return rows.map(toAttachment);
 }
 
+/** A bill's, purchase's or vendor credit's number and vendor, from the raw record. */
+function recordName(raw: Record<string, unknown> | null): {
+  docNumber: string | null;
+  vendor: { id: string; name: string | null } | null;
+} {
+  const ref = (raw?.VendorRef ?? raw?.EntityRef) as { value?: unknown; name?: unknown } | undefined;
+  return {
+    docNumber: typeof raw?.DocNumber === "string" ? raw.DocNumber : null,
+    vendor:
+      typeof ref?.value === "string"
+        ? { id: ref.value, name: typeof ref.name === "string" ? ref.name : null }
+        : null,
+  };
+}
+
 /** Content types QuickBooks takes as attachments that our documents can be. */
 const ATTACHABLE_TYPES = new Set([
   "application/pdf",
@@ -566,17 +671,32 @@ function uploadTool(clientFor: ClientFor): ToolDefinition {
       entityId: z.string(),
       alreadyDone: z.boolean(),
     }),
+    display: attachDisplay,
     beforeSchema: z.object({
       entity: z.string(),
       entityId: z.string(),
+      /** The record's number and vendor, which name it on the approval card. */
+      docNumber: z.string().nullable().optional(),
+      vendor: z.object({ id: z.string(), name: z.string().nullable() }).nullable().optional(),
       attachments: z.array(QboAttachment),
+      /** The file this change attaches, as stored when it was proposed. */
+      adding: z
+        .object({ fileName: z.string(), size: z.number().int(), contentType: z.string() })
+        .nullable()
+        .optional(),
     }),
     async before(input, ctx) {
       const client = await clientFor(ctx);
+      const record = await client.read(input.entity, input.entityId);
+      const file = await ctx.services?.documents?.read(input.documentId);
       return {
         entity: input.entity,
         entityId: input.entityId,
+        ...recordName(record),
         attachments: await attachmentsOf(client, input.entity, input.entityId),
+        adding: file
+          ? { fileName: file.filename, size: file.bytes.length, contentType: file.mimeType }
+          : null,
       };
     },
     async run(input, ctx) {
