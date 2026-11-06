@@ -24,6 +24,8 @@ import {
   builderTurn,
   connectionChange,
   contactChange,
+  conversation,
+  conversationChange,
   docExtraction,
   docLine,
   document,
@@ -161,8 +163,14 @@ describe.skipIf(!online)("immutability", () => {
     );
   });
 
-  it("connection_change, agent_change, contact_change and organization_change are append-only", async () => {
-    for (const table of [connectionChange, agentChange, contactChange, organizationChange]) {
+  it("connection_change, agent_change, contact_change, organization_change and conversation_change are append-only", async () => {
+    for (const table of [
+      connectionChange,
+      agentChange,
+      contactChange,
+      organizationChange,
+      conversationChange,
+    ]) {
       expect(await errorCode(t.db.update(table).set({ change: { edited: true } }))).toBe(
         RESTRICT_VIOLATION,
       );
@@ -535,6 +543,42 @@ describe.skipIf(!online)("immutability", () => {
       .from(builderTurn)
       .where(eq(builderTurn.id, A.builderTurnId));
     expect(row?.undoneAt?.toISOString()).toBe(at.toISOString());
+  });
+
+  it("conversation: only capture, title and updated_at change; nothing is deleted (0031)", async () => {
+    const where = eq(conversation.id, A.conversationId);
+    for (const change of [
+      { channel: "sms" as const },
+      { kind: "group" as const, externalId: "g1", contactId: null },
+      { connectionId: A.connectionId, createdAt: new Date("2020-01-01T00:00:00Z") },
+    ]) {
+      expect(
+        await errorCode(t.db.update(conversation).set(change).where(where)),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    const capture = { archive: false, attachments: "all" as const, maxBytes: 1024 };
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx.update(conversation).set({ capture, title: "Pat" }).where(where);
+    });
+    const [row] = await t.db.select().from(conversation).where(where);
+    expect(row?.capture).toEqual(capture);
+    expect(row?.title).toBe("Pat");
+    expect(await errorCode(t.db.delete(conversation).where(where))).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`delete from conversation where id = ${A.conversationId}`,
+      sql`delete from conversation_change where conversation_id = ${A.conversationId}`,
+      sql`update conversation_change set side = 'operator' where conversation_id = ${A.conversationId}`,
+    ]) {
+      const code = await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
   });
 
   it("the Worker's role cannot update an extraction or delete a document", async () => {

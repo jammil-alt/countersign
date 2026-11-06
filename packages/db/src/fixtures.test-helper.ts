@@ -28,6 +28,8 @@ import {
   connectorSetting,
   contact,
   contactChange,
+  conversation,
+  conversationChange,
   docExtraction,
   docLine,
   document,
@@ -131,6 +133,7 @@ export interface ClientFixture {
   oversightDecisionId: string;
   builderSessionId: string;
   builderTurnId: string;
+  conversationId: string;
 }
 
 /** A shared automation's definition, as core's `Automation` (W2-B) will check it. */
@@ -650,6 +653,30 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     })
     .returning();
   if (!bt) throw new Error("no builder turn");
+  // v0.14 capture (0031): the contact's WhatsApp conversation and one change to its capture.
+  const [cv] = await db
+    .insert(conversation)
+    .values({
+      tenantId,
+      connectionId: c.id,
+      channel: "whatsapp",
+      kind: "direct",
+      contactId: ct.id,
+      title: "Pat Lee",
+    })
+    .returning();
+  if (!cv) throw new Error("no conversation");
+  await db.insert(conversationChange).values({
+    tenantId,
+    conversationId: cv.id,
+    actorId: u.id,
+    side: "client",
+    change: {
+      setting: "capture",
+      before: cv.capture,
+      after: { ...cv.capture, attachments: "documents" },
+    },
+  });
 
   await db.insert(auditEvent).values({
     tenantId,
@@ -685,6 +712,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     oversightDecisionId: od.id,
     builderSessionId: bs.id,
     builderTurnId: bt.id,
+    conversationId: cv.id,
   };
 }
 
