@@ -34,6 +34,7 @@ pnpm dev          # builds apps/web, then wrangler dev on :8787: API, app, Workf
 pnpm dev:web      # Vite with /api proxied to :8787, for fast UI work (run beside pnpm dev)
 pnpm check        # lint, layering, typecheck, tests: what CI runs
 pnpm format       # Biome: format and organise imports
+pnpm --filter @countersign/web sweep   # with pnpm dev running: every screen in Chromium (CI's sweep)
 ```
 
 ## What is real and what is not

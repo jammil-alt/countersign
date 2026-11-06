@@ -683,7 +683,19 @@ be disabled, as in `db:purge-client`.
   migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
   secrets, builds `apps/web` and runs `wrangler deploy` for apps/api (whose `CODES` binding needs the
   code service deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
-  `main` only.
+  `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
+  (`/api/health` answers, the page and its script load, `/api/session` refuses with a JSON 401),
+  retrying for 2 minutes; a failure marks the deploy failed. Run it by hand against either
+  environment: `scripts/smoke.sh https://staging.mezonas.com`.
+- **The screen sweep** (`checks.yml`'s `sweep` job, `apps/web/e2e/route-sweep.mjs`): beside the
+  tests, on the seeded database, the built app runs on `wrangler dev` with the dev sign-in and real
+  Chromium opens every screen of the back office (as the operator) and the portal (as the Demo
+  client's admin). It starts from each route without parameters and follows the links the screens
+  show, one page per route, so new screens are swept without editing it. A page fails on a crash
+  (an empty `#root`), a page error, a console error, an `/api` answer of 500 or more, or a link to
+  "Not found". It clicks and submits nothing. Routes no seeded link reaches (a run, a document) are
+  listed as a note, not a failure; they are covered once the seed has such rows. Docs-only pull
+  requests skip it. Locally: `pnpm dev`, then `pnpm --filter @countersign/web sweep`.
 
 ## 3. Migrations
 

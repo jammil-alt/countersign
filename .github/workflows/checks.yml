@@ -142,3 +142,90 @@ jobs:
         run: pnpm --filter "...[origin/${{ inputs.base }}]" test
         env:
           LLM_MODE: replay
+
+  # The screens in a real browser (apps/web/e2e/route-sweep.mjs, docs/operations.md §2): the seeded
+  # database, the built app on `wrangler dev` with the dev sign-in, every screen of the back office
+  # and the portal opened and checked for a crash, a page error, a console error or an /api 5xx.
+  # Skipped for docs-only pull requests.
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Docs only?
+        id: scope
+        env:
+          SCOPE: ${{ inputs.scope }}
+          BASE: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          if [ "$SCOPE" = "affected" ] && \
+            [ -z "$(git diff --name-only "origin/$BASE...HEAD" | grep -vE '^docs/|\.md$' || true)" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"; echo "Docs and Markdown only: no sweep."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.run == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - if: steps.scope.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Chromium
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @countersign/web exec playwright install --with-deps chromium
+
+      # The local passwords .env.example expects, so `wrangler dev` reads it as it is.
+      - name: A seeded Postgres with Neon's roles
+        if: steps.scope.outputs.run == 'true'
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci
+          CS_OWNER_PASSWORD: cs_owner
+          CS_WORKER_PASSWORD: cs_worker
+        run: scripts/setup-postgres.sh > /dev/null
+
+      - name: The app on wrangler dev
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          pnpm --filter @countersign/web build
+          (cd apps/api && nohup pnpm exec wrangler dev --env-file ../../.env --ip 127.0.0.1 \
+            --port 8787 > "$RUNNER_TEMP/wrangler.log" 2>&1 &)
+          for _ in $(seq 1 90); do
+            curl -sf http://127.0.0.1:8787/api/health > /dev/null && exit 0
+            sleep 2
+          done
+          echo "::error::wrangler dev did not answer"; tail -50 "$RUNNER_TEMP/wrangler.log"; exit 1
+
+      - name: Sweep every screen
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @countersign/web sweep
+
+      - name: The Worker's log
+        if: failure() && steps.scope.outputs.run == 'true'
+        run: tail -200 "$RUNNER_TEMP/wrangler.log"

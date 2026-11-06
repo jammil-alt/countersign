@@ -264,6 +264,16 @@ jobs:
             put "$name" "$value"
           done
 
+      # The deployed app works from the outside (scripts/smoke.sh): the Worker answers, the page
+      # and its script load, the API refuses without a session. Retries for 2 minutes while the
+      # new version spreads; a failure here marks the deploy failed (the release is in Sentry).
+      - name: Smoke test
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          host=$([ "$TARGET" = production ] && echo app.mezonas.com || echo staging.mezonas.com)
+          scripts/smoke.sh "https://$host"
+
   # The public site, mezonas.com (apps/site, docs/plan.md §1.29): static files on the Worker
   # mezonas-site. One site for every environment, so it deploys from main only (a push, or a
   # manual run from main), never from a tag. Its own job: it needs no database or app secrets, and
