@@ -4,7 +4,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { withOperator } from "./client";
+import { withOperator, withTenant } from "./client";
 import {
   BUNDLE,
   type ClientFixture,
@@ -25,6 +25,8 @@ import {
   docLine,
   document,
   knowledgeEntryVersion,
+  modelCall,
+  notification,
   organizationChange,
   rawRecord,
   skillVersion,
@@ -290,6 +292,76 @@ describe.skipIf(!online)("immutability", () => {
       .update(document)
       .set({ status: "needs_review" })
       .where(eq(document.id, A.documentId));
+  });
+
+  it("doc_extraction's cost is written at insert and never changes (0018)", async () => {
+    const [row] = await t.db
+      .select({ cost: docExtraction.costUsd, tin: docExtraction.tokensIn })
+      .from(docExtraction)
+      .where(eq(docExtraction.id, A.extractionId));
+    expect(row).toEqual({ cost: "0.0000", tin: 0 });
+    expect(
+      await errorCode(
+        t.db
+          .update(docExtraction)
+          .set({ costUsd: "0.0100", tokensIn: 10 })
+          .where(eq(docExtraction.id, A.extractionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+  });
+
+  it("model_call is insert only, for the owner and the Worker's role (0023)", async () => {
+    expect(
+      await errorCode(
+        t.db.update(modelCall).set({ costUsd: "0.0000" }).where(eq(modelCall.id, A.modelCallId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.delete(modelCall).where(eq(modelCall.id, A.modelCallId)))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    for (const statement of [
+      sql`update model_call set tokens_out = 0 where id = ${A.modelCallId}`,
+      sql`delete from model_call where id = ${A.modelCallId}`,
+    ]) {
+      const code = await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+  });
+
+  it("notification: only status, reason, provider_id and sent_at change; never deleted (0020)", async () => {
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(notification)
+        .set({ status: "sent", providerId: "re_123", sentAt: new Date(), reason: null })
+        .where(eq(notification.id, A.notificationId));
+    });
+    for (const change of [
+      { link: "/elsewhere" },
+      { counts: { items: 9 } },
+      { dedupeKey: "other" },
+      { userId: null },
+    ]) {
+      expect(
+        await errorCode(
+          t.db.update(notification).set(change).where(eq(notification.id, A.notificationId)),
+        ),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    expect(
+      await errorCode(t.db.delete(notification).where(eq(notification.id, A.notificationId))),
+    ).toBe(RESTRICT_VIOLATION);
+    const [row] = await t.db
+      .select({ status: notification.status, providerId: notification.providerId })
+      .from(notification)
+      .where(eq(notification.id, A.notificationId));
+    expect(row).toEqual({ status: "sent", providerId: "re_123" });
   });
 
   it("the Worker's role cannot update an extraction or delete a document", async () => {

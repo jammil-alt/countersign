@@ -69,12 +69,13 @@ CREATE TRIGGER model_call_insert_only BEFORE UPDATE OR DELETE ON model_call
   FOR EACH ROW EXECUTE FUNCTION forbid_update_except();
 --> statement-breakpoint
 
--- DECISION: saved views are operator rows (§10.10: "an operator's named filters"), with no client
--- and no DELETE grant (§5.5, plan §8.5). RLS shows them to operator sessions only; a user's own rows
--- are picked by `user_id` in the query, since operator sessions carry no user id for RLS to read.
--- `portal_runs` is the operator's views of a client's portal runs list; client users don't save
--- views in v0.12.
-GRANT SELECT, INSERT, UPDATE ON saved_view TO cs_runtime;
+-- DECISION: saved views are operator rows (§10.10: "an operator's named filters"), with no client.
+-- They aren't history (invariant 3), so the runtime may delete them (DELETE
+-- /api/ops/saved-views/:id, §14). RLS limits every command, DELETE included, to operator sessions;
+-- it can't narrow to the row's own user, because operator sessions carry no user id (app.user_id
+-- is set only while signing in), so the routes pick a user's own rows by `user_id`. `portal_runs`
+-- is the operator's views of a client's portal runs list; client users don't save views in v0.12.
+GRANT SELECT, INSERT, UPDATE, DELETE ON saved_view TO cs_runtime;
 --> statement-breakpoint
 ALTER TABLE saved_view ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
