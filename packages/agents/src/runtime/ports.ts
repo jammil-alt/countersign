@@ -57,6 +57,12 @@ export interface RuntimeStore {
    * client's tightening or revoke applies at once; null = no narrowing.
    */
   grant(tenantId: string, agentId: string, connectionId: string): Promise<GrantLimits | null>;
+  // v0.12 W1-A: go-live stages
+  /**
+   * The client agent's go-live stage (ARCHITECTURE §10.9), read fresh at every write decision like
+   * the matrix, so a stage change applies mid-run; null when it has none.
+   */
+  agentStage(tenantId: string, agentId: string): Promise<string | null>;
   /**
    * What decides who approves a write, read fresh for every proposal so a client's tightening
    * applies at once: the client's approver rules (`tenant.settings.approver_rules`), its default
