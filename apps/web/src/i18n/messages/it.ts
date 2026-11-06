@@ -89,6 +89,8 @@ export const it: Messages = {
   "nav.settings": "Impostazioni",
   "nav.knowledge": "Conoscenze",
   "nav.contacts": "Contatti",
+  // v0.14 capture
+  "nav.conversations": "Conversazioni",
   "nav.billing": "Fatturazione",
   "nav.people": "Persone",
   "nav.access": "Accessi",
@@ -825,6 +827,36 @@ export const it: Messages = {
   "contacts.subtitle":
     "Le persone a cui possiamo scrivere per email, SMS o WhatsApp, o telefonare, per te. Contattiamo solo chi ha accettato, e mai nelle ore di silenzio.",
   "contacts.adminOnly": "L'elenco dei contatti lo gestisce il tuo admin.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversazioni",
+  "conversations.subtitle":
+    "Le chat WhatsApp con il tuo numero. Scegli cosa teniamo di ognuna: i messaggi e i loro allegati come documenti.",
+  "conversations.adminOnly": "Cosa teniamo delle conversazioni WhatsApp lo sceglie il tuo admin.",
+  "conversations.empty":
+    "Ancora nessuna conversazione WhatsApp. Ne inizia una quando qualcuno scrive al tuo numero.",
+  "conversations.lastMessage": "Ultimo messaggio {when}",
+  "conversations.noMessages": "Ancora nessun messaggio.",
+  "conversations.keepMessages": "Tieni i messaggi",
+  "conversations.attachments": "Scarica gli allegati",
+  "conversations.attachments.off": "No",
+  "conversations.attachments.documents": "PDF e immagini",
+  "conversations.attachments.all": "Tutti i file",
+  "conversations.yes": "Sì",
+  "conversations.no": "No",
+  "conversations.showMessages": "Mostra i messaggi",
+  "conversations.hideMessages": "Nascondi i messaggi",
+  "conversations.notKept": "Non tenuto",
+  "conversations.downloadNow": "Scarica ora",
+  "conversations.downloading": {
+    one: "Download di {count} allegato.",
+    other: "Download di {count} allegati.",
+  },
+  "conversations.failed": "Non ha funzionato. Riprova.",
+  "conversations.attachment.not_downloaded": "Non scaricato",
+  "conversations.attachment.pending": "In download",
+  "conversations.attachment.filed": "Archiviato",
+  "conversations.attachment.refused": "Non accettato",
+  "conversations.attachment.failed": "Download non riuscito",
   "contacts.empty":
     "Ancora nessun contatto. Aggiungi le persone che i tuoi agenti possono contattare, con il modo in cui hanno accettato.",
   "contacts.channel.sms": "SMS",

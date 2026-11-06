@@ -85,6 +85,8 @@ export const en = {
   "nav.settings": "Settings",
   "nav.knowledge": "Knowledge",
   "nav.contacts": "Contacts",
+  // v0.14 capture
+  "nav.conversations": "Conversations",
   "nav.billing": "Billing",
   "nav.people": "People",
   "nav.access": "Access",
@@ -796,6 +798,36 @@ export const en = {
   "contacts.subtitle":
     "The people we may email, text, message on WhatsApp or call for you. We only reach those who agreed, and never in quiet hours.",
   "contacts.adminOnly": "Your admin keeps the contacts list.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversations",
+  "conversations.subtitle":
+    "WhatsApp chats with your number. Choose what we keep from each: the messages, and their attachments as documents.",
+  "conversations.adminOnly": "Your admin chooses what we keep from WhatsApp conversations.",
+  "conversations.empty":
+    "No WhatsApp conversations yet. One starts when someone writes to your number.",
+  "conversations.lastMessage": "Last message {when}",
+  "conversations.noMessages": "No messages yet.",
+  "conversations.keepMessages": "Keep messages",
+  "conversations.attachments": "Download attachments",
+  "conversations.attachments.off": "Off",
+  "conversations.attachments.documents": "PDFs and images",
+  "conversations.attachments.all": "All files",
+  "conversations.yes": "Yes",
+  "conversations.no": "No",
+  "conversations.showMessages": "Show messages",
+  "conversations.hideMessages": "Hide messages",
+  "conversations.notKept": "Not kept",
+  "conversations.downloadNow": "Download now",
+  "conversations.downloading": {
+    one: "Downloading {count} attachment.",
+    other: "Downloading {count} attachments.",
+  },
+  "conversations.failed": "That didn't work. Try again.",
+  "conversations.attachment.not_downloaded": "Not downloaded",
+  "conversations.attachment.pending": "Downloading",
+  "conversations.attachment.filed": "Filed",
+  "conversations.attachment.refused": "Not taken",
+  "conversations.attachment.failed": "Couldn't download",
   "contacts.empty":
     "No contacts yet. Add the people your agents may reach, with how they agreed to it.",
   "contacts.channel.sms": "Texts",

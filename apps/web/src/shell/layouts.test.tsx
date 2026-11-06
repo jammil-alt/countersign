@@ -144,6 +144,8 @@ describe("portal layout", () => {
       "Directory",
       "Knowledge",
       "Contacts",
+      // v0.14 capture
+      "Conversations",
       "Billing",
       "People",
       "Settings",

@@ -1458,6 +1458,20 @@ media download" as not built. Hot-spot edits are blocks marked `// v0.14 capture
 | To verify (Twilio) | Recorded in `packages/connectors/src/twilio/NOTES.md` when built. From search results only, not the live docs (`twilio.com` is outside this environment's network): Twilio keeps inbound media until its Media resource is deleted; media URLs need HTTP Basic auth (an older page says public unless a Console setting is on); with auth on, the fetch redirects to a signed link valid about 4 hours. Unchecked: the redirect's host, whether the subaccount's auth token (not only an API key) works for media, `Content-Length` on the signed link, and Twilio's charge for stored media. |
 | Migration 0031 (as built) | `conversation`: the capture check holds the shape (`archive` a boolean, `attachments` one of three, `maxBytes` a number from 1 to 32 MB); a trigger lets only `capture`, `title` and `updated_at` change and refuses deletes, so a conversation never moves to another client, connection, channel or contact. `conversation_change`: insert and select only, append-only trigger. Both have forced RLS on `app.tenant_ids` and same-client foreign keys (connection, contact, conversation). `document_source_check` is replaced with one that adds `message`. Constants in `packages/db` (`CAPTURE_DEFAULT_MAX_BYTES`, `CAPTURE_MAX_BYTES_CAP`). // DECISION |
 
+Decisions made while building M33 (`claude/whatsapp-capture`, 2026-11-06; `// v0.14 capture` blocks):
+
+| Topic | Decision |
+|---|---|
+| Order in the webhook | For WhatsApp, the contact (made with no consent if new) and its conversation come before the raw record, so the record names the conversation and keeps what its setting says (`payload.capture {conversationId, archive, wanted}`). `knownContact` is still read from before this message. A concurrent duplicate that loses the insert leaves only what the first made. // DECISION |
+| Archive off | The raw record's and the thread line's `text` are empty; `message.get` and `messages.search` answer `text: ""` with `kept: false` (Twilio still has the text; the tool hides it). STOP and START still act on the words in memory. // DECISION |
+| Messages route | Both surfaces gained `GET …/conversations/:id/messages` (the latest 50 with their attachments), which "download now" needs; not in ARCHITECTURE §14's first list. // DECISION |
+| Who sets what | The portal's change takes `archive` and/or `attachments` and keeps the operator's `maxBytes` and `agentId`; its view and change log never show `agentId`. The operator's change takes the whole setting. // DECISION |
+| Tries | Each try is the next version of the `MessageMedia` record (`external_version` 1, 2, 3). "Download now" tries again a `failed` outcome and a `refused` one whose reason was the setting of the time (`capture_off`, `type_not_allowed`); `too_large` and `type_mismatch` stand. // DECISION |
+| Instance ids | `capture-<client>-<sid>` for the webhook's job; a restart or "download now" adds a base-36 time suffix, since a finished instance's id can't be reused. Steps: 5 tries a minute apart (exponential), 2 minutes each. A Twilio 429 or 5xx is transient (the step retries; inline, the message stays pending for the cron, every 10 minutes at minute 2). // DECISION |
+| The agent | `capture.agentId` must be this client's live, non-test agent with a `whatsapp` message trigger (422 `invalid_agent`). Told once per message and agent (raw record `MessageCaptureNotified`), only when its People filter takes the sender; no reply either way. // DECISION |
+| UI | Portal `/conversations` (client admin, sidebar after Contacts) and the back office's messaging page (the client default with a reason, then the same list). Strings in six languages; the five other than English need a fluent review. // DECISION |
+| Not built | Groups (Meta), SMS conversations, deleting media at Twilio (open), the API e2e (it has no messaging part). |
+
 ### People and voice samples (W1-G)
 
 Decisions made while building §1.42 (ARCHITECTURE v0.12 §6.1, §6.4; migration 0025).
