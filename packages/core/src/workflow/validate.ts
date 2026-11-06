@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { localizedVersions } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 import { levelFor } from "../permissions/decide";
@@ -20,6 +21,7 @@ import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import {
   type Step,
+  type Trigger,
   type UseAutomationStep,
   type Workflow,
   Workflow as WorkflowSchema,
@@ -29,13 +31,16 @@ import {
   automationEndScope,
   automationScopes,
   lookupSkill,
+  outputSchemaOf,
   type Scope,
   schemaTypes,
   scopes,
   type TypingContext,
+  triggerOnSchema,
   triggerSchema,
   typeTemplatePath,
 } from "../template/typer";
+import { allTriggers } from "../triggers/kinds";
 import { walkSteps } from "./walk";
 
 /**
@@ -86,6 +91,10 @@ export type ValidationCode =
   | "automation_agent"
   | "approvals_not_client"
   | "approval_unknown_step"
+  // v0.12 W2-E: triggers
+  | "duplicate_channel"
+  | "people_empty"
+  | "reply_not_fixed"
   // v0.13 W2-H: a step's model (ARCHITECTURE §10.11).
   | "unknown_model"
   | "model_not_allowed";
@@ -158,7 +167,8 @@ function schemaErrors(
           : undefined;
       const prev = path[i - 1];
       const isNode =
-        (typeof seg === "number" && (prev === "steps" || prev === "paths")) ||
+        (typeof seg === "number" &&
+          (prev === "steps" || prev === "paths" || prev === "moreTriggers")) ||
         seg === "trigger" ||
         seg === "otherwise";
       if (isNode && isPlainObject(cur) && typeof cur.id === "string") {
@@ -548,15 +558,38 @@ function validTimezone(tz: string): boolean {
   }
 }
 
-function checkTrigger(c: Checker, workflow: Workflow) {
-  const { id, on } = workflow.trigger;
+// v0.12 W2-E: every trigger of the workflow (`moreTriggers` too) is checked; a trigger's filter and
+// dedupe key read that trigger's own payload.
+function checkTrigger(c: Checker, trigger: Trigger) {
+  const { id, on } = trigger;
+  const own: Scope = { trigger: triggerOnSchema(on, c.ctx), steps: {} };
   if (on.type === "event") {
     if (c.ctx.events && !c.ctx.events[on.event]) {
       c.add(id, "on.event", "unknown_event", `no event type "${on.event}"`);
     }
-    if (on.filter) {
-      const scope: Scope = { trigger: triggerSchema(workflow, c.ctx), steps: {} };
-      checkRules(c, id, on.filter, ["on", "filter"], scope, false);
+    if (on.filter) checkRules(c, id, on.filter, ["on", "filter"], own, false);
+  } else if (on.type === "webhook" || on.type === "handoff") {
+    if (on.filter) checkRules(c, id, on.filter, ["on", "filter"], own, false);
+    if (on.type === "webhook" && on.dedupeKey !== undefined) {
+      checkRefs(c, id, on.dedupeKey, ["on", "dedupeKey"], own);
+    }
+  } else if (on.type === "message") {
+    if (new Set(on.channels).size < on.channels.length) {
+      c.add(id, "on.channels", "duplicate_channel", "each channel once");
+    }
+    const f = on.from;
+    const listed =
+      (f.relationships?.length ?? 0) +
+      (f.tags?.length ?? 0) +
+      (f.contactIds?.length ?? 0) +
+      (f.clientRoles?.length ?? 0);
+    if (listed === 0) {
+      c.add(id, "on.from", "people_empty", "say who may send it: people, tags or client roles");
+    }
+    for (const text of on.reply ? localizedVersions(on.reply.confirm) : []) {
+      if (text.includes("{{")) {
+        c.add(id, "on.reply.confirm", "reply_not_fixed", "the confirmation is fixed words");
+      }
     }
   } else if (on.type === "schedule") {
     const fields = on.cron.trim().split(/\s+/);
@@ -566,6 +599,23 @@ function checkTrigger(c: Checker, workflow: Workflow) {
     if (on.tz !== undefined && !validTimezone(on.tz)) {
       c.add(id, "on.tz", "invalid_timezone", `unknown timezone "${on.tz}"`);
     }
+  }
+}
+
+// v0.12 W2-E: `handoff.output` and `sources` are read when the run has finished, so they see the
+// trigger and every top-level step (outputs inside a fork path or a loop stay inside it).
+function checkHandoff(c: Checker, workflow: Workflow) {
+  if (!workflow.handoff) return;
+  const all = scopes(workflow, c.ctx);
+  const scope: Scope = { trigger: triggerSchema(workflow, c.ctx), steps: {} };
+  for (const s of workflow.steps) {
+    const at = all.get(s.id);
+    if (at) Object.assign(scope.steps, at.steps);
+    scope.steps[s.id] = { step: s, output: outputSchemaOf(s, c.ctx) };
+  }
+  checkRefs(c, workflow.trigger.id, workflow.handoff.output, ["handoff", "output"], scope);
+  if (workflow.handoff.sources !== undefined) {
+    checkRefs(c, workflow.trigger.id, workflow.handoff.sources, ["handoff", "sources"], scope);
   }
 }
 
@@ -586,6 +636,8 @@ function duplicateIds(workflows: { slug?: string; workflow: Workflow }[]): Valid
   };
   for (const { slug, workflow } of workflows) {
     note(workflow.trigger.id, slug, "id");
+    // v0.12 W2-E
+    for (const t of workflow.moreTriggers ?? []) note(t.id, slug, "id");
     walkSteps(workflow, ({ step }) => {
       note(step.id, slug, "id");
       if (step.kind === "fork") {
@@ -608,7 +660,9 @@ function semantic(workflow: Workflow, ctx: ValidationContext, slug?: string): Va
       errors.push(e);
     },
   };
-  checkTrigger(c, workflow);
+  // v0.12 W2-E: every trigger, and what a successful run hands off.
+  for (const t of allTriggers(workflow)) checkTrigger(c, t);
+  checkHandoff(c, workflow);
   const allowed = allowedTools(ctx);
   const byStep = scopes(workflow, ctx);
   walkSteps(workflow, ({ step }) => {

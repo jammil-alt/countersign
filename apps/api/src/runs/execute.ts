@@ -25,14 +25,22 @@ import {
 import {
   type AutomationDefinition,
   automationRefs,
+  // v0.12 W2-E
+  HANDOFF_OUTPUT_MAX_BYTES,
+  HANDOFF_SOURCES_MAX,
+  isUuid,
   type Locale,
   type Processor,
   parseCoveredProcessors,
+  RUN_SUCCEEDED_EVENT,
+  type RunSucceededPayload,
+  resolveTemplate,
   runErrorKey,
   shortRunId,
   type Workflow,
 } from "@countersign/core";
 import {
+  agent,
   agentVersion,
   connection,
   type Db,
@@ -411,6 +419,22 @@ export async function executeRun(
           );
           if (row) emitted.push(row);
         }
+        // v0.12 W2-E: `run.succeeded`, with what the workflow hands off, in the same transaction
+        // (docs/plan.md §1.48). Live runs only: a test run starts nothing (ARCHITECTURE §10.4).
+        if (result.status === "succeeded" && info.mode === "live" && loaded.ok) {
+          const row = await emit(
+            tx,
+            {
+              tenantId: info.tenantId,
+              type: RUN_SUCCEEDED_EVENT,
+              subjectType: "run",
+              subjectId: info.id,
+              payload: await runSucceededPayload(tx, params, loaded.workflow),
+            },
+            { registry: deps.platform.events },
+          );
+          if (row) emitted.push(row);
+        }
       });
       // Best effort: whatever this misses (or a replay lost), the cron sweep dispatches.
       if (deps.instances && emitted.length > 0) {
@@ -483,6 +507,86 @@ export async function executeRun(
   }
   await finish(result);
   return result;
+}
+
+// ── v0.12 W2-E: what a successful run hands off (ARCHITECTURE §10.8; docs/plan.md §1.48) ───────
+
+/**
+ * `run.succeeded`'s payload: the workflow's `handoff.output` and `sources` evaluated over the run's
+ * trigger and its top-level steps' outputs (≤ 16 KB, else left out), and the depth: the run's own
+ * handoff depth + 1.
+ */
+async function runSucceededPayload(
+  tx: Tx,
+  params: RunParams,
+  workflow: Workflow,
+): Promise<RunSucceededPayload> {
+  const [a] = await tx
+    .select({ slug: agent.slug })
+    .from(agent)
+    .where(and(eq(agent.id, params.agentId), eq(agent.tenantId, params.tenantId)));
+  const depth = (params.trigger.type === "handoff" ? params.trigger.depth : 0) + 1;
+  let output: unknown = null;
+  let outputTooLarge = false;
+  let sources: string[] = [];
+  const handoff = workflow.handoff;
+  if (handoff) {
+    const ids = workflow.steps.map((s) => s.id);
+    const rows =
+      ids.length === 0
+        ? []
+        : await tx
+            .select({ nodeId: stepRun.nodeId, output: stepRun.output, status: stepRun.status })
+            .from(stepRun)
+            .where(
+              and(
+                eq(stepRun.runId, params.runId),
+                eq(stepRun.tenantId, params.tenantId),
+                inArray(stepRun.nodeId, ids),
+              ),
+            );
+    const steps: Record<string, { output: unknown }> = {};
+    for (const r of rows) {
+      if (r.status === "succeeded" || r.status === "skipped") {
+        steps[r.nodeId] = { output: r.output ?? null };
+      }
+    }
+    const context = { trigger: params.payload, steps };
+    try {
+      output = resolveTemplate(handoff.output, context) ?? null;
+    } catch (error) {
+      console.warn(`handoff output of run ${params.runId} could not be evaluated`, String(error));
+      output = null;
+    }
+    if (
+      new TextEncoder().encode(JSON.stringify(output) ?? "null").length > HANDOFF_OUTPUT_MAX_BYTES
+    ) {
+      output = null;
+      outputTooLarge = true;
+    }
+    if (handoff.sources !== undefined) {
+      let resolved: unknown;
+      try {
+        resolved = resolveTemplate(handoff.sources, context);
+      } catch {
+        resolved = [];
+      }
+      const flat = (Array.isArray(resolved) ? resolved : [resolved]).flat(2);
+      sources = [...new Set(flat.filter((v): v is string => typeof v === "string" && isUuid(v)))];
+      sources = sources.slice(0, HANDOFF_SOURCES_MAX);
+    }
+  }
+  return {
+    runId: params.runId,
+    agentId: params.agentId,
+    agentSlug: a?.slug ?? "",
+    agentVersionId: params.agentVersionId,
+    workflowSlug: params.workflowSlug,
+    output,
+    ...(outputTooLarge ? { outputTooLarge } : {}),
+    sources,
+    depth,
+  };
 }
 
 // ── v0.12 W1-E: retry from the failed step (ARCHITECTURE §10.10; docs/plan.md §1.40) ──────────

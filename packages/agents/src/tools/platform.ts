@@ -7,6 +7,8 @@ import { agentsAsk } from "./ask";
 import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
 import { HEALTH_TOOLS } from "./health";
+// v0.12 W2-E
+import { INBOUND_TOOLS } from "./inbound";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
@@ -92,4 +94,6 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...HEALTH_TOOLS,
   agentsAsk,
   ...SUPERVISOR_TOOLS,
+  // v0.12 W2-E
+  ...INBOUND_TOOLS,
 ];

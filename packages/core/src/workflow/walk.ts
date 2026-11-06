@@ -58,7 +58,8 @@ export function findStep(workflow: Pick<Workflow, "steps">, id: string): StepLoc
 
 /** Every id a merge lines up by: the trigger, steps, fork paths and otherwise branches. */
 export function nodeIds(workflow: Workflow): string[] {
-  const ids = [workflow.trigger.id];
+  // v0.12 W2-E: every trigger's id, so merges line `moreTriggers` up too.
+  const ids = [workflow.trigger.id, ...(workflow.moreTriggers ?? []).map((t) => t.id)];
   walkSteps(workflow, ({ step }) => {
     ids.push(step.id);
     if (step.kind === "fork") {

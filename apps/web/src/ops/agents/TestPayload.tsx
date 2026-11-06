@@ -46,6 +46,31 @@ export function samplePayload(
         ]),
       );
     }
+    // v0.12 W2-E: the new kinds' payloads (docs/plan.md §1.48).
+    case "webhook":
+      return events.find((e) => e.type === "webhook.received")?.sample ?? undefined;
+    case "message":
+      return {
+        channel: on.channels[0] ?? "email",
+        contactId: null,
+        userId: null,
+        rawRecordId: null,
+        threadId: null,
+        messageId: null,
+        documents: [],
+      };
+    case "handoff":
+      return {
+        from: {
+          agentId: "",
+          agentSlug: on.from.agent,
+          workflowSlug: on.from.workflow ?? "",
+          runId: "",
+        },
+        output: null,
+        sources: [],
+        depth: 1,
+      };
   }
 }
 
