@@ -9,6 +9,7 @@
 import {
   ACCOUNT_AGENT_SLUG,
   isClientThreadKind,
+  isPlainObject,
   type JsonObject,
   type MessageAudience,
 } from "@countersign/core";
@@ -18,6 +19,7 @@ import {
   appUser,
   type Db,
   membership,
+  run,
   type Tx,
   thread as threadTable,
   withTenant,
@@ -44,6 +46,19 @@ async function isAccountAgent(tx: Tx, tenantId: string, agentId: string): Promis
     .from(agent)
     .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
   return a?.kind === "client" && a.slug === ACCOUNT_AGENT_SLUG;
+}
+
+// v0.12 W2-D
+/** The thread whose message started a run (`thread.message_posted` in its trigger), if any. */
+async function triggerThreadOf(tx: Tx, tenantId: string, runId: string): Promise<string | null> {
+  const [r] = await tx
+    .select({ trigger: run.trigger })
+    .from(run)
+    .where(and(eq(run.id, runId), eq(run.tenantId, tenantId)));
+  const trigger = isPlainObject(r?.trigger) ? r.trigger : {};
+  if (trigger.eventType !== "thread.message_posted" || !isPlainObject(trigger.payload)) return null;
+  const threadId = trigger.payload.threadId;
+  return typeof threadId === "string" ? threadId : null;
 }
 
 /** The thread a post goes to: by id, else found or opened for its subject. */
@@ -118,6 +133,20 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
           }
           if (t.subjectType !== "account") {
             throw new AgentsError("invalid_state", "the account agent answers in account threads");
+          }
+          // v0.12 W2-D: Sloan answers in the conversation that started its run, and every answer
+          // cites what it rests on (at least the message it answers; invariant 10).
+          if ((await triggerThreadOf(tx, tenantId, input.runId)) !== t.id) {
+            throw new AgentsError(
+              "invalid_state",
+              "the account agent answers only in the conversation it was asked in",
+            );
+          }
+          if (input.sources.length === 0) {
+            throw new AgentsError(
+              "invalid_state",
+              "cite your sources: at least the message you answer",
+            );
           }
         }
         const posted = await postMessage(

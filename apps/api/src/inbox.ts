@@ -6,6 +6,8 @@
 import { type Approver, mayResolve, resolveExternalActionTx } from "@countersign/agents";
 import type { ResolveBody } from "@countersign/core";
 import {
+  // v0.12 W2-D
+  ACCOUNT_CHANGE_SUBJECT,
   choiceProblem,
   FORBIDDEN_PORTAL_FIELD,
   isPlainObject,
@@ -78,6 +80,11 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   if (item.kind === "change_request") {
     // A client's request is resolved in the requests queue, where its outcome and links are kept.
     throw new HttpError(409, "use_requests", "resolve requests in the requests queue");
+  }
+  // v0.12 W2-D: a change Sloan drafted is signed by the client admin through its own route, which
+  // applies it with the portal's code (POST /api/account-changes/:id/resolve).
+  if (item.subjectType === ACCOUNT_CHANGE_SUBJECT) {
+    throw new HttpError(409, "use_account_change", "sign this change from its own card");
   }
   if (item.status === "expired") {
     throw new HttpError(409, "expired", "this item expired: the run stopped waiting for it");

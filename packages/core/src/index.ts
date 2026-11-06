@@ -4,7 +4,13 @@
 // Pure: no I/O and no Node/DOM/Workers-only APIs, so it runs in the browser, the Worker and Node.
 // Allowed workspace dependencies: none. See docs/plan.md §2.
 
+// v0.12 W2-D: Sloan, the account agent
+export * from "./account/changes";
+export * from "./account/guard";
+export * from "./account/views";
+export * from "./account/words";
 export * from "./api/access";
+export * from "./api/account";
 export * from "./api/approver-rules";
 // v0.12 W2-B: automations
 export * from "./api/automations";

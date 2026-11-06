@@ -12,6 +12,8 @@ import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
   type AutomationDefinition,
+  // v0.12 W2-D: the account agent's publish guard
+  accountAgentProblems,
   automationRefs,
   bindingConnector,
   bundleHash,
@@ -211,7 +213,8 @@ export async function boundMatrices(
 /** Validates a version's bundle as it would be published (client agents: against their bindings). */
 export async function validateForPublish(
   tx: Tx,
-  row: Pick<AgentRow, "tenantId" | "kind" | "bindings">,
+  // v0.12 W2-D: `slug`, for the account agent's guard (rows without one skip it).
+  row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string },
   bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<ValidationError[]> {
@@ -248,6 +251,18 @@ export async function validateForPublish(
     clientAgent: row.kind === "client",
   });
   const errors = [...result.errors, ...automationPublishErrors(bundle, used)];
+  // v0.12 W2-D: the account agent (the supervisor and its forks) never reaches a client's tool:
+  // no connector or external tool, no binding (docs/plan.md §1.47 "Guards").
+  errors.push(
+    ...accountAgentProblems({
+      slug: row.slug,
+      bundle,
+      skills: { ...used.skills, ...skills },
+      tools: ctx.tools.specs(),
+      bindings: row.kind === "client" ? row.bindings : undefined,
+      automations: used.automations,
+    }),
+  );
   for (const ref of missing) {
     // Workflow steps are reported by validateBundle; the agent's own skill list is checked here.
     if (!errors.some((e) => e.code === "unknown_skill" && e.message.includes(ref))) {

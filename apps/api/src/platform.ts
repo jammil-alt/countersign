@@ -3,6 +3,8 @@
 // place that names connectors (and, later, packs); nothing in packages/* does.
 
 import {
+  // v0.12 W2-D
+  ACCOUNT_SKILLS,
   DIRECTORY_SKILLS,
   DOCS_SKILLS,
   KNOWLEDGE_SKILLS,
@@ -100,6 +102,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...DIRECTORY_SKILLS,
       ...REACH_SKILLS,
       ...SUPERVISOR_SKILLS,
+      // v0.12 W2-D: Sloan's conversation (account.chat)
+      ...ACCOUNT_SKILLS,
       ...(options.skills ?? []),
       // DECISION: QuickBooks' one agent-mode skill (the Bill clerk's line mapping) ships with the
       // connector, beside the tools it reads with, and is offered wherever qbo is registered.

@@ -17,6 +17,8 @@ import type {
 } from "@countersign/core";
 import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
 import { z } from "zod";
+// v0.12 W2-D
+import type { AccountPort } from "./account";
 // v0.12 W2-E
 import type { InboundPort } from "./inbound";
 import type { ThreadsPort } from "./threads";
@@ -49,6 +51,9 @@ export interface ToolInvocation {
   // v0.12 W1-C
   /** The client's threads (`threads.post`, `threads.read`); absent where none is given. */
   threads?: ThreadsPort | undefined;
+  // v0.12 W2-D
+  /** The client's account as the portal shows it (`account.*`, Sloan); absent where none is given. */
+  account?: AccountPort | undefined;
   // v0.12 W2-E
   /** The message that started the run (`inbound.get`); absent where none is given. */
   inbound?: InboundPort | undefined;

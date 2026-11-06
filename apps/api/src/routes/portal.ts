@@ -91,7 +91,7 @@ async function userNames(tx: Tx, ids: (string | null)[]) {
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 
-async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) {
+export async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) {
   const names = await userNames(
     tx,
     rows.map((r) => r.resolvedBy),
@@ -258,6 +258,111 @@ export async function portalConnections(
   });
 }
 
+/**
+ * A run's client timeline, as `GET /api/runs/:id` returns it: visible steps, approvals and
+ * changes. v0.12 W2-D: a function, so Sloan's `account.run` reads exactly what the portal shows.
+ */
+export async function portalRunView(tx: Tx, tenantId: string, runId: string, platform: Platform) {
+  // Test runs are hidden from the portal (ARCHITECTURE §10.4).
+  const [summary] = await runSummaries(tx, tenantId, [eq(run.id, runId)], 1);
+  if (!summary) throw notFound("run");
+  const [r] = await tx
+    .select({ versionId: run.agentVersionId, slug: run.workflowSlug })
+    .from(run)
+    .where(and(eq(run.id, runId), eq(run.tenantId, tenantId)));
+  const [v] = r
+    ? await tx
+        .select({ bundle: agentVersion.bundle })
+        .from(agentVersion)
+        .where(and(eq(agentVersion.id, r.versionId), eq(agentVersion.tenantId, tenantId)))
+    : [];
+  const workflow = v?.bundle.workflows.find((w) => w.slug === r?.slug)?.workflow;
+  const lookup = (id: string) => (workflow ? findStep(workflow, id)?.step : undefined);
+
+  const steps = await tx
+    .select()
+    .from(stepRun)
+    .where(and(eq(stepRun.runId, runId), eq(stepRun.tenantId, tenantId)))
+    .orderBy(stepRun.startedAt, stepRun.id);
+  // v0.12 W1-C: a lead check's label carries the lead's first name ("Ana: Check new matches").
+  const isLeadCheck = (step: Step) => step.kind === "person" && step.assignee === LEAD_ASSIGNEE;
+  const leadName = steps.some((s) => {
+    const step = stepOfNode(lookup, s.nodeId);
+    return !!step && isLeadCheck(step);
+  })
+    ? await leadFirstName(tx, tenantId)
+    : null;
+  const timeline = steps.flatMap((s) => {
+    const step = stepOfNode(lookup, s.nodeId);
+    // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
+    if (!step || !isClientVisible(step)) return [];
+    return [
+      {
+        id: s.id,
+        label: isLeadCheck(step) ? leadCheckLabel(clientLabel(step), leadName) : clientLabel(step),
+        status: s.status,
+        summary: s.summary,
+        sources: sourcesOf(s.output),
+        startedAt: iso(s.startedAt),
+        finishedAt: iso(s.finishedAt),
+      },
+    ];
+  });
+
+  const items = await tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        eq(inboxItem.runId, runId),
+        eq(inboxItem.tenantId, tenantId),
+        inArray(inboxItem.kind, ["approval", "external_action"]),
+        or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator")),
+      ),
+    )
+    .orderBy(inboxItem.createdAt);
+  const names = await userNames(
+    tx,
+    items.map((i) => i.resolvedBy),
+  );
+  const approvals = items.map((i) => {
+    const res = (i.resolution ?? {}) as { approved?: unknown; decision?: unknown };
+    const approved =
+      typeof res.approved === "boolean"
+        ? res.approved
+        : res.decision === undefined
+          ? null
+          : res.decision === "approve";
+    return {
+      id: i.id,
+      title: plainTitle(i),
+      status: i.status,
+      approved: i.status === "resolved" ? approved : null,
+      by: i.resolvedBy ? { id: i.resolvedBy, name: names.get(i.resolvedBy) ?? null } : null,
+      resolvedAt: iso(i.resolvedAt),
+    };
+  });
+
+  const actions = await tx
+    .select()
+    .from(externalAction)
+    .where(and(eq(externalAction.runId, runId), eq(externalAction.tenantId, tenantId)))
+    .orderBy(externalAction.createdAt);
+  return {
+    run: summary,
+    steps: timeline,
+    approvals,
+    actions: actions.map((a) => ({
+      id: a.id,
+      tool: a.tool,
+      description: platform.tools.get(a.tool)?.spec.description ?? a.tool,
+      display: changeDisplay(platform, a.tool),
+      status: a.status,
+      executedAt: iso(a.executedAt),
+    })),
+  };
+}
+
 function by(session: Session, role: Role) {
   return { userId: session.user.id, role };
 }
@@ -373,109 +478,9 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     return { runs, perDay: await runsPerDay(tx, scope) };
   });
 
-  mount(app, routes.portalRun, async ({ tx, tenantIds, params, services }) => {
-    const tenantId = tenantIds[0] as string;
-    // Test runs are hidden from the portal (ARCHITECTURE §10.4).
-    const [summary] = await runSummaries(tx, tenantId, [eq(run.id, params.id)], 1);
-    if (!summary) throw notFound("run");
-    const [r] = await tx
-      .select({ versionId: run.agentVersionId, slug: run.workflowSlug })
-      .from(run)
-      .where(and(eq(run.id, params.id), eq(run.tenantId, tenantId)));
-    const [v] = r
-      ? await tx
-          .select({ bundle: agentVersion.bundle })
-          .from(agentVersion)
-          .where(and(eq(agentVersion.id, r.versionId), eq(agentVersion.tenantId, tenantId)))
-      : [];
-    const workflow = v?.bundle.workflows.find((w) => w.slug === r?.slug)?.workflow;
-    const lookup = (id: string) => (workflow ? findStep(workflow, id)?.step : undefined);
-
-    const steps = await tx
-      .select()
-      .from(stepRun)
-      .where(and(eq(stepRun.runId, params.id), eq(stepRun.tenantId, tenantId)))
-      .orderBy(stepRun.startedAt, stepRun.id);
-    // v0.12 W1-C: a lead check's label carries the lead's first name ("Ana: Check new matches").
-    const isLeadCheck = (step: Step) => step.kind === "person" && step.assignee === LEAD_ASSIGNEE;
-    const leadName = steps.some((s) => {
-      const step = stepOfNode(lookup, s.nodeId);
-      return !!step && isLeadCheck(step);
-    })
-      ? await leadFirstName(tx, tenantId)
-      : null;
-    const timeline = steps.flatMap((s) => {
-      const step = stepOfNode(lookup, s.nodeId);
-      // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
-      if (!step || !isClientVisible(step)) return [];
-      return [
-        {
-          id: s.id,
-          label: isLeadCheck(step)
-            ? leadCheckLabel(clientLabel(step), leadName)
-            : clientLabel(step),
-          status: s.status,
-          summary: s.summary,
-          sources: sourcesOf(s.output),
-          startedAt: iso(s.startedAt),
-          finishedAt: iso(s.finishedAt),
-        },
-      ];
-    });
-
-    const items = await tx
-      .select()
-      .from(inboxItem)
-      .where(
-        and(
-          eq(inboxItem.runId, params.id),
-          eq(inboxItem.tenantId, tenantId),
-          inArray(inboxItem.kind, ["approval", "external_action"]),
-          or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator")),
-        ),
-      )
-      .orderBy(inboxItem.createdAt);
-    const names = await userNames(
-      tx,
-      items.map((i) => i.resolvedBy),
-    );
-    const approvals = items.map((i) => {
-      const res = (i.resolution ?? {}) as { approved?: unknown; decision?: unknown };
-      const approved =
-        typeof res.approved === "boolean"
-          ? res.approved
-          : res.decision === undefined
-            ? null
-            : res.decision === "approve";
-      return {
-        id: i.id,
-        title: plainTitle(i),
-        status: i.status,
-        approved: i.status === "resolved" ? approved : null,
-        by: i.resolvedBy ? { id: i.resolvedBy, name: names.get(i.resolvedBy) ?? null } : null,
-        resolvedAt: iso(i.resolvedAt),
-      };
-    });
-
-    const actions = await tx
-      .select()
-      .from(externalAction)
-      .where(and(eq(externalAction.runId, params.id), eq(externalAction.tenantId, tenantId)))
-      .orderBy(externalAction.createdAt);
-    return {
-      run: summary,
-      steps: timeline,
-      approvals,
-      actions: actions.map((a) => ({
-        id: a.id,
-        tool: a.tool,
-        description: services.platform.tools.get(a.tool)?.spec.description ?? a.tool,
-        display: changeDisplay(services.platform, a.tool),
-        status: a.status,
-        executedAt: iso(a.executedAt),
-      })),
-    };
-  });
+  mount(app, routes.portalRun, async ({ tx, tenantIds, params, services }) =>
+    portalRunView(tx, tenantIds[0] as string, params.id, services.platform),
+  );
 
   mount(app, routes.portalConnections, async ({ tx, tenantIds, services, session }) => ({
     connections: await portalConnections(
