@@ -29,6 +29,7 @@ import {
   walkSteps,
 } from "@countersign/core";
 import {
+  type AgentStageState,
   agent,
   agentChange,
   agentVersion,
@@ -46,10 +47,10 @@ export type AgentRow = typeof agent.$inferSelect;
 type InboxRow = typeof inboxItem.$inferSelect;
 
 /** Who moved a stage, for the audit row. */
-export type StageActor = Pick<
-  AuditEntry,
-  "actorKind" | "actorUserId" | "actorEmail" | "actorRole"
->;
+export type StageActor = Pick<AuditEntry, "actorKind" | "actorUserId" | "actorEmail" | "actorRole">;
+
+/** A state as the column stores it (core's StageState, validated where it is written). */
+const stored = (state: StageState): AgentStageState => state as AgentStageState;
 
 export const SYSTEM_ACTOR: StageActor = { actorKind: "system" };
 
@@ -150,7 +151,7 @@ async function writeStage(
   const from = stageOf(row);
   const [updated] = await tx
     .update(agent)
-    .set({ stage: input.to, stageState: input.state, ...(input.extra ?? {}) })
+    .set({ stage: input.to, stageState: stored(input.state), ...(input.extra ?? {}) })
     .where(eq(agent.id, row.id))
     .returning();
   if (!updated) throw new Error("agent update returned nothing");
@@ -171,7 +172,12 @@ async function writeStage(
     tenantId: row.tenantId,
     action: "agent.stage",
     outcome: "ok",
-    target: { agent: row.id, from: from ?? "", to: input.to, ...(input.via ? { via: input.via } : {}) },
+    target: {
+      agent: row.id,
+      from: from ?? "",
+      to: input.to,
+      ...(input.via ? { via: input.via } : {}),
+    },
   });
   return updated;
 }
@@ -221,7 +227,10 @@ export async function trialSummary(
       rejected: sql<number>`count(*) filter (where ${externalAction.status} = 'rejected' and ${externalAction.inboxItemId} is not null)::int`,
     })
     .from(externalAction)
-    .innerJoin(run, and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)))
+    .innerJoin(
+      run,
+      and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)),
+    )
     .where(
       and(
         eq(externalAction.tenantId, tenantId),
@@ -478,7 +487,7 @@ export async function setTrialMinimums(
   };
   const [updated] = await tx
     .update(agent)
-    .set({ stageState: { ...state, trial } })
+    .set({ stageState: stored({ ...state, trial }) })
     .where(eq(agent.id, row.id))
     .returning();
   await tx.insert(agentChange).values({
@@ -678,4 +687,3 @@ export async function goLiveView(
       : null,
   };
 }
-
