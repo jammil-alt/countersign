@@ -98,9 +98,9 @@
         "AUTH_PROVIDER": "workos",
         // WorkOS "Mezonas Staging" app, Staging environment. Client ids are not secrets.
         "WORKOS_CLIENT_ID": "client_01M6HNS5BGAXTK0TK2A1RRGWGP",
-        // PLACEHOLDER: the Staging environment's AuthKit domain (https://<name>.authkit.app), set
-        // when the owner turns on MCP sign-in in WorkOS (docs/operations.md, "MCP server").
-        "WORKOS_AUTHKIT_DOMAIN": "",
+        // The Staging environment's AuthKit domain, with Dynamic Client Registration and Client ID
+        // Metadata Documents on (owner, 2026-11-06; docs/operations.md, "MCP server"). Not a secret.
+        "WORKOS_AUTHKIT_DOMAIN": "https://patient-bedrock-89-staging.authkit.app",
         "APP_ORIGIN": "https://staging.mezonas.com",
         "LLM_MODE": "live",
         "QBO_ENV": "sandbox"
