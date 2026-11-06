@@ -170,8 +170,25 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "organization",
       "organization_change",
       "audit_event",
+      // Wave 1 (0018–0025): nothing gets DELETE.
+      "usage_platform_daily",
+      "notification",
+      "weekly_table",
+      "thread_read",
+      "model_call",
+      "receivable",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
+    expect(await can("model_call", "UPDATE")).toBe(false);
+    for (const table of [
+      "usage_platform_daily",
+      "notification",
+      "weekly_table",
+      "thread_read",
+      "receivable",
+    ]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
     }
     expect(await can("audit_event", "UPDATE")).toBe(false);
     expect(await can("contact_change", "UPDATE")).toBe(false);
@@ -188,11 +205,15 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     for (const table of OPERATOR_ONLY_TABLES) {
       expect(await can(table, "SELECT"), `${table} SELECT`).toBe(true);
       expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
-      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
       expect(await can(table, "TRUNCATE"), `${table} TRUNCATE`).toBe(false);
     }
+    expect(await can("browser_site", "DELETE")).toBe(false);
+    expect(await can("browser_site_version", "DELETE")).toBe(false);
+    // Saved views (0023) aren't history: an operator deletes their own (§14).
+    expect(await can("saved_view", "DELETE")).toBe(true);
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
+    expect(await can("saved_view", "UPDATE")).toBe(true);
     // A synced transaction's lines mirror the tool's current lines (0015, QuickBooks sync); the
     // versions behind them stay in raw_record.
     expect(await can("transaction_line", "DELETE")).toBe(true);
