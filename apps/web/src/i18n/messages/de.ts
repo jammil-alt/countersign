@@ -181,6 +181,8 @@ export const de: Messages = {
     other: "{count} Sachen warten auf Sie.",
   },
   "table.waitNone": "Nichts wartet auf Sie.",
+  "table.openWeekly": "Wochentisch öffnen",
+  "table.askSloan": "Sloan fragen",
   "table.workingNow": "Gerade bei der Arbeit",
   "table.meta.running": { one: "{count} läuft", other: "{count} laufen" },
   "table.meta.waiting": { one: "{count} wartet auf Sie", other: "{count} warten auf Sie" },

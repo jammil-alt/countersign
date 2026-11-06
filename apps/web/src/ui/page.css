@@ -300,9 +300,11 @@
 .ui-activity + .ui-activity {
   border-top: 1px solid var(--line);
 }
+/* Wide enough for "12:59 PM" in the mono face, so en-US times don't wrap; 24-hour times align too. */
 .ui-activity__time {
-  width: 44px;
+  min-width: 8ch;
   flex: none;
+  white-space: nowrap;
   font: 500 12px / 16px var(--font-mono);
   color: var(--ink-muted);
 }

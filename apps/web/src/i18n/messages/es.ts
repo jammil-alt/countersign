@@ -171,6 +171,8 @@ export const es: Messages = {
   },
   "table.waitLine": { one: "{count} cosa le espera.", other: "{count} cosas le esperan." },
   "table.waitNone": "Nada le espera.",
+  "table.openWeekly": "Abrir la Mesa semanal",
+  "table.askSloan": "Preguntar a Sloan",
   "table.workingNow": "Trabajando ahora",
   "table.meta.running": { one: "{count} en curso", other: "{count} en curso" },
   "table.meta.waiting": { one: "{count} le espera", other: "{count} le esperan" },

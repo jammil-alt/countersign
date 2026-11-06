@@ -174,6 +174,8 @@ export const ptBR: Messages = {
   },
   "table.waitLine": { one: "{count} item aguarda você.", other: "{count} itens aguardam você." },
   "table.waitNone": "Nada aguarda você.",
+  "table.openWeekly": "Abrir a Mesa da semana",
+  "table.askSloan": "Perguntar ao Sloan",
   "table.workingNow": "Trabalhando agora",
   "table.meta.running": { one: "{count} em andamento", other: "{count} em andamento" },
   "table.meta.waiting": { one: "{count} aguarda você", other: "{count} aguardam você" },
