@@ -126,7 +126,7 @@ describe("portal knowledge", () => {
       }),
     });
     renderAt("/", api);
-    await screen.findByTestId("portal-nav-overview");
+    await screen.findByTestId("portal-nav-table");
     expect(screen.queryByTestId("portal-nav-knowledge")).toBeNull();
   });
 });

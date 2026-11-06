@@ -116,7 +116,7 @@ export function PortalAccessScreen() {
             {items.length === 0 ? (
               <EmptyState>
                 {t("vault.none")}{" "}
-                <Link className="text-ink underline" to="/connections">
+                <Link className="text-ink underline" to="/accounts">
                   {t("vault.connectionsLink")}
                 </Link>
               </EmptyState>

@@ -205,7 +205,7 @@ export function ActivityReportScreen() {
                       <tr key={s.id} data-testid={`portal-report-service-${s.id}`}>
                         <td>
                           <Link
-                            to={`/services/${s.id}`}
+                            to={`/agents/${s.id}`}
                             className="font-medium text-ink hover:underline"
                           >
                             {s.name}

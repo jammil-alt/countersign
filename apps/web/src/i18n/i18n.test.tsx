@@ -191,14 +191,16 @@ describe("the portal in the session's language", () => {
     renderAt("/", api);
     expect(await screen.findByRole("heading", { name: "Resumen" })).toBeInTheDocument();
     const nav = screen.getByRole("complementary", { name: "Navegación" });
-    for (const label of ["Bandeja", "Ejecuciones", "Conexiones", "Solicitudes", "Ajustes"]) {
+    for (const label of ["Su escritorio", "Ejecuciones", "Cuentas", "Solicitudes", "Ajustes"]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
     }
     expect(await screen.findByText("elementos en su bandeja")).toBeInTheDocument();
-    expect(screen.getByText("Activo")).toBeInTheDocument();
+    // The status reads in Spanish on the page and in the sidebar's agent row.
+    expect(within(screen.getByRole("main")).getByText("Activo")).toBeInTheDocument();
+    expect(within(nav).getByText("Activo")).toBeInTheDocument();
     expect(screen.getByText("Le espera a usted")).toBeInTheDocument();
     // Names and what the operator wrote stay as written.
-    expect(screen.getByText("Record keeping")).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByText("Record keeping")).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("es");
   });
 
@@ -216,7 +218,7 @@ describe("the portal in the session's language", () => {
     expect(within(table).getByText("Dauer")).toBeInTheDocument();
     expect(within(table).getByText("Wartet")).toBeInTheDocument();
     expect(within(table).getByText(/3\. Nov\., \d{2}:00/)).toBeInTheDocument();
-    expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Posteingang");
+    expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Ihr Schreibtisch");
   });
 });
 
@@ -315,7 +317,7 @@ describe("before a session and in the back office", () => {
     });
     renderAt("/ops/inbox", api);
     const shell = await screen.findByTestId("shell-ops");
-    expect(within(shell).getByTestId("shell-inbox")).toHaveTextContent("Inbox");
+    expect(within(shell).getByTestId("shell-inbox")).toHaveTextContent("Escalations");
     expect(screen.getByRole("complementary", { name: "Navigation" })).toBeInTheDocument();
     // No language picker in the back office.
     await userEvent.click(screen.getByTestId("shell-avatar"));
