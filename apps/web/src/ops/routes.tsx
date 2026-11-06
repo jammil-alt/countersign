@@ -2,9 +2,9 @@
 // stream adds or replaces its own line. New routes point at today's screens until their stream
 // rebuilds them; every old address redirects to its new home (params, query and hash kept).
 //
-// Not here yet, added with their screens: the agent's triggers page,
-// `/ops/clients/:clientId/agents/:slug/triggers` (UI-2c, O7 Triggers; today the agent page's own
-// tabs serve everything under `agents/:slug/*`).
+// The agent page (UI-2b) serves everything under `agents/:slug/*` with its tabs: Overview,
+// `workflow` (and `workflows/:workflow`, the builder), `triggers`, `runs`, `versions`, `tests` and
+// `settings`. UI-2c's O6 Workflow builder and O7 Triggers screens take over those two tabs.
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
@@ -12,7 +12,8 @@ import { OpsRecordScreen } from "../records/RecordScreens";
 import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
-import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
+import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
+import { LabScreen } from "./lab/LabScreen";
 import { MergeScreen } from "./merge/MergeScreen";
 import { AgentPage } from "./screens/AgentPage";
 import { OpsAgentRedirect } from "./screens/AgentRedirect";
@@ -49,7 +50,7 @@ export const opsRoutes = (
     <Route path="runs" element={<OpsRunsScreen />} />
     <Route path="runs/:id" element={<OpsRunScreen />} />
     {/* O2 Agent lab, update merge (UI-2b) */}
-    <Route path="lab" element={<TemplatesScreen />} />
+    <Route path="lab" element={<LabScreen />} />
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
     <Route path="agents/:id/merge" element={<MergeScreen />} />
