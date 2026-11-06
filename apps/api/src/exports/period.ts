@@ -1,5 +1,5 @@
-// The accountant export and the client's audit export (docs/plan.md §1.36), built in the request:
-// both cover a period of at most a year and are capped, so they fit in one Worker request.
+// The accountant export (docs/plan.md §1.36), built in the request: it covers a period of at most
+// a year and is capped, so it fits in one Worker request (the audit export streams: W2-G).
 
 import type { ObjectStore } from "@countersign/connectors";
 import {
@@ -14,7 +14,6 @@ import {
 import {
   agent,
   agentVersion,
-  auditEvent,
   connection,
   document,
   externalAction,
@@ -34,8 +33,6 @@ import { zipSync } from "./zip";
 export const ACCOUNTANT_MAX_CHANGES = 20_000;
 /** The most document bytes one accountant ZIP holds (the request builds it in memory). */
 export const ACCOUNTANT_MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
-/** The most audit rows one audit export holds. */
-export const AUDIT_EXPORT_MAX_ROWS = 100_000;
 
 export interface Period {
   start: Date;
@@ -423,69 +420,4 @@ function accountantReadme(
   }
   lines.push("");
   return lines.join("\r\n");
-}
-
-const AUDIT_HEADER = [
-  "time",
-  "who",
-  "role",
-  "actor_kind",
-  "action",
-  "outcome",
-  "http_status",
-  "target",
-  "ip",
-  "user_agent",
-  "id",
-] as const;
-
-/**
- * The client's own audit log for a period: its rows only (`tenant_id` is the client). Rows with no
- * client (sign-ins, the back office's cross-client lists) are the operator's and never included.
- */
-export async function auditExport(
-  tx: Tx,
-  tenantId: string,
-  p: AuditPeriod,
-): Promise<ExportFile & { rows: number }> {
-  const period = await periodOf(tx, tenantId, p);
-  const rows = await tx
-    .select()
-    .from(auditEvent)
-    .where(
-      and(
-        eq(auditEvent.tenantId, tenantId),
-        sql`${auditEvent.createdAt} >= ${period.start.toISOString()} and ${auditEvent.createdAt} < ${period.end.toISOString()}`,
-      ),
-    )
-    .orderBy(auditEvent.id)
-    .limit(AUDIT_EXPORT_MAX_ROWS + 1);
-  if (rows.length > AUDIT_EXPORT_MAX_ROWS) {
-    throw new HttpError(
-      413,
-      "too_many",
-      `more than ${AUDIT_EXPORT_MAX_ROWS} audit rows in this period: choose a shorter one`,
-    );
-  }
-  return {
-    filename: `mezonas-audit-log-${p.from}-to-${p.to}.csv`,
-    contentType: CSV_TYPE,
-    bytes: csvFile(
-      AUDIT_HEADER,
-      rows.map((e) => [
-        e.createdAt,
-        e.actorEmail,
-        e.actorRole,
-        e.actorKind,
-        e.action,
-        e.outcome,
-        e.httpStatus,
-        jsonCell(e.target),
-        e.ip,
-        e.userAgent,
-        e.id,
-      ]),
-    ),
-    rows: rows.length,
-  };
 }

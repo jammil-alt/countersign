@@ -391,7 +391,7 @@ describe.skipIf(!h)("exports", () => {
     });
 
     it("gives the accountant and audit exports to the client admin only", async () => {
-      for (const path of [`/api/exports/accountant?${period}`, `/api/exports/audit?${period}`]) {
+      for (const path of [`/api/exports/accountant?${period}`, `/api/audit/export.csv?${period}`]) {
         expect((await download(user("a"), path)).res.status, path).toBe(403);
         expect((await download(null, path)).res.status, path).toBe(401);
         // The operator acting as the client is refused: the portal's export is the client's.
@@ -653,7 +653,7 @@ describe.skipIf(!h)("exports", () => {
 
   describe("the audit export", () => {
     it("holds the client's own audit rows only", async () => {
-      const got = await download(admin("a"), `/api/exports/audit?from=${day(-1)}&to=${day(1)}`);
+      const got = await download(admin("a"), `/api/audit/export.csv?from=${day(-1)}&to=${day(1)}`);
       expect(got.res.status).toBe(200);
       const rows = csvRecords(text(got.bytes));
       expect(rows.length).toBeGreaterThan(0);

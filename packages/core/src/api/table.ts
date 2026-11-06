@@ -38,7 +38,15 @@ export const TableService = z.object({
   /** Live runs done this week. */
   runsDone: z.number().int(),
   // DECISION: KPIs come from W2-G (docs/plan.md §1.50); until it merges every list is empty.
-  kpis: z.array(z.object({ key: z.string(), label: z.string(), value: z.string() })),
+  // v0.12 W2-G: this week's KPIs of the service, each with the records it counted.
+  kpis: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      value: z.string(),
+      sources: z.array(z.string()).optional(),
+    }),
+  ),
 });
 
 export const TableView = z.object({

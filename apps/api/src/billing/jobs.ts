@@ -27,6 +27,9 @@ import {
   withTenant,
 } from "@countersign/db";
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+// v0.12 W2-G
+import { DEFAULT_APP_ORIGIN } from "../notify/outbox";
+import { creditsOutPass } from "./credits-out";
 import {
   type BillingConfig,
   loadBillingConfig,
@@ -321,7 +324,8 @@ export async function sendStatement(
 // DECISION: the build runs on every pass, not only on the 1st, and finds last month's statement
 // already there after the first: a pass that failed is caught up an hour later (plan §1.32).
 export async function billingTick(
-  deps: { db: Db; stripe: StripeClient | null },
+  // v0.12 W2-G: `origin` (APP_ORIGIN) for the credits notifications' links.
+  deps: { db: Db; stripe: StripeClient | null; origin?: string },
   at: Date,
 ): Promise<void> {
   // The tenant table is global: the clients set up for billing are found without a client scope.
@@ -340,6 +344,17 @@ export async function billingTick(
     if (!billing) continue;
     const run = tenantRunner(deps.db, client.id);
     try {
+      // v0.12 W2-G: credits running out (pause or tell), before today's agent days are recorded,
+      // in its own transaction so a failure here never holds up the bill.
+      await run((tx) =>
+        creditsOutPass(tx, {
+          tenantId: client.id,
+          at,
+          config,
+          pricing,
+          origin: deps.origin ?? DEFAULT_APP_ORIGIN,
+        }),
+      ).catch((error: unknown) => console.error(`credits for client ${client.id} failed`, error));
       const built = await run(async (tx) => {
         await recordAgentDays(tx, { tenantId: client.id, day: today, pricing });
         // A client set up after the month ended has no statement for it.

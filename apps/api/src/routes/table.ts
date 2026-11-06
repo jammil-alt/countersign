@@ -34,6 +34,8 @@ import { and, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle
 import type { Hono } from "hono";
 import { plainTitle } from "../change-display";
 import { type AppEnv, ensureClient, mount, notFound } from "../http";
+// v0.12 W2-G
+import { readerLocale, weekKpis } from "../kpi/view";
 import { leadUserId, type TenantRow, tenantRow } from "../notify/people";
 import { LEAD_SUBJECT } from "../notify/scan";
 import { dispatchEvents } from "../runs/dispatch";
@@ -88,6 +90,11 @@ async function buildTable(
   const agents = await services(tx, t.id);
   const done = await runsDone(tx, t.id, bounds);
   const changes = await toolChanges(tx, t.id, bounds);
+  // v0.12 W2-G: each service's KPIs for this week, in the viewer's language.
+  const kpis = await weekKpis(tx, agents, {
+    locale: readerLocale(t, viewer.userId),
+    bounds: { from: bounds.from, to: now },
+  });
 
   // Open Desk items the viewer sees (snoozed ones wait), for "waiting on you" and the top three.
   const deskWhere = and(
@@ -155,7 +162,8 @@ async function buildTable(
       stage: a.stage,
       now: now_,
       runsDone: done.filter((r) => r.agentId === a.id).length,
-      kpis: [],
+      // v0.12 W2-G
+      kpis: kpis.get(a.id) ?? [],
     });
   }
 
