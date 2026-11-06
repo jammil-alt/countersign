@@ -227,7 +227,7 @@ export function PortalRunScreen() {
                 </ul>
                 {data.approvals.some((a) => a.status === "open") ? (
                   <p className="border-t border-line px-4 py-3 text-sm">
-                    <Link to="/inbox" className="text-link underline">
+                    <Link to="/desk" className="text-link underline">
                       {t("run.openInbox")}
                     </Link>
                   </p>

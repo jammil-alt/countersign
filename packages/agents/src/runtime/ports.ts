@@ -38,6 +38,9 @@ export interface PinnedAgent {
   bundle: AgentBundle;
   /** connector id → connection id. */
   bindings: Record<string, string>;
+  // v0.14 W4-A
+  /** The agent's own channels (`whatsapp` → connection id): picks among connectors of a shared id. */
+  channels?: Record<string, string>;
   /** The client agent's approver override (null: the client's setting). */
   approver: "client_admin" | "operator" | null;
 }

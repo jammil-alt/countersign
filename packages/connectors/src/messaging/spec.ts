@@ -3,7 +3,7 @@
 // inputs and outputs here are provider-neutral, so a workflow keeps working when a client moves its
 // WhatsApp from Twilio to Meta; each provider supplies handlers behind them.
 
-import { E164, MessagingChannel } from "@countersign/core";
+import { AttachmentView, E164, MessagingChannel } from "@countersign/core";
 import { z } from "zod";
 
 /** Namespaces messaging connectors share (ConnectorManifest.sharedNamespaces). */
@@ -28,7 +28,7 @@ export const SmsSendInput = z.object({
 
 /**
  * A WhatsApp message: free text inside the 24 hours after the contact last wrote, otherwise an
- * approved template (Twilio: a Content SID `HX…`; Meta, later: the template's name) with its
+ * approved template (Twilio: a Content SID `HX…`; Meta: the template's name) with its
  * variables.
  */
 export const WhatsAppSendInput = z
@@ -40,6 +40,17 @@ export const WhatsAppSendInput = z
         id: z.string().min(1).max(200),
         /** Placeholder number (`"1"`) or name → value. */
         variables: z.record(z.string().max(40), z.string().max(1024)).default({}),
+        // v0.14 W4-A
+        /**
+         * Meta only: the template's language code (`en_US`, `es`); the contact's language when
+         * absent. Twilio's Content SID names its language itself, so Twilio ignores it.
+         */
+        language: z
+          .string()
+          .min(2)
+          .max(12)
+          .regex(/^[a-z]{2,3}(?:_[A-Z]{2})?$/)
+          .optional(),
       })
       .optional(),
   })
@@ -81,6 +92,16 @@ export const MessageRecord = z.object({
   sentAt: z.string().nullable(),
   numMedia: z.number().int(),
   errorCode: z.string().nullable(),
+  // v0.14 capture (docs/plan.md §1.55): what the platform keeps of the message.
+  /** False when the conversation wasn't keeping messages: `text` is empty. */
+  kept: z.boolean().optional(),
+  /** The WhatsApp conversation it belongs to. */
+  conversation: z
+    .object({ id: z.string(), kind: z.enum(["direct", "group"]), title: z.string() })
+    .nullable()
+    .optional(),
+  /** Its attachments: kept, downloaded (with the document's id) or not. Never a link. */
+  attachments: z.array(AttachmentView).optional(),
 });
 export type MessageRecord = z.infer<typeof MessageRecord>;
 
@@ -95,9 +116,15 @@ export const MessagesSearchInput = z.object({
 export const MessagesSearchOutput = z.object({ messages: z.array(MessageRecord) });
 
 export const MessageGetInput = z.object({
-  /** The message's id (Twilio: SM… or MM…). */
-  sid: z.string().regex(/^[A-Z]{2}[0-9a-f]{32}$/),
+  /** The message's id (Twilio: SM… or MM…; v0.14 W4-A, Meta: wamid.…). */
+  sid: z.string().regex(/^(?:[A-Z]{2}[0-9a-f]{32}|wamid\.[A-Za-z0-9+/=_-]{1,500})$/),
 });
+
+// v0.14 W4-A
+/** Whether a message id is Meta's (`wamid.`) rather than Twilio's. */
+export function isMetaMessageId(sid: string): boolean {
+  return sid.slice(0, 6) === "wamid.";
+}
 export const MessageGetOutput = z.object({ message: MessageRecord });
 
 /**

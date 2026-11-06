@@ -64,6 +64,12 @@ export function notifyRouteHandlers(app: Hono<AppEnv>): void {
     if (c.status === "connected") {
       throw new HttpError(409, "connected", "this connection works: nothing to reconnect");
     }
+    // v0.14 W4-B (docs/plan.md §1.14 "Remind"): without Mezonas' mail (Resend) the reminder does
+    // nothing: no rows, no log line, and the day's one reminder is still there to send.
+    const deps = notifyDeps(services);
+    if (!deps.mailer.isConfigured) {
+      throw new HttpError(409, "not_configured", "we can't send email yet: our mail isn't set up");
+    }
     const now = new Date();
     const [today] = await tx
       .select({ id: notification.id })
@@ -80,7 +86,6 @@ export function notifyRouteHandlers(app: Hono<AppEnv>): void {
       throw new HttpError(409, "already_sent", "the client was asked today: try again tomorrow");
     }
     const t = await clientOf(tx, c.tenantId);
-    const deps = notifyDeps(services);
     const people = await clientPeople(tx, t);
     const rows = await enqueue(
       tx,

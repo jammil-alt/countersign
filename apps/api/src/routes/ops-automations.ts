@@ -47,6 +47,7 @@ import {
   tenant,
 } from "@countersign/db";
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Hono } from "hono";
 import {
   type AppEnv,
@@ -192,31 +193,47 @@ type Uses = Awaited<ReturnType<typeof liveUses>>;
  * many were clean.
  */
 // DECISION: "clean" (ARCHITECTURE §10.7: succeeded with no step retried) is a use step that
-// succeeded in a live run that is not a retry of another run: `step_run.attempts` isn't kept, and a
-// retry is how a failed step runs again (docs/plan.md §1.40). A use step reused by a retry is the
-// first run's, so it counts once.
+// succeeded in a live run that is not a retry of another run, and (v0.14 W4-B) whose own row and
+// every inner step's row (`${use}/${inner}`) count one attempt: `step_run.attempts` now counts the
+// platform's retries and oversight's (docs/plan.md §1.45 "Clean-run rate"). A use step reused by a
+// retry is the first run's, so it counts once.
+const innerStep = alias(stepRun, "inner_step");
+
 async function healthRows(ctx: Scope) {
   if (ctx.tenantIds.length === 0) return [];
   const since = new Date(Date.now() - HEALTH_DAYS * 24 * 60 * 60 * 1000);
-  return ctx.tx
-    .select({
-      tenantId: stepRun.tenantId,
-      skillRef: stepRun.skillRef,
-      uses: sql<number>`count(*)::int`,
-      clean: sql<number>`(count(*) filter (where ${stepRun.status} = 'succeeded' and ${run.retryOf} is null))::int`,
-    })
-    .from(stepRun)
-    .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
-    .where(
-      and(
-        inArray(stepRun.tenantId, [...ctx.tenantIds]),
-        eq(stepRun.nodeType, "use_automation"),
-        inArray(stepRun.status, ["succeeded", "failed"]),
-        eq(run.mode, "live"),
-        gte(run.createdAt, since),
-      ),
-    )
-    .groupBy(stepRun.tenantId, stepRun.skillRef);
+  return (
+    ctx.tx
+      .select({
+        tenantId: stepRun.tenantId,
+        skillRef: stepRun.skillRef,
+        uses: sql<number>`count(distinct ${stepRun.id})::int`,
+        clean: sql<number>`(count(distinct ${stepRun.id}) filter (where ${stepRun.status} = 'succeeded' and ${run.retryOf} is null and ${stepRun.attempts} <= 1 and ${innerStep.id} is null))::int`,
+      })
+      .from(stepRun)
+      .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+      // v0.14 W4-B: an inner step of this use step tried more than once (a plain join, no subquery
+      // in the select list). Prefix compared with left(), not LIKE: step ids may hold `_`.
+      .leftJoin(
+        innerStep,
+        and(
+          eq(innerStep.runId, stepRun.runId),
+          eq(innerStep.tenantId, stepRun.tenantId),
+          sql`left(${innerStep.nodeId}, length(${stepRun.nodeId}) + 1) = ${stepRun.nodeId} || '/'`,
+          sql`${innerStep.attempts} > 1`,
+        ),
+      )
+      .where(
+        and(
+          inArray(stepRun.tenantId, [...ctx.tenantIds]),
+          eq(stepRun.nodeType, "use_automation"),
+          inArray(stepRun.status, ["succeeded", "failed"]),
+          eq(run.mode, "live"),
+          gte(run.createdAt, since),
+        ),
+      )
+      .groupBy(stepRun.tenantId, stepRun.skillRef)
+  );
 }
 type Health = Awaited<ReturnType<typeof healthRows>>;
 

@@ -2,8 +2,11 @@
 // client's data to, and whether a client in HIPAA mode may use it. A processor may receive a HIPAA
 // client's data only when it is listed in `BAA_PROCESSORS` (a Worker variable the owner sets once
 // that vendor's BAA is signed). The client's own tools (QuickBooks, Gmail, Zoho CRM, Podio, its
-// webhook endpoints, the sites of its browser logins) are the client's vendors, not ours: they are
-// not processors here. Plaid, which carries the bank feed on Mezonas' own account, is.
+// webhook endpoints, the sites of its browser logins, its Google Chat: v0.14 W4-E) are the
+// client's vendors, not ours: they are not processors here. Plaid, which carries the bank feed on
+// Mezonas' own account, is.
+// v0.14 W4-D: Google Drive and Google Sheets (`gdrive`, `gsheets`) are not: the client's own Google
+// account, which only the client signs in to; we send its data nowhere else.
 
 import { z } from "zod";
 
@@ -69,6 +72,10 @@ const CONNECTOR_PROCESSORS: Record<string, readonly Processor[]> = {
   // processor (a subprocessor on the site), unlike the bank itself or QuickBooks. A client in
   // HIPAA mode can't be offered the bank feed until `plaid` is in BAA_PROCESSORS.
   bankfeed: ["plaid"],
+  // v0.14 W4-A: WhatsApp on the client's own number through Meta's Cloud API (docs/plan.md §1.57):
+  // the messages pass through Meta to us, as they do for Twilio's WhatsApp, so it is the same
+  // processor (`meta_whatsapp`) a client in HIPAA mode needs covered.
+  whatsapp_meta: ["meta_whatsapp"],
 };
 
 /** The processors a connector sends a client's data to, whichever of its tools is used. */

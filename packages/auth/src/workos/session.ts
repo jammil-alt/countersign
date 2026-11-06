@@ -40,7 +40,8 @@ export const IDLE_TIMEOUT_SEC = SESSION_IDLE_SEC;
 export const REFRESH_INTERVAL_SEC = 5 * 60;
 export const RACE_GRACE_SEC = 60;
 export const OUTAGE_GRACE_SEC = 15 * 60;
-export const STATE_MAX_AGE_SEC = 10 * 60;
+/** How long a sign-in may take, start to callback: long enough for an emailed code (plan §1.35). */
+export const STATE_MAX_AGE_SEC = 30 * 60;
 
 export const SessionPayload = z.object({
   v: z.literal(1),
@@ -121,6 +122,20 @@ export async function openSession(
 }
 
 export const sealState = (state: StatePayload, password: string) => seal(state, password, "state");
+
+// DECISION: the one automatic restart of a failed callback (plan §1.35, "Sign-in callback") is
+// marked in the `state` WorkOS echoes back, as `2.` before the nonce. The callback reads it from
+// its own URL, so a browser that drops the state cookie still can't loop. A nonce is base64url,
+// so it never holds a dot. The mark is part of the nonce kept in the state cookie, so the CSRF
+// check (state cookie equals `state`, unexpired) is unchanged.
+const RESTART_MARK = "2.";
+
+/** The nonce for a sign-in started again by the callback. */
+export const restartNonce = (nonce: string) => `${RESTART_MARK}${nonce}`;
+
+/** Whether a callback's `state` comes from a sign-in the callback already started again. */
+export const isRestartState = (stateParam: string) =>
+  stateParam.slice(0, RESTART_MARK.length) === RESTART_MARK;
 
 export async function openState(sealed: string, password: string): Promise<StatePayload | null> {
   const parsed = StatePayload.safeParse(await unseal(sealed, password, "state"));

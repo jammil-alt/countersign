@@ -83,7 +83,7 @@ describe("portal reports", () => {
     const row = screen.getByTestId(`portal-report-service-${SVC}`);
     expect(within(row).getByRole("link", { name: "Record keeping" })).toHaveAttribute(
       "href",
-      `/services/${SVC}`,
+      `/agents/${SVC}`,
     );
     expect(row).toHaveTextContent("1 waiting");
     // Nothing of cost, tokens or prompts reaches the page.

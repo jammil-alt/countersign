@@ -63,12 +63,44 @@ export const it: Messages = {
 
   // ── Shell ──
   "shell.navigation": "Navigazione",
-  "shell.commandBar": "Barra dei comandi",
-  "shell.commandPlaceholder": "Chiedi a un agente, o digita / per un comando",
-  "shell.inbox": "Posta in arrivo",
   "shell.account": "Account: {name}",
   "shell.signOut": "Esci",
   "shell.noClient": "Nessun cliente",
+  "shell.search": "Cerca",
+  "shell.searchPlaceholder": "Cerca i tuoi agenti, esecuzioni, registrazioni e persone",
+  "shell.desk": "La tua scrivania",
+  "shell.menu": "Menu",
+  "shell.closeMenu": "Chiudi il menu",
+  "shell.switchAgent": "Cambia agente",
+  "shell.theme": "Tema",
+  "shell.theme.system": "Sistema",
+  "shell.theme.light": "Chiaro",
+  "shell.theme.dark": "Scuro",
+  "search.title": "Ricerca",
+  "search.close": "Chiudi la ricerca",
+  "search.hint": "Scrivi un nome, un numero di esecuzione, un importo o un numero di fattura.",
+  "search.empty": "Nessun risultato per «{q}».",
+  "search.group.agents": "Agenti",
+  "search.group.runs": "Esecuzioni",
+  "search.group.records": "Registrazioni",
+  "search.group.people": "Persone",
+  "search.group.documents": "Documenti",
+  "nav.table": "Il Tavolo",
+  "nav.desk": "La tua scrivania",
+  "nav.yourAgents": "I tuoi agenti",
+  "nav.yourBusiness": "La tua attività",
+  "nav.accounts": "Account",
+  "nav.more": "Altro",
+  "nav.lead": "Il tuo referente Mezonas",
+  "nav.noAgents": "Ancora nessun agente.",
+  "ui.step.done": "Fatto",
+  "ui.step.current": "In corso",
+  "ui.step.waiting": "In attesa di te",
+  "ui.step.failed": "Non riuscito",
+  "ui.step.person": "Passo di una persona",
+  "ui.step.todo": "Non iniziato",
+  "ui.before": "Prima",
+  "ui.after": "Dopo",
 
   // ── Language ──
   "language.label": "Lingua",
@@ -80,15 +112,14 @@ export const it: Messages = {
   "language.clientDefaultNone": "La lingua del browser di ciascuno",
 
   // ── Navigation and pages ──
-  "nav.overview": "Panoramica",
-  "nav.inbox": "Posta in arrivo",
   "nav.runs": "Esecuzioni",
   "nav.reports": "Report",
-  "nav.connections": "Connessioni",
   "nav.requests": "Richieste",
   "nav.settings": "Impostazioni",
   "nav.knowledge": "Conoscenze",
   "nav.contacts": "Contatti",
+  // v0.14 capture
+  "nav.conversations": "Conversazioni",
   "nav.billing": "Fatturazione",
   "nav.people": "Persone",
   "nav.access": "Accessi",
@@ -838,6 +869,36 @@ export const it: Messages = {
   "contacts.subtitle":
     "Le persone a cui possiamo scrivere per email, SMS o WhatsApp, o telefonare, per te. Contattiamo solo chi ha accettato, e mai nelle ore di silenzio.",
   "contacts.adminOnly": "L'elenco dei contatti lo gestisce il tuo admin.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversazioni",
+  "conversations.subtitle":
+    "Le chat WhatsApp con il tuo numero. Scegli cosa teniamo di ognuna: i messaggi e i loro allegati come documenti.",
+  "conversations.adminOnly": "Cosa teniamo delle conversazioni WhatsApp lo sceglie il tuo admin.",
+  "conversations.empty":
+    "Ancora nessuna conversazione WhatsApp. Ne inizia una quando qualcuno scrive al tuo numero.",
+  "conversations.lastMessage": "Ultimo messaggio {when}",
+  "conversations.noMessages": "Ancora nessun messaggio.",
+  "conversations.keepMessages": "Tieni i messaggi",
+  "conversations.attachments": "Scarica gli allegati",
+  "conversations.attachments.off": "No",
+  "conversations.attachments.documents": "PDF e immagini",
+  "conversations.attachments.all": "Tutti i file",
+  "conversations.yes": "Sì",
+  "conversations.no": "No",
+  "conversations.showMessages": "Mostra i messaggi",
+  "conversations.hideMessages": "Nascondi i messaggi",
+  "conversations.notKept": "Non tenuto",
+  "conversations.downloadNow": "Scarica ora",
+  "conversations.downloading": {
+    one: "Download di {count} allegato.",
+    other: "Download di {count} allegati.",
+  },
+  "conversations.failed": "Non ha funzionato. Riprova.",
+  "conversations.attachment.not_downloaded": "Non scaricato",
+  "conversations.attachment.pending": "In download",
+  "conversations.attachment.filed": "Archiviato",
+  "conversations.attachment.refused": "Non accettato",
+  "conversations.attachment.failed": "Download non riuscito",
   "contacts.empty":
     "Ancora nessun contatto. Aggiungi le persone che i tuoi agenti possono contattare, con il modo in cui hanno accettato.",
   "contacts.channel.sms": "SMS",
@@ -1175,4 +1236,59 @@ export const it: Messages = {
     one: "{count} persona",
     other: "{count} persone",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · spazi",
+  "gchat.spacesTitle": "Spazi collegati",
+  "gchat.help":
+    "Gli agenti pubblicano solo in questi spazi e solo dopo che approvi ogni messaggio. Non possiamo leggere i tuoi messaggi.",
+  "gchat.noSpaces": "Ancora nessuno spazio collegato.",
+  "gchat.groupChat": "Chat di gruppo",
+  "gchat.boundBy": "Collegato {time} da {name}",
+  "gchat.boundAt": "Collegato {time}",
+  "gchat.codeTitle": "Collega uno spazio",
+  "gchat.steps":
+    "In Google Chat, aggiungi Mezonas allo spazio, poi invia lì questo messaggio. Il codice funziona una sola volta.",
+  "gchat.codeExpires": "Valido fino a {time}.",
+  "gchat.codeWaiting": "C'è un codice valido fino a {time}. Se non ce l'hai, chiedine uno nuovo.",
+  "gchat.getCode": "Ottieni un codice",
+  "gchat.newCode": "Ottieni un nuovo codice",
+  "gchat.adminAllow":
+    "Non trovi Mezonas in Google Chat? L'amministratore di Google Workspace deve consentire l'app.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Leggi e aggiungi righe nei fogli Google Sheets che scegli. Non possiamo aprire nessun altro foglio.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Gli agenti possono aprire solo i fogli che scegli qui. Li scegli nella finestra di Google.",
+  "gsheets.none": "Nessun foglio scelto per ora.",
+  "gsheets.choose": "Scegli i fogli",
+  "gsheets.remove": "Rimuovi",
+  "gsheets.otherAccount": "Scelto con un altro account Google. Sceglilo di nuovo per usarlo.",
+  "gsheets.notSetUp":
+    "La scelta dei fogli non è ancora disponibile qui. Ti avviseremo quando lo sarà.",
+  "gsheets.pick.title": "Scegli i fogli Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google apre una finestra in cui scegli i fogli che gli agenti possono usare. Vediamo solo quelli.",
+  "gsheets.pick.open": "Apri il selettore di Google",
+  "gsheets.pick.loading": "Caricamento del selettore di Google…",
+  "gsheets.pick.saving": "Salvataggio della tua scelta…",
+  "gsheets.pick.cancelled": "Nessun foglio scelto. Apri di nuovo il selettore o torna indietro.",
+  "gsheets.pick.failed":
+    "Il selettore di Google non si è aperto. Controlla che i pop-up siano consentiti e riprova.",
+  // v0.14 W4-A: WhatsApp through Meta (needs a fluent speaker's review).
+  "connections.whatsappMeta.description":
+    "Collega il tuo numero WhatsApp Business tramite Meta. Gli agenti scrivono ai tuoi contatti da quel numero, e conserviamo ciò che ti inviano.",
+  "connections.whatsappMeta.connect": "Collega WhatsApp (il tuo numero)",
+  "whatsappMeta.signup.title": "Collega il tuo numero WhatsApp",
+  "whatsappMeta.signup.subtitle":
+    "Meta apre una finestra in cui scegli il tuo account WhatsApp Business e il numero. Non vediamo mai il tuo accesso a Facebook.",
+  "whatsappMeta.signup.open": "Apri la finestra di Meta",
+  "whatsappMeta.signup.loading": "Caricamento della finestra di Meta…",
+  "whatsappMeta.signup.saving": "Collegamento del tuo numero…",
+  "whatsappMeta.signup.cancelled":
+    "Non è stato collegato nulla. Apri di nuovo la finestra di Meta, o torna indietro.",
+  "whatsappMeta.signup.failed":
+    "La finestra di Meta non si è aperta. Controlla che i pop-up siano consentiti, poi riprova.",
+  "whatsappMeta.signup.notSetUp":
+    "Collegare il tuo numero WhatsApp non è ancora disponibile qui. Ti avviseremo quando lo sarà.",
 };

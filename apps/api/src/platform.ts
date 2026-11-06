@@ -21,11 +21,19 @@ import {
   // v0.12 bankfeed
   createBankfeedConnector,
   createBrowserConnector,
+  // v0.14 W4-E
+  createGchatConnector,
   createGdriveConnector,
   createGmailConnector,
+  // v0.14 W4-D
+  createGsheetsConnector,
+  // v0.12 W3-B
+  createHubspotConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
+  // v0.12 W3-B
+  createRampConnector,
   createResendConnector,
   // v0.14 W4-C
   createSlackConnector,
@@ -33,6 +41,8 @@ import {
   createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
+  // v0.14 W4-A
+  createWhatsappMetaConnector,
   createZohoCrmConnector,
   plaidEnvironment,
   QBO_CONNECTOR_ID,
@@ -75,7 +85,9 @@ function readSkillName(toolId: string): string {
 export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinition[] {
   return connectors.list().flatMap((c) =>
     c.manifest.tools
-      .filter((t) => t.sideEffect === "none")
+      // v0.14 W4-A: a shared read (`messages.search` from Twilio and Meta) is one skill, the first
+      // connector's; the tool it calls still goes to whichever the agent is bound to.
+      .filter((t) => t.sideEffect === "none" && connectors.providersOf(t.id)[0] === c)
       .map((t) =>
         SkillDefinition.parse({
           schemaVersion: 1,
@@ -89,7 +101,9 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
           input: t.input,
           output: t.output,
           ...(t.summary ? { summary: t.summary } : {}),
-          requiresConnectors: [c.manifest.id],
+          // v0.14 W4-A: a shared read needs whichever of its connectors the agent is bound to
+          // (counted from its handler tool), not the first one's.
+          requiresConnectors: connectors.providersOf(t.id).length > 1 ? [] : [c.manifest.id],
         }),
       ),
   );
@@ -160,12 +174,25 @@ type OAuthEnvKey =
   | "PODIO_CLIENT_SECRET"
   | "GOOGLE_CLIENT_ID"
   | "GOOGLE_CLIENT_SECRET"
+  // v0.12 W3-B
+  | "RAMP_CLIENT_ID"
+  | "RAMP_CLIENT_SECRET"
+  | "HUBSPOT_CLIENT_ID"
+  | "HUBSPOT_CLIENT_SECRET"
   // v0.12 W3-B: Outlook's Entra app.
   | "OUTLOOK_CLIENT_ID"
   | "OUTLOOK_CLIENT_SECRET"
+  // v0.14 W4-E: the Google Chat app.
+  | "GOOGLE_CHAT_SERVICE_ACCOUNT"
+  | "GOOGLE_CHAT_PROJECT_NUMBER"
   // v0.14 W4-C: our Slack app.
   | "SLACK_CLIENT_ID"
   | "SLACK_CLIENT_SECRET"
+  // v0.14 W4-A: Mezonas' Meta app (WhatsApp through Meta).
+  | "META_APP_ID"
+  | "META_APP_SECRET"
+  | "META_CONFIG_ID"
+  | "META_WEBHOOK_VERIFY_TOKEN"
   // v0.12 bankfeed: Plaid.
   | "PLAID_CLIENT_ID"
   | "PLAID_SECRET"
@@ -186,9 +213,18 @@ export function platformFor(
     env.QBO_WEBHOOK_VERIFIER ? "qbo-hook" : "-",
     env.GOOGLE_CLIENT_ID ?? "-",
     // v0.12 W3-B
+    env.RAMP_CLIENT_ID ?? "-",
+    env.HUBSPOT_CLIENT_ID ?? "-",
     env.OUTLOOK_CLIENT_ID ?? "-",
+    // v0.14 W4-E: whether the key is set, never the key.
+    env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
+    env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
     // v0.14 W4-C
     env.SLACK_CLIENT_ID ?? "-",
+    // v0.14 W4-A: the app's id, and whether the secrets are set (never the secrets).
+    env.META_APP_ID ?? "-",
+    env.META_CONFIG_ID ?? "-",
+    env.META_APP_SECRET && env.META_WEBHOOK_VERIFY_TOKEN ? "meta" : "-",
     // v0.12 bankfeed
     env.PLAID_CLIENT_ID ?? "-",
     env.PLAID_SECRET ? "plaid-secret" : "-",
@@ -262,20 +298,47 @@ export function deploymentConnectors(
     createGdriveConnector(
       googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
     ),
+    // v0.14 W4-D: Google Sheets (drive.file, picked sheets only), on the same Google client.
+    createGsheetsConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
     createOutlookConnector(
       microsoftReady
         ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
         : {},
     ),
+    // v0.14 W4-E: Google Chat, the app of Mezonas' own: registered everywhere; a client connects it
+    // once GOOGLE_CHAT_SERVICE_ACCOUNT and GOOGLE_CHAT_PROJECT_NUMBER are set.
+    createGchatConnector({
+      serviceAccount: env.GOOGLE_CHAT_SERVICE_ACCOUNT,
+      projectNumber: env.GOOGLE_CHAT_PROJECT_NUMBER,
+    }),
     // v0.14 W4-C: Slack (posts to the channels a client picks), like Outlook: registered
     // everywhere, signing in once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and OAUTH_STATE_SECRET
     // are set.
     createSlackConnector(
       slackReady ? { clientId: env.SLACK_CLIENT_ID, clientSecret: env.SLACK_CLIENT_SECRET } : {},
     ),
+    // v0.14 W4-A: WhatsApp on the client's own number through Meta (docs/plan.md §1.57):
+    // registered everywhere; a client connects it with Meta's Embedded Signup once META_APP_ID,
+    // META_APP_SECRET, META_CONFIG_ID, META_WEBHOOK_VERIFY_TOKEN and OAUTH_STATE_SECRET are set.
+    createWhatsappMetaConnector(
+      env.OAUTH_STATE_SECRET
+        ? {
+            appId: env.META_APP_ID,
+            appSecret: env.META_APP_SECRET,
+            configId: env.META_CONFIG_ID,
+            verifyToken: env.META_WEBHOOK_VERIFY_TOKEN,
+          }
+        : {},
+    ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),
+    // v0.12 W3-B: Ramp and HubSpot, registered everywhere like Zoho; each signs in once its client
+    // id and secret and OAUTH_STATE_SECRET are set (ARCHITECTURE §6.11, docs/plan.md §1.52).
+    createRampConnector(oauthClient(env.RAMP_CLIENT_ID, env.RAMP_CLIENT_SECRET, env)),
+    createHubspotConnector(oauthClient(env.HUBSPOT_CLIENT_ID, env.HUBSPOT_CLIENT_SECRET, env)),
     // v0.12 bankfeed: bank and card feeds through Plaid (ARCHITECTURE §6.11, docs/plan.md §1.52),
     // registered everywhere like Zoho; a client connects in Plaid Link once PLAID_CLIENT_ID,
     // PLAID_SECRET and OAUTH_STATE_SECRET are set. PLAID_ENV picks sandbox or production.
@@ -290,4 +353,14 @@ export function deploymentConnectors(
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),
   ];
+}
+
+// v0.12 W3-B: an OAuth client for a connector, only when its id, secret and OAUTH_STATE_SECRET are
+// all set; otherwise none, and the portal shows "not available yet".
+function oauthClient(
+  clientId: string | undefined,
+  clientSecret: string | undefined,
+  env: Pick<Bindings, "OAUTH_STATE_SECRET">,
+): { clientId?: string; clientSecret?: string } {
+  return clientId && clientSecret && env.OAUTH_STATE_SECRET ? { clientId, clientSecret } : {};
 }

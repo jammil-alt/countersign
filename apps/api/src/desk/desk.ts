@@ -36,6 +36,8 @@ import {
   agent,
   agentVersion,
   appUser,
+  // v0.14 W4-A
+  connection,
   inboxItem,
   membership,
   run,
@@ -184,9 +186,19 @@ async function routeFor(
     toolId: string;
     runId: string | null;
     edited: unknown;
+    // v0.14 W4-A: the action's connection, whose connector supplies a shared id (Twilio or Meta).
+    connectionId?: string;
   },
 ) {
-  const tool = platform.tools.get(input.toolId);
+  const [conn] = input.connectionId
+    ? await tx
+        .select({ connector: connection.connector })
+        .from(connection)
+        .where(and(eq(connection.id, input.connectionId), eq(connection.tenantId, input.tenantId)))
+    : [];
+  const tool =
+    (conn ? platform.tools.forConnector(input.toolId, conn.connector) : undefined) ??
+    platform.tools.get(input.toolId);
   if (tool?.kind !== "connector") return null;
   const [r] = input.runId
     ? await tx
@@ -281,6 +293,7 @@ export async function editItem(
     toolId: action.tool,
     runId: action.runId,
     edited: checked.input,
+    connectionId: action.connectionId,
   });
   if (
     !route ||

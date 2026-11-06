@@ -9,7 +9,15 @@ import type {
   OutboundMessage,
   SendAttempt,
 } from "@countersign/connectors";
-import { TWILIO_ATTEMPT_ENTITY, TWILIO_MESSAGE_ENTITY } from "@countersign/connectors";
+import {
+  type StoredMessageQuery,
+  type StoredMessageRecord,
+  TWILIO_ATTEMPT_ENTITY,
+  TWILIO_MESSAGE_ENTITY,
+  // v0.14 W4-A
+  TWILIO_STATUS_ENTITY,
+  WHATSAPP_META_CONNECTOR_ID,
+} from "@countersign/connectors";
 import {
   type ContactConsent,
   consentBlock,
@@ -28,11 +36,13 @@ import {
   usageDaily,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 // v0.14 W4-C
 import { dbWriteAttempts } from "../attempts";
 import type { VoiceDeps } from "../calls/answer";
 import { dbVoiceServices } from "../calls/services";
+// v0.14 capture
+import { captureFactsOf } from "../conversations/capture";
 import type { Platform } from "../platform";
 import { dbEmailServices } from "../reach/email";
 import {
@@ -50,6 +60,8 @@ export async function lastInboundAt(
   tenantId: string,
   channel: MessagingChannel,
   from: string,
+  // v0.14 W4-A: Meta's window is per business number: only messages to this connection count.
+  connectionId?: string,
 ): Promise<Date | null> {
   const [row] = await tx
     .select({ at: rawRecord.syncedAt })
@@ -57,6 +69,7 @@ export async function lastInboundAt(
     .where(
       and(
         eq(rawRecord.tenantId, tenantId),
+        ...(connectionId ? [eq(rawRecord.connectionId, connectionId)] : []),
         eq(rawRecord.entityType, TWILIO_MESSAGE_ENTITY),
         sql`${rawRecord.payload}->>'direction' = 'in'`,
         sql`${rawRecord.payload}->>'channel' = ${channel}`,
@@ -105,7 +118,13 @@ export function dbMessagingServices(db: Db, connection: ConnectionRef): Messagin
           ok: true as const,
           // The language to write to them in (§1.27): theirs, their organization's, the client's.
           contact: { id: c.id, name: c.name, language: (await contactLanguage(tx, c)).language },
-          lastInboundAt: await lastInboundAt(tx, tenantId, input.channel, input.to),
+          lastInboundAt: await lastInboundAt(
+            tx,
+            tenantId,
+            input.channel,
+            input.to,
+            connection.connector === WHATSAPP_META_CONNECTOR_ID ? connection.id : undefined,
+          ),
         };
       });
     },
@@ -162,7 +181,8 @@ export function dbMessagingServices(db: Db, connection: ConnectionRef): Messagin
           .values({
             tenantId,
             connectionId: connection.id,
-            connector: "twilio",
+            // v0.14 W4-A: the connection's own connector (Twilio or Meta).
+            connector: connection.connector,
             entityType: TWILIO_ATTEMPT_ENTITY,
             externalId: a.idempotencyKey,
             externalVersion: null,
@@ -211,19 +231,149 @@ export function dbMessagingServices(db: Db, connection: ConnectionRef): Messagin
       });
     },
 
+    // v0.14 capture: what the platform keeps of these messages (docs/plan.md §1.55).
+    messageFacts(sids) {
+      return withTenant(db, tenantId, (tx) =>
+        captureFactsOf(tx, tenantId, connection.id, sids.slice(0, 100)),
+      );
+    },
+
     recordOutbound(m) {
-      return withTenant(db, tenantId, (tx) => recordOutboundTx(tx, tenantId, m));
+      return withTenant(db, tenantId, (tx) =>
+        recordOutboundTx(tx, tenantId, m, connection.connector),
+      );
+    },
+
+    // v0.14 W4-A: Meta's reads and lost answers, from what was recorded on the connection.
+    storedMessages(q) {
+      return withTenant(db, tenantId, (tx) => storedMessagesOf(tx, connection, q));
+    },
+    storedMessage(sid) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [one] = await storedMessagesOf(tx, connection, { limit: 1 }, sid);
+        return one ?? null;
+      });
+    },
+    statusSidFor(idempotencyKey) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ payload: rawRecord.payload })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, connection.id),
+              eq(rawRecord.entityType, TWILIO_STATUS_ENTITY),
+              sql`${rawRecord.payload}->>'opaque' = ${idempotencyKey}`,
+            ),
+          )
+          .orderBy(desc(rawRecord.syncedAt))
+          .limit(1);
+        const p = (row?.payload ?? {}) as { sid?: unknown; status?: unknown };
+        return typeof p.sid === "string" && typeof p.status === "string"
+          ? { sid: p.sid, status: p.status }
+          : null;
+      });
     },
   };
 }
 
-async function recordOutboundTx(tx: Tx, tenantId: string, m: OutboundMessage): Promise<void> {
+// v0.14 W4-A: messages recorded on a connection as `messages.search` and `message.get` return
+// them, newest first, with their capture facts (text hidden where it wasn't kept) and the latest
+// status a callback gave (raw records are never changed, so statuses are their own rows).
+async function storedMessagesOf(
+  tx: Tx,
+  conn: ConnectionRef,
+  q: StoredMessageQuery,
+  sid?: string,
+): Promise<StoredMessageRecord[]> {
+  const tenantId = conn.tenantId;
+  const p = rawRecord.payload;
+  const rows = await tx
+    .select({ sid: rawRecord.externalId, payload: p, at: rawRecord.syncedAt })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, tenantId),
+        eq(rawRecord.connectionId, conn.id),
+        eq(rawRecord.entityType, TWILIO_MESSAGE_ENTITY),
+        ...(sid ? [eq(rawRecord.externalId, sid)] : []),
+        ...(q.channel ? [sql`${p}->>'channel' = ${q.channel}`] : []),
+        ...(q.contact ? [sql`(${p}->>'from' = ${q.contact} or ${p}->>'to' = ${q.contact})`] : []),
+        ...(q.since ? [gte(rawRecord.syncedAt, new Date(`${q.since}T00:00:00Z`))] : []),
+      ),
+    )
+    .orderBy(desc(rawRecord.syncedAt))
+    .limit(Math.min(Math.max(q.limit, 1), 50));
+  if (rows.length === 0) return [];
+  const sids = rows.map((r) => r.sid);
+  const statuses = await tx
+    .select({ payload: rawRecord.payload })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, tenantId),
+        eq(rawRecord.connectionId, conn.id),
+        eq(rawRecord.entityType, TWILIO_STATUS_ENTITY),
+        inArray(sql<string>`${rawRecord.payload}->>'sid'`, sids),
+      ),
+    )
+    .orderBy(rawRecord.syncedAt);
+  const latest = new Map<string, { status: string; errorCode: string | null }>();
+  for (const s of statuses) {
+    const sp = s.payload as { sid?: unknown; status?: unknown; errorCode?: unknown };
+    if (typeof sp.sid === "string" && typeof sp.status === "string") {
+      latest.set(sp.sid, {
+        status: sp.status,
+        errorCode: typeof sp.errorCode === "string" ? sp.errorCode : null,
+      });
+    }
+  }
+  const facts = await captureFactsOf(tx, tenantId, conn.id, sids);
+  return rows.map((r) => {
+    const m = r.payload as {
+      direction?: unknown;
+      channel?: unknown;
+      from?: unknown;
+      to?: unknown;
+      text?: unknown;
+      status?: unknown;
+      numMedia?: unknown;
+    };
+    const f = facts.get(r.sid);
+    const st = latest.get(r.sid);
+    const text = typeof m.text === "string" ? m.text : "";
+    const recorded =
+      typeof m.status === "string" ? m.status : m.direction === "in" ? "received" : "sent";
+    return {
+      sid: r.sid,
+      direction: m.direction === "in" ? ("in" as const) : ("out" as const),
+      channel: m.channel === "sms" ? ("sms" as const) : ("whatsapp" as const),
+      from: typeof m.from === "string" ? m.from : "",
+      to: typeof m.to === "string" ? m.to : "",
+      text: f && !f.kept ? "" : text,
+      status: st?.status ?? recorded,
+      sentAt: r.at.toISOString(),
+      numMedia: typeof m.numMedia === "number" ? m.numMedia : 0,
+      errorCode: st?.errorCode ?? null,
+      ...(f ? { kept: f.kept, conversation: f.conversation, attachments: f.attachments } : {}),
+    };
+  });
+}
+
+async function recordOutboundTx(
+  tx: Tx,
+  tenantId: string,
+  m: OutboundMessage,
+  // v0.14 W4-A: the connection's own connector (Twilio or Meta).
+  connector = "twilio",
+): Promise<void> {
   const [stored] = await tx
     .insert(rawRecord)
     .values({
       tenantId,
       connectionId: m.connectionId,
-      connector: "twilio",
+      connector,
       entityType: TWILIO_MESSAGE_ENTITY,
       externalId: m.sid,
       externalVersion: null,

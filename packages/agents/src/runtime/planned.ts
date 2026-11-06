@@ -90,18 +90,21 @@ async function plannedDispatch(
   const existing = await deps.ports.actions.byKey(step.tenantId, call.idempotencyKey);
   if (existing) return finish(deps, step, existing.id);
 
-  const tool = deps.tools.get(call.toolId);
-  if (tool?.kind !== "connector" || tool.spec.sideEffect !== "external") {
+  const shared = deps.tools.get(call.toolId);
+  if (shared?.kind !== "connector" || shared.spec.sideEffect !== "external") {
     return { status: "refused", reason: `${call.toolId} is not a send` };
   }
-  const fixed = tool.spec.fixedInputs;
+  const fixed = shared.spec.fixedInputs;
   if (fixed?.length) {
     const problem = fixedInputProblem(fixed, step.literalInput, call.input);
     if (problem) return { status: "refused", reason: `${call.toolId}: ${problem}` };
   }
   const conn = await deps.ports.store.connection(step.tenantId, call.connectionId);
-  if (!conn || conn.connector !== tool.connector.manifest.id) {
-    return { status: "refused", reason: `no ${tool.connector.manifest.id} connection is bound` };
+  // v0.14 W4-A: the tool as the channel's connection supplies it (Twilio's or Meta's
+  // `whatsapp.send`); a connection whose connector doesn't supply it is refused.
+  const tool = conn ? deps.tools.forConnector(call.toolId, conn.connector) : undefined;
+  if (!conn || tool?.kind !== "connector") {
+    return { status: "refused", reason: `no ${shared.connector.manifest.id} connection is bound` };
   }
   // The matrix and the agent's grant hold at every attempt: `off` refuses even inside an approved
   // plan (docs/plan.md §1.26).

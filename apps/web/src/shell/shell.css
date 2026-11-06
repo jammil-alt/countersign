@@ -1,0 +1,373 @@
+/* The app frame (docs/design/prototype.html `.hdr`, `.side`, `.main`) on the design system's
+ * AppHeader and Sidebar: tokens only, borders not shadows (menus and dialogs alone lift with
+ * shadow-pop). Imported from styles.css into the components layer, so utilities still win. Below
+ * 768px the sidebar folds behind the menu button and the top bar keeps only what fits. */
+
+.ui-shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+/* ── Top bar ── */
+.ui-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  gap: var(--space-5);
+}
+.ui-topbar__menu {
+  display: none;
+}
+.ui-topbar__logo {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.ui-topbar__sep {
+  width: 1px;
+  height: 20px;
+  flex-shrink: 0;
+  background: var(--line);
+}
+.ui-topbar__context {
+  display: flex;
+  min-width: 0;
+  flex-shrink: 1;
+  align-items: center;
+  gap: var(--space-2);
+  font: 500 14px / 20px var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.ui-topbar__search {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  justify-content: center;
+}
+.ui-topbar__desk {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-2-5);
+  border-radius: var(--radius-sm);
+  font: 500 14px / 20px var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.ui-topbar__desk:hover {
+  background: var(--surface-subtle);
+}
+.ui-topbar__desk[aria-current="page"] {
+  background: var(--slate-tint);
+  color: var(--slate);
+}
+.ui-topbar__deskicon {
+  display: none;
+}
+
+/* The search box: a button dressed as the prototype's `.ask` field. */
+.ui-searchbox {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  max-width: 560px;
+  height: 36px;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: 400 14px / 20px var(--font-sans);
+  cursor: text;
+}
+.ui-searchbox:hover {
+  border-color: var(--slate);
+}
+.ui-searchbox:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.ui-searchbox__text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-kbd {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 500 11px / 16px var(--font-mono);
+  color: var(--ink-muted);
+}
+
+/* The avatar menu. */
+.ui-menu {
+  position: absolute;
+  right: 0;
+  z-index: 30;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  margin-top: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* ── Body: sidebar and page ── */
+.ui-shell__body {
+  position: relative;
+  display: flex;
+  flex: 1;
+}
+.ui-sidebar {
+  position: sticky;
+  top: var(--header-h);
+  height: calc(100vh - var(--header-h));
+  flex-shrink: 0;
+  justify-content: space-between;
+  overflow-y: auto;
+  background: var(--surface);
+  padding: var(--space-4) var(--space-3);
+}
+.ui-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+}
+.ui-sidebar__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+.ui-shell__scrim {
+  display: none;
+  border: 0;
+  padding: 0;
+}
+.ui-navitem {
+  gap: var(--space-2);
+  min-height: 36px;
+  box-sizing: border-box;
+  font: 500 14px / 20px var(--font-sans);
+}
+.ui-navitem__icon {
+  color: var(--ink-muted);
+}
+.ui-navitem[aria-current="page"] .ui-navitem__icon {
+  color: var(--slate);
+}
+.ui-navitem:hover {
+  background: var(--surface-subtle);
+}
+.ui-navagent {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.ui-navagent[aria-current="page"] .text-ink {
+  color: var(--slate);
+}
+
+/* "More": a folded nav group. */
+.ui-more__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-2-5);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.ui-more__summary::-webkit-details-marker {
+  display: none;
+}
+.ui-more[open] .ui-more__chev {
+  transform: rotate(180deg);
+}
+
+.ui-main {
+  min-width: 0;
+  flex: 1;
+  padding: var(--space-8) var(--space-10) var(--space-12);
+}
+.ui-pagebar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+/* The agent switcher: a quiet select. */
+.ui-agentswitch {
+  display: inline-flex;
+  align-items: center;
+}
+.ui-agentswitch .ds-select {
+  height: 32px;
+  max-width: 260px;
+  padding-right: var(--space-8);
+  font-size: 13px;
+}
+.ui-agentswitch__chev {
+  position: absolute;
+  right: var(--space-2-5);
+  pointer-events: none;
+  color: var(--ink-muted);
+}
+
+/* ── Dialogs over the page (⌘K search) ── */
+.ui-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+}
+.ui-overlay--top {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.ui-scrim-button {
+  /* The Dialog's scrim (ds-scrim) as a button that closes it. */
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+.ui-search {
+  display: flex;
+  width: 640px;
+  max-height: 70vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ui-search__field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.ui-search__field:focus-within {
+  /* The search field's focus: the dialog's own field, marked by its slate rule. */
+  border-bottom-color: var(--focus-ring);
+}
+.ui-search__input {
+  all: unset;
+  min-width: 0;
+  flex: 1;
+  height: 52px;
+  font: 400 15px / 24px var(--font-sans);
+  color: var(--ink);
+}
+.ui-search__input::placeholder {
+  color: var(--ink-faint);
+}
+.ui-search__results {
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+.ui-search__note {
+  padding: var(--space-3) var(--space-2-5);
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+.ui-search__group + .ui-search__group {
+  margin-top: var(--space-2);
+}
+.ui-search__label {
+  padding: var(--space-2) var(--space-2-5) var(--space-1);
+  color: var(--ink-muted);
+}
+.ui-search__hit {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2-5);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+.ui-search__hit.is-active {
+  background: var(--slate-tint);
+}
+
+/* ── Phone width ── */
+@media (max-width: 767.98px) {
+  .ui-topbar {
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+  }
+  .ui-topbar__menu {
+    display: inline-flex;
+  }
+  .ui-topbar__sep {
+    display: none;
+  }
+  .ui-topbar__context {
+    font-size: 13px;
+  }
+  .ui-topbar__context > * {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ui-topbar__search {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+  .ui-searchbox {
+    width: 36px;
+    justify-content: center;
+    padding: 0;
+    border-color: transparent;
+  }
+  .ui-searchbox__text,
+  .ui-searchbox .ui-kbd,
+  .ui-topbar__desklabel {
+    display: none;
+  }
+  .ui-topbar__deskicon {
+    display: block;
+  }
+  .ui-sidebar {
+    position: fixed;
+    top: var(--header-h);
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    height: auto;
+    max-width: 85vw;
+    transform: translateX(-100%);
+    visibility: hidden;
+  }
+  .ui-sidebar[data-open="true"] {
+    transform: none;
+    visibility: visible;
+  }
+  .ui-shell__scrim {
+    position: fixed;
+    inset: var(--header-h) 0 0 0;
+    z-index: 25;
+    display: block;
+  }
+  .ui-main {
+    padding: var(--space-5) var(--space-4) var(--space-8);
+  }
+  .ui-overlay--top {
+    padding-top: var(--space-4);
+  }
+}

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
+import { CurrencyCode } from "../money";
 
 // v0.12 W1-E: the one typed filter both runs lists take (ARCHITECTURE §10.10; docs/plan.md §1.40).
 // The back office's `GET /api/ops/runs` and the portal's `GET /api/runs` read it from their query
@@ -34,6 +35,24 @@ export type RunStartedBy = z.infer<typeof RunStartedBy>;
 const Usd = z.string().regex(/^\d{1,10}(\.\d{1,6})?$/, "an amount like 0.25");
 const Instant = z.iso.datetime({ offset: true });
 
+// v0.14 W4-B (docs/plan.md §1.49 "Amounts"): an amount range on the run's changes.
+/** A non-negative decimal amount, as `numeric(14,4)` holds it (invariant 6). */
+const AmountBound = z.string().regex(/^\d{1,10}(\.\d{1,4})?$/, "an amount like 5000.00");
+
+/**
+ * Runs with a change (an external action not turned down) whose amount, read where its tool
+ * declares it (`ToolSpec.amount`, as approver rules read it), is in this currency and range. Both
+ * bounds are exclusive; at least one is given.
+ */
+export const RunAmountFilter = z
+  .strictObject({
+    over: AmountBound.optional(),
+    under: AmountBound.optional(),
+    currency: CurrencyCode,
+  })
+  .refine((a) => a.over !== undefined || a.under !== undefined, "give over, under or both");
+export type RunAmountFilter = z.infer<typeof RunAmountFilter>;
+
 export const RunFilter = z.strictObject({
   clients: z.array(Id).max(100).optional(),
   agents: z.array(Id).max(100).optional(),
@@ -57,6 +76,9 @@ export const RunFilter = z.strictObject({
     .optional(),
   /** Runs tried more than this many times (the run and the retries before it). */
   attemptsOver: z.number().int().min(0).max(1000).optional(),
+  // v0.14 W4-B
+  /** Runs with a change whose amount is in this range and currency ("over $5,000"). */
+  amount: RunAmountFilter.optional(),
   /** Runs that cost more than this, in USD. Back office only. */
   costOver: Usd.optional(),
   /** `error.key` (or `error.code` for older runs). */
@@ -112,6 +134,10 @@ const sharedParams = {
   signedBy: Id.optional(),
   changedConnector: RunFilter.shape.changedConnector,
   attemptsOver: z.coerce.number().int().min(0).max(1000).optional(),
+  // v0.14 W4-B: `amount` as three parameters.
+  amountOver: AmountBound.optional(),
+  amountUnder: AmountBound.optional(),
+  amountCurrency: CurrencyCode.optional(),
   text: RunFilter.shape.text,
   limit: Limit,
   /** Adds the number of runs per day (UTC) that match. */
@@ -151,6 +177,42 @@ function compact<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T;
 }
 
+// v0.14 W4-B
+type AmountParams = {
+  amountOver?: string | undefined;
+  amountUnder?: string | undefined;
+  amountCurrency?: string | undefined;
+};
+
+/** A bound needs a currency, and a currency a bound. */
+function checkAmountParams(q: AmountParams, ctx: z.RefinementCtx) {
+  const bound = q.amountOver !== undefined || q.amountUnder !== undefined;
+  if (bound && q.amountCurrency === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["amountCurrency"],
+      message: "say the amount's currency",
+    });
+  }
+  if (!bound && q.amountCurrency !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["amountOver"],
+      message: "give amountOver or amountUnder",
+    });
+  }
+}
+
+function amountFrom(q: AmountParams): RunAmountFilter | undefined {
+  if (q.amountCurrency === undefined) return undefined;
+  if (q.amountOver === undefined && q.amountUnder === undefined) return undefined;
+  return {
+    ...(q.amountOver !== undefined ? { over: q.amountOver } : {}),
+    ...(q.amountUnder !== undefined ? { under: q.amountUnder } : {}),
+    currency: q.amountCurrency,
+  };
+}
+
 export interface RunListQuery {
   filter: RunFilter;
   limit: number;
@@ -160,6 +222,7 @@ export interface RunListQuery {
 /** `GET /api/ops/runs` (and its CSV): a RunFilter from the query, plus paging and grouping. */
 export const OpsRunsQuery = z
   .object(opsParams)
+  .superRefine(checkAmountParams)
   .transform((q): RunListQuery & { groupBy?: "error" } => ({
     filter: compact({
       clients: merged(q.clients, q.client),
@@ -174,6 +237,7 @@ export const OpsRunsQuery = z
       signedBy: q.signedBy,
       changedConnector: q.changedConnector,
       attemptsOver: q.attemptsOver,
+      amount: amountFrom(q),
       costOver: q.costOver,
       errorKey: q.errorKey,
       text: q.text,
@@ -192,6 +256,7 @@ export const PortalRunsQuery = z
         ctx.addIssue({ code: "custom", path: [key], message: `${key} is not a filter here` });
       }
     }
+    checkAmountParams(q as AmountParams, ctx);
   })
   .transform(
     (q): RunListQuery => ({
@@ -204,6 +269,7 @@ export const PortalRunsQuery = z
         signedBy: q.signedBy,
         changedConnector: q.changedConnector,
         attemptsOver: q.attemptsOver,
+        amount: amountFrom(q),
         text: q.text,
       }),
       limit: q.limit,
@@ -215,8 +281,14 @@ export const PortalRunsQuery = z
 export function runFilterQuery(filter: RunFilter): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(filter)) {
-    if (value === undefined) continue;
+    if (value === undefined || key === "amount") continue;
     out[key] = Array.isArray(value) ? value.join(",") : String(value);
+  }
+  // v0.14 W4-B: the amount as its three parameters.
+  if (filter.amount) {
+    if (filter.amount.over !== undefined) out.amountOver = filter.amount.over;
+    if (filter.amount.under !== undefined) out.amountUnder = filter.amount.under;
+    out.amountCurrency = filter.amount.currency;
   }
   return out;
 }

@@ -116,16 +116,25 @@ export async function executeAction(
     });
     return { status: "failed", action: failed, error: "connection not found" };
   }
+  // v0.14 W4-A: a shared id runs through the connector of the connection it was proposed on.
+  const own = deps.tools.forConnector(action.tool, conn.connector);
+  if (own?.kind !== "connector") {
+    const message = `${action.tool} isn't supplied by the ${conn.connector} connection`;
+    const failed = await actions.fail(input.tenantId, action.id, { message });
+    return { status: "failed", action: failed, error: message };
+  }
   try {
     // v0.12 W1-D: the signer's edit, when there is one, is what is written; `input` stays the
     // agent's version (ARCHITECTURE §11.1).
     const written = await executeWrite(
-      tool.connector,
+      own.connector,
       action.tool,
       action.editedInput ?? action.input,
       {
         ...connectionContext(deps, input.tenantId, conn),
         idempotencyKey: action.idempotencyKey,
+        // v0.14 W4-D: what the approver saw, for tools that refuse a change made since.
+        proposedBefore: action.before,
       },
     );
     const done = await actions.complete(input.tenantId, action.id, {
@@ -224,6 +233,11 @@ export async function checkEditedInput(
   const conn = await deps.ports.store.connection(tenantId, action.connectionId);
   const owner = action.runId ? await deps.ports.store.run(tenantId, action.runId) : null;
   if (!conn || !owner) return { ok: false, code: "refused", message: "the connection is gone" };
+  // v0.14 W4-A: a shared id is checked by the connector of the connection it was proposed on.
+  const own = deps.tools.forConnector(action.tool, conn.connector);
+  if (own?.kind !== "connector") {
+    return { ok: false, code: "refused", message: "the connection is gone" };
+  }
   const grant = await deps.ports.store.grant(tenantId, owner.agentId, conn.id);
   // DECISION: the gate is asked again with the strictest mode: an edit can't make a change run
   // without its signature, only show whether the connection or grant now refuses the tool.
@@ -235,9 +249,9 @@ export async function checkEditedInput(
     agentMode: "suggest_only",
     // v0.12 W2-A: the edited input's entity and scope count too.
     entity: {
-      tool: tool.spec,
+      tool: own.spec,
       input: edited,
-      declared: tool.connector.manifest.permissionEntities,
+      declared: own.connector.manifest.permissionEntities,
     },
   });
   if (!grantAllowsTool(grant, tool.spec.id) || decision === "refused") {
@@ -245,7 +259,7 @@ export async function checkEditedInput(
   }
   try {
     const captured = await captureBefore(
-      tool.connector,
+      own.connector,
       tool.spec.id,
       edited,
       connectionContext(deps, tenantId, conn),

@@ -131,7 +131,7 @@ describe("portal header: the Inbox count", () => {
 
     // The Bill clerk proposes the change while the client has the portal open.
     count = 1;
-    await userEvent.click(screen.getByTestId("portal-nav-inbox"));
+    await userEvent.click(screen.getByTestId("portal-nav-desk"));
     await screen.findByTestId(`inbox-item-${ITEM.id}`);
     await waitFor(() => expect(inbox).toHaveTextContent("1"));
   });

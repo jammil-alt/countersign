@@ -60,12 +60,44 @@ export const en = {
 
   // ── Shell ──
   "shell.navigation": "Navigation",
-  "shell.commandBar": "Command bar",
-  "shell.commandPlaceholder": "Ask an agent, or type / for a command",
-  "shell.inbox": "Inbox",
   "shell.account": "Account: {name}",
   "shell.signOut": "Sign out",
   "shell.noClient": "No client",
+  "shell.search": "Search",
+  "shell.searchPlaceholder": "Search your agents, runs, records and people",
+  "shell.desk": "Your Desk",
+  "shell.menu": "Menu",
+  "shell.closeMenu": "Close the menu",
+  "shell.switchAgent": "Switch agent",
+  "shell.theme": "Theme",
+  "shell.theme.system": "System",
+  "shell.theme.light": "Light",
+  "shell.theme.dark": "Dark",
+  "search.title": "Search",
+  "search.close": "Close search",
+  "search.hint": "Type a name, a run number, an amount or an invoice number.",
+  "search.empty": "Nothing matches “{q}”.",
+  "search.group.agents": "Agents",
+  "search.group.runs": "Runs",
+  "search.group.records": "Records",
+  "search.group.people": "People",
+  "search.group.documents": "Documents",
+  "nav.table": "The Table",
+  "nav.desk": "Your Desk",
+  "nav.yourAgents": "Your agents",
+  "nav.yourBusiness": "Your business",
+  "nav.accounts": "Accounts",
+  "nav.more": "More",
+  "nav.lead": "Your Mezonas lead",
+  "nav.noAgents": "No agents yet.",
+  "ui.step.done": "Done",
+  "ui.step.current": "In progress",
+  "ui.step.waiting": "Waiting on you",
+  "ui.step.failed": "Failed",
+  "ui.step.person": "A person's step",
+  "ui.step.todo": "Not started",
+  "ui.before": "Before",
+  "ui.after": "After",
 
   // ── Language ──
   "language.label": "Language",
@@ -76,15 +108,14 @@ export const en = {
   "language.clientDefaultNone": "Each person's browser language",
 
   // ── Navigation and pages ──
-  "nav.overview": "Overview",
-  "nav.inbox": "Inbox",
   "nav.runs": "Runs",
   "nav.reports": "Reports",
-  "nav.connections": "Connections",
   "nav.requests": "Requests",
   "nav.settings": "Settings",
   "nav.knowledge": "Knowledge",
   "nav.contacts": "Contacts",
+  // v0.14 capture
+  "nav.conversations": "Conversations",
   "nav.billing": "Billing",
   "nav.people": "People",
   "nav.access": "Access",
@@ -809,6 +840,36 @@ export const en = {
   "contacts.subtitle":
     "The people we may email, text, message on WhatsApp or call for you. We only reach those who agreed, and never in quiet hours.",
   "contacts.adminOnly": "Your admin keeps the contacts list.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversations",
+  "conversations.subtitle":
+    "WhatsApp chats with your number. Choose what we keep from each: the messages, and their attachments as documents.",
+  "conversations.adminOnly": "Your admin chooses what we keep from WhatsApp conversations.",
+  "conversations.empty":
+    "No WhatsApp conversations yet. One starts when someone writes to your number.",
+  "conversations.lastMessage": "Last message {when}",
+  "conversations.noMessages": "No messages yet.",
+  "conversations.keepMessages": "Keep messages",
+  "conversations.attachments": "Download attachments",
+  "conversations.attachments.off": "Off",
+  "conversations.attachments.documents": "PDFs and images",
+  "conversations.attachments.all": "All files",
+  "conversations.yes": "Yes",
+  "conversations.no": "No",
+  "conversations.showMessages": "Show messages",
+  "conversations.hideMessages": "Hide messages",
+  "conversations.notKept": "Not kept",
+  "conversations.downloadNow": "Download now",
+  "conversations.downloading": {
+    one: "Downloading {count} attachment.",
+    other: "Downloading {count} attachments.",
+  },
+  "conversations.failed": "That didn't work. Try again.",
+  "conversations.attachment.not_downloaded": "Not downloaded",
+  "conversations.attachment.pending": "Downloading",
+  "conversations.attachment.filed": "Filed",
+  "conversations.attachment.refused": "Not taken",
+  "conversations.attachment.failed": "Couldn't download",
   "contacts.empty":
     "No contacts yet. Add the people your agents may reach, with how they agreed to it.",
   "contacts.channel.sms": "Texts",
@@ -1136,4 +1197,57 @@ export const en = {
     one: "{count} person",
     other: "{count} people",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · spaces",
+  "gchat.spacesTitle": "Connected spaces",
+  "gchat.help":
+    "Agents post only in these spaces, and only after you approve each post. We can't read your messages.",
+  "gchat.noSpaces": "No spaces connected yet.",
+  "gchat.groupChat": "Group chat",
+  "gchat.boundBy": "Connected {time} by {name}",
+  "gchat.boundAt": "Connected {time}",
+  "gchat.codeTitle": "Connect a space",
+  "gchat.steps":
+    "In Google Chat, add Mezonas to the space, then send this message there. The code works once.",
+  "gchat.codeExpires": "Works until {time}.",
+  "gchat.codeWaiting": "A code is waiting until {time}. If you don't have it, get a new one.",
+  "gchat.getCode": "Get a code",
+  "gchat.newCode": "Get a new code",
+  "gchat.adminAllow":
+    "Can't find Mezonas in Google Chat? Your Google Workspace admin needs to allow the app.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page).
+  "connections.gsheets.description":
+    "Read and add rows in the Google Sheets you choose. We can't open any other sheet.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Agents can open only the sheets you choose here. You choose them in Google's own window.",
+  "gsheets.none": "No sheets chosen yet.",
+  "gsheets.choose": "Choose sheets",
+  "gsheets.remove": "Remove",
+  "gsheets.otherAccount": "Chosen with another Google account. Choose it again to use it.",
+  "gsheets.notSetUp": "Choosing sheets isn't set up here yet. We'll tell you when it is.",
+  "gsheets.pick.title": "Choose Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google opens a window where you pick the sheets agents may use. We see only those.",
+  "gsheets.pick.open": "Open Google's picker",
+  "gsheets.pick.loading": "Loading Google's picker…",
+  "gsheets.pick.saving": "Saving your choice…",
+  "gsheets.pick.cancelled": "Nothing was chosen. Open the picker again, or go back.",
+  "gsheets.pick.failed":
+    "Google's picker didn't open. Check that pop-ups are allowed, then try again.",
+  // v0.14 W4-A: WhatsApp through Meta (Connections and the signup page; docs/plan.md §1.57).
+  "connections.whatsappMeta.description":
+    "Connect your own WhatsApp Business number through Meta. Agents message your contacts from it, and we keep what they send you.",
+  "connections.whatsappMeta.connect": "Connect WhatsApp (your own number)",
+  "whatsappMeta.signup.title": "Connect your WhatsApp number",
+  "whatsappMeta.signup.subtitle":
+    "Meta opens a window where you choose your WhatsApp Business account and number. We never see your Facebook login.",
+  "whatsappMeta.signup.open": "Open Meta's window",
+  "whatsappMeta.signup.loading": "Loading Meta's window…",
+  "whatsappMeta.signup.saving": "Connecting your number…",
+  "whatsappMeta.signup.cancelled": "Nothing was connected. Open Meta's window again, or go back.",
+  "whatsappMeta.signup.failed":
+    "Meta's window didn't open. Check that pop-ups are allowed, then try again.",
+  "whatsappMeta.signup.notSetUp":
+    "Connecting your own WhatsApp number isn't set up here yet. We'll tell you when it is.",
 } as const;

@@ -64,12 +64,45 @@ export const de: Messages = {
 
   // ── Shell ──
   "shell.navigation": "Navigation",
-  "shell.commandBar": "Befehlsleiste",
-  "shell.commandPlaceholder": "Fragen Sie einen Agenten, oder tippen Sie / für einen Befehl",
-  "shell.inbox": "Posteingang",
   "shell.account": "Konto: {name}",
   "shell.signOut": "Abmelden",
   "shell.noClient": "Kein Kunde",
+  "shell.search": "Suchen",
+  "shell.searchPlaceholder": "Agenten, Abläufe, Einträge und Personen suchen",
+  "shell.desk": "Ihr Schreibtisch",
+  "shell.menu": "Menü",
+  "shell.closeMenu": "Menü schließen",
+  "shell.switchAgent": "Agent wechseln",
+  "shell.theme": "Darstellung",
+  "shell.theme.system": "System",
+  "shell.theme.light": "Hell",
+  "shell.theme.dark": "Dunkel",
+  "search.title": "Suche",
+  "search.close": "Suche schließen",
+  "search.hint":
+    "Geben Sie einen Namen, eine Ablaufnummer, einen Betrag oder eine Rechnungsnummer ein.",
+  "search.empty": "Nichts passt zu „{q}“.",
+  "search.group.agents": "Agenten",
+  "search.group.runs": "Abläufe",
+  "search.group.records": "Einträge",
+  "search.group.people": "Personen",
+  "search.group.documents": "Dokumente",
+  "nav.table": "Der Tisch",
+  "nav.desk": "Ihr Schreibtisch",
+  "nav.yourAgents": "Ihre Agenten",
+  "nav.yourBusiness": "Ihr Unternehmen",
+  "nav.accounts": "Konten",
+  "nav.more": "Mehr",
+  "nav.lead": "Ihr Ansprechpartner bei Mezonas",
+  "nav.noAgents": "Noch keine Agenten.",
+  "ui.step.done": "Erledigt",
+  "ui.step.current": "In Arbeit",
+  "ui.step.waiting": "Wartet auf Sie",
+  "ui.step.failed": "Fehlgeschlagen",
+  "ui.step.person": "Schritt einer Person",
+  "ui.step.todo": "Nicht begonnen",
+  "ui.before": "Vorher",
+  "ui.after": "Nachher",
 
   // ── Language ──
   "language.label": "Sprache",
@@ -81,15 +114,14 @@ export const de: Messages = {
   "language.clientDefaultNone": "Die Browsersprache jeder Person",
 
   // ── Navigation and pages ──
-  "nav.overview": "Übersicht",
-  "nav.inbox": "Posteingang",
   "nav.runs": "Abläufe",
   "nav.reports": "Berichte",
-  "nav.connections": "Verbindungen",
   "nav.requests": "Anfragen",
   "nav.settings": "Einstellungen",
   "nav.knowledge": "Wissen",
   "nav.contacts": "Kontakte",
+  // v0.14 capture
+  "nav.conversations": "Unterhaltungen",
   "nav.billing": "Abrechnung",
   "nav.people": "Personen",
   "nav.access": "Zugriff",
@@ -853,6 +885,36 @@ export const de: Messages = {
   "contacts.subtitle":
     "Die Personen, die wir für Sie per E-Mail, SMS oder WhatsApp anschreiben oder anrufen dürfen. Wir kontaktieren nur, wer zugestimmt hat, und nie in Ruhezeiten.",
   "contacts.adminOnly": "Ihr Admin pflegt die Kontaktliste.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Unterhaltungen",
+  "conversations.subtitle":
+    "WhatsApp-Chats mit Ihrer Nummer. Wählen Sie, was wir von jedem behalten: die Nachrichten und ihre Anhänge als Dokumente.",
+  "conversations.adminOnly": "Ihr Admin wählt, was wir von WhatsApp-Unterhaltungen behalten.",
+  "conversations.empty":
+    "Noch keine WhatsApp-Unterhaltungen. Eine beginnt, wenn jemand Ihrer Nummer schreibt.",
+  "conversations.lastMessage": "Letzte Nachricht {when}",
+  "conversations.noMessages": "Noch keine Nachrichten.",
+  "conversations.keepMessages": "Nachrichten behalten",
+  "conversations.attachments": "Anhänge herunterladen",
+  "conversations.attachments.off": "Aus",
+  "conversations.attachments.documents": "PDFs und Bilder",
+  "conversations.attachments.all": "Alle Dateien",
+  "conversations.yes": "Ja",
+  "conversations.no": "Nein",
+  "conversations.showMessages": "Nachrichten zeigen",
+  "conversations.hideMessages": "Nachrichten ausblenden",
+  "conversations.notKept": "Nicht behalten",
+  "conversations.downloadNow": "Jetzt herunterladen",
+  "conversations.downloading": {
+    one: "{count} Anhang wird heruntergeladen.",
+    other: "{count} Anhänge werden heruntergeladen.",
+  },
+  "conversations.failed": "Das hat nicht geklappt. Versuchen Sie es noch einmal.",
+  "conversations.attachment.not_downloaded": "Nicht heruntergeladen",
+  "conversations.attachment.pending": "Wird heruntergeladen",
+  "conversations.attachment.filed": "Abgelegt",
+  "conversations.attachment.refused": "Nicht übernommen",
+  "conversations.attachment.failed": "Herunterladen fehlgeschlagen",
   "contacts.empty":
     "Noch keine Kontakte. Fügen Sie die Personen hinzu, die Ihre Agenten kontaktieren dürfen, und wie sie zugestimmt haben.",
   "contacts.channel.sms": "SMS",
@@ -1189,4 +1251,62 @@ export const de: Messages = {
     one: "{count} Person",
     other: "{count} Personen",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · Bereiche",
+  "gchat.spacesTitle": "Verbundene Bereiche",
+  "gchat.help":
+    "Agenten posten nur in diesen Bereichen und erst, wenn Sie jede Nachricht freigegeben haben. Wir können Ihre Nachrichten nicht lesen.",
+  "gchat.noSpaces": "Noch keine Bereiche verbunden.",
+  "gchat.groupChat": "Gruppenchat",
+  "gchat.boundBy": "Verbunden {time} von {name}",
+  "gchat.boundAt": "Verbunden {time}",
+  "gchat.codeTitle": "Bereich verbinden",
+  "gchat.steps":
+    "Fügen Sie Mezonas in Google Chat dem Bereich hinzu und senden Sie dort diese Nachricht. Der Code gilt einmal.",
+  "gchat.codeExpires": "Gültig bis {time}.",
+  "gchat.codeWaiting":
+    "Ein Code ist bis {time} gültig. Falls Sie ihn nicht haben, holen Sie einen neuen.",
+  "gchat.getCode": "Code holen",
+  "gchat.newCode": "Neuen Code holen",
+  "gchat.adminAllow":
+    "Mezonas nicht in Google Chat zu finden? Ihr Google-Workspace-Admin muss die App zulassen.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Lesen Sie Zeilen in den Google-Tabellen, die Sie auswählen, und fügen Sie neue hinzu. Andere Tabellen können wir nicht öffnen.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Agenten können nur die Tabellen öffnen, die Sie hier auswählen. Sie wählen sie im Fenster von Google aus.",
+  "gsheets.none": "Noch keine Tabellen ausgewählt.",
+  "gsheets.choose": "Tabellen auswählen",
+  "gsheets.remove": "Entfernen",
+  "gsheets.otherAccount":
+    "Mit einem anderen Google-Konto ausgewählt. Wählen Sie sie erneut aus, um sie zu verwenden.",
+  "gsheets.notSetUp":
+    "Das Auswählen von Tabellen ist hier noch nicht eingerichtet. Wir sagen Ihnen Bescheid, sobald es so weit ist.",
+  "gsheets.pick.title": "Google-Tabellen auswählen",
+  "gsheets.pick.subtitle":
+    "Google öffnet ein Fenster, in dem Sie die Tabellen auswählen, die Agenten verwenden dürfen. Wir sehen nur diese.",
+  "gsheets.pick.open": "Auswahl von Google öffnen",
+  "gsheets.pick.loading": "Auswahl von Google wird geladen…",
+  "gsheets.pick.saving": "Ihre Auswahl wird gespeichert…",
+  "gsheets.pick.cancelled":
+    "Nichts ausgewählt. Öffnen Sie die Auswahl erneut oder gehen Sie zurück.",
+  "gsheets.pick.failed":
+    "Die Auswahl von Google hat sich nicht geöffnet. Prüfen Sie, ob Pop-ups erlaubt sind, und versuchen Sie es erneut.",
+  // v0.14 W4-A: WhatsApp through Meta (needs a fluent speaker's review).
+  "connections.whatsappMeta.description":
+    "Verbinden Sie Ihre eigene WhatsApp-Business-Nummer über Meta. Agenten schreiben Ihren Kontakten von dieser Nummer, und wir bewahren auf, was diese Ihnen senden.",
+  "connections.whatsappMeta.connect": "WhatsApp verbinden (Ihre eigene Nummer)",
+  "whatsappMeta.signup.title": "Ihre WhatsApp-Nummer verbinden",
+  "whatsappMeta.signup.subtitle":
+    "Meta öffnet ein Fenster, in dem Sie Ihr WhatsApp-Business-Konto und Ihre Nummer wählen. Ihre Facebook-Anmeldung sehen wir nie.",
+  "whatsappMeta.signup.open": "Fenster von Meta öffnen",
+  "whatsappMeta.signup.loading": "Fenster von Meta wird geladen…",
+  "whatsappMeta.signup.saving": "Ihre Nummer wird verbunden…",
+  "whatsappMeta.signup.cancelled":
+    "Es wurde nichts verbunden. Öffnen Sie das Fenster von Meta erneut, oder gehen Sie zurück.",
+  "whatsappMeta.signup.failed":
+    "Das Fenster von Meta hat sich nicht geöffnet. Prüfen Sie, ob Pop-ups erlaubt sind, und versuchen Sie es erneut.",
+  "whatsappMeta.signup.notSetUp":
+    "Die eigene WhatsApp-Nummer lässt sich hier noch nicht verbinden. Wir sagen Ihnen Bescheid, sobald es geht.",
 };

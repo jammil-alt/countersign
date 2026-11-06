@@ -171,7 +171,7 @@ describe("portal billing", () => {
       tenants: CLIENT_SESSION.tenants.map((t) => ({ ...t, role: "client_user" as const })),
     };
     renderAt("/", portal(LEAKY_BILLING, userSession));
-    expect(await screen.findByTestId("portal-nav-overview")).toBeInTheDocument();
+    expect(await screen.findByTestId("portal-nav-table")).toBeInTheDocument();
     expect(screen.queryByTestId("portal-nav-billing")).toBeNull();
   });
 });

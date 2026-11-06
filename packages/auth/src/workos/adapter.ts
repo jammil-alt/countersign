@@ -18,10 +18,12 @@ import {
   clearSessionCookie,
   clearStateCookie,
   epochSec,
+  isRestartState,
   newSession,
   openSession,
   openState,
   resolveSession,
+  restartNonce,
   SESSION_COOKIE,
   STATE_COOKIE,
   STATE_MAX_AGE_SEC,
@@ -40,12 +42,44 @@ export interface Redirect {
   readonly signedIn?: { readonly userId: string; readonly method: string | null };
 }
 
+/** Why a callback did not finish: the audit row's `target.reason` (plan §1.35). */
+export type CallbackFailureReason =
+  /** No `code` or no `state` on the URL: WorkOS sent an error, or the URL was opened by hand. */
+  | "callback_incomplete"
+  /** No state cookie, or one that does not open (cleared by a finished sign-in, or never set). */
+  | "state_missing"
+  /** The state is older than STATE_MAX_AGE_SEC. */
+  | "state_expired"
+  /** The state cookie belongs to another sign-in (another tab started one since). */
+  | "state_mismatch"
+  /** WorkOS refused the code: already used (Back, reload, a restored tab) or expired. */
+  | "code_rejected"
+  /** WorkOS could not be reached, or answered 5xx. */
+  | "workos_unavailable";
+
+export interface CallbackFailure {
+  readonly reason: CallbackFailureReason;
+  /** Where the sign-in meant to land, when the state cookie opened. */
+  readonly returnTo: string | null;
+  /** Sign-in may start again by itself: this callback is not from a restarted sign-in. */
+  readonly restart: boolean;
+}
+
+/** A refused callback. Every refusal of the state or the code says why in `failure`. */
+export type CallbackRefusal = AuthRefusal & { readonly failure?: CallbackFailure };
+
 export interface WorkOSAdapter extends AuthAdapter {
   readonly kind: "workos";
-  /** Where to send the browser to sign in, with the state cookie that proves it came from us. */
-  signIn(input: { returnTo?: string | null }, now: Date): Promise<Redirect | AuthRefusal>;
+  /**
+   * Where to send the browser to sign in, with the state cookie that proves it came from us.
+   * `restart`: the callback started this sign-in again after a failure, so it won't again.
+   */
+  signIn(
+    input: { returnTo?: string | null; restart?: boolean },
+    now: Date,
+  ): Promise<Redirect | AuthRefusal>;
   /** Finish sign-in on the callback request (`?code=&state=`). */
-  callback(request: Request, now: Date): Promise<Redirect | AuthRefusal>;
+  callback(request: Request, now: Date): Promise<Redirect | CallbackRefusal>;
   signOut(request: Request): Promise<Redirect>;
 }
 
@@ -103,10 +137,10 @@ export function createWorkOSAdapter(options: {
       return { ok: true, userId: resolved.session.uid, setCookies };
     },
 
-    async signIn({ returnTo }, nowDate) {
+    async signIn({ returnTo, restart }, nowDate) {
       const path = safeReturnTo(returnTo, config.appOrigin);
       if (path === null) return refuse("forbidden", "return_to must be a path on this site");
-      const nonce = randomToken();
+      const nonce = restart ? restartNonce(randomToken()) : randomToken();
       const sealed = await sealState(
         { n: nonce, r: path, exp: epochSec(nowDate) + STATE_MAX_AGE_SEC },
         password,
@@ -125,19 +159,33 @@ export function createWorkOSAdapter(options: {
       const rawState = requestCookie(request, STATE_COOKIE);
       const state = rawState ? await openState(rawState, password) : null;
       const clear = [clearStateCookie()];
-      if (!code || !stateParam || !state) {
-        return refuse("unauthenticated", "the sign-in could not be verified; start again", clear);
-      }
-      if (epochSec(nowDate) >= state.exp || !timingSafeEqual(state.n, stateParam)) {
-        return refuse("unauthenticated", "the sign-in could not be verified; start again", clear);
-      }
+      // Every failure below is the same refusal; only `failure` tells them apart (audit, restart).
+      // Nothing here relaxes the check: a sign-in finishes only with a matching, unexpired state.
+      const failed = (reason: CallbackFailureReason, message: string): CallbackRefusal => ({
+        ...refuse("unauthenticated", message, clear),
+        failure: {
+          reason,
+          returnTo: state?.r ?? null,
+          // A callback without `state` can't show it isn't from a restart, so it never restarts.
+          restart: !!code && !!stateParam && !isRestartState(stateParam),
+        },
+      });
+      const unverified = "the sign-in could not be verified; start again";
+      if (!code || !stateParam) return failed("callback_incomplete", unverified);
+      if (!state) return failed("state_missing", unverified);
+      if (epochSec(nowDate) >= state.exp) return failed("state_expired", unverified);
+      if (!timingSafeEqual(state.n, stateParam)) return failed("state_mismatch", unverified);
 
       let auth: WorkOSAuthentication;
       try {
         auth = await workos.authenticateWithCode(code);
-      } catch {
+      } catch (error) {
         // A used or expired code, or WorkOS down: either way the person starts again.
-        return refuse("unauthenticated", "the sign-in could not be completed; start again", clear);
+        const refused = error instanceof WorkOSError && error.status !== null && error.status < 500;
+        return failed(
+          refused ? "code_rejected" : "workos_unavailable",
+          "the sign-in could not be completed; start again",
+        );
       }
       const organizationName = auth.organizationId
         ? await workos.organizationName(auth.organizationId).catch(() => null)

@@ -409,7 +409,8 @@ export function pickMessage(template: MessageTemplate, language: ReachLanguage):
  * Which connector's tool sends on a channel. An agent's channel is bound to one connection; the
  * reach-out sends through that connection's tool for the channel. Email goes through Mezonas'
  * sending service (`resend`) or a Gmail mailbox the client connected (`gmail`, send only: an
- * agent's own mailbox or a person's). Meta's WhatsApp plugs in here when it is built.
+ * agent's own mailbox or a person's). WhatsApp goes through Twilio's sender or the client's own
+ * number through Meta (`whatsapp_meta`, v0.14 W4-A), with the same `whatsapp.send`.
  */
 // DECISION: both email tools take the same input (`to`, `subject`, `text`, `replyTag`), so the
 // reach-out service builds one input whichever connection the agent's email channel is bound to.
@@ -419,10 +420,11 @@ export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>
   // v0.12 W3-B: Outlook takes the same input (docs/plan.md §1.52).
   outlook: { email: "outlook.send" },
   twilio: { sms: "sms.send", whatsapp: "whatsapp.send", voice: "call.place" },
+  // v0.14 W4-A: WhatsApp on the client's own number through Meta (docs/plan.md §1.57).
+  whatsapp_meta: { whatsapp: "whatsapp.send" },
 };
-export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {
-  whatsapp_meta: ["whatsapp"],
-};
+/** Connectors planned to carry a channel, refused with "isn't built yet" until then. */
+export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {};
 
 /** The channels a connector can carry for an agent. */
 export function connectorChannels(connector: string): ReachChannel[] {

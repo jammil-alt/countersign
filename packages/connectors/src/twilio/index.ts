@@ -10,6 +10,7 @@ import {
   type MessagingChannel,
   normalizePhone,
   RELEASE_TEXT_PREFIXES,
+  type StoredMedia,
   sendBlockMessage,
   TwilioNumber,
 } from "@countersign/core";
@@ -33,6 +34,8 @@ import {
   type SentRecord,
 } from "../messaging/services";
 import {
+  // v0.14 W4-A
+  isMetaMessageId,
   MESSAGE_GET_TOOL,
   MESSAGES_SEARCH_TOOL,
   MESSAGING_EVENTS,
@@ -59,8 +62,12 @@ import {
   twilioRequest,
 } from "./api";
 import { callTools } from "./call-tools";
+// v0.14 capture
+import { inboundMedia } from "./media";
 
 export * from "./api";
+// v0.14 capture
+export * from "./media";
 export * from "./voice";
 
 /**
@@ -358,7 +365,8 @@ export interface InboundMessage {
   /** The sender's words: data, never instructions. */
   text: string;
   numMedia: number;
-  media: { url: string; contentType: string | null }[];
+  // v0.14 capture: index, declared type and media SID; never the link (docs/plan.md §1.55).
+  media: StoredMedia[];
   profileName: string | null;
   /** Twilio's own reading of opt-out words (Advanced Opt-Out), when it sends one. */
   optOutType: string | null;
@@ -373,11 +381,9 @@ export function parseInbound(p: Record<string, string>): InboundMessage | null {
   const from = splitAddress(p.From);
   const to = splitAddress(p.To);
   if (!sid.success || !account.success || !from || !to) return null;
-  const numMedia = Math.max(0, Math.min(10, Number.parseInt(p.NumMedia ?? "0", 10) || 0));
-  const media = Array.from({ length: numMedia }, (_, i) => ({
-    url: p[`MediaUrl${i}`] ?? "",
-    contentType: p[`MediaContentType${i}`] ?? null,
-  })).filter((m) => m.url);
+  // v0.14 capture: the attachments as they are kept (twilio/media.ts).
+  const media = inboundMedia(new Map(Object.entries(p)));
+  const numMedia = media.length;
   return {
     sid: sid.data,
     accountSid: account.data,
@@ -511,6 +517,26 @@ export function toMessageRecord(m: TwilioMessage): MessageRecord {
     numMedia: Number(m.num_media ?? 0) || 0,
     errorCode: m.error_code == null ? null : String(m.error_code),
   };
+}
+
+// v0.14 capture: the conversation, the attachments (with document ids where downloaded) and
+// whether the text was kept, from the platform. A message whose conversation keeps no text reads
+// as empty, though Twilio still has it (docs/plan.md §1.55).
+async function withFacts(ctx: ToolContext, records: MessageRecord[]): Promise<MessageRecord[]> {
+  const services = ctx.services?.messaging;
+  if (!services?.messageFacts || records.length === 0) return records;
+  const known = await services.messageFacts(records.map((r) => r.sid));
+  return records.map((r) => {
+    const f = known.get(r.sid);
+    if (!f) return r;
+    return {
+      ...r,
+      text: f.kept ? r.text : "",
+      kept: f.kept,
+      conversation: f.conversation,
+      attachments: f.attachments,
+    };
+  });
 }
 
 function messaging(ctx: ToolContext): MessagingServices {
@@ -838,6 +864,10 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
     ],
     sharedNamespaces: [...MESSAGING_NAMESPACES, ...CALL_NAMESPACES],
     events: [...MESSAGING_EVENTS, ...CALL_EVENTS],
+    // v0.14 W4-A: Meta's message ids (`wamid.…`) are read through Meta's connector.
+    handlesInput: (toolId, input) =>
+      toolId !== MESSAGE_GET_TOOL ||
+      !isMetaMessageId(String((input as { sid?: unknown } | null)?.sid ?? "")),
     tools: [
       defineReadTool({
         id: MESSAGES_SEARCH_TOOL,
@@ -872,7 +902,8 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
             .filter((m) => !input.channel || m.channel === input.channel)
             .sort((a, b) => (b.sentAt ?? "").localeCompare(a.sentAt ?? ""))
             .slice(0, input.limit);
-          return { messages };
+          // v0.14 capture
+          return { messages: await withFacts(ctx, messages) };
         },
       }),
       defineReadTool({
@@ -893,7 +924,10 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
               `${accountUrl(auth.accountSid)}/Messages/${input.sid}.json`,
             ),
           );
-          return { message: toMessageRecord(m) };
+          // v0.14 capture
+          const record = toMessageRecord(m);
+          const [message] = await withFacts(ctx, [record]);
+          return { message: message ?? record };
         },
       }),
       defineWriteTool({
