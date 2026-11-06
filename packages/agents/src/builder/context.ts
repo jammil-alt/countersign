@@ -46,6 +46,23 @@ export interface BuilderContext {
   client: BuilderClient | null;
   /** Agents (by slug) a step may ask: the client's other agents, or other templates. */
   agentSlugs: string[];
+  // v0.12 W3-A: what a conversation also knows (ARCHITECTURE §9.6).
+  /** Automations a `use_automation` step may place, by their pinned reference (`slug@version`). */
+  automations?: BuilderAutomationRef[];
+  /** Model ids a skill step may run on (`packages/llm`'s priced list). */
+  models?: string[];
+  /** The client's people, by name and relationship (no contact details). */
+  people?: { name: string; relationship: string | null }[];
+}
+
+/** v0.12 W3-A: an automation the Builder may place. */
+export interface BuilderAutomationRef {
+  ref: string;
+  slug: string;
+  name: string;
+  description: string;
+  input: JsonSchema;
+  output: unknown;
 }
 
 /** Top-level property names of a JSON Schema: the "in → out" a skill's table row shows. */
@@ -99,6 +116,20 @@ export function catalogForPrompt(ctx: BuilderContext): Record<string, unknown> {
     })),
     templates: ctx.templates,
     otherAgents: ctx.agentSlugs,
+    // v0.12 W3-A
+    ...(ctx.automations
+      ? {
+          automations: ctx.automations.map((a) => ({
+            ref: a.ref,
+            name: a.name,
+            description: a.description,
+            input: a.input,
+            output: a.output,
+          })),
+        }
+      : {}),
+    ...(ctx.models ? { models: ctx.models } : {}),
+    ...(ctx.people ? { people: ctx.people } : {}),
     ...(ctx.client
       ? {
           client: {
