@@ -7332,7 +7332,7 @@
           "name": "doc_number",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "customer_external_id": {
           "name": "customer_external_id",
