@@ -2511,10 +2511,11 @@ Back office (operator)
   Capture      GET  /api/ops/clients/:id/conversations          GET/PUT /api/ops/clients/:id/conversations/default
                PUT  /api/ops/clients/:id/conversations/:conversationId/capture {capture, reason?}
                GET  /api/ops/clients/:id/conversations/:conversationId/changes
+               GET  /api/ops/clients/:id/conversations/:conversationId/messages
                POST /api/ops/clients/:id/conversations/:conversationId/messages/:rawRecordId/download
 Portal (client admin)
   Capture      GET  /api/conversations          PUT /api/conversations/:id/capture {archive?, attachments?}
-               GET  /api/conversations/:id/changes
+               GET  /api/conversations/:id/changes    GET /api/conversations/:id/messages
                POST /api/conversations/:id/messages/:rawRecordId/download
 ```
 A capture save over a newer `updatedAt` is 409 `stale`; an `agentId` that isn't this client's agent

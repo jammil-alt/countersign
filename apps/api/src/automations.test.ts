@@ -285,6 +285,23 @@ describe.skipIf(!h)("automations", () => {
       usedBy: 3,
       health: { uses: 2, clean: 2, cleanRunRate: 1 },
     });
+    // v0.14 W4-B: an inner step tried twice (a platform retry) makes its use step not clean.
+    const [inner] = await H.t.db
+      .select({ id: stepRun.id })
+      .from(stepRun)
+      .innerJoin(run, eq(run.id, stepRun.runId))
+      .where(and(eq(stepRun.nodeId, "follow/update"), eq(run.mode, "live")))
+      .limit(1);
+    await H.t.db
+      .update(stepRun)
+      .set({ attempts: 2 })
+      .where(eq(stepRun.id, inner?.id ?? ""));
+    const retried = await H.call(OPERATOR, "GET", `/api/ops/automations/${automationId}`);
+    expect(j(retried.json).automation.health).toEqual({ uses: 2, clean: 1, cleanRunRate: 0.5 });
+    await H.t.db
+      .update(stepRun)
+      .set({ attempts: 1 })
+      .where(eq(stepRun.id, inner?.id ?? ""));
     expect(
       j(detail.json)
         .usedBy.map((u: { kind: string; clientId: string | null }) => `${u.kind}:${u.clientId}`)

@@ -52,6 +52,12 @@
       "name": "mezonas-local-test-suite",
       "binding": "TEST_SUITE_WORKFLOW",
       "class_name": "TestSuiteWorkflow"
+    },
+    // v0.14 capture: one instance per WhatsApp message whose attachments are fetched (§1.55).
+    {
+      "name": "mezonas-local-capture",
+      "binding": "CAPTURE_WORKFLOW",
+      "class_name": "CaptureWorkflow"
     }
   ],
 
@@ -104,6 +110,12 @@
           "name": "mezonas-staging-test-suite",
           "binding": "TEST_SUITE_WORKFLOW",
           "class_name": "TestSuiteWorkflow"
+        },
+        // v0.14 capture
+        {
+          "name": "mezonas-staging-capture",
+          "binding": "CAPTURE_WORKFLOW",
+          "class_name": "CaptureWorkflow"
         }
       ],
       // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
@@ -149,6 +161,12 @@
           "name": "mezonas-test-suite",
           "binding": "TEST_SUITE_WORKFLOW",
           "class_name": "TestSuiteWorkflow"
+        },
+        // v0.14 capture
+        {
+          "name": "mezonas-capture",
+          "binding": "CAPTURE_WORKFLOW",
+          "class_name": "CaptureWorkflow"
         }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],

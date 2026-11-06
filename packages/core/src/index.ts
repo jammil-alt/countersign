@@ -18,6 +18,8 @@ export * from "./api/automations";
 export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
+// v0.12 W3-A: the Builder as a conversation
+export * from "./api/builder";
 export * from "./api/calls";
 // v0.12 W2-G: KPIs and the client view, credits, the client's audit export
 export * from "./api/client-view";
@@ -27,12 +29,18 @@ export * from "./api/compliance";
 // v0.12 W2-A: the connectors catalog
 export * from "./api/connectors";
 export * from "./api/contract";
+// v0.14 capture
+export * from "./api/conversations";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
 export * from "./api/directory";
 export * from "./api/documents";
 export * from "./api/exports";
 export * from "./api/feedback";
+// v0.14 W4-E: Google Chat
+export * from "./api/gchat";
+// v0.14 W4-D
+export * from "./api/gsheets";
 export * from "./api/knowledge";
 export * from "./api/language";
 // v0.12 W1-A: go-live stages and client controls
@@ -57,6 +65,8 @@ export * from "./api/runs-ask";
 export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
+// v0.14 W4-C: the Slack channel picker
+export * from "./api/slack";
 export * from "./api/supervisor";
 export * from "./api/table";
 // v0.12 W2-C: the test bench
@@ -65,6 +75,8 @@ export * from "./api/threads";
 // v0.12 W2-E
 export * from "./api/triggers";
 export * from "./api/usage";
+// v0.14 W4-B
+export * from "./api/zoho";
 export * from "./approvals/rules";
 export * from "./billing";
 export * from "./browser/site";
@@ -80,6 +92,8 @@ export {
 } from "./bundle/flatten";
 export * from "./bundle/merge";
 export * from "./bundle/select";
+// v0.12 W3-A: closest templates
+export * from "./bundle/similarity";
 export * from "./calls/rules";
 export * from "./canonical";
 export * from "./codes/service";
@@ -141,6 +155,8 @@ export * from "./schemas/approval";
 export * from "./schemas/automation";
 export * from "./schemas/common";
 export * from "./schemas/connector";
+// v0.14 capture
+export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
