@@ -432,12 +432,12 @@ describe("the Table's account check", () => {
       },
     });
     renderAt("/inbox", api);
-    const steps = await screen.findByTestId("inbox-item-steps");
+    const steps = await screen.findByTestId("desk-steps");
     expect(within(steps).getAllByRole("listitem")).toHaveLength(3);
     // Nothing internal is listed as a fact: the fingerprint and the finding's state are plumbing.
     expect(screen.queryByText(/connection_signin:x/)).not.toBeInTheDocument();
-    expect(screen.queryByTestId("inbox-item-approve")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("inbox-item-done"));
+    expect(screen.queryByTestId("desk-sign")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("desk-done"));
     expect(sent).toEqual([{ decision: "approve" }]);
   });
 });

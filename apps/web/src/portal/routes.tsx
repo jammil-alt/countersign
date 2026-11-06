@@ -11,10 +11,10 @@ import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
 import { AgentScreen } from "./screens/Agent";
 import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConversationsScreen } from "./screens/Conversations";
+import { PortalDeskScreen } from "./screens/Desk";
 import { PortalDocumentScreen } from "./screens/Document";
 import { PortalExportsScreen } from "./screens/Exports";
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
-import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { PeopleScreen } from "./screens/People";
@@ -38,7 +38,7 @@ export const portalRoutes = (
     {/* C2 Agent (UI-1a) */}
     <Route path="agents/:id" element={<AgentScreen />} />
     {/* C3 Your Desk (UI-1b) */}
-    <Route path="desk" element={<PortalInboxScreen />} />
+    <Route path="desk" element={<PortalDeskScreen />} />
     {/* C4 Accounts and vault (UI-1c) */}
     <Route path="accounts" element={<AccountsScreen />} />
     <Route path="accounts/access" element={<VaultRedirect />} />

@@ -39,7 +39,10 @@ import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
-import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
+import { AutomationPage } from "./skills/AutomationPage";
+import { NewSkillScreen } from "./skills/NewSkill";
+import { SkillPage } from "./skills/SkillPage";
+import { SkillsScreen } from "./skills/SkillsLibrary";
 
 export const opsRoutes = (
   <>
@@ -63,6 +66,7 @@ export const opsRoutes = (
     <Route path="skills" element={<SkillsScreen />} />
     <Route path="skills/new" element={<NewSkillScreen />} />
     <Route path="skills/:id" element={<SkillPage />} />
+    <Route path="skills/automations/:id" element={<AutomationPage />} />
     <Route path="connectors" element={<OpsConnectorsScreen />} />
 
     {/* Clients: the client page and new client (UI-3) */}

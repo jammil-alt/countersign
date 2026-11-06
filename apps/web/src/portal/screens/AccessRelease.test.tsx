@@ -279,14 +279,16 @@ describe("entering a code from the inbox", () => {
       },
     });
     renderAt("/inbox", api);
-    const card = await screen.findByTestId(`inbox-item-${ITEM}`);
+    // UI-1b: the Desk lists it as "Enter code" and opens it on the right.
+    expect(await screen.findByTestId(`desk-entry-${ITEM}`)).toHaveTextContent("Enter code");
+    const card = await screen.findByTestId("desk-detail");
     const entry = await within(card).findByTestId("release-code-entry");
-    expect(within(card).getByTestId("inbox-item-status")).toHaveTextContent("Needs a code");
     expect(entry).toHaveTextContent("We sent a code to •••0142.");
-    // Answered only with the code: no approve, decline or answer.
-    expect(within(card).queryByTestId("inbox-item-approve")).toBeNull();
-    expect(within(card).queryByTestId("inbox-item-decline")).toBeNull();
-    expect(within(card).queryByTestId("inbox-item-answer-input")).toBeNull();
+    // Answered only with the code: no sign, decline, answer or Not now.
+    expect(within(card).queryByTestId("desk-sign")).toBeNull();
+    expect(within(card).queryByTestId("desk-decline")).toBeNull();
+    expect(within(card).queryByTestId("desk-answer-input")).toBeNull();
+    expect(within(card).queryByTestId("desk-not-now")).toBeNull();
     const input = within(entry).getByTestId("release-code-input");
     expect(input).toHaveAttribute("autocomplete", "one-time-code");
     await userEvent.type(input, "12a3456");
@@ -324,7 +326,7 @@ describe("entering a code from the inbox", () => {
       [`GET /api/access/requests/${ITEM}`]: () => ({ request: request({ mine: false }) }),
     });
     renderAt("/inbox", api);
-    const card = await screen.findByTestId(`inbox-item-${ITEM}`);
+    const card = await screen.findByTestId("desk-detail");
     expect(await within(card).findByTestId("release-code-not-mine")).toHaveTextContent(
       "Only the person we sent the code to can enter it.",
     );
