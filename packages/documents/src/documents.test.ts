@@ -11,6 +11,7 @@ import {
 } from "@countersign/db";
 import { createLlmClient, FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
+import { PDFDocument } from "pdf-lib";
 import { afterAll, describe, expect, it } from "vitest";
 import { extractDocument } from "./extract";
 import { findSupport } from "./find-support";
@@ -18,6 +19,7 @@ import { getDocument } from "./get";
 import { GOLDEN_INVOICES, goldenProblems, invoicePath } from "./golden.test-helper";
 import { type Client, createHarness, type Harness } from "./harness.test-helper";
 import { linkToTransaction, shiftDate } from "./link";
+import { PDF_PAGES_PER_CALL } from "./split";
 import { countPages, DocumentError, storeDocument } from "./store";
 
 const h = await createHarness();
@@ -196,6 +198,52 @@ describe.skipIf(!h)("documents", () => {
       tx.select().from(docLine).where(eq(docLine.extractionId, one.extractionId)),
     );
     expect(lines).toHaveLength(x.lines.length);
+  });
+
+  // v0.14 W4-B (docs/plan.md §1.6 "Long PDFs").
+  it("reads a PDF over the page limit in parts, stores it once and records one merged reading", async () => {
+    const pages = PDF_PAGES_PER_CALL + 20;
+    const long = await PDFDocument.create();
+    for (let i = 0; i < pages; i++) long.addPage([100, 100]);
+    const bytes = await long.save();
+    const x = expectedOf("northline-20418");
+    const firstPart = { ...x, lines: x.lines.map((l) => ({ ...l, page: 1 })) };
+    const lastPart = { ...x, lines: [{ ...(x.lines[0] as (typeof x.lines)[number]), page: 3 }] };
+    const model = new FakeModel([
+      { toolUse: { name: "record_invoice", input: { ...firstPart, total: "0" } } },
+      { toolUse: { name: "record_invoice", input: lastPart } },
+    ]);
+    const calls: number[] = [];
+    const before = harness.objects.size;
+    const { document: doc } = await harness.as(B, (tx) =>
+      storeDocument(tx, harness.content, {
+        tenantId: B.tenantId,
+        source: "upload",
+        connectionId: B.uploadConnectionId,
+        bytes,
+        filename: "long.pdf",
+        mimeType: "application/pdf",
+      }),
+    );
+    expect(harness.objects.size).toBe(before + 1);
+    const r = await extractDocument(harness.deps(createLlmClient({ transport: model })), {
+      tenantId: B.tenantId,
+      documentId: doc.id,
+      onCall: (rec) => {
+        calls.push(rec.usage.inputTokens);
+      },
+    });
+    expect(model.requests).toHaveLength(2);
+    expect(JSON.stringify(model.requests[1]?.messages)).toContain(
+      `pages ${PDF_PAGES_PER_CALL + 1} to ${pages} of a ${pages}-page invoice`,
+    );
+    expect(calls).toHaveLength(2);
+    expect(r.extraction.header.pageCount).toBe(pages);
+    expect(r.extraction.total).toBe(x.total);
+    expect(r.lineCount).toBe(x.lines.length + 1);
+    expect(r.extraction.lines.at(-1)?.page).toBe(PDF_PAGES_PER_CALL + 3);
+    // The original is stored once; splitting stores nothing.
+    expect(harness.objects.size).toBe(before + 1);
   });
 
   it("sends a document whose totals don't add up to review, with an inbox item", async () => {

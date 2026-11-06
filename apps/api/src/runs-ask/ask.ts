@@ -7,12 +7,13 @@
 import {
   type AskContext,
   askFilterProblems,
-  askFilterSchema,
   askSystemPrompt,
+  askToolSchema,
   askUserMessage,
   RUN_FILTER_TOOL,
   RUN_FILTER_TOOL_DESCRIPTION,
   type RunFilter,
+  splitAskAnswer,
   tidyFilter,
 } from "@countersign/core";
 import { type LlmCallRecord, type LlmClient, LlmToolError, MODELS } from "@countersign/llm";
@@ -24,7 +25,8 @@ export const ASK_MODEL = MODELS.haiku;
 export const ASK_MAX_TOKENS = 1024;
 
 export type AskOutcome =
-  | { ok: true; filter: RunFilter; record: LlmCallRecord }
+  // v0.14 W4-B: `leftOut`, the parts of the question the filter can't express.
+  | { ok: true; filter: RunFilter; leftOut: string[]; record: LlmCallRecord }
   | { ok: false; reason: string; record: LlmCallRecord | null };
 
 /**
@@ -46,17 +48,19 @@ export async function compileQuestion(input: {
       tool: {
         name: RUN_FILTER_TOOL,
         description: RUN_FILTER_TOOL_DESCRIPTION,
-        schema: askFilterSchema(context.surface),
+        schema: askToolSchema(context.surface),
       },
       maxTokens: ASK_MAX_TOKENS,
       label: "runs.ask",
     });
-    const filter = tidyFilter(result.value);
+    // v0.14 W4-B
+    const answer = splitAskAnswer(result.value);
+    const filter = tidyFilter(answer.filter);
     const problems = askFilterProblems(filter, context);
     if (problems.length > 0) {
       return { ok: false, reason: problems.join("; "), record: result.record };
     }
-    return { ok: true, filter, record: result.record };
+    return { ok: true, filter, leftOut: answer.leftOut, record: result.record };
   } catch (error) {
     if (error instanceof LlmToolError) {
       return { ok: false, reason: `${error.code}: ${error.message}`, record: error.result.record };

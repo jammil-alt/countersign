@@ -5,16 +5,20 @@
 // call to a method named `bind` (Plenary Labs found this the hard way). Every call below goes
 // through a closure over `step`.
 
-import { type StepConfig, type StepRunner, WaitTimeoutError } from "@countersign/workflows";
+import {
+  type StepConfig,
+  type StepRunner,
+  type StepTry,
+  WaitTimeoutError,
+} from "@countersign/workflows";
 
 /** The parts of Cloudflare's WorkflowStep used here, loosely typed so a fake can stand in. */
+// v0.14 W4-B: Cloudflare hands the callback its step context, whose `attempt` counts tries from 1.
+type StepCallback = (ctx?: { attempt?: number }) => Promise<unknown>;
+
 export interface WorkflowStepLike {
-  do(name: string, callback: () => Promise<unknown>): Promise<unknown>;
-  do(
-    name: string,
-    config: CloudflareStepConfig,
-    callback: () => Promise<unknown>,
-  ): Promise<unknown>;
+  do(name: string, callback: StepCallback): Promise<unknown>;
+  do(name: string, config: CloudflareStepConfig, callback: StepCallback): Promise<unknown>;
   sleep(name: string, duration: string | number): Promise<void>;
   waitForEvent(
     name: string,
@@ -57,10 +61,15 @@ export function isEngineTimeout(error: unknown): boolean {
 
 export function cloudflareStepRunner(step: WorkflowStepLike): StepRunner {
   return {
-    async do<T>(name: string, fn: () => Promise<T>, config?: StepConfig): Promise<T> {
-      const result = config
-        ? await step.do(name, toConfig(config), () => fn())
-        : await step.do(name, () => fn());
+    async do<T>(
+      name: string,
+      fn: (attempt?: StepTry) => Promise<T>,
+      config?: StepConfig,
+    ): Promise<T> {
+      // v0.14 W4-B: the try's number, for the step's attempts (1 when the engine gives none).
+      const run = (ctx?: { attempt?: number }) =>
+        fn({ attempt: Math.max(1, Math.trunc(Number(ctx?.attempt ?? 1)) || 1) });
+      const result = config ? await step.do(name, toConfig(config), run) : await step.do(name, run);
       return result as T;
     },
     async waitForEvent<T>(name: string, options: { type: string; timeout: string }) {
