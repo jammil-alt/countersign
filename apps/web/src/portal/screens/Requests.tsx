@@ -1,7 +1,8 @@
-// `/requests` (ARCHITECTURE §15): ask us for a change to one of your services, or for something
-// new, and follow what happened to each ask. Client users see the requests they raised; the client
-// admin sees everyone's. Open requests wait on us, not on the client, so they show in a plain
-// pill; done is positive, with what changed and our note.
+// `/requests` (ARCHITECTURE §15; UI-3a, drafted in the prototype's style): ask us for a change to
+// one of your agents, or for something new, and follow what happened to each ask. Its own page
+// (docs/ui-plan.md open question 1, the plan's default), linked from Sloan and the Desk. Client
+// users see the requests they raised; the client admin sees everyone's. Open requests wait on us,
+// not on the client, so they show as a plain chip; done is positive, with what changed and our note.
 import {
   type PortalRequest,
   REQUEST_SUBJECT_MAX,
@@ -15,25 +16,18 @@ import type { PlainKey } from "../../i18n/catalog";
 import { EN, type I18n, useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { useSession } from "../../session/session";
+import { AgentBadge } from "../../ui/badges";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-  SectionLabel,
-  type Tone,
-} from "../../ui/primitives";
+import { Loaded, Page, PageGrid, Section } from "../../ui/page";
+import { Button, Card, EmptyState, PageHeader } from "../../ui/primitives";
+import { type ChipState, StatusChip } from "../../ui/status";
 
 type Filter = "all" | "open" | "resolved";
 
-export const REQUEST_STATUS: Record<RequestStatus, { label: PlainKey; tone: Tone }> = {
-  open: { label: "requests.status.open", tone: "neutral" },
-  done: { label: "requests.status.done", tone: "positive" },
-  declined: { label: "requests.status.declined", tone: "neutral" },
+export const REQUEST_STATUS: Record<RequestStatus, { label: PlainKey; state: ChipState }> = {
+  open: { label: "requests.status.open", state: "idle" },
+  done: { label: "requests.status.done", state: "done" },
+  declined: { label: "requests.status.declined", state: "idle" },
 };
 
 /** "Nov 3, 2026", in the reader's format. */
@@ -47,50 +41,46 @@ export function PortalRequestsScreen() {
   const client = session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0];
   const isAdmin = client?.role === "client_admin";
   const [filter, setFilter] = useState<Filter>("all");
-  const { data, error, loading, reload } = useApi(apiRoutes.portalRequests, {
-    query: { status: filter },
-  });
+  const state = useApi(apiRoutes.portalRequests, { query: { status: filter } });
 
   return (
-    <div className="max-w-5xl">
+    <Page testId="portal-requests-page">
       <PageHeader title={t("requests.title")} subtitle={t("requests.subtitle")} />
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="order-2 xl:order-1">
-          <SectionLabel
-            action={
-              <StatusFilter
-                value={filter}
-                onChange={setFilter}
-                area="portal-requests"
-                label={t("requests.which")}
-                options={[
-                  ["all", t("requests.filter.all")],
-                  ["open", t("requests.filter.open")],
-                  ["resolved", t("requests.filter.resolved")],
-                ]}
-              />
+      <PageGrid rail={<RaiseRequest onRaised={state.reload} />}>
+        <Section
+          title={isAdmin ? t("requests.team") : t("requests.yours")}
+          action={
+            <StatusFilter
+              value={filter}
+              onChange={setFilter}
+              area="portal-requests"
+              label={t("requests.which")}
+              options={[
+                ["all", t("requests.filter.all")],
+                ["open", t("requests.filter.open")],
+                ["resolved", t("requests.filter.resolved")],
+              ]}
+            />
+          }
+        >
+          <Loaded state={state}>
+            {(data) =>
+              data.items.length === 0 ? (
+                <EmptyState>
+                  {filter === "all" ? t("requests.emptyAll") : t("requests.emptyFiltered")}
+                </EmptyState>
+              ) : (
+                <div data-testid="portal-requests-list" className="flex flex-col gap-4">
+                  {data.items.map((item) => (
+                    <RequestCard key={item.id} item={item} showWho={isAdmin} />
+                  ))}
+                </div>
+              )
             }
-          >
-            {isAdmin ? t("requests.team") : t("requests.yours")}
-          </SectionLabel>
-          {loading && !data ? <Loading /> : null}
-          {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-          {data && data.items.length === 0 ? (
-            <EmptyState>
-              {filter === "all" ? t("requests.emptyAll") : t("requests.emptyFiltered")}
-            </EmptyState>
-          ) : null}
-          <div data-testid="portal-requests-list" className="flex flex-col gap-4">
-            {data?.items.map((item) => (
-              <RequestCard key={item.id} item={item} showWho={isAdmin} />
-            ))}
-          </div>
-        </section>
-        <div className="order-1 xl:order-2">
-          <RaiseRequest onRaised={reload} />
-        </div>
-      </div>
-    </div>
+          </Loaded>
+        </Section>
+      </PageGrid>
+    </Page>
   );
 }
 
@@ -133,8 +123,7 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
   }
 
   return (
-    <Card className="p-5" testId="portal-request-form">
-      <SectionLabel>{t("requests.askUs")}</SectionLabel>
+    <Card title={t("requests.askUs")} pad testId="portal-request-form">
       <form className="flex flex-col gap-4" onSubmit={(e) => void send(e)}>
         <Field label={t("requests.about")}>
           <Select
@@ -181,7 +170,11 @@ function RaiseRequest({ onRaised }: { onRaised: () => void }) {
             {busy ? t("common.sending") : t("requests.send")}
           </Button>
           {sent ? (
-            <span className="text-sm text-ink-muted" data-testid="portal-request-sent">
+            <span
+              className="text-sm text-ink-muted"
+              role="status"
+              data-testid="portal-request-sent"
+            >
               {t("requests.sent")}
             </span>
           ) : null}
@@ -197,25 +190,32 @@ function RequestCard({ item, showWho }: { item: PortalRequest; showWho: boolean 
   const { t } = i18n;
   const status = REQUEST_STATUS[item.status];
   return (
-    <Card testId={`portal-request-${item.id}`} className="p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-medium text-ink" data-testid="portal-request-subject-text">
-            {item.subject}
-          </p>
-          <p className="text-sm text-ink-muted">
-            {item.service ? `${item.service.name} · ` : ""}
+    <Card
+      testId={`portal-request-${item.id}`}
+      title={<span data-testid="portal-request-subject-text">{item.subject}</span>}
+      meta={
+        <StatusChip state={status.state} testId="portal-request-status">
+          {t(status.label)}
+        </StatusChip>
+      }
+    >
+      <div className="ui-card__body flex flex-col gap-3">
+        <p className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+          {item.service ? (
+            <span className="flex items-center gap-2 text-ink">
+              <AgentBadge name={item.service.name} size="sm" />
+              {item.service.name}
+            </span>
+          ) : null}
+          <span>
             {showWho && item.raisedBy?.name ? `${item.raisedBy.name} · ` : ""}
             {when(item.createdAt, i18n)}
-          </p>
-        </div>
-        <Badge tone={status.tone} testId="portal-request-status">
-          {t(status.label)}
-        </Badge>
+          </span>
+        </p>
+        <p className="whitespace-pre-wrap text-ink">{item.text}</p>
       </div>
-      <p className="mt-3 whitespace-pre-wrap text-ink">{item.text}</p>
       {item.status !== "open" ? (
-        <div className="mt-4 border-t border-line pt-4" data-testid="portal-request-reply">
+        <div className="ui-card__foot flex-col items-start" data-testid="portal-request-reply">
           <p className="text-sm text-ink-muted">
             {item.resolvedAt
               ? t(item.status === "done" ? "requests.doneOn" : "requests.declinedOn", {
@@ -223,9 +223,9 @@ function RequestCard({ item, showWho }: { item: PortalRequest; showWho: boolean 
                 })
               : t(item.status === "done" ? "requests.status.done" : "requests.status.declined")}
           </p>
-          {item.note ? <p className="mt-1 whitespace-pre-wrap text-ink">{item.note}</p> : null}
+          {item.note ? <p className="whitespace-pre-wrap text-ink">{item.note}</p> : null}
           {item.changes.length > 0 ? (
-            <ul className="mt-2 flex flex-col gap-1 text-sm" data-testid="portal-request-changes">
+            <ul className="flex flex-col gap-1 text-sm" data-testid="portal-request-changes">
               {item.changes.map((c) => (
                 <li key={`${c.service.id}:${c.version}`} className="text-ink">
                   {t("requests.nowOnVersion", {

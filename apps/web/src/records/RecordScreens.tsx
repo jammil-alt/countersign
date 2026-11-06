@@ -40,17 +40,20 @@ export function PortalRecordScreen() {
   const { t } = useI18n();
   const { id = "" } = useParams();
   const state = useApi(apiRoutes.portalRecord, { params: { id } });
+  // UI-3a: the page's column, with the way back to the records list above the title.
   return (
-    <div className="max-w-6xl">
-      <p className="mb-2 text-sm">
-        <Link to="/runs" className="text-ink-muted hover:underline">
-          {t("nav.runs")}
-        </Link>
-      </p>
-      <RecordBody
-        state={state}
-        hrefs={{ record: (r) => `/records/${r}`, document: (d) => `/documents/${d}` }}
-      />
+    <div className="ui-page" data-testid="portal-record-page">
+      <div>
+        <p className="eyebrow mb-2 text-ink-muted">
+          <Link to="/records" className="text-link hover:underline">
+            {t("records.title")}
+          </Link>
+        </p>
+        <RecordBody
+          state={state}
+          hrefs={{ record: (r) => `/records/${r}`, document: (d) => `/documents/${d}` }}
+        />
+      </div>
     </div>
   );
 }

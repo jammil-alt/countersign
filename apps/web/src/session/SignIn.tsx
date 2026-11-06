@@ -61,11 +61,19 @@ export function SignInScreen() {
   return <DevSignIn />;
 }
 
+/** UI-3a: the logo, one card on the paper, and who to ask for access; the same for every sign-in. */
 function SignInFrame({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-paper px-4 py-10">
+    <div
+      className="flex min-h-screen flex-col items-center justify-center gap-8 bg-paper px-4 py-10"
+      data-testid="signin-frame"
+    >
       <Logo height={26} />
-      <Card className="w-full max-w-lg p-6">{children}</Card>
+      <Card className="w-full max-w-md" pad>
+        {children}
+      </Card>
+      <p className="max-w-md text-center text-sm text-ink-muted">{t("signin.needAccess")}</p>
     </div>
   );
 }
@@ -144,83 +152,80 @@ function DevSignIn() {
   const noList = isApiError(users.error) && users.error.status === 404;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-paper px-4 py-10">
-      <Logo height={26} />
-      <Card className="w-full max-w-lg p-6">
-        <h1 className="type-heading text-ink">{t("signin.title", { product: PRODUCT_NAME })}</h1>
-        <p className="mt-1 mb-5 text-ink-muted">{t("signin.devHelp")}</p>
-        {users.loading ? <Loading /> : null}
-        {users.error && !noList ? <ErrorNotice error={users.error} /> : null}
-        {users.data ? (
-          <ul
-            className="mb-5 overflow-hidden rounded-md border border-line"
-            data-testid="signin-users"
-          >
-            {users.data.users.map((u) => (
-              <li key={u.email} className="border-b border-line last:border-b-0">
-                <button
-                  type="button"
-                  data-testid={`signin-user-${u.email}`}
-                  disabled={busy}
-                  onClick={() => void signIn(u.email)}
-                  className="ds-listrow border-b-0 text-left disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span
-                      aria-hidden
-                      className={cx(
-                        "ds-avatar ds-avatar--sm font-medium",
-                        u.operator ? "mz-lead" : "ds-avatar--self",
-                      )}
-                    >
-                      {(u.name ?? u.email).slice(0, 1).toUpperCase()}
+    <SignInFrame>
+      <h1 className="type-heading text-ink">{t("signin.title", { product: PRODUCT_NAME })}</h1>
+      <p className="mt-1 mb-5 text-ink-muted">{t("signin.devHelp")}</p>
+      {users.loading ? <Loading /> : null}
+      {users.error && !noList ? <ErrorNotice error={users.error} /> : null}
+      {users.data ? (
+        <ul
+          className="mb-5 overflow-hidden rounded-md border border-line"
+          data-testid="signin-users"
+        >
+          {users.data.users.map((u) => (
+            <li key={u.email} className="border-b border-line last:border-b-0">
+              <button
+                type="button"
+                data-testid={`signin-user-${u.email}`}
+                disabled={busy}
+                onClick={() => void signIn(u.email)}
+                className="ds-listrow border-b-0 text-left disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span
+                    aria-hidden
+                    className={cx(
+                      "ds-avatar ds-avatar--sm font-medium",
+                      u.operator ? "mz-lead" : "ds-avatar--self",
+                    )}
+                  >
+                    {(u.name ?? u.email).slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="ds-listrow__title font-medium text-ink">
+                      {u.name ?? u.email}
                     </span>
-                    <span className="min-w-0">
-                      <span className="ds-listrow__title font-medium text-ink">
-                        {u.name ?? u.email}
-                      </span>
-                      <span className="ds-listrow__meta truncate">
-                        {u.email} · {describe(u, i18n)}
-                      </span>
+                    <span className="ds-listrow__meta truncate">
+                      {u.email} · {describe(u, i18n)}
                     </span>
                   </span>
-                  <Icon name="chevron-right" className="text-ink-muted" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {!users.loading ? (
-          <form onSubmit={submit} className="flex gap-2">
-            <label className="sr-only" htmlFor="signin-email">
-              {t("signin.email")}
-            </label>
-            <input
-              id="signin-email"
-              data-testid="signin-email-input"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="operator@example.com"
-              className="ds-input min-w-0 flex-1"
-            />
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={busy || !email.trim()}
-              data-testid="signin-email-submit"
-            >
-              {t("signin.submit")}
-            </Button>
-          </form>
-        ) : null}
-        {failure ? (
-          <div className="mt-4">
-            <ErrorNotice error={failure} />
-          </div>
-        ) : null}
-      </Card>
-    </div>
+                </span>
+                <Icon name="chevron-right" className="text-ink-muted" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {!users.loading ? (
+        <form onSubmit={submit} className="flex gap-2">
+          <label className="sr-only" htmlFor="signin-email">
+            {t("signin.email")}
+          </label>
+          <input
+            id="signin-email"
+            data-testid="signin-email-input"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="operator@example.com"
+            className="ds-input min-w-0 flex-1"
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={busy || !email.trim()}
+            data-testid="signin-email-submit"
+          >
+            {t("signin.submit")}
+          </Button>
+        </form>
+      ) : null}
+      {failure ? (
+        <div className="mt-4">
+          <ErrorNotice error={failure} />
+        </div>
+      ) : null}
+    </SignInFrame>
   );
 }
 

@@ -1,26 +1,52 @@
-// `/records` (v0.12 W1-H, docs/plan.md §1.43): the client's own records, as the back office's
-// Records list shows them (transactions, vendors, items; a search; pages), with the same table
-// classes. Minimal until the redesign; each row opens the record page.
+// `/records` (v0.12 W1-H, docs/plan.md §1.43; UI-3a, drafted in the prototype's style): the
+// client's own records, as the back office's Records list shows them: transactions, vendors, items
+// and receivables (the QuickBooks invoices the client is owed), a search and pages. Each row opens
+// its record page, but a receivable's: no route serves one receivable yet, so its row doesn't link.
 import type { RecordList, RecordListKind, RecordSource } from "@countersign/core";
 import { RECORD_LIST_PAGE } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { day, txnKind } from "../../records/RecordDetail";
+import { shortTime } from "../../runs/format";
+import { Icon } from "../../ui/icons";
+import { Loaded, Page } from "../../ui/page";
 import {
   Badge,
   Button,
+  buttonClass,
+  Card,
   EmptyState,
-  ErrorNotice,
-  Loading,
   PageHeader,
   Tabs,
 } from "../../ui/primitives";
+import { type ChipState, StatusChip } from "../../ui/status";
 import { money } from "../documents";
+import { PORTAL_PATHS } from "../paths";
 
-const KINDS = ["transactions", "vendors", "items"] as const satisfies readonly RecordListKind[];
+const KINDS = [
+  "transactions",
+  "vendors",
+  "items",
+  "receivables",
+] as const satisfies readonly RecordListKind[];
+
+/** A receivable's status as a chip: paid is done; open, void and deleted are plain. */
+const RECEIVABLE_STATUS: Record<string, { label: PlainKey; state: ChipState }> = {
+  open: { label: "records.receivable.open", state: "idle" },
+  paid: { label: "records.receivable.paid", state: "done" },
+  void: { label: "records.receivable.void", state: "idle" },
+  deleted: { label: "records.receivable.deleted", state: "idle" },
+};
+
+/** Today as YYYY-MM-DD on the reader's clock, to tell an open invoice past its due date. */
+export function localDay(d: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 function sourceName(sources: Map<string, RecordSource>, id: string | null): string {
   const s = id ? sources.get(id) : undefined;
@@ -53,7 +79,7 @@ export function PortalRecordsScreen() {
     return () => clearTimeout(timer);
   }, [text, q]);
 
-  const { data, error, loading, reload } = useApi(apiRoutes.portalRecords, {
+  const state = useApi(apiRoutes.portalRecords, {
     query: {
       kind,
       ...(q ? { q } : {}),
@@ -61,12 +87,31 @@ export function PortalRecordsScreen() {
       limit: RECORD_LIST_PAGE,
     },
   });
+  const { data } = state;
   const sources = new Map((data?.sources ?? []).map((s) => [s.id, s]));
 
   return (
-    <div className="max-w-6xl">
-      <PageHeader title={t("records.title")} subtitle={t("records.subtitle")} />
-      <div className="mb-4">
+    <Page testId="portal-records-page">
+      <PageHeader
+        title={t("records.title")}
+        subtitle={
+          data?.lastSyncAt
+            ? `${t("records.subtitle")} ${t("records.lastSync", {
+                time: shortTime(data.lastSyncAt, undefined, i18n),
+              })}`
+            : t("records.subtitle")
+        }
+        actions={
+          <Link
+            to={PORTAL_PATHS.upload}
+            className={buttonClass("secondary")}
+            data-testid="portal-records-upload"
+          >
+            {t("records.upload")}
+          </Link>
+        }
+      />
+      <div className="overflow-x-auto">
         <Tabs
           items={KINDS.map((k) => ({
             to: k === "transactions" ? "/records" : `/records?kind=${k}`,
@@ -76,7 +121,8 @@ export function PortalRecordsScreen() {
           }))}
         />
       </div>
-      <div className="mb-4">
+      <label className="ds-card ui-ask">
+        <Icon name="search" className="text-ink-muted" />
         <input
           type="search"
           aria-label={t("records.search")}
@@ -84,25 +130,35 @@ export function PortalRecordsScreen() {
           data-testid="portal-records-search"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="ds-input w-80 max-w-full text-sm"
+          className="ui-ask__input"
         />
-      </div>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && data.page.rows.length === 0 ? (
-        <EmptyState>{q ? t("records.noMatch", { q }) : t("records.empty")}</EmptyState>
-      ) : null}
-      {data && data.page.rows.length > 0 ? (
-        <>
-          <div className="dt dt-ana">
-            <div>
-              <RecordsTable data={data} sources={sources} i18n={i18n} />
+        {data ? (
+          <span className="text-sm text-ink-muted figures" data-testid="portal-records-found">
+            {t("records.found", { count: data.total })}
+          </span>
+        ) : null}
+      </label>
+      <Loaded state={state}>
+        {(list) =>
+          list.page.rows.length === 0 ? (
+            <EmptyState>{q ? t("records.noMatch", { q }) : t("records.empty")}</EmptyState>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <Card>
+                <div className="dt dt-ana overflow-x-auto">
+                  <RecordsTable data={list} sources={sources} i18n={i18n} />
+                </div>
+              </Card>
+              <Pager
+                data={list}
+                page={page}
+                onPage={(p) => set({ page: p === 1 ? "" : String(p) })}
+              />
             </div>
-          </div>
-          <Pager data={data} page={page} onPage={(p) => set({ page: p === 1 ? "" : String(p) })} />
-        </>
-      ) : null}
-    </div>
+          )
+        }
+      </Loaded>
+    </Page>
   );
 }
 
@@ -175,8 +231,56 @@ function RecordsTable({
       </table>
     );
   }
-  // The API lists receivables too (docs/plan.md §1.43); their table waits for the owner's screens.
-  if (data.page.kind !== "items") return null;
+  if (data.page.kind === "receivables") {
+    const now = localDay();
+    return (
+      <table data-testid="portal-records-receivables">
+        <thead>
+          <tr className="dt-cols">
+            <th>{t("records.col.number")}</th>
+            <th>{t("records.col.customer")}</th>
+            <th>{t("records.col.date")}</th>
+            <th>{t("records.col.due")}</th>
+            <th className="n">{t("records.col.total")}</th>
+            <th className="n">{t("records.col.owed")}</th>
+            <th>{t("records.col.status")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.page.rows.map((r) => {
+            const known = RECEIVABLE_STATUS[r.status];
+            const overdue = r.status === "open" && r.dueDate !== null && r.dueDate < now;
+            return (
+              <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
+                <td className="reference text-ink">{r.docNumber ?? "–"}</td>
+                <td className="font-medium text-ink">{r.customer.name}</td>
+                <td className="text-ink figures">{day(r.txnDate, i18n)}</td>
+                <td className="figures">
+                  <span className={overdue ? "text-risk-ink" : "text-ink"}>
+                    {day(r.dueDate, i18n)}
+                  </span>
+                  {overdue ? (
+                    <span className="block text-sm text-risk-ink" data-testid="portal-overdue">
+                      {t("records.overdue")}
+                    </span>
+                  ) : null}
+                </td>
+                <td className="n text-ink figures">{money(r.total, r.currency, i18n)}</td>
+                <td className="n font-medium text-ink figures">
+                  {money(r.balance, r.currency, i18n)}
+                </td>
+                <td>
+                  <StatusChip state={known?.state ?? "idle"}>
+                    {known ? t(known.label) : r.status}
+                  </StatusChip>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  }
   return (
     <table data-testid="portal-records-items">
       <thead>
@@ -215,7 +319,7 @@ function Pager({
   const to = data.offset + data.page.rows.length;
   if (data.total <= data.limit && data.offset === 0) return null;
   return (
-    <div className="mt-3 flex items-center justify-between gap-3 text-sm text-ink-muted">
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-ink-muted">
       <span className="figures">
         {t("records.range", {
           from: fmt.number(data.offset + 1),
