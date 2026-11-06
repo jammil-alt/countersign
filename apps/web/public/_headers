@@ -3,11 +3,28 @@
 # The CSP allows only this origin, plus Sentry's ingest for error reports. Inline style attributes
 # (React's `style`) need 'unsafe-inline' for styles; scripts stay 'self' only. data: and blob: images
 # and fonts are what the feedback screenshot (modern-screenshot) draws with.
+# v0.12 bankfeed (docs/plan.md §1.52): Plaid Link, the narrowest we know works: its one script by
+# full path, its frames from cdn.plaid.com, and Plaid's API hosts for what the script calls from
+# the page (production and sandbox; the file is the same for staging and production). No inline
+# scripts. Verify in Plaid's sandbox with an OAuth bank (packages/connectors/src/bankfeed/NOTES.md).
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.plaid.com/link/v2/stable/link-initialize.js; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://production.plaid.com https://sandbox.plaid.com; frame-src 'self' https://cdn.plaid.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   Strict-Transport-Security: max-age=63072000; includeSubDomains
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: same-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
+
+# v0.14 W4-D: Google Sheets' picking page only (docs/plan.md §1.52), loaded as a document of its own.
+# It replaces the policy above with the same one plus Google's two scripts (the Picker's loader on
+# apis.google.com, and Google Identity Services' client, which gets the Picker its token in a
+# pop-up), the Picker's frame on docs.google.com and Identity Services' frame and calls under
+# accounts.google.com/gsi/. The pop-up must be able to answer this page: same-origin-allow-popups.
+# Every other path keeps the policy above. What Google needs exactly is in
+# packages/connectors/src/gsheets/NOTES.md, to verify.
+/connections/gsheets/pick
+  ! Content-Security-Policy
+  ! Cross-Origin-Opener-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://apis.google.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/ https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; frame-src 'self' https://docs.google.com https://accounts.google.com/gsi/; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Cross-Origin-Opener-Policy: same-origin-allow-popups

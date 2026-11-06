@@ -27,6 +27,8 @@ import type { Bindings } from "./env";
 import { cloudflareStepRunner, type WorkflowStepLike } from "./runs/step-runner";
 
 export {
+  // v0.14 capture
+  CaptureWorkflow,
   default,
   ExportWorkflow,
   QboSyncWorkflow,

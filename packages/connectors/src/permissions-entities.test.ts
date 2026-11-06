@@ -3,10 +3,14 @@
 // for clients; default access for new clients; the framework's last line counts entities.
 import { DEFAULT_PERMISSIONS, type PermissionMatrix } from "@countersign/core";
 import { describe, expect, it } from "vitest";
+import { createBankfeedConnector } from "./bankfeed/index";
 import { createBrowserConnector } from "./browser/index";
 import type { Connector } from "./connector";
+import { createGchatConnector } from "./gchat/index";
 import { createGdriveConnector } from "./gdrive/index";
 import { createGmailConnector } from "./gmail/index";
+// v0.14 W4-D
+import { createGsheetsConnector } from "./gsheets/index";
 import { createOutlookConnector } from "./outlook/index";
 import {
   applyMatrixChange,
@@ -20,6 +24,8 @@ import { createPodioConnector } from "./podio/index";
 import { createQboConnector } from "./qbo/index";
 import { QBO_TOOLS } from "./qbo/tool-kit";
 import { createResendConnector } from "./resend/index";
+// v0.14 W4-C
+import { createSlackConnector } from "./slack/index";
 import { createTestkitConnector } from "./testkit/index";
 import { createTwilioConnector } from "./twilio/index";
 import { createUploadConnector } from "./upload/index";
@@ -40,6 +46,14 @@ const ALL: Connector[] = [
   // v0.12 W3-B
   createGdriveConnector(),
   createOutlookConnector(),
+  // v0.14 W4-E
+  createGchatConnector(),
+  // v0.14 W4-D
+  createGsheetsConnector(),
+  // v0.14 W4-C
+  createSlackConnector(),
+  // v0.12 bankfeed
+  createBankfeedConnector(),
 ];
 
 const qbo = createQboConnector().manifest;

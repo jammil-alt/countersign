@@ -14,6 +14,8 @@ export interface FakeTwilioRequest {
   method: string;
   account: string | null;
   form: Record<string, string>;
+  /** Whether the request carried an Authorization header (v0.14 capture). */
+  authorized?: boolean;
 }
 
 interface FakeMessage {
@@ -58,6 +60,53 @@ interface FakeCall {
 
 const hex32 = (n: number) => n.toString(16).padStart(32, "0");
 
+// v0.14 capture: media on inbound messages (docs/plan.md §1.55).
+interface FakeMedia {
+  sid: string;
+  account: string;
+  messageSid: string;
+  contentType: string;
+  bytes: Uint8Array;
+  /** What the signed link answers with, when a test wants it to differ. */
+  servedType?: string;
+  /** Leave out Content-Length (a chunked answer). */
+  noLength?: boolean;
+  /** Where Twilio's redirect points; default the fake media host. */
+  redirectTo?: string;
+  /** Twilio answers this status instead of the redirect. */
+  failWith?: number;
+}
+
+/** The host the fake's signed media links are on (one of the listed redirect origins). */
+export const FAKE_TWILIO_MEDIA_HOST = "https://media.twiliocdn.com";
+
+/** A body served in chunks, as a stream (`HttpResponseLike.body`). */
+function bytesResponse(status: number, bytes: Uint8Array, headers: Record<string, string>) {
+  const lower = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  let at = 0;
+  let cancelled = false;
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (n: string) => lower.get(n.toLowerCase()) ?? null },
+    text: async () => "",
+    arrayBuffer: async () => bytes.slice().buffer as ArrayBuffer,
+    body: {
+      getReader: () => ({
+        async read() {
+          if (cancelled || at >= bytes.length) return { done: true };
+          const value = bytes.subarray(at, at + 64 * 1024);
+          at += value.length;
+          return { done: false, value };
+        },
+        async cancel() {
+          cancelled = true;
+        },
+      }),
+    },
+  } satisfies HttpResponseLike;
+}
+
 function json(status: number, body?: unknown): HttpResponseLike {
   const text = body === undefined ? "" : JSON.stringify(body);
   return {
@@ -91,6 +140,8 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
   const numbers = new Map<string, FakeNumber>();
   const messages = new Map<string, FakeMessage>();
   const calls = new Map<string, FakeCall>();
+  // v0.14 capture
+  const media = new Map<string, FakeMedia>();
   const brands = new Map<string, string>();
   const campaigns = new Map<string, string>();
   const requests: FakeTwilioRequest[] = [];
@@ -140,9 +191,25 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
     const method = (init.method ?? "GET").toUpperCase();
     const caller = authAccount(init);
     const form = init.body ? formDecode(init.body) : {};
-    requests.push({ url, method, account: caller, form });
+    requests.push({
+      url,
+      method,
+      account: caller,
+      form,
+      authorized: Boolean(init.headers?.authorization),
+    });
     const u = parseUrl(url);
     if (!u) return json(400, { code: 20001, message: "bad url" });
+    // v0.14 capture: the signed media link, on its own host, needs no credentials.
+    if (u.origin === FAKE_TWILIO_MEDIA_HOST && method === "GET") {
+      const sid = u.pathname.split("/").at(-1) ?? "";
+      const m = media.get(sid);
+      if (!m) return json(404, { code: 20404, message: "not found" });
+      return bytesResponse(200, m.bytes, {
+        "content-type": m.servedType ?? m.contentType,
+        ...(m.noLength ? {} : { "content-length": String(m.bytes.length) }),
+      });
+    }
     if (!caller) return json(401, { code: 20003, message: "Authenticate", status: 401 });
     const query = Object.fromEntries(
       (url.split("?")[1] ?? "")
@@ -312,6 +379,22 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
         .slice(0, Number(query.PageSize ?? 50));
       return json(200, { messages: list, next_page_uri: null });
     }
+    // v0.14 capture: a message's media answers with a redirect to its signed link.
+    const mediaPath = rest.match(/^\/Messages\/((?:SM|MM)[0-9a-f]{32})\/Media\/(ME[0-9a-f]{32})$/);
+    if (mediaPath?.[1] && mediaPath[2] && method === "GET") {
+      const m = media.get(mediaPath[2]);
+      if (!m || m.account !== account || m.messageSid !== mediaPath[1]) {
+        return json(404, { code: 20404, message: "not found" });
+      }
+      if (m.failWith) return json(m.failWith, { code: 20500, message: "failed" });
+      const location = m.redirectTo ?? `${FAKE_TWILIO_MEDIA_HOST}/v1/signed/${m.sid}`;
+      return {
+        status: 307,
+        ok: false,
+        headers: { get: (n) => (n.toLowerCase() === "location" ? location : null) },
+        text: async () => "",
+      };
+    }
     const one = rest.match(/^\/Messages\/((?:SM|MM)[0-9a-f]{32})\.json$/);
     if (one?.[1] && method === "GET") {
       const msg = messages.get(one[1]);
@@ -329,6 +412,18 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
     numbers,
     messages,
     calls,
+    // v0.14 capture
+    media,
+    /** Requests for a message's media (on Twilio's API or the signed link's host). */
+    mediaRequests: () =>
+      requests.filter((r) => {
+        const u = parseUrl(r.url);
+        if (!u) return false;
+        if (u.origin === FAKE_TWILIO_MEDIA_HOST) return true;
+        return (
+          u.origin === parseUrl(TWILIO_API)?.origin && u.pathname.split("/").at(-2) === "Media"
+        );
+      }),
     /** Requests that placed a call. */
     placed: () => requests.filter((r) => r.method === "POST" && r.url.endsWith("/Calls.json")),
     /** Someone calls one of the account's numbers: the form Twilio posts to its VoiceUrl, signed. */
@@ -433,10 +528,17 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
       url: string;
       channel?: "sms" | "whatsapp";
       sid?: string;
+      // v0.14 capture: attachments, as Twilio stores them.
+      media?: Omit<FakeMedia, "sid" | "account" | "messageSid">[];
     }) {
       const prefix = input.channel === "whatsapp" ? "whatsapp:" : "";
+      const attached = input.media ?? [];
       const msg = addMessage({
-        ...(input.sid ? { sid: input.sid } : {}),
+        ...(input.sid
+          ? { sid: input.sid }
+          : attached.length > 0
+            ? { sid: `MM${hex32(next())}` }
+            : {}),
         account_sid: input.account,
         from: `${prefix}${input.from}`,
         to: `${prefix}${input.to}`,
@@ -444,18 +546,37 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
         status: "received",
         direction: "inbound",
       });
-      const params: Record<string, string> = {
-        MessageSid: msg.sid,
-        SmsMessageSid: msg.sid,
-        AccountSid: input.account,
-        From: msg.from,
-        To: msg.to,
-        Body: input.body,
-        NumMedia: "0",
-        ApiVersion: "2010-04-01",
-      };
+      msg.num_media = String(attached.length);
+      const mediaSids = attached.map((a) => {
+        const sid = `ME${hex32(next())}`;
+        media.set(sid, { ...a, sid, account: input.account, messageSid: msg.sid });
+        return sid;
+      });
+      // The form's MediaUrl{i} and MediaContentType{i}, built as entries, never assigned by name.
+      const params: Record<string, string> = Object.fromEntries([
+        ["MessageSid", msg.sid],
+        ["SmsMessageSid", msg.sid],
+        ["AccountSid", input.account],
+        ["From", msg.from],
+        ["To", msg.to],
+        ["Body", input.body],
+        ["NumMedia", String(attached.length)],
+        ["ApiVersion", "2010-04-01"],
+        ...attached.flatMap((a, i) => [
+          [
+            `MediaUrl${i}`,
+            `${TWILIO_API}/Accounts/${input.account}/Messages/${msg.sid}/Media/${mediaSids[i]}`,
+          ],
+          [`MediaContentType${i}`, a.contentType],
+        ]),
+      ]);
       const token = accounts.get(input.account)?.token ?? "";
-      return { params, signature: await twilioSignature(token, input.url, params), sid: msg.sid };
+      return {
+        params,
+        signature: await twilioSignature(token, input.url, params),
+        sid: msg.sid,
+        mediaSids,
+      };
     },
     /** A status callback for a message we sent, signed for `url`. */
     async status(input: { sid: string; status: string; url: string; errorCode?: string }) {

@@ -14,6 +14,8 @@ import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
+// v0.12 bankfeed
+import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 // v0.12 W3-A: the Builder as a conversation
@@ -27,11 +29,17 @@ import { complianceRoutes } from "./compliance";
 // v0.12 W2-A: the connectors catalog
 import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
+// v0.14 capture: WhatsApp conversations and their capture
+import { conversationRoutes } from "./conversations";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
+// v0.14 W4-E: Google Chat
+import { gchatRoutes } from "./gchat";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 // v0.12 W1-A: go-live stages and client controls
@@ -57,6 +65,8 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./slack";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
@@ -1661,9 +1671,14 @@ export const portalRoutes = {
     auth: "session",
     roles: ["client_admin", "client_user"],
     summary:
-      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
+      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts (a URL, or a link widget to open)",
     params: z.object({ connector: ConnectorId }),
-    response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
+    response: z.object({
+      connection: PortalConnection,
+      redirectUrl: z.string().nullable(),
+      // v0.12 bankfeed: Plaid Link, opened in the page, in place of a redirect.
+      link: LinkStartView.nullable().optional(),
+    }),
   }),
   portalAuthorizeCallback: defineRoute({
     method: "POST",
@@ -1849,6 +1864,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 bankfeed: Plaid's webhook
+  ...bankfeedRoutes,
   // v0.12 W1-G: people (autonomy).
   ...peopleRoutes,
   ...voiceSampleRoutes,
@@ -1883,5 +1900,13 @@ export const routes = {
   ...oversightRoutes,
   // v0.12 W3-A: the Builder as a conversation.
   ...builderRoutes,
+  // v0.14 W4-E: Google Chat
+  ...gchatRoutes,
+  // v0.14 W4-D: Google Sheets' picking
+  ...gsheetsRoutes,
+  // v0.14 W4-C: the Slack channel picker.
+  ...slackRoutes,
+  // v0.14 capture: WhatsApp conversations and their capture.
+  ...conversationRoutes,
 } as const;
 export type Routes = typeof routes;

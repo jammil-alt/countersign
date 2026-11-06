@@ -4,7 +4,7 @@
 // a message the provider accepted. apps/api implements it over the client's contacts inside withTenant; the
 // connector never reads the database itself.
 
-import type { MessagingChannel, SendBlock } from "@countersign/core";
+import type { AttachmentView, MessagingChannel, SendBlock } from "@countersign/core";
 
 export interface SendCheckInput {
   channel: MessagingChannel;
@@ -94,6 +94,16 @@ export interface MessagingServices {
   recordedSids(sids: readonly string[]): Promise<string[]>;
   /** Stores the message once (by sid) in the contact's thread and counts it as usage. */
   recordOutbound(message: OutboundMessage): Promise<void>;
+  // v0.14 capture (docs/plan.md §1.55)
+  /** What the platform keeps of these messages: conversation, attachments, whether text is kept. */
+  messageFacts?(sids: readonly string[]): Promise<Map<string, MessageFacts>>;
+}
+
+// v0.14 capture
+export interface MessageFacts {
+  kept: boolean;
+  conversation: { id: string; kind: "direct" | "group"; title: string } | null;
+  attachments: AttachmentView[];
 }
 
 export class SendBlockedError extends Error {

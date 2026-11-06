@@ -14,6 +14,8 @@ export * from "./api/account";
 export * from "./api/approver-rules";
 // v0.12 W2-B: automations
 export * from "./api/automations";
+// v0.12 bankfeed
+export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
 // v0.12 W3-A: the Builder as a conversation
@@ -27,12 +29,18 @@ export * from "./api/compliance";
 // v0.12 W2-A: the connectors catalog
 export * from "./api/connectors";
 export * from "./api/contract";
+// v0.14 capture
+export * from "./api/conversations";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
 export * from "./api/directory";
 export * from "./api/documents";
 export * from "./api/exports";
 export * from "./api/feedback";
+// v0.14 W4-E: Google Chat
+export * from "./api/gchat";
+// v0.14 W4-D
+export * from "./api/gsheets";
 export * from "./api/knowledge";
 export * from "./api/language";
 // v0.12 W1-A: go-live stages and client controls
@@ -57,6 +65,8 @@ export * from "./api/runs-ask";
 export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
+// v0.14 W4-C: the Slack channel picker
+export * from "./api/slack";
 export * from "./api/supervisor";
 export * from "./api/table";
 // v0.12 W2-C: the test bench
@@ -143,6 +153,8 @@ export * from "./schemas/approval";
 export * from "./schemas/automation";
 export * from "./schemas/common";
 export * from "./schemas/connector";
+// v0.14 capture
+export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
