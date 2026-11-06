@@ -133,6 +133,17 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
       });
     },
 
+    // v0.12 W1-A: go-live stages
+    agentStage(tenantId, agentId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ stage: agent.stage })
+          .from(agent)
+          .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
+        return row?.stage ?? null;
+      });
+    },
+
     approvalRouting(tenantId) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx

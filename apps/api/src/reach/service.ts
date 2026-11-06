@@ -23,6 +23,7 @@ import {
   contactHours,
   DEFAULT_QUIET_HOURS,
   type Duration,
+  effectiveMode,
   fixedInputProblem,
   hoursBlock,
   isPlainObject,
@@ -666,7 +667,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
         const definition = loaded.bundle.definition;
         const automatic =
           req.approval.required === "not_required" &&
-          definition.permissions.mode === "act" &&
+          // v0.12 W1-A: in trial and signoff the plan always needs a signature (§10.9).
+          effectiveMode(definition, loaded.agentRow.stage) === "act" &&
           plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto") &&
           // v0.12 W1-G: the person's `approval` on a planned channel asks for a sign (§1.42).
           !plan.needsSignature;

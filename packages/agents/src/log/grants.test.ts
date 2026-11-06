@@ -52,7 +52,10 @@ describe.skipIf(!harness)("grants at the gate", () => {
         patch: { bindings: { testkit: h.A.connectionId } },
       });
       await publish(tx, { agentId: forked.agent.id, versionId: forked.version.id, ctx: h.ctx });
-      await tx.update(agent).set({ runStatus: "active" }).where(eq(agent.id, forked.agent.id));
+      await tx
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, forked.agent.id));
       return forked;
     });
     agentId = a.agent.id;

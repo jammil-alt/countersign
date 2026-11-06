@@ -91,7 +91,10 @@ describe.skipIf(!harness)("autonomy at the gate", () => {
         patch: { bindings: { testkit: h.A.connectionId, messenger: messengerId } },
       });
       await publish(tx, { agentId: forked.agent.id, versionId: forked.version.id, ctx: h.ctx });
-      await tx.update(agent).set({ runStatus: "active" }).where(eq(agent.id, forked.agent.id));
+      await tx
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, forked.agent.id));
       return forked;
     });
     agentId = a.agent.id;
@@ -193,6 +196,26 @@ describe.skipIf(!harness)("autonomy at the gate", () => {
       input: { to: "pat@shop.example", text: "Hi" },
     });
     expect(email.status).toBe("awaiting_approval");
+  });
+
+  it("the stage and the person both count: in trial a send waits, and `off` still refuses", async () => {
+    await h.t.db
+      .update(connection)
+      .set({ permissions: { read: "auto", create: "auto", update: "approval", delete: "off" } })
+      .where(eq(connection.id, messengerId));
+    await h.t.db.update(agent).set({ stage: "trial" }).where(eq(agent.id, agentId));
+    await setAutonomy({ sms: "auto", email: "off" });
+    const text = await callTool(deps, await step(), {
+      toolId: "messenger.text",
+      input: { to: "+15555550100", text: "Trial" },
+    });
+    expect(text.status).toBe("awaiting_approval");
+    const email = await callTool(deps, await step(), {
+      toolId: "messenger.email",
+      input: { to: "pat@shop.example", text: "Trial" },
+    });
+    expect(email.status).toBe("refused");
+    await h.t.db.update(agent).set({ stage: "live" }).where(eq(agent.id, agentId));
   });
 });
 

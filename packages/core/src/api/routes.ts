@@ -20,6 +20,8 @@ import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 // v0.12 W1-G: people (autonomy).
@@ -1798,5 +1800,7 @@ export const routes = {
   // v0.12 W1-G: people (autonomy).
   ...peopleRoutes,
   ...voiceSampleRoutes,
+  // v0.12 W1-A: go-live stages and client controls
+  ...lifecycleRoutes,
 } as const;
 export type Routes = typeof routes;

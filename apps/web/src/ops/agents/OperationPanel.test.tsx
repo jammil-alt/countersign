@@ -282,7 +282,7 @@ describe("activate and pause", () => {
     );
     expect(await screen.findByTestId("agent-run-status")).toHaveTextContent("Draft");
     await user.click(await screen.findByTestId("agent-activate"));
-    expect(await screen.findByTestId("agent-operation-done")).toHaveTextContent("Active");
+    expect(await screen.findByTestId("agent-operation-done")).toHaveTextContent("Started");
     expect(screen.getByTestId("agent-run-status")).toHaveTextContent("Active");
     expect(screen.getByTestId("agent-pause")).toBeInTheDocument();
     expect(screen.queryByText("Checking activation…")).not.toBeInTheDocument();

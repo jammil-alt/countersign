@@ -895,6 +895,24 @@ of them:
 | Past event, live | `POST /api/ops/agents/:id/run-event {eventId}` (ARCHITECTURE §10.9): reuses the router's matching and run ids; 409 `already_ran` when a run with that id exists; 409 `not_live` on bench; the event must be the client's and not from a test run. |
 | Files | Owns `packages/core/src/lifecycle/`, `packages/core/src/api/lifecycle.ts`, `apps/api/src/lifecycle/`, `apps/api/src/routes/lifecycle.ts`; edits the activate/pause handlers in `apps/api/src/routes/ops-agents.ts`, the activation check in `ops-lineage.ts`, the manual trigger in `packages/core/src/schemas/workflow.ts`, the three `effectiveMode` call sites, `runtime-store.ts`. |
 
+### Go-live stages (W1-A)
+
+Decisions made while building §1.36 (ARCHITECTURE §10.9, §11.5; migration 0019). Code in
+`packages/core/src/lifecycle/`, `packages/core/src/api/lifecycle.ts`, `apps/api/src/lifecycle/` and
+`apps/api/src/routes/lifecycle.ts`.
+
+| Topic | Decision |
+|---|---|
+| Not live means suggest only | `effectiveMode(definition, stage)` returns the definition's mode only at `live`; bench, trial, signoff and a missing stage are `suggest_only` (approval stays on by default). At the gate the stage is read fresh (`RuntimeStore.agentStage`) only for `external` tools; reads never ask. An approved reach-out plan's attempts keep running under that one signature (the plan itself is signed in trial). // DECISION |
+| What "writes" means | An agent "has no writes" when its live version's enabled workflows, skills' tools and extra tools hold no `external` tool and no skill that reaches people (a reach-out's attempts are writes on the client's channels). Automations join the walk when W2-B lands. // DECISION |
+| Finished runs | A trial counts live runs that succeeded or failed, created since the trial's `startedAt`; cancelled and waiting runs don't count. Only trials of agents whose run status is active move: a paused trial isn't put before the client. // DECISION |
+| Sign-off item | `kind: approval`, `subject_type: go_live`, assigned to the client admin role, title and one summary sentence in the client's language (`GO_LIVE_WORDS`, six languages, marked for review), payload `goLive: {agentId, summary, text, ask}`: counts only. Resolved through the normal resolve path; an item the agent has moved on from (skipped, moved back) is answered but changes nothing. Leaving signoff any other way expires the item. // DECISION |
+| Rejection | Back to trial with a new `startedAt` (the minimums kept); the reason (the resolve's `note`, else "no reason given") is kept in `stage_state.rejections` and sent to the operator as a `review` item (`subject_type: go_live_rejected`) until W1-C's lead thread exists (TODO in `resolveGoLive`). // DECISION |
+| Skips and moves | Forward needs a reason; each stage cut short is added to `stage_state.skipped`. Leaving the bench runs the activation check (it is starting the agent). Back to the bench sets the run status to `testing` (the bench only test-runs) and lifts any pause. Moving to signoff asks the client admin at once; moving to trial restarts the clock. Every move is an `agent_change` (`kind: 'stage'`) and an `agent.stage` audit row; minimums changes are `kind: 'trial'` and `agent.trial`. // DECISION |
+| Activate and pauses | Activate on the bench starts the trial (or goes live with "no writes"); on a paused agent it resumes and lifts the pause, whoever made it. The operator's Pause takes no reason today: it records `side: operator`, "paused by the operator". Pausing a paused agent keeps the first pause. A pause recorded before v0.12 (none) is the operator's to lift. // DECISION |
+| Client controls | `GET /api/controls` lists the client's running and paused services with who paused them (a route under `/api/services/` would collide with the service page). `POST /api/services/resume-all` resumes every client-side pause. Run now is open to client admins and client users until W1-D's `can_sign` (TODO in `api/lifecycle.ts`); input is checked with the runtime's JSON Schema reader (`checkAgainst`). // DECISION |
+| Past event, live | The router's `routeEvent` over this one agent decides the workflows and the run ids; 409 `already_ran` if any of those runs exists, 409 `not_live` on the bench or when not active, 422 `test_event` for an event whose payload names a test run, 422 `no_workflow` when nothing matches. The run's trigger records `replayedBy`; an `agent_change` `kind: 'run_event'` names the event and runs. // DECISION |
+
 ### 1.37 Notifications, the Table and the Weekly Table (W1-B, M14; migration 0020)
 
 | Topic | Decision |
@@ -1089,6 +1107,38 @@ From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a p
 | Build | Each in `packages/connectors/src/<id>/` with `NOTES.md` (facts to verify), a fake in `testing`, manifest with entities, registration in `apps/api/src/platform.ts` (one line each), portal sign-in through the generic OAuth routes. |
 | Drive | The connection creates its folder (`Mezonas` + the client's chosen name) at sign-in and keeps its id in `config`; `drive.file.upload` takes a document id and a path template; before state: whether a file of that name exists in the target folder. |
 | Outlook | Same input and once-only rules as `gmail.send` (§1.31); Graph `sendMail` takes no idempotency key, so the attempt is recorded first. |
+
+### 1.53 Task skills and a model per step (W2-H, M30; no migration; ARCHITECTURE v0.13 §9.2, §10.11)
+
+| Topic | Decision |
+|---|---|
+| Modes | `SkillDefinition.mode`: `'tool' \| 'task' \| 'agent'`. `task`: `model` required, prompt = platform preamble + the skill's instructions + input (as data), no agent instructions, no memory notes. `agent`: the agent's model, instructions and memory, as today; `model` refused on the definition. `skill_version` stores the definition as JSON, so no migration; existing rows parse as `agent`. |
+| Shape | `model?: { id, maxTokens? }` on `task` skills (required) and on `skill` steps (optional override), the same shape as the agent's `model`. Tiers (Fast, Standard, Strong) are the builder's labels, not stored. // DECISION: an id, so skills, steps and agents name models the same way. |
+| Resolution | Step override, else `task` → the skill's `model`, `agent` → `definition.model`; one function in `packages/agents/src/runtime/model.ts`, used by `run-agent.ts` and `planned.ts` (today both read `definition.model.id` directly). `maxTokens` follows the same order. Budgets (`maxSteps`, `maxCostUsd`) stay the agent's for both modes. |
+| Prompt | `run-agent.ts` builds the `task` prompt without `## How you work` and without memory; the client's language still applies (it is the run's). The untrusted-text rule and `finish` typed to the skill's output are the same. |
+| Validation | Skill: `task` without `model`, or `agent` with one, is an error. Step (one function in `core/src/workflow/validate.ts`): the id is in `packages/llm`'s priced list (`MODELS` plus `pricing.ts`); `model` on a step whose skill is `tool` is an error on that step's `model` field. Core cannot import `llm`, so the validators take the known ids as a parameter (the server passes them; the builder gets them from `GET /api/ops/models`). |
+| Library | The Skills library offers `task` (with a model, default Haiku) or `agent` (default) for operator-written skills; the Builder (W3-A) proposes `task` for jobs with typed input and output that need no voice or memory. |
+| Defaults | Existing and built-in skills stay as they are, so their recorded fixtures are unchanged. Moving a built-in skill to `task` is its own change with re-recorded fixtures. The Materials pack and the documents capability keep their own model choices. |
+| Cost | Nothing new: W1-E's `model_call` rows already carry the model, and step cost already rolls up. |
+| Merge | `model` is a step field; three-way merge handles it like `input`. |
+
+### 1.54 Run oversight (W2-I, M31–M32; migration 0031; ARCHITECTURE v0.13 §10.11, §5.6)
+
+| Topic | Decision |
+|---|---|
+| Who oversees | The run's own client agent, on `definition.oversight.model` (default its `model`). Not Sloan: Sloan watches across runs and talks to the client; oversight is inside one run. |
+| Default | Absent `oversight` = `off`. New agents, Builder drafts and new templates get `review: 'failures'`. // DECISION: existing agents' runs and fixtures don't change unasked. |
+| Executor hook | `packages/workflows` gains `OversightPort.review(req): Promise<OversightDecision>` (ports.ts) and calls it in `work()` when a skill or action step fails (outcome `failed`, or a thrown error) and, from M32, after a checkpoint step succeeds. Absent port, or review `off`: today's behaviour exactly. The executor applies the decision; it never calls a model. |
+| Review | `packages/agents/src/runtime/oversee.ts`: one model call through `packages/llm`, no tools but `finish(decision)`; context per ARCHITECTURE §10.11, data in a tool-result block. Rows written from `agents/src/log/oversight.ts`. |
+| Decision schema | `core/src/oversight/decision.ts`: `continue`, `retry {after?}`, `retry_with {input}`, `ask {question}`, `stop`, each with `note` (1–2,000 characters), `sources` (record ids) and optional `proposal {summary, change}`. `retry` and `continue` are refused where §10.11's table doesn't allow them (validation failure = no intervention). `retry_with.input` is validated with the step's own input schema before anything runs. |
+| Writes | Before a retry of a write step, the port reads the step's external action: `executing`, `done` or `failed` after the call → `stop` and an operator item, whatever the model said. `retry` keeps the idempotency key; `retry_with` uses `${nodeId}:o${seq}`, and the gate decides afresh. |
+| Durable names | `${nodeId}:oversee:${seq}`, `${nodeId}:retry:${seq}`; `seq` from 1 per node. The step's `step_run` row stays one row; `attempts` increments. |
+| Limits | 2 per step, `maxPerRun` per run (default 3), `maxCostUsd` (default $0.25) counted from the decisions' cost. Past a limit the step fails as today. |
+| Ask | An inbox item of the kind a `person` step creates (no new kind), `subject: 'oversight_ask'`, to the step's approver, default the lead (W1-C); resolved through the existing inbox resolution and `waitForEvent`, timeout the step's approval timeout. |
+| Proposals | Operator inbox item `kind: 'review'`, `subject: 'oversight_proposal'`, `payload.fingerprint` = agent, workflow, node and the proposal's normalised summary, so an open one is not proposed twice (as §1.28's findings). |
+| Client words | Core's `i18n/oversight.ts`, six languages, one line per action ("Tried again", "Corrected {field} and tried again", "Asked {name}", "Stopped"); the portal timeline shows these, never `note`. Contract test: no portal route returns `oversight_decision` fields or model names. |
+| Sloan | `run.failed` gains an optional `diagnosis` (the last decision's note, operator side only). Sloan's triage reading it is a follow-up on W2-D's files, after both merge. |
+| Table | Migration 0031 in its own PR: `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
 
 ### People and voice samples (W1-G)
 
@@ -1640,6 +1690,58 @@ tools with before states and once-only writes, `NOTES.md` listing what to verify
 **Done when** Google Drive files a document by month and Outlook sends an approved email once, both
 against fakes; Ramp and HubSpot follow in the same way.
 
+### M30: Task skills and a model per step (W2-H, §1.53)
+
+Work: the `task` mode and `model` on skills; `model` on skill steps; resolution and the `task` prompt in
+the runtime; validation of skills and steps; the Skills library's mode and model fields (API);
+`GET /api/ops/models` (id, label, price per million tokens) for the builder; the run view's per-step
+model.
+
+Tests: resolution (step override; `task` → skill; `agent` → agent) including `maxTokens`; a `task`
+skill's prompt has no agent instructions and no memory notes, an `agent` skill's has both; the same
+`task` skill gives the same request in two different agents; a `task` skill's input with an embedded
+instruction stays in the wrapped user turn and is not followed (replay fixture); validation errors (unknown id, `task`
+without a model, `agent` with one, `model` on a `tool` step); stored skills and bundles parse and hash
+as before; a merge where both sides set a step's model conflicts and one side alone doesn't; replay
+fixtures for two models in one run.
+
+**Done when** one workflow (with the fake model) reads an invoice with a `task` skill on Haiku and
+drafts an email with an `agent` skill on the agent's Sonnet, a step override moves the draft to Opus,
+the run's model calls show each model and per-step cost, and a `task` skill without a model fails
+validation.
+
+### M31: Run oversight on failures (W2-I, §1.54)
+
+Work: migration 0031 (own PR); `oversight` on the definition and `review` on steps; the decision schema;
+`OversightPort` and the executor hook for failures; `oversee.ts`; the log; limits; ask and proposal
+items; client words; the run view's `oversight`; `run.failed`'s `diagnosis`.
+
+Tests (executor on the fake runner, runtime on the fake model): a transient failure retried with the
+same key and finishing; a failed lookup corrected by `retry_with` (input validated, then run); an
+invalid corrected input counts as no intervention and the step fails; a write whose action reached
+`executing` is stopped whatever the model says; a `retry_with` on a write is decided again by the gate
+and asks for approval again; limits per step and per run; a replayed instance reuses the decision
+without a second model call; a test run writes nothing; untrusted error text stays in the tool result;
+no portal route returns a decision field; RLS and immutability on `oversight_decision`.
+
+**Done when** a run whose lookup fails on a vendor name with a trailing space is corrected and finishes,
+with one decision row and one proposal for the operator; a write that reached the client's tool is
+never retried; the fourth intervention in a run fails the step as before; the portal shows only
+"Corrected the vendor name and tried again".
+
+### M32: Checkpoint reviews (W2-I, §1.54)
+
+Work: checkpoint computation in core's validation (a step's output referenced by a later write step's
+input); review after success for `checkpoints` and `all`; `continue`, `retry_with`, `ask` and `stop`
+after success; `GET /api/ops/oversight` for the agent lab.
+
+Tests: checkpoint computation across forks, loops and automations' expanded steps; `failures` makes no
+call on a clean run; `ask` waits and resumes on approval; `stop` at a checkpoint cancels the run.
+
+**Done when** an extraction that feeds a create-bill step is reviewed, a wrong total is corrected before
+the bill is proposed and the approver sees the corrected input, and with `review: 'failures'` a clean
+run makes no oversight call.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -1707,6 +1809,17 @@ Answered (2026-11-06, ARCHITECTURE v0.12; the lead's recommended defaults, recor
 4. **Signing is never done by text reply.** A text or email links to the Desk; signing needs a signed-in session (ARCHITECTURE §11.1, §11.3).
 5. **Go-live stages:** test bench (Sandbox or test runs, never writing); trial on client data (every write needs approval whatever the step says, about 14 days or 25 runs, whichever comes later, operator-adjustable); client sign-off (the client admin approves going live); live. Recorded per client agent; live is blocked until the earlier stages pass; the operator can skip a stage with a logged reason (ARCHITECTURE §10.9, §1.36).
 
+Answered (2026-11-06, ARCHITECTURE v0.13, owner)
+- **The agent oversees its runs.** The workflow stays the operator's plan; clean steps run as code,
+  `task` skills (typed jobs, the same in any agent) on their own default model, usually cheap, and
+  `agent` skills (judgment and drafting in the agent's voice) on the agent's model with its
+  instructions and memory; a step may override either's model; the agent
+  reviews failed steps (and, where set, steps that feed a write) on a model the operator picks, and
+  fixes what it can within the plan. Lasting fixes are proposals. Build order: a model per step (M30),
+  oversight on failures (M31), checkpoint reviews (M32).
+- **No graph library.** We keep our executor on Cloudflare Workflows rather than LangGraph (ARCHITECTURE
+  §10.11).
+
 Open
 1. Stripe: the base fee is per active agent, with a credit allowance and overage (owner, 2026-11-04). One credit is one cent of our cost (owner, 2026-11-04). Open: the allowance per agent, whether a client's allowances are pooled across its agents, the prices, and the Stripe account and its keys (saved as network secrets, never in the repo).
 2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
@@ -1724,7 +1837,8 @@ Open
 ## 8. Execution plan, 2026-11-06 night
 
 Autonomous build of ARCHITECTURE v0.12 by several build agents, coordinated by the lead session. Each
-stream has a decisions section (§1.36–§1.52) and a milestone (M13–M29).
+stream has a decisions section (§1.36–§1.52) and a milestone (M13–M29). v0.13 adds two Wave 2
+streams, W2-H and W2-I (§1.53–§1.54, M30–M32).
 
 ### 8.1 Autonomy rules
 
@@ -1759,8 +1873,12 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | `apps/api/src/app.ts` | One import and one `xRoutes(app)` line before `mcpRoutes`; cron additions as one call each in `runCron`, wrapped in `.catch` like the others |
 | `packages/db/src/schema.ts` | Wave 1: only the migrations agent. Later: new tables appended at the end in a block per stream; new columns at the end of their table with a comment |
 | `packages/core/src/index.ts` | One export line per new module |
-| `packages/core/src/schemas/workflow.ts` | W1-A: manual trigger's `client`; W1-C: person `assignee: 'lead'`; W1-D: person `choices`; W2-B: `UseAutomationStep` and the `Step` union; W2-E: trigger kinds, `moreTriggers`, `handoff` |
-| `packages/core/src/workflow/validate.ts` | One new function per stream (W2-B use steps, W2-E triggers), called from the existing entry point |
+| `packages/core/src/schemas/workflow.ts` | W1-A: manual trigger's `client`; W1-C: person `assignee: 'lead'`; W1-D: person `choices`; W2-B: `UseAutomationStep` and the `Step` union; W2-E: trigger kinds, `moreTriggers`, `handoff`; W2-H: skill step `model`; W2-I: step `review` |
+| `packages/core/src/workflow/validate.ts` | One new function per stream (W2-B use steps, W2-E triggers, W2-H step models, W2-I checkpoints), called from the existing entry point |
+| `packages/core/src/schemas/{agent,skill}.ts` | W2-G: `clientView`; W2-H: skill `model`; W2-I: definition `oversight` |
+| `packages/workflows/src/{executor,ports}.ts` | W1-E owns them in Wave 1. Wave 2: W2-B the expansion call; W2-I `OversightPort` and one hook block in `work()` |
+| `packages/agents/src/runtime/{run-agent,planned}.ts` | W2-H: the model resolution call (one line each) and the `task` prompt in `run-agent.ts` |
+| `apps/api/src/routes/ops-skills.ts` | W2-C: the publish gate; W2-H: the skill's mode and model (one block) |
 | `packages/agents/src/runtime/call-tool.ts` | W1-A: `effectiveMode` at the decision; W1-D: `whyApproval` and `batch_key` on the proposal; W1-G: the recipient's autonomy ceiling; W2-A: the entity |
 | `packages/core/src/permissions/decide.ts` | W1-G: `ceilings` parameter (wave 1); W2-A: entities (wave 2) |
 | `apps/api/src/runs/ports.ts` | W1-C: `createForPerson` (lead); W1-D: `resolution()` (undo window) |
@@ -1785,6 +1903,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0028 | W2-C | `test_case`, `test_suite_run`, `test_case_result`, `skill.require_tests` |
 | 0029 | W3-A | `builder_session`, `builder_turn` |
 | 0030 | spare (W3-B, if a connector needs one) | |
+| 0031 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
 
 The exports (data export and accountant export, running outside the waves) needed no migration.
 
@@ -1810,8 +1929,10 @@ The exports (data export and accountant export, running outside the waves) neede
 | W2-E | Triggers: six kinds (M25) | none | trigger parts of `core/src/schemas/workflow.ts`, trigger validation, `core/src/{triggers,holidays}/`, `packages/workflows/src/router.ts`, schedules in `runs/dispatch.ts`, `apps/api/src/routes/{triggers,hooks}.ts`, agent addresses in `email.ts`, inbound dispatch in `twilio-hooks.ts` | W1-A, W1-C, W1-G |
 | W2-F | Command center, search, plain-words questions (M26) | none | `apps/api/src/routes/{command-center,search}.ts`, `apps/api/src/{search,runs-ask}/`, `core/src/api/{command-center,search,runs-ask}.ts` | W1-E (`RunFilter`), W1-H |
 | W2-G | KPIs and client view, credits, the client's audit export (M27) | none | `clientView` in `core/src/schemas/agent.ts`, `core/src/kpi/`, `core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/{client-view,audit-export}.ts`, `apps/api/src/billing/credits-out.ts` | W1-A, W1-B, W1-H |
+| W2-H | Task skills and a model per step (M30, v0.13) | none | `core/src/schemas/{workflow,skill}.ts` (its blocks), the step-model check in `validate.ts`, the resolution in `agents/src/runtime/model.ts` and the `task` prompt in `run-agent.ts`, the Skills library's mode and model in `ops-skills.ts` (one block, after W2-C's publish gate), `apps/api/src/routes/ops-models.ts`, `core/src/api/models.ts` | W1-E |
+| W2-I | Run oversight (M31–M32, v0.13) | 0031 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
 | **Wave 3** | | | | |
-| W3-A | The Builder as a conversation (M28) | 0029 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E |
+| W3-A | The Builder as a conversation (M28) | 0029 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
 | W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0030 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
 
 **Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
@@ -1919,9 +2040,24 @@ check holds.
 Table), credits-out on the hourly billing pass, the client's audit export and a run's audit trail.
 Done when M27's check holds.
 
+**W2-H: Task skills and a model per step (M30, §1.53).** ARCHITECTURE §9.2, §10.11 (first part). Add the
+`task` mode (own required model; no agent instructions or memory in its prompt), `model` on skill
+steps as an override, one resolution function used by `run-agent.ts` and `planned.ts`, validation of
+skills and steps with known ids passed in, the Skills library's mode and model, `GET /api/ops/models`, and the run view's per-step model. No migration, no UI
+beyond what breaks. Small; start as soon as W1-E merges. Done when M30's check holds.
+
+**W2-I: Run oversight (M31, then M32; §1.54).** ARCHITECTURE §10.11, §5.6. Migration 0031 in its own PR
+first. Then the decision schema, `oversight` and `review`, `OversightPort` with the executor hook (one
+block, after W1-E; agree the order with W2-B, which touches the executor for expansion), `oversee.ts`
+on the fake model, the write check before any retry, limits, ask and proposal items, client words in
+six languages, the run view and `GET /api/ops/oversight`. M31 (failures) ends green and merges before
+M32 (checkpoints) starts. Extend the API e2e: a failing lookup is corrected and the run finishes.
+Done when M31's and M32's checks hold.
+
 **W3-A: The Builder as a conversation (M28, §1.51).** ARCHITECTURE §9.6. Migration 0029; sessions,
 turns, per-change undo by merge, `/skill`, `/automation`, `/trigger`, similarity, draft-skill with
-cases, save as automation. Done when M28's check holds.
+cases, save as automation. Drafts start with `oversight.review: 'failures'` and may set step models
+(v0.13). Done when M28's check holds.
 
 **W3-B: New connectors (M29, §1.52).** ARCHITECTURE §6.11. Google Drive, then Outlook, against fakes;
 Ramp and HubSpot after; nothing for the aggregator or Slack until the owner decides. Done when M29's
