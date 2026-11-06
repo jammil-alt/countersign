@@ -452,6 +452,12 @@ describe.skipIf(!online)("Wave 1 tables and columns", () => {
           .values({ ...copy, externalId: "inv-3", connectionId: B.connectionId }),
       ),
     ).toBe(FOREIGN_KEY);
+    // QuickBooks' DocNumber is optional: an invoice without one is stored with none.
+    const [noNumber] = await t.db
+      .insert(receivable)
+      .values({ ...copy, externalId: "inv-4", docNumber: null })
+      .returning({ docNumber: receivable.docNumber });
+    expect(noNumber?.docNumber).toBeNull();
     await withTenant(t.db, A.tenantId, async (tx) => {
       await asWorker(tx);
       await tx
