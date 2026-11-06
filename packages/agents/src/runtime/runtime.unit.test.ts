@@ -7,8 +7,10 @@ import {
   ReconnectRequiredError,
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
+import { FakeModel } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { type ModelCallInput, modelCallBody, modelCallBodyKey } from "../log/model-calls";
 import { SkillCatalog } from "../registry/skills";
 import { ToolRegistry, ToolRegistryError } from "../registry/tools";
 import { inboxCreate, PLATFORM_TOOLS } from "../tools/platform";
@@ -18,7 +20,7 @@ import { noteReconnect } from "./attention";
 import { callTool, releaseGate } from "./call-tool";
 import { type RuntimeDeps, resolveApprover, type StepContext } from "./context";
 import { checkAgainst, objectSchema } from "./json-schema";
-import { runPlannedAction } from "./planned";
+import { composeReachMessage, runPlannedAction } from "./planned";
 import { toolName } from "./run-agent";
 
 const connectors = () => new ConnectorRegistry([createTestkitConnector()]);
@@ -423,5 +425,86 @@ describe("the platform's tool policy", () => {
       { tenantId: "t1", toolId: TESTKIT_UPDATE_TOOL, connectorId: "testkit" },
     ]);
     expect(finished).toMatchObject([{ status: "refused" }]);
+  });
+});
+
+// v0.12 W1-E: a reach-out's message is a model call of its step, recorded like the agent loop's.
+describe("composeReachMessage", () => {
+  const RUN = "01a1b2c3-0000-7000-8000-000000000001";
+  const STEP_RUN = "01a1b2c3-0000-7000-8000-000000000002";
+  const VERSION = "01a1b2c3-0000-7000-8000-000000000003";
+  const setup = (stepRunId: string) => {
+    const usage: unknown[] = [];
+    const calls: { tenantId: string; call: ModelCallInput }[] = [];
+    const transport = new FakeModel([
+      { toolUse: { name: "message", input: { text: "Can you confirm Friday?" } } },
+    ]);
+    const d = {
+      transport,
+      ports: {
+        log: { addUsage: async (...a: unknown[]) => void usage.push(a) },
+        modelCalls: {
+          record: async (tenantId: string, call: ModelCallInput) =>
+            void calls.push({ tenantId, call }),
+        },
+      },
+    } as unknown as RuntimeDeps;
+    const step = {
+      tenantId: "t1",
+      runId: RUN,
+      stepRunId,
+      stepId: "reach",
+      mode: "live",
+      agent: {
+        agentId: "a1",
+        agentVersionId: VERSION,
+        bundle: {
+          definition: { identity: { name: "Pia" }, model: { id: "claude-haiku-4-5" } },
+        },
+      },
+      externalIndex: { next: 0 },
+    } as unknown as StepContext;
+    const input = {
+      purpose: "Confirm Friday's delivery",
+      data: { order: "PO-1042", card: "4242 4242 4242 4242" },
+      language: "en" as const,
+      channel: "sms",
+      contactName: "Pat Lee",
+      clientName: "Acme Millwork",
+      maxChars: 320,
+    };
+    return { d, step, input, usage, calls };
+  };
+
+  it("records the call on the step, with its request and answer, cards redacted in the body", async () => {
+    const { d, step, input, usage, calls } = setup(STEP_RUN);
+    expect(await composeReachMessage(d, step, input)).toBe("Can you confirm Friday?");
+    expect(usage).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+    const [{ tenantId, call }] = calls as [{ tenantId: string; call: ModelCallInput }];
+    expect(tenantId).toBe("t1");
+    expect(call).toMatchObject({
+      runId: RUN,
+      stepRunId: STEP_RUN,
+      agentVersionId: VERSION,
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      tokensIn: 100,
+      tokensOut: 20,
+      stopReason: "tool_use",
+    });
+    expect(JSON.stringify(call.request)).toContain("4242 4242 4242 4242");
+    // What the writer stores: the client's prefix, and no card number.
+    expect(modelCallBodyKey("t1", "x")).toBe("tenants/t1/model-calls/x.json");
+    const body = JSON.stringify(modelCallBody(call));
+    expect(body).not.toContain("4242 4242 4242 4242");
+    expect(body).toContain("[card ending 4242]");
+  });
+
+  it("records nothing when the reach-out has no step to belong to", async () => {
+    const { d, step, input, usage, calls } = setup("");
+    expect(await composeReachMessage(d, step, input)).toBe("Can you confirm Friday?");
+    expect(usage).toHaveLength(1);
+    expect(calls).toEqual([]);
   });
 });

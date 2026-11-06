@@ -1,5 +1,6 @@
 // v0.12 W1-E: model calls (ARCHITECTURE §10.10; docs/plan.md §1.40). After each model call of a
-// run's step, the runtime hands this port the request, the answer, usage and timing. The writer
+// run's step (the agent loop, a reach-out's message, a document read by `docs.extract`), the
+// runtime hands this port the request, the answer, usage and timing. The writer
 // below records a `model_call` row (provider, model, tokens, cost, duration, stop reason) in the
 // client's own transaction, then stores the request and answer, card numbers redacted (§16), in
 // object storage under the client's prefix. The back office reads them; the portal never does.

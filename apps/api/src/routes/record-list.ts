@@ -1,9 +1,10 @@
 // The back office's Records page (`GET /api/ops/clients/:id/records`): what a client's connections
-// brought in, newest first. Transactions and vendors are the shared records sync maps into
-// (`transaction`, `transaction_line`, `vendor`); items stay QuickBooks' own, as raw records, so an
-// item is the latest raw version of each QuickBooks Item. Each row says which connection it came
-// through: a transaction by the raw record it was made from, a vendor by the raw record its id in
-// the tool names. Every query names the client as well as relying on RLS (invariant 1).
+// brought in, newest first. Transactions, vendors and receivables are the shared records sync maps
+// into (`transaction`, `transaction_line`, `vendor`, `receivable`); items stay QuickBooks' own, as
+// raw records, so an item is the latest raw version of each QuickBooks Item. Each row says which
+// connection it came through: a transaction by the raw record it was made from, a vendor by the
+// raw record its id in the tool names, a receivable by its own. Every query names the client as
+// well as relying on RLS (invariant 1).
 
 import {
   connectionAccountName,
@@ -14,6 +15,7 @@ import {
   type RecordList,
   type RecordListItem,
   type RecordListKind,
+  type RecordListReceivable,
   type RecordListTransaction,
   type RecordListVendor,
   type RecordSource,
@@ -23,6 +25,7 @@ import {
   connection,
   document,
   rawRecord,
+  receivable,
   type Tx,
   transaction,
   transactionLine,
@@ -344,6 +347,75 @@ async function itemRows(
   return rows.map(toItemRow);
 }
 
+// --- receivables ----------------------------------------------------------------------------
+
+// v0.12 W1-F/W1-H: the invoices QuickBooks says the client is owed (docs/plan.md §1.43).
+function receivableConds(tenantId: string, source: string | undefined, q: string | undefined) {
+  const conds: (SQL | undefined)[] = [eq(receivable.tenantId, tenantId)];
+  if (source) conds.push(eq(receivable.connectionId, source));
+  if (q) {
+    const p = containsPattern(q);
+    const amount = searchAmount(q);
+    conds.push(
+      or(
+        ilike(receivable.docNumber, p),
+        ilike(receivable.customerName, p),
+        amount === null ? undefined : sql`${receivable.total} = ${amount}::numeric`,
+        amount === null ? undefined : sql`${receivable.balance} = ${amount}::numeric`,
+      ),
+    );
+  }
+  return and(...conds);
+}
+
+async function countReceivables(tx: Tx, where: SQL | undefined): Promise<number> {
+  const [row] = await tx.select({ n: sql<number>`count(*)::int` }).from(receivable).where(where);
+  return row?.n ?? 0;
+}
+
+// DECISION: the private note stays out of the list (as out of receivable events): it is the
+// client's note to its own team in QuickBooks, read with the tool, not a column of a list.
+async function receivableRows(
+  tx: Tx,
+  where: SQL | undefined,
+  offset: number,
+  limit: number,
+): Promise<RecordListReceivable[]> {
+  const rows = await tx
+    .select({
+      id: receivable.id,
+      docNumber: receivable.docNumber,
+      customerName: receivable.customerName,
+      organizationId: receivable.organizationId,
+      txnDate: receivable.txnDate,
+      dueDate: receivable.dueDate,
+      total: receivable.total,
+      balance: receivable.balance,
+      currency: receivable.currency,
+      status: receivable.status,
+      updatedAt: receivable.updatedAt,
+      sourceId: receivable.connectionId,
+    })
+    .from(receivable)
+    .where(where)
+    .orderBy(desc(receivable.txnDate), desc(receivable.updatedAt), asc(receivable.id))
+    .limit(limit)
+    .offset(offset);
+  return rows.map((r) => ({
+    id: r.id,
+    docNumber: r.docNumber,
+    customer: { name: r.customerName, organizationId: r.organizationId },
+    txnDate: r.txnDate,
+    dueDate: r.dueDate,
+    total: r.total,
+    balance: r.balance,
+    currency: r.currency,
+    status: r.status,
+    syncedAt: isoOf(r.updatedAt),
+    sourceId: r.sourceId,
+  }));
+}
+
 // --- sources --------------------------------------------------------------------------------
 
 /**
@@ -368,7 +440,11 @@ async function sourcesOf(tx: Tx, platform: Platform, tenantId: string): Promise<
         ),
       ),
     );
-  const used = [...new Set([...fromTransactions, ...fromRaw].map((r) => r.id))];
+  const fromReceivables = await tx
+    .selectDistinct({ id: receivable.connectionId })
+    .from(receivable)
+    .where(eq(receivable.tenantId, tenantId));
+  const used = [...new Set([...fromTransactions, ...fromRaw, ...fromReceivables].map((r) => r.id))];
   const rows = await tx
     .select()
     .from(connection)
@@ -411,6 +487,7 @@ export async function listRecords(
     transactions: await countTransactions(tx, transactionConds(tenantId, source, undefined)),
     vendors: await countVendors(tx, vendorConds(tenantId, source, undefined)),
     items: await countItems(tx, items, undefined),
+    receivables: await countReceivables(tx, receivableConds(tenantId, source, undefined)),
   };
 
   let total: number;
@@ -423,6 +500,10 @@ export async function listRecords(
     const where = vendorConds(tenantId, source, q);
     total = q ? await countVendors(tx, where) : counts.vendors;
     page = { kind, rows: await vendorRows(tx, where, offset, limit) };
+  } else if (kind === "receivables") {
+    const where = receivableConds(tenantId, source, q);
+    total = q ? await countReceivables(tx, where) : counts.receivables;
+    page = { kind, rows: await receivableRows(tx, where, offset, limit) };
   } else {
     const where = itemSearch(items, q);
     total = q ? await countItems(tx, items, where) : counts.items;

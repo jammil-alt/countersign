@@ -571,7 +571,7 @@ const recordsSearch: Tool<OpsToolCtx> = {
   name: "records_search",
   title: "Search records",
   description:
-    "What a client's connections brought in (transactions, vendors or items), newest first, with the same search as the back office's Records page: a doc number, memo, vendor or name, or an amount.",
+    "What a client's connections brought in (transactions, vendors, items or receivables), newest first, with the same search as the back office's Records page: a doc number, memo, vendor, customer or name, or an amount.",
   input: z.strictObject({
     client: ClientId,
     q: z.string().trim().max(200).optional(),
