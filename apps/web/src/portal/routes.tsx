@@ -3,14 +3,12 @@
 // them; every old address redirects to its new home (params, query and hash kept), so links in
 // emails, texts and bookmarks keep working.
 //
-// Not here yet, added with their screens: `/sloan` (UI-1d, C6 Sloan) and `/weekly` (UI-1d, C8
-// Weekly Table).
-//
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
 import { Redirect } from "../shell/Redirect";
 import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
+import { AgentScreen } from "./screens/Agent";
 import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConversationsScreen } from "./screens/Conversations";
 import { PortalDocumentScreen } from "./screens/Document";
@@ -18,23 +16,24 @@ import { GsheetsPickScreen } from "./screens/GsheetsPick";
 import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
-import { OverviewScreen } from "./screens/Overview";
 import { PeopleScreen } from "./screens/People";
 import { PortalRecordsScreen } from "./screens/Records";
 import { PortalReportsScreen } from "./screens/Reports";
 import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
-import { PortalServiceScreen } from "./screens/Service";
 import { PortalSettingsScreen } from "./screens/Settings";
+import { PortalSloanScreen } from "./screens/Sloan";
+import { TableScreen } from "./screens/Table";
+import { PortalWeeklyScreen } from "./screens/Weekly";
 import { WhatsappMetaSignupScreen } from "./screens/WhatsappMetaSignup";
 
 export const portalRoutes = (
   <>
     {/* C1 The Table (UI-1a) */}
-    <Route index element={<OverviewScreen />} />
+    <Route index element={<TableScreen />} />
     {/* C2 Agent (UI-1a) */}
-    <Route path="agents/:id" element={<PortalServiceScreen />} />
+    <Route path="agents/:id" element={<AgentScreen />} />
     {/* C3 Your Desk (UI-1b) */}
     <Route path="desk" element={<PortalInboxScreen />} />
     {/* C4 Accounts and vault (UI-1c) */}
@@ -54,6 +53,11 @@ export const portalRoutes = (
     {/* C9, C10 Runs and run detail (UI-1d) */}
     <Route path="runs" element={<PortalRunsScreen />} />
     <Route path="runs/:id" element={<PortalRunScreen />} />
+    {/* C8 Weekly Table (UI-1d) */}
+    <Route path="weekly" element={<PortalWeeklyScreen />} />
+    {/* C6 Sloan (UI-1d) */}
+    <Route path="sloan" element={<PortalSloanScreen />} />
+    <Route path="sloan/:id" element={<PortalSloanScreen />} />
 
     {/* Pages the prototype doesn't show (UI-3) */}
     <Route path="reports/*" element={<PortalReportsScreen />} />

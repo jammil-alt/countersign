@@ -60,7 +60,17 @@ describe("the portal's routes", () => {
   const all = paths(portalRoutes, "").filter((p) => !ACTS_ON_ARRIVAL(p));
 
   it("has the plan's new homes", () => {
-    for (const p of ["/", "/desk", "/agents/x", "/accounts", "/people", "/settings", "/runs"]) {
+    for (const p of [
+      "/",
+      "/desk",
+      "/agents/x",
+      "/accounts",
+      "/people",
+      "/settings",
+      "/runs",
+      "/weekly",
+      "/sloan",
+    ]) {
       const pattern = p.replace("/x", `/${ID}`);
       expect(all).toContain(pattern);
     }
