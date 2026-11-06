@@ -256,8 +256,14 @@ export function Tabs({
   items: { to: string; label: string; count?: number; end?: boolean; active?: boolean }[];
 }) {
   const { t } = useI18n();
+  // On a phone the row scrolls sideways inside itself, not the page. The hairline under it is
+  // drawn as its background, so the active tab's underline covers it without a negative margin
+  // (which would make a scrolling row scroll a pixel down too).
   return (
-    <nav className="flex gap-5 border-b border-line" aria-label={t("common.sections")}>
+    <nav
+      className="flex gap-5 overflow-x-auto bg-[linear-gradient(var(--line),var(--line))] bg-[length:100%_1px] bg-bottom bg-no-repeat"
+      aria-label={t("common.sections")}
+    >
       {items.map((t) => (
         <NavLink
           key={t.to}
@@ -265,7 +271,7 @@ export function Tabs({
           end={t.end ?? false}
           className={({ isActive }) =>
             cx(
-              "-mb-px inline-flex items-center gap-1.5 border-b-2 py-3 text-sm leading-none font-medium",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 py-3 text-sm leading-none font-medium",
               (t.active ?? isActive)
                 ? "border-slate text-ink"
                 : "border-transparent text-ink-muted hover:text-ink",

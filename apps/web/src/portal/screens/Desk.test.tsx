@@ -115,6 +115,7 @@ describe("Your Desk: a QuickBooks change", () => {
 
     const entry = await screen.findByTestId(`desk-entry-${ITEM.id}`);
     expect(entry).toHaveTextContent("Pia");
+    expect(screen.getByTestId("desk-requests")).toHaveAttribute("href", "/requests");
     expect(entry).toHaveTextContent("Sign");
     expect(entry).toHaveTextContent("QuickBooks bill 20418 · Northline Panel Supply");
 

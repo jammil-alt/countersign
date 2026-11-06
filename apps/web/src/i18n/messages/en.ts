@@ -167,6 +167,8 @@ export const en = {
   },
   "table.waitLine": { one: "{count} thing waits on you.", other: "{count} things wait on you." },
   "table.waitNone": "Nothing waits on you.",
+  "table.openWeekly": "Open the Weekly Table",
+  "table.askSloan": "Ask Sloan",
   "table.workingNow": "Working now",
   "table.meta.running": { one: "{count} running", other: "{count} running" },
   "table.meta.waiting": { one: "{count} waiting on you", other: "{count} waiting on you" },

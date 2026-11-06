@@ -222,6 +222,11 @@ describe("the agent page", () => {
     expect(screen.getByText(DETAIL.service.description)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Running"));
     expect(screen.getByTestId("agent-lead")).toHaveTextContent("Ana Ruiz");
+    expect(screen.getByRole("link", { name: "Ask Sloan" })).toHaveAttribute("href", "/sloan");
+    expect(screen.getByRole("link", { name: "Open the Weekly Table" })).toHaveAttribute(
+      "href",
+      "/weekly",
+    );
 
     // Right now: the run's steps, done, current and still to do.
     const steps = await screen.findByTestId("agent-now-steps");

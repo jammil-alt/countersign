@@ -5,36 +5,49 @@
 // screens are swept without editing this file.
 //
 // A page fails when the screen crashed (React unmounted the root: an empty #root), the page threw,
-// the console logged an error, an /api call answered 500 or more, or a link led to "Not found".
-// It clicks nothing and submits nothing: navigation only. Screens are being redesigned (the owner's
-// v1 layouts), so this checks that each screen renders, not what it shows.
+// the console logged an error, an /api call answered 500 or more, a link led to "Not found", or,
+// at phone width, the page scrolls sideways. It runs in several looks (./harness.mjs): light and
+// dark at desktop width and dark at 390×844 by default. It clicks nothing and submits nothing:
+// navigation only. Screens are being redesigned (the owner's v1 layouts), so this checks that each
+// screen renders, not what it shows. The walkthroughs (./walkthroughs.mjs) follow the prototype's
+// two paths through the screens.
 //
 //   SWEEP_URL=http://localhost:8787 node e2e/route-sweep.mjs
+//   SWEEP_LOOKS=phone-light SWEEP_SHOTS=/tmp/shots node e2e/route-sweep.mjs
 //
 // Exit 1 with the failures listed; patterns never reached are listed as a note.
 
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import {
+  BASE,
+  CLIENT_ADMIN,
+  checkPage,
+  launch,
+  looks,
+  OPERATOR,
+  openPage,
+  settle,
+  shoot,
+} from "./harness.mjs";
 
-const BASE = (process.env.SWEEP_URL ?? "http://localhost:8787").replace(/\/$/, "");
 const MAX_PAGES = Number(process.env.SWEEP_MAX_PAGES ?? 200);
-const SETTLE_MS = 400;
+const LOOK_NAMES = looks("desktop-light,desktop-dark,phone-dark");
 
 /**
- * The seeded people (packages/db/src/seed.ts): the operator, and the Demo client's admin. `files`:
- * where each area's route table is, the first that exists (the UI plan moves it into routes.tsx).
+ * The seeded people (./harness.mjs): the operator, and the Demo client's admin. `files`: where each
+ * area's route table is, the first that exists (the UI plan moves it into routes.tsx).
  */
 const AREAS = [
   {
     name: "back office",
-    email: "operator@example.com",
+    email: OPERATOR,
     prefix: "/ops",
     files: ["../src/ops/routes.tsx", "../src/ops/OpsApp.tsx"],
   },
   {
     name: "portal",
-    email: "admin@demo-client.example.com",
+    email: CLIENT_ADMIN,
     prefix: "",
     files: ["../src/portal/routes.tsx", "../src/portal/PortalApp.tsx"],
   },
@@ -84,7 +97,7 @@ function patternOf(patterns, path) {
   return [...patterns].sort((a, b) => score(a) - score(b)).find((p) => patternRegex(p).test(path));
 }
 
-async function sweepArea(browser, area, failures, unreached) {
+async function sweepArea(browser, area, lookName, failures, unreached) {
   const file = area.files
     .map((f) => fileURLToPath(new URL(f, import.meta.url)))
     .find((f) => existsSync(f));
@@ -96,26 +109,7 @@ async function sweepArea(browser, area, failures, unreached) {
       `${area.name}: only ${patterns.length} routes found in ${area.files.join(" or ")}; has the route table moved?`,
     );
   }
-  const context = await browser.newContext();
-  const { hostname } = new URL(BASE);
-  await context.addCookies([
-    { name: "cs_dev_user", value: encodeURIComponent(area.email), domain: hostname, path: "/" },
-  ]);
-  const page = await context.newPage();
-  let problems = [];
-  page.on("pageerror", (e) => problems.push(`page error: ${e.message}`));
-  page.on("console", (m) => {
-    // A 4xx the screen handles shows up as "Failed to load resource"; 5xx are caught below.
-    if (m.type() === "error" && !m.text().startsWith("Failed to load resource")) {
-      problems.push(`console error: ${m.text().slice(0, 300)}`);
-    }
-  });
-  page.on("response", (r) => {
-    const url = new URL(r.url());
-    if (url.pathname.startsWith("/api/") && r.status() >= 500) {
-      problems.push(`${r.request().method()} ${url.pathname} answered ${r.status()}`);
-    }
-  });
+  const { context, page, problems, look } = await openPage(browser, area.email, lookName);
 
   const seen = new Set(); // patterns visited
   const queue = patterns.filter((p) => !/[:*]/.test(p)).map((p) => p.replace(/\/$/, "") || "/");
@@ -126,21 +120,18 @@ async function sweepArea(browser, area, failures, unreached) {
     if (!pattern || seen.has(pattern)) continue;
     seen.add(pattern);
     pages += 1;
-    problems = [];
+    problems.length = 0;
     try {
-      await page.goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: 30_000 });
-      await page.waitForTimeout(SETTLE_MS);
+      await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await settle(page);
     } catch (e) {
       problems.push(`did not load: ${e.message.split("\n")[0]}`);
     }
-    const landed = new URL(page.url()).pathname;
-    if (landed.startsWith("/sign-in"))
-      problems.push("sent to sign-in (the dev sign-in did not hold)");
-    const rootEmpty = await page.evaluate(() => !document.getElementById("root")?.children.length);
-    if (rootEmpty) problems.push("the screen crashed: #root is empty");
-    if (await page.getByText("No page here.").count()) problems.push("a link led to Not found");
-    for (const p of problems) failures.push(`${area.name} ${path}: ${p}`);
-    console.log(`${problems.length ? "FAIL" : "ok  "} ${area.name} ${path}`);
+    problems.push(...(await checkPage(page, look)));
+    for (const p of problems) failures.push(`${lookName} ${area.name} ${path}: ${p}`);
+    console.log(`${problems.length ? "FAIL" : "ok  "} ${lookName} ${area.name} ${path}`);
+    // Only pages whose address has no id, so each run's screenshots have the same names.
+    if (!/[:*]/.test(pattern)) await shoot(page, lookName, `${area.name} ${path}`);
 
     const links = await page.$$eval("a[href]", (as) => as.map((a) => a.getAttribute("href")));
     for (const href of links) {
@@ -151,29 +142,29 @@ async function sweepArea(browser, area, failures, unreached) {
       if (p && !seen.has(p)) queue.push(next);
     }
   }
-  for (const p of patterns) if (!seen.has(p)) unreached.push(`${area.name} ${p}`);
+  for (const p of patterns) if (!seen.has(p)) unreached.add(`${area.name} ${p}`);
   await context.close();
 }
 
 async function main() {
-  const browser = await chromium.launch(
-    process.env.SWEEP_CHROMIUM ? { executablePath: process.env.SWEEP_CHROMIUM } : {},
-  );
+  const browser = await launch();
   const failures = [];
-  const unreached = [];
+  const unreached = new Set();
   try {
-    for (const area of AREAS) await sweepArea(browser, area, failures, unreached);
+    for (const lookName of LOOK_NAMES) {
+      for (const area of AREAS) await sweepArea(browser, area, lookName, failures, unreached);
+    }
   } finally {
     await browser.close();
   }
-  if (unreached.length) {
-    console.log(`\nNot reached (no link to one in the seeded data): ${unreached.join(", ")}`);
+  if (unreached.size) {
+    console.log(`\nNot reached (no link to one in the seeded data): ${[...unreached].join(", ")}`);
   }
   if (failures.length) {
     console.error(`\n${failures.length} problem(s):\n${failures.map((f) => `  ${f}`).join("\n")}`);
     process.exit(1);
   }
-  console.log("\nEvery screen reached rendered without errors.");
+  console.log(`\nEvery screen reached rendered without errors in ${LOOK_NAMES.join(", ")}.`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

@@ -83,6 +83,7 @@ function TheTable({ data, reload }: { data: TableView; reload: () => void }) {
             {waiting === 0 ? t("table.waitNone") : t("table.waitLine", { count: waiting })}
           </span>
         }
+        actions={<WeeklyAndSloan />}
       />
       <PageGrid
         rail={
@@ -126,6 +127,28 @@ function TheTable({ data, reload }: { data: TableView; reload: () => void }) {
         </Section>
         <Latest recent={data.recent} />
       </PageGrid>
+    </>
+  );
+}
+
+/**
+ * "Open the Weekly Table" and "Ask Sloan": the Table's header actions, and an agent page's, where
+ * pausing is the main action and Sloan's link is `quiet` (secondary).
+ */
+export function WeeklyAndSloan({ quiet = false }: { quiet?: boolean }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <Link to={PORTAL_PATHS.weekly} className={buttonClass("secondary")} data-testid="open-weekly">
+        {t("table.openWeekly")}
+      </Link>
+      <Link
+        to={PORTAL_PATHS.sloan}
+        className={buttonClass(quiet ? "secondary" : "primary")}
+        data-testid="ask-sloan"
+      >
+        {t("table.askSloan")}
+      </Link>
     </>
   );
 }
