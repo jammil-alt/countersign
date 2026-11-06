@@ -19,9 +19,11 @@ import {
   type Connector,
   ConnectorRegistry,
   createBrowserConnector,
+  createGdriveConnector,
   createGmailConnector,
   // v0.12 W3-B
   createHubspotConnector,
+  createOutlookConnector,
   createPodioConnector,
   createQboConnector,
   // v0.12 W3-B
@@ -161,7 +163,10 @@ type OAuthEnvKey =
   | "RAMP_CLIENT_ID"
   | "RAMP_CLIENT_SECRET"
   | "HUBSPOT_CLIENT_ID"
-  | "HUBSPOT_CLIENT_SECRET";
+  | "HUBSPOT_CLIENT_SECRET"
+  // v0.12 W3-B: Outlook's Entra app.
+  | "OUTLOOK_CLIENT_ID"
+  | "OUTLOOK_CLIENT_SECRET";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -180,6 +185,7 @@ export function platformFor(
     // v0.12 W3-B
     env.RAMP_CLIENT_ID ?? "-",
     env.HUBSPOT_CLIENT_ID ?? "-",
+    env.OUTLOOK_CLIENT_ID ?? "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -209,6 +215,10 @@ export function deploymentConnectors(
   const googleReady = Boolean(
     env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
+  // v0.12 W3-B
+  const microsoftReady = Boolean(
+    env.OUTLOOK_CLIENT_ID && env.OUTLOOK_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
+  );
   return [
     // Upload (with email forwarding) is built in everywhere (ARCHITECTURE §6.1).
     createUploadConnector(),
@@ -233,6 +243,16 @@ export function deploymentConnectors(
     // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
     createGmailConnector(
       googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
+    // v0.12 W3-B: Google Drive (drive.file, on Gmail's Google client) and Outlook (send only), like
+    // Gmail: registered everywhere, signing in once their client and OAUTH_STATE_SECRET are set.
+    createGdriveConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
+    createOutlookConnector(
+      microsoftReady
+        ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
+        : {},
     ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.

@@ -5,6 +5,8 @@
 export {
   DEFAULT_APPROVAL_TIMEOUT,
   type ExecutorContext,
+  // v0.13 W2-I
+  type ExecutorOversight,
   executeWorkflow,
   pool,
   type RunEndStatus,

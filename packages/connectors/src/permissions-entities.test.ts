@@ -5,8 +5,10 @@ import { DEFAULT_PERMISSIONS, type PermissionMatrix } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { createBrowserConnector } from "./browser/index";
 import type { Connector } from "./connector";
+import { createGdriveConnector } from "./gdrive/index";
 import { createGmailConnector } from "./gmail/index";
 import { createHubspotConnector } from "./hubspot/index";
+import { createOutlookConnector } from "./outlook/index";
 import {
   applyMatrixChange,
   connectionDefaults,
@@ -40,6 +42,8 @@ const ALL: Connector[] = [
   // v0.12 W3-B
   createRampConnector(),
   createHubspotConnector(),
+  createGdriveConnector(),
+  createOutlookConnector(),
 ];
 
 const qbo = createQboConnector().manifest;

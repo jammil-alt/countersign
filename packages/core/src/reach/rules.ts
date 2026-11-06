@@ -416,6 +416,8 @@ export function pickMessage(template: MessageTemplate, language: ReachLanguage):
 export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>> = {
   resend: { email: "email.send" },
   gmail: { email: "gmail.send" },
+  // v0.12 W3-B: Outlook takes the same input (docs/plan.md §1.52).
+  outlook: { email: "outlook.send" },
   twilio: { sms: "sms.send", whatsapp: "whatsapp.send", voice: "call.place" },
 };
 export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {

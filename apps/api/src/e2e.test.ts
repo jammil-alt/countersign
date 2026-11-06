@@ -37,7 +37,9 @@ import {
   fakeQbo,
   fakeStripe,
 } from "@countersign/connectors/testing";
-import { billingAgentDay, docExtraction, event, transaction } from "@countersign/db";
+// v0.13 W2-I
+import type { SkillDefinition } from "@countersign/core";
+import { billingAgentDay, docExtraction, event, stepRun, transaction } from "@countersign/db";
 import { loadSeedTemplates } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
@@ -74,7 +76,39 @@ const syncs = new MemoryQboSyncInstances();
 const invoice = (name: string) =>
   new Uint8Array(readFileSync(resolve(DEFAULT_FIXTURE_DIR, "..", "invoices", name)));
 
+// v0.13 W2-I: a strict vendor lookup (a match, or the step fails), for run oversight's part (5c).
+const FIND_VENDOR: SkillDefinition = {
+  schemaVersion: 1,
+  id: "test.find-vendor",
+  name: "Find the vendor",
+  description: "Finds the vendor in QuickBooks by its name; fails when none matches.",
+  category: "test",
+  mode: "tool",
+  handler: QBO_TOOLS.vendorQuery,
+  tools: [],
+  input: {
+    type: "object",
+    properties: { name: { type: "string", title: "vendor name" } },
+    required: ["name"],
+  },
+  output: {
+    type: "object",
+    properties: {
+      vendors: { type: "array", items: { type: "object" }, minItems: 1 },
+      more: { type: "boolean" },
+    },
+    required: ["vendors"],
+  },
+  settings: [],
+  summary: "Found the vendor",
+  requiresConnectors: ["qbo"],
+  requiresPacks: [],
+  producesAlerts: false,
+};
+
 const h = await createApiHarness({
+  // v0.13 W2-I
+  skills: [FIND_VENDOR],
   connectors: () => [
     createQboConnector({
       ...FAKE_QBO_CLIENT,
@@ -137,6 +171,8 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     run: "",
     bill: "",
     items: [] as string[],
+    // v0.13 W2-I
+    vendorRun: "",
   };
   let instructions = "";
 
@@ -857,6 +893,130 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     expect([again.status, j(again.json).error.code]).toEqual([409, "already_ran"]);
   });
 
+  // ── 5c. v0.13 W2-I: the agent corrects a failing lookup and the run finishes ─────────────────
+
+  it("the agent corrects a vendor lookup that fails on a trailing space, and the run finishes", async () => {
+    // The operator turns on run oversight and adds a vendor check to the client's agent.
+    const current = await ok(OPERATOR, "GET", `/api/ops/agents/${ids.clerk}`);
+    const bundle = structuredClone(current.live.bundle);
+    bundle.definition.oversight = { review: "failures" };
+    bundle.definition.skills.push({ skill: FIND_VENDOR.id, settings: {} });
+    bundle.workflows.push({
+      slug: "vendor-check",
+      name: "Check a vendor",
+      enabled: true,
+      workflow: {
+        schemaVersion: 3,
+        trigger: {
+          id: "0192f7a0-0000-7000-8000-0000000c0de1",
+          on: {
+            type: "manual",
+            input: {
+              type: "object",
+              properties: { vendorName: { type: "string" } },
+              required: ["vendorName"],
+            },
+          },
+        },
+        steps: [
+          {
+            id: "vendor",
+            kind: "skill",
+            name: "Find the vendor",
+            skill: FIND_VENDOR.id,
+            input: { name: "{{trigger.vendorName}}" },
+          },
+        ],
+      },
+    });
+    const v = await ok(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/versions`, {
+      bundle,
+      parentVersionId: current.live.id,
+      changeNote: "Run oversight on failures; a vendor check",
+    });
+    expect(v.errors).toEqual([]);
+    await ok(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/versions/${v.version.id}/publish`);
+
+    // The name as it came in, with a trailing space: QuickBooks has no such vendor.
+    const started = await ok(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/run`, {
+      workflow: "vendor-check",
+      input: { vendorName: "Northline Panel Supply " },
+    });
+    ids.vendorRun = started.runId;
+    const params = H.instances.started.get(started.runId) as RunParams;
+    const note = "The vendor name had a trailing space; QuickBooks has it without one.";
+    const model = new FakeModel([
+      {
+        toolUse: {
+          name: "finish",
+          input: {
+            action: "retry_with",
+            input: { name: "Northline Panel Supply" },
+            note,
+            sources: [],
+            proposal: {
+              summary: "Trim the vendor name before the lookup",
+              change: "Trim spaces from the vendor name in the vendor step's input.",
+            },
+          },
+        },
+      },
+    ]);
+    expect(
+      await executeRun(runDeps(model), params, cloudflareStepRunner(new FakeWorkflowStep())),
+    ).toEqual({ status: "succeeded" });
+    expect(model.remaining).toBe(0);
+
+    // One decision, in the back office with its note, input change, model and cost.
+    const run = await ok(OPERATOR, "GET", `/api/ops/runs/${ids.vendorRun}`);
+    expect(run.oversight).toEqual([
+      expect.objectContaining({
+        nodeId: "vendor",
+        seq: 1,
+        cause: "failed",
+        action: "retry_with",
+        inputBefore: { name: "Northline Panel Supply " },
+        inputAfter: { name: "Northline Panel Supply" },
+        note,
+        model: "claude-opus-5-5",
+        agentVersionId: v.version.id,
+      }),
+    ]);
+    // The step kept one row: its second attempt succeeded.
+    const rows = await H.t.db
+      .select({ status: stepRun.status, attempts: stepRun.attempts })
+      .from(stepRun)
+      .where(eq(stepRun.runId, ids.vendorRun));
+    expect(rows).toEqual([{ status: "succeeded", attempts: 2 }]);
+    // One proposal, for the operator only.
+    expect(
+      run.inbox.map((i: { kind: string; assigneeRole: string | null; title: string }) => [
+        i.kind,
+        i.assigneeRole,
+        i.title,
+      ]),
+    ).toEqual([
+      [
+        "review",
+        "operator",
+        'Proposed fix for "Find the vendor": Trim the vendor name before the lookup',
+      ],
+    ]);
+    expect(JSON.stringify((await ok(OWNER, "GET", "/api/inbox")).items)).not.toContain("Trim");
+    const lab = await ok(OPERATOR, "GET", `/api/ops/oversight?client=${ids.client}`);
+    expect(lab.decisions.map((d: { runId: string }) => d.runId)).toEqual([ids.vendorRun]);
+
+    // The portal shows only the platform's words: no note, prompt, model or cost.
+    const portal = await ok(OWNER, "GET", `/api/runs/${ids.vendorRun}`);
+    expect(portal.steps.map((s: { oversight?: string[] }) => s.oversight)).toEqual([
+      ["Corrected the vendor name and tried again"],
+    ]);
+    const body = JSON.stringify(portal);
+    expect(body).not.toContain("trailing space");
+    expect(body).not.toContain("claude-opus");
+    expect(body).not.toContain("Trim");
+  });
+
   // ── 6. Isolation and the portal's invariants ─────────────────────────────────────────────────
 
   /** Every portal GET this test touched, as the client admin of the first client. */
@@ -866,6 +1026,8 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     "/api/inbox",
     "/api/runs",
     `/api/runs/${ids.run}`,
+    // v0.13 W2-I
+    `/api/runs/${ids.vendorRun}`,
     "/api/connections",
     "/api/documents",
     `/api/documents/${ids.document}`,
@@ -878,7 +1040,16 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
   ];
 
   it("a second client sees none of the first client's data", async () => {
-    const theirs = [ids.client, ids.run, ids.document, ids.bill, ids.clerk, ids.connection];
+    const theirs = [
+      ids.client,
+      ids.run,
+      ids.document,
+      ids.bill,
+      ids.clerk,
+      ids.connection,
+      // v0.13 W2-I
+      ids.vendorRun,
+    ];
     const B = admin("b");
     for (const path of portalReads()) {
       const res = await H.call(B, "GET", path);

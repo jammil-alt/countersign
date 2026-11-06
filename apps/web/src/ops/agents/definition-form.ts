@@ -6,6 +6,8 @@ import {
   type AgentBundleInput,
   AgentBundle as AgentBundleSchema,
   DECIMAL_RE,
+  // v0.13 W2-I
+  NEW_AGENT_OVERSIGHT,
   parseSkillRef,
   type SkillOption,
   uuidv7,
@@ -220,6 +222,8 @@ export function blankBundle(fields: NewAgentFields, newId: () => string = () => 
       instructions: fields.instructions,
       skills: [],
       permissions: { mode: "suggest_only" },
+      // v0.13 W2-I: a new agent reviews its failed steps (ARCHITECTURE §10.11).
+      oversight: NEW_AGENT_OVERSIGHT,
     },
     workflows: [
       {

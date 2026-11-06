@@ -65,6 +65,8 @@ import { opsEventRoutes } from "./routes/ops-events";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
+// v0.13 W2-I
+import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { portalRouteHandlers } from "./routes/portal";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
@@ -168,6 +170,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsConnectorRoutes(app);
   // v0.12 W2-E: the triggers list
   triggerRouteHandlers(app);
+  // v0.13 W2-I: run oversight decisions for the agent lab
+  opsOversightRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

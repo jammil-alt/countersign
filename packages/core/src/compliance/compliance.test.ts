@@ -74,6 +74,8 @@ describe("processors", () => {
       // v0.12 W3-B
       "ramp",
       "hubspot",
+      "gdrive",
+      "outlook",
     ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }
