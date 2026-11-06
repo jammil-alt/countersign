@@ -13,6 +13,7 @@ import {
   walkSteps,
 } from "@countersign/core";
 import { skill, skillVersion, type Tx } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ToolRegistry } from "./tools";
@@ -83,7 +84,10 @@ export function customSlug(id: string): string {
   return id.slice(CUSTOM_PREFIX.length);
 }
 
-/** Parses an operator-written skill: Zod, always `agent` mode, tools that exist (§9.2). */
+/**
+ * Parses an operator-written skill: Zod, `task` or `agent` mode (v0.13; never `tool`, which is
+ * code), a task's model one the platform prices, tools that exist (§9.2).
+ */
 export function parseOperatorSkill(input: unknown, tools?: ToolRegistry): SkillDefinition {
   const parsed = SkillDefinition.safeParse(input);
   if (!parsed.success) {
@@ -94,7 +98,10 @@ export function parseOperatorSkill(input: unknown, tools?: ToolRegistry): SkillD
   if (!isCustomSkill(def.id) || !Slug.safeParse(customSlug(def.id)).success) {
     problems.push(`an operator skill's id is custom:<slug>, not ${def.id}`);
   }
-  if (def.mode !== "agent") problems.push("operator skills are always agent mode");
+  if (def.mode === "tool") problems.push("operator skills are task or agent mode, not tool");
+  if (def.model && !knownModelIds().includes(def.model.id)) {
+    problems.push(`unknown model ${def.model.id}`);
+  }
   if (tools) for (const t of def.tools) if (!tools.has(t)) problems.push(`unknown tool ${t}`);
   if (problems.length > 0) {
     throw new AgentsError("invalid_definition", problems.join("; "), problems);

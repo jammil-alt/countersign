@@ -20,6 +20,8 @@ export const KIND_LABEL: Record<StepKind | "trigger", string> = {
   wait: "Wait",
   notify: "Notify",
   stop: "Stop",
+  // v0.12 W2-B
+  use_automation: "Automation",
 };
 
 export function triggerTitle(trigger: Trigger): string {
@@ -33,6 +35,13 @@ export function triggerTitle(trigger: Trigger): string {
       return "Started by hand";
     case "command":
       return `Command /${on.command.replace(/^\//, "")}`;
+    // v0.12 W2-E
+    case "webhook":
+      return "When a webhook arrives";
+    case "message":
+      return "When someone sends a message";
+    case "handoff":
+      return `When ${on.from.agent} finishes`;
   }
 }
 
@@ -42,11 +51,25 @@ export function triggerDetail(trigger: Trigger): string | null {
     case "event":
       return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : "Event";
     case "schedule":
-      return on.tz ? `${on.cron} · ${on.tz}` : on.cron;
+      return [on.cron, on.tz, on.skipHolidays ? "skips holidays" : null]
+        .filter(Boolean)
+        .join(" · ");
     case "manual":
       return "Manual";
     case "command":
       return "Thread command";
+    // v0.12 W2-E
+    case "webhook":
+      return [
+        on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : "Webhook",
+        on.rateLimit ? `at most ${on.rateLimit.max} a ${on.rateLimit.per}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "message":
+      return on.channels.join(", ");
+    case "handoff":
+      return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : "Handoff";
   }
 }
 
@@ -71,6 +94,9 @@ export function stepDetail(step: Step): string | null {
       return step.to ? `${step.channel} · ${step.to}` : step.channel;
     case "stop":
       return step.status;
+    // v0.12 W2-B: the pinned version, e.g. polite-follow-up@2.
+    case "use_automation":
+      return step.automation;
   }
 }
 

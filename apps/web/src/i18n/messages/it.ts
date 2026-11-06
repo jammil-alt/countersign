@@ -93,6 +93,7 @@ export const it: Messages = {
   "nav.people": "Persone",
   "nav.access": "Accessi",
   "nav.directory": "Rubrica",
+  "nav.records": "Record",
   "page.service": "Servizio",
 
   // ── Overview ──
@@ -167,6 +168,8 @@ export const it: Messages = {
   "inbox.openRequestsQueue": "Apri la coda delle richieste",
   "inbox.decline": "Declina",
   "inbox.sendAnswer": "Invia la risposta",
+  "inbox.undo": "Annulla",
+  "inbox.undoWindow": "Firmato. Facciamo la modifica tra un minuto; può ancora annullarla.",
   "inbox.reject": "Rifiuta",
   "inbox.sign": "Firma",
   "inbox.findingSteps": "Cosa fare",
@@ -295,6 +298,12 @@ export const it: Messages = {
   "callback.subtitle": "Stiamo completando l'accesso al tuo strumento.",
   "callback.back": "Torna a Connessioni",
   "callback.connecting": "Collegamento…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Leggi i movimenti dei tuoi conti bancari e delle tue carte. Niente qui può spostare denaro.",
+  "connections.bankfeed.connect": "Collega banca o carta",
+  "callback.linkLost":
+    "Questo accesso alla banca è iniziato in un'altra scheda o finestra. Ricomincia da Connessioni.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accessi",
@@ -695,6 +704,28 @@ export const it: Messages = {
   "record.notFound":
     "Non c'è una pagina per questo id. Potrebbe essere un record di uno strumento o di un pacchetto che qui non mostriamo.",
   "record.source": "Record ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Record",
+  "records.subtitle":
+    "Ciò che i tuoi strumenti hanno portato, dal più recente. Aprine uno per vedere da dove arriva.",
+  "records.kind.transactions": "Transazioni",
+  "records.kind.vendors": "Fornitori",
+  "records.kind.items": "Articoli",
+  "records.search": "Cerca nei record",
+  "records.empty": "Ancora niente. I record arrivano quando i tuoi strumenti si sincronizzano.",
+  "records.noMatch": "Nessun risultato per “{q}”.",
+  "records.col.date": "Data",
+  "records.col.type": "Tipo",
+  "records.col.vendor": "Fornitore",
+  "records.col.number": "Numero",
+  "records.col.total": "Totale",
+  "records.col.name": "Nome",
+  "records.col.transactions": "Transazioni",
+  "records.col.description": "Descrizione",
+  "records.col.source": "Origine",
+  "records.range": "{from}–{to} di {total}",
+  "records.previous": "Precedente",
+  "records.next": "Successivo",
 
   // ── Who approves ──
   "approvers.title": "Chi approva",

@@ -27,7 +27,7 @@ import {
   twilioCredentialsOf,
   verifyTwilioSignature,
 } from "@countersign/connectors";
-import { routes, TWIML_EMPTY } from "@countersign/core";
+import { redactCardNumbers, routes, TWIML_EMPTY } from "@countersign/core";
 import { connection, message, rawRecord, type Tx, withTenant } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -45,6 +45,9 @@ import {
 } from "../messaging/contacts";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
+// v0.12 W2-E: inbound dispatch to agents' message triggers
+import { routeInboundText } from "../triggers/inbound-text";
+import { type InboundReply, replyDepsFromEnv, sendReplies } from "../triggers/replies";
 
 const Params = z.object({ tenantId: z.uuid() });
 /** An inbound text consumed by a human release: kept without its text, once per SID. */
@@ -119,10 +122,14 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       const now = new Date();
       const collect: EventRow[] = [];
       let released: Wake | null = null;
+      // v0.12 W2-E
+      let replies: InboundReply[] = [];
       await withTenant(services.db, tenantId, async (tx) => {
         const { row, config } = await verified(tx, c, tenantId, form, "messages");
-        const msg = parseInbound(form);
-        if (!msg) throw new HttpError(400, "invalid_body", "not a Twilio message");
+        // A card number in a text is never stored (PCI DSS 3.3, docs/plan.md §1.35).
+        const parsed = parseInbound(form);
+        if (!parsed) throw new HttpError(400, "invalid_body", "not a Twilio message");
+        const msg = { ...parsed, text: redactCardNumbers(parsed.text) };
         if (!config.numbers.some((n) => n.phoneNumber === msg.to)) throw refuse();
         // A code for a pending human release is consumed before anything is stored: no raw
         // record of its text, no thread line, no event, so no agent or person reads it there
@@ -254,10 +261,41 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
           { registry: services.platform.events },
         );
         if (ev) collect.push(ev);
+        // v0.12 W2-E: a message to a number bound to an agent's channel starts its message
+        // triggers (`inbound.message`), or gets the polite reply (docs/plan.md §1.48). Keywords
+        // (STOP, START, HELP) are never requests.
+        if (!keyword) {
+          replies = await routeInboundText(tx, {
+            tenantId,
+            connectionId: row.id,
+            channel: msg.channel,
+            sid: msg.sid,
+            contact: contactRow,
+            knownContact,
+            rawRecordId: stored.id,
+            from: msg.from,
+            to: msg.to,
+            now,
+            registry: services.platform.events,
+            collect,
+          });
+        }
       });
       if (collect.length > 0) {
         c.get("req").deferred.push(() =>
           dispatchEvents({ db: services.db, instances: services.instances }, collect),
+        );
+      }
+      // v0.12 W2-E: the fixed replies go after the commit.
+      if (replies.length > 0) {
+        const sendNow = replies;
+        c.get("req").deferred.push(() =>
+          sendReplies(
+            services.db,
+            tenantId,
+            replyDepsFromEnv(services.env, services.deps.fetch?.(services.env)),
+            sendNow,
+          ),
         );
       }
       const wake = released;

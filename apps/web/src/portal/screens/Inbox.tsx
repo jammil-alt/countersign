@@ -5,7 +5,7 @@ import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { useI18n } from "../../i18n/i18n";
-import { InboxCard } from "../../inbox/InboxCard";
+import { InboxCard, isAccountChangeItem } from "../../inbox/InboxCard";
 import { openResolved, StatusFilter } from "../../inbox/StatusFilter";
 import { usePoll } from "../../runs/usePoll";
 import { EmptyState, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
@@ -54,13 +54,33 @@ export function PortalInboxScreen() {
                   : t("inbox.outcome.resolved")
                 : null
             }
+            onUndo={
+              item.status === "resolved" && item.deliverAfter
+                ? async () => {
+                    await api.call(apiRoutes.portalUndoInbox, { params: { id: item.id } });
+                    reload();
+                    refreshCount();
+                  }
+                : null
+            }
             onResolve={
               item.status === "open"
                 ? async (body) => {
-                    await api.call(apiRoutes.portalResolveInbox, {
-                      params: { id: item.id },
-                      body,
-                    });
+                    // v0.12 W2-D: a change Sloan drafted applies through its own route.
+                    if (isAccountChangeItem(item)) {
+                      await api.call(apiRoutes.portalResolveAccountChange, {
+                        params: { id: item.id },
+                        body: {
+                          decision: body.decision ?? "approve",
+                          ...(body.note ? { note: body.note } : {}),
+                        },
+                      });
+                    } else {
+                      await api.call(apiRoutes.portalResolveInbox, {
+                        params: { id: item.id },
+                        body,
+                      });
+                    }
                     reload();
                     refreshCount();
                   }

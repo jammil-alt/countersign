@@ -11,6 +11,7 @@
 // but the user agent, no query strings or fragments, no console lines, no IP or email (the user
 // is their id), exception messages cut short, no session replay and no performance traces.
 
+import { redactCardNumbers } from "@countersign/core";
 import * as Sentry from "@sentry/react";
 import type { ApiError } from "./api/client";
 
@@ -22,7 +23,11 @@ export function withoutQuery(url: string): string {
   return cut === -1 ? url : url.slice(0, cut);
 }
 
-const cap = (s: string) => (s.length > MAX_MESSAGE ? `${s.slice(0, MAX_MESSAGE)}…` : s);
+// Card numbers removed first (PCI DSS 3.3, docs/plan.md §1.35), then cut short.
+const cap = (raw: string) => {
+  const s = redactCardNumbers(raw);
+  return s.length > MAX_MESSAGE ? `${s.slice(0, MAX_MESSAGE)}…` : s;
+};
 
 /** `beforeSend`: strip an event down to what debugging needs (the header comment says what). */
 export function scrubEvent<E extends Sentry.ErrorEvent>(event: E): E {

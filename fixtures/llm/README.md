@@ -21,3 +21,11 @@ LLM_MODE=record ANTHROPIC_API_KEY=… COUNTERSIGN_REQUIRE_DB=1 \
 
 A recorded answer that misses the tolerance (header exact; qty and prices within $0.01;
 descriptions ≥ 0.9 similar) fails the golden test: that is the point of it.
+
+The four plain-words question answers (`apps/api/src/runs-ask/ask.test.ts`, v0.12 W2-F) are
+hand-written too, for a fixed client and day. Rebuild them after changing the question prompt or
+`RunFilter`, then delete the files whose hashes no longer appear:
+
+```sh
+WRITE_ASK_FIXTURES=1 pnpm --filter @countersign/api exec vitest run src/runs-ask/ask.test.ts
+```

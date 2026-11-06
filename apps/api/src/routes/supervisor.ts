@@ -6,8 +6,11 @@
 // the title and the plain steps (invariant 11); the back office sees both audiences, with the
 // operator's details and note.
 
-import { fork, publish } from "@countersign/agents";
+import { fork, getVersion, publish } from "@countersign/agents";
 import {
+  // v0.12 W2-D
+  ACCOUNT_AGENT_NAME,
+  ACCOUNT_AGENT_SERVICE_NAME,
   FINDING_KINDS,
   FINGERPRINT_KEY,
   type FindingKind,
@@ -188,14 +191,18 @@ export async function addSupervisor(
     .select({ id: agent.id })
     .from(agent)
     .where(and(eq(agent.tenantId, input.tenantId), eq(agent.slug, SUPERVISOR_SLUG)));
+  // v0.12 W2-D: from the template's v2 the fork is Sloan, "Sloan, your account agent" (§1.47).
+  const live = await getVersion(tx, template.liveVersionId);
+  const sloan = live.bundle.definition.identity.name === ACCOUNT_AGENT_NAME;
   const created = await fork(tx, {
     tenantId: input.tenantId,
     slug: taken ? `${SUPERVISOR_SLUG}-${Date.now().toString(36)}` : SUPERVISOR_SLUG,
     templateVersionId: template.liveVersionId,
     actorId: input.actorId,
-    serviceName: "Account check",
-    serviceDescription:
-      "Keeps watch over your account and tells you, in plain steps, when something needs you.",
+    serviceName: sloan ? ACCOUNT_AGENT_SERVICE_NAME : "Account check",
+    serviceDescription: sloan
+      ? "Answers your questions about your account, and tells you in plain steps when something needs you."
+      : "Keeps watch over your account and tells you, in plain steps, when something needs you.",
   });
   await publish(tx, {
     agentId: created.agent.id,

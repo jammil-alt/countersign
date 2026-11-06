@@ -93,6 +93,7 @@ export const es: Messages = {
   "nav.people": "Personas",
   "nav.access": "Accesos",
   "nav.directory": "Directorio",
+  "nav.records": "Registros",
   "page.service": "Servicio",
 
   // ── Overview ──
@@ -164,6 +165,8 @@ export const es: Messages = {
   "inbox.openRequestsQueue": "Abrir la cola de solicitudes",
   "inbox.decline": "Declinar",
   "inbox.sendAnswer": "Enviar respuesta",
+  "inbox.undo": "Deshacer",
+  "inbox.undoWindow": "Firmado. Hacemos el cambio en un minuto; todavía puede deshacerlo.",
   "inbox.reject": "Rechazar",
   "inbox.sign": "Firmar",
   "inbox.findingSteps": "Qué hacer",
@@ -291,6 +294,12 @@ export const es: Messages = {
   "callback.subtitle": "Terminando el inicio de sesión en su herramienta.",
   "callback.back": "Volver a Conexiones",
   "callback.connecting": "Conectando…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lea los movimientos de sus cuentas bancarias y tarjetas. Nada aquí puede mover dinero.",
+  "connections.bankfeed.connect": "Conectar banco o tarjeta",
+  "callback.linkLost":
+    "Este inicio de sesión bancario empezó en otra pestaña o ventana. Vuelva a empezar desde Conexiones.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accesos",
@@ -691,6 +700,29 @@ export const es: Messages = {
   "record.notFound":
     "No hay página de registro para este id. Puede ser un registro de una herramienta o paquete que no mostramos aquí.",
   "record.source": "Registro ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Registros",
+  "records.subtitle":
+    "Lo que trajeron tus herramientas, lo más reciente primero. Abre uno para ver de dónde vino.",
+  "records.kind.transactions": "Transacciones",
+  "records.kind.vendors": "Proveedores",
+  "records.kind.items": "Artículos",
+  "records.search": "Buscar registros",
+  "records.empty":
+    "Todavía no hay nada. Los registros llegan cuando tus herramientas se sincronizan.",
+  "records.noMatch": "Nada coincide con “{q}”.",
+  "records.col.date": "Fecha",
+  "records.col.type": "Tipo",
+  "records.col.vendor": "Proveedor",
+  "records.col.number": "Número",
+  "records.col.total": "Total",
+  "records.col.name": "Nombre",
+  "records.col.transactions": "Transacciones",
+  "records.col.description": "Descripción",
+  "records.col.source": "Origen",
+  "records.range": "{from}–{to} de {total}",
+  "records.previous": "Anterior",
+  "records.next": "Siguiente",
 
   // ── Who approves ──
   "approvers.title": "Quién aprueba",

@@ -1,7 +1,60 @@
 import { z } from "zod";
+import { entityProblems } from "../permissions/entities";
 import { EventTypeSpec } from "./event";
-import { PermissionMatrix } from "./permissions";
+import { PermissionEntity, PermissionMatrix } from "./permissions";
 import { ToolSpec } from "./tool";
+
+/**
+ * v0.12 W2-A: problems with a manifest's entities (docs/plan.md §1.44): ids unique; every tool's
+ * entity (or each one its input can name) declared, with the tool's verb among the entity's; every
+ * scope's tools the connector's own, of that entity and the scope's verb; the starting matrix's
+ * entities declared.
+ */
+export function manifestEntityProblems(m: {
+  tools: readonly Pick<ToolSpec, "id" | "verb" | "entity" | "entityInput">[];
+  permissionEntities?: readonly PermissionEntity[] | undefined;
+  defaultPermissions?: { entities?: PermissionMatrix["entities"] } | undefined;
+}): string[] {
+  const problems: string[] = [];
+  const declared = m.permissionEntities ?? [];
+  const ids = declared.map((e) => e.id);
+  if (new Set(ids).size !== ids.length) problems.push("entity ids must be unique");
+  const entitiesOf = (t: Pick<ToolSpec, "entity" | "entityInput">): string[] =>
+    t.entity ? [t.entity] : Object.values(t.entityInput?.values ?? {});
+  for (const t of m.tools) {
+    for (const id of entitiesOf(t)) {
+      const e = declared.find((d) => d.id === id);
+      if (!e) problems.push(`tool ${t.id} names entity ${id}, which the connector doesn't declare`);
+      else if (!e.verbs.includes(t.verb)) {
+        problems.push(`tool ${t.id} is a ${t.verb}, which entity ${id} doesn't list`);
+      }
+    }
+  }
+  for (const e of declared) {
+    const scopeIds = (e.scopes ?? []).map((s) => s.id);
+    if (new Set(scopeIds).size !== scopeIds.length) {
+      problems.push(`entity ${e.id}: scope ids must be unique`);
+    }
+    for (const s of e.scopes ?? []) {
+      if (!e.verbs.includes(s.verb)) {
+        problems.push(`entity ${e.id}: scope ${s.id} is for ${s.verb}, which it doesn't list`);
+      }
+      for (const toolId of s.tools) {
+        const t = m.tools.find((x) => x.id === toolId);
+        if (!t) problems.push(`entity ${e.id}: scope ${s.id} names ${toolId}, not a tool of it`);
+        else if (!entitiesOf(t).includes(e.id) || t.verb !== s.verb) {
+          problems.push(
+            `entity ${e.id}: scope ${s.id} names ${toolId}, not one of its ${s.verb} tools`,
+          );
+        }
+      }
+    }
+  }
+  for (const p of entityProblems(m.defaultPermissions?.entities, declared)) {
+    problems.push(`defaultPermissions: ${p}`);
+  }
+  return problems;
+}
 
 /** `<id>.` and each shared namespace's `<ns>.`: what a connector's tool ids and events start with. */
 export function connectorPrefixes(m: {
@@ -62,8 +115,15 @@ export const ConnectorManifest = z
      * (docs/plan.md §1.26). Absent: the portal offers no form (keys the operator provisions).
      */
     credentialFields: z.array(CredentialField).min(1).max(12).optional(),
+    // v0.12 W2-A: the record types its tools touch (ARCHITECTURE §6.1 "Permissions per record
+    // type"), with their verbs and scopes. Absent: the verbs alone govern its tools.
+    permissionEntities: z.array(PermissionEntity).max(32).optional(),
   })
   .superRefine((m, ctx) => {
+    // v0.12 W2-A: entities and scopes are the connector's own and agree with its tools.
+    for (const p of manifestEntityProblems(m)) {
+      ctx.addIssue({ code: "custom", message: p, path: ["permissionEntities"] });
+    }
     m.tools.forEach((t, i) => {
       if (t.source !== m.id) {
         ctx.addIssue({

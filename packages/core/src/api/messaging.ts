@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContactAutonomy } from "../directory/autonomy";
 import { DIRECTORY_TITLE_MAX, Relationship } from "../directory/kinds";
 import { LanguageUsed } from "../directory/language";
 import { Locale } from "../i18n/locale";
@@ -144,6 +145,8 @@ export const Contact = z.object({
   canCall: z.boolean().optional(),
   /** Whether an agent's email could go out now (an address and consent, not opted out). */
   canEmail: z.boolean().optional(),
+  // v0.12 W1-G: per channel, `auto`, `approval` or `off`; a channel left out narrows nothing.
+  autonomy: ContactAutonomy.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

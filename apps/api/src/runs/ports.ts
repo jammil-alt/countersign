@@ -15,10 +15,12 @@ import {
   DEFAULT_APPROVAL,
   isPlainObject,
   type JsonObject,
+  LEAD_ASSIGNEE,
   parseSkillRef,
   REACH_OUT_SKILL,
 } from "@countersign/core";
 import { type Db, inboxItem, stepRun, withTenant } from "@countersign/db";
+import { leadOf } from "@countersign/threads";
 import type {
   AgentPort,
   InboxPort,
@@ -60,13 +62,22 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
             agentVersionId: run.agentVersionId,
             input: (entry.input ?? null) as Record<string, unknown> | null,
             status: "running",
-            attempts: 1,
+            attempts: entry.attempt ?? 1,
             startedAt: new Date(),
           })
           // A no-op update, so the existing row's id comes back (DO NOTHING returns no row).
           .onConflictDoUpdate({
             target: [stepRun.runId, stepRun.nodeId],
-            set: { nodeId: sql`excluded.node_id` },
+            set:
+              entry.attempt === undefined
+                ? { nodeId: sql`excluded.node_id` }
+                : // v0.13 W2-I: an oversight retry keeps the step's one row: its attempts rise and
+                  // it holds the input the attempt runs with (ARCHITECTURE §5.6).
+                  {
+                    attempts: sql`greatest(${stepRun.attempts}, excluded.attempts)`,
+                    input: sql`excluded.input`,
+                    status: "running",
+                  },
           })
           .returning({ id: stepRun.id });
         if (!row) throw new Error("step_run upsert returned nothing");
@@ -135,13 +146,19 @@ export function agentPort(
         skill: step.skill,
         input,
         ...(step.settings ? { settings: step.settings } : {}),
+        ...(step.model ? { model: step.model } : {}),
         runId: run.id,
-        // The durable name, so each for_each iteration keys its own external actions.
-        stepId: nodeId,
+        // The durable name, so each for_each iteration keys its own external actions; v0.13 W2-I:
+        // an oversight retry with a corrected input keys its own (`${nodeId}:o${seq}`).
+        stepId: request.keyNode ?? nodeId,
         stepRunId,
         approval,
         mode: run.mode,
         language: run.language,
+        // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
+        ...(run.retryOf ? { retryOf: run.retryOf } : {}),
+        // v0.12 W2-B: a step of an automation runs with the automation's skills.
+        ...(request.automation ? { automation: request.automation } : {}),
       });
       switch (r.status) {
         case "succeeded":
@@ -176,19 +193,22 @@ export function agentPort(
       }
     },
 
-    async runAction({ run, step, nodeId, stepRunId, input, approval }) {
+    async runAction({ run, step, nodeId, stepRunId, input, approval, keyNode }) {
       const agent = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
       const ctx: StepContext = {
         tenantId: run.tenantId,
         agent,
         runId: run.id,
         stepRunId,
-        stepId: nodeId,
+        // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
+        stepId: keyNode ?? nodeId,
         mode: run.mode,
         approval,
         // The step as written in the version: fixed inputs are checked against it, not `input`.
         literalInput: step.input,
         externalIndex: { next: 0 },
+        // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
+        ...(run.retryOf ? { retryOf: run.retryOf } : {}),
       };
       const o = await callTool(deps, ctx, { toolId: step.tool, input });
       switch (o.status) {
@@ -288,15 +308,25 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
         if (existing) return existing;
         // DECISION: a test run's person steps go to the operator, never to the client: test runs
         // are hidden from the portal (ARCHITECTURE §10.4).
+        // v0.12 W1-C: a lead check goes to the client's lead (as an operator's item), else to
+        // the operator role (ARCHITECTURE §11.2).
+        const lead =
+          run.mode !== "test" && item.step.assignee === LEAD_ASSIGNEE
+            ? await leadOf(tx, run.tenantId)
+            : null;
         const assignee =
           run.mode === "test"
             ? { assigneeRole: "operator" as const, assigneeUserId: null }
-            : resolveApprover([item.step.assignee]);
+            : item.step.assignee === LEAD_ASSIGNEE
+              ? { assigneeRole: "operator" as const, assigneeUserId: lead?.userId ?? null }
+              : resolveApprover([item.step.assignee]);
         const payload = {
           ...(isPlainObject(item.payload) ? (item.payload as JsonObject) : { value: item.payload }),
           nodeId: item.nodeId,
           mode: item.step.mode,
           ...(run.mode === "test" ? { testRun: true } : {}),
+          // v0.12 W1-D: quick answers, from the version's step (the answer must be one of them).
+          ...(item.step.mode === "ask" && item.step.choices ? { choices: item.step.choices } : {}),
         };
         const [row] = await tx
           .insert(inboxItem)
@@ -320,10 +350,14 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
     resolution(inboxItemId) {
       return withTenant(db, run.tenantId, async (tx) => {
         const [row] = await tx
-          .select()
+          .select({
+            item: inboxItem,
+            // v0.12 W1-D: inside its undo window an approval is not yet the run's to take.
+            held: sql<boolean>`coalesce(${inboxItem.deliverAfter} > now(), false)`,
+          })
           .from(inboxItem)
           .where(and(eq(inboxItem.id, inboxItemId), eq(inboxItem.tenantId, run.tenantId)));
-        return row?.status === "resolved" ? toRunResolution(row) : null;
+        return row?.item.status === "resolved" && !row.held ? toRunResolution(row.item) : null;
       });
     },
     async expire(inboxItemId) {

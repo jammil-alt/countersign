@@ -2,8 +2,20 @@
 // "External actions"). The workflow executor calls this in its own durable step keyed by the
 // action's idempotency key, after the approval resolved (or at once on the automatic path).
 
-import { executeWrite, UnconfirmedWriteError } from "@countersign/connectors";
-import { releaseOf } from "@countersign/core";
+import {
+  bindingKeyFor,
+  captureBefore,
+  executeWrite,
+  UnconfirmedWriteError,
+} from "@countersign/connectors";
+import {
+  decideToolCall,
+  editablePaths,
+  editProblem,
+  grantAllowsTool,
+  type JsonObject,
+  releaseOf,
+} from "@countersign/core";
 import { AgentsError, notFound } from "../errors";
 import { noteReconnect } from "./attention";
 import { connectionContext, type RuntimeDeps } from "./context";
@@ -34,7 +46,15 @@ function message(error: unknown): string {
 // Workflow retry after a lost response completes the write instead of stranding it.
 export async function executeAction(
   deps: RuntimeDeps,
-  input: { tenantId: string; actionId: string },
+  input: {
+    tenantId: string;
+    actionId: string;
+    /**
+     * v0.12 W1-E: the run executing it, when not the one that proposed it (a retry carrying the
+     * original's approved action, ARCHITECTURE §10.10): its release is the one that must cover it.
+     */
+    runId?: string;
+  },
 ): Promise<ActionOutcome> {
   const { actions, store } = deps.ports;
   const found = await actions.get(input.tenantId, input.actionId);
@@ -50,7 +70,7 @@ export async function executeAction(
   // asks for one: without it the write fails.
   // DECISION: the check is made before the action is claimed, so a refused write never starts.
   if (found.status === "approved" || found.status === "executing") {
-    const refused = await releaseRefusal(deps, input.tenantId, found);
+    const refused = await releaseRefusal(deps, input.tenantId, found, input.runId);
     if (refused) {
       const failed = await actions.fail(input.tenantId, found.id, {
         message: refused,
@@ -75,6 +95,9 @@ export async function executeAction(
       case "rejected":
         return { status: "rejected", action };
       case "approved":
+        // v0.12 W1-D: approved but still inside its undo window: not executed now. The run is
+        // told once the window has passed, and an undo before then puts it back to proposed.
+        return { status: "awaiting_approval", action };
       case "executing":
         break;
     }
@@ -94,10 +117,17 @@ export async function executeAction(
     return { status: "failed", action: failed, error: "connection not found" };
   }
   try {
-    const written = await executeWrite(tool.connector, action.tool, action.input, {
-      ...connectionContext(deps, input.tenantId, conn),
-      idempotencyKey: action.idempotencyKey,
-    });
+    // v0.12 W1-D: the signer's edit, when there is one, is what is written; `input` stays the
+    // agent's version (ARCHITECTURE §11.1).
+    const written = await executeWrite(
+      tool.connector,
+      action.tool,
+      action.editedInput ?? action.input,
+      {
+        ...connectionContext(deps, input.tenantId, conn),
+        idempotencyKey: action.idempotencyKey,
+      },
+    );
     const done = await actions.complete(input.tenantId, action.id, {
       output: written.output,
       before: written.before,
@@ -140,19 +170,88 @@ async function releaseRefusal(
   deps: RuntimeDeps,
   tenantId: string,
   action: ExternalActionRecord,
+  executingRunId?: string,
 ): Promise<string | null> {
   const conn = await deps.ports.store.connection(tenantId, action.connectionId);
   if (!conn || releaseOf(conn.config).mode !== "code") return null;
-  const run = action.runId ? await deps.ports.store.run(tenantId, action.runId) : null;
+  const runId = executingRunId ?? action.runId;
+  const run = runId ? await deps.ports.store.run(tenantId, runId) : null;
   const covered =
-    run && action.runId
+    run && runId
       ? await deps.ports.release?.covers(tenantId, {
           connection: conn,
           agentId: run.agentId,
-          runId: action.runId,
+          runId,
         })
       : false;
   return covered
     ? null
     : `the ${conn.connector} connection needs a person to release it, and no release is live`;
+}
+
+// ── v0.12 W1-D: edit before signing (ARCHITECTURE §11.1) ─────────────────────────────────────────
+
+export type EditCheck =
+  | { ok: true; input: JsonObject; before: unknown }
+  | { ok: false; code: "not_editable" | "invalid_input" | "refused"; message: string };
+
+/**
+ * Checks a person's edit of a proposed action before it is stored: it differs from the agent's
+ * input only in fields the tool's display marks editable (never fixed inputs, ids or guards), it
+ * reaches the same connection, the gate still lets the tool through that connection, and the
+ * connector's own proposal checks pass on it (its Zod input and its `before` hook, e.g. an itemize
+ * total). Who signs it is checked by the caller (the approver rules, again). Nothing is written.
+ */
+export async function checkEditedInput(
+  deps: RuntimeDeps,
+  input: { tenantId: string; action: ExternalActionRecord; edited: unknown },
+): Promise<EditCheck> {
+  const { action, edited, tenantId } = input;
+  const tool = deps.tools.get(action.tool);
+  if (tool?.kind !== "connector" || tool.spec.sideEffect !== "external") {
+    return { ok: false, code: "not_editable", message: `${action.tool} can't be edited` };
+  }
+  const problem = editProblem({
+    original: action.input,
+    edited,
+    paths: editablePaths(tool.spec.display, tool.spec.fixedInputs),
+  });
+  if (problem) return { ok: false, code: "not_editable", message: problem };
+  // The same binding: an edit never moves a change to another connection (e.g. a browser site).
+  if (bindingKeyFor(tool.connector, edited) !== bindingKeyFor(tool.connector, action.input)) {
+    return { ok: false, code: "not_editable", message: "the edit reaches a different connection" };
+  }
+  const conn = await deps.ports.store.connection(tenantId, action.connectionId);
+  const owner = action.runId ? await deps.ports.store.run(tenantId, action.runId) : null;
+  if (!conn || !owner) return { ok: false, code: "refused", message: "the connection is gone" };
+  const grant = await deps.ports.store.grant(tenantId, owner.agentId, conn.id);
+  // DECISION: the gate is asked again with the strictest mode: an edit can't make a change run
+  // without its signature, only show whether the connection or grant now refuses the tool.
+  const decision = decideToolCall({
+    sideEffect: tool.spec.sideEffect,
+    verb: tool.spec.verb,
+    matrix: conn.permissions,
+    grant,
+    agentMode: "suggest_only",
+    // v0.12 W2-A: the edited input's entity and scope count too.
+    entity: {
+      tool: tool.spec,
+      input: edited,
+      declared: tool.connector.manifest.permissionEntities,
+    },
+  });
+  if (!grantAllowsTool(grant, tool.spec.id) || decision === "refused") {
+    return { ok: false, code: "refused", message: `${tool.spec.verb} is off for this change now` };
+  }
+  try {
+    const captured = await captureBefore(
+      tool.connector,
+      tool.spec.id,
+      edited,
+      connectionContext(deps, tenantId, conn),
+    );
+    return { ok: true, input: captured.input as JsonObject, before: captured.before };
+  } catch (error) {
+    return { ok: false, code: "invalid_input", message: message(error) };
+  }
 }

@@ -6,6 +6,9 @@ import {
   type ChangeDisplayView,
   DirectorySuggestionChange,
   isPlainObject,
+  type Locale,
+  type LocalizedText,
+  pickLocalized,
   type ResolveBody,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
@@ -35,6 +38,29 @@ export interface InboxCardItem {
   dueAt: string | null;
   createdAt: string;
   resolvedAt: string | null;
+  /** v0.12 W1-D: approved and inside its undo window until then. */
+  deliverAfter?: string | null | undefined;
+}
+
+/** v0.12 W1-D: a question's quick answers (`payload.choices`), or null. */
+function quickAnswers(
+  payload: Record<string, unknown>,
+  locale: Locale,
+): { value: string; label: string }[] | null {
+  const raw = payload.choices;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: { value: string; label: string }[] = [];
+  for (const c of raw) {
+    if (typeof c !== "object" || c === null) return null;
+    const { value, label } = c as { value?: unknown; label?: unknown };
+    if (typeof value !== "string") return null;
+    const text =
+      typeof label === "string" || (typeof label === "object" && label !== null)
+        ? pickLocalized(label as LocalizedText, locale)
+        : value;
+    out.push({ value, label: text });
+  }
+  return out;
 }
 
 const KIND_LABEL: Record<string, PlainKey> = {
@@ -140,6 +166,27 @@ function suggestionFacts(payload: Record<string, unknown>, i18n: I18n): [string,
   return facts;
 }
 
+// v0.12 W2-D
+/** A change Sloan drafted (plan §1.47): its "now" and "after" lines, in the server's words. */
+export function accountChangeFacts(
+  payload: Record<string, unknown>,
+  { t }: Pick<I18n, "t">,
+): [string, string][] | null {
+  const c = payload.accountChange;
+  if (!isPlainObject(c)) return null;
+  const lines = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").join("\n") : "";
+  return [
+    [t("change.now"), lines(c.now)],
+    [t("change.after"), lines(c.after)],
+  ];
+}
+
+/** v0.12 W2-D: a change Sloan drafted is signed through its own route. */
+export function isAccountChangeItem(item: Pick<InboxCardItem, "payload">): boolean {
+  return isPlainObject(item.payload.accountChange);
+}
+
 function statusBadge(
   item: InboxCardItem,
   outcome: string | null,
@@ -178,6 +225,7 @@ export function InboxCard({
   renderRelease,
   showToolId,
   testId,
+  onUndo,
 }: {
   item: InboxCardItem;
   /** "Record keeping · Client A": who asks, for whom. */
@@ -200,6 +248,8 @@ export function InboxCard({
   /** The back office names the tool by its id as well; clients never see tool ids. */
   showToolId?: boolean;
   testId?: string;
+  /** v0.12 W1-D: takes back an approval inside its undo window; null where nobody may. */
+  onUndo?: (() => Promise<void>) | null;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -207,6 +257,9 @@ export function InboxCard({
   const i18n = useI18n();
   const { t } = i18n;
   const open = item.status === "open";
+  const choices = item.kind === "request" ? quickAnswers(item.payload, i18n.locale) : null;
+  const undoable =
+    !open && !!onUndo && !!item.deliverAfter && new Date(item.deliverAfter).getTime() > Date.now();
   const badge = statusBadge(item, outcome ?? null, i18n);
   const isChange = item.kind === "external_action";
   const isRelease =
@@ -234,7 +287,12 @@ export function InboxCard({
           i18n.locale,
         )
       : null;
-  const facts = isChange ? [] : (suggestionFacts(item.payload, i18n) ?? payloadFacts(item.payload));
+  const facts = isChange
+    ? []
+    : (suggestionFacts(item.payload, i18n) ??
+      // v0.12 W2-D: a change Sloan drafted, as its now and after lines.
+      accountChangeFacts(item.payload, i18n) ??
+      payloadFacts(item.payload));
   const steps = findingSteps(item.payload);
   const sources = Array.isArray(item.payload.sources)
     ? item.payload.sources.filter((x): x is string => typeof x === "string")
@@ -292,7 +350,7 @@ export function InboxCard({
           {facts.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-ink-muted">{k}</dt>
-              <dd className="break-words text-ink">{v}</dd>
+              <dd className="break-words whitespace-pre-line text-ink">{v}</dd>
             </div>
           ))}
         </dl>
@@ -311,7 +369,7 @@ export function InboxCard({
 
       {isRelease && open && renderRelease ? renderRelease(item) : null}
 
-      {item.kind === "request" && open && onResolve && !isRelease ? (
+      {item.kind === "request" && open && onResolve && !isRelease && !choices ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>
           <span className="text-sm font-medium text-ink">{t("inbox.yourAnswer")}</span>
           <textarea
@@ -355,7 +413,41 @@ export function InboxCard({
               ? `${outcome}${item.resolvedAt ? ` · ${shortTime(item.resolvedAt, undefined, i18n)}` : ""}`
               : null}
         </p>
-        {open && onResolve && !isRelease ? (
+        {undoable ? (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-ink-muted">{t("inbox.undoWindow")}</span>
+            <Button
+              data-testid="inbox-item-undo"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                if (!onUndo) return;
+                setBusy(true);
+                setError(null);
+                onUndo()
+                  .catch(setError)
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {t("inbox.undo")}
+            </Button>
+          </div>
+        ) : null}
+        {open && onResolve && !isRelease && choices ? (
+          <div className="flex flex-wrap gap-2" data-testid="inbox-item-choices">
+            {choices.map((c) => (
+              <Button
+                key={c.value}
+                data-testid={`inbox-item-choice-${c.value}`}
+                variant="primary"
+                disabled={busy}
+                onClick={() => void resolve({ decision: "approve", answer: c.value })}
+              >
+                {c.label}
+              </Button>
+            ))}
+          </div>
+        ) : open && onResolve && !isRelease ? (
           <Actions
             kind={item.kind}
             finding={isFinding(item)}

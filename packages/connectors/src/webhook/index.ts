@@ -370,6 +370,8 @@ export function createWebhookConnector(options: WebhookConnectorOptions = {}): C
     icon: "webhook",
     auth: "none",
     entities: [WEBHOOK_DELIVERY_ENTITY],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    permissionEntities: [{ id: "event", label: "Events", verbs: ["create"] }],
     events: [
       {
         type: WEBHOOK_RECEIVED_EVENT,
@@ -391,6 +393,7 @@ export function createWebhookConnector(options: WebhookConnectorOptions = {}): C
     tools: [
       defineWriteTool({
         id: WEBHOOK_SEND_TOOL,
+        entity: "event",
         description:
           "Send an event with data to the client's outbound webhook (e.g. their Zap's catch hook).",
         verb: "create",

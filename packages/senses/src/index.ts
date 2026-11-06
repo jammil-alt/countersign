@@ -3,11 +3,16 @@
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
 export {
+  type ClaimOptions,
+  claimUndispatched,
+  collectEmitted,
   type EmitInput,
   type EmitOptions,
+  EmittedEvents,
   type EventRow,
   emit,
   markDispatched,
+  releaseDispatched,
   type UndispatchedOptions,
   undispatched,
 } from "./outbox";

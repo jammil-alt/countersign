@@ -66,7 +66,11 @@ async function entriesOut(
     tx,
     rows.map((r) => r.updatedBy.id),
   );
-  return rows.map((r) => ({
+  // Voice samples (migration 0025) aren't FAQs or policies: they get their own list (W1-G).
+  const listed = rows.filter(
+    (r): r is KnowledgeEntryView & { kind: KnowledgeEntry["kind"] } => r.kind !== "voice_sample",
+  );
+  return listed.map((r) => ({
     id: r.id,
     kind: r.kind,
     status: r.status,
@@ -109,6 +113,12 @@ async function guard<T>(work: () => Promise<T>): Promise<T> {
     }
     throw error;
   }
+}
+
+// v0.12 W1-G: a voice sample is edited through its own routes, which clean its text (§1.42).
+async function faqOrPolicy(tx: Tx, tenantId: string, entryId: string): Promise<void> {
+  const entry = await getKnowledgeEntry(tx, tenantId, entryId);
+  if (!entry || entry.kind === "voice_sample") throw notFound("entry");
 }
 
 async function memoryNotes(tx: Tx, tenantId: string) {
@@ -186,6 +196,7 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.opsKnowledgeEdit, async (ctx) => {
     const { tx, params, body, session } = ctx;
     ensureClient(ctx, params.id);
+    await faqOrPolicy(tx, params.id, params.entryId);
     const row = await guard(() =>
       editKnowledgeEntry(tx, params.id, params.entryId, {
         ...body,
@@ -256,6 +267,7 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.portalKnowledgeEdit, async ({ tx, tenantIds, params, body, session }) => {
     const tenantId = tenantIds[0] as string;
+    await faqOrPolicy(tx, tenantId, params.id);
     const row = await guard(() =>
       editKnowledgeEntry(tx, tenantId, params.id, {
         ...body,

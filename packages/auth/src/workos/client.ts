@@ -45,6 +45,8 @@ export interface WorkOSAuthentication {
   readonly refreshToken: string;
   /** The `sid` claim of the access token: what the logout URL needs. */
   readonly sessionId: string | null;
+  /** WorkOS's `authentication_method` (`Password`, `SSO`, `GoogleOAuth`…), for the audit log. */
+  readonly authenticationMethod?: string | null;
 }
 
 export interface WorkOSClient {
@@ -114,6 +116,7 @@ function toAuthentication(body: unknown): WorkOSAuthentication {
     organizationId: text(record.organization_id),
     refreshToken,
     sessionId: sessionIdOf(record.access_token),
+    authenticationMethod: text(record.authentication_method),
   };
 }
 

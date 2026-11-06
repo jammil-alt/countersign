@@ -1,6 +1,6 @@
 # Mezonas: v1 implementation plan
 
-Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.8). This file says *how* and
+Source of truth for *what* to build: [`ARCHITECTURE.md`](ARCHITECTURE.md) (v0.12). This file says *how* and
 *in what order*. It follows the Build plan (ARCHITECTURE §18) milestone by milestone. Each milestone
 ends green: `pnpm typecheck && pnpm test` pass and its "done when" check is shown working.
 
@@ -840,6 +840,645 @@ writes, every action audited); no code, key or resource shared with it. Setup: d
 | Config | Vars only (`WORKOS_AUTHKIT_DOMAIN`, optional `MCP_AUDIENCE`, in `wrangler.jsonc` and `.env.example`); no new secret, so `deploy.yml` is unchanged. |
 | Later writes (not built) | Candidates, each two-step: reopen feedback; resolve an operator inbox item (approve/reject); retry a failed run; pause or activate a client agent; sync a connection now; resolve a request. A client-facing MCP server (portal scope, its own tools, no cost or bundles) after that. |
 
+### 1.35 Built for HIPAA, SOC 2 and PCI DSS (owner, 2026-11-05)
+
+Owner, 2026-11-05: "lets just make sure the tool is built for HIPAA compliance and PCI and SOC2, we
+can work on the certification steps later". This section covers the technical controls only. The
+BAAs, policies, risk assessment, training and audits come later and are not code. Four PRs, in this
+order: CI, the migration (0017), sign-in, then the controls. HIPAA mode is per client. Every other
+control applies to every client.
+
+| Topic | Decision |
+|---|---|
+| CI data | CI never connects to Neon, so client data never reaches a GitHub runner. It applies every migration to its own Postgres. (A schema-only Neon branch was the first plan; Neon refuses them on this project, since our SQL-made `cs_runtime` counts as a "legacy web access role".) A migration that only fails on real rows fails on staging first: `deploy.yml` migrates staging in a transaction before its Worker deploys. CodeQL (`security-extended`) runs on ready PRs, `main` and weekly. Dependabot opens weekly grouped updates for npm and Actions. // DECISION |
+| Audit log | `audit_event` (migration 0017) is append-only. It has a SELECT and INSERT grant only, plus a trigger that refuses UPDATE and DELETE for everyone. `mount` writes one row per request to every session route, reads included. Each row holds the actor (user id, email, role), the action (`GET /api/runs/:id`), the outcome and HTTP status, the target (route params and `?client=`, never bodies), the IP (`cf-connecting-ip`) and the user agent (first 256 characters). A successful request writes its row in the handler's own transaction, so a write and its audit row commit together. A refused or failed request writes its row in a short transaction of its own. Sign-in, sign-out and refused sign-ins are written by the session routes (`session.sign_in`, …). The row carries WorkOS's `authentication_method` and no client. `tenant_id` is the client acted in, or null for cross-client back-office lists and sign-ins. Rows with no client are read only in operator sessions. There are no foreign keys, so the log outlives a purged client. It holds ids, never content. Retention is 6 years (HIPAA §164.316(b)(2)). The operator reads the log at `GET /api/ops/audit` and on the back office's Audit log page. Clients don't see it in v1. Agents' own work is already audited by `run`, `step_run`, `tool_call` and `external_action`. Back-office reads and writes made through the Ops MCP server (§1.34, `invokeRoute`) write the same row, with the action `mcp GET /api/ops/…`, beside §1.34's log line. // DECISION |
+| Access review | `GET /api/ops/access-review` (SOC 2 CC6.2, CC6.3) lists every user with their role in each client and their last sign-in, taken from the audit log. It is on the Audit log page. A review is done by reading it and removing what should go. // DECISION |
+| Sessions | The idle limit is 30 minutes and the absolute limit 12 hours (was 30 days). These apply to everyone (HIPAA §164.312(a)(2)(iii), PCI DSS 8.2.8 at 15 minutes for card-data systems, which we aren't). The cookie gains `lat`, the last activity. A request moves it only when the app marks it as the person's own (`x-countersign-activity: 1`, sent when there was a key press, click or touch in the last minute), so background polling never keeps a session alive. The app also signs out by itself after 30 minutes without input. Older cookies, which have no `lat`, count their last refresh as activity. The Ops MCP server (§1.34) has no cookie: its WorkOS access tokens last 5 minutes and the AuthKit session behind them follows WorkOS's own limits (12 hours, 30 minutes idle). MFA is required in WorkOS (AuthKit → Authentication → Multi-factor, set to required; `docs/operations.md`). The app can't see whether a factor was used, so the sign-in audit row records the method. // DECISION |
+| Security headers | Every `/api` response carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, HSTS (2 years, subdomains) and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`. The app's static assets get the same, with a CSP that allows only the app's own origin, plus Sentry's ingest for errors (`apps/web/public/_headers`). The MCP endpoint and its `.well-known` metadata get the API's headers. // DECISION |
+| HIPAA mode | `tenant.settings.compliance.hipaa`. Only the operator can turn it on or off, with a reason, logged in `tenant_change`. While it is on, the client's data may go only to the vendors ("processors") named in `BAA_PROCESSORS`. That is a Worker variable listing the vendors we have a signed BAA with, set by the owner when one is signed. The infrastructure vendors (Cloudflare, Neon, WorkOS) must be listed before any client can be put in HIPAA mode. Processors, in `packages/core/src/compliance.ts`: models go to `anthropic`, or to `openai` for `openai:` ids. The `twilio` connector goes to `twilio`, plus `meta_whatsapp` for `whatsapp.*` and `elevenlabs` for `call.*`. `resend` goes to `resend`. The client's own tools (QuickBooks, Gmail, Zoho, Podio, the client's webhook endpoints, browser sites) are the client's vendors, not ours, and need no listing. Sentry gets no client data by design (scrubbing, below), so it isn't a processor. Enforcement happens at four points. Turning HIPAA on is refused while a connector it doesn't cover is offered. Offering such a connector is refused. A run's model calls are refused when the provider isn't covered, and so is background document reading. A tool call is refused, through the runtime's generic `policy` hook, when its processors aren't covered. // DECISION |
+| Card numbers (PCI DSS 3.3, 3.4) | Mezonas never takes card data. Billing uses Stripe-hosted invoices, and payment sites are blocked-tier for browser logins. Card numbers can still arrive in documents, texts and emails, so `redactCardNumbers` (core) replaces any 13–19 digit run that passes the Luhn check with `[card ending 1234]`. It runs in the Sentry scrubbers (API and app), on a document's extracted text and fields before they are stored, and on inbound texts before they are stored. The model may still read the number in the document; nothing of ours keeps it. // DECISION |
+| Offboarding | `POST /api/ops/clients/:id/retire` takes a reason. It sets `tenant.retired_at`, logs a `tenant_change` and an audit row, retires every client agent and disconnects every connection (grants revoked at the provider, credentials removed). The Sandbox client can't be retired. Its operators still see it. From then on nobody signs in to the client, no run starts and inbound hooks for it are dropped. Thirty days later the hourly cron deletes the client's stored files (`tenants/<id>/` in R2). The owner then runs `pnpm --filter @countersign/db run db:purge-client -- <client id>` as `cs_owner`. It refuses to run before the 30 days have passed or before the files are gone. It deletes every row of the client in every table with a `tenant_id` except `audit_event`, in foreign-key order, disabling the history triggers for that one transaction. Tables that point at each other (an agent and its live version) have their nullable links cleared first. It then deletes the `tenant` row, and the client's users who belong to no other client, and records `client.purge` in the audit log. Data at other vendors (Twilio subaccount, ElevenLabs transcripts, Resend domain) is closed by hand from a checklist (`docs/operations.md`). Neon's point-in-time history expires on its own schedule. // DECISION |
+| Exports | Three exports (terms §12: an export on request within 30 days after the service ends). **Client data export** (operator): `POST /api/ops/clients/:id/exports` starts `ExportWorkflow` (binding `EXPORT_WORKFLOW`), `GET` lists them, each ready one with a 5-minute link. The job reads each table a page at a time inside `withTenant(client)`, one durable step per page (and per batch of documents), and the last step streams a stored (uncompressed) ZIP of known size into R2 at `tenants/<id>/exports/<export id>/`. No table: the export's status is `export.json` beside it, and its start is in `tenant_change` and the audit log, its end in the audit log. It holds every record table as CSV (`apps/api/src/exports/tables.ts`, columns listed one by one: services, connections without credentials or settings, vendors, transactions and lines, documents, document readings, items read from documents, synced records, organizations, contacts and the change logs, live runs, the steps the client's timeline shows, external actions with before, change and result, inbox items and approvals that aren't the operator's, client and contact messages, knowledge versions), the original documents and a README. Never in it: credentials, the client's key, grants, release codes; agent bundles, skills, step inputs and outputs, tool calls and memory (Mezonas' work, and where instructions and prompts live; bundles stay out by default, owner, 2026-11-06); cost and tokens; test runs, operator items and notes, events, billing, feedback. JSON cells drop every forbidden field. A retired client can be exported until its files are deleted, and the hourly sweep waits while an export is being built (for up to a day). The ZIP is deleted with the client's files. **Accountant export** (`GET /api/exports/accountant?from=&to=`, client admin; the back office's `/api/ops/clients/:id/exports/accountant`): the period's external actions with system, tool, amount and currency where the change states one, who signed and when, run and agent version, before, change and result, and the documents they name by file name; a ZIP with the documents and runs, or `format=csv`. **Audit export** (`GET /api/exports/audit`, client admin): the client's own `audit_event` rows, never rows without a client. Periods are whole days in the client's timezone, at most a year; the accountant ZIP holds at most 100 MB of documents and 20,000 changes, the audit CSV 100,000 rows. Every export writes an audit row naming what it covered. No screens yet (the owner is redesigning the UI). // DECISION |
+| Encryption | Connection secrets stay encrypted under each client's key (§1.26). Records and files rely on Neon's and R2's encryption at rest (AES-256) and on TLS in transit. Application-level encryption of records was considered and not done in this pass: neither HIPAA, SOC 2 nor PCI requires it once card numbers aren't stored. // DECISION |
+| Notifications | Email and text notifications to people never carry record content: the count and a link to the inbox only. Today notices are thread messages and release codes carry only the code. This is a rule for when notification emails are built. // DECISION |
+
+Not code, for the owner: BAAs (then `BAA_PROCESSORS`), MFA required in WorkOS, Cloudflare WAF rate
+limiting on `/api/*`, GitHub's secret scanning with push protection and branch protection on `main`,
+a tested restore from Neon's point-in-time history, and the policies and audits themselves.
+
+### Run controls (W1-E)
+
+Built from ARCHITECTURE v0.12 §10.10 and §14 and plan §1.40 (design branch). What the build decided
+where those leave it open:
+
+| Topic | Decision |
+|---|---|
+| Files | `packages/core/src/api/runs-filter.ts` (RunFilter, its query parameters, how a run started), `run-controls.ts` (route specs, short ids, error keys, the carry rule, CSV fields); `packages/workflows/src/executor.ts` (resume, reuse, `errorKey`, `resumePoint`); `packages/agents/src/log/model-calls.ts` and `carried-actions.ts`, `runtime/carry.ts`; `apps/api/src/routes/run-controls.ts` (routes and RunFilter's SQL). Shared files touched in `// v0.12 W1-E` blocks: `routes.ts`, `app.ts`, `index.ts`, `call-tool.ts` (one call after the before state), `runs/ports.ts` (`retryOf`), `run-agent.ts` (the model-call loop), `contract.ts` (forbidden portal fields). |
+| RunFilter keys | One key per §1.40 field, lists comma-separated (`statuses=failed,waiting`); the old names (`client`, `agent`, `status`; the portal's `service`) still work. `signedBy`, `changedConnector` and `errorKey` take one value; `attemptsOver` and `costOver` mean "more than". The portal refuses (400) `clients`, `templates`, `versions`, `mode`, `costOver`, `errorKey`, `groupBy`: it has one client, sees live runs only, and shows neither versions, cost nor error keys. // DECISION |
+| How it started | From `run.trigger`: `schedule`; `event` (except the event types below); `webhook` (`webhook.received`), `message` (`inbound.message`, `thread.message_posted`, `account.request_passed`, and `/commands`), `handoff` (`run.succeeded`); `manual` when the operator started it, `person` when a client person did (`trigger.client`, or `trigger.startedBy.role` a client role). An ask's run matches none. // DECISION |
+| Text | `text` matches a short id (`R-1a2b3c` or the six hex), the workflow slug, the agent's or service's name, or the error's words. |
+| Attempts | The run and the runs it retried, back to the first (a recursive count over `retry_of`). A run is retried once (409 `already_retried` names the retry); a failed retry is retried in its turn, so the chain is a line. // DECISION |
+| Resume | `resume_from` is the top-level step holding the failed node (`resumePoint`). The retry's load step reads the run retried's rows of the top-level steps before it; `succeeded` rows are copied as succeeded and `skipped` rows stay skipped (a write a person turned down is not reported as done), each with summary "reused from R-xxxxxx". A step before it with no row runs again. A failure before any step (no node) retries from the start. // DECISION |
+| Carried approvals | A retry's write step looks at the actions the same node proposed in the run retried and the runs before it (keys `<run>:<node>:<n>`), after the gate (matrix, grant, the go-live stage through W1-A's `effectiveMode`, release) and the before state, by the hash of the input. `done`: never redone, its result returned. `approved`, `executing` or `failed` with an approval under 72 hours: reopened (`failed` → `approved`) and executed under its original key, its release checked for the retry's run. A failure whose write may have happened (`unconfirmed`) is never carried. A write the system approved (no signer) is carried only while the gate would still run it without asking, so a tightened matrix, or an agent moved back to trial or signoff, asks again; a person's signature stands while the gate allows the write. The carried action keeps its run; the retry's tool call links it, with `{approvedVia: 'retry_of', retryOf}` as its logged output. The step's idempotency index still advances, so a Workflow retry of the step finds its later writes by key. // DECISION |
+| Cancel | Refused (409 `writing`) while an action of the run is `executing`; else `instance.terminate()` (an instance that ended or never started is fine), then in the request's transaction: the run `cancelled` (`error: {code: 'run_cancelled', by}`), open step runs `cancelled`, open items `expired`, proposed actions `rejected` with `{code: 'run_cancelled'}`. Approved actions not yet executing stay approved; the terminated run never claims them. A queued run cancelled before its instance starts ends at its load step without running. // DECISION |
+| Replay | A test run of the same agent, version, workflow and payload in the run's own client, `trigger.replayOf` = the run. Any run can be replayed. |
+| Error keys | `runErrorKey`: the failed action's tool id, else the step kind (`skill`, `person`, …) of the innermost step that failed, never a loop or fork around it, else `run` before any step; the code from the error's words (`refused`, `escalated`, `timeout`, `unauthorized` for 401 and expired sign-ins, `rate_limited`, …, an error class's name, else `failed`). Grouping: `coalesce(error->>'key', error->>'code', 'unknown')`, up to 100 groups, most frequent first, with client names and agent ids. // DECISION |
+| CSV | `GET /api/ops/runs.csv` takes the list's filter, not its page size: up to 5,000 runs, newest first. Columns per §1.40, the id as the short id; written and served with the exports stream's `csvFile` and the exports stream's `mountFile` (core's `ExportFile`). // DECISION |
+| Model calls | After each model call in `run-agent.ts`'s agent-mode loop, the runtime calls the `modelCalls` port with the request, the answer, usage and timing. The writer (`dbModelCalls`, in `src/log` with the other log writers) inserts the row in the client's transaction, then stores the body at `tenants/<id>/model-calls/<id>.json`: card numbers redacted (`redactCardNumbersDeep`), a document's inline base64 bytes left out with their size (the document is already stored). Cost is rounded up to 4 places. A body that fails to store is logged and the row stays. `packages/llm`'s `onCall` gains a second argument, `{request, response}`. // DECISION |
+| Model calls beyond the loop (follow-up) | One helper (`recordModelCall`, `packages/agents/src/runtime/model-call.ts`) turns the model client's `onCall` into a row through the same port, used by the agent loop, a reach-out's message (`composeReachMessage`, on the reach-out's step with the agent version) and a document read in a step (`docs.extract`: the tool invocation's `recordModelCall`, wired by the gate like `recordUsage`). A call without a run step (a reach-out recorded with no step run) records nothing. Background reading (`extractInBackground`) keeps no row: `model_call.run_id` and `step_run_id` are NOT NULL with foreign keys and a background read has neither; its tokens and cost stay on `doc_extraction` and `usage_platform_daily` (§1.43). // DECISION |
+| Saved views | `ops_runs` only; the filters are a RunFilter (400 otherwise); names unique per user (409 `name_taken`). Every route filters by `user_id` = the session user, since RLS only checks that the session is an operator's. |
+| UI | Minimal, on existing classes: the run page shows the short id, Retry from the failed step, Cancel run, Replay as a test run, and the model calls table; the runs list gains "Failures by error", whose key filters the list. |
+
+---
+
+### v0.12: the owner's prototype (2026-11-06)
+
+§1.36–§1.52 are the decisions for ARCHITECTURE v0.12, one section per build stream (§8). Rules for all
+of them:
+
+| Topic | Decision |
+|---|---|
+| API first | The owner redoes the UI from the prototype. Streams build data, routes, contract specs and tests. UI only where an existing screen would otherwise break (e.g. the builder meeting a new step kind) or a check needs it; today's screens keep working. |
+| Contract | Every new route is a spec in the stream's own `packages/core/src/api/<area>.ts`, spread into `routes` with one line; the contract tests (roles, forbidden portal fields, secret fields) apply to them as to every route. |
+| Client words | Text the server writes for clients (notifications, the Weekly Table, Desk reasons, Sloan's drafted changes, sign-off items) is in the six languages from core word files (`packages/core/src/i18n/<area>.ts`), like `RELEASE_WORDS`, marked for a fluent speaker's review. |
+| Invariants | Every stream keeps CLAUDE.md's invariants; v0.12 adds one sentence to 8 (stages, undo, edits) and one to 11 (Sloan). |
+| Fakes | No new third-party account or key. New providers are built against fakes in `@countersign/connectors/testing`; anything unchecked goes in the connector's `NOTES.md`. |
+
+### 1.36 Go-live stages and client controls (W1-A, M13; migration 0019)
+
+| Topic | Decision |
+|---|---|
+| Stages | `agent.stage` `bench` → `trial` → `signoff` → `live` (ARCHITECTURE §10.9). Backfill in 0019: `live` for client agents whose `run_status` is active, paused or retired (not test copies), `bench` for other client agents, null for templates. |
+| Start of trial | The existing Activate (`POST /api/ops/agents/:id/activate`) moves bench → trial when the activation check passes, and sets `stage_state.trial = {startedAt, minDays: 14, minRuns: 25, setBy}`. `PUT /api/ops/agents/:id/trial` changes the two numbers (logged). |
+| Forced signatures | Core `effectiveMode(definition, stage)` returns `suggest_only` in trial and signoff. Used in exactly three places: the gate (`packages/agents/src/runtime/call-tool.ts`), reach out's plan (`apps/api/src/reach/service.ts`) and inbound call answering (`apps/api/src/calls/answer.ts`). The stage is read fresh at each decision through a new `RuntimeStore.agentStage(tenantId, agentId)` (like the matrix), so a stage change applies mid-run. // DECISION |
+| Trial → signoff | The hourly pass (usage sweep minute) moves a trial whose days and finished live runs have both reached their minimums to signoff, and opens an inbox item for the client admin (`kind: approval`, `subject_type: 'go_live'`, payload: runs, changes made, signed, rejected in the trial; no internals). Approving moves it to live; rejecting moves it back to trial with a new `startedAt` and posts the reason to the lead (thread when W1-C is in; an operator inbox item until then). |
+| Skips | `POST /api/ops/agents/:id/stage {to, reason}`: forward needs a reason; backward doesn't. Logged as `agent_change` `{kind: 'stage', from, to, reason}`; `stage_state.skipped` keeps the list. An agent whose live version has no `external` tool anywhere (steps, skills' tools, automations) goes bench → live at activation with reason "no writes". |
+| Client pause | `agent.pause` (ARCHITECTURE §11.5). Portal routes for the client admin only; reason 1–500 characters, required; `until` optional, in the future, at most 90 days. Pause all skips the account agent (`slug = supervisor`). The operator's existing pause writes `pause.side = 'operator'`. The client resumes only `side = 'client'`; the operator resumes any. The every-minute cron resumes pauses whose `until` passed (one statement per client, logged). |
+| Run now | Manual triggers gain `client: {canRun, label?}` (core schema; validation: only on `manual`). `GET /api/services/:id/run-forms` answers the client-runnable workflows of the agent's live version with their input schema; `POST …/workflows/:slug/run` validates the input against the schema on the server (JSON Schema checked with the same converter the builder uses), starts the run like the operator's manual run with `trigger.startedBy = {userId}`, for the client admin and signing client users (viewers 403 once W1-D's `can_sign` exists). Agents in trial, signoff or live only. |
+| Past event, live | `POST /api/ops/agents/:id/run-event {eventId}` (ARCHITECTURE §10.9): reuses the router's matching and run ids; 409 `already_ran` when a run with that id exists; 409 `not_live` on bench; the event must be the client's and not from a test run. |
+| Files | Owns `packages/core/src/lifecycle/`, `packages/core/src/api/lifecycle.ts`, `apps/api/src/lifecycle/`, `apps/api/src/routes/lifecycle.ts`; edits the activate/pause handlers in `apps/api/src/routes/ops-agents.ts`, the activation check in `ops-lineage.ts`, the manual trigger in `packages/core/src/schemas/workflow.ts`, the three `effectiveMode` call sites, `runtime-store.ts`. |
+
+### Go-live stages (W1-A)
+
+Decisions made while building §1.36 (ARCHITECTURE §10.9, §11.5; migration 0019). Code in
+`packages/core/src/lifecycle/`, `packages/core/src/api/lifecycle.ts`, `apps/api/src/lifecycle/` and
+`apps/api/src/routes/lifecycle.ts`.
+
+| Topic | Decision |
+|---|---|
+| Not live means suggest only | `effectiveMode(definition, stage)` returns the definition's mode only at `live`; bench, trial, signoff and a missing stage are `suggest_only` (approval stays on by default). At the gate the stage is read fresh (`RuntimeStore.agentStage`) only for `external` tools; reads never ask. An approved reach-out plan's attempts keep running under that one signature (the plan itself is signed in trial). // DECISION |
+| What "writes" means | An agent "has no writes" when its live version's enabled workflows, skills' tools and extra tools hold no `external` tool and no skill that reaches people (a reach-out's attempts are writes on the client's channels). Automations join the walk (W2-B): an enabled workflow's use steps bring in their automation's steps. // DECISION |
+| Finished runs | A trial counts live runs that succeeded or failed, created since the trial's `startedAt`; cancelled and waiting runs don't count. Only trials of agents whose run status is active move: a paused trial isn't put before the client. // DECISION |
+| Sign-off item | `kind: approval`, `subject_type: go_live`, assigned to the client admin role, title and one summary sentence in the client's language (`GO_LIVE_WORDS`, six languages, marked for review), payload `goLive: {agentId, summary, text, ask}`: counts only. Resolved through the normal resolve path; an item the agent has moved on from (skipped, moved back) is answered but changes nothing. Leaving signoff any other way expires the item. // DECISION |
+| Rejection | Back to trial with a new `startedAt` (the minimums kept); the reason (the resolve's `note`, else "no reason given") is kept in `stage_state.rejections` and sent to the operator as a `review` item (`subject_type: go_live_rejected`) until W1-C's lead thread exists (TODO in `resolveGoLive`). // DECISION |
+| Skips and moves | Forward needs a reason; each stage cut short is added to `stage_state.skipped`. Leaving the bench runs the activation check (it is starting the agent). Back to the bench sets the run status to `testing` (the bench only test-runs) and lifts any pause. Moving to signoff asks the client admin at once; moving to trial restarts the clock. Every move is an `agent_change` (`kind: 'stage'`) and an `agent.stage` audit row; minimums changes are `kind: 'trial'` and `agent.trial`. // DECISION |
+| Activate and pauses | Activate on the bench starts the trial (or goes live with "no writes"); on a paused agent it resumes and lifts the pause, whoever made it. The operator's Pause takes no reason today: it records `side: operator`, "paused by the operator". Pausing a paused agent keeps the first pause. A pause recorded before v0.12 (none) is the operator's to lift. // DECISION |
+| Client controls | `GET /api/controls` lists the client's running and paused services with who paused them (a route under `/api/services/` would collide with the service page). `POST /api/services/resume-all` resumes every client-side pause. Run now is open to client admins and client users until W1-D's `can_sign` (TODO in `api/lifecycle.ts`); input is checked with the runtime's JSON Schema reader (`checkAgainst`). // DECISION |
+| Past event, live | The router's `routeEvent` over this one agent decides the workflows and the run ids; 409 `already_ran` if any of those runs exists, 409 `not_live` on the bench or when not active, 422 `test_event` for an event whose payload names a test run, 422 `no_workflow` when nothing matches. The run's trigger records `replayedBy`; an `agent_change` `kind: 'run_event'` names the event and runs. // DECISION |
+| Run now and viewers (follow-up) | Both client roles reach the Run now routes (a role can't say `can_sign`); the start handler reads the membership in its transaction (`withCanSign`, as the Desk does) and refuses a viewer with 403 `cannot_sign` before anything else. A viewer still lists the forms (they see everything, sign nothing). // DECISION |
+| Rejection to the lead (follow-up) | The client's rejection reason is posted in the client's lead thread (`leadThread`, `postMessage`) in the resolve transaction, as an operator note (`audience: operator`) from the person who rejected (sender type `user`), text "Kept <agent> in trial: <reason>", the go-live item as its source, the body naming the agent and item; `thread.message_posted` is emitted with the resolve's other events. The operator `review` item (`go_live_rejected`) is no longer made: the lead learns of it from the thread, and the notify pass's lead-message email (a client member's message goes to the lead). // DECISION |
+
+### 1.37 Notifications, the Table and the Weekly Table (W1-B, M14; migration 0020)
+
+| Topic | Decision |
+|---|---|
+| Sender | `apps/api/src/notify/mailer.ts`: Mezonas' own mail over the `resend` client (`RESEND_API_KEY`, `notify@RESEND_FALLBACK_DOMAIN`), plain text plus a small HTML part with the design system's colours, no images, no tracking. Texts through the client's Twilio subaccount exactly as release codes send (no raw record, no thread line). Without a key: rows are written `skipped` with `reason: 'not_configured'`. // DECISION |
+| Outbox | `notification` (ARCHITECTURE §5.5). A cron pass every 5 minutes per client (one `withTenant` each) builds candidates by scanning rows (open items, connections in `error`, lead-thread messages, weekly tables due, sign-off items), inserts them `on conflict do nothing` by `dedupe_key`, then sends `queued` rows. No hook in other streams' code: everything is found by scanning. // DECISION |
+| Dedupe keys | `items:<user>:<UTC hour>`, `reconnect:<connection>:<UTC day>`, `weekly:<week start>:<user>`, `lead:<message id>:<user>`, `credits:<period>:<block>`, `signoff:<item>`. |
+| Content | Fixed sentences per kind in six languages (core `i18n/notify.ts`) with counts and one link (`APP_ORIGIN` + the page); a test walks every rendered message and fails on any record field (amounts, names of vendors, subjects). |
+| Quiet hours | Texts and items-waiting emails respect the person's quiet hours (directory entry, else the client's messaging quiet hours); held, not dropped. |
+| Remind | `POST /api/ops/connections/:id/remind` (ARCHITECTURE §14 listed `/remind`; now built): once a day per connection (409 `already_sent`), logged in `connection_change`. |
+| The Table | `GET /api/table` (ARCHITECTURE §11.4); "what it's doing now" is the latest run of each service: its status, the current top-level step's index and name (client label), started or waiting since. KPIs come from W2-G once merged; until then the figure list is runs and changes. |
+| Weekly Table | Draft at Friday 17:00, send at Monday 7:00 in `tenant.timezone`, checked by the minute cron. Stats: runs done and their change from last week, changes to tools (automatic, signed), signatures given, documents read, and each agent's weekly KPIs (W2-G). The lead edits note, decisions and next week through `PUT /api/ops/clients/:id/weekly/:weekStart` until it is sent (409 `sent` after). Decisions' replies are lead-thread messages (W1-C); until W1-C merges, the reply route answers 501 `not_yet`. |
+| PDF | `pdf-lib` pinned to an exact version at least two weeks old, in apps/api only; A4/Letter by the client's locale; standard Helvetica; characters outside WinAnsi replaced. |
+| Files | Owns `packages/core/src/notify/`, `packages/core/src/weekly/`, `packages/core/src/api/notify.ts`, `packages/core/src/api/table.ts`, `apps/api/src/notify/`, `apps/api/src/weekly/`, `apps/api/src/routes/notify.ts`, `apps/api/src/routes/table.ts`; edits `apps/api/src/routes/onboarding.ts` (notification settings: `emailsOn` true). |
+
+#### Decisions made while building W1-B (2026-11-06)
+
+| Topic | Decision |
+|---|---|
+| Keys | The keys that name no person (`reconnect`, `credits`, `signoff`) end with `:<user>`: `notification` is unique on (client, channel, key) and those kinds go to every client admin. |
+| Email sender | `apps/api/src/notify/mailer.ts`: a `Mailer` with `isConfigured`; Resend with `RESEND_API_KEY` and `RESEND_FALLBACK_DOMAIN` (as release codes), from `Mezonas <notify@…>`, Idempotency-Key `notify-<row id>`. Without them every email row is `skipped`, `not_configured`, and the portal's `emailsOn` is false (it is the mailer's `isConfigured`). No new account or key. |
+| Texts | Through the client's Twilio subaccount exactly as release codes (`sendReleaseText`, A2P approved for US numbers), to the person's directory entry (the client's contact with their sign-in email) with text consent and no STOP, only if they turned texts on. `PUT /api/settings/my-notifications` refuses `sms: true` with 422 `cannot_text` when no text can reach them; `GET` beside it returns `canText` and `emailsOn`. |
+| Preferences | `tenant.settings.user_notifications[userId] = {email, sms}`, email on and texts off by default, written with `jsonb_set` (other people and settings untouched). The client's `itemsWaiting` switch turns that kind off for everyone, texts included; `weeklyDigest` the Weekly Table's. |
+| Items waiting | The count is every open, unsnoozed item waiting on the person (assigned to them, or to their role if `can_sign`); it goes only when one is new since their last items-waiting row, at most once an hour (by the row's `created_at`, the pass's time), and never while one is still held for quiet hours. |
+| Holding | Quiet hours hold texts always and emails for items waiting only (the others go at any hour, as email does in reach out); a held row stays `queued` with `reason: quiet_hours`. Retries count in `reason` (`send_failed:1`, `send_failed:2`), then `failed`; someone no longer a member is `skipped`, `not_a_member`; a channel turned off after queuing, `turned_off`; no number that can text, `no_sender`. |
+| Lead messages | A lead message is one a person posted (sender type `user`) in the client's `lead` thread: from someone who isn't a client member it goes to the client's members (client audience only); from a member it goes to the lead (`tenant.settings.lead.userId`; none set, none sent). One row per person and newest unread message (by `thread_read`), counting the unread ones; looks back 7 days. The lead reads English and links to `/ops/clients/<id>`. |
+| Credits | Not scanned here: W2-G's credits-out pass queues `credits` rows through `enqueue` (key, words and link are ready). |
+| Sign-off | Agents in `signoff` with `stage_state.signoff.inboxItemId` whose item is open: each client admin once per item. |
+| Reconnect | Connections in `error`: the client admins and whoever connected it, again only 24 hours after the last reconnect row. The remind route refuses a `connected` connection (409 `connected`) and a second ask the same UTC day (409 `already_sent`), logs `{kind: 'remind', notifications}` in `connection_change` and sends after commit. |
+| Links | `APP_ORIGIN` plus the page: `/inbox` (the Desk, sign-off), `/weekly?week=<Monday>`, `/connections`, `/settings` (credits), `/` (the lead thread is on the Table) and `/ops/clients/<id>` for the lead. Without `APP_ORIGIN`, `https://app.mezonas.com`. |
+| Weekly calendar | Only the week just ended is sent (from Monday 7:00 on; a Monday before 7:00 sends nothing), and only for weeks the client existed in; the Sandbox and retired clients get none. The minute cron checks every client; on a 5-minute minute it runs the pass too, else it sends right away whatever the Weekly Table queued. |
+| Weekly stats | Runs done: live runs finished `succeeded` in the week (Monday 00:00 to Monday 00:00, client's zone); changes: external actions `done` in the week, signed when `approved_by` is set; signatures: approval and external-action items resolved with approval by a client member; documents read: documents with an extraction made in the week. Each figure keeps up to 100 record ids as `sources`; each agent's `kpis` stay empty until W2-G. |
+| Setup | Agents on the bench or in trial whose bindings, or the connectors their live version's platform skills, extra tools and action steps need, have no connected connection ("Connect your Amex"). |
+| Lead edits | An edit before Friday's draft makes the draft (this week or last week only; other weeks 404, future weeks 422). Decisions keep their id (and reply) when the lead sends it back; new ones get one. Each source must be one of this client's runs, documents, transactions, vendors, inbox items or external actions (422 `unknown_sources`). |
+| Portal reads | `GET /api/weekly` returns sent tables only (the latest or `?week=`) and the list of sent weeks; drafts are the back office's. `POST /api/weekly/:weekStart/decisions/:decisionId/reply` is in the contract and answers 501 `not_yet` until W1-C (`HttpError` gained 501). |
+| Decision replies (follow-up) | Now built on W1-C's threads: the reply is the client person's message in the client's lead thread (`audience: client`, plain text, never read as a `/command`), with the decision's sources and a body naming the week and decision; the decision's `reply` gets `{by, at, messageId}` in the same transaction (the row locked), and `thread.message_posted` is dispatched after commit. One reply per decision (409 `replied`; the conversation goes on in the thread); a draft, another week or client, or an unknown decision is 404. Any client member may answer. // DECISION |
+| PDF | Letter for clients whose language is English (or unset) with an `America/*` time zone, A4 otherwise; in the reader's language. The route is a normal contract route (sign-in, roles, scope, audit); its JSON answer is swapped for the file by a middleware in `routes/table.ts`. Fixed creation dates keep the bytes the same for the same row. |
+| The Table | Services are the client's active or paused client agents (test copies out). "Now" is the latest live run: its status; while it runs, the running or waiting step's top-level index and client label; since when (the open Desk item's time when it waits on the client). The Desk's top three are by due date, then newest; snoozed items are left out. The lead's latest message is their latest client-audience message in the lead thread. |
+
+### 1.38 Threads, the lead and `/commands` (W1-C, M15; migration 0021)
+
+| Topic | Decision |
+|---|---|
+| Package | `packages/threads` gets its first code: `store.ts` (find or create the lead, agent and account threads; list; post; read state), `access.ts` (who reads and posts, ARCHITECTURE §11.2), `commands.ts` (resolve `/word` to an agent command or skill). Core holds the pure pieces: `parseCommand` and the thread schemas (`packages/core/src/threads/`). |
+| Kinds | By `subject_type` (no kind column): `lead`, `account`, `agent`, plus today's. One lead thread per client (partial unique index in 0021); one agent thread per client agent (found by subject). |
+| Posting | People post text (1–4,000 characters) and optional `sources` (checked to be this client's record ids with the records resolver). Audience: client by default from a client member; an operator chooses `client` or `operator`. Emits `thread.message_posted` in the same transaction. |
+| Agent tools | `threads.post` (internal; audience client only for the account agent, operator otherwise) and `threads.read` (read; the thread's messages as data). In `packages/agents/src/tools/threads.ts` with a port in `log/threads-port.ts`. |
+| The lead | `PUT /api/ops/clients/:id/lead {userId}`: an operator who serves the client; logged in `tenant_change`. Portal session payload gains `lead: {name} | null`. |
+| Lead checks | `assignee: 'lead'` on person steps (core schema doc and validation accept it); `createForPerson` in `apps/api/src/runs/ports.ts` resolves it to the lead's user, else the operator role. The timeline label uses the lead's first name. |
+| Commands | An agent's command name per ARCHITECTURE §10.8, computed on read from the client's active agents. `/name rest` in a client thread posts a `command` message; the message trigger (W2-E) starts runs from `thread.message_posted`, so this stream starts nothing itself. Unknown name: a system message. |
+| Files | Owns `packages/threads/src/*`, `packages/core/src/threads/`, `packages/core/src/api/threads.ts`, `apps/api/src/routes/threads.ts`, `packages/agents/src/tools/threads.ts`, `packages/agents/src/log/threads-port.ts`; edits `createForPerson` in `apps/api/src/runs/ports.ts`, the person step's assignee in `packages/core/src/schemas/workflow.ts`, the session route. |
+
+#### Decisions made while building W1-C (2026-11-06)
+
+| Topic | Decision |
+|---|---|
+| Command words | `/word` is letters, digits and dashes, plus the dots, colons and underscores of a skill id, ending at whitespace or the end; `/path/to`, `/ x` and `//x` stay text. Names compare lower case. |
+| Command names | Computed on read from client agents (not test copies) with `run_status = 'active'` and a live version: the first word of the identity name, accents dropped; the slug when two agents share the word, when it is empty, or when it is another agent's slug. A paused agent answers to no command. |
+| The event | `thread.message_posted` carries §11.2's ids plus `audience`, and for a command the resolved target `command: {name, agentId, skill?}`, so W2-E starts the right agent without parsing again. Never the text or the command's words. Every message emits it, system answers included. |
+| Unknown commands | The person's message is kept as plain text (no command) and a system message answers in the client's language (`THREAD_WORDS`), with the same audience. Nothing names an agent, so nothing starts. |
+| `/skill` in the back office | On an agent's thread an operator's `/word` names one of the agent's live skills first (its id, or its last part when only one matches), then an agent. It is posted as a command with `skill` in the event; **nothing runs it yet** (W2-E/W3-A, or the owner, decides who starts the test run). |
+| Opening threads | `GET /api/threads?subject=lead` (and the back office's `?subject=lead`) opens the lead thread on first ask; `?subject=agent&service=` (`&subjectId=` in the back office) opens that agent's thread. Idempotent; listing without these opens nothing. One agent thread per agent through a transaction advisory lock (no unique index in 0021). |
+| Read state | `POST …/read` moves the person's mark to now, never back. Unread: messages the person may see, newer than the mark, not their own. The back office gets `POST /api/ops/threads/:id/read` too (§14 listed the portal's only), so the lead has unread counts. |
+| Who posts | Readers post (§11.2), except that operators don't post in a `contact` thread (409 `not_here`: its messages are texts and calls with that person). An operator's message must name its audience. `run`, `contact` and record threads are back office only: the portal answers 404. |
+| Names in the portal | The lead by name (else the part of their email before @); any other operator `null` ("Mezonas"); agents by service name; client members by name. Messages carry no audience field in the portal. |
+| Sources | People's sources must be records the records resolver knows in this client (transaction, document or reading, raw record, vendor): 422 `invalid_source` otherwise. Agents' sources are not resolved (they may cite a pack's rows); they stay inside the client by RLS. |
+| Agent tools | `threads.post` keeps its default (an operator note); `audience: 'client'` only from the client's account agent (`slug = supervisor`), in an `account` thread, in a live run. Agents never open an account thread. `threads.read` returns messages as data; the account agent reads only client-facing messages of the client's own kinds, with operators other than the lead named "Mezonas". Without the threads port (in-memory tests) `threads.post` falls back to the platform store's operator note. |
+| The lead | `PUT …/lead {userId: null}` clears it; `reason` is optional; a `tenant_change` row only when it changes. The session's `lead` is the active client's (also for an operator's switcher choice). |
+| Lead checks | Live runs: `assignee_role = 'operator'` with the lead's user, else no user. Test runs: the operator role, like every person step. The portal timeline label reads "Ana: Check new matches" (the lead's first name before the operator's label), so it needs no new words in six languages. The builder offers "The client's lead" for a person step's assignee. |
+| Notify steps | Notices the executor posts to a run's thread (the platform store) don't emit `thread.message_posted`; only people's posts and `threads.post` do. |
+
+### 1.39 The Desk, sign-off and viewers (W1-D, M16; migration 0022)
+
+| Topic | Decision |
+|---|---|
+| Why it waits | Core `explainWrite(input)` (new `packages/core/src/permissions/explain.ts`) takes the gate's inputs and returns the reasons (ARCHITECTURE §11.1); `callTool` stores them on the approval's payload as `whyApproval`. Pure; the gate's decision is unchanged. |
+| Choices | `PersonStep.choices` (1–6, `{value, label: LocalizedText}`); resolve takes `answer` = one value (422 otherwise). |
+| Snooze | `POST /api/inbox/:id/snooze {until}` by the assignee (or the client admin for role items); `until` in the future, at most 14 days, cut to an hour before `due_at`. Lists hide snoozed items from "waiting" until then; `GET /api/inbox?view=snoozed` lists them. |
+| Edits | `PUT /api/inbox/:id/edit {input}`: only fields marked `editable` in the tool's `display`; the full edited input is validated by the tool's Zod input, the connector's `before` check runs again, and approver routing is computed again (409 `reroute` if it changes). Stored in `edited_input`; `executeAction` uses `edited_input ?? input`. Edits allowed until signed. |
+| Batches | `callTool` sets `batch_key = <run id>:<top step id>` on every approval item a step proposes (for_each children share their step's id). `POST /api/inbox/batch/resolve` resolves each named item in one transaction with the normal resolve code; mixed approve and reject allowed. |
+| Undo window | ARCHITECTURE §11.1. `tenant.settings.approvals.undoSeconds` (default 60, 0–300, set by the operator or the client admin). The resolve route skips the immediate `sendEvent` when `deliver_after` is set; `apps/api/src/runs/resume.ts` delivers items whose `deliver_after <= now()`; the executor's check before waiting (`resolution()` in `apps/api/src/runs/ports.ts`) reports an item inside its window as unresolved. `POST /api/inbox/:id/undo` (the person who signed, or the client admin): 409 `too_late` after `deliver_after`. Operators' approvals in the Sandbox get the same window. // DECISION |
+| Viewers | `membership.can_sign` (default true). `mayResolve` refuses non-signers (403 `cannot_sign`); role routing skips them; approver rules naming one are 422 `not_a_signer`; the invite form gains "can sign". `GET /api/team`: each member with role, can sign and what the approver rules route to them, in plain words. |
+| Files | Owns `packages/core/src/permissions/explain.ts`, `packages/core/src/api/desk.ts`, `apps/api/src/desk/`, `apps/api/src/routes/desk.ts`; edits `apps/api/src/inbox.ts`, `apps/api/src/runs/resume.ts`, `resolution()` in `apps/api/src/runs/ports.ts`, `packages/agents/src/log/external-actions.ts` (`mayResolve`), `packages/agents/src/runtime/actions.ts` (edited input), the proposal payload in `call-tool.ts`, `PersonStep` in core's workflow schema, `ToolDisplay` (`editable`), approver-rule validation, the invite route. |
+
+Decisions made while building W1-D (2026-11-06):
+
+| Topic | Decision |
+|---|---|
+| Stage in `whyApproval` | The gate passes `explainWrite` the mode it decided with (`effectiveMode`), the definition's own mode and the fresh stage: trial and sign-off read `stage` (`{reasons, stage, route}`), and `mode` is named only when the effective mode asks for a signature for another reason (the definition only suggests, or bench). `person` waits for W1-G to pass the recipient's autonomy. // DECISION |
+| Which approvals wait out the window | Approvals of `external_action` and `approval` items of live runs, whoever signed (client people, the operator on a delegated item or in the Sandbox). Rejections, answers to questions and test runs are delivered at once. // DECISION |
+| One clock | The window is measured on the database's clock everywhere: `deliver_after = now() + undoSeconds` at resolve, `resolution()` holds while `deliver_after > now()`, the cron delivers when `deliver_after <= now()`, and claiming the action (`ExternalActionStore.claim`) skips an action whose item is inside its window, so a retried step or an early event can never write inside it (`executeAction` answers `awaiting_approval`). An undo needs two seconds of window left (`clock_timestamp()`), so it commits before the cron can read the item. // DECISION |
+| Undo | Item back to `open` (resolution, resolver, `deliver_after`, `run_received_at` cleared), action back to `proposed` (approver cleared), `{undoneAt, by}` appended to `payload.undos`; any edit stays. `POST /api/ops/inbox/:id/undo` lets the operator who signed undo too. `inbox.resolved` is not taken back (no new event type in this stream). // DECISION |
+| Undo setting | `PUT /api/desk/settings` (client admin) and `PUT /api/ops/clients/:id/desk` (operator) set `approvals.undoSeconds` 0–300, logged in `tenant_change`; `GET /api/team` returns it. // DECISION |
+| Edits | Editable fields are plain values only (`text`, `number`, `date`, `money`) whose `after` is `input.<path>`; a fixed input is never editable. The whole edited input must equal the agent's except at editable paths. Re-checks: the connector's Zod input and `before` hook (`captureBefore`), the same binding, the gate (refused verb or grant 409 `refused`), then the approver route against the item's current assignee (409 `reroute`). The edit is copied to the item's `payload.edited` for today's card; `external_action.edited_input` is what executes; the back office's run page shows both. The check calls the connector inside the request. // DECISION |
+| Batches | The batch key is `<run id>:<first segment of the durable name>` (a `for_each` child's name is `<loop>:<i>:<child>`). Batch resolve is all or nothing: one item not visible, not of the batch or not signable fails the whole request; items are resolved in id order. // DECISION |
+| Quick answers | `choices` are copied from the version's step into the item's payload when the item is made; resolve checks the answer against them (422 `invalid_answer`); declining needs none. Values are `[A-Za-z0-9_-]`, at most 100 characters. // DECISION |
+| Snooze | Portal only (the Desk is the portal's inbox): `GET /api/inbox` hides open items snoozed until later, `view=snoozed` lists them, the overview's count skips them. Too far or in the past: 422; due within the hour: 409 `due_soon`. // DECISION |
+| Viewers | The membership's `can_sign` is read in the resolve transaction (no change to the session or sign-in). Viewers don't see items routed to the `client_user` role; a rule naming one is 422 `not_a_signer`; existing rules naming one route to the client admin (the runtime's `members` are signers only); a client admin always signs (422 `admin_signs`). A step or agent approver naming a viewer by id is not rerouted. // DECISION |
+| UI | Only the inbox card's quick-answer buttons and an Undo button on a resolved item inside its window (portal). Edit, batch, snooze and the team page are API only until the owner's redesign. |
+| Reach-out plans (follow-up) | A plan's approval item carries `payload.whyApproval` too (`planWhyApproval` in `apps/api/src/reach/service.ts`, over core `explainWrite`): `step`; `matrix` when any planned channel's connection allows `create` only with approval (a plan runs on its own only when all are `auto`); `mode` and `stage` from the definition's mode and the fresh stage, as at the gate; `person` when the contact set a planned channel to `approval` (W1-G's `needsSignature`); and the approver route. No `grant`: reach out uses the agent's bound channels. // DECISION |
+
+### 1.40 Run controls and model calls (W1-E, M17; migration 0023)
+
+| Topic | Decision |
+|---|---|
+| RunFilter | `packages/core/src/api/runs-filter.ts`: `{clients?, agents?, templates?, versions?, statuses?, mode?, since?, until?, startedBy?: ('schedule'|'event'|'webhook'|'manual'|'message'|'handoff'|'person')[], signedBy?, changedConnector?, attemptsOver?, costOver? (ops only), errorKey?, text?}`. Both runs lists (`opsRuns` in `apps/api/src/routes/ops-clients.ts`, `portalRuns` in `portal.ts`) accept it as query parameters; the portal refuses ops-only keys. `perDay=1` adds counts per day. |
+| Retry | `POST /api/ops/runs/:id/retry` (failed live runs only): a new run (v7 id, `retry_of`, `resume_from` = the failed top-level step). The executor gets `resumeFrom` and a `reused` map of step outputs, records them as `succeeded` with summary "reused from R-xxxxxx", and runs from the failed step. Carried approvals per ARCHITECTURE §10.10 (72 hours, same input hash, gate allows now), executed under the original key. Only top-level steps are resumable; a failure inside a fork path or loop resumes at that fork or loop. // DECISION |
+| Cancel | `POST /api/ops/runs/:id/cancel`: `instance.terminate()`, then in one transaction: run and open step runs `cancelled`, open items `expired`, proposed actions `rejected` with `error: {code: 'run_cancelled'}`. An `executing` action makes it 409 `writing` (try again). |
+| Replay | `POST /api/ops/runs/:id/replay`: a test run of the same agent and version with the run's trigger payload, in the same client (ARCHITECTURE §10.10). |
+| Error key | Written on failure: `error.key = <tool id or step kind>:<code>`. `groupBy=error` groups by `coalesce(error->>'key', error->>'code', 'unknown')`. No migration for it. |
+| Model calls | `packages/agents/src/log/model-calls.ts`: a port called after each model call in `run-agent.ts` with the request, answer, usage and timing; apps/api stores the row and the body (`tenants/<id>/model-calls/<id>.json`, card numbers redacted) after commit. Routes are operator-only; the contract test keeps them off the portal. Retired clients' bodies go with their files (§1.35). |
+| Saved views | `saved_view`, an operator's own rows (`user_id` = session user, checked in the route). `surface = 'ops_runs'` now. |
+| CSV | `GET /api/ops/runs.csv?<RunFilter>`: id, client, agent, version, started, status, failed step, error key, attempts, cost. |
+| Files | Owns `packages/workflows/src/executor.ts` (resume and reuse), `apps/api/src/runs/execute.ts`, `workflow.ts`, `step-runner.ts`, `instances.ts`, `packages/core/src/api/runs-filter.ts`, `packages/core/src/api/run-controls.ts`, `apps/api/src/routes/run-controls.ts`, `packages/agents/src/log/model-calls.ts`; edits the `opsRuns` and `portalRuns` handlers only and `run-agent.ts`' model-call loop. |
+
+### 1.41 QuickBooks: accounts receivable and create bill (W1-F, M18; migration 0024)
+
+| Topic | Decision |
+|---|---|
+| Entities | `QBO_SYNCED_ENTITIES` gains `Customer`, `Invoice`, `Payment` (core mappers). Initial sync per ARCHITECTURE §6.2; history raises no events. |
+| Receivables | `receivable` rows from `Invoice` versions (core `mapQboInvoice`), customer by external id and name; `organization_id` set only when an organization already has that QuickBooks customer id in `external_refs`. Status `paid` when the balance is 0, `void` when QuickBooks voided it, `deleted` on a delete version. Events after the initial sync: `receivable.created`, `receivable.updated` (what changed), `receivable.paid`. |
+| Reads | `qbo.invoice.query`, `qbo.customer.query`, `qbo.payment.query` (live API queries, like the existing reads) and `qbo.aging_report {asOf?}` (QuickBooks' `AgedReceivableDetail` report, read live; output: per customer and invoice, the bucket and balance; sources = receivable ids found). All become read skills (§1.9). |
+| `qbo.invoice.add_note` | `{invoiceId, note (1–1000), syncToken}`: reads the invoice (before = its `PrivateNote`), sends a sparse update with only `PrivateNote` = old note + a new line `YYYY-MM-DD: note`; refused if the result exceeds QuickBooks' limit (to verify) or the SyncToken is stale. Display: "QuickBooks invoice 1043 · Lakeside Builders", field "Private note" now and after. `entity: 'invoice'` is declared now; the matrix scope arrives with W2-A. |
+| `qbo.bill.create` | ARCHITECTURE §6.2. Input mirrors `qbo.bill.update_lines`' line shape plus vendor, dates, doc number, currency, expected total, optional private note. `amount` = the total. Duplicate check: synced `transaction` of kind bill with the vendor and normalized doc number, then a live query by `DocNumber`. Result: the new bill id and SyncToken; the sync picks it up as usual. |
+| Fake | `qbo/fake.ts` serves the three entities, CDC for them, the report and the two writes. |
+| Files | Owns `packages/connectors/src/qbo/*`, `packages/core/src/mappers/qbo.ts`, `packages/core/src/api/qbo.ts`, `apps/api/src/qbo/*`, `apps/api/src/routes/qbo.ts`; appends `receivable.*` to the senses event catalog. |
+
+### 1.42 People and voice samples (W1-G, M19; migration 0025)
+
+| Topic | Decision |
+|---|---|
+| Categories and tags | Categories are the directory's existing `contact.relationship` (employee, contractor, customer, vendor, partner, other); tags are the existing `contact.roles` (shown as tags, e.g. `cardholder`). No new columns for them. |
+| Notes | "What agents should know" is the existing `contact.notes` (up to 2,000 characters). They reach models only in `directory.*` tool results, whose descriptions say they are the client's notes and data, never instructions (invariant 9). // DECISION: client-written notes are untrusted. |
+| Autonomy | `contact.autonomy` per channel (`email`, `sms`, `whatsapp`, `voice`). Unset = no narrowing (today's behaviour). Enforced (a) in core's reach evaluator: `off` → the channel isn't allowed; `approval` → the plan needs a signature even when the step runs without one; (b) at the gate for send tools: `ToolSpec.recipient {path, channel}` (declared by `sms.send`, `whatsapp.send`, `call.place`, `email.send`, `gmail.send`) names the input field; the gate looks the contact up (`RuntimeStore.contactAutonomy`) and passes the level to `decideToolCall` as an extra ceiling (`ceilings?: PermissionLevel[]`, new optional parameter). The client admin sets `off` or `approval`; only the operator sets `auto` (403 `loosening`), logged in `contact_change`. |
+| QuickBooks import | `POST …/directory/import/connector` gains source `qbo`: vendors (from synced `Vendor` raw records) and customers (`Customer`, after W1-F merges) as a preview like Zoho's; applied rows keep `external_refs.qbo`. |
+| Voice samples | ARCHITECTURE §6.4. Knowledge entries of kind `voice_sample` with `meta.personUserId` (whose voice; default the client admin) and `meta.channel`. Pasted in the knowledge base (client admin, operator) or forwarded to `<forwarding address>+voice`: `apps/api/src/email.ts` routes that tag before forwarding, accepts only allowed senders, keeps the body text only (quoted history cut, 4,000 characters, cards redacted). At most 50 samples per person (the oldest archived). Not indexed for `knowledge.search`. |
+| Tools and skill | `knowledge.voice_samples {personUserId?, channel?, limit ≤ 10}` (read; samples as data). Built-in skill `writing.draft-in-voice` (agent mode): input person, purpose, record sources, channel; output `{subject?, text, sources}`; its instructions say the samples show tone only. |
+| Files | Owns `packages/core/src/directory/*` (autonomy schema), `packages/core/src/reach/rules.ts`, `apps/api/src/directory/*`, `apps/api/src/routes/contacts.ts`, `apps/api/src/routes/directory.ts`, `packages/documents/src/knowledge/*`, `packages/agents/src/tools/knowledge.ts`, the new skill; edits `decide.ts` (the `ceilings` parameter), the gate's recipient lookup in `call-tool.ts`, the `+voice` branch in `apps/api/src/email.ts`, the send tools' specs (`recipient`). |
+
+### 1.43 Platform fixes from the API end-to-end test (W1-H, M20; migration 0018)
+
+From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a past event) is W1-A's
+(§1.36).
+
+| Topic | Decision |
+|---|---|
+| Dispatch after commit | ARCHITECTURE §8. `emit` returns the event id; `packages/senses` gains a per-transaction collector, and `withTenant`'s callers that emit outside requests (background reading, `QboSyncWorkflow`'s store step, `RunWorkflow`'s steps, the cron's tenant passes) dispatch the collected ids after commit with `waitUntil` (or right after the step in a Workflow). Requests already do. The sweep stays (30 s). A test checks a `document.extracted` from a background read starts its run with no cron tick. |
+| Reading costs | ARCHITECTURE §13. 0018 adds `doc_extraction.tokens_in`, `tokens_out`, `cost_usd` (written at insert; the immutability trigger is unchanged) and `usage_platform_daily`. `rollupUsage` fills it from extractions with no agent version; billing's credit conversion sums its measures with `usage_daily`'s (`apps/api/src/billing/`). An agent's `documents` counts documents its live runs read or cited. // DECISION: background reading is the client's usage, not an agent's. |
+| Portal records list | `GET /api/records?kind=transactions|vendors|items|receivables&q=&offset=&limit=`: the back office's records list (§1.16) for the client's own records, same filters and shapes minus the raw payload's internal fields; client roles only. |
+| Sync now | ARCHITECTURE §6.2: a fresh instance id when none runs; `queued` and a follow-on instance when one does. `apps/api/src/routes/qbo.ts` and `QboSyncWorkflow`'s last step. |
+| Files | Owns `packages/senses/src/*`, `apps/api/src/runs/dispatch.ts` (the after-commit helper only), `packages/db/src/queries.ts` (usage rollup), `apps/api/src/billing/credits` conversion, `apps/api/src/routes/records.ts`, `packages/core/src/api/records.ts`; edits the background reading in `apps/api/src/routes/documents.ts` and `packages/documents` (cost on the extraction row), and the sync-now handler (coordinate with W1-F, which owns `apps/api/src/qbo/`: W1-H edits only the instance naming). |
+
+### 1.44 Permissions per record type and the connectors catalog (W2-A, M21; migration 0026)
+
+| Topic | Decision |
+|---|---|
+| Schemas | `ConnectorManifest.permissionEntities` and `ToolSpec.entity` (ARCHITECTURE §6.1); a manifest test checks every tool's entity is declared and every scope's tools are the connector's. `PermissionMatrix.entities` and `GrantLimits.entities` optional. |
+| Decision | `effectiveLevel` in core folds verb, entity, scope, grant (verb and entity), then `decideToolCall` as today with W1-G's `ceilings`. A tool outside a scope's tool list for its entity and verb is `off`. |
+| Entities declared | QuickBooks: `bill`, `purchase`, `item`, `vendor`, `invoice` (scope `notes_only` on update: `qbo.invoice.add_note`), `customer`, `payment`, `attachment`. Zoho: `lead`, `contact`, `account`, `deal`, `note`, `task`. Podio: `item`, `comment`, `task`. Twilio, Resend, Gmail: `message`, `call`. Webhook: `event`. Browser: `page`, `file`. Testkit: one. |
+| Old matrices | No data migration: a missing `entities` key means every entity takes the verb's level. Client tightening per entity uses the existing tighten-only check, extended to entities; the API refuses loosening (403 `loosening`). The old matrix editor keeps working (it sends verb levels; entity levels are kept). |
+| Catalog | `connector_setting` (0026) and `GET/PUT /api/ops/connectors` (ARCHITECTURE §6.1). Default access for new clients applies when a client's connection row is first created. |
+| Files | Owns `packages/core/src/permissions/*` (except W1-D's `explain.ts`, which it extends for entities), `packages/core/src/schemas/permissions.ts`, `schemas/connector.ts`, `schemas/tool.ts`, `packages/connectors/src/permissions.ts`, each connector's manifest entity lines, `apps/api/src/routes/connections.ts`, `apps/api/src/routes/access.ts`, `apps/api/src/routes/ops-connectors.ts`, `packages/core/src/api/connectors.ts`. |
+| Tools on several entities | Zoho's record tools (`zoho_crm.record.search/get/create/update`) work on any module, so they declare `ToolSpec.entityInput: {field: "module", values: {Leads: "lead", …}}` instead of one `entity`; the gate reads the entity from the call's input, and a value it can't map is `off`. Declared data, not a connector hook, so the gate stays pure. // DECISION |
+| Entities, the unclear ones | Podio's space and app reads count as reading `item` (where items live). Twilio declares `message` and `call`; Resend and Gmail only `message` (they have no call tools). Testkit: `record`. An entity's `verbs` are the verbs its tools use. // DECISION |
+| Edits | `entities` in a matrix edit (`PATCH /api/connections/:id/permissions`, `PATCH /api/ops/connections/:id`) replaces the matrix's entities whole; left out, they are kept. Entities, verbs or scopes the connector doesn't declare: 422 `invalid_entities`; an entity's delete other than `off`: `delete_not_off`. An entity's own level is its entry, else the verb's: a client may not make it looser, drop an entry that was stricter, or set an entry looser than the verb (a later verb change would let it through). A scope's tools are declared, so a client may set one where none was, or move to one with fewer tools; dropping or widening one is loosening (403). Grants follow the same rules (`grantLoosening` gains `entities`, `grantProblems` checks entities against the connection). Keys named like an object's built-ins (`constructor`, `prototype`…) are refused; Zod leaves `__proto__` out. // DECISION |
+| Stored values | `entities` that no longer parse (a hand-edited row) read as `off` for every entity, never as no narrowing; `normalizeMatrix` keeps them as they are so nothing is loosened by a save. // DECISION |
+| Where it applies | `decideToolCall` takes `entity: {tool, input, declared}` (call-tool, the edit check, planned sends, call answering), and the connector framework's last line (`invoke.ts`) folds the connection's entity and scope too, so an approved write is refused if the client turned its entity off since. Publish-time validation still checks the verb only (an entity `off` is refused at the call). // DECISION |
+| Why it waits | No new reason code: ARCHITECTURE §11.1 keeps `matrix` for "the connection or the entity allows only approval" (and `grant` likewise). `whyApproval` gains `entity` (e.g. `invoice`) when an entity's own level asked, so the Desk can say which. // DECISION |
+| Default access | The operator's default (`connector_setting.default_permissions`) is checked like a manifest's: never looser than the platform defaults, delete off, entities the connector's own (422 `invalid_default_access`); it applies at every place a client's connection row is first inserted (portal sign-in and no-auth connect, API-key setup, browser logins, Twilio and email setup). A stored default that no longer fits the manifest is passed over for the connector's. // DECISION |
+| Catalog | Status is null until the operator sets one; the first `PUT` needs a status (422 `status_required`), later fields left out keep their values. Errors in 24 hours: failed `tool_call` rows of the clients served, by the connector owning the tool, plus that connector's connections now in `error`. Waiting to connect: clients served that are offered it, or have a live client agent whose live version needs it (`requiredConnectors`), without a usable connection (connected, or pending on a no-sign-in connector). // DECISION |
+| UI | Minimal: the matrix table shows each connector's entities as rows under it (the level that applies, the stricter of verb and entity; scopes as a select), in the portal and the back office; the back office's `/ops/connectors` lists the catalog and edits status, note and default access. |
+
+### 1.45 Automations (W2-B, M22; migration 0027)
+
+| Topic | Decision |
+|---|---|
+| Schema | `packages/core/src/schemas/automation.ts` (ARCHITECTURE §10.7) and `UseAutomationStep` in the `Step` union. `STEP_KINDS` gains `use_automation`. |
+| Validation | `validateAutomation(version, ctx)` and the use step's checks in `packages/core/src/workflow/validate.ts` (a new function; the trigger checks are W2-E's). The builder catalog route answers automations (live versions, input and output schemas, requires). |
+| Registry | `packages/agents/src/registry/automations.ts` like skills: versions, publish in one transaction, rollback by copy, no-op refused by hash, shared copies into a client on publish (`shared:<slug>`, as skills). |
+| Executor | Expansion at run load in `packages/workflows` (a pure `expandAutomations(bundle, resolve)` before execution); node ids `${useStepId}/${innerId}`; `{{input.*}}` resolved against the use step's resolved input; the use step's output from `output`. |
+| Approvals | Inner write steps keep theirs; `approvals[innerStepId]` only on client agents, validated by the same publish rule. |
+| Save as automation | `POST /api/ops/automations/from-steps`: copies the selected top-level steps (new ids), infers the input schema from references that cross the boundary, saves an automation draft, and saves a new draft of the agent with one use step in their place. Refused when the selection isn't contiguous or holds a person step assigned to a named person. |
+| UI | The old builder must render a use step: a read-only card with the automation's name and version and an input form from its schema (`apps/web/src/ops/builder/`), so existing screens don't break. |
+| Files | Owns `packages/core/src/schemas/automation.ts`, the `Step` union and `UseAutomationStep` in `schemas/workflow.ts`, the use-step function in `workflow/validate.ts` and `walk.ts`, `packages/workflows/src/expand.ts` and its call in `executor.ts`, `packages/agents/src/registry/automations.ts`, `apps/api/src/routes/ops-automations.ts`, `packages/core/src/api/automations.ts`, the builder card. |
+
+#### Automations (W2-B): decisions made while building
+
+Code in `packages/core/src/schemas/automation.ts`, `packages/core/src/workflow/automation.ts`
+(requires, save as automation), the use-step block of `workflow/validate.ts` and `template/typer.ts`,
+`packages/workflows/src/expand.ts`, `packages/agents/src/registry/automations.ts`,
+`apps/api/src/routes/ops-automations.ts` and `packages/core/src/api/automations.ts`.
+
+| Topic | Decision |
+|---|---|
+| Scope inside | An automation's steps read `{{input.*}}` and their own earlier steps only: no trigger (`{{trigger.*}}` is a scope error), no enclosing loop's `{{item}}`, no workflow step. Its `output` reads its input and its top-level steps; the use step's output schema is typed from it (one whole reference keeps its type, text is a string). // DECISION |
+| What an automation may hold | No `use_automation` (no nesting in v0.12), no person step assigned to a user id (roles or the lead only: a user id is one client's), no skill step with `agent` (asking another agent depends on the using agent's `canCommand`). Validation refuses each. // DECISION |
+| Requires | Computed on every save from the steps (skills named, action tools and the skills' tools, their connectors); a `requires` sent by the client is overwritten. // DECISION |
+| Approvals | `approvals[innerId]` is refused on a template's use step (`approvals_not_client`), must name an inner `skill` or `action` step that writes (`approval_unknown_step`, `approval_not_write`), and at a client agent's publish follows the connection rules of any write step. Expansion applies it to a copy of the inner steps; the version is never changed. // DECISION |
+| Allowed set | Using an automation brings its skills and tools in for its own steps only: inner skill steps run without the agent listing the skill (`RunAgentInput.automation`, settings from the step over the skill's defaults); the agent's top-level steps still need their own skills and tools. // DECISION |
+| Publishing an agent | Every pinned version must exist and be published (live or retired): a pinned draft is refused (`unknown_automation`, "publish it first"); the automation's connectors must be bound. A client agent's publish copies the shared automations it pins into the client as `shared:<slug>` (same version numbers), and the shared skills their steps name, as skills are copied. Activation, the test copy's bindings and the go-live "writes" walk count automations' connectors and steps. // DECISION |
+| Run load | The run's load step resolves the pinned versions in the run's client (its own, else its `shared:` copy) and stores them with the loaded workflow; a version that can't be loaded fails the run at its use step before any step runs. // DECISION |
+| Use step row | `node_type` `use_automation`, `skill_ref` `automation:<slug>@<version>`, input the resolved input, output the automation's `output`; status from its children: `failed` if one failed, `skipped` if one cancelled the run (a turned-down write, a stop), else `succeeded`. Retries resume at the use step (`resumePoint` reads `${use}/${inner}`). // DECISION |
+| Client timeline | A use step shows by default, as one line with its label; its inner steps are not in the bundle and never show there. No portal route returns an automation. // DECISION |
+| Clean-run rate | Use steps in live runs created in the last 30 days that ended (succeeded or failed); clean = succeeded in a run that is not a retry (`run.retry_of` null): `step_run.attempts` isn't kept, and a retry is how a failed step runs again. "Used by" counts live versions of templates and client agents in scope; a client's own automation shadows the shared one of the same slug in that client. // DECISION |
+| Save as automation | One contiguous run of top-level steps of one workflow; new ids for every copied step, path and branch; each reference crossing into the selection (the trigger, an earlier step's output) becomes one input field named from its words, typed where known; the output gets one field per selected step that later steps read (`{{steps.<old>.output.x}}` becomes `{{steps.<use>.output.<field>.x}}`); every other id is kept. Copied write steps start with approval on; on a client agent a step the operator had loosened keeps it through the use step's `approvals`. Always a new automation at v1 (draft): a template's become shared, a client agent's that client's own; the agent's new draft pins `slug@1`. // DECISION |
+| Routes | `GET/POST /api/ops/automations`, `GET /api/ops/automations/:id`, `POST …/:id/versions`, `POST …/:id/versions/:vid/publish`, `POST …/:id/rollback` (as skills), `POST /api/ops/automations/from-steps`; the builder catalog answers `automations` (live versions in scope and those the agent pins, with the output schema). // DECISION |
+| UI | Only the read-only card in the old builder's inspector (name, version, step count, input form from the schema) and the step list's kind and detail; the run view lists inner steps under their node ids. The owner's redesign replaces the rest. // DECISION |
+
+### 1.46 Test bench, skill tests and the agent lab (W2-C, M23; migration 0028)
+
+| Topic | Decision |
+|---|---|
+| Cases | `test_case` rows (ARCHITECTURE §9.10). Matchers in core (`packages/core/src/testbench/match.ts`): `exact`, `subset`, `fields` with per-field tolerance (numbers, money via decimal.js, dates in days), `label` (the field whose value counts for precision). |
+| Skill runs | `packages/agents/src/testbench/run-skill.ts`: runs the skill at the version under test through `runAgent` with a `FixtureToolPort` (answers by tool id and input match from `fixtures`, refuses anything else, every write refused) and no database tools; tool-mode skills run only when their handler is marked `pure` (built-ins that read only their input). Model calls are live in the Worker and replayed in tests. |
+| Template runs | A case's input is a trigger payload; it runs as a test run of the template's Sandbox test copy and compares named step outputs. |
+| Suite runs | `POST /api/ops/tests/run` runs every non-archived case of the target (in its scope: shared cases in an operator transaction naming no client; a client's cases in that client); results insert-only; metrics: pass rate, precision on label fields, cost per case. Long suites run as a Workflow (`TestSuiteWorkflow`) one case per step. |
+| Gate | `skill.require_tests`; publish refused with 422 `tests_failing` unless the latest suite run on that version passed every required case. Turning it off needs a reason (logged in a new `kind: 'skill_tests'` row of `agent_change` with `tenant_id` null and the skill id). |
+| Lab | `GET /api/ops/lab`: templates with published version, drafts never published, client-only agents; per template: clients, behind, test bench summary (latest suite run of the live and latest versions). |
+| Files | Owns `packages/core/src/testbench/`, `packages/core/src/api/testbench.ts`, `packages/agents/src/testbench/`, `apps/api/src/testbench/`, `apps/api/src/routes/testbench.ts`, `apps/api/src/routes/lab.ts`; edits the skill publish handler in `apps/api/src/routes/ops-skills.ts`. |
+
+**Test bench (W2-C), as built.** Where the design left a choice, the simplest option, with a
+`// DECISION:` comment in the code:
+
+| Topic | Decision |
+|---|---|
+| Targets | `target_id` is a `skill` row (operator skills, shared or a client's own) or a template's `agent` row. Built-in skills have no row; their packages' goldens test them. A client's own skill holds only that client's cases; a shared skill or a template may hold shared cases and served clients' cases. |
+| Case shape | `TestCaseFields` in `core/src/testbench/case.ts`. Fixtures: `{tool, input?, output}`, the input matched as a subset, first match wins. Matcher: `{kind: exact\|subset\|fields\|label, tolerances: {path: equal\|number\|money\|date}, label?: {field, positive}}`; paths are dot keys and indexes with `*` for any index, never `__proto__`, `constructor` or `prototype`. Lists compare item by item and their lengths must match. A template case's input is `{workflow, payload}` and its expected output is keyed by step id. |
+| The bench agent | A skill case runs as a neutral "Test bench" agent: the platform's reasoning model (`DEFAULT_MODELS.reasoning`), default budgets, no memory, no bindings. Every port is in memory; a budget hit opens no inbox item. Task skills (W2-H) bring their own model through `runAgent`. |
+| Refusals | Writes (`internal` and `external`) are refused by the bench's tool policy, and the fixture handler refuses them again; a read no fixture answers is refused. Connector tools are never dispatched as connectors, so no connection, credential or external action is reached. `pure` is an optional flag on `InternalTool`; no built-in is marked yet, so tool-mode skills report an error on the bench. |
+| Template cases | Run to their end inside the case's step (`benchRunner`): waits for a person or an event time out at once and `wait` sleeps are skipped, so a case never hangs; the run is a normal test run (writes recorded as "would have done"). Its cost counts in its client's usage like any test run (the Sandbox's for shared cases) and is also recorded on the result and suite run. |
+| Suite runs | `TestSuiteWorkflow` (binding `TEST_SUITE_WORKFLOW`), one step per case with no retries (a failing case is an `error` result, and a retried template case would start a second run), then a step that writes the totals. Where the binding is absent the suite runs after the response. A replayed case step finds its result and returns it. |
+| Cases | `DELETE /api/ops/tests/:id` archives the case: its results stay and point at it. |
+| Gate | The latest finished suite run of the version, in the skill's own scope (shared cases for a shared skill). With the requirement on, a version needs a finished suite run even when no case is required. Rollback is not gated: it republishes a version that was live. The switch is `PUT /api/ops/skills/:id/require-tests {required, reason?}`. |
+| Switch-off log | `agent_change.agent_id` is a required reference to an agent, so a skill can't have a row there without a migration. Until the lead decides, the switch-off is an `audit_event` row (`action: skill.require_tests.off`, target `{skillId, reason}`, reason cut to 200 characters). |
+| Lab | Templates are `published` or `drafts`; client-only agents are client agents with no template, in served clients. `behind` counts linked forks based on an older version than the live one; `maxBehind` the most versions behind. The test summary shows shared suite runs only; a client's suite runs show on its cases list. |
+
+### 1.47 Sloan, the account agent (W2-D, M24; no migration)
+
+| Topic | Decision |
+|---|---|
+| Template | `packages/db/seed/agents/supervisor.v2.json`: identity "Sloan", service name "Sloan, your account agent", the three supervisor workflows unchanged (same step ids) plus `chat` (event `thread.message_posted`, filter `subjectType = account` and sender a person; one skill step `account.chat`). Installed as template v2 by the seed and by `POST /api/ops/platform-templates/:slug/install` (operator, idempotent by bundle hash) for environments where the seed never runs; clients' forks move by the usual update merge. |
+| Tools | `packages/agents/src/tools/account.ts` over an `AccountPort` (`log/account-port.ts`): `account.services`, `account.runs`, `account.run` (a timeline), `account.waiting`, `account.explain_wait` (W1-D's `whyApproval`), `account.pause_agent`, `account.resume_agent`, `account.draft_change`, `account.pass_to_lead`, `account.pass_to_agent`; plus `knowledge.search`, `directory.search`, `threads.read`, `threads.post`. Read results are built from the portal's own response schemas, and a test walks every result with the contract's forbidden-field check. |
+| Asking user | The run's trigger carries the posting user (from the event); account tools read it from the run context, never from model input, and refuse when that user lacks the role the action needs (pause and drafts: client admin; reads: any member). |
+| Drafted changes | Kinds `add_signer {email, name, role: client_user, canSign, rules: ApproverRule[]}`, `edit_person {contactId, fields}`, `change_contact {…}`. Stored as an inbox item (`kind: approval`, `subject_type: 'account_change'`, assigned to the client admin) with now and after in plain words; approving applies it through the same service functions as the portal routes (invite, approver rules with `clientTighteningProblems`, contact edits) in one transaction. A draft that would loosen anything is refused at drafting with `loosens: true`, and Sloan offers `pass_to_lead`. |
+| Guards | Publish refuses an `external` tool or a connector tool on an agent forked from `supervisor` (a core validation rule on `platform` kind with that slug). |
+| Files | Owns the seed file, `packages/agents/src/tools/account.ts`, `packages/agents/src/log/account-port.ts`, `packages/core/src/account/` (change kinds, words), `packages/core/src/api/account.ts`, `apps/api/src/account/`, `apps/api/src/routes/account.ts` (install route, account-change resolve). |
+
+**Sloan (W2-D), as built** (the simplest option where the table above left it open):
+
+| Topic | Decision |
+|---|---|
+| Template v2 | `supervisor.v2.json` is v1 with identity "Sloan", Sloan's instructions, `account.chat` in its skills, memory on, and the `chat` workflow (filter: `subjectType = account`, `senderType = user`, `audience = client`, so Sloan's own replies and operator notes start nothing). The three watch workflows are byte-for-byte v1's. The seed loads `<slug>.v<n>.json` (n ≥ 2) after v1 as the template's live version (the next free number, parent the live one; skipped when a version with the same hash is there). A new client fork from v2 is named "Sloan, your account agent"; existing "Account check" forks keep their name and move only by the reviewed update merge. |
+| Install route | `POST /api/ops/platform-templates/:slug/install {version}` publishes the seed file bundled into the Worker (`@countersign/db/seed/agents/*.json`) through the registry (so the guard and validation run). A template that isn't there is installed from its v1 first. Idempotent by bundle hash (`installed: false`); an existing version with that hash is left as it is, live or not. |
+| Port split | `AccountPort` (`agents/src/log/account-port.ts`) owns the checks: the caller is the client's account agent, the asker is read from the run's trigger (`thread.message_posted` by a client person in an account thread, `audience: client`) and their membership, and the role allows the action. The views and writes are apps/api's (`apps/api/src/account/views.ts`, `AccountViews`): the portal's own queries and functions (`runSummaries`, `portalRunView`, `portalItems` with `portalInboxFilter`, `controllableAgents`/`serviceControl`, `pauseAgent`/`resumeAgent`, the invite, the approver-rule save, `updateContact`, `raiseRequest`). `portalRunView` and `raiseRequest` were extracted from their routes unchanged. |
+| Who Sloan acts for | Client people only: an operator writing in an account thread is refused by every account tool (operators use the back office). Reads and `pass_to_lead`: any client person (as raising a request in the portal); pause, resume and drafts: the client admin. A test run reads as the client admin would and every write answers `test_run`. Sloan never pauses or resumes itself. |
+| Replies | `threads.post` to the client, from Sloan, goes only to the account thread whose message started the run, and needs at least one source (the message it answers at least). |
+| Change kinds | `add_signer`'s rules are `{match, approver: "signer" or "client_admin", note?}`: the new person has no id before the invite, so the approver is the new signer by construction, and "bills under $2,000" is two rules (over $2,000 → the admins, then the rest → the signer). They are appended after the client's own rules, so no existing rule is overridden, and checked with `clientTighteningProblems`. `role: client_admin` is accepted as input only to be refused as loosening (`new_admin`). `edit_person.fields` are the portal contact edit's fields without addresses; `change_contact` is the addresses (email, phone, WhatsApp; null removes). Autonomy is in neither: it is the operator's (invariant 8). |
+| Signing | The Desk item has no run (Sloan's run answers and finishes; run and thread are in the payload). The client admin signs it with `POST /api/account-changes/:id/resolve {decision, note?}` (client admin only; the generic resolve answers 409 `use_account_change`, the operator can't sign it); approving applies the change as of now (rules re-checked) in the same transaction, then resolves the item and emits `inbox.resolved`. The portal's Desk card shows the now and after lines and routes its buttons there. |
+| Guard | Refuses, on the account agent (`platform` kind, slug `supervisor`), any tool whose source isn't the platform (connectors' and packs': pack tools don't return the portal's shapes either) or that is `external`, among extra tools, skills' tools and action steps, and any connection binding. Code `tool_not_allowed`. |
+| `pass_to_lead` | A `change_request` like the portal's, raised by the asker, with `via: account_agent`, `kind` (request or idea), the thread, run, version and sources in its payload. |
+| `pass_to_agent` | Built after W2-E. Input is the service only (`{serviceId}`): the request is the person's own message, which the agent reads with `inbound.get`, so no note from the model reaches another agent (invariant 9); the user, thread and message come from the run's trigger, read by the port. The port (no portal twin, so not in `AccountViews`) finds the agent among this client's client agents (another client's is "no such service"), then answers `not_accepted` with plain words when it is Sloan itself, has no live version, has no `sloan` message trigger (`acceptsSloan`), its People filter doesn't take the asker (`acceptingTriggers` with the asker's role), or isn't active (the router's runnable check); otherwise it emits `passToAgentEvent(...)` through the runtime's emitter in the port's transaction. Any client person may ask (the `pass` action); the trigger's People filter decides. A test run makes the same checks as the client admin and answers `test_run`. A message already passed to that agent (an `account.request_passed` event with the same agent and message) answers `already_passed` and starts nothing more. |
+
+### 1.48 Triggers: six kinds (W2-E, M25; no migration)
+
+| Topic | Decision |
+|---|---|
+| Schema | ARCHITECTURE §10.1 and §10.8: `skipHolidays`, `webhook`, `manual.client` (W1-A's), `message`, `handoff`, `Workflow.moreTriggers`, `Workflow.handoff`, `PeopleFilter` (core `packages/core/src/triggers/`). |
+| Router | `packages/workflows/src/router.ts` matches every trigger of every enabled workflow; webhook triggers match `webhook.received` with their hook id; message triggers match `inbound.message` (new event, below), `thread.message_posted` with a command for the agent, and `account.request_passed`; handoff triggers match `run.succeeded`. |
+| Inbound messages | `inbound.message` (`channel`, `contactId?`, `userId?`, `rawRecordId`, `documents`, `agentId`) emitted by: `email()` for agent addresses (body kept as a raw record `InboundMessage` on the upload connection, 4,000 characters, quoted history cut, cards redacted), and Twilio's inbound path for numbers bound to an agent's sms or whatsapp channel (in addition to `message.received`). Read tool `inbound.get` returns the text as data. |
+| Senders | `PeopleFilter` matched on the contact by address or number, or the user's membership. A sender who doesn't match: no run; a fixed reply (email only with DMARC pass; texts always, from the same number) and a lead-thread system message. |
+| Dedupe and limits | Webhook dedupe via the run id (uuid v5 of agent, workflow, key value); rate limit counted from runs of that trigger in the window; limited deliveries counted on `connection.sync_cursor.hooks[hookId].limited`. |
+| Holidays | `packages/core/src/holidays/us.ts` (federal, observed) and `tenant.settings.holidays`; the schedule check skips the client's local date. |
+| Handoff | `run.succeeded` emitted where `run.failed` is (the run's finish), live runs only, with the evaluated `handoff.output` (≤ 16 KB) and sources; depth from the trigger + 1; never the same agent. |
+| Triggers list | `GET /api/ops/agents/:id/triggers`: each trigger of the live (else latest) version with its workflow, guards and last fired (from `run.trigger`). |
+| Files | Owns the `TriggerOn`/`Trigger`/`Workflow` trigger fields in `schemas/workflow.ts`, the trigger function in `workflow/validate.ts`, `packages/core/src/triggers/`, `packages/core/src/holidays/`, `packages/workflows/src/router.ts`, schedule handling in `apps/api/src/runs/dispatch.ts`, the agent-address branch in `apps/api/src/email.ts`, the inbound dispatch in `apps/api/src/routes/twilio-hooks.ts`, the webhook guards in `apps/api/src/routes/hooks.ts`, the `run.succeeded` emit in the run finish, `apps/api/src/routes/triggers.ts`. |
+
+#### Triggers (W2-E): decisions made while building
+
+| Topic | Decision |
+|---|---|
+| Agent addresses | On the existing forwarding domain (owner default, 2026-11-06): `<command name>.<client label>-<client id, base32>@EMAIL_FORWARDING_DOMAIN`. The handler opens the named client only, finds the agent among its active agents by command name, and accepts only the exact address it computes for that client now (constant-time compare), so another client's id, label or agent name is dropped. The label is the client's name (16 characters; an apostrophe joins the word). An agent with no `email` message trigger has no inbox: its mail is dropped, never answered. Parsing walks the string (no regex over the address). |
+| Who sent it | A `PeopleFilter` lists who may start the workflow; a sender matches any one list (contact ids, relationships, tags = `contact.roles`, client roles). An empty filter matches nobody and is a validation error (`people_empty`). An operator serving the client may always start it from a thread command, as with a manual trigger. An email sender counts only by a From address whose domain passed DMARC (the topmost Authentication-Results); otherwise they are a stranger. A text sender is a stranger when Twilio's path made their contact for this message. |
+| Strangers | Nothing is stored for them (no raw record, document or event), so an agent address doesn't widen what email keeps (invariant 12). The polite reply is fixed text in the client's language that names no one; email only with DMARC pass, texts always from the number written to (never to an opted-out contact); the lead gets an operator-only note in the lead thread with the address or number, never the words. |
+| Texts | An inbound text is `inbound.message` for each active agent whose `sms`/`whatsapp` channel is bound to the Twilio connection it came in on and that has a message trigger on that channel. STOP/START/HELP are never requests, and a text from a contact with an open reach-out of that agent is their reply (reach out matches it as before), not a new run. |
+| Replies | `reply.confirm` is fixed words (no `{{…}}`, `reply_not_fixed`), for email, sms and WhatsApp only (commands and Sloan already show in the thread). Both replies go after the inbound transaction commits, once, best effort: email through Mezonas' own mail (as notifications), texts through the client's subaccount (as release codes), with no raw record or thread line. |
+| The message as data | A message trigger's `{{trigger}}` has one shape for every channel: `channel`, `contactId`, `userId`, `rawRecordId` (email, texts), `threadId` and `messageId` (commands, Sloan), `documents`. `inbound.get` takes no id: it reads only the message behind its own run's trigger (an email kept for that agent, Twilio's inbound record, or the thread message; a command's words after `/name`). |
+| Webhook guards | A `dedupeKey` that renders empty doesn't dedupe (each delivery its own run). The rate limit counts the trigger's live runs in the window (`run.trigger->>'triggerId'`); two dispatches at the same instant may each let one more through. Limited deliveries are counted as `{limited, lastLimitedAt}` on `connection.sync_cursor.hooks[hookId]`. The helpers live in `apps/api/src/triggers/limits.ts` (the dispatcher imports them; `routes/hooks.ts` imports the dispatcher), so `hooks.ts` is unchanged and its 60-a-minute hook limit stands. |
+| Holidays | A tick is skipped when its date, in the zone the schedule runs in (the trigger's `tz`, else the client's), is a federal holiday's own date or its observed date, or one of `tenant.settings.holidays` (`yyyy-mm-dd`). Skipped ticks are not moved to another day. |
+| Handoff | `run.succeeded` is emitted for every live run that succeeds (output null without `handoff`), and the router never starts an agent on its own `run.succeeded` (like `run.failed`). `handoff.output` and `sources` are evaluated over the trigger and the top-level steps' outputs; output over 16 KB is left out (`outputTooLarge`); sources keep record ids only (≤ 100). `depth` is the trigger's depth + 1; depth 4 starts nothing. |
+| More triggers | At most 9 more; ids unique across the bundle and lined up by merges like step ids. Two triggers of one workflow that match the same event start one run. A manual trigger among `moreTriggers` lets the operator start it by hand; the client's Run now (W1-A) still reads the first trigger. Template typing merges every trigger's payload: a field some lack is optional, a field typed two ways is either. |
+| Sloan | W2-D's `account.pass_to_agent` emits `passToAgentEvent({agentId, threadId, messageId, userId})` (core `triggers/kinds.ts`) through the runtime's emitter, after `acceptsSloan(bundle)`; the asker comes from the run, never the model. The router then checks the agent's `sloan` message trigger and its People filter. |
+| Not yet | The builder doesn't offer the new kinds (it shows them, disabled; they are written in the bundle). Running a past `inbound.message` live (W1-A's run-event) passes no sender lookup, so it starts nothing. Attachments of agent mail are documents with `source = 'email'` and emit `document.received` like forwarded mail. |
+
+### 1.49 Command center, search and plain-words questions (W2-F, M26; no migration)
+
+| Topic | Decision |
+|---|---|
+| Command center | ARCHITECTURE §13.1; one route, figures computed in SQL per client in the operator's scope. The low-confidence threshold is a constant in core (0.80), overridable per client by `tenant.settings.ops.lowConfidence`. |
+| Feed | `GET /api/ops/feed?since=` newest 100 items from step runs (client-visible summaries), executed actions, resolutions, failures and Sloan's drafts; polled. |
+| Search | ARCHITECTURE §11.6; `apps/api/src/search/` one query per kind; `ILIKE` on lower-cased text plus amount parsing (`$1,234.50`) and run short ids. |
+| Plain words | `packages/core/src/api/runs-ask.ts`; a Haiku call through `packages/llm`'s `callTool` with the `RunFilter` JSON Schema, the client's agent names and today's date as context, the question inside `<question>` as data; cost added to the client's account agent's usage (no account agent: operator cost only, logged). Replay fixtures for the tests. |
+| Files | Owns `apps/api/src/routes/command-center.ts`, `apps/api/src/routes/search.ts`, `apps/api/src/search/`, `packages/core/src/api/command-center.ts`, `packages/core/src/api/search.ts`, `packages/core/src/api/runs-ask.ts`, `apps/api/src/runs-ask/`. |
+| Figures (built) | `?client=` narrows to one client served (one not served is refused by the session scope, 403). Agents live: client agents `run_status = 'active'`, not test copies. Running now: runs `queued`/`running` and their `running` steps. Runs today and the 7-day health count live runs; **clean** = `succeeded` with no step run of `attempts > 1`. Spend: step runs of any mode (test runs cost the same) by `coalesce(started_at, run.created_at)`, plus background readings; per run = step cost ÷ runs with a step today. A figure with nothing to measure (no runs, no answered items) counts neither for good nor bad. // DECISION |
+| Escalations (built) | Items: open, `assignee_role = 'operator'` (lead checks too), not a test run's (`payload.testRun`). Failed runs: live, of the last 7 days (the overview's window), with no retry. Connections: `error` and bound to an agent (binding or channel), blocked since `updated_at`. Low confidence: today's readings under the client's threshold, one per document (its latest), blocked since the reading. Waiting on clients: open items not the operator's. // DECISION |
+| Feed (built) | "Client-visible" step summaries are those of live runs' finished steps; signatures are items resolved by a person; drafts are `subject_type = 'account_change'` items (W2-D). The answer's `at` is the next poll's `since`. // DECISION |
+| Search (built) | Five hits per kind: services/agents, runs, records (transactions, receivables, vendors taken in turn), people, organizations, documents. The portal finds active or paused services and live runs by short id or service/agent name only (not step summaries or errors, which can be internal); the back office also finds templates, test runs, workflows, errors and step summaries. People and organizations: SQL filter on the longest word, then core's directory ranking. Hits carry no notes. // DECISION |
+| Plain words (built) | The tool's input is exactly the surface's `RunFilter` (strict; the portal's without the back-office keys), so a field outside it is refused. The model gets agents (back office: also clients and templates) and connectors; an id or connector it wasn't given, or a `signedBy`/`versions` it had nothing to fill from, is refused. A refused answer is a 200 `{understood: false}`, not an error, so the call's cost commits with the request (the model call runs in the request's transaction, as the Builder's). A portal question's cost is a test run of Sloan (`runs.ask`, one `question` step with tokens and cost, rolled up); back-office questions are the operator's cost, logged. `RunFilter` has no amount, so "over $5,000" is left out of M26's example (owner: add an amount to `RunFilter`?). Replay fixtures are hand-written (`handWritten: true`) until recorded with a key. // DECISION |
+
+### 1.50 KPIs and the client view, credits, the client's audit export (W2-G, M27; no migration)
+
+| Topic | Decision |
+|---|---|
+| Schema | `AgentDefinition.clientView` (ARCHITECTURE §9.9), optional, no default; validation: KPI ids unique, `step` ids exist in the bundle, paths are dotted identifiers, ratio depth ≤ 2, panels reference existing KPIs and installed packs. |
+| Compute | `apps/api/src/kpi/compute.ts`: one SQL per measure over live runs in the period (client's time zone), `step_run.output #>> path` cast to numeric where the text is a number, money as numeric; null when the denominator is 0. |
+| Routes | `GET /api/services/:id/view` (portal: labels, values, formats, panels) and `GET /api/ops/agents/:id/client-view`. The Table and the Weekly Table call the same function. |
+| Credits | `tenant.settings.billing.onCreditsOut` and `creditBlock` (default 2,500); `PUT /api/billing/credits-out` (client admin). The hourly billing pass computes the month's credits so far and pauses or notifies per ARCHITECTURE §11.5 (pauses with W1-A's service, side `system`); the first pass of a month resumes `credits_out` pauses. |
+| Audit export | ARCHITECTURE §11.7; streamed CSV, at most 366 days per request. |
+| Files | Owns the `clientView` field in `packages/core/src/schemas/agent.ts`, `packages/core/src/kpi/`, `packages/core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/client-view.ts`, `apps/api/src/billing/credits-out.ts` and one call in `billing/jobs.ts`, `apps/api/src/routes/audit-export.ts`. |
+
+#### KPIs and credits (W2-G): decisions made while building
+
+| Topic | Decision |
+|---|---|
+| Measures | `runs`: live runs whose `coalesce(finished_at, created_at)` falls in the period; no `status` means any. `actions`: `external_action` done, executed in the period, of the agent's live runs (`connector` through the connection). `sum`/`count`: the step's `succeeded` rows in live runs that finished `succeeded` in the period (a retried run counts once, through its retry); the step at any depth (`<loop>:<i>:<step>`); a `use_automation` step is a step like any other (its output is the automation's `output`), but an automation's inner steps (`<use>/<inner>`) are never named, as nothing outside the use step sees them (ARCHITECTURE §10.7); `sum` adds values whose text is a number (JSON numbers and decimal strings), `count` counts rows with a non-null value at the path. Paths are split and checked segment by segment (identifiers; never `__proto__`, `constructor`, `prototype`). // DECISION |
+| Values | Decimal strings end to end: sums are `numeric` in SQL, ratios decimal.js to 4 places (half up), null when the denominator is 0. Money: the currency named beside the amount (`<parent>.currency`), else USD (a client has no currency setting); amounts in two currencies are not added (null). `display` is formatted by Intl from the decimal string (never a float), in the reader's language. Sources: run ids (runs and step measures) or write ids (actions), at most 100; a ratio's are both sides'. // DECISION |
+| Periods | Local midnight to now in the client's time zone: `7d` today and the 6 days before, `30d` today and 29 before, `week` from Monday, `month` from the 1st. The Table (this week so far) and the Weekly Table (the week) compute every KPI over their week, whatever its period; a KPI with no value that week is left out of their lists. Their KPI items gain `sources`. // DECISION |
+| Views | The portal's view reads the client agent's live version (none: no KPIs); pack panels show only while the client has the pack enabled. The back office's view answers the definition and, for a client agent, the values in English; a template's values are null. Publishing a client agent checks its pack panels against its client's enabled packs; a template's are checked when a client publishes it. // DECISION |
+| Credits | "The included credits" are the month's pooled allowance as the statement will compute it (§1.32), projected to the month's end for the agents billable now (days billed so far, plus each active agent's remaining days at today's price): the allowance billed so far alone would pause a client on the 2nd. `pause`: while used ≥ included, every pass pauses billable agents still running (a client agent made active since too); Sloan (slug or supervisor template) never; one notification (block 0) per month. `continue`: one notification for the highest block reached (`floor(extra ÷ creditBlock)` ≥ 1), never block 0; never pauses. The first pass of a month is any pass that finds a credits pause made before the month began (UTC, as billing periods are). Choosing `continue` resumes them at once (side `system`, by the client admin). Only clients set up for billing are checked; the check runs before the day's agent days, in its own transaction. `creditBlock` is read from the settings (no route sets it); the notification carries `credits` so its sentence is right for any block size. `GET /api/billing/credits-out` beside the PUT, for the settings screen. Nothing is billed here: the statement's Extra usage line is the only charge. // DECISION |
+| Audit export | `GET /api/audit/export.csv` replaces `GET /api/exports/audit` (§1.35's exports row), so there is one audit export. Pages of 1,000 rows by (`created_at`, `id`), each in its own client-scoped transaction after the request's commits (`mountStream` in `http.ts`); the database closes after the stream ends. Columns: time, who, side, role, action, outcome, http status, target, IP, browser, id. The client's people by name (else their email), made in a client role, or with no role recorded when a member now; the lead by name; everyone else of ours and the system as "Mezonas"; IP and browser only on the client's own people's rows; `session.*` rows never. // DECISION |
+| Run audit trail | `GET /api/runs/:id/audit` (client admin and users, live runs only): opens of the run (portal, back office, MCP) and edits, snoozes and undos of its items from the client's audit rows, and each item's resolution as `signed`, `declined` or `answered`; the operator's items never; consecutive same lines are one with `times` (a page polled while open). // DECISION |
+
+### 1.51 The Builder as a conversation (W3-A, M28; migration 0030)
+
+| Topic | Decision |
+|---|---|
+| Sessions | ARCHITECTURE §9.6. `builder_session` keeps the working bundle; `builder_turn` the conversation and each turn's changes (from `diffBundles(before, after)`, labelled). |
+| Turns | One `callTool` per turn (`submit_turn`: text, the revised bundle, questions) with the existing guards and one repair round; the model never sees ids it can regenerate (§1.8). |
+| Undo | Per change entry by three-way merge (ARCHITECTURE §9.6); 409 `undo_conflict` with the conflict. |
+| Commands | `/skill`, `/automation`, `/trigger` parsed by `packages/threads`' parser, turned into a structured instruction for the turn. |
+| Similarity | `packages/core/src/bundle/similarity.ts`: Jaccard over skills, tools and trigger kinds, plus a sequence score over step kinds, weighted 0.4, 0.3, 0.1, 0.2. |
+| New skill | `draft-skill` beside `draft-agent`: a `SkillDefinition` draft and test cases from attached examples (W2-C's `test_case`; a client's examples carry its id). |
+| Files | Owns `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `packages/core/src/api/builder.ts`, `packages/core/src/bundle/similarity.ts`. |
+| Tables (0030) | // v0.12 W3-A. `builder_session` and `builder_turn` as ARCHITECTURE §5.5, plus two turn columns: `bundle` (the working draft after the turn, which undo merges against) and `meta` (questions, gaps, notes, errors, the parsed command, the model). // DECISION: the templates' policy, as `automation` and `test_case` (0027, 0028): a session on a template or a shared skill has `tenant_id` null and shows only in operator sessions; a session on a client's agent or skill carries the client's id, and same-client foreign keys tie its agent, skill and turns to it. `base_version_id` and `saved_version_id` have no foreign key (an agent or a skill version by `kind`, like `test_case.target_id`). `cs_runtime` gets SELECT, INSERT, UPDATE, never DELETE; a turn is immutable except `undone_at` (trigger), set once every change of the turn is undone; a save is its own turn, inserted with `saved_version_id`. |
+
+### 1.52 New connectors (W3-B, M29; no migration: the 0031 spare went to WhatsApp capture, §1.55)
+
+| Topic | Decision |
+|---|---|
+| Order | Google Drive, Outlook, then Ramp and HubSpot; the bank and card aggregator after the owner picks a vendor (owner, 2026-11-06: **Plaid**, below); Slack when the owner asks (ARCHITECTURE §6.11). |
+| Build | Each in `packages/connectors/src/<id>/` with `NOTES.md` (facts to verify), a fake in `testing`, manifest with entities, registration in `apps/api/src/platform.ts` (one line each), portal sign-in through the generic OAuth routes. |
+| Drive | The connection creates its folder (`Mezonas` + the client's chosen name) at sign-in and keeps its id in `config`; `drive.file.upload` takes a document id and a path template; before state: whether a file of that name exists in the target folder. |
+| Outlook | Same input and once-only rules as `gmail.send` (§1.31); Graph `sendMail` takes no idempotency key, so the attempt is recorded first. |
+
+Decisions made building Drive and Outlook (`claude/w3b-drive-outlook`, 2026-11-06; no migration).
+Unchecked facts about Google and Microsoft are in `packages/connectors/src/{gdrive,outlook}/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Drive sign-in | Connector `gdrive` on Gmail's Google client (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`), registered everywhere, signing in once those and `OAUTH_STATE_SECRET` are set. One scope, `drive.file` (`access_type=offline`, `prompt=consent`, `include_granted_scopes=false`); a grant without it or with any other scope is refused (422 `sign_in_refused`), nothing stored. No `openid email`: the address comes from Drive's `about.get`. Redirect: the portal page `<origin>/connections/gdrive/callback` through the generic routes (the owner registers it on "Mezonas web"). // DECISION |
+| Drive disconnect | Drops only our tokens; never calls Google's revoke (coordinator, 2026-11-06). Drive shares Gmail's OAuth client and Google's revoke ends every scope an account granted that client, so revoking could end a Gmail connection made by the same Google account. The person can remove Mezonas in their Google account. The owner may later give Drive its own OAuth client (two more secrets) and turn the revoke back on. // DECISION |
+| Drive folder | Made at sign-in at the top of My Drive: `Mezonas`, or `Mezonas - <name>` when the callback's parameters carry `folder_name` (the generic route passes every parameter through; today's Connections page asks for no name, so it is `Mezonas` until the redesign adds the field). Marked `appProperties.mezonasRoot`; a reconnect finds it again rather than making another. `config` = `{address, folderId, folderName, folderUrl, scopes: ["drive.file"]}`. A folder deleted or in the bin stops every tool (`DriveFolderMissingError`: connect again). // DECISION |
+| Drive tools | Ids keep Drive's name (`drive.file.upload`, `drive.file.list`) with `drive` as the manifest's shared namespace; entity `file` (read, create). Path tokens are **single-brace** `{yyyy}`, `{yy}`, `{MM}`, `{dd}` from the input's `date` (else today, UTC), not ARCHITECTURE's `{{yyyy}}`: in a step's input `{{…}}` is the workflow's own template and would be refused as a reference; the date itself can be `{{trigger.…}}`. At most 8 folders of 100 characters, no `.`/`..`/control characters, parsed with index loops. // DECISION |
+| `drive.file.upload` | Before state (reads only): the folder, resolved path, file name, whether the folder exists yet, and whether a file of that name is in it (`exists`, `existing`). The run finds its own earlier upload by `appProperties.mezonasAction` (first 40 hex of sha256(`gdrive:`+key)) and returns it (`alreadyDone`), else makes missing folders, refuses a name already there unless `ifExists: "keep_both"`, and uploads by a one-piece resumable upload (any document up to 32 MB) whose session URL must be on `www.googleapis.com`. File name defaults to the stored document's, made safe. // DECISION |
+| Outlook sign-in | Connector `outlook`, the `common` endpoint (work and personal accounts), scopes `openid email offline_access Mail.Send`, `prompt=select_account`; new secrets `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (ARCHITECTURE §17's names; an Entra app with publisher verification, owner). A grant may carry only those plus `profile` and Graph's `User.Read`; anything else (`Mail.Read`, `Files.*`, …) is refused. Address from the ID token's `email`, else `preferred_username` (issuer on Microsoft's login host for the token's own `tid`, audience, expiry checked; signature not, as for Gmail). Refresh tokens rotate and the new one is kept. No `revoke`: Microsoft has no per-app revoke for delegated tokens, so disconnect drops ours and the person removes the app in their account. Only the client admin connects (not a `PERSONAL_CONNECTORS` entry yet). // DECISION |
+| `outlook.send` | `email.send`'s input and output; entity `message`, verb `create`, `recipient` for the person's autonomy. Plain-text Graph JSON with `Reply-To` the tagged forwarding address and our `X-Mezonas-Ref` header; output `id` is that reference, `messageId` empty (Graph's 202 has no body). Sent once as `gmail.send`: attempt recorded first, a started unrecorded send never resent (`UnconfirmedWriteError`, with the reference to search for). `CHANNEL_TOOLS.outlook = {email: "outlook.send"}` so reach out can bind an agent's email channel to it. // DECISION |
+| Tests | Each connector against its fake in `packages/connectors` (sign-in, refusals, refresh, tools, once-only, approval on by default through `decideToolCall`); `apps/api/src/drive-outlook.test.ts` signs both in through the generic routes and runs an approved upload by month and an approved send, each once on replay. |
+
+Decisions made building the bank and card feed (`claude/plaid-bankfeed`, 2026-11-06; no migration,
+0031 not taken). Unchecked facts about Plaid are in `packages/connectors/src/bankfeed/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Vendor (owner, 2026-11-06) | **Plaid.** Still open (§7, item 9): the price per connected account and whether it is absorbed or passed into credits; Plaid's production review; HIPAA mode (whether Plaid signs a BAA). |
+| Connector | Id `bankfeed` as ARCHITECTURE §6.11 names it (vendor Plaid; the id stays vendor-neutral so the events and tools outlive a vendor change). `auth: "oauth2"`: Plaid Link is a hosted sign-in like OAuth's, through the same routes. Entities `transaction` (read) and `account` (read); tools `bankfeed.transaction.query` (Plaid's `/transactions/get`: dates, default the last 30 days, an account, pages of up to 500 by offset) and `bankfeed.account.query` (`/accounts/get`, balances as decimals). No write tools, no `defaultPermissions` (the platform's: approval on, delete off). Events `card.charge.created` and `bank.transaction.created` through the manifest's shared namespaces `card` and `bank`. // DECISION |
+| Never money movement | Only Plaid's `transactions` product is requested. An item whose `products` or `billed_products` include `auth`, `transfer`, `payment_initiation` or `signal` is removed at Plaid and refused (422 `sign_in_refused`), nothing stored. Agents never sign in to a bank's site (§6.10). // DECISION |
+| Link in the generic flow | A new optional connector hook `beginLink` beside `authorize` (packages/connectors `connector.ts`, `oauth/flow.ts` `beginLinkAuthorization`). `POST /api/connections/bankfeed/authorize` answers `redirectUrl: null` and `link: {provider: "plaid", token, expiresAt, state}` (an optional field on the existing response); the portal opens Link with the token and posts `{public_token, state}` to the usual `POST /api/connections/bankfeed/callback`, where the state is checked as for OAuth. `client_user_id` is 40 hex of sha256(`mezonas/bankfeed/user:<client id>`): one per client, nothing about the client in it. `redirect_uri` is `<APP_ORIGIN>/connections/bankfeed/callback` (OAuth banks come back there and Link reopens with the token kept in the tab's sessionStorage). Link's language: `es` for a Spanish reader, else `en`. 90 days of history. The Sandbox client can't connect Plaid from the back office (no Link screen there; 409). // DECISION |
+| Vault | The access token and item id are the connection's credentials, encrypted with the client's own key like every grant (§1.26); the item id is also `external_account_id`; `config` holds the institution's name (`accountName`), its id and the accounts' names, masks and types. The token is in no response, log, error message, step output or event; Plaid's client id and secret go in Plaid's headers, never a body. // DECISION |
+| Reconnect and disconnect | A connection in `error` (or `connected`) with credentials reconnects in Link's update mode on the same item (`access_token`, no `products`); the callback checks the item with `/item/get` and keeps its token. If Plaid says the item is gone (`ITEM_NOT_FOUND`, `INVALID_ACCESS_TOKEN`), a new item is made instead. Disconnect calls `/item/remove` (best effort, as every revoke) and drops the token. One item (one institution) per client in v1: the platform keeps one connection per connector; a second bank waits for several connections per connector. // DECISION |
+| Sync | `/transactions/sync` with Plaid's cursor in `connection.sync_cursor` (`{plaid: true, itemId, cursor, announcing}`; no new table), up to 20 pages of 500 a pass, restarted from the pass's first cursor on `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`. Network first, then one client transaction that locks the connection and drops the pass if another moved the cursor meanwhile. Each transaction version is a raw record (`Transaction`, version `v1:` + 40 hex of sha256 of what we store): added and modified store a new row when the content is new; removed adds a `removed` row with `is_deleted` (only for one we stored). Nothing is updated (invariant 3). The client's matrix applies: transactions' read off, nothing is read. // DECISION |
+| Amounts | Plaid's number becomes a decimal from its shortest text (decimal.js, `numeric(14,4)`), never computed as a float. Plaid's sign (positive = money out) becomes an absolute `amount` and `direction` `out` or `in`. Currency: ISO code, else Plaid's unofficial code when it is three capitals, else `XXX`. // DECISION |
+| Events | Only for a transaction seen for the first time: `card.charge.created` on `credit` accounts, `bank.transaction.created` on `depository` ones, none for loans and investments. A posted transaction whose `pending_transaction_id` we stored isn't announced again. Changes and removals are not events. A connection's first sync announces nothing, and announcing starts only after a sync that ends with Plaid's `HISTORICAL_UPDATE_COMPLETE`, so the history Plaid backfills isn't announced. Payload: connection, raw record, the transaction as the tool returns it (the bank's text is data). // DECISION |
+| Triggers | Plaid's webhook `POST /api/connections/bankfeed/webhook/:clientId` (the URL each Link token names, so the lookup is in that one client, like inbound hooks): the `Plaid-Verification` JWT must be ES256 with a key from `/webhook_verification_key/get` (cached per isolate, 16 keys, unknown ids remembered 5 minutes), `iat` within 5 minutes, and the body's sha256 equal in constant time; 64 KB at most. `SYNC_UPDATES_AVAILABLE` (and the older update codes) starts a sync after the response; `ITEM`/`ERROR` (`ITEM_LOGIN_REQUIRED` and the like), `USER_PERMISSION_REVOKED` and `USER_ACCOUNT_REVOKED` put the connection in `error` (connection attention). An item no connection of that client has is acknowledged and left. The cron syncs every connected feed hourly at minute 26 as a backstop. An item error found while syncing or in a tool also puts it in `error`. // DECISION |
+| Environment | `PLAID_CLIENT_ID`, `PLAID_SECRET` (secrets) and `PLAID_ENV` (`sandbox` or `production`, a var in `wrangler.jsonc`: sandbox locally and on staging, production in production). Registered everywhere; Link opens only once both secrets and `OAUTH_STATE_SECRET` are set, else "Not available yet". `deploy.yml` wiring is the owner's PR. // DECISION |
+| Web | "Connect bank or card" on the portal's Connections page (design-system button), loading `https://cdn.plaid.com/link/v2/stable/link-initialize.js` on click. `apps/web/public/_headers` allows that one script by path, frames from `https://cdn.plaid.com`, and `connect-src` to `production.plaid.com` and `sandbox.plaid.com`; no inline scripts. New strings in six languages, for the fluent speakers' review. // DECISION |
+| Compliance | Plaid is a processor (Mezonas holds the account and contract; the client's bank data passes through it to us), so `plaid` joins `PROCESSORS` and the `bankfeed` connector needs it: a client in HIPAA mode can't be offered the feed until `plaid` is in `BAA_PROCESSORS`. Listed on the site's subprocessors page (dated 2026-11-06); the page promises 30 days' notice to client admins before a new subprocessor handles client data. // DECISION |
+| Not built | Several banks per client; `/item/webhook/update` for items made before a webhook URL change; warnings for `PENDING_EXPIRATION`/`PENDING_DISCONNECT`; events for changed or removed transactions; Plaid Link from the back office. |
+
+### Platform fixes (W1-H)
+
+The gaps the API end-to-end test (#102) found, built as stream W1-H (ARCHITECTURE v0.12 §6.2, §8, §13, §14; the design's §1.43 and M20). Migration 0018 (#105) adds the reading's cost columns and `usage_platform_daily`; this stream writes no migration.
+
+| Topic | Decision |
+|---|---|
+| Dispatch after commit | Every dispatcher **claims** its events before routing them: `claimUndispatched` in `packages/senses` reads them `for update skip locked` within one client's transaction, and the dispatcher matches replies, writes the run rows and stamps `dispatched_at` in that same transaction; instances start after it commits. So the after-commit dispatch and the cron's sweep never take the same event: the second finds it locked (skips) or stamped. A run whose instance can't start gives its event back (`releaseDispatched`) for the sweep; starting it again is harmless (deterministic run ids). Collected rows are re-read under the claim, so an event from a transaction that rolled back starts nothing. // DECISION: a row lock, not a lease column (no migration; a dispatcher that dies before committing leaves the events as they were). |
+| Who dispatches | `packages/senses` gains a per-transaction collector (`EmittedEvents`, `collectEmitted(tx)`, or `emit(…, { collect })` where the transaction is opened out of reach). Requests already dispatched after commit. Now also: background reading (each document's read, failed and linked events, `extractInBackground`), a sync's connection-attention event (with its page's), each step of a run (`dispatchingRunner`: after each step, and before a wait or sleep), and the end of the cron's tenant pass (the client's events of the last minute, `{ newerThanSeconds: 60 }`, since the pass opens its transactions in many places). The sweep stays: events 30 s and older. |
+| Reading costs | Each extraction writes its tokens (uncached + cache writes + cache reads in, as a step counts them) and cost (4 places, half up; 0 for a model with no price) on its `doc_extraction` row at insert. The rollup (`rollupUsageDaily`, which every caller already uses) also recomputes `usage_platform_daily` from extractions with no agent version; a day with none writes no row. Background reading rolls its day up right after it reads, and the hourly sweep covers it. `GET /api/ops/usage` adds that usage to the total and each client's row and answers it as `background` (absent when narrowed to an agent or a template, which it is no part of). Credits (`dailyTotals` in `apps/api/src/billing/ledger.ts`) add `usage_platform_daily`'s same-named measures day by day, as decimals. // DECISION: a background reading that fails writes no row, so its model call is not counted (rows are immutable; failures are rare). |
+| An agent's documents | `usage_daily.documents` counts the distinct documents an agent's versions extracted plus those its live runs' steps cite in `sources` (a document id, or an extraction's), so the Bill clerk working on an upload read in the background counts it. |
+| Portal records list | `GET /api/records?kind=&q=&offset=&limit=` (client roles): the back office's list (§1.16, `listRecords`) for the client's own records in the portal's one-client transaction, with the same shapes. No `source` filter (the design's query); the rows still name their source. `receivables` joined after W1-F (follow-up): `receivable` rows of the client (source filter by connection), newest first by invoice date, found by number, customer name or an amount (total or balance), with number, customer (name, directory organization), dates, total, balance, currency, status, when it last changed and its connection; never the private note. The counts gain `receivables`; both lists answer it, and the web screens leave it out until the owner's redesign. // DECISION. The portal's `/records` page (sidebar: Records) lists transactions, vendors and items with the ops list's table classes, a search and pages, in the portal's six languages (new strings need the fluent speaker's review). Supersedes §1.16's "The portal has no list". |
+| Sync now | One sync of a QuickBooks connection at a time. The claim is `sync_cursor.running` (`{ instanceId, at, reason }`), taken under the connection row's lock; an ask while one runs sets `sync_cursor.pending` and answers `queued` (the operator's route: 202, `{ started: false, queued: true }`); QboSyncWorkflow's last step lets go, or claims and starts one more instance for the pending ask (a retried last step starts the same one). Each stored page keeps the claim and moves its `at`. A "now" sync (operator, new connection, the follow-on) gets a fresh id `qbo-<connection>-now-<uuid v7>`; cron and webhook keep their slot ids, and a slot the engine has seen lets the claim go as before. // DECISION: hyphens, not ARCHITECTURE's `:` (Workflows instance ids take letters, digits, `-` and `_`). // DECISION: a claim with no stored page for 30 minutes is taken as dead (a page step's timeouts and retries fit inside it); a sync that fails still hands on in its last step. |
+| Files outside the stream's own | Small, marked `// v0.12 W1-H` blocks: `apps/api/src/qbo/{instances,store,workflow,sync}.ts` (instance naming, keeping the claim, the last step, the attention event's dispatch), `apps/api/src/runs/execute.ts` (the step runner), `apps/api/src/reach/replies.ts` (`matchRepliesIn` for the claim's transaction), `apps/api/src/routes/usage.ts` and `packages/core/src/api/{usage,qbo}.ts` (the `background` series, `queued`), `packages/agents/src/log/usage.ts` (the rollup lives there, not in `packages/db/src/queries.ts`). |
+
+### QuickBooks AR and create bill (W1-F)
+
+Built to ARCHITECTURE v0.12 §6.2 and the design's §1.41 (M18), against the fake QuickBooks only;
+unchecked Intuit facts are in `packages/connectors/src/qbo/NOTES.md`. Migration 0024 (`receivable`)
+came from the Wave 1 migrations PR.
+
+| Topic | Decision |
+|---|---|
+| Sync | `QBO_SYNCED_ENTITIES` gains Customer (after Item), Invoice and Payment (after VendorCredit), so CDC asks for all nine. Initial sync: customers whole, invoices and payments for 365 days (`arSinceDate` on the cursor), the rest unchanged. A connection already on CDC before v0.12 (its cursor has no `ar: true`) reads customers, invoices and payments once as history, then goes on with CDC from its stored point, so nothing else is read twice and no event is lost. // DECISION |
+| Receivables | Each Invoice version updates its one `receivable` row (`source_raw_record_id` the newest version). Status `open` while the balance is above zero, `paid` at zero, `void` when QuickBooks voided it (a zero total and balance and a private note starting "Voided": unchecked), `deleted` on a delete version (the row stays). `external_id` is the invoice's QuickBooks id. An invoice without a number is stored with none (`doc_number` is nullable); one without a customer name or date gets the customer's id and the day it was created (those columns are NOT NULL). `organization_id` is set only when an organization already has the customer's id in `external_refs.qbo`; names are never matched and sync creates no organization (the directory's QuickBooks import is W1-G's). Customers and payments stay raw records. // DECISION |
+| Events | After the initial sync only: `receivable.created`, `receivable.updated` with `changed` (balance, total, status, dueDate, txnDate, customer, docNumber, note) and `receivable.paid` when an open balance reaches zero (a void invoice is not paid). Payloads: ids, money, due date and status, never the note. Appended to the senses catalog. // DECISION |
+| Reads | `qbo.invoice.query` (ids, customer, number, dates, `open`, `dueBefore` for overdue), `qbo.customer.query`, `qbo.payment.query` (with the invoices each paid), live like the other reads and read skills by §1.9. `qbo.aging_report {asOf?, customerId?}` reads QuickBooks' `AgedReceivableDetail` live, finds columns by their keys, keeps invoices only (credit memos and journal entries left out), buckets them current, 1–30, 31–60, 61–90 and 91+ days, totals per customer and overall in decimal, and names each invoice's receivable; `sources` are the receivables found. Without the synced records the report is refused. // DECISION |
+| `qbo.invoice.add_note` | `{invoiceId, note (1–1000, one line: line breaks become spaces), syncToken}`, verb `update`, `entity: 'invoice'`. The new line is `YYYY-MM-DD: note` (the UTC day of the write) under the old note. A sparse update with `Id`, `SyncToken`, `sparse` and `PrivateNote` only; the fake refuses anything more on an invoice. Refused when the note would pass 4000 characters (unchecked) or the SyncToken is stale; a retry that finds its note as the last line is done. The before state is the old note, with the note after the change, the number, customer, balance and due date for the card. // DECISION |
+| `qbo.bill.create` | Verb `create`, `entity: 'bill'`, `amount` = `expectedTotal`. Input: vendor id, doc number (required: the duplicate check needs it), dates, currency, expected total, optional private note, lines in `update_lines`' shape. Refused when proposed and again before writing if the lines don't add up to the total (or it is zero), the vendor is unknown or inactive, a synced bill (not deleted) from the vendor has the same number compared on letters and digits, or a live query by `DocNumber` finds one from the vendor. Right before writing, a bill exactly like this one (vendor, number, total, line count) is this action's own earlier write: it is reported done, not created again; `requestid` comes from the action's key. The before state holds the vendor's name and the lines' item and account names for the card (a new bill has no "now"). The bill reaches `transaction` through the next sync as usual. // DECISION |
+| Platform pieces | `ToolSpec.entity` (optional, declared on the new tools; matrices use it from W2-A). `ConnectorServices.records` (`syncedBills`, `receivableIds`) from `apps/api/src/qbo/receivables.ts`, one transaction each in the connection's client, wired where the run gives tools their services; a tool that needs it refuses without it. `qbo/tool-kit.ts` holds what the qbo tools share. // DECISION |
+| Not built | A portal screen of receivables (the API lists them since the follow-up, §1.43); a template that uses `qbo.bill.create` (none is written; any that does starts with approval on); customers into the directory (W1-G's import reads `qbo.customer.query`); the approval card has no "creates" mode yet, so a new bill's fields show only their "after" (the owner's redesign). Attachments on invoices still become documents as before. |
+
+### 1.53 Task skills and a model per step (W2-H, M30; no migration; ARCHITECTURE v0.13 §9.2, §10.11)
+
+| Topic | Decision |
+|---|---|
+| Modes | `SkillDefinition.mode`: `'tool' \| 'task' \| 'agent'`. `task`: `model` required, prompt = platform preamble + the skill's instructions + input (as data), no agent instructions, no memory notes. `agent`: the agent's model, instructions and memory, as today; `model` refused on the definition. `skill_version` stores the definition as JSON, so no migration; existing rows parse as `agent`. |
+| Shape | `model?: { id, maxTokens? }` on `task` skills (required) and on `skill` steps (optional override), the same shape as the agent's `model`. Tiers (Fast, Standard, Strong) are the builder's labels, not stored. // DECISION: an id, so skills, steps and agents name models the same way. |
+| Resolution | Step override, else `task` → the skill's `model`, `agent` → `definition.model`; one function in `packages/agents/src/runtime/model.ts`, used by `run-agent.ts` and `planned.ts` (today both read `definition.model.id` directly). `maxTokens` follows the same order. Budgets (`maxSteps`, `maxCostUsd`) stay the agent's for both modes. |
+| Prompt | `run-agent.ts` builds the `task` prompt without `## How you work` and without memory; the client's language still applies (it is the run's). The untrusted-text rule and `finish` typed to the skill's output are the same. |
+| Validation | Skill: `task` without `model`, or `agent` with one, is an error. Step (one function in `core/src/workflow/validate.ts`): the id is in `packages/llm`'s priced list (`MODELS` plus `pricing.ts`); `model` on a step whose skill is `tool` is an error on that step's `model` field. Core cannot import `llm`, so the validators take the known ids as a parameter (the server passes them; the builder gets them from `GET /api/ops/models`). |
+| Library | The Skills library offers `task` (with a model, default Haiku) or `agent` (default) for operator-written skills; the Builder (W3-A) proposes `task` for jobs with typed input and output that need no voice or memory. |
+| Defaults | Existing and built-in skills stay as they are, so their recorded fixtures are unchanged. Moving a built-in skill to `task` is its own change with re-recorded fixtures. The Materials pack and the documents capability keep their own model choices. |
+| Cost | Nothing new: W1-E's `model_call` rows already carry the model, and step cost already rolls up. |
+| Merge | `model` is a step field; three-way merge handles it like `input`. |
+| Reach-out | `comms.reach-out` composes its message later, from its stored plan, in the agent's voice: the step's `model`, if set, is stored on the plan (`StoredPlan.model`) and used by `composeReachMessage`; else the agent's model. |
+| Builder check | The browser's `validateLikeServer` passes no model list, so an unknown id is caught on save (the server passes `knownModelIds()` in the registry's publish and lineage checks and in `POST /api/ops/workflows/validate`). |
+| Built (2026-11-06) | Everything above, on `claude/w2h-step-models`, stacked on the v0.13 design PR, with tests at every layer (schema, validation, merge, resolution, the runtime against Postgres, the route). After W1-E merged: `GET /api/ops/runs/:id` gives each step its `models` (distinct, from its `model_call` rows), and task skills' calls are recorded like any other (same loop, same `onCall`). |
+
+### 1.54 Run oversight (W2-I, M31–M32; migration 0029; ARCHITECTURE v0.13 §10.11, §5.6)
+
+| Topic | Decision |
+|---|---|
+| Who oversees | The run's own client agent, on `definition.oversight.model` (default its `model`). Not Sloan: Sloan watches across runs and talks to the client; oversight is inside one run. |
+| Default | Absent `oversight` = `off`. New agents, Builder drafts and new templates get `review: 'failures'`. // DECISION: existing agents' runs and fixtures don't change unasked. |
+| Executor hook | `packages/workflows` gains `OversightPort.review(req): Promise<OversightDecision>` (ports.ts) and calls it in `work()` when a skill or action step fails (outcome `failed`, or a thrown error) and, from M32, after a checkpoint step succeeds. Absent port, or review `off`: today's behaviour exactly. The executor applies the decision; it never calls a model. |
+| Review | `packages/agents/src/runtime/oversee.ts`: one model call through `packages/llm`, no tools but `finish(decision)`; context per ARCHITECTURE §10.11, data in a tool-result block. Rows written from `agents/src/log/oversight.ts`. |
+| Decision schema | `core/src/oversight/decision.ts`: `continue`, `retry {after?}`, `retry_with {input}`, `ask {question}`, `stop`, each with `note` (1–2,000 characters), `sources` (record ids) and optional `proposal {summary, change}`. `retry` and `continue` are refused where §10.11's table doesn't allow them (validation failure = no intervention). `retry_with.input` is validated with the step's own input schema before anything runs. |
+| Writes | Before a retry of a write step, the port reads the step's external action: `executing`, `done` or `failed` after the call → `stop` and an operator item, whatever the model said. `retry` keeps the idempotency key; `retry_with` uses `${nodeId}:o${seq}`, and the gate decides afresh. |
+| Durable names | `${nodeId}:oversee:${seq}`, `${nodeId}:retry:${seq}`; `seq` from 1 per node. The step's `step_run` row stays one row; `attempts` increments. |
+| Limits | 2 per step, `maxPerRun` per run (default 3), `maxCostUsd` (default $0.25) counted from the decisions' cost. Past a limit the step fails as today. |
+| Ask | An inbox item of the kind a `person` step creates (no new kind), `subject: 'oversight_ask'`, to the step's approver, default the lead (W1-C); resolved through the existing inbox resolution and `waitForEvent`, timeout the step's approval timeout. |
+| Proposals | Operator inbox item `kind: 'review'`, `subject: 'oversight_proposal'`, `payload.fingerprint` = agent, workflow, node and the proposal's normalised summary, so an open one is not proposed twice (as §1.28's findings). |
+| Client words | Core's `i18n/oversight.ts`, six languages, one line per action ("Tried again", "Corrected {field} and tried again", "Asked {name}", "Stopped"); the portal timeline shows these, never `note`. Contract test: no portal route returns `oversight_decision` fields or model names. |
+| Sloan | `run.failed` gains an optional `diagnosis` (the last decision's note, operator side only). Sloan's triage reading it is a follow-up on W2-D's files, after both merge. |
+| Table | Migration 0029, with Wave 2's other migrations in one PR (`claude/w2-migrations`; §8.3): `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
+
+Decisions made while building M31 (oversight on failures):
+
+| Topic | Decision |
+|---|---|
+| Verdicts | The port answers the executor with a verdict: `none` (no intervention: a limit, an answer that fails validation, a failed model call or review), or the decision's action with its note. `none` writes no row; the step fails exactly as without oversight, and a review that throws never hides the step's own error. // DECISION |
+| Who counts | The executor counts interventions per step (2) and per run (`maxPerRun`) from the verdicts it applied (a replay counts the same stored verdicts); the port checks `maxPerRun` and `maxCostUsd` again from the run's decision rows. Every recorded decision counts, `stop` included. // DECISION |
+| Write check | Made by the port before the model is asked, so no call is spent on a step that can't be retried. A step's actions (all attempts, by `step_run_id`) that are `executing`, `done` or `failed` stop it, except a failure for want of a release (`error.release`), which never started: a connector's error can't prove nothing went out. The stop is a decision row with model `none` and no cost, and an operator `review` item (subject `oversight_stop`). // DECISION |
+| Keys | `retry` and an approved `ask` keep the previous attempt's key node; `retry_with` keys its writes under `${nodeId}:o${seq}` (`SkillStepRequest.keyNode`, `ActionStepRequest.keyNode`, carried through a release wait). // DECISION |
+| Step row | A retry is `log.start` with `attempt`: the one row's `attempts` rises to it and its `input` becomes the attempt's, so the run view and a release's re-run see the corrected input; `input_before`/`input_after` keep the change. // DECISION |
+| Ask | Kind `approval`, subject `oversight_ask`, title in the client's words ("Before we try "Find the vendor" again: …") with the agent's question, payload without the note, error or model. A test run's goes to the operator. Declined or timed out: the step's `onReject` — `continue` skips the step (`skipped`, "not approved"), `stop` fails it with its own error. // DECISION |
+| Stop | A model's `stop` after a failure opens no item: the run fails as it would, and the note rides on `run.failed` as `diagnosis` for Sloan's triage. Only the write check's stop opens an operator item. // DECISION |
+| Proposal | `change` is plain words, never a bundle patch. The fingerprint uses the step path without loop indexes, so a loop's iterations share one proposal; an open one with the same fingerprint is reused (advisory lock, as findings). A decision row points at its ask, else its stop, else its proposal item. // DECISION |
+| Context | Earlier steps' timeline lines from the run's `step_run` rows; "the last 5 failures" are this step's last 5 decisions in the agent's other runs (an unreviewed failure has nothing to learn from, and a retried step's row no longer holds its error). The data is the result of a `read_step` call already made, so it arrives in a tool-result block; `tool_choice` forces `finish`. // DECISION |
+| Model and cost | The review runs on `oversight.model`, else the agent's model; its call is a `model_call` row and its cost is added to the step and the run (usage and billing count it like any model call). // DECISION |
+| Portal words | Computed when the timeline is read: one line per decision (`TimelineStep.oversight`), in the client's language. A corrected field is named by the step's input schema (`title`, else the field name in words); more than one field: "Corrected the input and tried again". An ask names the person it went to. The five languages other than English are drafts for the owner's fluent speakers. // DECISION |
+| Defaults | New agents from the back office's blank agent start with `oversight: { review: 'failures' }` (`NEW_AGENT_OVERSIGHT`); the API stores a bundle as given, and Builder drafts (W3-A) use the same constant. // DECISION |
+| Lab route | `GET /api/ops/oversight` ships with M31 (filters: client, agent, action, cause, limit); its totals are over the decisions it lists. // DECISION |
+
+Decisions made while building M32 (checkpoint reviews):
+
+| Topic | Decision |
+|---|---|
+| Computation | `checkpointSteps` and `workflowCheckpoints` in core's `workflow/validate.ts`: a skill or action step whose output a write step's input references (an action with an external tool, a skill whose tools write or that reaches people, or a use step whose automation has one), or one with `review: 'always'`, in forks and loops; an automation's inner checkpoints as `${useStepId}/${innerId}`. Computed when a run starts, from the run's catalog and the expansions; not stored and not a validation error. A step whose skill or tool the catalog doesn't know counts as not writing (no checkpoint: the run behaves as under `failures`). // DECISION |
+| When | After an attempt that is done (not a write a person turned down): `checkpoints` for a checkpoint, `all` for every skill and action step, `review: 'always'` on the step; `off` on the step wins; `failures` never reviews a step that succeeded. A checkpoint's `retry_with` runs the step again (its own keys) and the new output is reviewed again, within the 2 per step. // DECISION |
+| Counting | `continue` changes nothing, so it is not an intervention: it doesn't count toward `maxPerRun` (a row is still written, and its cost counts toward `maxCostUsd`). A step has at most 2 reviews whatever they decide. `maxPerRun: 0` reviews nothing. // DECISION |
+| After success | `continue` goes on; `retry_with` runs again with the corrected input; `ask` waits — approved, the run goes on with the output as it is; declined or unanswered, `onReject`: `continue` skips the step, `stop` cancels the run (`rejected`); `stop` cancels the run (`oversight_stop`) with the note as `diagnosis`. A run cancelled this way emits no `run.failed`. // DECISION |
+| A checkpoint that wrote | A write step reviewed after its change reached the client's tool (`review: 'always'` or `all`) may `continue`, `ask` or `stop`, never `retry_with`: the finish tool offers only those, and a `retry_with` is no intervention. // DECISION |
+| Words | A checkpoint's ask is titled "Before we go on from "{step}"" (six languages; the five other than English are drafts for the owner's fluent speakers); `continue` shows "Checked and went on" on the portal timeline. // DECISION |
+
+### 1.55 WhatsApp passive capture (v0.14, M33; migration 0031; ARCHITECTURE §6.12, §5.5)
+
+Owner-approved 2026-11-06: parity with Respaldo's capture of documents sent by WhatsApp. Patterns
+only (claim once by message id, fetch in the background, size checked before and after, storage
+keys from ids): no code, package, key or Meta app is shared with Respaldo. Builds on §1.22 (every
+inbound Twilio WhatsApp message is already a raw record in the contact's thread), which listed "MMS
+media download" as not built. Hot-spot edits are blocks marked `// v0.14 capture`.
+
+| Topic | Decision |
+|---|---|
+| Passive | Nothing on the capture path replies or sends. Agents bound to the number keep §1.48's behaviour (their triggers, `reply.confirm`, the stranger reply); capture adds no reply of its own. |
+| Conversation | New tenant table `conversation` (migration 0031): one WhatsApp chat on one connection. `kind` `direct` (one `contact_id`; Twilio, built now) or `group` (`external_id`, the provider's group id; Meta, schema only). `channel` `whatsapp`, with `sms` allowed by the check but not made yet. `title` (the contact's name, else the number; a group's subject later), `capture` jsonb, `created_at`, `updated_at`. Unique per (connection, channel, contact) for direct and (connection, channel, external id) for groups. Forced RLS on `app.tenant_ids`; `cs_runtime` selects, inserts and updates; no DELETE. |
+| Change log | `conversation_change` (who, side `client`/`operator`/`system`, `{setting: 'capture', before, after, reason?}`, when): insert and select only, immutable by trigger, like `contact_change`. The client default's changes are `tenant_change` rows (`setting: messaging.capture`), as approver rules' are (§1.20). |
+| When it is made | On the first inbound WhatsApp message from a contact on a connection, in the webhook's transaction, after the contact is found or made (insert, conflict does nothing, then read). Its capture is copied from the client default at that moment; a later change to the default doesn't move existing conversations. |
+| Client default | `tenant.settings.messaging.capture` (beside `messaging.quietHours`): jsonb, so no migration. Absent: `{archive: true, attachments: 'off', maxBytes: 20 MB}`. The operator sets it on the client's messaging page. |
+| Unknown senders | §1.22 makes them contacts with no consent. Their conversation gets the default with `attachments: 'off'` whatever the default says (a `system` change row records it), so a stranger's files are fetched only after a person turns it on. // DECISION |
+| `archive` | `true` (default) is today's behaviour. `false`: the raw record keeps the envelope only (SID, time, sender, channel, attachment facts) for dedupe, STOP and START, and counts; the thread line says "Not kept"; `message.get` and `inbound.get` answer `text: null, kept: false`. STOP still opts out (it is read before the text is dropped). // DECISION |
+| `attachments` | `off` (default): the raw record keeps each attachment's index, content type and media SID (an id, no link, no credential); Twilio sends no size. `documents`: PDF, PNG, JPEG, GIF, WebP (`isDocumentType`). `all`: those plus a fixed list in core (audio: OGG, MPEG, MP4, AMR; video: MP4, 3GPP; Word, Excel, CSV, plain text). Anything else, or an executable type, is refused under every setting. // DECISION |
+| Raw record shape | From v0.14 the inbound raw record's `media` is `[{index, contentType, mediaSid}]`, no URL: the fetch URL is rebuilt from validated SIDs on Twilio's origin, never taken from input. Records made before v0.14 keep their `url` (immutable); download now reads only the media SID out of it (`ME` + 32 hex, checked). // DECISION |
+| `maxBytes` | 20 MB default, 32 MB cap (the documents capability's `MAX_DOCUMENT_BYTES`, the model's request limit). // DECISION |
+| `agentId` | Optional: a client agent of this client, not a test copy, whose live version has a message trigger on `whatsapp`; else 422 `invalid_agent`. Checked again when it would start. |
+| Who changes it | The client admin (`PUT /api/conversations/:id/capture`: `archive`, `attachments`) and the operator (`PUT /api/ops/clients/:id/conversations/:conversationId/capture`: all four fields, with a reason). Either may turn either switch on or off: it is the client's data and choice, not a permission on the client's tools, so it isn't tighten-only (invariant 8 is about writes to tools). `maxBytes`, `agentId` and the default are the operator's (setup). Client users have no access (403), as with `/contacts`. A save names the `updatedAt` it read; a newer one is 409 `stale`; no change is 409 `no_op`. // DECISION |
+| Durable job | `CaptureWorkflow` (binding `CAPTURE_WORKFLOW`), one instance per message (`capture-<tenant>-<message sid>`; `create` refuses a used id), one `step.do` per media index with retries and backoff, started after the inbound transaction commits (`deferred`). Without the binding (local, tests) it runs after the response. The minute cron restarts a message whose media is wanted and has no `MessageMedia` outcome after 10 minutes, for 3 days. // DECISION: a Workflow, like the QuickBooks sync, rather than the event dispatch, so a slow or failing download never holds up a run's start. |
+| Fetch and SSRF | `GET https://api.twilio.com/2010-04-01/Accounts/<subaccount>/Messages/<message sid>/Media/<media sid>` with the client's subaccount credentials (Basic). The URL is built from SIDs checked against fixed shapes, and its `new URL(x).origin` must equal Twilio's API origin. `redirect: 'manual'`: one redirect followed, HTTPS only, without our `Authorization` header, only to an origin on a fixed list (to verify); anything else is `failed` (`redirect_refused`). No string `startsWith`/`includes` checks on URLs. Credentials and links are never logged; errors record a code. // DECISION |
+| Size and type | `Content-Length` over `maxBytes` is refused before reading; the body is read in chunks into a buffer that never grows past `maxBytes` (the read stops and refuses at the limit). The response's type must equal the declared one, and PDFs and images must start with their magic bytes; otherwise `refused` (`too_large`, `type_not_allowed`, `type_mismatch`). |
+| Once per media | Raw record `MessageMedia`, external id `<message sid>:<index>`, on the Twilio connection, inserted in the same transaction as `storeDocument`, holding `{status: filed\|refused\|failed, reason?, documentId?, contentType, sizeBytes?, sha256?}`. A retried webhook, step or download now finds it and stops. A crash between the R2 put and the commit leaves only an object under its sha256, which the retry reuses. // DECISION |
+| Documents | `storeDocument` with `source: 'message'` (0031 widens `document_source_check`), the Twilio connection, filename `whatsapp-<message sid>-<index>.<ext>` (ids only, never the sender's filename), `meta {channel, conversationId, rawRecordId, messageSid, mediaIndex, contactId}`. `document.received` fires and the background reading (§1.43) reads PDFs and images; `all`'s other types are stored, not read. The same bytes sent twice are one document (§7's per-client sha256), named by both messages' `MessageMedia` rows. |
+| Download now | `POST …/conversations/:id/messages/:rawRecordId/download` (client admin, operator): the conversation's setting at that moment must allow the attachment (else 409 `capture_off`); it starts the same job. Attachments with an outcome are left alone, except `failed` ones, tried again as the next version of their `MessageMedia` record (`external_version` 2, 3; at most 3 tries). // DECISION |
+| Agents | `message.get` and `messages.search` (through `ctx.services.messaging`; connectors still read no database) gain `conversation {id, kind, title}` and `attachments [{index, contentType, sizeBytes?, status: not_downloaded\|pending\|filed\|refused\|failed, documentId?}]`. Text and files stay data in tool results (invariant 9); a document's content is read with `docs.*`. |
+| `agentId` start | When all of a message's wanted attachments have an outcome, the job emits `inbound.message` (§1.48) for `capture.agentId` with `channel: 'whatsapp'`, the contact, the raw record and the filed document ids, through that agent's existing message trigger and People filter. No new trigger kind. A sender the filter doesn't take starts nothing and gets no reply (passive). `routeInboundText` doesn't emit for that agent when the message has media the capture will fetch, so it starts once, after the downloads. // DECISION |
+| Twilio's copy | We never delete media at Twilio. **Open (owner):** delete it there once filed, to keep one copy. |
+| Groups | Design only, with `whatsapp_meta` (§1.19). **To verify** (third-party guides, unverified): Meta's groups API needs Official Business Account status, a Tech Provider registration, groups the business creates, and about 8 participants at most. Twilio has no WhatsApp groups (**to verify** on Twilio's docs: search results show its WhatsApp FAQ saying WhatsApp retired the groups API in April 2020, and its "group messaging" sample fans out one-to-one chats through Conversations). Unofficial WhatsApp clients are out (WhatsApp's terms). |
+| Compliance | Twilio is a processor already; `meta_whatsapp` is listed for `whatsapp.*`. `apps/site`'s privacy page gains one plain line: we archive messages sent to a client's number and, where the client turns it on, their attachments, on the client's behalf. Retention: the client's existing handling (exports include conversations and their documents; retirement purges them). |
+| Screens | Minimal: portal `/conversations` (client admin; sidebar link like Contacts): each conversation with "Keep messages" and "Download attachments" switches, and "Download now" on a message. Back office: a Conversations section on `/ops/clients/:id/messaging` with the same, plus the client default. Design-system classes only. Portal words in six languages; the five other than English need a fluent review. The full screen is the owner's redesign. |
+| Files | Owns the inbound media pieces in `packages/connectors/src/twilio/` (`media.ts`, the fake's media), `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `packages/core/src/api/conversations.ts`, `packages/core/src/schemas/conversation.ts`. Marked blocks in `core/src/api/routes.ts`, `core/src/index.ts`, `apps/api/src/app.ts`, `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts`. Stays out of the bank-feed connector and `platform.ts`. |
+| To verify (Twilio) | Recorded in `packages/connectors/src/twilio/NOTES.md` when built. From search results only, not the live docs (`twilio.com` is outside this environment's network): Twilio keeps inbound media until its Media resource is deleted; media URLs need HTTP Basic auth (an older page says public unless a Console setting is on); with auth on, the fetch redirects to a signed link valid about 4 hours. Unchecked: the redirect's host, whether the subaccount's auth token (not only an API key) works for media, `Content-Length` on the signed link, and Twilio's charge for stored media. |
+| Migration 0031 (as built) | `conversation`: the capture check holds the shape (`archive` a boolean, `attachments` one of three, `maxBytes` a number from 1 to 32 MB); a trigger lets only `capture`, `title` and `updated_at` change and refuses deletes, so a conversation never moves to another client, connection, channel or contact. `conversation_change`: insert and select only, append-only trigger. Both have forced RLS on `app.tenant_ids` and same-client foreign keys (connection, contact, conversation). `document_source_check` is replaced with one that adds `message`. Constants in `packages/db` (`CAPTURE_DEFAULT_MAX_BYTES`, `CAPTURE_MAX_BYTES_CAP`). // DECISION |
+
+### People and voice samples (W1-G)
+
+Decisions made while building §1.42 (ARCHITECTURE v0.12 §6.1, §6.4; migration 0025).
+
+| Topic | Decision |
+|---|---|
+| Autonomy unset | A channel missing from `contact.autonomy` narrows nothing, so contacts made before v0.12 behave as before. `auto` never loosens: it is one more ceiling, and the matrix, grant, step and mode still decide. // DECISION |
+| Who sets it | `PUT /api/contacts/:id/autonomy` (client admin) and `PUT /api/ops/clients/:id/contacts/:contactId/autonomy` (operator) take the whole setting. The client admin may only tighten: any channel set to `auto` that wasn't already, or any channel made looser (clearing an `approval` or `off` counts), is 403 `loosening`. Client users can't set it. Each change is a `contact_change` row `{kind: 'autonomy', before, after, by}` and, like every request, an audit row. // DECISION |
+| At the gate | `ToolSpec.recipient {path, channel}` on `email.send`, `gmail.send`, `sms.send`, `whatsapp.send` and `call.place`. The gate reads the contact by that address (`RuntimeStore.contactAutonomy`, fresh on every call) and passes its level to `decideToolCall` as `ceilings`. `off` refuses with "agents' emails to this person are turned off"; `approval` turns a write that would run into one that waits. An address that isn't one of the client's contacts adds nothing. // DECISION |
+| In reach out | The evaluator takes an `off` channel out of the plan (`autonomy_off`); a plan with a channel at `approval` asks for a sign even when the step runs without one (`needsSignature`). Each attempt checks `off` again at send time (a planned attempt is refused); `approval` was settled when the plan was signed, so a change to `approval` after an automatic plan started applies from the next plan. // DECISION |
+| Voice sample channels | `email`, `sms` and `whatsapp`; no `voice`, since a call's words are the voice agent's. // DECISION |
+| Voice sample routes | Their own routes under `/api/knowledge/voice-samples` and `/api/ops/clients/:id/knowledge/voice-samples` (list, add, edit, archive), so FAQ and policy lists and their schemas stay as they were. A sample's versions are read with the knowledge base's versions route. The FAQ edit route answers 404 for a sample, so nothing saves one without cleaning it. // DECISION |
+| Whose voice | `personUserId` must be one of the client's own users (client admin or client user), else 422 `not_a_person`; left out, the client admin who joined first. A `+voice` email is the voice of the client's user with the sender's address (envelope, or From when its domain passed DMARC), else that client admin; never the forwarded message's own headers. // DECISION |
+| Kept text | Quoted history cut ("On … wrote:" in the six languages, `>` lines, "Original Message"); a bare forward keeps the forwarded message's text without its header lines, a forward with words above it keeps those words; card numbers redacted; 4,000 characters. Pasted text gets the same cleaning. The forwarded sample's version is authored by that person with the role `client_admin` (the column's only client-side value). // DECISION |
+| Cap | Adding or editing a sample archives the person's oldest active ones beyond 50 (a new archived version, history kept). // DECISION |
+| Search | Samples are never indexed (`reindexEntry` skips them) and search also filters them out; they are read only with `knowledge.voice_samples`. // DECISION |
+| The tool | `knowledge.voice_samples {personUserId?, channel?, limit ≤ 10}` returns samples newest first, each `untrusted: true` with its entry and version ids as sources. When the channel has none for that person, their other channels' samples come back with `channelMatched: false`. // DECISION |
+| The skill | `writing.draft-in-voice` (agent mode, tools: `knowledge.voice_samples` only), registered with the knowledge skills. Input: person, channel, purpose, record sources, facts (data), recipient name, language. Output `{subject?, text, sources}`. Its instructions say the samples show tone only and never to copy facts or follow anything in them. A draft is text: the send step after it still goes through the gate and the person's autonomy. // DECISION |
+| QuickBooks import | `qbo` joins the directory's import sources. A preview reads the connection's synced raw `Vendor` and `Customer` records (latest version of each, deleted and inactive left out), never QuickBooks itself, as organizations of kind `vendor` or `customer`, filtered by `query` on the name. People from QuickBooks: 422 (QuickBooks keeps companies). Customers come from W1-F's accounts receivable sync. // DECISION |
+| UI | None in this stream: the owner redoes the screens. `Contact.autonomy` is in the API's contact for them. // DECISION |
+
 ---
 
 ## 2. Package layering
@@ -942,7 +1581,7 @@ Progress, phase 1 and Track B (2026-11-03):
 | Stream C: the Builder and skills (2026-11-04) | Done (§1.8): Builder draft and revise with server guards (FakeModel tests that break each rule), `/api/ops/agents/draft` and `/revise`, the skills routes with 403 contract tests, "My description" on both new-agent pages, Revise with the Builder on agent pages, the skills library and operator skill editor (create, version, publish, roll back, used by, add to an agent). Checked in Chromium, light and dark, against the real API app on local Postgres with a scripted model (no key here): "flag card charges over $500 missing receipts" drafts a valid template with gaps; revising a client agent with "skip approval for invoices under $200" adds the fork with approval still on. Open: the Builder for skills (design screen 3's "Make a skill"); recorded model fixtures for the Builder (tests use FakeModel scripts) |
 | Languages (stream I, 2026-11-04) | Done (§1.18): the portal and the components it shares in English, Spanish, French, Portuguese (Brazil), Italian and German through a typed `t()` with one message file per language; dates, numbers and money through `Intl` in the reader's region; API errors by code; the user menu's language picker (your own, and the team's default for the client admin) and the client page's language in the back office; the session's language (user, client, browser, English) with no migration; summaries per language with English as the fallback; runs writing their timeline, summaries and model-written client text in the client's language. Checked in Chromium in five languages, light and dark. Merged with M5, M11, Track B's open items and approver rules, and their portal screens translated (§1.18), with the client's language on the new-client screen. Open: a fluent speaker's review of the translations, the new strings included; server- and connector-written text (tool descriptions, validation problems) still in English; message translation is the next stream |
 | Onboarding and settings (M5, 2026-11-04) | Done (§1.14): the back office overview of what needs attention across clients (failed runs, the operator inbox, connections to fix, template updates waiting), New client (offering, approval delegation, the admin invited in the same step; WorkOS emails the invitation, behind the auth adapter), the client settings page (details, approvals with their history, people and invites), and the portal's Settings for client admins (people and invites, notification settings stored). Contract tests for every new route; API tests that a client user can't invite, that an invite lands only in the inviter's client, that an operator sees only the clients they serve; screens checked in Chromium, light and dark (with a stubbed API). Open: open requests on the overview (with the requests queue), the reminder email for a connection to fix (`/remind`, needs an email provider), changing or removing a member, revoking a WorkOS invitation, packs at onboarding (M8) |
-| Stream M11: usage and reports (2026-11-04) | Done (§1.15): `usage_daily` counts documents read per client agent, rolls up every day a finished run touched and is swept hourly by the cron; `GET /api/ops/usage` (per client, client agent and template, by month, cost operator-only, scoped to the clients served) and `/ops/usage`; `GET /api/reports/activity` (runs, documents, changes to tools, in the client's days, never cost) and the portal's `/reports` with a slot for pack reports; `GET /api/services/:id` and the Service page. No migration. Screens checked in Chromium, light and dark, against Vite with the API answered by fixtures (not against `wrangler dev`). Open: notification emails, the M11 e2e, pack reports themselves, a usage panel on the ops overview and client page (link to `/ops/usage?client=`), the app shell at phone width (the sidebar stays open, on every screen) |
+| Stream M11: usage and reports (2026-11-04) | Done (§1.15): `usage_daily` counts documents read per client agent, rolls up every day a finished run touched and is swept hourly by the cron; `GET /api/ops/usage` (per client, client agent and template, by month, cost operator-only, scoped to the clients served) and `/ops/usage`; `GET /api/reports/activity` (runs, documents, changes to tools, in the client's days, never cost) and the portal's `/reports` with a slot for pack reports; `GET /api/services/:id` and the Service page. No migration. Screens checked in Chromium, light and dark, against Vite with the API answered by fixtures (not against `wrangler dev`). Open: notification emails, the M11 e2e through the UI (the API-level e2e is built, M11's status), pack reports themselves, a usage panel on the ops overview and client page (link to `/ops/usage?client=`), the app shell at phone width (the sidebar stays open, on every screen) |
 | Track B's open items (2026-11-04) | Done (§1.16): record pages for sources in both surfaces (transaction, raw record, vendor; documents and extractions open the document page) linked from the portal timeline, the back-office run view and inbox items; the activation check polls a running test run; template test runs on a chosen served client (test copy there, never written, hidden from its portal), test copies bound to their client's connections; the back office's documents list and page with 5-minute links. API tests over a throwaway database (isolation for both surfaces, a test run on another client end to end) and screen tests. Open: nothing in scope; `/remind` and `/command` parsing were left out |
 | Approver rules (2026-11-04) | Done (§1.20): ordered per-client rules (connector, tool, verb, an amount over a threshold in one currency, the client agent → the client admin, a role, a named person or the operator), evaluated in core and read fresh by the gate for every proposal (rules, then the step's and agent's approver, then the client's default, then the client admin); `ToolSpec.amount`; the back office's "Who approves" section with Try it; the portal's stricter-only editor on Connections, enforced on the server (403 `loosening`); every save logged in `tenant_change`; no migration. Open: the portal section's strings for the languages stream; a walk in Chromium; amounts on real connectors' tools (QuickBooks) |
 | Stream J: Stripe billing (2026-11-04) | Done (§1.24), on staging (2026-11-04): migration 0009 (own PR #34); credit conversion over usage measures; the Stripe client, webhook checks and fake; quantity sync on activate, pause and retire and hourly; the daily usage report, idempotent per client, period and day; `/ops/billing` and the client page's Billing section; the portal's `/billing` for client admins. Tests use the fake Stripe only. **Reworked 2026-11-05 (§1.32), in review:** Mezonas works out each bill and Stripe only bills it. Migration 0016 (#72) adds template prices, client agent overrides, the daily record of billable agents, and monthly statements with lines. The rest: prices per agent (override, then template, then the supervisor at $0, then the default); the daily record on the hourly pass; the statement built on the 1st with prorated agent lines, pooled credits and extra usage; operator adjustments on drafts; a resumable, idempotent send (draft invoice, items, finalize, send); five invoice webhook events; `/ops/billing`, the client page and agent pages, and the portal's `/billing` in six languages. Subscriptions, the quantity sync and meter events are gone. Open: everything marked UNCHECKED in `stripe/NOTES.md`; the Stripe account and webhook endpoint (`docs/operations.md`); real prices; whether a client agent's own test runs are billed |
@@ -1123,7 +1762,11 @@ Tests: Playwright e2e: the operator creates a client, forks Pia into it and cust
 
 **Done when** the e2e passes against `pnpm dev`.
 
-Status (stream M11, 2026-11-04): usage and reports built (§1.15): the rollup (documents, every day a run touched, the hourly sweep), `/api/ops/usage` and `/ops/usage`, `/api/reports/activity` and the portal's `/reports` with a slot for pack reports, `/api/services/:id` and the Service page. Not yet: notification emails, links from every alert and external action to its run, first-run guidance, the e2e.
+Status (stream M11, 2026-11-04): usage and reports built (§1.15): the rollup (documents, every day a run touched, the hourly sweep), `/api/ops/usage` and `/ops/usage`, `/api/reports/activity` and the portal's `/reports` with a slot for pack reports, `/api/services/:id` and the Service page. Not yet: notification emails, links from every alert and external action to its run, first-run guidance.
+
+Status (e2e, 2026-11-06): the e2e exists at the API level, `apps/api/src/e2e.test.ts`, in the normal `pnpm test` (DB-backed). It walks the managed-service path through the real app against Postgres, with fake QuickBooks, Stripe and model, using the seeded Bill clerk rather than Pia (the Materials pack is built separately): the operator creates the client with its admin invited, offers QuickBooks and upload, installs and forks the template; the client admin connects QuickBooks and the first sync runs; a first invoice arrives while the agent is off; the operator binds, publishes, test-runs on that invoice and activates; the Northline invoice is uploaded, the cron's sweep starts the run, the client admin signs three changes in the portal inbox and each is written once; the portal's runs, timeline, activity report, service page and records, the back office's runs with cost, usage and billing's daily record show it; a template update is merged into the client agent and test-run; a second client sees none of it and no portal response carries prompts, bundles or cost. The Playwright e2e through the UI waits for the owner's redesign.
+
+Status (W1-H platform fixes, 2026-11-06): the four gaps the e2e found are fixed (§1 "Platform fixes (W1-H)"): the upload's run starts without the sweep, background reading shows in usage and credits, the portal lists records (`GET /api/records`, `/records`), and "sync now" right after connecting queues a second sync that runs when the first ends. The e2e checks each.
 
 ### M12: Access (vault, grants, code service, browser connections)
 
@@ -1138,6 +1781,315 @@ Done when: an agent with a read-only grant signs in to a low-tier fixture site a
 an emailed code from the code service, downloads an invoice as a document and signs out; the model's
 transcript contains neither the password nor the code; a second agent without the binding is refused;
 a code that arrives with no wait open raises an alert and is never handed out.
+
+
+### M13–M29: the owner's prototype (ARCHITECTURE v0.12)
+
+One milestone per build stream (§8). Each lists its decisions section, work, tests and the check that
+closes it. Every milestone also keeps `pnpm check` green, adds contract specs for its routes (the role
+and forbidden-field tests then cover them), and extends `apps/api/src/e2e.test.ts` where its change
+touches that path.
+
+### M13: Go-live stages and client controls (W1-A, §1.36)
+
+Work: `agent.stage` and its transitions; `effectiveMode` at the gate, reach out and call answering;
+the hourly trial → signoff pass and the client's sign-off item; stage skips with reasons; client pause,
+pause all, resume, `until`; Run now with forms; running live on a past event.
+
+Tests: each stage × step `not_required` × matrix `auto` × mode `act` (only live runs without a
+signature); trial minimums both needed; skip forward needs a reason, back doesn't; the backfill sets
+live agents to `live`; a client can't resume an operator's pause; `until` resumes on the cron; Run now
+refuses an invalid form and a viewer; a past event runs once (409 the second time) and never from a
+test run's event.
+
+**Done when** an agent goes bench → trial (a step set to run without approval still waits) → signoff
+(minimums lowered in the test) → live on the client admin's approval; the client admin pauses all
+with a reason and resumes; Run now starts a client-runnable workflow; and the API e2e's first invoice,
+which arrived while the agent was off, runs live once from the back office.
+
+### M14: Notifications, the Table and the Weekly Table (W1-B, §1.37)
+
+Work: the `notification` outbox and its 5-minute pass; the mailer over Resend and texts through the
+client's number; per-person preferences; `/remind`; `GET /api/table`; the Weekly Table's draft, lead
+edits, Monday send and PDF.
+
+Tests: one items-waiting email an hour per person (a second pass sends nothing); quiet hours hold texts;
+a viewer gets no items-waiting; no message carries a record field (a walk over every rendered message);
+the Weekly Table sends at 7:00 in two time zones; a sent table can't be edited; the PDF parses and
+holds the stats; with no key, rows are `skipped`.
+
+**Done when** items waiting, a connection in error and a weekly table each produce one notification
+with a count and a link (against the fake Resend), and the Weekly Table drafts, takes the lead's note,
+sends on Monday 7:00 in the client's zone and downloads as a PDF.
+
+### M15: Threads, the lead and `/commands` (W1-C, §1.38)
+
+Work: `packages/threads` (store, access, read state, commands); thread routes for both surfaces; the
+lead setting and session field; lead checks; `threads.post` and `threads.read`; `thread.message_posted`.
+
+Tests: who reads and posts each kind (a client user can't read another person's account thread; a
+second client sees nothing); one lead thread per client under concurrency; sources from another client
+refused; `/remy` resolves to the agent, `/nobody` answers with a system message; a lead check lands on
+the lead's user, or the operator role without a lead.
+
+**Done when** a client member and the lead talk in the lead thread with unread counts, a workflow's lead
+check is assigned to the lead, and `/remy hello` posts a command message and emits the event.
+
+### M16: The Desk, sign-off and viewers (W1-D, §1.39)
+
+Work: `whyApproval`; choices; snooze; edits before signing; batches; the undo window and its delivery;
+`can_sign`, `/api/team`.
+
+Tests: the undo window end to end in the Workers pool (undone: never written; not undone: written once
+after the window, run resumed); a check before waiting inside the window doesn't take the resolution;
+an edit to a fixed input or guard refused, a valid edit executed with the agent's input kept; a reroute
+refused; a batch of three with two approved and one rejected; a viewer can't resolve and can't be named
+in a rule; snooze capped by the due time.
+
+**Done when** a question is answered with one tap, an item is snoozed, an email's subject is edited
+before signing and sent once with the edit (both versions shown), 2 of 3 are signed, an undone
+approval writes nothing, and a viewer can't sign.
+
+### M17: Run controls and model calls (W1-E, §1.40)
+
+Work: `RunFilter` on both lists; retry from the failed step with carried approvals; cancel; replay as a
+test run; error keys and grouping; model calls; saved views; the runs CSV.
+
+Tests: a retry reuses earlier outputs and executes a carried approved action under its original key
+exactly once; an approval older than 72 hours or a tightened matrix asks again; cancel expires items and
+rejects proposals, waits for an executing write; replay writes nothing; model-call bodies are redacted
+and never reachable from the portal; saved views are per user.
+
+**Done when** a run that failed at its send step (the prototype's Gmail 401) is retried from that step
+and sends the already-signed emails once without asking again; a waiting run is cancelled; failures
+group by error; and the run page lists its model calls.
+
+### M18: QuickBooks: accounts receivable and create bill (W1-F, §1.41)
+
+Work: Customer, Invoice and Payment sync into raw records and `receivable`; the AR events; the four
+reads; `qbo.invoice.add_note`; `qbo.bill.create`; the fake.
+
+Tests: mappers on fixtures; balances and `paid` from payments' effect on invoices; no events for
+history; the note write changes only `PrivateNote` (the fake checks the sparse body) and refuses a stale
+SyncToken; create refuses a duplicate and a total that doesn't add up, and is created once across a
+retry (`requestid`).
+
+**Done when** a fake company's invoices, customers and payments sync, the aging report reads, a note
+lands on one invoice's private note only, and a bill is created once after approval.
+
+### M19: People and voice samples (W1-G, §1.42)
+
+Work: autonomy per channel and its two enforcement points; the operator-only `auto`; QuickBooks vendor
+and customer import; voice samples by paste and by `+voice` forwarding; `knowledge.voice_samples`;
+`writing.draft-in-voice`.
+
+Tests: autonomy × step × matrix (strictest wins); `off` makes reach out `not_allowed` for that channel;
+a client admin setting `auto` gets 403; `+voice` keeps the body only for allowed senders and only on
+that tag; ordinary forwarding still keeps none; voice samples never appear in `knowledge.search`.
+
+**Done when** a person's email set to off refuses an email to them while a text still goes, QuickBooks
+vendors import as a preview, and a forwarded `+voice` email becomes a sample the skill reads as data.
+
+### M20: Platform fixes from the API end-to-end test (W1-H, §1.43)
+
+Work: dispatch after commit everywhere events are emitted; extraction cost and `usage_platform_daily`
+in usage and credits; the portal records list; "sync now" that starts or queues.
+
+Tests: a background read's `document.extracted` starts its run with no cron tick; the rollup puts
+background reading in the platform row and credits include it; an agent's document count includes
+documents it used; the portal list shows only the client's records; "sync now" right after connecting
+starts a second sync (or queues it while the first runs).
+
+**Done when** the API e2e's upload starts its run without the sweep, its reading shows in usage and
+credits, the portal lists records, and "sync now" after connecting syncs again.
+
+Status (W1-H, 2026-11-06): built (§1 "Platform fixes (W1-H)"), PR #106. The API e2e's upload starts its run without the sweep, its reading shows in usage (`background`) and credits, the portal lists records, and "sync now" right after connecting is queued and runs after the first sync. Receivables join the portal list with W1-F.
+
+### M21: Permissions per record type and the connectors catalog (W2-A, §1.44)
+
+Work: entities in manifests, tools, matrices and grants; the folded decision; tighten-only per entity;
+`connector_setting`, the catalog routes and default access for new clients.
+
+Tests: the full table verb × entity × scope × grant × step × mode × autonomy; an old matrix applies to
+every entity; `notes_only` allows `qbo.invoice.add_note` and turns another invoice update off; a client
+loosening an entity gets 403; every connector's manifest declares an entity for every tool.
+
+**Done when** QuickBooks' matrix in the prototype's shape (bills, items, vendors, invoices notes only,
+customers read only) behaves as shown, an old matrix still works, and the catalog shows status,
+24-hour errors, default access and who is waiting to connect.
+
+### M22: Automations (W2-B, §1.45)
+
+Work: schema, validation, registry, expansion in the executor, approvals overrides, save as automation,
+the builder's read-only card.
+
+Tests: validation of an automation alone and of a use step's input; expansion ids stable across a
+retried run; inner outputs invisible outside; a three-way merge with a template change and a client
+change to the same use step; inner write steps keep approval on; from-steps refuses a non-contiguous
+selection.
+
+**Done when** "Polite follow-up" is used by two agents, runs expanded in both with stable node ids,
+shows its clean-run rate and usage, and a merge keeps a client's input change.
+
+### M23: Test bench, skill tests and the agent lab (W2-C, §1.46)
+
+Work: cases, matchers, the fixture tool port, suite runs (skills and templates), metrics, the publish
+gate, the lab route.
+
+Tests: a skill case can't reach a connector or write; a client's case never runs in another client or
+in a shared gate; precision on a label field; the gate refuses a failing required case and allows
+after a fix; turning the gate off needs a reason.
+
+**Done when** a skill's 8 cases run on its draft, report "7 of 8" with precision and cost, block
+publishing until the 8th passes, and the lab lists templates with behind counts and test results.
+
+### M24: Sloan, the account agent (W2-D, §1.47)
+
+Work: template v2 and its install route; the account tools and port; drafted changes and their
+application; the publish guard.
+
+Tests: every account tool's result passes the portal's forbidden-field walk; a client user can't pause
+through Sloan; a drafted signer change applies only when the admin signs; a loosening draft is refused
+and offered to the lead; Sloan can't be published with a connector tool.
+
+**Done when** in an account thread Sloan explains why an item waits, pauses an agent until Monday,
+drafts "add Lisa as a signer for bills under $2,000" that applies only when the admin signs, and passes
+"let small reminders go on their own" to the lead (with the fake model).
+
+### M25: Triggers: six kinds (W2-E, §1.48)
+
+Work: the trigger schema and validation; the router; inbound messages by email and text; senders from
+People; webhook dedupe and limits; holidays; handoff; the triggers list.
+
+Tests: a schedule skips July 4 (observed) in the client's zone; a webhook repeat starts nothing and the
+61st delivery in an hour is limited; a stranger's email starts nothing and gets a reply only with DMARC
+pass; a handoff never targets the same agent and stops at depth 3; a workflow with two triggers types
+`{{trigger.x}}` as optional when one lacks it.
+
+**Done when** each of the six kinds starts a run in the API test (and only where it should), and a
+handoff carries its sources to the next agent of the same client.
+
+### M26: Command center, search and plain-words questions (W2-F, §1.49)
+
+Work: the command-center route and feed; search for both surfaces; the plain-words query.
+
+Tests: the figures match a seeded fixture (clean runs, response time, escalations by blocked time);
+search hits respect the client scope and never return templates or costs to the portal; the model's
+answer that isn't a valid `RunFilter` is refused (replayed fixtures).
+
+**Done when** the command center's numbers match the fixture, ⌘K finds a run, a vendor, a person and a
+document, and "bills Iris entered over $5,000" gives the expected filter and runs.
+
+### M27: KPIs and the client view, credits, the client's audit export (W2-G, §1.50)
+
+Work: `clientView` in the bundle and its validation; KPI computation and routes; the Table and Weekly
+Table using them; credits-out behaviour; the audit export.
+
+Tests: each measure kind over fixtures (money exact); test runs never count; credits-out `pause`
+pauses billable agents (not Sloan) and the next month resumes them; `continue` notifies per 2,500
+block; the audit export holds only the client's rows and names operators as Mezonas except the lead.
+
+**Done when** a template's KPIs show on its client agent and in the Weekly Table, running out of
+credits with `pause` pauses and notifies, and the client admin downloads the audit export.
+
+### M28: The Builder as a conversation (W3-A, §1.51)
+
+Work: sessions and turns; per-change undo; the three commands; similarity; draft-skill with test
+cases; save as automation from a session.
+
+Tests: an undo that conflicts with a later change is refused; the guards hold across turns (approval
+on, suggest only, ids from the server); a client's examples become that client's cases; similarity is
+deterministic.
+
+**Done when** a three-turn session (with the fake model) drafts Remy, undoes one change alone, changes a
+setting with `/skill`, drafts `match-card-charge` with 8 cases, and saves two steps as an automation.
+
+### M29: New connectors (W3-B, §1.52)
+
+Work and tests per connector as for Zoho and Podio (§1.9): OAuth against a fake, manifest with entities,
+tools with before states and once-only writes, `NOTES.md` listing what to verify.
+
+**Done when** Google Drive files a document by month and Outlook sends an approved email once, both
+against fakes; Ramp and HubSpot follow in the same way.
+
+### M30: Task skills and a model per step (W2-H, §1.53)
+
+Work: the `task` mode and `model` on skills; `model` on skill steps; resolution and the `task` prompt in
+the runtime; validation of skills and steps; the Skills library's mode and model fields (API);
+`GET /api/ops/models` (id, label, price per million tokens) for the builder; the run view's per-step
+model.
+
+Tests: resolution (step override; `task` → skill; `agent` → agent) including `maxTokens`; a `task`
+skill's prompt has no agent instructions and no memory notes, an `agent` skill's has both; the same
+`task` skill gives the same request in two different agents; a `task` skill's input with an embedded
+instruction stays in the wrapped user turn and is not followed (replay fixture); validation errors (unknown id, `task`
+without a model, `agent` with one, `model` on a `tool` step); stored skills and bundles parse and hash
+as before; a merge where both sides set a step's model conflicts and one side alone doesn't; replay
+fixtures for two models in one run.
+
+**Done when** one workflow (with the fake model) reads an invoice with a `task` skill on Haiku and
+drafts an email with an `agent` skill on the agent's Sonnet, a step override moves the draft to Opus,
+the run's model calls show each model and per-step cost, and a `task` skill without a model fails
+validation.
+
+### M31: Run oversight on failures (W2-I, §1.54)
+
+Work: migration 0029 (the Wave 2 migrations PR); `oversight` on the definition and `review` on steps; the decision schema;
+`OversightPort` and the executor hook for failures; `oversee.ts`; the log; limits; ask and proposal
+items; client words; the run view's `oversight`; `run.failed`'s `diagnosis`.
+
+Tests (executor on the fake runner, runtime on the fake model): a transient failure retried with the
+same key and finishing; a failed lookup corrected by `retry_with` (input validated, then run); an
+invalid corrected input counts as no intervention and the step fails; a write whose action reached
+`executing` is stopped whatever the model says; a `retry_with` on a write is decided again by the gate
+and asks for approval again; limits per step and per run; a replayed instance reuses the decision
+without a second model call; a test run writes nothing; untrusted error text stays in the tool result;
+no portal route returns a decision field; RLS and immutability on `oversight_decision`.
+
+**Done when** a run whose lookup fails on a vendor name with a trailing space is corrected and finishes,
+with one decision row and one proposal for the operator; a write that reached the client's tool is
+never retried; the fourth intervention in a run fails the step as before; the portal shows only
+"Corrected the vendor name and tried again".
+
+### M32: Checkpoint reviews (W2-I, §1.54)
+
+Work: checkpoint computation in core's validation (a step's output referenced by a later write step's
+input); review after success for `checkpoints` and `all`; `continue`, `retry_with`, `ask` and `stop`
+after success; `GET /api/ops/oversight` for the agent lab.
+
+Tests: checkpoint computation across forks, loops and automations' expanded steps; `failures` makes no
+call on a clean run; `ask` waits and resumes on approval; `stop` at a checkpoint cancels the run.
+
+**Done when** an extraction that feeds a create-bill step is reviewed, a wrong total is corrected before
+the bill is proposed and the approver sees the corrected input, and with `review: 'failures'` a clean
+run makes no oversight call.
+
+### M33: WhatsApp passive capture (v0.14, §1.55)
+
+Three PRs in order: this design (`claude/whatsapp-capture-design`); migration 0031 alone
+(`claude/whatsapp-capture-migration`: `conversation`, `conversation_change`, the document source
+check, grants, forced RLS, the log's immutability trigger, journal and snapshot, fixtures in the RLS,
+purge and migration test loops); then the build (`claude/whatsapp-capture`).
+
+Work: core's capture schema, type lists and route contract; conversations made in the webhook's
+transaction; the raw record's media without links; `CaptureWorkflow` with the after-commit start, the
+local fallback and the cron restart; the media fetch on Twilio's origin (one manual redirect, size and
+type checks); `MessageMedia` outcomes and `storeDocument` with `source: 'message'`; download now;
+`message.get` and `messages.search` with conversation and attachments; the `capture.agentId` start;
+the routes for both surfaces with change rows; the portal's `/conversations` and the back office's
+section; the privacy page's line; Twilio's fake with media; `NOTES.md`.
+
+Tests (against the fake Twilio): capture on gives one document, read and linked to its message;
+off keeps only the attachment's facts (no bytes, no link); a duplicate webhook and a retried step make
+no second document; refusals for size (declared and counted) and type (not allowed, mismatched); a
+redirect to another origin is refused; download now; capture changed by the client admin and by the
+operator, each with a change row; a client user refused; client isolation; no portal answer carries a
+bundle, prompt, cost or Twilio link; the routes in the contract test; the API e2e's messaging part,
+if it has one.
+
+**Done when** a WhatsApp photo from a contact whose conversation has attachments on becomes one
+document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
+retried webhook makes nothing twice; the client admin toggles it and the change is logged.
 
 ---
 
@@ -1199,6 +2151,24 @@ Answered (2026-11-04, ARCHITECTURE v0.9)
 4. Approvals: **approver rules decide who approves** (§1.17).
 5. Billing: **Stripe**, a monthly base fee per client plus metered usage from `usage_daily` (§1.17).
 
+Answered (2026-11-06, ARCHITECTURE v0.12; the lead's recommended defaults, recorded as decisions; the owner may revisit)
+1. **Gmail stays send-only, with no CASA.** Reading mail is forwarding: the client sets a Gmail filter that forwards a label to its Mezonas address. "Write in your voice" learns only from **voice samples** the client pastes or forwards into the knowledge base (`voice_sample`), never from reading the mailbox (ARCHITECTURE §6.4, §1.42).
+2. **QuickBooks: create bill and accounts receivable.** `qbo.bill.create` behind approval (never automatic by default); sync of Invoice, Customer and Payment; `qbo.aging_report`; `qbo.invoice.add_note`, which only updates PrivateNote. Delete stays off (ARCHITECTURE §6.2, §1.41).
+3. **Billing stays Stripe invoices paid by link.** No card on file or automatic charge in v0.12; listed as future (ARCHITECTURE §1 "Out").
+4. **Signing is never done by text reply.** A text or email links to the Desk; signing needs a signed-in session (ARCHITECTURE §11.1, §11.3).
+5. **Go-live stages:** test bench (Sandbox or test runs, never writing); trial on client data (every write needs approval whatever the step says, about 14 days or 25 runs, whichever comes later, operator-adjustable); client sign-off (the client admin approves going live); live. Recorded per client agent; live is blocked until the earlier stages pass; the operator can skip a stage with a logged reason (ARCHITECTURE §10.9, §1.36).
+
+Answered (2026-11-06, ARCHITECTURE v0.13, owner)
+- **The agent oversees its runs.** The workflow stays the operator's plan; clean steps run as code,
+  `task` skills (typed jobs, the same in any agent) on their own default model, usually cheap, and
+  `agent` skills (judgment and drafting in the agent's voice) on the agent's model with its
+  instructions and memory; a step may override either's model; the agent
+  reviews failed steps (and, where set, steps that feed a write) on a model the operator picks, and
+  fixes what it can within the plan. Lasting fixes are proposals. Build order: a model per step (M30),
+  oversight on failures (M31), checkpoint reviews (M32).
+- **No graph library.** We keep our executor on Cloudflare Workflows rather than LangGraph (ARCHITECTURE
+  §10.11).
+
 Open
 1. Stripe: the base fee is per active agent, with a credit allowance and overage (owner, 2026-11-04). One credit is one cent of our cost (owner, 2026-11-04). Open: the allowance per agent, whether a client's allowances are pooled across its agents, the prices, and the Stripe account and its keys (saved as network secrets, never in the repo).
 2. Google: the Cloud project and OAuth client for Gmail (`GOOGLE_*`), and starting the verification (owner: tomorrow).
@@ -1207,3 +2177,315 @@ Open
 7. Gmail (owner, 2026-11-05): answered. No CASA: `gmail.send` only, reading by forwarding (ARCHITECTURE §6.4, M10). Remove `gmail.readonly`, `gmail.labels` and `gmail.compose` from the Google consent screen. Google project `mezonas`, OAuth client "Mezonas web" created; `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are in the GitHub staging environment; mezonas.com verified in Search Console. Verification waits for the public site.
 6. Access (§1.26, owner 2026-11-05: build it): open: the agent email domain (default `agents.mezonas.com`, routed to `apps/mfa` by Cloudflare Email Routing); the codes Twilio subaccount; the first real low-tier site for the pilot; legal review of agent accounts on third-party sites, with the review of calls and texts; `developers.cloudflare.com` allowed in the session's network to check Browser Run's limits (handoff time limit, whether recordings capture typed input, Live View link access).
 4. Texts and calls (§1.19): WhatsApp through Twilio first, then Meta directly so clients can use their own number (owner, 2026-11-04); register Mezonas as a Meta Tech Provider ahead of the Meta step. Open: Mezonas-owned Twilio subaccounts per client (default) or each client's own Twilio; which countries first (US texting needs A2P 10DLC registration); Twilio and ElevenLabs accounts and keys; `api.twilio.com`, `graph.facebook.com` and `api.elevenlabs.io` allowed in the network. Legal review of consent, calling hours, recording consent and AI disclosure for each country before any live client calls.
+8. **Before Wave 2:** (a) Sloan is the supervisor renamed and extended, one free agent per client; existing "Account check" forks become Sloan by a reviewed update: confirm the name and the merge. (b) The agent's email address: v0.12 builds `<agent>.<client>-<id>@<forwarding domain>`; the prototype's `<agent>@<client>.agents.mezonas.com` needs Email Routing per client subdomain, a Cloudflare API token to add them, and a domain apart from the code service's `agents.` (e.g. `<client>.mail.mezonas.com`). (c) Test cases from a client's own records stay in that client and never gate a shared skill: confirm. (d) A person's channel set to "on its own" is the operator's to set (the client asks the lead), as invariant 8 says: the prototype shows the client setting it. (e) Are trial and sign-off days billed (default yes: the agent is active)?
+9. **Before Wave 3:** the bank and card aggregator: answered (owner, 2026-11-06): **Plaid** (§1.52, built against a fake). Open: the price per connected account, and whether it is absorbed or passed into credits; Plaid's production review; HIPAA mode (whether Plaid signs a BAA; until then a HIPAA client isn't offered the feed). Also open: developer apps for Outlook (Entra, publisher verification), Ramp and HubSpot, Google Drive's `drive.file` on the consent screen, and Slack's timing.
+10. Smaller defaults to confirm when convenient: the undo window (60 s, delivered at the next minute, so 60–120 s); US federal holidays only; notifications by text only from the client's own Twilio number; replay as a test run in the same client, never in the Sandbox.
+
+---
+
+## 8. Execution plan, 2026-11-06 night
+
+Autonomous build of ARCHITECTURE v0.12 by several build agents, coordinated by the lead session. Each
+stream has a decisions section (§1.36–§1.52) and a milestone (M13–M29). v0.13 adds two Wave 2
+streams, W2-H and W2-I (§1.53–§1.54, M30–M32).
+
+### 8.1 Autonomy rules
+
+- Branch from `origin/main`: `claude/<stream id lower case>-<short name>` (e.g. `claude/w1a-golive`).
+  Open the feature PR as a **draft** at once; mark it ready when `pnpm check` passes locally and the
+  milestone's done-when holds in tests.
+- **Migrations.** Wave 1's migrations 0018–0025 are written by **one agent in one PR**
+  (`claude/w1-migrations`, from ARCHITECTURE §5.5 as written), so the Drizzle snapshots chain; it
+  merges first, and every Wave 1 stream builds on it (merge main once it lands). From Wave 2 each stream
+  with a migration opens its own migration PR before its feature PR (CLAUDE.md). Migrations are
+  additive only and keep the previous Worker working (they apply before the new Worker deploys).
+  Never edit a migration that has reached `main`. If merge order differs from the numbers, the lead
+  renumbers before merging (file, journal tag, increasing `when`), never after.
+- The lead reviews and merges on green CI, migration PRs first; merge commits only. `main` deploys to
+  staging. **Never** production, a `v*` tag, or anything of Plenary Labs.
+- After two CI failures with the same cause, stop and report to the lead with the cause.
+- **UI:** only where an existing screen would break or a check needs it; the owner's redesign replaces
+  the rest. Keep today's screens working.
+- **No new third-party accounts or keys.** Build against fakes (`@countersign/connectors/testing`), record
+  what is unchecked in the connector's `NOTES.md`. Tests never call the live model (`LLM_MODE=replay`
+  or a FakeModel).
+- **Merge `origin/main` often:** at least before opening ready, and whenever another stream merges.
+
+### 8.2 Shared hot spots
+
+Rule: **append-only edits in clearly separated blocks**, each headed `// v0.12 <stream id>: …`; never
+reorder, reformat or rewrite another stream's block; on conflict keep both blocks.
+
+| File | How streams touch it |
+|---|---|
+| `packages/core/src/api/routes.ts` | One import and one `...xRoutes` line per stream; route specs live in the stream's own `packages/core/src/api/<area>.ts` |
+| `apps/api/src/app.ts` | One import and one `xRoutes(app)` line before `mcpRoutes`; cron additions as one call each in `runCron`, wrapped in `.catch` like the others |
+| `packages/db/src/schema.ts` | Wave 1: only the migrations agent. Later: new tables appended at the end in a block per stream; new columns at the end of their table with a comment |
+| `packages/core/src/index.ts` | One export line per new module |
+| `packages/core/src/schemas/workflow.ts` | W1-A: manual trigger's `client`; W1-C: person `assignee: 'lead'`; W1-D: person `choices`; W2-B: `UseAutomationStep` and the `Step` union; W2-E: trigger kinds, `moreTriggers`, `handoff`; W2-H: skill step `model`; W2-I: step `review` |
+| `packages/core/src/workflow/validate.ts` | One new function per stream (W2-B use steps, W2-E triggers, W2-H step models, W2-I checkpoints), called from the existing entry point |
+| `packages/core/src/schemas/{agent,skill}.ts` | W2-G: `clientView`; W2-H: skill `model`; W2-I: definition `oversight` |
+| `packages/workflows/src/{executor,ports}.ts` | W1-E owns them in Wave 1. Wave 2: W2-B the expansion call; W2-I `OversightPort` and one hook block in `work()` |
+| `packages/agents/src/runtime/{run-agent,planned}.ts` | W2-H: the model resolution call (one line each) and the `task` prompt in `run-agent.ts` |
+| `apps/api/src/routes/ops-skills.ts` | W2-C: the publish gate; W2-H: the skill's mode and model (one block) |
+| `packages/agents/src/runtime/call-tool.ts` | W1-A: `effectiveMode` at the decision; W1-D: `whyApproval` and `batch_key` on the proposal; W1-G: the recipient's autonomy ceiling; W2-A: the entity |
+| `packages/core/src/permissions/decide.ts` | W1-G: `ceilings` parameter (wave 1); W2-A: entities (wave 2) |
+| `apps/api/src/runs/ports.ts` | W1-C: `createForPerson` (lead); W1-D: `resolution()` (undo window) |
+| `apps/api/src/email.ts` | W1-G: the `+voice` branch; W2-E: agent addresses |
+| Senses event catalog | Append event types (W1-C, W1-F, W2-E) |
+| `apps/api/src/platform.ts` | One registration line per new connector (W3-B) |
+| `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
+
+### 8.3 Reserved migrations
+
+| Number | Stream | What (ARCHITECTURE §5.5) |
+|---|---|---|
+| 0018 | W1-H | `doc_extraction` tokens and cost; `usage_platform_daily` |
+| 0019 | W1-A | `agent.stage`, `stage_state`, `pause`; backfill |
+| 0020 | W1-B | `notification`, `weekly_table` |
+| 0021 | W1-C | `thread.created_by`, `thread_read`, the lead-thread index |
+| 0022 | W1-D | `inbox_item` undo, batch and snooze columns; `external_action` edit columns; `membership.can_sign` |
+| 0023 | W1-E | `run.retry_of`, `resume_from`; `model_call`; `saved_view` |
+| 0024 | W1-F | `receivable` |
+| 0025 | W1-G | `contact.autonomy`; `voice_sample` kind; `knowledge_entry_version.meta` |
+| 0026 | W2-A | `connector_setting` |
+| 0027 | W2-B | `automation`, `automation_version` |
+| 0028 | W2-C | `test_case`, `test_suite_run`, `test_case_result`, `skill.require_tests` |
+| 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
+| 0030 | W3-A | `builder_session`, `builder_turn` |
+| 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
+
+Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
+were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
+written as 0029, the next number after 0028: the journal's tags must ascend in the order
+migrations merge (`packages/db/src/migrations.test.ts`), and Wave 2 merges before Wave 3, so a gap
+left for 0029–0030 could never be filled. The Builder's tables move from 0029 to 0030 and the spare
+from 0030 to 0031.
+
+// DECISION (v0.14, 2026-11-06): 0031 is WhatsApp capture's, replacing the W3-B spare. W3-B built
+Drive and Outlook with no migration, and the bank-feed connector being built in parallel needs none.
+A later connector that needs a table takes 0032.
+
+The exports (data export and accountant export, running outside the waves) needed no migration.
+
+### 8.4 Waves and streams
+
+| Stream | Scope | Migration | Owns (main files) | Depends on |
+|---|---|---|---|---|
+| **Wave 1** | | | | |
+| W1-M | Wave 1 migrations, one PR | 0018–0025 | `packages/db/migrations/0018…0025`, `packages/db/src/schema.ts` (Wave 1 tables), RLS and immutability tests | ARCHITECTURE §5.5 |
+| W1-A | Go-live stages, client controls, run a past event live (M13) | 0019 | `packages/core/src/lifecycle/`, `core/src/api/lifecycle.ts`, `apps/api/src/lifecycle/`, `apps/api/src/routes/lifecycle.ts` | W1-M |
+| W1-B | Notifications, the Table, the Weekly Table (M14) | 0020 | `packages/core/src/notify/`, `core/src/weekly/`, `core/src/api/{notify,table}.ts`, `apps/api/src/notify/`, `apps/api/src/weekly/`, `apps/api/src/routes/{notify,table}.ts` | W1-M; W1-C for decision replies (last) |
+| W1-C | Threads, the lead, `/commands` (M15) | 0021 | `packages/threads/src/*`, `core/src/threads/`, `core/src/api/threads.ts`, `apps/api/src/routes/threads.ts`, `agents/src/tools/threads.ts`, `agents/src/log/threads-port.ts` | W1-M |
+| W1-D | The Desk, sign-off and viewers (M16) | 0022 | `core/src/permissions/explain.ts`, `core/src/api/desk.ts`, `apps/api/src/desk/`, `apps/api/src/routes/desk.ts`, `apps/api/src/inbox.ts`, `apps/api/src/runs/resume.ts` | W1-M |
+| W1-E | Run controls, model calls (M17) | 0023 | `packages/workflows/src/executor.ts`, `apps/api/src/runs/{execute,workflow,step-runner,instances}.ts`, `core/src/api/{runs-filter,run-controls}.ts`, `apps/api/src/routes/run-controls.ts`, `agents/src/log/model-calls.ts` | W1-M |
+| W1-F | QuickBooks AR, create bill (M18) | 0024 | `packages/connectors/src/qbo/*`, `core/src/mappers/qbo.ts`, `core/src/api/qbo.ts`, `apps/api/src/qbo/*`, `apps/api/src/routes/qbo.ts` | W1-M |
+| W1-G | People autonomy, QuickBooks import, voice samples (M19) | 0025 | `core/src/directory/*`, `core/src/reach/rules.ts`, `apps/api/src/directory/*`, `apps/api/src/routes/{contacts,directory}.ts`, `packages/documents/src/knowledge/*`, `agents/src/tools/knowledge.ts` | W1-M; W1-F for customer import (last) |
+| W1-H | Platform fixes: dispatch after commit, reading costs, portal records list, sync now (M20) | 0018 | `packages/senses/src/*`, the dispatch helper in `apps/api/src/runs/dispatch.ts`, the usage rollup in `packages/db/src/queries.ts`, credits conversion in `apps/api/src/billing/`, `apps/api/src/routes/records.ts`, `core/src/api/records.ts` | W1-M |
+| **Wave 2** (after Wave 1 merges) | | | | |
+| W2-A | Per-entity permissions, connectors catalog (M21) | 0026 | `core/src/permissions/*`, `core/src/schemas/{permissions,connector,tool}.ts`, `connectors/src/permissions.ts`, every manifest's entity lines, `apps/api/src/routes/{connections,access,ops-connectors}.ts`, `core/src/api/connectors.ts` | W1-D, W1-G |
+| W2-B | Automations (M22) | 0027 | `core/src/schemas/automation.ts`, `UseAutomationStep`, use-step validation, `packages/workflows/src/expand.ts`, `agents/src/registry/automations.ts`, `apps/api/src/routes/ops-automations.ts`, `core/src/api/automations.ts`, the builder's read-only card | W1-E |
+| W2-C | Test bench, skill tests, agent lab (M23) | 0028 | `core/src/testbench/`, `core/src/api/testbench.ts`, `agents/src/testbench/`, `apps/api/src/testbench/`, `apps/api/src/routes/{testbench,lab}.ts`, the publish gate in `ops-skills.ts` | — |
+| W2-D | Sloan (M24) | none | `packages/db/seed/agents/supervisor.v2.json`, `agents/src/tools/account.ts`, `agents/src/log/account-port.ts`, `core/src/account/`, `core/src/api/account.ts`, `apps/api/src/account/`, `apps/api/src/routes/account.ts` | W1-A, W1-C, W1-D; W2-E for `pass_to_agent` (last) |
+| W2-E | Triggers: six kinds (M25) | none | trigger parts of `core/src/schemas/workflow.ts`, trigger validation, `core/src/{triggers,holidays}/`, `packages/workflows/src/router.ts`, schedules in `runs/dispatch.ts`, `apps/api/src/routes/{triggers,hooks}.ts`, agent addresses in `email.ts`, inbound dispatch in `twilio-hooks.ts` | W1-A, W1-C, W1-G |
+| W2-F | Command center, search, plain-words questions (M26) | none | `apps/api/src/routes/{command-center,search}.ts`, `apps/api/src/{search,runs-ask}/`, `core/src/api/{command-center,search,runs-ask}.ts` | W1-E (`RunFilter`), W1-H |
+| W2-G | KPIs and client view, credits, the client's audit export (M27) | none | `clientView` in `core/src/schemas/agent.ts`, `core/src/kpi/`, `core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/{client-view,audit-export}.ts`, `apps/api/src/billing/credits-out.ts` | W1-A, W1-B, W1-H |
+| W2-H | Task skills and a model per step (M30, v0.13) | none | `core/src/schemas/{workflow,skill}.ts` (its blocks), the step-model check in `validate.ts`, the resolution in `agents/src/runtime/model.ts` and the `task` prompt in `run-agent.ts`, the Skills library's mode and model in `ops-skills.ts` (one block, after W2-C's publish gate), `apps/api/src/routes/ops-models.ts`, `core/src/api/models.ts` | W1-E |
+| W2-I | Run oversight (M31–M32, v0.13) | 0029 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
+| **Wave 3** | | | | |
+| W3-A | The Builder as a conversation (M28) | 0030 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
+| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | none | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| **v0.14** | | | | |
+| v0.14 capture | WhatsApp passive capture (M33, §1.55): design, migration, build as three PRs | 0031 | `packages/connectors/src/twilio/` inbound media pieces, `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `core/src/api/conversations.ts`, `core/src/schemas/conversation.ts`; blocks marked `// v0.14 capture` in the hot spots | W2-E (inbound routing), W1-H (background reading) |
+| **Wave 4** (owner, 2026-11-06; after Wave 3) | | | | |
+| W4-A | WhatsApp through Meta (`whatsapp_meta`, §1.19) | none expected | `packages/connectors/src/whatsapp_meta/`, its webhook route, one line in `apps/api/src/platform.ts` | M33 (WhatsApp passive capture: `conversation`, media download) |
+| W4-B | Follow-ups from Waves 1–3 | none expected (0032 spare) | each item's own files, small marked blocks elsewhere | — |
+| W4-C | Slack (ARCHITECTURE §6.11, row 6; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/slack/`, one line in `apps/api/src/platform.ts` | W2-A (entities) |
+| W4-D | Google Sheets (ARCHITECTURE §6.11, row 7) | none expected | `packages/connectors/src/gsheets/`, one line in `apps/api/src/platform.ts` | W3-B's Drive (shared Google client) |
+| W4-E | Google Chat (ARCHITECTURE §6.11, row 8; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/gchat/`, its interaction route, one line in `apps/api/src/platform.ts` | W4-C's pattern (Slack) |
+
+**Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
+
+**Already running outside the waves** (don't duplicate): the client data export and the accountant's
+export; the API end-to-end test (#102, merged: streams extend it); the review of compliance PR #84.
+
+### 8.5 Stream briefs
+
+Each brief stands alone. Read CLAUDE.md, ARCHITECTURE v0.12 (the sections named) and the decisions
+section first; the files listed under "Owns" in §8.4 are yours; touch hot spots only as §8.2 says.
+
+**W1-M: Wave 1 migrations (0018–0025).** One branch `claude/w1-migrations`, one PR. Write the tables and
+columns of ARCHITECTURE §5.5 for 0018–0025 exactly, in `packages/db/src/schema.ts` and as migrations
+generated in order (`drizzle-kit generate`, then hand-written SQL for RLS, grants, checks, triggers
+and the 0019 backfill). Forced RLS on every new tenant table; grants per §5.5 (insert-only where it
+says so; `thread_read` may update; nothing gets DELETE). The `knowledge_entry` kind check is replaced,
+not dropped. Tests: migrations apply on an empty database and on one with the seed; RLS loop covers
+the new tables; the 0019 backfill sets live agents to `live`. Done when CI is green and the previous
+Worker's tests still pass against the new schema.
+
+**W1-A: Go-live stages and client controls (M13, §1.36).** ARCHITECTURE §10.9, §11.5. Build stages
+and transitions in core (`lifecycle/`), `effectiveMode` and its three call sites, the hourly trial →
+signoff pass with the client admin's go-live item (words in six languages), skips with reasons, client
+pause/pause all/resume with `until` (minute cron), Run now (`client.canRun` on manual triggers, forms,
+server-side validation), and `POST /api/ops/agents/:id/run-event` for the first-invoice gap (reuse the
+router's matching and run ids). Extend the API e2e: activate puts the agent in trial and the first
+invoice runs live from the back office. Done when M13's check holds.
+
+**W1-B: Notifications, the Table and the Weekly Table (M14, §1.37).** ARCHITECTURE §11.3, §11.4.
+Build the `notification` outbox and its 5-minute pass (scan rows; no hooks in others' code), the
+mailer over the `resend` client and texts through the client's Twilio subaccount as release codes do,
+per-person preferences, `/remind`, `GET /api/table`, the Weekly Table (Friday draft, lead edits, Monday
+7:00 send, PDF with `pdf-lib` pinned). No record content in any message (a test walks them). Decision
+replies go into the lead thread once W1-C is merged (501 before). Done when M14's check holds.
+
+**W1-C: Threads, the lead and `/commands` (M15, §1.38).** ARCHITECTURE §11.2. Give `packages/threads`
+its store, access rules, read state and command resolution; `parseCommand` in core; thread routes for
+both surfaces; the lead setting and its session field; lead checks in `createForPerson`;
+`threads.post` and `threads.read`; emit `thread.message_posted` (no text). Starting runs from commands
+is W2-E's. Done when M15's check holds.
+
+**W1-D: The Desk, sign-off and viewers (M16, §1.39).** ARCHITECTURE §11.1, §4. Build `explainWrite`
+and `whyApproval`, person `choices`, snooze, edits before signing (`editable` display fields, re-check,
+re-route), batches (`batch_key`, batch resolve), the undo window (`deliver_after`, delivery from the
+cron's resume, the check before waiting, undo route), and viewers (`can_sign`, `mayResolve`, rule
+validation, `/api/team`). Write a Workers-pool test for undo. Done when M16's check holds.
+
+**W1-E: Run controls and model calls (M17, §1.40).** ARCHITECTURE §10.10. Build `RunFilter` on both
+runs lists, retry from the failed step with carried approvals (original idempotency keys, 72 hours,
+gate re-check), cancel, replay as a test run in the same client, error keys and grouping, saved views,
+the runs CSV, and model calls (port after each call, row plus redacted body in R2, operator-only
+routes). Done when M17's check holds.
+
+**W1-F: QuickBooks AR and create bill (M18, §1.41).** ARCHITECTURE §6.2. Add Customer, Invoice and
+Payment to sync and CDC, the `receivable` mapping and events, the four reads (aging report live),
+`qbo.invoice.add_note` (PrivateNote only, sparse) and `qbo.bill.create` (duplicate check, `requestid`
+from the key, `amount`), all in the fake. Write unchecked Intuit facts into `qbo/NOTES.md`. Done when
+M18's check holds.
+
+**W1-G: People and voice samples (M19, §1.42).** ARCHITECTURE §6.4, §6.1 (autonomy). Build
+`contact.autonomy` with operator-only `auto`, its enforcement in core's reach evaluator and at the gate
+(`ToolSpec.recipient`, `decideToolCall`'s `ceilings`), QuickBooks vendor import (customers after
+W1-F), voice samples by paste and by the `+voice` forwarding tag, `knowledge.voice_samples` and the
+`writing.draft-in-voice` skill. Notes stay data in tool results. Done when M19's check holds.
+
+**W1-H: Platform fixes (M20, §1.43).** ARCHITECTURE §8, §13, §6.2, §14. Dispatch every emitted event
+after its transaction commits (requests, background reading, sync steps, run steps, cron passes),
+keeping the sweep; record each extraction's tokens and cost and roll background reading into
+`usage_platform_daily` and credits; count an agent's documents by what its runs used; add the portal
+records list; make "sync now" start or queue. Extend the API e2e: the run starts without the sweep and
+usage shows the reading. Done when M20's check holds.
+
+**W2-A: Per-entity permissions and the connectors catalog (M21, §1.44).** ARCHITECTURE §6.1. Add
+`permissionEntities`, `ToolSpec.entity`, matrix and grant `entities`, the folded decision with scopes,
+entity lines in every manifest, tighten-only per entity, migration 0026 and the catalog routes with
+default access for new clients. Old matrices need no migration. Done when M21's check holds.
+
+**W2-B: Automations (M22, §1.45).** ARCHITECTURE §10.7. Migration 0027; the schema, validation,
+registry (draft, publish, rollback, shared copies), expansion before execution, approval overrides,
+save-as-automation from steps, and a read-only builder card so the old builder doesn't break. Done when
+M22's check holds.
+
+**W2-C: Test bench and the agent lab (M23, §1.46).** ARCHITECTURE §9.10. Migration 0028; cases and
+matchers, the fixture tool port (no connector, no write), skill and template suite runs (a Workflow for
+long suites), metrics, the publish gate, the lab route. Client cases stay in their client. Done when
+M23's check holds.
+
+**W2-D: Sloan (M24, §1.47).** ARCHITECTURE §9.8. The supervisor template v2 and its install route, the
+account tools over portal-shaped reads, drafted changes applied by the portal's own code, the publish
+guard, and a test that walks every tool result for forbidden fields. `pass_to_agent` last, after W2-E.
+Done when M24's check holds.
+
+**W2-E: Triggers (M25, §1.48).** ARCHITECTURE §10.1, §10.8. The trigger schema (`moreTriggers`,
+`handoff`), validation, the router, `inbound.message` by email (agent addresses) and text, People
+filters and polite replies, webhook dedupe and limits, holidays, `run.succeeded` and handoffs, the
+triggers list. Done when M25's check holds.
+
+**W2-F: Command center and search (M26, §1.49).** ARCHITECTURE §13.1, §11.6. The command-center route
+and feed, search for both surfaces, plain words to `RunFilter` (replay fixtures). Done when M26's
+check holds.
+
+**W2-G: KPIs, client view, credits, audit export (M27, §1.50).** ARCHITECTURE §9.9, §11.5, §11.7.
+`clientView` and its validation, KPI computation and routes (and use in the Table and the Weekly
+Table), credits-out on the hourly billing pass, the client's audit export and a run's audit trail.
+Done when M27's check holds.
+
+**W2-H: Task skills and a model per step (M30, §1.53).** ARCHITECTURE §9.2, §10.11 (first part). Add the
+`task` mode (own required model; no agent instructions or memory in its prompt), `model` on skill
+steps as an override, one resolution function used by `run-agent.ts` and `planned.ts`, validation of
+skills and steps with known ids passed in, the Skills library's mode and model, `GET /api/ops/models`, and the run view's per-step model. No migration, no UI
+beyond what breaks. Small; start as soon as W1-E merges. Done when M30's check holds.
+
+**W2-I: Run oversight (M31, then M32; §1.54).** ARCHITECTURE §10.11, §5.6. Migration 0029 (the Wave 2
+migrations PR) first. Then the decision schema, `oversight` and `review`, `OversightPort` with the executor hook (one
+block, after W1-E; agree the order with W2-B, which touches the executor for expansion), `oversee.ts`
+on the fake model, the write check before any retry, limits, ask and proposal items, client words in
+six languages, the run view and `GET /api/ops/oversight`. M31 (failures) ends green and merges before
+M32 (checkpoints) starts. Extend the API e2e: a failing lookup is corrected and the run finishes.
+Done when M31's and M32's checks hold.
+
+**W3-A: The Builder as a conversation (M28, §1.51).** ARCHITECTURE §9.6. Migration 0030; sessions,
+turns, per-change undo by merge, `/skill`, `/automation`, `/trigger`, similarity, draft-skill with
+cases, save as automation. Drafts start with `oversight.review: 'failures'` and may set step models
+(v0.13). Done when M28's check holds.
+
+**W3-B: New connectors (M29, §1.52).** ARCHITECTURE §6.11. Google Drive, then Outlook, against fakes;
+Ramp and HubSpot after; nothing for the aggregator or Slack until the owner decides. Done when M29's
+check holds.
+
+**v0.14 capture: WhatsApp passive capture (M33, §1.55).** ARCHITECTURE §6.12, §5.5. Three PRs, each a
+draft from `origin/main`: the design; migration 0031 alone (merged with a merge commit before the
+build); the build against the fake Twilio, extended with media. Stay out of the bank-feed connector
+and `platform.ts`. Done when M33's check holds.
+
+**Wave 4 (owner, 2026-11-06).** Plan §8 had no Wave 4; the owner added it. Migrations: 0031 belongs to
+WhatsApp passive capture (M33, §1.55); 0032 is Wave 4's spare. The bank and card feed (W3-B's row 5,
+vendor Plaid, owner 2026-11-06) is being built alongside and is not a Wave 4 stream.
+
+**W4-A: WhatsApp through Meta (§1.19).** The `whatsapp_meta` connector: the client connects its own
+WhatsApp Business Account from the portal through Meta's Embedded Signup (the operator never holds its
+credentials); the same `whatsapp.*` tool ids as Twilio (`sharedNamespaces`), resolved by the agent's
+binding; Meta's webhook verified by `X-Hub-Signature-256` over the raw body; inbound messages once per
+`wamid`; media by Meta's two-step download into M33's capture, under each conversation's setting;
+groups (`conversation.kind = group`) only where the client has Official Business Account status
+(to verify against Meta's docs). Against a fake. Going live needs Mezonas registered as a Meta Tech
+Provider (owner). Starts once M33 merges. Done when a Meta-connected client's direct conversation
+captures a document exactly as M33's check does on Twilio, and `whatsapp.send` works through either
+connector without the workflow changing.
+
+**W4-B: Follow-ups.** Small items the Wave 1–3 streams left open, none needing an owner decision:
+an entity set to off is caught at publish, not only at run time (W2-A); PDFs over the model's page
+limit are split for extraction (stream D); run questions keep an amount filter (W2-F); a step's real
+attempt count (W2-B's clean-run rate); `/remind` for a connection to fix, by email through Resend
+(M5); Zoho CRM and Podio sync and webhooks (stream G); directory upkeep through `directory.suggest`
+(§1.27). Each item its own commit; record decisions where the item's section is.
+
+**W4-C: Slack (ARCHITECTURE §6.11, row 6).** The `slack` connector: Slack OAuth v2 installing a bot
+with `chat:write` (and `channels:read` to list channels); the client admin installs it into the
+client's own workspace from the portal and picks the channels an agent may post to;
+`slack.message.post` is `external` (create, entity `message`), behind approval, posted once (the
+attempt recorded before Slack is called, as `gmail.send`); no reading of messages. Against a fake.
+Owner: a Slack app with the redirect URI and public distribution. Done when an approved post goes
+once to a picked channel and a channel not picked is refused.
+
+**W4-D: Google Sheets (ARCHITECTURE §6.11, row 7).** The `gsheets` connector on the Google client
+Drive and Gmail use, with the `drive.file` scope only (non-sensitive): sheets Mezonas creates, and
+sheets the client picks with Google's file picker. Tools: `sheets.range.read` (read),
+`sheets.rows.append` (`external`, create) and `sheets.range.update` (`external`, update, the cells'
+current values as before state, refused if they changed since). Behind approval, once per action.
+Disconnect drops our tokens without revoking (the shared client, as Drive). Against a fake. Owner:
+the Sheets API enabled, the picker's browser key restricted to our origins. Done when an agent
+appends a row once to a picked sheet after approval, and a sheet the client didn't pick is refused.
+
+**W4-E: Google Chat (ARCHITECTURE §6.11, row 8).** Slack's counterpart for clients on Google
+Workspace: a Google Chat app of Mezonas' own that posts to the spaces the client adds it to. The
+app authenticates as itself (a service account with the `chat.bot` scope; no per-client user tokens).
+A space belongs to a client only after proof: the client admin gets a one-time code in the portal and
+mentions the app with it in the space; the app's interaction endpoint (Google-signed bearer token
+verified) binds that space to that client. Never by email domain alone. `gchat.message.post` is
+`external` (create, entity `message`), behind approval, posted once (a client-assigned message id
+where the API takes one, else the attempt recorded first), plain text with mentions of everyone
+stripped; only to bound spaces; no reading of messages beyond the binding mention. Removing the app
+from a space unbinds it. Against a fake. Owner: the Chat API configured on the Google project (app
+name, avatar, HTTP endpoint), the service account and its key as a secret, and the app published to
+the Google Workspace Marketplace (each client's Workspace admin must allow it). Done when an approved
+post goes once to a bound space, an unbound space is refused, and a space is bound only by its code.

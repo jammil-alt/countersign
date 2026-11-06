@@ -7,7 +7,6 @@
 
 import {
   buyNumber,
-  connectionDefaults,
   createSubaccount,
   type FetchLike,
   fetchA2pStatus,
@@ -31,6 +30,7 @@ import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { messagingSettingsOf } from "../messaging/contacts";
 import { cipherFor, connectionCredentials } from "../secrets";
+import { newConnectionMatrix } from "./ops-connectors";
 
 type ConnectionRow = typeof connection.$inferSelect;
 type Services = { env: Bindings; deps: { fetch?(env: Bindings): FetchLike } };
@@ -220,7 +220,8 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
           status: "connected",
           externalAccountId: creds.accountSid,
           config: config as unknown as Record<string, unknown>,
-          permissions: connectionDefaults(connector?.manifest),
+          // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+          permissions: await newConnectionMatrix(tx, connector?.manifest),
           connectedBy: session.user.id,
         })
         .returning();

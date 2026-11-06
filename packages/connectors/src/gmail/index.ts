@@ -339,6 +339,8 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
     icon: "mail",
     auth: "oauth2",
     entities: [],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    permissionEntities: [{ id: "message", label: "Messages", verbs: ["create"] }],
     isConfigured: () => configured,
 
     async authorize(req) {
@@ -427,10 +429,12 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
     tools: [
       defineWriteTool({
         id: GMAIL_SEND_TOOL,
+        entity: "message",
         description:
           "Email a contact from the connected Gmail account. Only contacts who agreed to email; plain text. Replies come back through the client's forwarding address.",
         verb: "create",
         summary: "Emailed {{contactName}} from Gmail",
+        recipient: { path: "to", channel: "email" },
         input: EmailSendInput,
         output: GmailSendOutput,
         beforeSchema: GmailSendBefore,

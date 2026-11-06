@@ -169,9 +169,53 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "access_release",
       "organization",
       "organization_change",
+      "audit_event",
+      // Wave 1 (0018–0025): nothing gets DELETE.
+      "usage_platform_daily",
+      "notification",
+      "weekly_table",
+      "thread_read",
+      "model_call",
+      "receivable",
+      // Wave 2 (0026–0029): nothing gets DELETE either.
+      "automation",
+      "automation_version",
+      "test_case",
+      "test_suite_run",
+      "test_case_result",
+      "oversight_decision",
+      // Wave 3 (0030): a conversation is closed, never deleted.
+      "builder_session",
+      "builder_turn",
+      // v0.14 capture (0031): a WhatsApp conversation and its log stay.
+      "conversation",
+      "conversation_change",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    // A session's draft changes in place; a turn only gains `undone_at` (trigger, 0030).
+    expect(await can("builder_session", "UPDATE")).toBe(true);
+    expect(await can("builder_turn", "UPDATE")).toBe(true);
+    // Insert only (0028, 0029); a version's status changes (0027), like skill_version's.
+    expect(await can("test_case_result", "UPDATE")).toBe(false);
+    expect(await can("oversight_decision", "UPDATE")).toBe(false);
+    // v0.14 capture (0031): a conversation's capture changes in place; its log is insert only.
+    expect(await can("conversation", "UPDATE")).toBe(true);
+    expect(await can("conversation_change", "UPDATE")).toBe(false);
+    for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+    }
+    expect(await can("model_call", "UPDATE")).toBe(false);
+    for (const table of [
+      "usage_platform_daily",
+      "notification",
+      "weekly_table",
+      "thread_read",
+      "receivable",
+    ]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+    }
+    expect(await can("audit_event", "UPDATE")).toBe(false);
     expect(await can("contact_change", "UPDATE")).toBe(false);
     expect(await can("organization_change", "UPDATE")).toBe(false);
     expect(await can("knowledge_entry_version", "UPDATE")).toBe(false);
@@ -186,11 +230,18 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     for (const table of OPERATOR_ONLY_TABLES) {
       expect(await can(table, "SELECT"), `${table} SELECT`).toBe(true);
       expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
-      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
       expect(await can(table, "TRUNCATE"), `${table} TRUNCATE`).toBe(false);
     }
+    expect(await can("browser_site", "DELETE")).toBe(false);
+    expect(await can("browser_site_version", "DELETE")).toBe(false);
+    // Saved views (0023) aren't history: an operator deletes their own (§14).
+    expect(await can("saved_view", "DELETE")).toBe(true);
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
+    expect(await can("saved_view", "UPDATE")).toBe(true);
+    // The connectors catalog (0026): settings change in place, never deleted.
+    expect(await can("connector_setting", "UPDATE")).toBe(true);
+    expect(await can("connector_setting", "DELETE")).toBe(false);
     // A synced transaction's lines mirror the tool's current lines (0015, QuickBooks sync); the
     // versions behind them stay in raw_record.
     expect(await can("transaction_line", "DELETE")).toBe(true);

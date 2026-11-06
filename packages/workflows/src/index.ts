@@ -5,11 +5,18 @@
 export {
   DEFAULT_APPROVAL_TIMEOUT,
   type ExecutorContext,
+  // v0.13 W2-I
+  type ExecutorOversight,
   executeWorkflow,
   pool,
   type RunEndStatus,
   type RunResult,
+  // v0.12 W1-E
+  type RunResume,
+  resumePoint,
 } from "./executor";
+// v0.12 W2-B
+export * from "./expand";
 export {
   type FakeCall,
   FakeStepRunner,

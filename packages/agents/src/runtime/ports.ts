@@ -4,8 +4,21 @@
 // one short transaction scoped to that client (withTenant), never held across a model call.
 
 import type { ConnectionRef } from "@countersign/connectors";
-import type { AgentBundle, ApproverRule, GrantLimits, JsonObject } from "@countersign/core";
+import type {
+  AgentBundle,
+  ApproverRule,
+  GrantLimits,
+  JsonObject,
+  PermissionLevel,
+  ReachChannel,
+} from "@countersign/core";
+import type { ModelCallPort } from "../log/model-calls";
 import type { ResolvedSkill } from "../registry/skills";
+// v0.12 W2-D
+import type { AccountPort } from "../tools/account";
+// v0.12 W2-E
+import type { InboundPort } from "../tools/inbound";
+import type { ThreadsPort } from "../tools/threads";
 import type {
   DirectoryPort,
   DocumentsPort,
@@ -34,6 +47,8 @@ export interface ApprovalRouting {
   revision: number;
   clientDefault: string | null;
   members: ReadonlySet<string>;
+  /** v0.12 W1-D: the client's viewers (`membership.can_sign` false): never assigned anything. */
+  viewers?: ReadonlySet<string>;
 }
 
 export interface MemoryNoteRecord {
@@ -57,6 +72,22 @@ export interface RuntimeStore {
    * client's tightening or revoke applies at once; null = no narrowing.
    */
   grant(tenantId: string, agentId: string, connectionId: string): Promise<GrantLimits | null>;
+  // v0.12 W1-G: the recipient's autonomy (docs/plan.md §1.42).
+  /**
+   * The autonomy for `channel` of the client's contact at this address (an email address or an
+   * E.164 number), read fresh for every send; null when the contact has none set or isn't one of
+   * the client's. Optional: a store without it narrows nothing.
+   */
+  contactAutonomy?(
+    tenantId: string,
+    recipient: { channel: ReachChannel; to: string },
+  ): Promise<PermissionLevel | null>;
+  // v0.12 W1-A: go-live stages
+  /**
+   * The client agent's go-live stage (ARCHITECTURE §10.9), read fresh at every write decision like
+   * the matrix, so a stage change applies mid-run; null when it has none.
+   */
+  agentStage(tenantId: string, agentId: string): Promise<string | null>;
   /**
    * What decides who approves a write, read fresh for every proposal so a client's tightening
    * applies at once: the client's approver rules (`tenant.settings.approver_rules`), its default
@@ -161,6 +192,9 @@ export interface ExternalActionRecord {
   result: unknown;
   error: unknown;
   before: unknown;
+  // v0.12 W1-D: the signer's edit before signing (ARCHITECTURE §11.1). `input` stays the agent's;
+  // execution uses the edit when there is one.
+  editedInput?: JsonObject | null;
 }
 
 export interface ProposeActionInput {
@@ -181,6 +215,8 @@ export interface ProposeActionInput {
     assigneeRole: "operator" | "client_admin" | "client_user" | null;
     assigneeUserId: string | null;
     payload: JsonObject;
+    /** v0.12 W1-D: `<run id>:<top step id>`, shared by the items one step proposes. */
+    batchKey?: string | null;
   } | null;
 }
 
@@ -202,7 +238,8 @@ export interface ExternalActionStore {
   byKey(tenantId: string, idempotencyKey: string): Promise<ExternalActionRecord | null>;
   /**
    * Moves `approved` → `executing` and returns the action, or returns it as it is (done, failed,
-   * executing, proposed, rejected) for the caller to decide.
+   * executing, proposed, rejected) for the caller to decide. An approved action whose inbox item is
+   * still inside its undo window (`deliver_after` in the future) is not claimed (v0.12 W1-D).
    */
   claim(
     tenantId: string,
@@ -300,4 +337,49 @@ export interface RuntimePorts {
   findings?: FindingsPort;
   /** Marks connections that need a person (an expired sign-in); absent: nothing is marked. */
   attention?: ConnectionAttentionPort;
+  // v0.12 W1-C
+  /** The client's threads for `threads.post` and `threads.read`; absent: an operator note only. */
+  threads?: ThreadsPort;
+  // v0.12 W2-E
+  /** The message behind `inbound.get`; absent: the tool fails. */
+  inbound?: InboundPort;
+  // v0.12 W1-E
+  /** A retry's carried approvals; absent: a retry proposes every write again. */
+  carried?: CarriedActionsPort;
+  /** Each model call of a run's step, with its request and answer; absent: not kept. */
+  modelCalls?: ModelCallPort;
+  // v0.12 W2-D
+  /** The client's account as the portal shows it, for Sloan's `account.*`; absent: they fail. */
+  account?: AccountPort;
+}
+
+// ── v0.12 W1-E: carried approvals and model calls (ARCHITECTURE §10.10) ─────────────────────────
+
+/** An action a retry may carry: one the same step proposed in the run retried (or before it). */
+export interface CarryCandidate {
+  id: string;
+  tool: string;
+  connectionId: string;
+  input: unknown;
+  idempotencyKey: string;
+  status: ExternalActionStatus;
+  approvedAt: Date | null;
+  /** Who signed it; null when the system approved it (the automatic path). */
+  approvedBy: string | null;
+  result: unknown;
+  error: unknown;
+}
+
+/** src/log/carried-actions.ts. */
+export interface CarriedActionsPort {
+  /** The actions node `nodeId` proposed in `retryOf` and the runs it retried, oldest first. */
+  candidates(
+    tenantId: string,
+    input: { retryOf: string; nodeId: string },
+  ): Promise<CarryCandidate[]>;
+  /**
+   * Makes a carried action executable again under its original key (`failed` → `approved`);
+   * true when it now is (approved or executing), false when something else changed it.
+   */
+  reopen(tenantId: string, actionId: string): Promise<boolean>;
 }

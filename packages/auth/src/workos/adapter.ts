@@ -2,6 +2,7 @@
 // start sign-in, finish it on the callback, and sign out. Provisioning (find or create the
 // app_user, refuse the uninvited) is the directory's job, done by the API with packages/db.
 
+import { SESSION_ACTIVITY_HEADER } from "@countersign/core";
 import { requestCookie } from "../cookies";
 import { randomToken, timingSafeEqual } from "../seal";
 import {
@@ -35,6 +36,8 @@ export interface Redirect {
   readonly ok: true;
   readonly redirectTo: string;
   readonly setCookies: readonly string[];
+  /** A completed sign-in: who, and how (for the audit log, docs/plan.md §1.35). */
+  readonly signedIn?: { readonly userId: string; readonly method: string | null };
 }
 
 export interface WorkOSAdapter extends AuthAdapter {
@@ -86,8 +89,12 @@ export function createWorkOSAdapter(options: {
         return refuse("session_invalid", "the session cookie is not valid", [clearSessionCookie()]);
       }
       const now = epochSec(nowDate);
-      const resolved = await resolveSession(opened, now, workos);
+      const active = request.headers.get(SESSION_ACTIVITY_HEADER) === "1";
+      const resolved = await resolveSession(opened, now, workos, active);
       if (resolved.status === "invalid") {
+        // End WorkOS's own session too, or the next sign-in would pass without a password: an
+        // idle or expired session must be signed in to again (docs/plan.md §1.35).
+        if (opened.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
         return refuse("session_invalid", resolved.reason, [clearSessionCookie()]);
       }
       const setCookies = resolved.rotated
@@ -168,6 +175,7 @@ export function createWorkOSAdapter(options: {
         ok: true,
         redirectTo: state.r,
         setCookies: [...clear, sessionCookie(await sealSession(session, password), session, now)],
+        signedIn: { userId: outcome.userId, method: auth.authenticationMethod ?? null },
       };
     },
 

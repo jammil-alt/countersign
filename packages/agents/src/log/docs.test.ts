@@ -5,7 +5,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ContentStore, ensureUploadConnection, MemoryObjectStore } from "@countersign/connectors";
-import { agent, docExtraction, run, stepRun, transaction, vendor } from "@countersign/db";
+import {
+  agent,
+  docExtraction,
+  modelCall,
+  run,
+  stepRun,
+  transaction,
+  vendor,
+} from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
 import { withRecording } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR, fileFixtureStore } from "@countersign/llm/node";
@@ -16,6 +24,7 @@ import { SkillCatalog } from "../registry/skills";
 import { runAgent } from "../runtime/run-agent";
 import { DOCS_SKILLS } from "../tools/docs";
 import { createHarness, type Harness, makeBundle } from "./harness.test-helper";
+import { dbModelCalls } from "./model-calls";
 import { createDbPorts } from "./ports";
 import { createRun } from "./run-log";
 
@@ -29,7 +38,12 @@ describe.skipIf(!harness)("docs tools in the runtime", () => {
   const content = new ContentStore(new MemoryObjectStore());
   const catalog = new SkillCatalog(DOCS_SKILLS, h.tools);
   const transport = withRecording(null, { mode: "replay", store: fileFixtureStore() });
-  const ports = createDbPorts(h.db, { documents: { content, transport } });
+  const bodies = new MemoryObjectStore();
+  const ports = createDbPorts(h.db, {
+    documents: { content, transport },
+    // v0.12 W1-E: a document read in a step is a model call of that step.
+    modelCalls: dbModelCalls(h.db, { bodies }),
+  });
   const deps = () => ({ ports, tools: h.tools, catalog, transport });
   let agentId = "";
   let versionId = "";
@@ -101,6 +115,26 @@ describe.skipIf(!harness)("docs tools in the runtime", () => {
     expect(Number(sr?.costUsd)).toBeGreaterThan(0);
     const [runRow] = await h.client(h.A, (tx) => tx.select().from(run).where(eq(run.id, r.id)));
     expect(runRow?.costUsd).toBe(sr?.costUsd);
+    // v0.12 W1-E: the read is the step's model call, its body under the client's prefix with the
+    // document's bytes left out (the document is stored once already).
+    const calls = await h.client(h.A, (tx) =>
+      tx.select().from(modelCall).where(eq(modelCall.stepRunId, result.stepRunId)),
+    );
+    expect(calls).toHaveLength(1);
+    const [call] = calls;
+    expect(call).toMatchObject({
+      tenantId: h.A.tenantId,
+      runId: r.id,
+      agentVersionId: versionId,
+      model: x?.model,
+      provider: "anthropic",
+    });
+    expect(Number(call?.costUsd)).toBeGreaterThan(0);
+    expect(call?.bodyKey).toBe(`tenants/${h.A.tenantId}/model-calls/${call?.id}.json`);
+    const stored = await bodies.get(call?.bodyKey ?? "");
+    const body = new TextDecoder().decode(stored?.bytes);
+    expect(body).toContain("bytes not kept");
+    expect(body).toContain("Northline");
   });
 
   it("docs.find-support links the extracted invoice to its transaction", async () => {

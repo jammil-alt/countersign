@@ -5,9 +5,13 @@
 import {
   DecimalString,
   dec,
+  mapQboInvoice,
   mapQboLines,
   QboAttachableRaw,
+  QboCustomerRaw,
+  QboInvoiceRaw,
   QboItemRaw,
+  QboPaymentRaw,
   QboTransactionRaw,
   QboVendorRaw,
   qboAmount,
@@ -161,6 +165,140 @@ export function toAttachment(raw: unknown): QboAttachment {
     contentType: a.ContentType ?? null,
     size: size !== null && Number.isInteger(size) ? size : null,
     note: a.Note ?? null,
+  };
+}
+
+// ── Accounts receivable (v0.12, docs/plan.md §1.41) ─────────────────────────────────────────────
+
+export const QboInvoiceLine = z.object({
+  id: z.string().nullable(),
+  description: z.string().nullable(),
+  amount: DecimalString,
+  item: Named.nullable(),
+  qty: DecimalString.nullable(),
+  unitPrice: DecimalString.nullable(),
+});
+
+/** An Invoice: what the customer owes, and what is still open. */
+export const QboInvoice = z.object({
+  id: z.string(),
+  syncToken: z.string(),
+  docNumber: z.string().nullable(),
+  txnDate: z.string().nullable(),
+  dueDate: z.string().nullable(),
+  customer: Named,
+  total: DecimalString,
+  balance: DecimalString,
+  currency: z.string(),
+  status: z.enum(["open", "paid", "void"]),
+  /** The invoice's private note: client text, data only (invariant 9). */
+  privateNote: z.string().nullable(),
+  emailStatus: z.string().nullable(),
+  lines: z.array(QboInvoiceLine),
+});
+export type QboInvoice = z.infer<typeof QboInvoice>;
+
+export function toInvoice(raw: unknown): QboInvoice {
+  const t = QboInvoiceRaw.parse(raw);
+  const r = mapQboInvoice(raw);
+  return {
+    id: t.Id,
+    syncToken: t.SyncToken ?? "0",
+    docNumber: r.docNumber,
+    txnDate: r.txnDate,
+    dueDate: r.dueDate,
+    customer: { id: r.customerExternalId, name: r.customerName },
+    total: r.total,
+    balance: r.balance,
+    currency: r.currency,
+    status: r.status === "deleted" ? "void" : r.status,
+    privateNote: r.privateNote,
+    emailStatus: t.EmailStatus ?? null,
+    lines: (t.Line ?? [])
+      .filter((l) => l.DetailType === "SalesItemLineDetail")
+      .map((l) => ({
+        id: l.Id ?? null,
+        description: l.Description ?? null,
+        amount: qboAmount(l.Amount ?? 0),
+        item: l.SalesItemLineDetail?.ItemRef
+          ? {
+              id: l.SalesItemLineDetail.ItemRef.value,
+              name: l.SalesItemLineDetail.ItemRef.name ?? null,
+            }
+          : null,
+        qty: qboOptionalAmount(l.SalesItemLineDetail?.Qty),
+        unitPrice: qboOptionalAmount(l.SalesItemLineDetail?.UnitPrice),
+      })),
+  };
+}
+
+export const QboCustomer = z.object({
+  id: z.string(),
+  syncToken: z.string(),
+  name: z.string(),
+  companyName: z.string().nullable(),
+  givenName: z.string().nullable(),
+  familyName: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  /** What the customer owes across its open invoices. */
+  balance: DecimalString.nullable(),
+  currency: z.string().nullable(),
+  active: z.boolean(),
+});
+export type QboCustomer = z.infer<typeof QboCustomer>;
+
+export function toCustomer(raw: unknown): QboCustomer {
+  const c = QboCustomerRaw.parse(raw);
+  return {
+    id: c.Id,
+    syncToken: c.SyncToken ?? "0",
+    name: c.DisplayName,
+    companyName: c.CompanyName ?? null,
+    givenName: c.GivenName ?? null,
+    familyName: c.FamilyName ?? null,
+    email: c.PrimaryEmailAddr?.Address ?? null,
+    phone: c.PrimaryPhone?.FreeFormNumber ?? null,
+    balance: qboOptionalAmount(c.Balance),
+    currency: c.CurrencyRef?.value?.toUpperCase() ?? null,
+    active: c.Active !== false,
+  };
+}
+
+/** A Payment: money received, and the invoices it went to. */
+export const QboPayment = z.object({
+  id: z.string(),
+  syncToken: z.string(),
+  txnDate: z.string().nullable(),
+  customer: Named.nullable(),
+  total: DecimalString,
+  unapplied: DecimalString.nullable(),
+  currency: z.string(),
+  reference: z.string().nullable(),
+  /** The invoices it paid, by QuickBooks id, with the amount applied to each. */
+  applied: z.array(z.object({ invoiceId: z.string(), amount: DecimalString })),
+});
+export type QboPayment = z.infer<typeof QboPayment>;
+
+export function toPayment(raw: unknown): QboPayment {
+  const p = QboPaymentRaw.parse(raw);
+  const applied: QboPayment["applied"] = [];
+  for (const line of p.Line ?? []) {
+    for (const linked of line.LinkedTxn ?? []) {
+      if (linked.TxnType !== "Invoice") continue;
+      applied.push({ invoiceId: linked.TxnId, amount: qboAmount(line.Amount ?? 0) });
+    }
+  }
+  return {
+    id: p.Id,
+    syncToken: p.SyncToken ?? "0",
+    txnDate: p.TxnDate ?? null,
+    customer: p.CustomerRef ? { id: p.CustomerRef.value, name: p.CustomerRef.name ?? null } : null,
+    total: qboAmount(p.TotalAmt),
+    unapplied: qboOptionalAmount(p.UnappliedAmt),
+    currency: (p.CurrencyRef?.value ?? "USD").toUpperCase(),
+    reference: p.PaymentRefNum ?? null,
+    applied,
   };
 }
 

@@ -3,7 +3,13 @@
 
 import type { Approver } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
-import { routes } from "@countersign/core";
+import {
+  complianceOf,
+  parseCoveredProcessors,
+  processingRefusal,
+  processorsForOffer,
+  routes,
+} from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -13,6 +19,7 @@ import {
   externalAction,
   inboxItem,
   membership,
+  modelCall,
   run,
   stepRun,
   type Tx,
@@ -20,10 +27,12 @@ import {
   toolCall,
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, count, desc, eq, gte, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
+// v0.13 W2-I
+import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
@@ -39,6 +48,7 @@ import {
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
 import { canSignIn } from "./portal";
+import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
 import { addSupervisor } from "./supervisor";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
@@ -354,6 +364,21 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     }
     const [t] = await tx.select().from(tenant).where(eq(tenant.id, params.id));
     if (!t) throw notFound("client");
+    if (t.retiredAt) throw new HttpError(409, "retired", "this client is retired");
+    // HIPAA mode (docs/plan.md §1.35): a connector that sends data to a vendor without a signed BAA
+    // is never offered. Already offered ones stay offered only if they were covered when HIPAA mode
+    // was turned on (it can't be turned on otherwise).
+    const profile = complianceOf(t.settings);
+    const covered = parseCoveredProcessors(services.env.BAA_PROCESSORS);
+    for (const id of offered) {
+      const refusal = processingRefusal(
+        profile,
+        covered,
+        processorsForOffer(id),
+        `The ${id} connector`,
+      );
+      if (refusal) throw new HttpError(409, "hipaa", refusal);
+    }
     // DECISION: withdrawing an offer leaves an existing connection as it is (the client still sees
     // and can disconnect it); it only stops new sign-ins.
     await tx
@@ -363,7 +388,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     return { offered };
   });
 
-  mount(app, routes.opsUpdateConnection, async ({ tx, params, body, tenantIds, session }) => {
+  mount(app, routes.opsUpdateConnection, async (ctx) => {
+    const { tx, params, body, tenantIds, session, services } = ctx;
     const row = await connectionInScope(tx, tenantIds, params.id);
     const set: Partial<typeof connection.$inferInsert> = {};
     const changes: Record<string, unknown>[] = [];
@@ -372,6 +398,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         current: row.permissions,
         proposed: matrixEdit(body.permissions),
         by: "operator",
+        // v0.12 W2-A: the connector's entities, for the entity levels and scopes.
+        declared: services.platform.connectors.get(row.connector)?.manifest.permissionEntities,
       });
       if (!r.ok) throw new HttpError(422, r.reason, r.message);
       if (r.changed) {
@@ -405,26 +433,27 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsRuns, async (ctx) => {
     const { tx, query } = ctx;
-    if (query.client) ensureClient(ctx, query.client);
-    const where: SQL[] = [inArray(run.tenantId, [...ctx.tenantIds])];
-    if (query.client) where.push(eq(run.tenantId, query.client));
-    if (query.status) where.push(eq(run.status, query.status));
-    if (query.agent) where.push(eq(run.agentId, query.agent));
-    if (query.mode) where.push(eq(run.mode, query.mode));
-    if (query.since) where.push(gte(run.createdAt, new Date(query.since)));
+    // v0.12 W1-E: RunFilter, counts per day and groups by error (docs/plan.md §1.40).
+    ensureFilterClients(ctx, query.filter);
+    const where: SQL[] = [
+      inArray(run.tenantId, [...ctx.tenantIds]),
+      ...runFilterWhere(query.filter),
+    ];
     const rows = await tx
       .select()
       .from(run)
       .where(and(...where))
       .orderBy(desc(run.createdAt))
       .limit(query.limit);
+    const groups = query.groupBy === "error" ? await runErrorGroups(tx, where) : undefined;
     return {
       runs: rows.map(opsRun),
-      agents: await agentRefs(
-        tx,
-        ctx.tenantIds,
-        rows.map((r) => r.agentId),
-      ),
+      agents: await agentRefs(tx, ctx.tenantIds, [
+        ...rows.map((r) => r.agentId),
+        ...(groups ?? []).flatMap((g) => g.agents),
+      ]),
+      ...(query.perDay ? { perDay: await runsPerDay(tx, where) } : {}),
+      ...(groups ? { groups } : {}),
     };
   });
 
@@ -459,6 +488,18 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .from(externalAction)
       .where(and(eq(externalAction.runId, r.id), eq(externalAction.tenantId, r.tenantId)))
       .orderBy(externalAction.createdAt);
+    // v0.13 W2-H: which models each step ran on (a task skill's own, the agent's, or a step's).
+    const modelRows = await tx
+      .select({ stepRunId: modelCall.stepRunId, model: modelCall.model })
+      .from(modelCall)
+      .where(and(eq(modelCall.runId, r.id), eq(modelCall.tenantId, r.tenantId)))
+      .orderBy(modelCall.createdAt, modelCall.id);
+    const modelsByStep = new Map<string, string[]>();
+    for (const c of modelRows) {
+      const list = modelsByStep.get(c.stepRunId) ?? [];
+      if (!list.includes(c.model)) list.push(c.model);
+      modelsByStep.set(c.stepRunId, list);
+    }
     const items = await tx
       .select()
       .from(inboxItem)
@@ -473,13 +514,15 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
     return {
       run: opsRun(r),
-      steps: steps.map(opsStep),
+      steps: steps.map((s) => ({ ...opsStep(s), models: modelsByStep.get(s.id) ?? [] })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),
       inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId), services.platform)),
       agent: ref ?? null,
       version: version?.version ?? null,
       workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
+      // v0.13 W2-I: each oversight decision with its note, input change, model and cost.
+      oversight: await runOversight(tx, r.tenantId, r.id),
     };
   });
 

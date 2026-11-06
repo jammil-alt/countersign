@@ -6,12 +6,28 @@
 // Cloudflare refuses the second.
 
 import {
+  type AccountRequestPassedPayload,
   type AgentBundle,
+  allTriggers,
   evaluateRules,
   eventRunId,
+  type HandoffRunPayload,
+  type InboundMessagePayload,
+  isDayOff,
+  MAX_HANDOFF_DEPTH,
+  type MessageChannel,
+  type MessageRunPayload,
+  matchesPeople,
+  type Rules,
+  type RunSucceededPayload,
+  rateWindowSeconds,
+  renderTemplate,
+  type SenderFacts,
   scheduleRunId,
+  type ThreadMessagePostedPayload,
   type TriggerOn,
   uuidv7,
+  webhookRunId,
 } from "@countersign/core";
 import { CronExpressionParser } from "cron-parser";
 
@@ -37,9 +53,69 @@ export interface RoutableEvent {
 
 /** What `run.trigger` records about why a run started. */
 export type RunTrigger =
-  | { triggerId: string; type: "event"; eventId: string; eventType: string }
+  | {
+      triggerId: string;
+      type: "event";
+      eventId: string;
+      eventType: string;
+      // v0.12 W1-A: an operator who started this live run on a past event (ARCHITECTURE §10.9).
+      replayedBy?: string;
+    }
   | { triggerId: string; type: "schedule"; cron: string; tz: string; scheduledAt: string }
-  | { triggerId: string; type: "manual" | "command" };
+  | {
+      triggerId: string;
+      type: "manual" | "command";
+      // v0.12 W1-A: a client person who started it with Run now (ARCHITECTURE §11.5).
+      startedBy?: { userId: string };
+    }
+  // v0.12 W2-E: the new kinds, each with the event that fired it (docs/plan.md §1.48).
+  | {
+      triggerId: string;
+      type: "webhook";
+      eventId: string;
+      eventType: string;
+      hookId: string;
+      /** The evaluated `dedupeKey`, when the trigger has one. */
+      dedupeKey?: string;
+    }
+  | {
+      triggerId: string;
+      type: "message";
+      eventId: string;
+      eventType: string;
+      channel: MessageChannel;
+    }
+  | {
+      triggerId: string;
+      type: "handoff";
+      eventId: string;
+      eventType: string;
+      fromRunId: string;
+      depth: number;
+    };
+
+// v0.12 W2-E
+/** A guard the dispatcher checks before it creates the run (it needs the database). */
+export interface RunLimit {
+  /** Runs of this trigger in the window are counted against `max`. */
+  triggerId: string;
+  max: number;
+  windowSeconds: number;
+  /** Where a limited delivery is counted (`connection.sync_cursor.hooks[hookId].limited`). */
+  hookId: string;
+  connectionId: string;
+}
+
+/** Who sent a message, from the client's own records; apps/api reads it inside the client's scope. */
+export type SenderLookup = (ref: {
+  contactId: string | null;
+  userId: string | null;
+}) => Promise<SenderFacts>;
+
+export interface RouteOptions {
+  /** Without it, every message trigger sees a stranger and starts nothing. */
+  sender?: SenderLookup;
+}
 
 export interface RunRequest {
   runId: string;
@@ -51,6 +127,8 @@ export interface RunRequest {
   trigger: RunTrigger;
   /** What the run's `{{trigger.…}}` templates read (executeWorkflow's `trigger`). */
   payload: unknown;
+  // v0.12 W2-E: a webhook trigger's rate limit, checked by the dispatcher.
+  limit?: RunLimit;
 }
 
 export interface RouteProblem {
@@ -90,19 +168,22 @@ function* triggersOf<T extends TriggerOn["type"]>(
 ): Generator<{ slug: string; triggerId: string; on: Extract<TriggerOn, { type: T }> }> {
   for (const wf of agent.liveBundle.workflows) {
     if (!wf.enabled) continue;
-    const { trigger } = wf.workflow;
-    if (trigger.on.type === type) {
-      yield {
-        slug: wf.slug,
-        triggerId: trigger.id,
-        on: trigger.on as Extract<TriggerOn, { type: T }>,
-      };
+    // v0.12 W2-E: every trigger of the workflow, `moreTriggers` too.
+    for (const trigger of allTriggers(wf.workflow)) {
+      if (trigger.on.type === type) {
+        yield {
+          slug: wf.slug,
+          triggerId: trigger.id,
+          on: trigger.on as Extract<TriggerOn, { type: T }>,
+        };
+      }
     }
   }
 }
 
 /** Events that report on one agent's own run, with the agent's id in `payload.agentId`. */
-export const OWN_RUN_EVENTS: ReadonlySet<string> = new Set(["run.failed"]);
+// v0.12 W2-E: `run.succeeded` too, so an agent watching successes never starts on its own.
+export const OWN_RUN_EVENTS: ReadonlySet<string> = new Set(["run.failed", "run.succeeded"]);
 
 // DECISION: the loop guard is in the router and covers every agent, rather than a filter each
 // workflow must remember: a `run.failed` about agent X never starts X.
@@ -119,6 +200,8 @@ function aboutOwnRun(event: RoutableEvent, agentId: string): boolean {
 export async function routeEvent(
   event: RoutableEvent,
   agents: readonly RoutableAgent[],
+  // v0.12 W2-E
+  options: RouteOptions = {},
 ): Promise<RouteResult> {
   const runs: RunRequest[] = [];
   const problems: RouteProblem[] = [];
@@ -128,6 +211,9 @@ export async function routeEvent(
     // An agent is never started by its own run's failure: one that watches failures (the
     // supervisor, docs/plan.md §1.28) and then fails itself can't loop.
     if (aboutOwnRun(event, agent.id)) continue;
+    // v0.12 W2-E: webhook, message and handoff triggers (docs/plan.md §1.48).
+    const more = await routeW2E(event, agent, options, problems);
+    for (const r of more) if (!runs.some((x) => x.runId === r.runId)) runs.push(r);
     for (const { slug, triggerId, on } of triggersOf(agent, "event")) {
       if (on.event !== event.type) continue;
       if (on.filter) {
@@ -138,8 +224,11 @@ export async function routeEvent(
           continue;
         }
       }
+      const runId = await eventRunId({ eventId: event.id, agentId: agent.id, workflowSlug: slug });
+      // v0.12 W2-E: two triggers of one workflow on the same event start it once.
+      if (runs.some((r) => r.runId === runId)) continue;
       runs.push({
-        runId: await eventRunId({ eventId: event.id, agentId: agent.id, workflowSlug: slug }),
+        runId,
         tenantId: agent.tenantId,
         agentId: agent.id,
         agentVersionId: agent.liveVersionId,
@@ -153,6 +242,202 @@ export async function routeEvent(
   return { runs, problems };
 }
 
+// ── v0.12 W2-E: webhook, message and handoff triggers (docs/plan.md §1.48) ──────────────────────
+
+const WEBHOOK_RECEIVED = "webhook.received";
+
+function passes(
+  filter: Rules | undefined,
+  payload: unknown,
+  agentId: string,
+  slug: string,
+  problems: RouteProblem[],
+): boolean {
+  if (!filter) return true;
+  try {
+    return evaluateRules(filter, { trigger: payload, steps: {} });
+  } catch (error) {
+    problems.push({ agentId, workflowSlug: slug, message: String(error) });
+    return false;
+  }
+}
+
+/** The message a message trigger answers, in one shape for every channel. */
+function messageOf(event: RoutableEvent, agentId: string): MessageRunPayload | null {
+  if (event.type === "inbound.message") {
+    const p = event.payload as InboundMessagePayload;
+    if (p?.agentId !== agentId) return null;
+    return {
+      channel: p.channel,
+      contactId: p.contactId,
+      userId: p.userId,
+      rawRecordId: p.rawRecordId,
+      threadId: null,
+      messageId: null,
+      documents: p.documents ?? [],
+    };
+  }
+  if (event.type === "thread.message_posted") {
+    const p = event.payload as ThreadMessagePostedPayload;
+    // An agent command posted by a person; an operator's `/skill` on an agent thread is not one.
+    if (p?.command?.agentId !== agentId || p.command.skill || p.senderType !== "user") return null;
+    return {
+      channel: "command",
+      contactId: null,
+      userId: p.senderId,
+      rawRecordId: null,
+      threadId: p.threadId,
+      messageId: p.messageId,
+      documents: [],
+    };
+  }
+  if (event.type === "account.request_passed") {
+    const p = event.payload as AccountRequestPassedPayload;
+    if (p?.agentId !== agentId) return null;
+    return {
+      channel: "sloan",
+      contactId: null,
+      userId: p.userId,
+      rawRecordId: null,
+      threadId: p.threadId,
+      messageId: p.messageId,
+      documents: [],
+    };
+  }
+  return null;
+}
+
+async function routeW2E(
+  event: RoutableEvent,
+  agent: Live["agent"],
+  options: RouteOptions,
+  problems: RouteProblem[],
+): Promise<RunRequest[]> {
+  const out: RunRequest[] = [];
+  const base = {
+    tenantId: agent.tenantId,
+    agentId: agent.id,
+    agentVersionId: agent.liveVersionId,
+    mode: "live" as const,
+  };
+  const add = (r: RunRequest) => {
+    if (!out.some((x) => x.runId === r.runId)) out.push(r);
+  };
+
+  if (event.type === WEBHOOK_RECEIVED) {
+    const p = event.payload as { hookId?: unknown; connectionId?: unknown } | null;
+    for (const { slug, triggerId, on } of triggersOf(agent, "webhook")) {
+      if (p?.hookId !== on.hookId) continue;
+      if (!passes(on.filter, event.payload, agent.id, slug, problems)) continue;
+      let key = "";
+      if (on.dedupeKey !== undefined) {
+        try {
+          key = renderTemplate(on.dedupeKey, { trigger: event.payload, steps: {} }).trim();
+        } catch (error) {
+          problems.push({ agentId: agent.id, workflowSlug: slug, message: String(error) });
+          continue;
+        }
+      }
+      // DECISION: a dedupe key that renders empty doesn't dedupe: the delivery gets its own run.
+      const runId = key
+        ? await webhookRunId({ agentId: agent.id, workflowSlug: slug, key: key.slice(0, 500) })
+        : await eventRunId({ eventId: event.id, agentId: agent.id, workflowSlug: slug });
+      add({
+        ...base,
+        runId,
+        workflowSlug: slug,
+        trigger: {
+          triggerId,
+          type: "webhook",
+          eventId: event.id,
+          eventType: event.type,
+          hookId: on.hookId,
+          ...(key ? { dedupeKey: key.slice(0, 500) } : {}),
+        },
+        payload: event.payload,
+        ...(on.rateLimit
+          ? {
+              limit: {
+                triggerId,
+                max: on.rateLimit.max,
+                windowSeconds: rateWindowSeconds(on.rateLimit),
+                hookId: on.hookId,
+                connectionId: typeof p?.connectionId === "string" ? p.connectionId : "",
+              },
+            }
+          : {}),
+      });
+    }
+  }
+
+  const message = messageOf(event, agent.id);
+  if (message) {
+    const triggers = [...triggersOf(agent, "message")].filter((t) =>
+      t.on.channels.includes(message.channel),
+    );
+    if (triggers.length > 0) {
+      const sender: SenderFacts = options.sender
+        ? await options.sender({ contactId: message.contactId, userId: message.userId })
+        : { kind: "stranger" };
+      for (const { slug, triggerId, on } of triggers) {
+        // Only senders the trigger's People filter takes (ARCHITECTURE §10.8).
+        if (!matchesPeople(on.from, sender)) continue;
+        add({
+          ...base,
+          runId: await eventRunId({ eventId: event.id, agentId: agent.id, workflowSlug: slug }),
+          workflowSlug: slug,
+          trigger: {
+            triggerId,
+            type: "message",
+            eventId: event.id,
+            eventType: event.type,
+            channel: message.channel,
+          },
+          payload: message,
+        });
+      }
+    }
+  }
+
+  if (event.type === "run.succeeded") {
+    const p = event.payload as RunSucceededPayload;
+    // Never the same agent, and at most three handoffs deep (ARCHITECTURE §10.8).
+    if (p && p.agentId !== agent.id && p.depth <= MAX_HANDOFF_DEPTH) {
+      const payload: HandoffRunPayload = {
+        from: {
+          agentId: p.agentId,
+          agentSlug: p.agentSlug,
+          workflowSlug: p.workflowSlug,
+          runId: p.runId,
+        },
+        output: p.output ?? null,
+        sources: p.sources ?? [],
+        depth: p.depth,
+      };
+      for (const { slug, triggerId, on } of triggersOf(agent, "handoff")) {
+        if (on.from.agent !== p.agentSlug) continue;
+        if (on.from.workflow !== undefined && on.from.workflow !== p.workflowSlug) continue;
+        if (!passes(on.filter, payload, agent.id, slug, problems)) continue;
+        add({
+          ...base,
+          runId: await eventRunId({ eventId: event.id, agentId: agent.id, workflowSlug: slug }),
+          workflowSlug: slug,
+          trigger: {
+            triggerId,
+            type: "handoff",
+            eventId: event.id,
+            eventType: event.type,
+            fromRunId: p.runId,
+            depth: p.depth,
+          },
+          payload,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 export interface DueSchedulesInput {
   agents: readonly RoutableAgent[];
   /** Each client's IANA timezone (`tenant.timezone`); a trigger's own `tz` wins. Default UTC. */
@@ -163,6 +448,9 @@ export interface DueSchedulesInput {
   to: Date;
   /** Most recent ticks kept per trigger in one window. Default 1. */
   maxPerTrigger?: number;
+  // v0.12 W2-E
+  /** Each client's own days off (`tenant.settings.holidays`), for `skipHolidays`. */
+  holidays?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
@@ -186,6 +474,11 @@ export async function dueSchedules(input: DueSchedulesInput): Promise<RouteResul
       } catch (error) {
         problems.push({ agentId: agent.id, workflowSlug: slug, message: String(error) });
         continue;
+      }
+      // v0.12 W2-E: a tick on a holiday, in the zone it is scheduled in, is skipped.
+      if (on.skipHolidays) {
+        const own = input.holidays?.[agent.tenantId] ?? [];
+        ticks = ticks.filter((t) => !isDayOff(t, tz, own));
       }
       for (const tick of ticks.slice(-keep)) {
         const scheduledAt = tick.toISOString();
@@ -252,7 +545,11 @@ export function requestRun(input: {
   const wf = bundle.workflows.find((w) => w.slug === input.workflowSlug);
   if (!wf) throw new Error(`no workflow ${input.workflowSlug}`);
   if (mode === "live" && !wf.enabled) throw new Error(`workflow ${input.workflowSlug} is off`);
-  const type = wf.workflow.trigger.on.type;
+  // v0.12 W2-E: a manual or command trigger among `moreTriggers` lets it start by hand too.
+  const byHand =
+    allTriggers(wf.workflow).find((t) => t.on.type === "manual" || t.on.type === "command") ??
+    wf.workflow.trigger;
+  const type = byHand.on.type;
   if (mode === "live" && type !== "manual" && type !== "command") {
     throw new Error(`workflow ${input.workflowSlug} starts on its ${type} trigger, not by hand`);
   }
@@ -264,7 +561,7 @@ export function requestRun(input: {
     workflowSlug: wf.slug,
     mode,
     trigger: {
-      triggerId: wf.workflow.trigger.id,
+      triggerId: byHand.id,
       type: type === "command" ? "command" : "manual",
     },
     payload: input.payload,

@@ -13,9 +13,16 @@ import type {
   JsonObject,
   Locale,
   ToolSpec,
+  VoiceSampleChannel,
 } from "@countersign/core";
 import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
+import type { LlmCallRecord, LlmExchange } from "@countersign/llm";
 import { z } from "zod";
+// v0.12 W2-D
+import type { AccountPort } from "./account";
+// v0.12 W2-E
+import type { InboundPort } from "./inbound";
+import type { ThreadsPort } from "./threads";
 
 export type RunMode = "live" | "test";
 
@@ -42,6 +49,15 @@ export interface ToolInvocation {
   health?: HealthPort | undefined;
   /** The supervisor's findings and summaries (`supervisor.*`); absent where none is given. */
   findings?: FindingsPort | undefined;
+  // v0.12 W1-C
+  /** The client's threads (`threads.post`, `threads.read`); absent where none is given. */
+  threads?: ThreadsPort | undefined;
+  // v0.12 W2-D
+  /** The client's account as the portal shows it (`account.*`, Sloan); absent where none is given. */
+  account?: AccountPort | undefined;
+  // v0.12 W2-E
+  /** The message that started the run (`inbound.get`); absent where none is given. */
+  inbound?: InboundPort | undefined;
   /**
    * Asks another agent of the same client (`agents.ask`): set by the runtime for a skill's tool
    * calls, absent inside an ask (no asks within asks) and in action steps.
@@ -55,6 +71,8 @@ export interface ToolInvocation {
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
     | undefined;
+  /** v0.12 W1-E: records a model call a tool made (e.g. extraction) as the step's `model_call`. */
+  recordModelCall?: ((record: LlmCallRecord, exchange: LlmExchange) => Promise<void>) | undefined;
 }
 
 /** A document as tools see it: metadata, a short-lived link, and its latest reading. */
@@ -125,6 +143,7 @@ export interface DocumentsPort {
       agentVersionId: string;
       testRun: boolean;
       recordUsage?: ToolInvocation["recordUsage"];
+      recordModelCall?: ToolInvocation["recordModelCall"];
     },
   ): Promise<ExtractSummary>;
   findSupport(
@@ -159,6 +178,26 @@ export interface KnowledgePort {
       memory: { agentId: string; scopes: string[] };
     },
   ): Promise<KnowledgeHitForTool[]>;
+  // v0.12 W1-G: voice samples (docs/plan.md §1.42).
+  /** The client's voice samples, newest first; optional: absent, `knowledge.voice_samples` fails. */
+  voiceSamples?(
+    tenantId: string,
+    input: {
+      personUserId?: string | undefined;
+      channel?: VoiceSampleChannel | undefined;
+      limit: number;
+    },
+  ): Promise<{ samples: VoiceSampleForTool[]; channelMatched: boolean }>;
+}
+
+/** One voice sample as a tool reads it: how a person writes, as data. */
+export interface VoiceSampleForTool {
+  id: string;
+  versionId: string;
+  title: string;
+  text: string;
+  channel: VoiceSampleChannel;
+  person: { id: string; name: string | null };
 }
 
 /**
@@ -321,6 +360,12 @@ export interface InternalTool {
   input: z.ZodType;
   output: z.ZodType;
   run(input: unknown, ctx: ToolInvocation): Promise<unknown>;
+  // v0.12 W2-C: the test bench (docs/plan.md §1.46)
+  /**
+   * Reads only its input (no port, no storage, no network): a tool-mode skill whose handler is
+   * pure can run on the test bench. Absent: not pure.
+   */
+  pure?: boolean;
 }
 
 export interface InboxItemInput {
@@ -379,8 +424,11 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
   input: I;
   output: O;
   run(input: z.output<I>, ctx: ToolInvocation): Promise<z.input<O>>;
+  /** v0.12 W2-C: reads only its input, so it may run on the test bench. */
+  pure?: boolean;
 }): InternalTool {
   return {
+    ...(def.pure ? { pure: true } : {}),
     spec: {
       id: def.id,
       description: def.description,

@@ -6,6 +6,7 @@ import { createWorkOSAdapter } from "./adapter";
 import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./client";
 import { workosStateOf } from "./config";
 import {
+  IDLE_TIMEOUT_SEC,
   newSession,
   OUTAGE_GRACE_SEC,
   RACE_GRACE_SEC,
@@ -271,6 +272,32 @@ describe("session cookie", () => {
   });
 });
 
+describe("idle sign-out through the adapter", () => {
+  it("refuses an idle session, clears the cookie and ends WorkOS's session too", async () => {
+    const workos = fakeWorkOS();
+    const { adapter, directory } = setup(workos);
+    const { sealed } = await sessionCookieFor();
+    const result = await getSession(withCookie(`${SESSION_COOKIE}=${sealed}`), {
+      adapter,
+      directory,
+      now: at(T0 + IDLE_TIMEOUT_SEC),
+    });
+    expect(result).toMatchObject({ ok: false, status: 401, code: "session_invalid" });
+    expect(workos.revokeSession).toHaveBeenCalledWith("sess_1");
+  });
+
+  it("reads the activity header: a marked request re-seals the cookie with the new activity", async () => {
+    const { adapter, directory } = setup();
+    const { sealed } = await sessionCookieFor();
+    const request = new Request(`${ORIGIN}/api/session`, {
+      headers: { cookie: `${SESSION_COOKIE}=${sealed}`, "x-countersign-activity": "1" },
+    });
+    const result = await getSession(request, { adapter, directory, now: at(T0 + 120) });
+    if (!result.ok) throw new Error(result.code);
+    expect(cookieValue(result.setCookies, SESSION_COOKIE)).toBeTruthy();
+  });
+});
+
 describe("resolveSession", () => {
   const due = T0 + REFRESH_INTERVAL_SEC;
 
@@ -309,6 +336,52 @@ describe("resolveSession", () => {
     });
     expect(await resolveSession(payload, due + OUTAGE_GRACE_SEC, down)).toMatchObject({
       status: "invalid",
+    });
+  });
+
+  it("ends after 30 minutes without the person's own requests", async () => {
+    const { payload } = await sessionCookieFor();
+    expect(await resolveSession(payload, T0 + IDLE_TIMEOUT_SEC - 1, fakeWorkOS())).toMatchObject({
+      status: "valid",
+    });
+    expect(await resolveSession(payload, T0 + IDLE_TIMEOUT_SEC, fakeWorkOS())).toEqual({
+      status: "invalid",
+      reason: "signed out after 30 minutes without activity",
+    });
+  });
+
+  it("moves the last activity only on the person's own requests, at most once a minute", async () => {
+    const { payload } = await sessionCookieFor();
+    const polled = await resolveSession(payload, T0 + 120, fakeWorkOS(), false);
+    expect(polled).toMatchObject({ status: "valid", rotated: false, session: { lat: T0 } });
+    const clicked = await resolveSession(payload, T0 + 120, fakeWorkOS(), true);
+    expect(clicked).toMatchObject({ status: "valid", rotated: true, session: { lat: T0 + 120 } });
+    const soon = await resolveSession(payload, T0 + 30, fakeWorkOS(), true);
+    expect(soon).toMatchObject({ rotated: false, session: { lat: T0 } });
+    // Active every 20 minutes, the session outlives the idle limit, up to 12 hours.
+    let s = payload;
+    for (let t = T0 + 20 * 60; t < T0 + SESSION_MAX_AGE_SEC; t += 20 * 60) {
+      const r = await resolveSession(s, t, fakeWorkOS(), true);
+      if (r.status !== "valid") throw new Error(`ended at ${t - T0}s: ${r.reason}`);
+      s = r.session;
+    }
+    expect(await resolveSession(s, T0 + SESSION_MAX_AGE_SEC, fakeWorkOS(), true)).toMatchObject({
+      status: "invalid",
+      reason: "session expired",
+    });
+  });
+
+  it("holds a cookie from before the limits to them: 12 hours from sign-in, idle from its refresh", async () => {
+    const { payload } = await sessionCookieFor();
+    const { lat: _lat, ...old } = { ...payload, exp: T0 + 30 * 24 * 60 * 60 };
+    expect(await resolveSession(old, T0 + SESSION_MAX_AGE_SEC, fakeWorkOS(), true)).toMatchObject({
+      status: "invalid",
+      reason: "session expired",
+    });
+    // No `lat`: the last refresh (rat - 5 minutes, here sign-in) counts as the last activity.
+    expect(await resolveSession(old, T0 + IDLE_TIMEOUT_SEC, fakeWorkOS())).toMatchObject({
+      status: "invalid",
+      reason: "signed out after 30 minutes without activity",
     });
   });
 

@@ -8,18 +8,29 @@ export * from "./builder/builder";
 export * from "./builder/context";
 export * from "./builder/guards";
 export * from "./errors";
+// v0.12 W2-D
+export * from "./log/account-port";
+export * from "./log/carried-actions";
 export * from "./log/connection-attention";
 export * from "./log/directory-port";
 export * from "./log/documents-port";
 export * from "./log/external-actions";
 export * from "./log/findings-port";
 export * from "./log/health-port";
+// v0.12 W2-E
+export * from "./log/inbound-port";
 export * from "./log/knowledge-port";
+export * from "./log/model-calls";
+// v0.13 W2-I: run oversight
+export * from "./log/oversight";
 export * from "./log/platform-store";
 export * from "./log/ports";
 export * from "./log/run-log";
+export * from "./log/threads-port";
 export * from "./log/usage";
 export * from "./registry/agents";
+// v0.12 W2-B
+export * from "./registry/automations";
 export * from "./registry/grants";
 export * from "./registry/lineage";
 export * from "./registry/people";
@@ -29,17 +40,28 @@ export * from "./registry/tools";
 export * from "./runtime/actions";
 export * from "./runtime/attention";
 export * from "./runtime/call-tool";
+export * from "./runtime/carry";
 export * from "./runtime/context";
 export * from "./runtime/json-schema";
+export * from "./runtime/model";
+// v0.13 W2-I
+export * from "./runtime/oversee";
 export * from "./runtime/planned";
 export * from "./runtime/ports";
 export * from "./runtime/run-agent";
+// v0.12 W2-C: the test bench
+export * from "./testbench/run-skill";
+// v0.12 W2-D
+export * from "./tools/account";
 export * from "./tools/ask";
 export * from "./tools/directory";
 export * from "./tools/docs";
 export * from "./tools/health";
+// v0.12 W2-E
+export * from "./tools/inbound";
 export * from "./tools/knowledge";
 export * from "./tools/platform";
 export * from "./tools/reach";
 export * from "./tools/supervisor";
+export * from "./tools/threads";
 export * from "./tools/types";

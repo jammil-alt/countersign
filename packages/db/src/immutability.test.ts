@@ -4,8 +4,9 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { withOperator } from "./client";
+import { withOperator, withTenant } from "./client";
 import {
+  AUTOMATION_DEFINITION,
   BUNDLE,
   type ClientFixture,
   insertClient,
@@ -14,20 +15,28 @@ import {
 import {
   agentChange,
   agentVersion,
+  automationVersion,
   billingAgentDay,
   billingEvent,
   billingStatement,
   billingStatementLine,
   billingUsageReport,
+  builderTurn,
   connectionChange,
   contactChange,
+  conversation,
+  conversationChange,
   docExtraction,
   docLine,
   document,
   knowledgeEntryVersion,
+  modelCall,
+  notification,
   organizationChange,
+  oversightDecision,
   rawRecord,
   skillVersion,
+  testCaseResult,
 } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
@@ -49,13 +58,15 @@ describe.skipIf(!online)("immutability", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let templateVersionId: string;
+  let shared: Awaited<ReturnType<typeof insertOperatorRows>>;
 
   beforeAll(async () => {
     const created = await createTestDatabase();
     if (!created) throw new Error("database vanished");
     t = created;
     A = await insertClient(t.db, "A");
-    templateVersionId = (await insertOperatorRows(t.db)).agentVersionId;
+    shared = await insertOperatorRows(t.db);
+    templateVersionId = shared.agentVersionId;
   });
   afterAll(async () => {
     await t?.drop();
@@ -152,8 +163,14 @@ describe.skipIf(!online)("immutability", () => {
     );
   });
 
-  it("connection_change, agent_change, contact_change and organization_change are append-only", async () => {
-    for (const table of [connectionChange, agentChange, contactChange, organizationChange]) {
+  it("connection_change, agent_change, contact_change, organization_change and conversation_change are append-only", async () => {
+    for (const table of [
+      connectionChange,
+      agentChange,
+      contactChange,
+      organizationChange,
+      conversationChange,
+    ]) {
       expect(await errorCode(t.db.update(table).set({ change: { edited: true } }))).toBe(
         RESTRICT_VIOLATION,
       );
@@ -290,6 +307,278 @@ describe.skipIf(!online)("immutability", () => {
       .update(document)
       .set({ status: "needs_review" })
       .where(eq(document.id, A.documentId));
+  });
+
+  it("doc_extraction's cost is written at insert and never changes (0018)", async () => {
+    const [row] = await t.db
+      .select({ cost: docExtraction.costUsd, tin: docExtraction.tokensIn })
+      .from(docExtraction)
+      .where(eq(docExtraction.id, A.extractionId));
+    expect(row).toEqual({ cost: "0.0000", tin: 0 });
+    expect(
+      await errorCode(
+        t.db
+          .update(docExtraction)
+          .set({ costUsd: "0.0100", tokensIn: 10 })
+          .where(eq(docExtraction.id, A.extractionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+  });
+
+  it("model_call is insert only, for the owner and the Worker's role (0023)", async () => {
+    expect(
+      await errorCode(
+        t.db.update(modelCall).set({ costUsd: "0.0000" }).where(eq(modelCall.id, A.modelCallId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(await errorCode(t.db.delete(modelCall).where(eq(modelCall.id, A.modelCallId)))).toBe(
+      RESTRICT_VIOLATION,
+    );
+    for (const statement of [
+      sql`update model_call set tokens_out = 0 where id = ${A.modelCallId}`,
+      sql`delete from model_call where id = ${A.modelCallId}`,
+    ]) {
+      const code = await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+  });
+
+  it("notification: only status, reason, provider_id and sent_at change; never deleted (0020)", async () => {
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(notification)
+        .set({ status: "sent", providerId: "re_123", sentAt: new Date(), reason: null })
+        .where(eq(notification.id, A.notificationId));
+    });
+    for (const change of [
+      { link: "/elsewhere" },
+      { counts: { items: 9 } },
+      { dedupeKey: "other" },
+      { userId: null },
+    ]) {
+      expect(
+        await errorCode(
+          t.db.update(notification).set(change).where(eq(notification.id, A.notificationId)),
+        ),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    expect(
+      await errorCode(t.db.delete(notification).where(eq(notification.id, A.notificationId))),
+    ).toBe(RESTRICT_VIOLATION);
+    const [row] = await t.db
+      .select({ status: notification.status, providerId: notification.providerId })
+      .from(notification)
+      .where(eq(notification.id, A.notificationId));
+    expect(row).toEqual({ status: "sent", providerId: "re_123" });
+  });
+
+  it("automation_version: the definition can't change, the status can, nothing is deleted (0027)", async () => {
+    for (const change of [
+      { definitionHash: "x" },
+      { definition: { ...AUTOMATION_DEFINITION, name: "Changed" } },
+      { version: 2 },
+      { changeNote: "rewritten" },
+    ]) {
+      expect(
+        await errorCode(
+          t.db
+            .update(automationVersion)
+            .set(change)
+            .where(eq(automationVersion.id, A.automationVersionId)),
+        ),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(automationVersion)
+        .set({ status: "retired" })
+        .where(eq(automationVersion.id, A.automationVersionId));
+    });
+    // A shared version, as the operator in the Worker's role.
+    await withOperator(t.db, [], async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(automationVersion)
+        .set({ status: "live" })
+        .where(eq(automationVersion.id, shared.automationVersionId));
+    });
+    expect(
+      await errorCode(
+        withOperator(t.db, [], async (tx) => {
+          await asWorker(tx);
+          await tx
+            .update(automationVersion)
+            .set({ definitionHash: "y" })
+            .where(eq(automationVersion.id, shared.automationVersionId));
+        }),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db.delete(automationVersion).where(eq(automationVersion.id, A.automationVersionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    const [row] = await t.db
+      .select({ status: automationVersion.status })
+      .from(automationVersion)
+      .where(eq(automationVersion.id, A.automationVersionId));
+    expect(row?.status).toBe("retired");
+  });
+
+  it("test_case_result and oversight_decision are insert only, for the owner and the Worker (0028, 0029)", async () => {
+    expect(
+      await errorCode(
+        t.db
+          .update(testCaseResult)
+          .set({ status: "fail" })
+          .where(eq(testCaseResult.id, A.testCaseResultId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(t.db.delete(testCaseResult).where(eq(testCaseResult.id, A.testCaseResultId))),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db
+          .update(testCaseResult)
+          .set({ status: "pass" })
+          .where(eq(testCaseResult.id, shared.testCaseResultId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db
+          .update(oversightDecision)
+          .set({ note: "Rewritten." })
+          .where(eq(oversightDecision.id, A.oversightDecisionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db.delete(oversightDecision).where(eq(oversightDecision.id, A.oversightDecisionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`update test_case_result set status = 'error' where id = ${A.testCaseResultId}`,
+      sql`delete from test_case_result where id = ${A.testCaseResultId}`,
+      sql`update oversight_decision set action = 'stop' where id = ${A.oversightDecisionId}`,
+      sql`delete from oversight_decision where id = ${A.oversightDecisionId}`,
+    ]) {
+      const code = await errorCode(
+        withOperator(t.db, [A.tenantId], async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+  });
+
+  it("builder_turn: only undone_at changes; nothing is deleted, whoever tries (0030)", async () => {
+    for (const change of [
+      { text: "Rewritten." },
+      { changes: [] },
+      { bundle: null },
+      { seq: 9 },
+      { costUsd: "0" },
+      { savedVersionId: A.agentVersionId },
+    ]) {
+      expect(
+        await errorCode(
+          t.db.update(builderTurn).set(change).where(eq(builderTurn.id, A.builderTurnId)),
+        ),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    const at = new Date("2026-11-06T12:00:00Z");
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx.update(builderTurn).set({ undoneAt: at }).where(eq(builderTurn.id, A.builderTurnId));
+    });
+    // A shared turn, as the operator in the Worker's role.
+    await withOperator(t.db, [], async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(builderTurn)
+        .set({ undoneAt: at })
+        .where(eq(builderTurn.id, shared.builderTurnId));
+    });
+    expect(
+      await errorCode(
+        withOperator(t.db, [], async (tx) => {
+          await asWorker(tx);
+          await tx
+            .update(builderTurn)
+            .set({ text: "Rewritten." })
+            .where(eq(builderTurn.id, shared.builderTurnId));
+        }),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(t.db.delete(builderTurn).where(eq(builderTurn.id, A.builderTurnId))),
+    ).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`delete from builder_turn where id = ${A.builderTurnId}`,
+      sql`delete from builder_session where id = ${A.builderSessionId}`,
+    ]) {
+      const code = await errorCode(
+        withOperator(t.db, [A.tenantId], async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+    const [row] = await t.db
+      .select({ undoneAt: builderTurn.undoneAt })
+      .from(builderTurn)
+      .where(eq(builderTurn.id, A.builderTurnId));
+    expect(row?.undoneAt?.toISOString()).toBe(at.toISOString());
+  });
+
+  it("conversation: only capture, title and updated_at change; nothing is deleted (0031)", async () => {
+    const where = eq(conversation.id, A.conversationId);
+    for (const change of [
+      { channel: "sms" as const },
+      { kind: "group" as const, externalId: "g1", contactId: null },
+      { connectionId: A.connectionId, createdAt: new Date("2020-01-01T00:00:00Z") },
+    ]) {
+      expect(
+        await errorCode(t.db.update(conversation).set(change).where(where)),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    const capture = { archive: false, attachments: "all" as const, maxBytes: 1024 };
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx.update(conversation).set({ capture, title: "Pat" }).where(where);
+    });
+    const [row] = await t.db.select().from(conversation).where(where);
+    expect(row?.capture).toEqual(capture);
+    expect(row?.title).toBe("Pat");
+    expect(await errorCode(t.db.delete(conversation).where(where))).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`delete from conversation where id = ${A.conversationId}`,
+      sql`delete from conversation_change where conversation_id = ${A.conversationId}`,
+      sql`update conversation_change set side = 'operator' where conversation_id = ${A.conversationId}`,
+    ]) {
+      const code = await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
   });
 
   it("the Worker's role cannot update an extraction or delete a document", async () => {

@@ -9,13 +9,20 @@ import {
   runReadTool,
 } from "@countersign/connectors";
 import {
+  autonomyMessage,
+  batchKeyOf,
   changeFacts,
   decideToolCall,
+  effectiveMode,
+  entityCeiling,
+  entityOfCall,
+  explainWrite,
   fixedInputProblem,
   grantAllowsTool,
   type JsonObject,
   levelFor,
   pickLocalized,
+  recipientOf,
   releaseOf,
   releaseSettingProblem,
   routeApproval,
@@ -23,6 +30,7 @@ import {
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
+import { carryApproval } from "./carry";
 import {
   asJsonObject,
   connectionContext,
@@ -31,10 +39,18 @@ import {
   type RuntimeDeps,
   type StepContext,
 } from "./context";
+import { recordModelCall } from "./model-call";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
 
 export type ToolOutcome =
-  | { status: "done"; output: unknown; summary?: string | undefined; actionId?: string }
+  | {
+      status: "done";
+      output: unknown;
+      summary?: string | undefined;
+      actionId?: string;
+      /** v0.12 W1-E: a retry's write carried from the run retried (`approved_via: retry_of`). */
+      carried?: { retryOf: string };
+    }
   /** A write waiting for a person: the action and its inbox item. */
   | { status: "awaiting_approval"; actionId: string; inboxItemId: string | null; before: unknown }
   /** Test runs: the write was recorded as proposed and will never run. */
@@ -94,7 +110,15 @@ export async function callTool(
   });
   let outcome: ToolOutcome;
   try {
-    outcome = await dispatch(deps, step, tool, call.input);
+    // Refused by the platform's policy (e.g. HIPAA mode): logged like any refused call.
+    const refusal = await deps.policy?.refuseTool({
+      tenantId: step.tenantId,
+      toolId: call.toolId,
+      connectorId: tool.kind === "connector" ? tool.connector.manifest.id : null,
+    });
+    outcome = refusal
+      ? { status: "refused", reason: refusal }
+      : await dispatch(deps, step, tool, call.input);
   } catch (error) {
     outcome = { status: "failed", error: errorText(error) };
   }
@@ -103,7 +127,10 @@ export async function callTool(
     status: LOG_STATUS[outcome.status],
     output:
       outcome.status === "done"
-        ? outcome.output
+        ? // v0.12 W1-E: a carried write says whose approval it ran under (§10.10).
+          outcome.carried
+          ? { approvedVia: "retry_of", retryOf: outcome.carried.retryOf, output: outcome.output }
+          : outcome.output
         : outcome.status === "refused"
           ? { refused: outcome.reason }
           : outcome.status === "failed"
@@ -123,7 +150,6 @@ async function dispatch(
   tool: RegisteredTool,
   input: unknown,
 ): Promise<ToolOutcome> {
-  const mode = step.agent.bundle.definition.permissions.mode;
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
     const resumed = await resumeProposed(deps, step, tool);
@@ -156,6 +182,12 @@ async function dispatch(
       directory: deps.ports.directory,
       health: deps.ports.health,
       findings: deps.ports.findings,
+      // v0.12 W1-C
+      threads: deps.ports.threads,
+      // v0.12 W2-D
+      account: deps.ports.account,
+      // v0.12 W2-E
+      inbound: deps.ports.inbound,
       ask: step.ask,
       language: step.language,
       now: deps.now,
@@ -164,6 +196,19 @@ async function dispatch(
           step.tenantId,
           { runId: step.runId, stepRunId: step.stepRunId },
           usage,
+        ),
+      // v0.12 W1-E: a tool's own model call (a document read) is the step's `model_call` too.
+      recordModelCall: (record, exchange) =>
+        recordModelCall(
+          deps.ports.modelCalls,
+          step.tenantId,
+          {
+            runId: step.runId,
+            stepRunId: step.stepRunId,
+            agentVersionId: step.agent.agentVersionId,
+          },
+          record,
+          exchange,
         ),
     });
     const out = tool.tool.output.safeParse(raw);
@@ -188,6 +233,23 @@ async function dispatch(
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
   }
+  // v0.12 W1-G: a send's recipient's autonomy for the channel is one more ceiling, read fresh.
+  const recipient = recipientOf(tool.spec, input);
+  const autonomy =
+    recipient && deps.ports.store.contactAutonomy
+      ? await deps.ports.store.contactAutonomy(step.tenantId, recipient)
+      : null;
+  // v0.12 W1-A: the go-live stage, read fresh like the matrix: in trial and signoff every write
+  // needs a signature, whatever the step, matrix or mode say (ARCHITECTURE §10.9). Reads don't ask.
+  // v0.12 W1-D: the stage is kept for the explanation (`whyApproval`).
+  const stage =
+    tool.spec.sideEffect === "external"
+      ? await deps.ports.store.agentStage(step.tenantId, step.agent.agentId)
+      : null;
+  const mode =
+    tool.spec.sideEffect === "external"
+      ? effectiveMode(step.agent.bundle.definition, stage)
+      : step.agent.bundle.definition.permissions.mode;
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
     verb: tool.spec.verb,
@@ -195,7 +257,36 @@ async function dispatch(
     grant,
     stepApproval: step.approval?.required,
     agentMode: mode,
+    ceilings: autonomy ? [autonomy] : undefined,
+    // v0.12 W2-A: the entity and its scope, on the connection and the grant.
+    entity: { tool: tool.spec, input, declared: tool.connector.manifest.permissionEntities },
   });
+  // v0.12 W1-G: the person's own setting refuses before the matrix's words would.
+  if (decision === "refused" && recipient && autonomy === "off") {
+    return { status: "refused", reason: autonomyMessage(recipient.channel, "off") };
+  }
+  // ── v0.12 W2-A: per-entity permissions (docs/plan.md §1.44) ──────────────────────────────────
+  // The entity the call works on, for the refusal's words and the explanation of a wait.
+  const entity = entityOfCall(tool.spec, input);
+  if (decision === "refused" && entity !== undefined) {
+    const verb = tool.spec.sideEffect === "none" ? "read" : tool.spec.verb;
+    const onConnection = entityCeiling({
+      tool: { ...tool.spec, verb },
+      input,
+      declared: tool.connector.manifest.permissionEntities,
+      matrix: conn.permissions,
+    });
+    if (levelFor(conn.permissions, verb) !== "off" && onConnection === "off") {
+      return {
+        status: "refused",
+        reason:
+          entity === null
+            ? `${tool.spec.id} names a record type the ${connectorId} connection doesn't know`
+            : `${tool.spec.id} is off for ${entity} on the ${connectorId} connection`,
+      };
+    }
+  }
+  // ── end v0.12 W2-A ──────────────────────────────────────────────────────────────────────────
   if (decision === "refused") {
     const verb = tool.spec.sideEffect === "none" ? "read" : tool.spec.verb;
     return {
@@ -224,6 +315,10 @@ async function dispatch(
 
   // A write to the client's tool: always an external_action, with its before state.
   const captured = await captureBefore(tool.connector, tool.spec.id, input, ctx);
+  // v0.12 W1-E: a retry carries the run retried's approved, not-done write with the same input,
+  // under its original key; the gate above (stage included) has just allowed the write again.
+  const carried = await carryApproval(deps, step, tool.spec.id, captured.input, decision);
+  if (carried) return carried;
   const key = idempotencyKey(step);
   const test = step.mode === "test";
   const automatic = decision === "run" && !test;
@@ -280,7 +375,26 @@ async function dispatch(
             // What chose the approver: a rule (with the rules' revision), the step, the agent,
             // the client's default, or the default (the client admin).
             approverRoute: { source: approver.source, ruleId: approver.ruleId, revision },
+            // v0.12 W1-D: why it waits, over the gate's own inputs (core explainWrite); the
+            // gate's decision above is unchanged.
+            whyApproval: explainWrite({
+              verb: tool.spec.verb,
+              matrix: conn.permissions,
+              grant,
+              stepApproval: step.approval?.required,
+              // The mode the gate used, the definition's own and the stage that forced it.
+              agentMode: mode,
+              definitionMode: step.agent.bundle.definition.permissions.mode,
+              stage,
+              // v0.12 W1-G: the recipient's autonomy (reason `person` when it is `approval`).
+              person: autonomy,
+              route: { source: approver.source, ruleId: approver.ruleId },
+              // v0.12 W2-A: the entity, named when its own setting asked.
+              entity,
+            }) as JsonObject,
           },
+          // v0.12 W1-D: the items one step proposes are signed together.
+          batchKey: batchKeyOf(step.runId, step.stepId),
         }
       : null,
   });

@@ -3,7 +3,7 @@
 // built-in upload connection. A new document is read in the background when a model key is
 // configured (DECISION below); otherwise it waits for an agent's `docs.extract`.
 
-import { documentForTool } from "@countersign/agents";
+import { documentForTool, rollupPlatformDaily, utcDay } from "@countersign/agents";
 import {
   ContentStore,
   documentMimeType,
@@ -19,7 +19,7 @@ import {
   type UploadConnectionRow,
   updateForwarding,
 } from "@countersign/connectors";
-import { type ExtractedHeader, routes } from "@countersign/core";
+import { type ExtractedHeader, parseCoveredProcessors, routes } from "@countersign/core";
 import {
   docExtraction,
   document,
@@ -37,12 +37,14 @@ import {
   storeDocument,
 } from "@countersign/documents";
 import { createLlmClient } from "@countersign/llm";
-import { type EventRow, emit } from "@countersign/senses";
+import { collectEmitted, EmittedEvents, type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
+import { guardModels, profileReader } from "../compliance/policy";
 import {
   type AppContext,
   type AppEnv,
+  contentDisposition,
   type HandlerCtx,
   HttpError,
   mount,
@@ -50,7 +52,7 @@ import {
   type Services,
 } from "../http";
 import { reportHandled } from "../observability/report";
-import { dispatchEvents } from "../runs/dispatch";
+import { dispatchAfterCommit, dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
 import { sandboxClient } from "./ops-clients";
 
@@ -112,17 +114,46 @@ export async function extractInBackground(
   tenantId: string,
   documentIds: readonly string[],
 ): Promise<void> {
-  const transport = services.deps.extractionTransport(services.env);
-  if (!transport || documentIds.length === 0) return;
+  const inner = services.deps.extractionTransport(services.env);
+  if (!inner || documentIds.length === 0) return;
+  // A client in HIPAA mode: only a model whose provider has a signed BAA reads its documents.
+  const transport = guardModels(
+    inner,
+    tenantId,
+    profileReader(services.db),
+    parseCoveredProcessors(services.env.BAA_PROCESSORS),
+  );
   const content = new ContentStore(services.deps.objects(services.env));
+  // DECISION: a background read keeps no `model_call` row: the table names a run and step (both
+  // NOT NULL, with foreign keys), and this read has neither. Its tokens and cost are on its
+  // `doc_extraction` row and in `usage_platform_daily` (docs/plan.md §1.43); a read inside a run
+  // (`docs.extract`) is recorded as its step's model call.
   const llm = createLlmClient({ transport });
+  // v0.12 W1-H: each document's events (read, failed, linked) are dispatched as soon as its
+  // transactions commit, so a run triggered by `document.extracted` starts at once (§8).
+  const dispatch = { db: services.db, instances: services.deps.instances(services.env) };
   for (const documentId of documentIds) {
+    const collect = new EmittedEvents();
     try {
-      await extractDocument({ db: services.db, content, llm }, { tenantId, documentId });
-      await withTenant(services.db, tenantId, (tx) => linkToTransaction(tx, tenantId, documentId));
+      await extractDocument({ db: services.db, content, llm }, { tenantId, documentId, collect });
+      await withTenant(services.db, tenantId, (tx) => {
+        collectEmitted(tx, collect);
+        return linkToTransaction(tx, tenantId, documentId);
+      });
     } catch (error) {
       reportHandled("extracting a document failed", error, { kind: "extraction" });
+    } finally {
+      await dispatchAfterCommit(dispatch, tenantId, collect);
     }
+  }
+  // v0.12 W1-H: the reading is the client's usage (ARCHITECTURE §13), rolled up now; the hourly
+  // sweep covers a rollup that fails.
+  try {
+    await withTenant(services.db, tenantId, (tx) =>
+      rollupPlatformDaily(tx, { tenantId, day: utcDay(new Date()) }),
+    );
+  } catch (error) {
+    reportHandled("rolling up reading usage failed", error, { kind: "extraction" });
   }
 }
 
@@ -416,28 +447,30 @@ export function documentRoutes(app: Hono<AppEnv>): void {
     const payload = await verifyFileToken(services.env, c.req.param("token") ?? "");
     if (!payload)
       return c.json({ error: { code: "not_found", message: "link expired or invalid" } }, 404);
+    const headers = (contentType: string) => ({
+      "content-type": contentType,
+      // An export (a ZIP) is saved, a document opens in the browser's viewer.
+      "content-disposition": contentDisposition(
+        payload.f || "document",
+        contentType === "application/zip" ? "attachment" : "inline",
+      ),
+      "cache-control": "private, max-age=0, no-store",
+      "x-content-type-options": "nosniff",
+    });
+    // DECISION: with the R2 binding, the bytes stream through (a client export can be gigabytes);
+    // tests, with no binding, read the object store whole.
+    const bucket = services.env.ARTIFACTS as R2Bucket | undefined;
+    if (bucket) {
+      const object = await bucket.get(payload.k);
+      if (!object) return c.json({ error: { code: "not_found", message: "file not found" } }, 404);
+      return new Response(object.body, {
+        headers: headers(object.httpMetadata?.contentType ?? "application/octet-stream"),
+      });
+    }
     const object = await services.deps.objects(services.env).get(payload.k);
     if (!object) return c.json({ error: { code: "not_found", message: "file not found" } }, 404);
-    return new Response(object.bytes, {
-      headers: {
-        "content-type": object.info.contentType,
-        "content-disposition": contentDisposition(payload.f || "document"),
-        "cache-control": "private, max-age=0, no-store",
-        "x-content-type-options": "nosniff",
-      },
-    });
+    return new Response(object.bytes, { headers: headers(object.info.contentType) });
   });
 }
 
-/**
- * `inline` with the file's name: a plain ASCII fallback for old clients plus the exact name as
- * RFC 5987 UTF-8, so a non-Latin-1 name (e.g. a Chinese invoice) is a valid header, not a 500.
- */
-export function contentDisposition(name: string): string {
-  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_") || "document";
-  const utf8 = encodeURIComponent(name.replace(/[\r\n]/g, "")).replace(
-    /['()*]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-  return `inline; filename="${ascii}"; filename*=UTF-8''${utf8}`;
-}
+export { contentDisposition };

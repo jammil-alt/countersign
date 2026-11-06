@@ -4,13 +4,21 @@
 // message, dispatches the events after commit and starts the background reading.
 
 import { ContentStore, MAX_FORWARDED_BYTES } from "@countersign/connectors";
-import { type ForwardingOutcome, receiveForwardedEmail } from "@countersign/documents";
+import {
+  type ForwardingOutcome,
+  isVoiceSampleAddress,
+  receiveForwardedEmail,
+  receiveVoiceSampleEmail,
+} from "@countersign/documents";
 import { receiveReleaseEmail, wakeRelease } from "./access/release";
 import type { Bindings } from "./env";
 import { type AppDeps, defaultDeps, type Services } from "./http";
 import { forwardingAddress, receiveReachOutReply, wakeAll } from "./reach/replies";
 import { extractInBackground } from "./routes/documents";
 import { dispatchEvents } from "./runs/dispatch";
+// v0.12 W2-E: agent addresses
+import { receiveAgentEmail } from "./triggers/inbound-email";
+import { replyDepsFromEnv, sendReplies } from "./triggers/replies";
 
 /** What `email()` needs of Cloudflare's ForwardableEmailMessage. */
 export interface InboundEmail {
@@ -64,7 +72,67 @@ export async function handleEmail(
       await wakeAll(deps.instances(env), reply.woken);
       return { status: "dropped", tenantId: reply.tenantId, reason: "unknown_address" };
     }
+    // v0.12 W1-G: mail to `<forwarding address>+voice` is a voice sample (docs/plan.md §1.42): its
+    // text is kept as one, nothing else; it is never ordinary forwarded mail.
+    if (isVoiceSampleAddress(message.to, domain)) {
+      const voice = await receiveVoiceSampleEmail(
+        { db },
+        { from: message.from, to: message.to, raw, size: message.rawSize },
+        { domain },
+      );
+      if (voice.status === "dropped") {
+        console.log(`voice sample email dropped: ${voice.reason}`, { tenantId: voice.tenantId });
+        return { status: "dropped", tenantId: voice.tenantId, reason: "unknown_address" };
+      }
+      return {
+        status: "accepted",
+        tenantId: voice.tenantId,
+        documents: [],
+        skipped: [],
+        events: [],
+      };
+    }
     const content = new ContentStore(deps.objects(env));
+    // v0.12 W2-E: mail to an agent's own address (`<agent>.<client>-<id>@domain`, docs/plan.md
+    // §1.48) is a message to that agent: its message triggers, never forwarded mail.
+    const toAgent = await receiveAgentEmail(
+      { db, content, registry: deps.platform(env).events },
+      { from: message.from, to: message.to, raw, size: message.rawSize },
+      { domain },
+    );
+    if (toAgent) {
+      if (toAgent.status !== "accepted") {
+        console.log(`agent email ${toAgent.status}: ${toAgent.reason}`, {
+          tenantId: toAgent.tenantId,
+        });
+      }
+      const services = { db, env, deps } as Pick<Services, "db" | "env" | "deps">;
+      const tenantId = toAgent.tenantId;
+      closeLater = true;
+      waitUntil(
+        (async () => {
+          try {
+            if (tenantId) {
+              await dispatchEvents({ db, instances: deps.instances(env) }, toAgent.events);
+              await sendReplies(
+                db,
+                tenantId,
+                replyDepsFromEnv(env, deps.fetch?.(env)),
+                toAgent.replies,
+              );
+              if (toAgent.status === "accepted") {
+                await extractInBackground(services, tenantId, toAgent.fresh);
+              }
+            }
+          } finally {
+            await close();
+          }
+        })(),
+      );
+      return toAgent.status === "accepted"
+        ? { status: "accepted", tenantId: toAgent.tenantId, documents: [], skipped: [], events: [] }
+        : { status: "dropped", tenantId: toAgent.tenantId, reason: "unknown_address" };
+    }
     const outcome = await receiveForwardedEmail(
       { db, content },
       { from: message.from, to: message.to, raw, size: message.rawSize },

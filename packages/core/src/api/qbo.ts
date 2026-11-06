@@ -28,8 +28,14 @@ export const qboRoutes = {
     path: "/api/ops/connections/:id/sync",
     auth: "session",
     roles: ["operator"],
-    summary: "Sync a connection now (QuickBooks): reads what changed since the last sync",
+    summary:
+      "Sync a connection now (QuickBooks): reads what changed since the last sync; while one runs, queues one more (202)",
     params: z.object({ id: Id }),
-    response: z.object({ started: z.boolean(), instanceId: z.string().nullable() }),
+    response: z.object({
+      started: z.boolean(),
+      // v0.12 W1-H: a sync was running; one more runs when it ends (ARCHITECTURE §6.2).
+      queued: z.boolean(),
+      instanceId: z.string().nullable(),
+    }),
   }),
 } as const;
