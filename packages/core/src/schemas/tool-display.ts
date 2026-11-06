@@ -50,7 +50,11 @@ export const DisplayColumns = z.strictObject({
 });
 export type DisplayColumns = z.infer<typeof DisplayColumns>;
 
-export const DisplayField = z.strictObject({
+/** Display kinds a person may edit before signing: plain values, never references (ids) or lists. */
+export const EDITABLE_KINDS = ["text", "number", "date", "money"] as const;
+
+export const DisplayField = z
+  .strictObject({
   label: LocalizedString,
   kind: DisplayKind,
   /** The value now; absent when the record has no such value before the change. */
@@ -65,7 +69,24 @@ export const DisplayField = z.strictObject({
   /** Lists: the ids of the items now that the change removes (with `adds`, e.g. replaced lines). */
   removes: ChangePath.optional(),
   columns: DisplayColumns.optional(),
-});
+  // v0.12 W1-D: edit before signing (ARCHITECTURE §11.1).
+  /**
+   * The person signing may change this value before they sign: only a plain value (text, number,
+   * date, money) the change sets from its input (`after: input.<field>`). Never ids, guards,
+   * version tokens or fixed inputs; the edit is validated and routed again on the server.
+   */
+  editable: z.boolean().optional(),
+  })
+  .refine(
+    (f) =>
+      f.editable !== true ||
+      (f.after?.startsWith("input.") === true &&
+        (EDITABLE_KINDS as readonly string[]).includes(f.kind)),
+    {
+      message: "only a text, number, date or money value set from input.<field> can be editable",
+      path: ["editable"],
+    },
+  );
 export type DisplayField = z.infer<typeof DisplayField>;
 
 export const ToolDisplay = z

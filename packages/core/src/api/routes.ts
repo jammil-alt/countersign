@@ -7,6 +7,7 @@ import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { DESK_ITEM_FIELDS } from "../desk/item";
 import { accessRoutes } from "./access";
 import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";
@@ -14,6 +15,7 @@ import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
 import { complianceRoutes } from "./compliance";
 import { defineRoute } from "./contract";
+import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { feedbackRoutes } from "./feedback";
@@ -281,6 +283,8 @@ export const OpsInboxItem = z.object({
    * server decides; the back office only reads it.
    */
   resolvableByOperator: z.boolean(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
 });
 
 /** The client agent a run or inbox item belongs to, for the back office's lists (Track B). */
@@ -375,6 +379,8 @@ export const PortalInboxItem = z.object({
   createdAt: Timestamp,
   resolvedAt: NullableTimestamp,
   resolvedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
 });
 
 export const ToolAccessSchema = z.object({
@@ -1522,6 +1528,8 @@ export const portalRoutes = {
     query: z.object({
       status: InboxStatusSchema.default("open"),
       kind: InboxKindSchema.optional(),
+      // v0.12 W1-D: open items leave "waiting" while snoozed; `snoozed` lists them.
+      view: z.enum(["waiting", "snoozed"]).optional(),
     }),
     response: z.object({ items: z.array(PortalInboxItem) }),
   }),
@@ -1791,5 +1799,6 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  ...deskRoutes,
 } as const;
 export type Routes = typeof routes;

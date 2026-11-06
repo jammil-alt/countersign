@@ -88,3 +88,9 @@ export * from "./template/template";
 export * from "./template/typer";
 export * from "./workflow/validate";
 export * from "./workflow/walk";
+// v0.12 W1-D: the Desk
+export * from "./api/desk";
+export * from "./desk/item";
+export * from "./desk/rules";
+export * from "./i18n/desk";
+export * from "./permissions/explain";
