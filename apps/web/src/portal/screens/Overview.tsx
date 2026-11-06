@@ -64,7 +64,7 @@ export function OverviewScreen() {
                   {data.services.map((s) => (
                     <Card key={s.id} testId={`portal-service-${s.id}`} className="p-5">
                       <div className="flex items-start justify-between gap-3">
-                        <Link to={`/services/${s.id}`} className="flex items-center gap-3">
+                        <Link to={`/agents/${s.id}`} className="flex items-center gap-3">
                           <AgentAvatar name={s.name} seed={s.id} size="md" />
                           <span className="font-medium text-ink hover:underline">{s.name}</span>
                         </Link>
@@ -83,7 +83,7 @@ export function OverviewScreen() {
             <div>
               <SectionLabel
                 action={
-                  <Link to="/inbox" className="ds-btn ds-btn--link text-sm">
+                  <Link to="/desk" className="ds-btn ds-btn--link text-sm">
                     {t("overview.openInbox")}
                   </Link>
                 }
@@ -133,7 +133,7 @@ function Findings({ findings }: { findings: PortalFinding[] }) {
     <div data-testid="portal-findings">
       <SectionLabel
         action={
-          <Link to="/inbox" className="ds-btn ds-btn--link text-sm">
+          <Link to="/desk" className="ds-btn ds-btn--link text-sm">
             {t("overview.openInbox")}
           </Link>
         }

@@ -417,7 +417,7 @@ function AvailableCard({
           isAdmin ? (
             <Link
               data-testid="portal-connection-enter-key"
-              to="/access"
+              to="/accounts/access"
               className={buttonClass("secondary", "w-full justify-center")}
             >
               {t("connections.enterKey")}

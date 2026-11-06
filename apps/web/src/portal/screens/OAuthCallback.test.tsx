@@ -36,7 +36,7 @@ function renderAt(path: string, reply: () => unknown) {
         <ApiProvider client={api.client}>
           <Routes>
             <Route path="/connections/:connector/callback" element={<OAuthCallbackScreen />} />
-            <Route path="/connections" element={<p>connections page</p>} />
+            <Route path="/accounts" element={<p>connections page</p>} />
           </Routes>
         </ApiProvider>
       </MemoryRouter>

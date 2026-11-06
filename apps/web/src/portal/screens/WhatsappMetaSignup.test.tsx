@@ -111,7 +111,7 @@ describe("the signup page", () => {
     send("https://www.facebook.com", info("509876543210"));
     const callback = login.mock.calls[0]?.[0] as (r: unknown) => void;
     callback({ authResponse: { code: "fake-code-1" } });
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/connections"));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/accounts"));
     expect(bodies).toEqual([
       {
         params: {

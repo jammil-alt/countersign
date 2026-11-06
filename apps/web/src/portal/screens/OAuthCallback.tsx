@@ -40,14 +40,14 @@ export function OAuthCallbackScreen() {
             : null,
         )
         .then(
-          () => navigate("/connections", { replace: true }),
+          () => navigate("/accounts", { replace: true }),
           (e: unknown) => setError(e),
         );
       return;
     }
     const params = Object.fromEntries(search.entries());
     api.call(apiRoutes.portalAuthorizeCallback, { params: { connector }, body: { params } }).then(
-      () => navigate("/connections", { replace: true }),
+      () => navigate("/accounts", { replace: true }),
       (e: unknown) => setError(e),
     );
   }, [api, connector, search, navigate, t]);
@@ -58,7 +58,7 @@ export function OAuthCallbackScreen() {
       {error ? (
         <div className="flex flex-col gap-3">
           <ErrorNotice error={error} />
-          <Link to="/connections" className={buttonClass("secondary", "self-start")}>
+          <Link to="/accounts" className={buttonClass("secondary", "self-start")}>
             {t("callback.back")}
           </Link>
         </div>
