@@ -3,6 +3,8 @@
 // version (login page and origins, second factor, allowed and blocked pages) and how many client
 // logins use it. Editing a profile saves a new version (client logins keep the one they pinned);
 // the tier is set on its own, with a note, and applies to every login on the site at once.
+// Drafted in the prototype's back-office style (no prototype screen; docs/ui-plan.md): the sites
+// per tier as stat tiles, then each site as a card with its tier in the head and actions in the foot.
 import {
   BROWSER_DEFAULT_BLOCKED,
   BrowserSiteProfile,
@@ -13,16 +15,11 @@ import { useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { StatTile } from "../../ui/figures";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-} from "../../ui/primitives";
+import { Columns, Loaded, Page, Section } from "../../ui/page";
+import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
+import { Notice } from "../agents/ui";
 
 type Site = ResponseOf<typeof apiRoutes.opsBrowserSites>["sites"][number];
 
@@ -85,22 +82,50 @@ function parseProfile(text: string): { ok: true; profile: unknown } | { ok: fals
   return { ok: true, profile: parsed.data };
 }
 
+const tierName = (tier: BrowserTier) => tier.charAt(0).toUpperCase() + tier.slice(1);
+
 function TierBadge({ tier }: { tier: BrowserTier }) {
   return (
     <Badge tone={TIER_TONE[tier]} testId="site-tier">
-      {tier.charAt(0).toUpperCase() + tier.slice(1)}
+      {tierName(tier)}
     </Badge>
   );
 }
 
-export function OpsBrowserSitesScreen() {
-  const { data, error, loading, reload } = useApi(apiRoutes.opsBrowserSites);
-  const [adding, setAdding] = useState(false);
-  const sites = data?.sites ?? [];
+/** How many sites sit in each tier, and the client logins on them. */
+function TierFigures({ sites }: { sites: readonly Site[] }) {
   return (
-    <div>
+    <Columns count={4}>
+      {TIERS.map((tier) => {
+        const inTier = sites.filter((s) => s.tier === tier);
+        const logins = inTier.reduce((n, s) => n + s.connections, 0);
+        return (
+          <StatTile
+            key={tier}
+            testId={`site-tier-count-${tier}`}
+            label={tierName(tier)}
+            value={inTier.length}
+            note={
+              tier === "blocked" || tier === "high"
+                ? "Agents can't sign in"
+                : logins === 1
+                  ? "1 client login"
+                  : `${logins} client logins`
+            }
+          />
+        );
+      })}
+    </Columns>
+  );
+}
+
+export function OpsBrowserSitesScreen() {
+  const sites = useApi(apiRoutes.opsBrowserSites);
+  const [adding, setAdding] = useState(false);
+  return (
+    <Page testId="ops-browser-sites">
       <PageHeader
-        title="Websites"
+        title="Website logins"
         subtitle="Sites agents may sign in to as a client's agent account. We sign in by code; the agent never sees a password or a code."
         actions={
           adding ? null : (
@@ -110,28 +135,38 @@ export function OpsBrowserSitesScreen() {
           )
         }
       />
-      <p className="mb-4 text-sm text-ink-muted" data-testid="site-default-blocked">
+      <Notice tone="neutral" testId="site-default-blocked">
         Always blocked on every site: settings, password, users and permissions, billing and
         payment, and delete pages ({BROWSER_DEFAULT_BLOCKED.join(", ")}).
-      </p>
+      </Notice>
       {adding ? (
         <NewSiteForm
           onDone={() => {
             setAdding(false);
-            reload();
+            sites.reload();
           }}
           onCancel={() => setAdding(false)}
         />
       ) : null}
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && sites.length === 0 && !adding ? <EmptyState>No sites yet.</EmptyState> : null}
-      <div className="flex flex-col gap-4">
-        {sites.map((s) => (
-          <SiteCard key={s.slug} site={s} onChanged={reload} />
-        ))}
-      </div>
-    </div>
+      <Loaded state={sites}>
+        {(data) => (
+          <>
+            {data.sites.length > 0 ? <TierFigures sites={data.sites} /> : null}
+            <Section
+              title="Sites"
+              meta={data.sites.length === 1 ? "1 site" : `${data.sites.length} sites`}
+            >
+              {data.sites.length === 0 && !adding ? <EmptyState>No sites yet.</EmptyState> : null}
+              <div className="flex flex-col gap-4">
+                {data.sites.map((s) => (
+                  <SiteCard key={s.slug} site={s} onChanged={sites.reload} />
+                ))}
+              </div>
+            </Section>
+          </>
+        )}
+      </Loaded>
+    </Page>
   );
 }
 
@@ -211,41 +246,43 @@ function NewSiteForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
   }
 
   return (
-    <Card testId="site-new" className="mb-4 flex flex-col gap-3 p-4">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Field
-          label="Slug"
-          hint="Lowercase letters, digits and dashes; agents bind it as browser:<slug>."
-        >
-          <TextInput
-            data-testid="site-slug"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-          />
-        </Field>
-        <Field label="Name">
-          <TextInput
-            data-testid="site-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
-      </div>
-      <TierFields tier={tier} notes={notes} onTier={setTier} onNotes={setNotes} />
-      <ProfileField text={text} onText={setText} error={check.ok ? undefined : check.error} />
-      {error ? <ErrorNotice error={error} /> : null}
-      <div className="flex gap-2">
-        <Button
-          data-testid="site-create"
-          variant="primary"
-          disabled={!ready || busy}
-          onClick={() => void save()}
-        >
-          Add the site
-        </Button>
-        <Button variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
+    <Card testId="site-new" title="New site" pad>
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Field
+            label="Slug"
+            hint="Lowercase letters, digits and dashes; agents bind it as browser:<slug>."
+          >
+            <TextInput
+              data-testid="site-slug"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+            />
+          </Field>
+          <Field label="Name">
+            <TextInput
+              data-testid="site-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+        </div>
+        <TierFields tier={tier} notes={notes} onTier={setTier} onNotes={setNotes} />
+        <ProfileField text={text} onText={setText} error={check.ok ? undefined : check.error} />
+        {error ? <ErrorNotice error={error} /> : null}
+        <div className="flex gap-2">
+          <Button
+            data-testid="site-create"
+            variant="primary"
+            disabled={!ready || busy}
+            onClick={() => void save()}
+          >
+            Add the site
+          </Button>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
       </div>
     </Card>
   );
@@ -307,130 +344,137 @@ function SiteCard({ site, onChanged }: { site: Site; onChanged: () => void }) {
   }
 
   return (
-    <Card testId={`site-${site.slug}`} className="p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-medium text-ink">{site.name}</p>
-          <p className="text-sm text-ink-muted">
-            browser:{site.slug} · version {site.current.version} of {site.versions} ·{" "}
+    <Card
+      testId={`site-${site.slug}`}
+      title={
+        <span className="flex min-w-0 flex-col">
+          <span>{site.name}</span>
+          <span className="text-sm font-normal text-ink-muted">
+            <span className="reference">browser:{site.slug}</span> · version {site.current.version}{" "}
+            of {site.versions} ·{" "}
             {site.connections === 1 ? "1 client login" : `${site.connections} client logins`}
-          </p>
-        </div>
-        <TierBadge tier={site.tier} />
-      </div>
-      <p className="mt-2 text-sm text-ink-muted">{TIER_MEANING[site.tier]}</p>
-      {site.notes ? (
-        <p className="mt-1 text-sm text-ink" data-testid="site-notes-text">
-          {site.notes}
-        </p>
-      ) : null}
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="text-ink-muted">Login</dt>
-        <dd className="text-ink">{profile.login.url}</dd>
-        <dt className="text-ink-muted">Typed only on</dt>
-        <dd className="text-ink">{profile.login.origins.join(", ")}</dd>
-        <dt className="text-ink-muted">Second factor</dt>
-        <dd className="text-ink">{profile.login.secondFactor.kind}</dd>
-        <dt className="text-ink-muted">Allowed pages</dt>
-        <dd className="text-ink">{profile.allow.join(", ")}</dd>
-        <dt className="text-ink-muted">Blocked pages</dt>
-        <dd className="text-ink">
-          {profile.block.length ? profile.block.join(", ") : "Only the defaults"}
-        </dd>
-        <dt className="text-ink-muted">Keeps the session</dt>
-        <dd className="text-ink">{profile.session.keep ? "Yes (low tier only)" : "No"}</dd>
-      </dl>
-
-      {mode === "edit" ? (
-        <div className="mt-3 flex flex-col gap-3">
-          <ProfileField text={text} onText={setText} error={check.ok ? undefined : check.error} />
-          <Field label="What changed">
-            <TextInput
-              data-testid="site-change-note"
-              value={changeNote}
-              onChange={(e) => setChangeNote(e.target.value)}
-            />
-          </Field>
-          <p className="text-sm text-ink-muted">
-            Saved as version {site.versions + 1}. Client logins keep the version they were set up
-            on.
-          </p>
-          <div className="flex gap-2">
-            <Button
-              data-testid="site-save-version"
-              variant="primary"
-              disabled={!check.ok || busy}
-              onClick={() =>
-                check.ok &&
-                void run(() =>
-                  api.call(apiRoutes.opsNewBrowserSiteVersion, {
-                    params: { slug: site.slug },
-                    body: {
-                      profile: check.profile as BrowserSiteProfileInput,
-                      ...(changeNote.trim() ? { changeNote: changeNote.trim() } : {}),
-                    },
-                  }),
-                )
-              }
-            >
-              Save as a new version
+          </span>
+        </span>
+      }
+      meta={<TierBadge tier={site.tier} />}
+      footer={
+        mode === "view" ? (
+          <>
+            <Button data-testid="site-edit" size="sm" onClick={() => setMode("edit")}>
+              Edit
             </Button>
-            <Button variant="ghost" onClick={() => setMode("view")}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {mode === "tier" ? (
-        <div className="mt-3 flex flex-col gap-3">
-          <TierFields tier={tier} notes={notes} onTier={setTier} onNotes={setNotes} />
-          <p className="text-sm text-ink-muted">
-            The tier applies to every client login on this site at once.
-          </p>
-          <div className="flex gap-2">
             <Button
-              data-testid="site-save-tier"
-              variant="primary"
-              disabled={notes.trim().length < 3 || busy}
-              onClick={() =>
-                void run(() =>
-                  api.call(apiRoutes.opsSetBrowserSiteTier, {
-                    params: { slug: site.slug },
-                    body: { tier, notes: notes.trim() },
-                  }),
-                )
-              }
+              data-testid="site-set-tier"
+              size="sm"
+              variant="ghost"
+              onClick={() => setMode("tier")}
             >
               Set the tier
             </Button>
-            <Button variant="ghost" onClick={() => setMode("view")}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
+          </>
+        ) : undefined
+      }
+    >
+      <div className="ui-card__body">
+        <p className="text-sm text-ink-muted">{TIER_MEANING[site.tier]}</p>
+        {site.notes ? (
+          <p className="mt-1 text-sm text-ink" data-testid="site-notes-text">
+            {site.notes}
+          </p>
+        ) : null}
+        <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm [&_dd]:break-words">
+          <dt className="text-ink-muted">Login</dt>
+          <dd className="text-ink">{profile.login.url}</dd>
+          <dt className="text-ink-muted">Typed only on</dt>
+          <dd className="text-ink">{profile.login.origins.join(", ")}</dd>
+          <dt className="text-ink-muted">Second factor</dt>
+          <dd className="text-ink">{profile.login.secondFactor.kind}</dd>
+          <dt className="text-ink-muted">Allowed pages</dt>
+          <dd className="text-ink">{profile.allow.join(", ")}</dd>
+          <dt className="text-ink-muted">Blocked pages</dt>
+          <dd className="text-ink">
+            {profile.block.length ? profile.block.join(", ") : "Only the defaults"}
+          </dd>
+          <dt className="text-ink-muted">Keeps the session</dt>
+          <dd className="text-ink">{profile.session.keep ? "Yes (low tier only)" : "No"}</dd>
+        </dl>
 
-      {error ? (
-        <div className="mt-3">
-          <ErrorNotice error={error} />
-        </div>
-      ) : null}
-      {mode === "view" ? (
-        <div className="mt-4 flex gap-2">
-          <Button data-testid="site-edit" size="sm" onClick={() => setMode("edit")}>
-            Edit
-          </Button>
-          <Button
-            data-testid="site-set-tier"
-            size="sm"
-            variant="ghost"
-            onClick={() => setMode("tier")}
-          >
-            Set the tier
-          </Button>
-        </div>
-      ) : null}
+        {mode === "edit" ? (
+          <div className="mt-3 flex flex-col gap-3">
+            <ProfileField text={text} onText={setText} error={check.ok ? undefined : check.error} />
+            <Field label="What changed">
+              <TextInput
+                data-testid="site-change-note"
+                value={changeNote}
+                onChange={(e) => setChangeNote(e.target.value)}
+              />
+            </Field>
+            <p className="text-sm text-ink-muted">
+              Saved as version {site.versions + 1}. Client logins keep the version they were set up
+              on.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                data-testid="site-save-version"
+                variant="primary"
+                disabled={!check.ok || busy}
+                onClick={() =>
+                  check.ok &&
+                  void run(() =>
+                    api.call(apiRoutes.opsNewBrowserSiteVersion, {
+                      params: { slug: site.slug },
+                      body: {
+                        profile: check.profile as BrowserSiteProfileInput,
+                        ...(changeNote.trim() ? { changeNote: changeNote.trim() } : {}),
+                      },
+                    }),
+                  )
+                }
+              >
+                Save as a new version
+              </Button>
+              <Button variant="ghost" onClick={() => setMode("view")}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {mode === "tier" ? (
+          <div className="mt-3 flex flex-col gap-3">
+            <TierFields tier={tier} notes={notes} onTier={setTier} onNotes={setNotes} />
+            <p className="text-sm text-ink-muted">
+              The tier applies to every client login on this site at once.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                data-testid="site-save-tier"
+                variant="primary"
+                disabled={notes.trim().length < 3 || busy}
+                onClick={() =>
+                  void run(() =>
+                    api.call(apiRoutes.opsSetBrowserSiteTier, {
+                      params: { slug: site.slug },
+                      body: { tier, notes: notes.trim() },
+                    }),
+                  )
+                }
+              >
+                Set the tier
+              </Button>
+              <Button variant="ghost" onClick={() => setMode("view")}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mt-3">
+            <ErrorNotice error={error} />
+          </div>
+        ) : null}
+      </div>
     </Card>
   );
 }

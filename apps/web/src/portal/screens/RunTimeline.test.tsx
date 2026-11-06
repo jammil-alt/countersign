@@ -1,7 +1,7 @@
 // The client's run timeline renders only what the contract names: visible steps' labels,
 // summaries, times and sources, approvals and changes. Anything else in a response (cost,
 // inputs, prompts, internal steps' fields) is dropped by the contract parse and never shown.
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders } from "../../App";
@@ -68,10 +68,11 @@ const LEAKY_TIMELINE = {
   ],
 };
 
-function renderTimeline(body: unknown) {
+function renderTimeline(body: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
   const api = fakeApi({
     "GET /api/session": () => CLIENT_SESSION,
     [`GET /api/runs/${RUN_ID}`]: () => body,
+    ...more,
   });
   render(
     <MemoryRouter initialEntries={[`/runs/${RUN_ID}`]}>
@@ -135,5 +136,81 @@ describe("portal run timeline", () => {
     });
     expect(await screen.findByText("Nothing to show yet.")).toBeInTheDocument();
     expect(screen.getByText("Not started yet")).toBeInTheDocument();
+  });
+
+  it("shows the audit trail, the changes waiting with before and after, and the way to sign", async () => {
+    const ITEM = "00000000-0000-4000-8000-0000000f3002";
+    renderTimeline(
+      {
+        ...LEAKY_TIMELINE,
+        run: { ...LEAKY_TIMELINE.run, status: "waiting", finishedAt: null },
+        approvals: [
+          {
+            id: ITEM,
+            title: "Update record r1",
+            status: "open",
+            approved: null,
+            by: null,
+            resolvedAt: null,
+          },
+        ],
+      },
+      {
+        [`GET /api/runs/${RUN_ID}/audit`]: () => ({
+          entries: [
+            {
+              at: "2026-11-03T10:05:00.000Z",
+              who: "Ana Ruiz",
+              side: "mezonas",
+              kind: "opened_run",
+              itemId: null,
+              times: 2,
+            },
+            {
+              at: "2026-11-03T10:06:00.000Z",
+              who: "Demo admin",
+              side: "client",
+              kind: "signed",
+              itemId: ITEM,
+              times: 1,
+            },
+          ],
+        }),
+        "GET /api/inbox": () => ({
+          items: [
+            {
+              id: ITEM,
+              kind: "external_action",
+              title: "Update record r1",
+              payload: {
+                tool: "testkit.record.update",
+                before: { id: "r1", name: "Oak board" },
+                input: { id: "r1", name: "Oak board, 3/4 in" },
+              },
+              display: null,
+              status: "open",
+              runId: RUN_ID,
+              dueAt: null,
+              createdAt: "2026-11-03T10:00:00.000Z",
+              resolvedAt: null,
+              resolvedBy: null,
+            },
+          ],
+        }),
+      },
+    );
+    const audit = await screen.findByTestId("portal-run-audit");
+    await waitFor(() => expect(audit).toHaveTextContent("Ana Ruiz opened this run"));
+    expect(audit).toHaveTextContent("2 times");
+    expect(audit).toHaveTextContent("Demo admin signed");
+    const waiting = await screen.findByTestId("portal-run-waiting");
+    expect(within(waiting).getByTestId("change-now")).toHaveTextContent("Oak board");
+    expect(within(waiting).getByTestId("change-after")).toHaveTextContent("Oak board, 3/4 in");
+    expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", "/desk");
+    expect(screen.getByTestId("portal-run-status")).toHaveTextContent("Waiting on you");
+    expect(within(screen.getByTestId("portal-run-ask-sloan")).getByRole("link")).toHaveAttribute(
+      "href",
+      `/sloan?ask=${encodeURIComponent("About run R-0f1001: ")}`,
+    );
   });
 });

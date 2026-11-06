@@ -1,7 +1,9 @@
 // A client agent's operation (ARCHITECTURE §9.3, §14 "Operation"; plan §1.2 "Client agent
-// activation"): its service name and description in the portal, the connections it is bound to,
-// its approver, and its run status: activate (with every reason it can't yet), pause, retire, and
-// the test run activation needs. None of this is a new version: it is the agent row, logged.
+// activation"). `OperationPanel` (the agent page's Versions): its run status, activate (with every
+// reason it can't yet), pause, retire, the test run activation needs, and the go-live stage.
+// `ServicePanel` (Settings): its service name and description in the portal, its approver, the
+// connections it is bound to and their grants. None of this is a new version: it is the agent
+// row, logged.
 import type { AgentBundle } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -61,20 +63,16 @@ const APPROVERS: { value: "" | "client_admin" | "operator"; label: string }[] = 
 
 export function OperationPanel({
   agent,
-  connections,
   live,
   liveBundle,
   onChanged,
 }: {
   agent: AgentSummary;
-  /** The client's connections (GET /api/ops/clients/:id). */
-  connections: readonly Connection[];
   live: VersionSummary | null;
   liveBundle: AgentBundle | null;
   onChanged(): void;
 }) {
   const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
-  const required = activation.data?.requiredConnectors ?? [];
   // DECISION: while the live version's latest test run is going, the activation check polls every
   // 2 s (the run page's rate, plan §1.2 "Live updates"), so it turns ready when the run passes.
   const testRun = activation.data?.testRun ?? null;
@@ -84,7 +82,6 @@ export function OperationPanel({
     2_000,
     activation.loading,
   );
-  const [grantsVersion, setGrantsVersion] = useState(0);
   return (
     <div className="flex flex-col gap-5">
       <StatusCard
@@ -104,11 +101,32 @@ export function OperationPanel({
         liveBundle={liveBundle}
         onChanged={onChanged}
       />
+    </div>
+  );
+}
+
+/**
+ * A client agent's service and connections (the agent page's Settings): its name and description
+ * in the portal, its approver, the connections it is bound to and each one's grant.
+ */
+export function ServicePanel({
+  agent,
+  connections,
+  onChanged,
+}: {
+  agent: AgentSummary;
+  connections: readonly Connection[];
+  onChanged(): void;
+}) {
+  const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
+  const [grantsVersion, setGrantsVersion] = useState(0);
+  return (
+    <div className="flex flex-col gap-5">
       <ServiceForm
         key={agent.id}
         agent={agent}
         connections={connections}
-        required={required}
+        required={activation.data?.requiredConnectors ?? []}
         onSaved={() => {
           activation.reload();
           onChanged();
@@ -298,7 +316,7 @@ function StatusCard({
   );
 }
 
-function TestRun({
+export function TestRun({
   agent,
   live,
   liveBundle,

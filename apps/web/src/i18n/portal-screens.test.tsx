@@ -571,7 +571,7 @@ const WORDS = {
     optedOut: "Dado de baja",
     units: ["minutos", "horas", "días"],
     save: "Guardar personas",
-    nav: ["Conocimiento", "Contactos", "Facturación", "Personas", "Ajustes"],
+    nav: ["Conocimiento", "Facturación", "Personas", "Ajustes"],
   },
   de: {
     contacts: "Kontakte",
@@ -618,7 +618,7 @@ const WORDS = {
     optedOut: "Abgemeldet",
     units: ["Minuten", "Stunden", "Tage"],
     save: "Personen speichern",
-    nav: ["Wissen", "Kontakte", "Abrechnung", "Personen", "Einstellungen"],
+    nav: ["Wissen", "Abrechnung", "Personen", "Einstellungen"],
   },
 } as const;
 
@@ -627,13 +627,11 @@ for (const locale of ["es", "de"] as const) {
 
   describe(`contacts, knowledge, billing and people in ${locale}`, () => {
     it("keeps contacts' consent, calls and messages, with what they wrote as written", async () => {
-      renderAt("/contacts", portalApi(locale, contactsRoutes));
-      expect(
-        await screen.findByRole("heading", { name: w.contacts, level: 1 }),
-      ).toBeInTheDocument();
+      renderAt("/people/contacts", portalApi(locale, contactsRoutes));
+      expect(await screen.findByRole("heading", { name: w.people, level: 1 })).toBeInTheDocument();
       // The admin's sidebar links, all translated.
       expect(
-        ["knowledge", "contacts", "billing", "people", "settings"].map(
+        ["knowledge", "billing", "people", "settings"].map(
           (l) => screen.getByTestId(`portal-nav-${l}`).textContent,
         ),
       ).toEqual(w.nav);
@@ -683,7 +681,7 @@ for (const locale of ["es", "de"] as const) {
     });
 
     it("binds people to roles, with role names and contacts as written", async () => {
-      renderAt("/people", portalApi(locale, peopleRoutes));
+      renderAt("/people/reach", portalApi(locale, peopleRoutes));
       expect(await screen.findByRole("heading", { name: w.people })).toBeInTheDocument();
       const role = await screen.findByTestId("role-purchaser");
       expect(role).toHaveTextContent("purchaser");
@@ -754,7 +752,7 @@ describe("the access page in Spanish and German", () => {
   it.each([
     [
       "es",
-      "Accesos",
+      "Cuentas",
       "Secreto guardado",
       "Todas las herramientas",
       "Restringir",
@@ -762,7 +760,7 @@ describe("the access page in Spanish and German", () => {
     ],
     [
       "de",
-      "Zugriff",
+      "Konten",
       "Geheimnis gespeichert",
       "Alle Werkzeuge",
       "Verschärfen",
@@ -774,8 +772,10 @@ describe("the access page in Spanish and German", () => {
       const api = portalApi(locale, {
         "GET /api/access": () => ({ items: [item], setup: [], canEdit: true, people: [] }),
       });
+      // `/access` lands on the Accounts page's vault; a login's details open on request.
       renderAt("/access", api);
       const card = await screen.findByTestId("vault-item-acme");
+      await userEvent.click(within(card).getByTestId("vault-item-open"));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(title);
       expect(within(card).getByTestId("vault-secret-state")).toHaveTextContent(secret);
       expect(card).toHaveTextContent("Compras");

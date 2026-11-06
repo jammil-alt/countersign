@@ -12,7 +12,7 @@ import { displayName, userInitial, useSession, useSessionState } from "../sessio
 import { Logo, PRODUCT_NAME } from "../ui/brand";
 import { Icon, type IconName } from "../ui/icons";
 import { Count, cx } from "../ui/primitives";
-import { SearchBox, type SearchRun } from "./Search";
+import { type SearchAsk, SearchBox, type SearchRun } from "./Search";
 import { THEMES, type Theme, useTheme } from "./theme";
 
 /** The product's name wherever a person reads it. */
@@ -52,7 +52,7 @@ export function AppShell({
   /** Where this is, for the tab's text: "Back office", or the client's name in the portal. */
   place: string | null;
   context: ReactNode;
-  search: { placeholder: string; run: SearchRun };
+  search: { placeholder: string; run: SearchRun; ask?: SearchAsk };
   desk: ShellDesk;
   sidebar: ReactNode;
   /** Pinned to the sidebar's foot (the portal's Sloan card and lead). */
@@ -93,7 +93,7 @@ export function AppShell({
         <span aria-hidden className="ui-topbar__sep" />
         <div className="ui-topbar__context">{context}</div>
         <div className="ui-topbar__search">
-          <SearchBox placeholder={search.placeholder} run={search.run} />
+          <SearchBox placeholder={search.placeholder} run={search.run} ask={search.ask} />
         </div>
         <NavLink
           to={desk.to}

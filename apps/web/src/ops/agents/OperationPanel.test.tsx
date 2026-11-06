@@ -52,13 +52,7 @@ function renderPanel(answers: (string | null)[]) {
   render(
     <ApiProvider client={api.client}>
       <MemoryRouter>
-        <OperationPanel
-          agent={AGENT}
-          connections={[]}
-          live={LIVE}
-          liveBundle={FORK_BUNDLE}
-          onChanged={() => {}}
-        />
+        <OperationPanel agent={AGENT} live={LIVE} liveBundle={FORK_BUNDLE} onChanged={() => {}} />
       </MemoryRouter>
     </ApiProvider>,
   );
@@ -161,13 +155,7 @@ describe("the test run's input", () => {
     render(
       <ApiProvider client={api.client}>
         <MemoryRouter>
-          <OperationPanel
-            agent={AGENT}
-            connections={[]}
-            live={LIVE}
-            liveBundle={BUNDLE}
-            onChanged={() => {}}
-          />
+          <OperationPanel agent={AGENT} live={LIVE} liveBundle={BUNDLE} onChanged={() => {}} />
         </MemoryRouter>
       </ApiProvider>,
     );
@@ -202,13 +190,7 @@ describe("the test run's input", () => {
     render(
       <ApiProvider client={api.client}>
         <MemoryRouter>
-          <OperationPanel
-            agent={AGENT}
-            connections={[]}
-            live={LIVE}
-            liveBundle={FORK_BUNDLE}
-            onChanged={() => {}}
-          />
+          <OperationPanel agent={AGENT} live={LIVE} liveBundle={FORK_BUNDLE} onChanged={() => {}} />
         </MemoryRouter>
       </ApiProvider>,
     );
@@ -261,13 +243,7 @@ describe("activate and pause", () => {
       <ApiProvider client={api.client}>
         <MemoryRouter>
           {/* The screen's own copy of the agent never changes here: the chip must not wait on it. */}
-          <OperationPanel
-            agent={agent}
-            connections={[]}
-            live={LIVE}
-            liveBundle={FORK_BUNDLE}
-            onChanged={() => {}}
-          />
+          <OperationPanel agent={agent} live={LIVE} liveBundle={FORK_BUNDLE} onChanged={() => {}} />
         </MemoryRouter>
       </ApiProvider>,
     );

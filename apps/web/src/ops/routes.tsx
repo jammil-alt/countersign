@@ -2,9 +2,10 @@
 // stream adds or replaces its own line. New routes point at today's screens until their stream
 // rebuilds them; every old address redirects to its new home (params, query and hash kept).
 //
-// Not here yet, added with their screens: the agent's triggers page,
-// `/ops/clients/:clientId/agents/:slug/triggers` (UI-2c, O7 Triggers; today the agent page's own
-// tabs serve everything under `agents/:slug/*`).
+// The agent page (UI-2b) serves everything under `agents/:slug/*` with its tabs: Overview,
+// `workflow` (and `workflows/:workflow`, the builder), `triggers`, `runs`, `versions`, `tests` and
+// `settings`. UI-2c: the Workflow tab is the O6 Workflow builder (ops/builder) and the Triggers tab
+// the O7 Triggers screen (ops/triggers); the sidebar lists both under the open agent.
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
@@ -12,7 +13,9 @@ import { OpsRecordScreen } from "../records/RecordScreens";
 import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
-import { NewTemplateScreen, TemplatePage, TemplatesScreen } from "./agents/TemplateScreens";
+import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
+import { CommandCenterScreen } from "./command/CommandCenter";
+import { LabScreen } from "./lab/LabScreen";
 import { MergeScreen } from "./merge/MergeScreen";
 import { AgentPage } from "./screens/AgentPage";
 import { OpsAgentRedirect } from "./screens/AgentRedirect";
@@ -32,36 +35,39 @@ import { OpsInboxScreen } from "./screens/Inbox";
 import { OpsMessagingScreen } from "./screens/Messaging";
 import { NewClientScreen } from "./screens/NewClient";
 import { OpsOAuthCallbackScreen } from "./screens/OAuthCallback";
-import { OverviewScreen } from "./screens/Overview";
 import { OpsRecordsScreen } from "./screens/Records";
 import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
-import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
+import { AutomationPage } from "./skills/AutomationPage";
+import { NewSkillScreen } from "./skills/NewSkill";
+import { SkillPage } from "./skills/SkillPage";
+import { SkillsScreen } from "./skills/SkillsLibrary";
 
 export const opsRoutes = (
   <>
     {/* O1 Command center (UI-2a) */}
-    <Route index element={<OverviewScreen />} />
+    <Route index element={<CommandCenterScreen />} />
     {/* Escalations, O9 Runs, O10 Run detail (UI-2a) */}
     <Route path="inbox" element={<OpsInboxScreen />} />
     <Route path="runs" element={<OpsRunsScreen />} />
     <Route path="runs/:id" element={<OpsRunScreen />} />
     {/* O2 Agent lab, update merge (UI-2b) */}
-    <Route path="lab" element={<TemplatesScreen />} />
+    <Route path="lab" element={<LabScreen />} />
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
     <Route path="agents/:id/merge" element={<MergeScreen />} />
-    {/* O5 New agent (UI-2c) */}
+    {/* O5 New agent, by conversation with the Builder (UI-2c) */}
     <Route path="templates/new" element={<NewTemplateScreen />} />
     <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
-    {/* Back-office agent page, with O6 Workflow builder under it (UI-2b, UI-2c) */}
+    {/* Back-office agent page (UI-2b), with O6 Workflow builder and O7 Triggers as tabs (UI-2c) */}
     <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
     {/* O4 Skills and automations, O8 New skill, O3 Connectors (UI-2d) */}
     <Route path="skills" element={<SkillsScreen />} />
     <Route path="skills/new" element={<NewSkillScreen />} />
     <Route path="skills/:id" element={<SkillPage />} />
+    <Route path="skills/automations/:id" element={<AutomationPage />} />
     <Route path="connectors" element={<OpsConnectorsScreen />} />
 
     {/* Clients: the client page and new client (UI-3) */}

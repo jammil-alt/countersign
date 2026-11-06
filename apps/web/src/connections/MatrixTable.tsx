@@ -8,7 +8,7 @@ import type {
   PermissionLevel,
   Verb,
 } from "@countersign/core";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useI18n } from "../i18n/i18n";
 import { formatValue } from "../inbox/change";
 import { Select } from "../ui/forms";
@@ -51,6 +51,7 @@ export function MatrixTable({
   editor,
   onSave,
   note,
+  bare,
 }: {
   rows: MatrixRow[];
   editor: MatrixEditor;
@@ -58,6 +59,8 @@ export function MatrixTable({
   onSave?: (id: string, edit: MatrixRowEdit) => Promise<void>;
   /** The line at the top right ("Approval means the change waits in your inbox…"). */
   note?: string;
+  /** Inside another card (the portal's Accounts page): no card and no title of its own. */
+  bare?: boolean;
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState<Draft>({});
@@ -115,12 +118,15 @@ export function MatrixTable({
     }
   }
 
+  const Frame = bare ? BareFrame : Card;
   return (
-    <Card testId="matrix" className="overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h3 className="eyebrow text-ink-muted">{t("matrix.title")}</h3>
-        {note ? <p className="text-sm text-ink-muted">{note}</p> : null}
-      </div>
+    <Frame testId="matrix" className="overflow-hidden">
+      {bare ? null : (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+          <h3 className="eyebrow text-ink-muted">{t("matrix.title")}</h3>
+          {note ? <p className="text-sm text-ink-muted">{note}</p> : null}
+        </div>
+      )}
       {/* The Mezonas TableAnalytical layout (dt-ana), inside the card. */}
       <div className="dt dt-ana overflow-x-auto rounded-none border-0">
         <table>
@@ -236,7 +242,23 @@ export function MatrixTable({
           </div>
         </div>
       ) : null}
-    </Card>
+    </Frame>
+  );
+}
+
+function BareFrame({
+  children,
+  className,
+  testId,
+}: {
+  children: ReactNode;
+  className?: string;
+  testId?: string;
+}) {
+  return (
+    <div data-testid={testId} className={className}>
+      {children}
+    </div>
   );
 }
 

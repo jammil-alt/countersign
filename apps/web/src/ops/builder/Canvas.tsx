@@ -1,5 +1,6 @@
-// The builder's centre and left columns (docs/design/screens/5-workflow-builder.png): numbered
-// step cards with kind tags and drag handles, forks as side-by-side paths with "Drop a step here"
+// The builder's centre and left columns (prototype `#O6-Builder`): the trigger on a tinted card,
+// numbered step cards with drag handles and their kind tag on the right (and, while steps are being
+// selected for an automation, a check box), forks as side-by-side paths with "Drop a step here"
 // and "Paths join here", for-each blocks, and the "Add a step" palette whose items drag into the
 // list or append with +. Drag and drop is @dnd-kit (docs/plan.md §1.2 "Builder"): every list is a
 // sortable context keyed by its container, so a step moves within its list, into and out of fork
@@ -112,6 +113,9 @@ export interface CanvasProps {
   overId: string | null;
   onSelect(id: string | "trigger"): void;
   onDelete(id: string): void;
+  /** Top-level steps picked for "Save as automation"; check boxes show while this is set. */
+  checked?: ReadonlySet<string> | undefined;
+  onCheck?: ((id: string, on: boolean) => void) | undefined;
 }
 
 /** Errors on a step, counting a fork's paths as the fork's. */
@@ -135,7 +139,7 @@ export function Canvas(props: CanvasProps) {
       <DropZone
         id={ROOT}
         label="Drop a step here, or press + in the palette"
-        className="w-full max-w-[480px]"
+        className="w-full max-w-[640px]"
       />
     </div>
   );
@@ -148,13 +152,11 @@ function TriggerCard(props: CanvasProps & { invalid: number }) {
     <div
       data-testid="builder-trigger"
       className={cx(
-        "flex w-full max-w-[480px] items-center gap-3 rounded-md border bg-surface px-4 py-3",
+        "flex w-full max-w-[640px] items-center gap-3 rounded-md border bg-slate-tint px-4 py-3",
         selected ? "border-slate" : "border-line",
       )}
     >
-      <span aria-hidden className="w-4" />
-      <span className="w-5 text-right text-sm text-ink-muted figures">1</span>
-      <StepKindTag kind="trigger" label={KIND_LABEL.trigger} />
+      <Icon name="arrow" className="shrink-0 text-slate" />
       <button
         type="button"
         data-testid="builder-trigger-select"
@@ -171,6 +173,7 @@ function TriggerCard(props: CanvasProps & { invalid: number }) {
           Invalid
         </Badge>
       ) : null}
+      <StepKindTag kind="trigger" label={KIND_LABEL.trigger} />
     </div>
   );
 }
@@ -196,7 +199,7 @@ function List(props: CanvasProps & { id: ContainerId; steps: Step[]; numbered?: 
               step={step}
               container={id}
               index={index}
-              number={numbered ? index + 2 : undefined}
+              number={numbered ? index + 1 : undefined}
             />
           </li>
         ))}
@@ -282,7 +285,7 @@ function StepCard(
       data-container={container}
       className={cx(
         "relative flex w-full items-center gap-3 rounded-md border bg-surface",
-        nested ? "px-3 py-2.5" : "max-w-[480px] px-4 py-3",
+        nested ? "px-3 py-2.5" : "max-w-[640px] px-4 py-3",
         selected ? "border-slate" : invalid ? "border-risk" : "border-line",
         isDragging && "opacity-40",
       )}
@@ -301,15 +304,24 @@ function StepCard(
       >
         <Icon name="more" className="rotate-90" />
       </button>
+      {number !== undefined && props.checked && props.onCheck ? (
+        <input
+          type="checkbox"
+          aria-label={`Select ${step.name || KIND_LABEL[step.kind]}`}
+          data-testid={`${testId}-check`}
+          className="size-4 shrink-0 accent-slate"
+          checked={props.checked.has(step.id)}
+          onChange={(e) => props.onCheck?.(step.id, e.target.checked)}
+        />
+      ) : null}
       {number !== undefined ? (
         <span
           data-testid={`${testId}-number`}
-          className="w-5 text-right text-sm text-ink-muted figures"
+          className="flex size-6 shrink-0 items-center justify-center rounded-sm border border-line text-xs text-ink-muted figures"
         >
           {number}
         </span>
       ) : null}
-      {nested ? null : kindTag}
       <button
         type="button"
         data-testid={`${testId}-select`}
@@ -333,6 +345,7 @@ function StepCard(
           <span className="mt-1.5 flex flex-wrap items-center gap-1">{badges}</span>
         ) : null}
       </button>
+      {nested ? null : <span className="shrink-0 self-start pt-0.5">{kindTag}</span>}
       <button
         type="button"
         aria-label={`Delete ${step.name || KIND_LABEL[step.kind]}`}
@@ -432,7 +445,7 @@ function Loop(props: CanvasProps & { step: ForEachStep }) {
   return (
     <div
       data-testid={`builder-loop-${step.id}`}
-      className="flex w-full max-w-[560px] flex-col items-center"
+      className="flex w-full max-w-[640px] flex-col items-center"
     >
       <span aria-hidden className="h-4 border-l border-line-strong" />
       <div className="flex w-full flex-col gap-2 rounded-lg border border-dashed border-line-strong p-3">
@@ -471,11 +484,11 @@ export function Palette({
         />
         <input
           type="search"
-          aria-label="Search skills and actions"
+          aria-label="Search steps"
           data-testid="builder-palette-search"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search skills and actions"
+          placeholder="Search steps"
           className="ds-input pl-9 text-sm"
         />
       </span>

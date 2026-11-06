@@ -135,31 +135,41 @@ export function StartOption({
   );
 }
 
-/** "My description": the Builder (ARCHITECTURE §9.6) drafts the steps. */
+/** Back to the Builder conversation (ARCHITECTURE §9.6), the page's first way to start. */
 export function BuilderOption({ selected, onSelect }: { selected: boolean; onSelect(): void }) {
   return (
     <StartOption
       selected={selected}
-      title="My description"
-      text="The Builder drafts the steps from what you wrote."
+      title="Describe it to the Builder"
+      text="Talk it through. The Builder drafts the plan, you decide."
       onSelect={onSelect}
       testId="new-agent-start-builder"
     />
   );
 }
 
-export function Stepper() {
-  const steps = ["Describe", "Build the workflow", "Test and publish"];
+/** Where a new agent is on its way (prototype `#O5-NewAgent`). */
+export const NEW_AGENT_STEPS = ["Describe", "Review the plan", "Build", "Test", "Go live"] as const;
+
+export function Stepper({ current = 0 }: { current?: number }) {
   return (
-    // The Mezonas Stepper (ds-step), laid out in a row.
-    <ol className="flex items-center gap-2" aria-label="Steps">
-      {steps.map((s, i) => (
+    // The Mezonas Stepper (ds-step), laid out in a row; it wraps on a phone.
+    <ol
+      className="flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2"
+      aria-label="Steps"
+      data-testid="new-agent-steps"
+    >
+      {NEW_AGENT_STEPS.map((s, i) => (
         <li
           key={s}
-          aria-current={i === 0 ? "step" : undefined}
+          aria-current={i === current ? "step" : undefined}
           className={cx(
             "ds-step rounded-sm",
-            i === 0 ? "ds-step--current font-medium" : "ds-step--todo",
+            i < current
+              ? "ds-step--done"
+              : i === current
+                ? "ds-step--current font-medium"
+                : "ds-step--todo",
           )}
         >
           <span className="ds-step__mark font-sans figures">{i + 1}</span>

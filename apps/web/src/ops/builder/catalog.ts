@@ -193,10 +193,22 @@ export function paletteSections(bundle: AgentBundle, data: BuilderData): Palette
         : 0,
     );
 
+  // UI-2c: the automations a use step can pin (prototype `#O6-Builder`, "Automations").
+  const automations = (data.catalog.automations ?? []).map(
+    (a): PaletteItem => ({
+      type: "automation",
+      key: `automation:${a.ref}`,
+      title: a.name,
+      detail: `${a.ref}${a.source === "client" ? " · this client's" : ""}`,
+      ref: a.ref,
+    }),
+  );
+
   return [
     { key: "triggers", label: "Triggers", items: triggers },
+    { key: "automations", label: "Automations", items: automations },
     { key: "skills", label: "Skills", items: skills },
-    { key: "actions", label: "Actions · change your tools", items: actions },
+    { key: "actions", label: "Change a tool", items: actions },
     {
       key: "people",
       label: "People",

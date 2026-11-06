@@ -108,19 +108,94 @@ describe("portal settings", () => {
     );
   });
 
-  it("tells a client user only the admin changes settings, and loads nothing", async () => {
+  it("gives a client user their own notifications and language, and loads nothing of the admin's", async () => {
+    const puts: unknown[] = [];
     const api = fakeApi({
       "GET /api/session": () => ({
         ...CLIENT_SESSION,
         tenants: [{ id: DEMO, name: "Demo client", role: "client_user" }],
       }),
       "GET /api/overview": () => overview,
+      "GET /api/settings/my-notifications": () => ({
+        email: true,
+        sms: false,
+        canText: false,
+        emailsOn: true,
+      }),
+      "PUT /api/settings/my-notifications": ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        puts.push(body);
+        return { ...body, canText: false, emailsOn: true };
+      },
     });
     renderAt("/settings", api);
     expect(await screen.findByTestId("portal-settings-admin-only")).toHaveTextContent(
       "Only your admin can change settings.",
     );
+    const mine = await screen.findByTestId("portal-settings-mine");
+    // No phone with consent: texts can't be turned on.
+    expect(within(mine).getByTestId("portal-mine-sms")).toBeDisabled();
+    await userEvent.click(within(mine).getByTestId("portal-mine-email"));
+    await waitFor(() => expect(puts).toEqual([{ email: false, sms: false }]));
+    expect(screen.getByTestId("portal-settings-language")).toBeInTheDocument();
     expect(api.calls).not.toContain("GET /api/users");
     expect(api.calls).not.toContain("GET /api/settings");
+    expect(api.calls).not.toContain("GET /api/billing");
+  });
+
+  it("shows the admin this month's credits and saves what happens when they run out", async () => {
+    const puts: unknown[] = [];
+    let onCreditsOut = "continue";
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview,
+      "GET /api/billing": () => ({
+        setUp: true,
+        monthSoFar: {
+          period: { start: "2026-11-01", end: "2026-11-30", through: "2026-11-06" },
+          daysInMonth: 30,
+          lines: [],
+          creditsIncluded: 10000,
+          creditsUsed: 6240,
+          extraCredits: 0,
+          creditPrice: { amount: "0.0100", currency: "USD" },
+          total: { amount: "0.00", currency: "USD" },
+        },
+        paymentProblem: false,
+        statements: [],
+      }),
+      "GET /api/billing/credits-out": () => ({
+        onCreditsOut,
+        creditBlock: 2500,
+        pausedForCredits: [],
+      }),
+      "PUT /api/billing/credits-out": ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        puts.push(body);
+        onCreditsOut = body.onCreditsOut;
+        return { onCreditsOut, creditBlock: 2500, pausedForCredits: [] };
+      },
+    });
+    renderAt("/settings", api);
+    const plan = await screen.findByTestId("portal-settings-plan");
+    await waitFor(() => expect(plan).toHaveTextContent("6,240 of 10,000 used"));
+    expect(within(plan).getByTestId("portal-settings-statements")).toHaveAttribute(
+      "href",
+      "/settings/billing",
+    );
+    const out = screen.getByTestId("portal-settings-credits-out");
+    expect(await within(out).findByTestId("portal-credits-out-continue")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(out).toHaveTextContent("another 2,500 credits");
+    await userEvent.click(within(out).getByTestId("portal-credits-out-pause"));
+    expect(puts).toEqual([{ onCreditsOut: "pause" }]);
+    await waitFor(() =>
+      expect(within(out).getByTestId("portal-credits-out-pause")).toHaveAttribute(
+        "aria-checked",
+        "true",
+      ),
+    );
   });
 });
