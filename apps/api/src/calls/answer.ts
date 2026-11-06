@@ -37,6 +37,7 @@ import {
   openingLine,
   type PermissionMatrix,
   type Step,
+  trimTrailingSlashes,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
@@ -61,7 +62,7 @@ export function voiceDepsFromEnv(
   const webhookSecret = env.ELEVENLABS_WEBHOOK_SECRET?.trim();
   return {
     elevenlabs: apiKey && webhookSecret ? { apiKey, webhookSecret } : null,
-    origin: (env.APP_ORIGIN?.trim() || fallbackOrigin).replace(/\/+$/, ""),
+    origin: trimTrailingSlashes(env.APP_ORIGIN?.trim() || fallbackOrigin),
     fetch,
   };
 }
