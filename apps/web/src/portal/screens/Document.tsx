@@ -14,7 +14,7 @@ export function PortalDocumentScreen() {
   const { t } = useI18n();
   const { data, error, loading, reload } = useApi(apiRoutes.portalDocument, { params: { id } });
   const reading = data?.document.status === "stored" || data?.document.status === "extracting";
-  usePoll(reload, reading, 3_000);
+  usePoll(reload, reading, 3_000, loading);
 
   async function openOriginal() {
     // The link lasts 5 minutes: ask for a fresh one each time.

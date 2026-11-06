@@ -19,7 +19,7 @@ export function PortalRunsScreen() {
   const i18n = useI18n();
   const { t } = i18n;
   const { data, error, loading, reload } = useApi(apiRoutes.portalRuns, { query: { limit: 100 } });
-  usePoll(reload, data?.runs.some((r) => isRunGoing(r.status)) ?? false, 5_000);
+  usePoll(reload, data?.runs.some((r) => isRunGoing(r.status)) ?? false, 5_000, loading);
 
   return (
     <div className="max-w-5xl">

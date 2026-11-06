@@ -37,7 +37,7 @@ export function OpsInboxScreen() {
   const { data, error, loading, reload } = useApi(apiRoutes.opsInbox, {
     query: { assigned, status, ...(client ? { client } : {}) },
   });
-  usePoll(reload, status === "open", 20_000);
+  usePoll(reload, status === "open", 20_000, loading);
 
   const clients = new Map(session.tenants.map((t) => [t.id, t.name]));
   const agents = new Map<string, OpsAgentRef>((data?.agents ?? []).map((a) => [a.id, a]));

@@ -46,7 +46,7 @@ export function OpsRunsScreen() {
       ...(mode === "all" ? {} : { mode }),
     },
   });
-  usePoll(reload, data?.runs.some((r) => isRunGoing(r.status)) ?? false, 5_000);
+  usePoll(reload, data?.runs.some((r) => isRunGoing(r.status)) ?? false, 5_000, loading);
   const agents = new Map<string, OpsAgentRef>((data?.agents ?? []).map((a) => [a.id, a]));
 
   return (
