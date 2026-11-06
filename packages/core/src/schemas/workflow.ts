@@ -200,7 +200,15 @@ export const TriggerOn = z.discriminatedUnion("type", [
     /** IANA zone; default the client's timezone. */
     tz: z.string().optional(),
   }),
-  z.object({ type: z.literal("manual"), input: JsonSchema }),
+  z.object({
+    type: z.literal("manual"),
+    input: JsonSchema,
+    // v0.12 W1-A: Run now (ARCHITECTURE §11.5). The client may start this workflow from its
+    // service with a form built from `input`; optional, so stored versions parse and hash as before.
+    client: z
+      .object({ canRun: z.boolean(), label: z.string().trim().min(1).max(80).optional() })
+      .optional(),
+  }),
   z.object({ type: z.literal("command"), command: z.string().min(1) }),
 ]);
 export type TriggerOn = z.infer<typeof TriggerOn>;

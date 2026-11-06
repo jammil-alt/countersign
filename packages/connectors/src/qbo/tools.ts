@@ -5,16 +5,17 @@
 // (the before state), refuses a record that changed since the agent read it, runs once under QBO's
 // request id, and recognises a write it already made.
 
-import { CurrencyCode, DecimalString, dec, toNumeric } from "@countersign/core";
+import { CurrencyCode, DecimalString, dec } from "@countersign/core";
 import { z } from "zod";
 import {
   defineReadTool,
   defineWriteTool,
-  type ToolContext,
   type ToolDefinition,
   type WriteContext,
 } from "../connector";
-import { QboApiError, type QboClient, QboStaleObjectError, qboLiteral, qboRequestId } from "./api";
+import { QboApiError, type QboClient, qboLiteral, qboRequestId } from "./api";
+import { qboArTools } from "./ar";
+import { billCreateTool } from "./bill-create";
 import {
   attachDisplay,
   updateLinesDisplay,
@@ -35,54 +36,24 @@ import {
   toVendor,
   wire,
 } from "./records";
+import {
+  type ClientFor,
+  IsoDate,
+  NewLine,
+  notFound,
+  Page,
+  page,
+  QBO_TOOLS,
+  QboTotalWouldChangeError,
+  RefNames,
+  refNames,
+  stale,
+  sum,
+  wireLine,
+} from "./tool-kit";
 
-export const QBO_TOOLS = {
-  purchaseQuery: "qbo.purchase.query",
-  billQuery: "qbo.bill.query",
-  vendorQuery: "qbo.vendor.query",
-  itemQuery: "qbo.item.query",
-  attachableList: "qbo.attachable.list",
-  billUpdateLines: "qbo.bill.update_lines",
-  purchaseUpdateLines: "qbo.purchase.update_lines",
-  billUpdateMemo: "qbo.bill.update_memo",
-  purchaseUpdateMemo: "qbo.purchase.update_memo",
-  itemUpdatePurchaseCost: "qbo.item.update_purchase_cost",
-  attachableUpload: "qbo.attachable.upload",
-} as const;
-
-/** A write refused because it would change the transaction's total (or its tax). */
-export class QboTotalWouldChangeError extends QboApiError {
-  constructor(message: string) {
-    super(422, "TOTAL_WOULD_CHANGE", message, false);
-    this.name = "QboTotalWouldChangeError";
-  }
-}
-
-export type ClientFor = (ctx: ToolContext) => Promise<QboClient>;
-
-const IsoDate = z.iso.date();
-const Page = {
-  start: z.number().int().min(1).max(100_000).default(1),
-  limit: z.number().int().min(1).max(100).default(25),
-};
-
-function where(conds: string[]): string {
-  return conds.length > 0 ? ` where ${conds.join(" and ")}` : "";
-}
-
-/** `limit + 1` rows are asked for, so `more` is known without a count query. */
-async function page<T>(
-  client: QboClient,
-  entity: string,
-  conds: string[],
-  input: { start: number; limit: number },
-  map: (row: unknown) => T,
-  order = "Metadata.LastUpdatedTime desc",
-): Promise<{ rows: T[]; more: boolean }> {
-  const sql = `select * from ${entity}${where(conds)} orderby ${order} startposition ${input.start} maxresults ${input.limit + 1}`;
-  const { rows } = await client.query(sql, entity);
-  return { rows: rows.slice(0, input.limit).map(map), more: rows.length > input.limit };
-}
+export type { ClientFor } from "./tool-kit";
+export { QBO_TOOLS, QboTotalWouldChangeError } from "./tool-kit";
 
 function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinition {
   const plural = entity === "Bill" ? "bills" : "purchases";
@@ -125,48 +96,6 @@ function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinitio
 
 // ── Itemizing lines ─────────────────────────────────────────────────────────────────────────────
 
-const NewLine = z
-  .object({
-    /** An item line (the invoice's product), or … */
-    itemId: QboId.optional(),
-    /** … an account line. */
-    accountId: QboId.optional(),
-    description: z.string().max(4000).optional(),
-    qty: DecimalString.optional(),
-    unitPrice: DecimalString.optional(),
-    amount: DecimalString,
-  })
-  .superRefine((l, ctx) => {
-    if ((l.itemId === undefined) === (l.accountId === undefined)) {
-      ctx.addIssue({ code: "custom", message: "give exactly one of itemId and accountId" });
-      return;
-    }
-    if (dec(l.amount).isNegative()) {
-      ctx.addIssue({ code: "custom", message: "a line's amount can't be negative" });
-    }
-    if (!dec(l.amount).equals(dec(l.amount).toDecimalPlaces(2))) {
-      ctx.addIssue({ code: "custom", message: "a line's amount has at most 2 decimals" });
-    }
-    if (l.itemId !== undefined) {
-      if (l.qty === undefined || l.unitPrice === undefined) {
-        ctx.addIssue({ code: "custom", message: "an item line needs qty and unitPrice" });
-        return;
-      }
-      // DECISION: an item line's amount must be qty × unit price rounded half up to cents, as
-      // QuickBooks computes it; a mismatch is refused here rather than adjusted by QuickBooks.
-      const product = dec(l.qty).times(dec(l.unitPrice)).toDecimalPlaces(2);
-      if (!product.equals(dec(l.amount))) {
-        ctx.addIssue({
-          code: "custom",
-          message: `amount ${l.amount} is not qty × unitPrice (${product.toFixed(2)})`,
-        });
-      }
-    } else if (l.qty !== undefined || l.unitPrice !== undefined) {
-      ctx.addIssue({ code: "custom", message: "an account line has no qty or unitPrice" });
-    }
-  });
-type NewLine = z.infer<typeof NewLine>;
-
 const UpdateLinesInput = z.object({
   id: QboId,
   /** The SyncToken the agent read: the write is refused if the record changed since. */
@@ -187,10 +116,6 @@ function rawLines(raw: Record<string, unknown>): RawLine[] {
   return Array.isArray(raw.Line) ? (raw.Line as RawLine[]) : [];
 }
 
-function sum(values: string[]): string {
-  return toNumeric(values.reduce((s, v) => s.plus(dec(v)), dec("0")));
-}
-
 /** Job, class, billable status and tax code of the line being replaced, carried onto new lines. */
 // DECISION: new lines inherit the first replaced line's customer (job), class, billable status and
 // tax code, so itemizing never moves a cost off a job or changes how it is billed.
@@ -203,30 +128,6 @@ function inherited(line: RawLine | undefined): Record<string, unknown> {
     if (detail?.[k] !== undefined) out[k] = detail[k];
   }
   return out;
-}
-
-function wireLine(l: NewLine, inherit: Record<string, unknown>): Record<string, unknown> {
-  const base = {
-    ...(l.description === undefined ? {} : { Description: l.description }),
-    Amount: wire(l.amount),
-  };
-  if (l.itemId !== undefined) {
-    return {
-      ...base,
-      DetailType: "ItemBasedExpenseLineDetail",
-      ItemBasedExpenseLineDetail: {
-        ...inherit,
-        ItemRef: { value: l.itemId },
-        Qty: wire(l.qty as string),
-        UnitPrice: wire(l.unitPrice as string),
-      },
-    };
-  }
-  return {
-    ...base,
-    DetailType: "AccountBasedExpenseLineDetail",
-    AccountBasedExpenseLineDetail: { ...inherit, AccountRef: { value: l.accountId } },
-  };
 }
 
 /** Whether the record already has exactly the lines this change makes (it ran before). */
@@ -270,17 +171,6 @@ async function readTxn(
   return raw ? { raw, txn: toTxn(entity, raw) } : null;
 }
 
-function notFound(entity: string, id: string): QboApiError {
-  return new QboApiError(404, "NOT_FOUND", `${entity} ${id} is not in QuickBooks`, false);
-}
-
-/** The record changed since the agent read it, and not by this change. */
-function stale(entity: string, id: string, read: string, now: string): QboStaleObjectError {
-  return new QboStaleObjectError(
-    `${entity} ${id} changed in QuickBooks since it was read (SyncToken ${read}, now ${now}); read it again`,
-  );
-}
-
 /**
  * Why itemizing this record (as read, at the SyncToken the agent read) would be refused: the total
  * is not the one expected, the record has tax, a line to replace isn't there, or the new lines
@@ -318,69 +208,6 @@ function itemizeProblem(txn: QboTxn, input: UpdateLinesInput): QboApiError | nul
   return null;
 }
 
-/** Names by id of the items and accounts new lines use: `{ items: { "12": "Oak board 4/4" } }`. */
-const RefNames = z.object({
-  items: z.record(z.string(), z.string()),
-  accounts: z.record(z.string(), z.string()),
-});
-type RefNames = z.infer<typeof RefNames>;
-
-/**
- * The names of the items and accounts the new lines use, for the approval card: those the record
- * already names, then the rest read from QuickBooks.
- */
-// DECISION: the lines tools keep these names in their before state (`names`), read when the change
-// is proposed (and again before it is written), so the card shows "Oak board 4/4" rather than an
-// id. A failed lookup leaves the ids on the card and never stops the write.
-async function refNames(
-  client: QboClient,
-  txn: QboTxn,
-  lines: NewLine[],
-  ctx: ToolContext,
-): Promise<RefNames> {
-  const names: RefNames = { items: {}, accounts: {} };
-  for (const l of txn.lines) {
-    if (l.item?.name) names.items[l.item.id] = l.item.name;
-    if (l.account?.name) names.accounts[l.account.id] = l.account.name;
-  }
-  const missing = (ids: (string | undefined)[], known: Record<string, string>) => [
-    ...new Set(ids.filter((id): id is string => id !== undefined && !Object.hasOwn(known, id))),
-  ];
-  const items = missing(
-    lines.map((l) => l.itemId),
-    names.items,
-  );
-  const accounts = missing(
-    lines.map((l) => l.accountId),
-    names.accounts,
-  );
-  const named = async (entity: "Item" | "Account", ids: string[], into: Record<string, string>) => {
-    if (ids.length === 0) return;
-    const { rows } = await client.query(
-      `select * from ${entity} where Id in (${ids.map(qboLiteral).join(", ")}) maxresults 100`,
-      entity,
-    );
-    for (const row of rows) {
-      const r = row as { Id?: unknown; Name?: unknown; FullyQualifiedName?: unknown };
-      // An account reads with its parent ("Job materials:Lumber"), as its refs on lines do.
-      const name =
-        entity === "Account" && typeof r.FullyQualifiedName === "string"
-          ? r.FullyQualifiedName
-          : r.Name;
-      if (typeof r.Id === "string" && typeof name === "string") into[r.Id] = name;
-    }
-  };
-  try {
-    await named("Item", items, names.items);
-    await named("Account", accounts, names.accounts);
-  } catch (error) {
-    ctx.logger.warn("could not read names for the approval card", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-  return names;
-}
-
 function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinition {
   const word = entity === "Bill" ? "bill" : "purchase";
   return defineWriteTool({
@@ -410,7 +237,7 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
         const problem = itemizeProblem(txn, input);
         if (problem) throw problem;
       }
-      return { ...txn, names: await refNames(client, txn, input.lines, ctx) };
+      return { ...txn, names: await refNames(client, txn.lines, input.lines, ctx) };
     },
     async run(input, ctx: WriteContext) {
       const client = await clientFor(ctx);
@@ -833,5 +660,8 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     updateMemoTool("Purchase", clientFor),
     updatePurchaseCostTool(clientFor),
     uploadTool(clientFor),
+    // v0.12 W1-F: accounts receivable reads, the invoice note, and create bill.
+    ...qboArTools(clientFor),
+    billCreateTool(clientFor),
   ];
 }

@@ -19,6 +19,7 @@ import {
   externalAction,
   inboxItem,
   membership,
+  modelCall,
   run,
   stepRun,
   type Tx,
@@ -26,7 +27,7 @@ import {
   toolCall,
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, count, desc, eq, gte, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
@@ -45,6 +46,7 @@ import {
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
 import { canSignIn } from "./portal";
+import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
 import { addSupervisor } from "./supervisor";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
@@ -426,26 +428,27 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsRuns, async (ctx) => {
     const { tx, query } = ctx;
-    if (query.client) ensureClient(ctx, query.client);
-    const where: SQL[] = [inArray(run.tenantId, [...ctx.tenantIds])];
-    if (query.client) where.push(eq(run.tenantId, query.client));
-    if (query.status) where.push(eq(run.status, query.status));
-    if (query.agent) where.push(eq(run.agentId, query.agent));
-    if (query.mode) where.push(eq(run.mode, query.mode));
-    if (query.since) where.push(gte(run.createdAt, new Date(query.since)));
+    // v0.12 W1-E: RunFilter, counts per day and groups by error (docs/plan.md §1.40).
+    ensureFilterClients(ctx, query.filter);
+    const where: SQL[] = [
+      inArray(run.tenantId, [...ctx.tenantIds]),
+      ...runFilterWhere(query.filter),
+    ];
     const rows = await tx
       .select()
       .from(run)
       .where(and(...where))
       .orderBy(desc(run.createdAt))
       .limit(query.limit);
+    const groups = query.groupBy === "error" ? await runErrorGroups(tx, where) : undefined;
     return {
       runs: rows.map(opsRun),
-      agents: await agentRefs(
-        tx,
-        ctx.tenantIds,
-        rows.map((r) => r.agentId),
-      ),
+      agents: await agentRefs(tx, ctx.tenantIds, [
+        ...rows.map((r) => r.agentId),
+        ...(groups ?? []).flatMap((g) => g.agents),
+      ]),
+      ...(query.perDay ? { perDay: await runsPerDay(tx, where) } : {}),
+      ...(groups ? { groups } : {}),
     };
   });
 
@@ -480,6 +483,18 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .from(externalAction)
       .where(and(eq(externalAction.runId, r.id), eq(externalAction.tenantId, r.tenantId)))
       .orderBy(externalAction.createdAt);
+    // v0.13 W2-H: which models each step ran on (a task skill's own, the agent's, or a step's).
+    const modelRows = await tx
+      .select({ stepRunId: modelCall.stepRunId, model: modelCall.model })
+      .from(modelCall)
+      .where(and(eq(modelCall.runId, r.id), eq(modelCall.tenantId, r.tenantId)))
+      .orderBy(modelCall.createdAt, modelCall.id);
+    const modelsByStep = new Map<string, string[]>();
+    for (const c of modelRows) {
+      const list = modelsByStep.get(c.stepRunId) ?? [];
+      if (!list.includes(c.model)) list.push(c.model);
+      modelsByStep.set(c.stepRunId, list);
+    }
     const items = await tx
       .select()
       .from(inboxItem)
@@ -494,7 +509,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
     return {
       run: opsRun(r),
-      steps: steps.map(opsStep),
+      steps: steps.map((s) => ({ ...opsStep(s), models: modelsByStep.get(s.id) ?? [] })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),
       inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId), services.platform)),

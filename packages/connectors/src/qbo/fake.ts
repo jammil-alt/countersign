@@ -10,12 +10,17 @@ import companyInfo from "../../../../fixtures/qbo/company-info.json";
 import faultStale from "../../../../fixtures/qbo/fault-stale.json";
 import faultThrottle from "../../../../fixtures/qbo/fault-throttle.json";
 import faultUnauthorized from "../../../../fixtures/qbo/fault-unauthorized.json";
+import accounts from "../../../../fixtures/qbo/query-account.json";
 import attachables from "../../../../fixtures/qbo/query-attachable.json";
 import bills from "../../../../fixtures/qbo/query-bill.json";
+import customers from "../../../../fixtures/qbo/query-customer.json";
+import invoices from "../../../../fixtures/qbo/query-invoice.json";
 import items from "../../../../fixtures/qbo/query-item.json";
+import payments from "../../../../fixtures/qbo/query-payment.json";
 import purchases from "../../../../fixtures/qbo/query-purchase.json";
 import vendors from "../../../../fixtures/qbo/query-vendor.json";
 import credits from "../../../../fixtures/qbo/query-vendorcredit.json";
+import agedReceivables from "../../../../fixtures/qbo/report-aged-receivable-detail.json";
 import tokenCode from "../../../../fixtures/qbo/token-authorization-code.json";
 import tokenInvalid from "../../../../fixtures/qbo/token-invalid-grant.json";
 import tokenRefresh from "../../../../fixtures/qbo/token-refresh.json";
@@ -45,6 +50,12 @@ export const QBO_FIXTURES = {
   vendors,
   items,
   attachables,
+  // v0.12 W1-F
+  customers,
+  invoices,
+  payments,
+  accounts,
+  agedReceivables,
   faultStale,
   faultUnauthorized,
   faultThrottle,
@@ -179,6 +190,10 @@ const ENTITY_PATHS: Record<string, string> = {
   vendor: "Vendor",
   item: "Item",
   attachable: "Attachable",
+  invoice: "Invoice",
+  customer: "Customer",
+  payment: "Payment",
+  account: "Account",
 };
 
 export interface FakeQboOptions {
@@ -203,6 +218,7 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   let tokenSerial = 1;
   let throttle = 0;
   let nextId = 1000;
+  let nextBillId = 900;
   let lastModified = "";
 
   function table(entity: string): Map<string, Entity> {
@@ -222,6 +238,10 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   seed("Vendor", vendors.QueryResponse.Vendor);
   seed("Item", items.QueryResponse.Item);
   seed("Attachable", attachables.QueryResponse.Attachable);
+  seed("Customer", customers.QueryResponse.Customer);
+  seed("Invoice", invoices.QueryResponse.Invoice);
+  seed("Payment", payments.QueryResponse.Payment);
+  seed("Account", accounts.QueryResponse.Account);
   files.set("5000000000000401", utf8("%PDF-1.4\n% Cascade Hardwoods invoice 77812\n%%EOF\n"));
 
   const stamp = () => {
@@ -288,6 +308,14 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     }
     if (String(body.SyncToken) !== String(current.SyncToken)) return response(400, faultStale);
     if (body.sparse !== true) throw new Error("the fake only takes sparse updates");
+    // v0.12 W1-F: the only invoice write is the private note; the fake refuses anything more, so
+    // a test proves nothing else is ever sent.
+    if (entity === "Invoice") {
+      const extra = Object.keys(body).filter(
+        (k) => !["Id", "SyncToken", "sparse", "PrivateNote"].includes(k),
+      );
+      if (extra.length > 0) throw new Error(`an invoice update carried ${extra.join(", ")}`);
+    }
     const next: Entity = clone(current);
     for (const [k, v] of Object.entries(body)) {
       if (k === "sparse" || k === "SyncToken" || k === "Id") continue;
@@ -325,6 +353,114 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     next.SyncToken = String(Number(current.SyncToken ?? "0") + 1);
     touch(entity, next);
     return response(200, { [entity]: clone(next), time: now().toISOString() });
+  }
+
+  // v0.12 W1-F: a new bill (POST /bill without an Id): lines checked like an update's, the total
+  // and balance computed, the vendor named, a new id and SyncToken 0.
+  function createBill(body: Entity & { VendorRef?: { value?: string } }): HttpResponseLike {
+    const vendor = table("Vendor").get(String(body.VendorRef?.value ?? ""));
+    if (!vendor) {
+      return response(400, {
+        Fault: {
+          Error: [{ Message: "Invalid Reference Id", code: "2500" }],
+          type: "ValidationFault",
+        },
+      });
+    }
+    const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBillId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      VendorRef: { value: vendor.Id, name: vendor.DisplayName },
+      CurrencyRef: (body.CurrencyRef as object | undefined) ?? { value: "USD" },
+      Line: lines.map((l, i) => {
+        const d = l.ItemBasedExpenseLineDetail as { Qty?: number; UnitPrice?: number } | undefined;
+        if (d && d.Qty !== undefined && d.UnitPrice !== undefined) {
+          const product = dec(String(d.Qty))
+            .times(dec(String(d.UnitPrice)))
+            .toDecimalPlaces(2);
+          if (!product.equals(dec(String(l.Amount)))) {
+            throw new FakeFault(400, "6070", "Amount is not equal to UnitPrice * Qty");
+          }
+        }
+        return { ...l, Id: String(i + 1), LineNum: i + 1 };
+      }),
+    };
+    row.TotalAmt = Number(linesTotal(row));
+    row.Balance = row.TotalAmt;
+    touch("Bill", row, true);
+    return response(200, { Bill: clone(row), time: now().toISOString() });
+  }
+
+  // v0.12 W1-F: QuickBooks' AgedReceivableDetail, built from the company's invoices in the shape
+  // of fixtures/qbo/report-aged-receivable-detail.json (sections by how far past due).
+  function agedReceivableDetail(query: Record<string, string>): HttpResponseLike {
+    const asOf = query.report_date ?? now().toISOString().slice(0, 10);
+    const sections: [string, (days: number) => boolean][] = [
+      ["Current", (d) => d <= 0],
+      ["1 - 30 days past due", (d) => d >= 1 && d <= 30],
+      ["31 - 60 days past due", (d) => d >= 31 && d <= 60],
+      ["61 - 90 days past due", (d) => d >= 61 && d <= 90],
+      ["91 or more days past due", (d) => d >= 91],
+    ];
+    const open = [...table("Invoice").values()].filter((inv) => {
+      const balance = dec(String(inv.Balance ?? 0));
+      const customer = (inv.CustomerRef as { value?: string } | undefined)?.value;
+      return (
+        balance.greaterThan(0) &&
+        String(inv.TxnDate ?? "") <= asOf &&
+        (!query.customer || customer === query.customer)
+      );
+    });
+    const money = (v: unknown) => dec(String(v ?? 0)).toFixed(2);
+    const blank = (title: string) => [
+      { value: title },
+      ...Array.from({ length: 6 }, () => ({ value: "" })),
+    ];
+    const rows = sections.flatMap(([title, inBucket]) => {
+      const here = open.filter((inv) => {
+        const due = String(inv.DueDate ?? inv.TxnDate ?? asOf);
+        return inBucket(Math.round((Date.parse(asOf) - Date.parse(due)) / 86_400_000));
+      });
+      if (here.length === 0) return [];
+      return [
+        {
+          Header: { ColData: blank(title) },
+          Rows: {
+            Row: here.map((inv) => {
+              const c = inv.CustomerRef as { value: string; name?: string };
+              return {
+                ColData: [
+                  { value: String(inv.TxnDate ?? "") },
+                  { value: "Invoice", id: inv.Id },
+                  { value: String(inv.DocNumber ?? "") },
+                  { value: c.name ?? "", id: c.value },
+                  { value: String(inv.DueDate ?? "") },
+                  { value: money(inv.TotalAmt) },
+                  { value: money(inv.Balance) },
+                ],
+                type: "Data",
+              };
+            }),
+          },
+          Summary: { ColData: blank(`Total for ${title}`) },
+          type: "Section",
+        },
+      ];
+    });
+    return response(200, {
+      Header: { ...agedReceivables.Header, StartPeriod: asOf, EndPeriod: asOf },
+      Columns: agedReceivables.Columns,
+      Rows: {
+        Row: [
+          ...rows,
+          { Summary: { ColData: blank("TOTAL") }, type: "Section", group: "GrandTotal" },
+        ],
+      },
+    });
   }
 
   function upload(contentType: string, body: Uint8Array): HttpResponseLike {
@@ -501,7 +637,9 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       else if (method === "GET" && first === "query")
         res = response(200, runQuery(query.query ?? ""));
       else if (method === "GET" && first === "cdc") res = cdc(query);
-      else if (method === "GET" && first === "download" && second) {
+      else if (method === "GET" && first === "reports" && second === "AgedReceivableDetail") {
+        res = agedReceivableDetail(query);
+      } else if (method === "GET" && first === "download" && second) {
         res = files.has(second)
           ? response(200, `${FILES}/${second}?X-Amz-Signature=fake`, {
               "content-type": "text/plain",
@@ -516,7 +654,11 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       } else if (method === "POST" && first === "upload") {
         res = upload(headers["content-type"] ?? "", init.body as Uint8Array);
       } else if (method === "POST" && ENTITY_PATHS[first] && !second) {
-        res = update(ENTITY_PATHS[first] as string, JSON.parse(init.body as string) as Entity);
+        const body = JSON.parse(init.body as string) as Entity;
+        res =
+          first === "bill" && body.Id === undefined
+            ? createBill(body)
+            : update(ENTITY_PATHS[first] as string, body);
       } else {
         res = response(404, { Fault: { Error: [{ Message: `no route ${method} ${first}` }] } });
       }
@@ -551,6 +693,40 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     /** Someone changes a record in QuickBooks (its SyncToken moves on). */
     put(entity: string, row: Entity, created = !table(entity).has(row.Id)) {
       touch(entity, clone(row), created);
+    },
+    /**
+     * A customer pays an invoice in QuickBooks (v0.12 W1-F): a new Payment linked to it, and the
+     * invoice's balance goes down by the amount (a new SyncToken), as QuickBooks does.
+     */
+    receivePayment(invoiceId: string, amount: string): string {
+      const inv = table("Invoice").get(invoiceId);
+      if (!inv) throw new Error(`no invoice ${invoiceId}`);
+      const paymentId = String(600 + table("Payment").size);
+      touch(
+        "Payment",
+        {
+          Id: paymentId,
+          SyncToken: "0",
+          domain: "QBO",
+          sparse: false,
+          TxnDate: now().toISOString().slice(0, 10),
+          CustomerRef: clone(inv.CustomerRef),
+          CurrencyRef: clone(inv.CurrencyRef ?? { value: "USD" }),
+          TotalAmt: Number(amount),
+          UnappliedAmt: 0,
+          Line: [{ Amount: Number(amount), LinkedTxn: [{ TxnId: invoiceId, TxnType: "Invoice" }] }],
+        },
+        true,
+      );
+      const next = clone(inv);
+      next.Balance = Number(
+        dec(String(inv.Balance ?? 0))
+          .minus(dec(amount))
+          .toString(),
+      );
+      next.SyncToken = String(Number(inv.SyncToken ?? "0") + 1);
+      touch("Invoice", next);
+      return paymentId;
     },
     remove(entity: string, id: string) {
       table(entity).delete(id);

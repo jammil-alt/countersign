@@ -75,6 +75,12 @@ export interface StepContext {
   ask?: ((input: AskInput) => Promise<AskAnswer>) | undefined;
   /** The client's language, for tools that write words a client reads. */
   language?: Locale | undefined;
+  // v0.12 W1-E
+  /**
+   * A retry's step: the failed run it repeats. A write the same step proposed there, approved and
+   * not done, with the same input, is carried under its original key (ARCHITECTURE §10.10).
+   */
+  retryOf?: string | undefined;
 }
 
 export function connectionContext(deps: RuntimeDeps, tenantId: string, connection: ConnectionRef) {

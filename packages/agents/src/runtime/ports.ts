@@ -5,6 +5,7 @@
 
 import type { ConnectionRef } from "@countersign/connectors";
 import type { AgentBundle, ApproverRule, GrantLimits, JsonObject } from "@countersign/core";
+import type { ModelCallPort } from "../log/model-calls";
 import type { ResolvedSkill } from "../registry/skills";
 import type {
   DirectoryPort,
@@ -57,6 +58,12 @@ export interface RuntimeStore {
    * client's tightening or revoke applies at once; null = no narrowing.
    */
   grant(tenantId: string, agentId: string, connectionId: string): Promise<GrantLimits | null>;
+  // v0.12 W1-A: go-live stages
+  /**
+   * The client agent's go-live stage (ARCHITECTURE §10.9), read fresh at every write decision like
+   * the matrix, so a stage change applies mid-run; null when it has none.
+   */
+  agentStage(tenantId: string, agentId: string): Promise<string | null>;
   /**
    * What decides who approves a write, read fresh for every proposal so a client's tightening
    * applies at once: the client's approver rules (`tenant.settings.approver_rules`), its default
@@ -300,4 +307,40 @@ export interface RuntimePorts {
   findings?: FindingsPort;
   /** Marks connections that need a person (an expired sign-in); absent: nothing is marked. */
   attention?: ConnectionAttentionPort;
+  // v0.12 W1-E
+  /** A retry's carried approvals; absent: a retry proposes every write again. */
+  carried?: CarriedActionsPort;
+  /** Each model call of a run's step, with its request and answer; absent: not kept. */
+  modelCalls?: ModelCallPort;
+}
+
+// ── v0.12 W1-E: carried approvals and model calls (ARCHITECTURE §10.10) ─────────────────────────
+
+/** An action a retry may carry: one the same step proposed in the run retried (or before it). */
+export interface CarryCandidate {
+  id: string;
+  tool: string;
+  connectionId: string;
+  input: unknown;
+  idempotencyKey: string;
+  status: ExternalActionStatus;
+  approvedAt: Date | null;
+  /** Who signed it; null when the system approved it (the automatic path). */
+  approvedBy: string | null;
+  result: unknown;
+  error: unknown;
+}
+
+/** src/log/carried-actions.ts. */
+export interface CarriedActionsPort {
+  /** The actions node `nodeId` proposed in `retryOf` and the runs it retried, oldest first. */
+  candidates(
+    tenantId: string,
+    input: { retryOf: string; nodeId: string },
+  ): Promise<CarryCandidate[]>;
+  /**
+   * Makes a carried action executable again under its original key (`failed` → `approved`);
+   * true when it now is (approved or executing), false when something else changed it.
+   */
+  reopen(tenantId: string, actionId: string): Promise<boolean>;
 }

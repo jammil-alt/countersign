@@ -39,6 +39,12 @@ export const ToolSpec = z
      * and kinds. Writes only; without it the card falls back to the record's own fields.
      */
     display: ToolDisplay.optional(),
+    // v0.12 W1-F: the record type the tool touches (ARCHITECTURE §6.1 "Permissions per record
+    // type"), e.g. `invoice`. Declared now; the matrix and grant entities arrive with W2-A.
+    entity: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{0,39}$/)
+      .optional(),
   })
   // DECISION: an external tool names its connector explicitly, so the permission gate and the
   // publish check find the connection matrix without guessing from `source`.

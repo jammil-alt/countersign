@@ -2,13 +2,14 @@
 // instructions or memory, the same request in any agent, their input as data in the user turn;
 // agent skills run on the agent's model with its instructions and memory; a step overrides either.
 
-import { agent } from "@countersign/db";
+import { agent, modelCall } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTemplate, fork, publish } from "../registry/agents";
 import { runAgent } from "../runtime/run-agent";
 import { createHarness, type Harness, makeBundle } from "./harness.test-helper";
+import { dbModelCalls } from "./model-calls";
 import { createRun } from "./run-log";
 
 const harness = await createHarness();
@@ -172,5 +173,36 @@ describe.skipIf(!harness)("task skills and a model per step", () => {
     expect(draft.requests[0]?.model).toBe("claude-haiku-5-5");
     expect(draft.requests[0]?.max_tokens).toBe(300);
     expect(JSON.stringify(draft.requests[0]?.system)).toContain("AGENT-TWO-RULES");
+  });
+
+  it("records a task skill's calls as model calls on its own model, like any other", async () => {
+    const model = finishRead();
+    const a = agentAt(1);
+    const r = await h.client(h.A, (tx) =>
+      createRun(tx, {
+        tenantId: h.A.tenantId,
+        agentId: a.agentId,
+        workflowSlug: "check-record",
+        mode: "live",
+      }),
+    );
+    const base = h.deps(model);
+    const deps = { ...base, ports: { ...base.ports, modelCalls: dbModelCalls(h.db) } };
+    const result = await runAgent(deps, {
+      tenantId: h.A.tenantId,
+      agentVersionId: a.versionId,
+      skill: "test.read",
+      input: { note: "Ash, 3.00" },
+      runId: r.id,
+      stepId: "step-read",
+    });
+    expect(result.status).toBe("succeeded");
+    const rows = await h.client(h.A, (tx) =>
+      tx.select().from(modelCall).where(eq(modelCall.runId, r.id)),
+    );
+    expect(rows.map((m) => [m.model, m.provider, m.stepRunId])).toEqual([
+      ["claude-haiku-5-5", "anthropic", result.stepRunId],
+    ]);
+    expect(rows[0]?.agentVersionId).toBe(a.versionId);
   });
 });

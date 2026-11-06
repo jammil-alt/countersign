@@ -32,6 +32,7 @@ import {
 import { and, count, desc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import { mailerFromEnv } from "../notify/mailer";
 
 type TenantRow = typeof tenant.$inferSelect;
 
@@ -484,8 +485,11 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
       client: { id: t.id, name: t.name, timezone: t.timezone },
       approvals: approvalsOf(t.settings),
       notifications: notificationsOf(t.settings),
-      // DECISION: notification emails are M11; until then the settings are stored only.
-      emailsOn: false,
+      // v0.12 W1-B: notification emails are sent (docs/plan.md §1.37) wherever Mezonas' sending
+      // key is set up.
+      // DECISION: `emailsOn` is the mailer's `isConfigured`: true with RESEND_API_KEY and
+      // RESEND_FALLBACK_DOMAIN, false (rows `skipped`, `not_configured`) without them.
+      emailsOn: mailerFromEnv(ctx.services.env).isConfigured,
     };
   });
 

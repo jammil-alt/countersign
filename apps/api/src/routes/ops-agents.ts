@@ -42,6 +42,8 @@ import { type RoutableAgent, type RunRequest, requestRun } from "@countersign/wo
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import { markOperatorPause } from "../lifecycle/pause";
+import { afterActivate } from "../lifecycle/stages";
 import { createRunRow } from "../runs/dispatch";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
 
@@ -296,11 +298,27 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsActivate, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    const updated = await activate(ctx.tx, {
+    const activated = await activate(ctx.tx, {
       agentId: row.id,
       actorId: ctx.session.user.id,
       ctx: ctx.services.platform.ctx,
     });
+    // v0.12 W1-A: Activate starts the trial (bench → trial, or → live with "no writes"); on a
+    // paused agent it resumes it and lifts the pause, whoever made it (ARCHITECTURE §10.9, §11.5).
+    const updated =
+      activated.kind === "client"
+        ? await afterActivate(ctx.tx, {
+            before: row,
+            actorId: ctx.session.user.id,
+            actor: {
+              actorKind: "user",
+              actorUserId: ctx.session.user.id,
+              actorEmail: ctx.session.user.email,
+              actorRole: ctx.role,
+            },
+            ctx: ctx.services.platform.ctx,
+          })
+        : activated;
     return { agent: agentSummary(updated) };
   });
 
@@ -318,7 +336,9 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsPause, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    const updated = await pause(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
+    const paused = await pause(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
+    // v0.12 W1-A: the operator's pause is recorded as the operator's: the client can't resume it.
+    const updated = await markOperatorPause(ctx.tx, paused, ctx.session.user.id);
     return { agent: agentSummary(updated) };
   });
 
