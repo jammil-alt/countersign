@@ -1282,7 +1282,7 @@ Code in `packages/core/src/schemas/automation.ts`, `packages/core/src/workflow/a
 | Files | Owns `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `packages/core/src/api/builder.ts`, `packages/core/src/bundle/similarity.ts`. |
 | Tables (0030) | // v0.12 W3-A. `builder_session` and `builder_turn` as ARCHITECTURE §5.5, plus two turn columns: `bundle` (the working draft after the turn, which undo merges against) and `meta` (questions, gaps, notes, errors, the parsed command, the model). // DECISION: the templates' policy, as `automation` and `test_case` (0027, 0028): a session on a template or a shared skill has `tenant_id` null and shows only in operator sessions; a session on a client's agent or skill carries the client's id, and same-client foreign keys tie its agent, skill and turns to it. `base_version_id` and `saved_version_id` have no foreign key (an agent or a skill version by `kind`, like `test_case.target_id`). `cs_runtime` gets SELECT, INSERT, UPDATE, never DELETE; a turn is immutable except `undone_at` (trigger), set once every change of the turn is undone; a save is its own turn, inserted with `saved_version_id`. |
 
-### 1.52 New connectors (W3-B, M29; migration 0031 spare, likely unused)
+### 1.52 New connectors (W3-B, M29; no migration: the 0031 spare went to WhatsApp capture, §1.55)
 
 | Topic | Decision |
 |---|---|
@@ -1399,6 +1399,43 @@ Decisions made while building M32 (checkpoint reviews):
 | After success | `continue` goes on; `retry_with` runs again with the corrected input; `ask` waits — approved, the run goes on with the output as it is; declined or unanswered, `onReject`: `continue` skips the step, `stop` cancels the run (`rejected`); `stop` cancels the run (`oversight_stop`) with the note as `diagnosis`. A run cancelled this way emits no `run.failed`. // DECISION |
 | A checkpoint that wrote | A write step reviewed after its change reached the client's tool (`review: 'always'` or `all`) may `continue`, `ask` or `stop`, never `retry_with`: the finish tool offers only those, and a `retry_with` is no intervention. // DECISION |
 | Words | A checkpoint's ask is titled "Before we go on from "{step}"" (six languages; the five other than English are drafts for the owner's fluent speakers); `continue` shows "Checked and went on" on the portal timeline. // DECISION |
+
+### 1.55 WhatsApp passive capture (v0.14, M33; migration 0031; ARCHITECTURE §6.12, §5.5)
+
+Owner-approved 2026-11-06: parity with Respaldo's capture of documents sent by WhatsApp. Patterns
+only (claim once by message id, fetch in the background, size checked before and after, storage
+keys from ids): no code, package, key or Meta app is shared with Respaldo. Builds on §1.22 (every
+inbound Twilio WhatsApp message is already a raw record in the contact's thread), which listed "MMS
+media download" as not built. Hot-spot edits are blocks marked `// v0.14 capture`.
+
+| Topic | Decision |
+|---|---|
+| Passive | Nothing on the capture path replies or sends. Agents bound to the number keep §1.48's behaviour (their triggers, `reply.confirm`, the stranger reply); capture adds no reply of its own. |
+| Conversation | New tenant table `conversation` (migration 0031): one WhatsApp chat on one connection. `kind` `direct` (one `contact_id`; Twilio, built now) or `group` (`external_id`, the provider's group id; Meta, schema only). `channel` `whatsapp`, with `sms` allowed by the check but not made yet. `title` (the contact's name, else the number; a group's subject later), `capture` jsonb, `created_at`, `updated_at`. Unique per (connection, channel, contact) for direct and (connection, channel, external id) for groups. Forced RLS on `app.tenant_ids`; `cs_runtime` selects, inserts and updates; no DELETE. |
+| Change log | `conversation_change` (who, side `client`/`operator`/`system`, `{setting: 'capture', before, after, reason?}`, when): insert and select only, immutable by trigger, like `contact_change`. The client default's changes are `tenant_change` rows (`setting: messaging.capture`), as approver rules' are (§1.20). |
+| When it is made | On the first inbound WhatsApp message from a contact on a connection, in the webhook's transaction, after the contact is found or made (insert, conflict does nothing, then read). Its capture is copied from the client default at that moment; a later change to the default doesn't move existing conversations. |
+| Client default | `tenant.settings.messaging.capture` (beside `messaging.quietHours`): jsonb, so no migration. Absent: `{archive: true, attachments: 'off', maxBytes: 20 MB}`. The operator sets it on the client's messaging page. |
+| Unknown senders | §1.22 makes them contacts with no consent. Their conversation gets the default with `attachments: 'off'` whatever the default says (a `system` change row records it), so a stranger's files are fetched only after a person turns it on. // DECISION |
+| `archive` | `true` (default) is today's behaviour. `false`: the raw record keeps the envelope only (SID, time, sender, channel, attachment facts) for dedupe, STOP and START, and counts; the thread line says "Not kept"; `message.get` and `inbound.get` answer `text: null, kept: false`. STOP still opts out (it is read before the text is dropped). // DECISION |
+| `attachments` | `off` (default): the raw record keeps each attachment's index, content type and media SID (an id, no link, no credential); Twilio sends no size. `documents`: PDF, PNG, JPEG, GIF, WebP (`isDocumentType`). `all`: those plus a fixed list in core (audio: OGG, MPEG, MP4, AMR; video: MP4, 3GPP; Word, Excel, CSV, plain text). Anything else, or an executable type, is refused under every setting. // DECISION |
+| Raw record shape | From v0.14 the inbound raw record's `media` is `[{index, contentType, mediaSid}]`, no URL: the fetch URL is rebuilt from validated SIDs on Twilio's origin, never taken from input. Records made before v0.14 keep their `url` (immutable); download now reads only the media SID out of it (`ME` + 32 hex, checked). // DECISION |
+| `maxBytes` | 20 MB default, 32 MB cap (the documents capability's `MAX_DOCUMENT_BYTES`, the model's request limit). // DECISION |
+| `agentId` | Optional: a client agent of this client, not a test copy, whose live version has a message trigger on `whatsapp`; else 422 `invalid_agent`. Checked again when it would start. |
+| Who changes it | The client admin (`PUT /api/conversations/:id/capture`: `archive`, `attachments`) and the operator (`PUT /api/ops/clients/:id/conversations/:conversationId/capture`: all four fields, with a reason). Either may turn either switch on or off: it is the client's data and choice, not a permission on the client's tools, so it isn't tighten-only (invariant 8 is about writes to tools). `maxBytes`, `agentId` and the default are the operator's (setup). Client users have no access (403), as with `/contacts`. A save names the `updatedAt` it read; a newer one is 409 `stale`; no change is 409 `no_op`. // DECISION |
+| Durable job | `CaptureWorkflow` (binding `CAPTURE_WORKFLOW`), one instance per message (`capture-<tenant>-<message sid>`; `create` refuses a used id), one `step.do` per media index with retries and backoff, started after the inbound transaction commits (`deferred`). Without the binding (local, tests) it runs after the response. The minute cron restarts a message whose media is wanted and has no `MessageMedia` outcome after 10 minutes, for 3 days. // DECISION: a Workflow, like the QuickBooks sync, rather than the event dispatch, so a slow or failing download never holds up a run's start. |
+| Fetch and SSRF | `GET https://api.twilio.com/2010-04-01/Accounts/<subaccount>/Messages/<message sid>/Media/<media sid>` with the client's subaccount credentials (Basic). The URL is built from SIDs checked against fixed shapes, and its `new URL(x).origin` must equal Twilio's API origin. `redirect: 'manual'`: one redirect followed, HTTPS only, without our `Authorization` header, only to an origin on a fixed list (to verify); anything else is `failed` (`redirect_refused`). No string `startsWith`/`includes` checks on URLs. Credentials and links are never logged; errors record a code. // DECISION |
+| Size and type | `Content-Length` over `maxBytes` is refused before reading; the body is read in chunks into a buffer that never grows past `maxBytes` (the read stops and refuses at the limit). The response's type must equal the declared one, and PDFs and images must start with their magic bytes; otherwise `refused` (`too_large`, `type_not_allowed`, `type_mismatch`). |
+| Once per media | Raw record `MessageMedia`, external id `<message sid>:<index>`, on the Twilio connection, inserted in the same transaction as `storeDocument`, holding `{status: filed\|refused\|failed, reason?, documentId?, contentType, sizeBytes?, sha256?}`. A retried webhook, step or download now finds it and stops. A crash between the R2 put and the commit leaves only an object under its sha256, which the retry reuses. // DECISION |
+| Documents | `storeDocument` with `source: 'message'` (0031 widens `document_source_check`), the Twilio connection, filename `whatsapp-<message sid>-<index>.<ext>` (ids only, never the sender's filename), `meta {channel, conversationId, rawRecordId, messageSid, mediaIndex, contactId}`. `document.received` fires and the background reading (§1.43) reads PDFs and images; `all`'s other types are stored, not read. The same bytes sent twice are one document (§7's per-client sha256), named by both messages' `MessageMedia` rows. |
+| Download now | `POST …/conversations/:id/messages/:rawRecordId/download` (client admin, operator): the conversation's setting at that moment must allow the attachment (else 409 `capture_off`); it starts the same job. Attachments with an outcome are left alone, except `failed` ones, tried again as the next version of their `MessageMedia` record (`external_version` 2, 3; at most 3 tries). // DECISION |
+| Agents | `message.get` and `messages.search` (through `ctx.services.messaging`; connectors still read no database) gain `conversation {id, kind, title}` and `attachments [{index, contentType, sizeBytes?, status: not_downloaded\|pending\|filed\|refused\|failed, documentId?}]`. Text and files stay data in tool results (invariant 9); a document's content is read with `docs.*`. |
+| `agentId` start | When all of a message's wanted attachments have an outcome, the job emits `inbound.message` (§1.48) for `capture.agentId` with `channel: 'whatsapp'`, the contact, the raw record and the filed document ids, through that agent's existing message trigger and People filter. No new trigger kind. A sender the filter doesn't take starts nothing and gets no reply (passive). `routeInboundText` doesn't emit for that agent when the message has media the capture will fetch, so it starts once, after the downloads. // DECISION |
+| Twilio's copy | We never delete media at Twilio. **Open (owner):** delete it there once filed, to keep one copy. |
+| Groups | Design only, with `whatsapp_meta` (§1.19). **To verify** (third-party guides, unverified): Meta's groups API needs Official Business Account status, a Tech Provider registration, groups the business creates, and about 8 participants at most. Twilio has no WhatsApp groups (**to verify** on Twilio's docs: search results show its WhatsApp FAQ saying WhatsApp retired the groups API in April 2020, and its "group messaging" sample fans out one-to-one chats through Conversations). Unofficial WhatsApp clients are out (WhatsApp's terms). |
+| Compliance | Twilio is a processor already; `meta_whatsapp` is listed for `whatsapp.*`. `apps/site`'s privacy page gains one plain line: we archive messages sent to a client's number and, where the client turns it on, their attachments, on the client's behalf. Retention: the client's existing handling (exports include conversations and their documents; retirement purges them). |
+| Screens | Minimal: portal `/conversations` (client admin; sidebar link like Contacts): each conversation with "Keep messages" and "Download attachments" switches, and "Download now" on a message. Back office: a Conversations section on `/ops/clients/:id/messaging` with the same, plus the client default. Design-system classes only. Portal words in six languages; the five other than English need a fluent review. The full screen is the owner's redesign. |
+| Files | Owns the inbound media pieces in `packages/connectors/src/twilio/` (`media.ts`, the fake's media), `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `packages/core/src/api/conversations.ts`, `packages/core/src/schemas/conversation.ts`. Marked blocks in `core/src/api/routes.ts`, `core/src/index.ts`, `apps/api/src/app.ts`, `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts`. Stays out of the bank-feed connector and `platform.ts`. |
+| To verify (Twilio) | Recorded in `packages/connectors/src/twilio/NOTES.md` when built. From search results only, not the live docs (`twilio.com` is outside this environment's network): Twilio keeps inbound media until its Media resource is deleted; media URLs need HTTP Basic auth (an older page says public unless a Console setting is on); with auth on, the fetch redirects to a signed link valid about 4 hours. Unchecked: the redirect's host, whether the subaccount's auth token (not only an API key) works for media, `Content-Length` on the signed link, and Twilio's charge for stored media. |
 
 ### People and voice samples (W1-G)
 
@@ -2006,6 +2043,33 @@ call on a clean run; `ask` waits and resumes on approval; `stop` at a checkpoint
 the bill is proposed and the approver sees the corrected input, and with `review: 'failures'` a clean
 run makes no oversight call.
 
+### M33: WhatsApp passive capture (v0.14, §1.55)
+
+Three PRs in order: this design (`claude/whatsapp-capture-design`); migration 0031 alone
+(`claude/whatsapp-capture-migration`: `conversation`, `conversation_change`, the document source
+check, grants, forced RLS, the log's immutability trigger, journal and snapshot, fixtures in the RLS,
+purge and migration test loops); then the build (`claude/whatsapp-capture`).
+
+Work: core's capture schema, type lists and route contract; conversations made in the webhook's
+transaction; the raw record's media without links; `CaptureWorkflow` with the after-commit start, the
+local fallback and the cron restart; the media fetch on Twilio's origin (one manual redirect, size and
+type checks); `MessageMedia` outcomes and `storeDocument` with `source: 'message'`; download now;
+`message.get` and `messages.search` with conversation and attachments; the `capture.agentId` start;
+the routes for both surfaces with change rows; the portal's `/conversations` and the back office's
+section; the privacy page's line; Twilio's fake with media; `NOTES.md`.
+
+Tests (against the fake Twilio): capture on gives one document, read and linked to its message;
+off keeps only the attachment's facts (no bytes, no link); a duplicate webhook and a retried step make
+no second document; refusals for size (declared and counted) and type (not allowed, mismatched); a
+redirect to another origin is refused; download now; capture changed by the client admin and by the
+operator, each with a change row; a client user refused; client isolation; no portal answer carries a
+bundle, prompt, cost or Twilio link; the routes in the contract test; the API e2e's messaging part,
+if it has one.
+
+**Done when** a WhatsApp photo from a contact whose conversation has attachments on becomes one
+document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
+retried webhook makes nothing twice; the client admin toggles it and the change is logged.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -2149,6 +2213,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | `apps/api/src/email.ts` | W1-G: the `+voice` branch; W2-E: agent addresses |
 | Senses event catalog | Append event types (W1-C, W1-F, W2-E) |
 | `apps/api/src/platform.ts` | One registration line per new connector (W3-B) |
+| `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
 
 ### 8.3 Reserved migrations
 
@@ -2167,7 +2232,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0028 | W2-C | `test_case`, `test_suite_run`, `test_case_result`, `skill.require_tests` |
 | 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
 | 0030 | W3-A | `builder_session`, `builder_turn` |
-| 0031 | spare (W3-B, if a connector needs one) | |
+| 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -2175,6 +2240,10 @@ written as 0029, the next number after 0028: the journal's tags must ascend in t
 migrations merge (`packages/db/src/migrations.test.ts`), and Wave 2 merges before Wave 3, so a gap
 left for 0029–0030 could never be filled. The Builder's tables move from 0029 to 0030 and the spare
 from 0030 to 0031.
+
+// DECISION (v0.14, 2026-11-06): 0031 is WhatsApp capture's, replacing the W3-B spare. W3-B built
+Drive and Outlook with no migration, and the bank-feed connector being built in parallel needs none.
+A later connector that needs a table takes 0032.
 
 The exports (data export and accountant export, running outside the waves) needed no migration.
 
@@ -2204,7 +2273,9 @@ The exports (data export and accountant export, running outside the waves) neede
 | W2-I | Run oversight (M31–M32, v0.13) | 0029 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
 | **Wave 3** | | | | |
 | W3-A | The Builder as a conversation (M28) | 0030 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
-| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0031 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | none | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| **v0.14** | | | | |
+| v0.14 capture | WhatsApp passive capture (M33, §1.55): design, migration, build as three PRs | 0031 | `packages/connectors/src/twilio/` inbound media pieces, `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `core/src/api/conversations.ts`, `core/src/schemas/conversation.ts`; blocks marked `// v0.14 capture` in the hot spots | W2-E (inbound routing), W1-H (background reading) |
 
 **Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
 
@@ -2333,3 +2404,8 @@ cases, save as automation. Drafts start with `oversight.review: 'failures'` and 
 **W3-B: New connectors (M29, §1.52).** ARCHITECTURE §6.11. Google Drive, then Outlook, against fakes;
 Ramp and HubSpot after; nothing for the aggregator or Slack until the owner decides. Done when M29's
 check holds.
+
+**v0.14 capture: WhatsApp passive capture (M33, §1.55).** ARCHITECTURE §6.12, §5.5. Three PRs, each a
+draft from `origin/main`: the design; migration 0031 alone (merged with a merge commit before the
+build); the build against the fake Twilio, extended with media. Stay out of the bank-feed connector
+and `platform.ts`. Done when M33's check holds.
