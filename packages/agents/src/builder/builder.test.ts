@@ -21,7 +21,7 @@ import { ToolRegistry } from "../registry/tools";
 import { PLATFORM_TOOLS } from "../tools/platform";
 import { BuilderError, draftAgent, reviseAgent } from "./builder";
 import type { BuilderContext } from "./context";
-import { guardBundle } from "./guards";
+import { guardBundle, replaceTemplates } from "./guards";
 
 const registry = new ToolRegistry({
   platform: PLATFORM_TOOLS,
@@ -468,5 +468,52 @@ describe("guardBundle", () => {
     expect(kept.bundle.definition.skills[0]?.skill).toBe("custom:summarize-records@2");
     const fresh = guardBundle(pinned, ctx, { mode: "draft" });
     expect(fresh.bundle.definition.skills[0]?.skill).toBe("custom:summarize-records");
+  });
+});
+
+describe("replaceTemplates", () => {
+  // The regular expression it replaces (CodeQL js/polynomial-redos), as the reference.
+  const reference = (text: string, fn: (inner: string) => string): string =>
+    text.replace(/\{\{([^}]*)\}\}/g, (_whole, inner: string) => fn(inner));
+  const mark = (inner: string): string => `<${inner}>`;
+
+  it("matches the regular expression on hand-picked cases", () => {
+    for (const text of [
+      "",
+      "plain",
+      "{{steps.a.out}}",
+      "a {{x}} b {{y}} c",
+      "{{{x}}}",
+      "{{a}b}}",
+      "{{a} {{b}}",
+      "{{ open",
+      "}} {{ }",
+      "{{}}",
+      "{{{{}}}}",
+    ]) {
+      expect(replaceTemplates(text, mark)).toBe(reference(text, mark));
+    }
+  });
+
+  it("matches the regular expression on random strings of braces", () => {
+    let seed = 7;
+    const next = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed;
+    };
+    const alphabet = ["{", "}", "a", " "];
+    for (let n = 0; n < 2000; n++) {
+      const length = next() % 14;
+      let text = "";
+      for (let i = 0; i < length; i++) text += alphabet[next() % alphabet.length];
+      expect(replaceTemplates(text, mark)).toBe(reference(text, mark));
+    }
+  });
+
+  it("is quick on a long run of {{ with no }}", () => {
+    const text = `${"{{".repeat(50_000)}x`;
+    const started = Date.now();
+    expect(replaceTemplates(text, mark)).toBe(text);
+    expect(Date.now() - started).toBeLessThan(500);
   });
 });
