@@ -350,6 +350,12 @@ export interface InternalTool {
   input: z.ZodType;
   output: z.ZodType;
   run(input: unknown, ctx: ToolInvocation): Promise<unknown>;
+  // v0.12 W2-C: the test bench (docs/plan.md §1.46)
+  /**
+   * Reads only its input (no port, no storage, no network): a tool-mode skill whose handler is
+   * pure can run on the test bench. Absent: not pure.
+   */
+  pure?: boolean;
 }
 
 export interface InboxItemInput {
@@ -408,8 +414,11 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
   input: I;
   output: O;
   run(input: z.output<I>, ctx: ToolInvocation): Promise<z.input<O>>;
+  /** v0.12 W2-C: reads only its input, so it may run on the test bench. */
+  pure?: boolean;
 }): InternalTool {
   return {
+    ...(def.pure ? { pure: true } : {}),
     spec: {
       id: def.id,
       description: def.description,
