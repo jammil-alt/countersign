@@ -11,6 +11,8 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
+// v0.14 W4-C
+import { SlackChannels } from "../../connections/SlackChannels";
 import { WebhookSetup } from "../../connections/WebhookSetup";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
@@ -35,6 +37,8 @@ type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][num
 /** Connectors whose description we show in the reader's language (else the API's English). */
 const DESCRIPTIONS: Record<string, PlainKey> = {
   gmail: "connections.gmail.description",
+  // v0.14 W4-C
+  slack: "connections.slack.description",
 };
 
 function descriptionOf(item: Offered, { t }: Pick<I18n, "t">): string {
@@ -120,6 +124,8 @@ export function PortalConnectionsScreen() {
                   <WebhookSetup key={c.connector} connectionId={c.connection?.id ?? ""} />
                 ))
             : null}
+          {/* v0.14 W4-C: the client admin picks the Slack channels agents may post to. */}
+          {isAdmin && connected.some((c) => c.connector === "slack") ? <SlackChannels /> : null}
 
           {withRows.length > 0 ? (
             <MatrixTable

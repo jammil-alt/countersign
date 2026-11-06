@@ -266,6 +266,19 @@ export const es: Messages = {
   "connections.gmail.testSend": "Enviar un correo de prueba",
   "connections.gmail.testSent":
     "Enviado a {address}. Revise la carpeta Enviados y la bandeja de entrada de ese buzón.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publique mensajes en los canales de Slack que elija. No podemos leer sus mensajes.",
+  "slack.section": "Slack · canales",
+  "slack.workspace": "Espacio de trabajo: {name}",
+  "slack.help":
+    "Los agentes publican solo en los canales que elija. Agregue la app Mezonas a un canal en Slack antes de elegirlo.",
+  "slack.noChannels": "No hay canales públicos en este espacio de trabajo.",
+  "slack.notMember": "Agregue Mezonas a este canal en Slack",
+  "slack.gone": "ya no aparece en Slack",
+  "slack.noPicks": "Ningún canal elegido: los agentes no pueden publicar en Slack.",
+  "slack.picked": { one: "{count} canal elegido", other: "{count} canales elegidos" },
+  "slack.saved": "Guardado.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Sin conectar",
   "connection.status.disconnected": "Desconectada",

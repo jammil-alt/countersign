@@ -274,6 +274,19 @@ export const de: Messages = {
   "connections.gmail.testSend": "Test-E-Mail senden",
   "connections.gmail.testSent":
     "Gesendet an {address}. Prüfen Sie den Ordner „Gesendet“ und den Posteingang dieses Postfachs.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Senden Sie Nachrichten in die Slack-Kanäle, die Sie auswählen. Wir können Ihre Nachrichten nicht lesen.",
+  "slack.section": "Slack · Kanäle",
+  "slack.workspace": "Workspace: {name}",
+  "slack.help":
+    "Agenten schreiben nur in die Kanäle, die Sie auswählen. Fügen Sie die App Mezonas in Slack zu einem Kanal hinzu, bevor Sie ihn auswählen.",
+  "slack.noChannels": "Keine öffentlichen Kanäle in diesem Workspace.",
+  "slack.notMember": "Fügen Sie Mezonas in Slack zu diesem Kanal hinzu",
+  "slack.gone": "nicht mehr in Slack aufgeführt",
+  "slack.noPicks": "Keine Kanäle ausgewählt: Agenten können nicht in Slack schreiben.",
+  "slack.picked": { one: "{count} Kanal ausgewählt", other: "{count} Kanäle ausgewählt" },
+  "slack.saved": "Gespeichert.",
   "connection.status.connected": "Verbunden",
   "connection.status.pending": "Nicht verbunden",
   "connection.status.disconnected": "Getrennt",
