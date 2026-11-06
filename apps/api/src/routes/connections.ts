@@ -7,6 +7,9 @@
 
 import {
   beginAuthorization,
+  // v0.12 bankfeed
+  beginLinkAuthorization,
+  type ConnectionContext,
   type ConnectionRef,
   type Connector,
   completeAuthorization,
@@ -25,6 +28,7 @@ import {
   SignInRefusedError,
 } from "@countersign/connectors";
 import {
+  buildPath,
   clientLanguage,
   GMAIL_TEST_WORDS,
   type Locale,
@@ -165,6 +169,34 @@ export function oauthRedirectUri(c: AppContext, env: Bindings, connectorId: stri
   }
   if (connectorId === QBO_CONNECTOR_ID) return `${origin}/api/connections/qbo/callback`;
   return `${origin}/connections/${connectorId}/callback`;
+}
+
+/**
+ * v0.12 bankfeed: where a link widget's provider (Plaid) posts this client's notifications. The
+ * client is in the path, so the webhook looks only in that client (routes/bankfeed.ts).
+ */
+export function linkWebhookUrl(c: AppContext, env: Bindings, tenantId: string): string {
+  const origin = (env.APP_ORIGIN?.trim() || new URL(c.req.url).origin).replace(/\/+$/, "");
+  return `${origin}${buildPath(routes.bankfeedWebhook.path, { tenantId })}`;
+}
+
+/**
+ * v0.12 bankfeed: the connection a link widget signs in again (Plaid Link's update mode), when it
+ * still holds credentials: an `error` or `connected` row. A disconnected one starts afresh.
+ */
+async function reconnectContext(
+  tx: Tx,
+  services: Services,
+  row: ConnectionRow | undefined,
+): Promise<ConnectionContext | undefined> {
+  if (!row || row.status === "disconnected" || !row.credentialsEncrypted) return undefined;
+  return {
+    tenantId: row.tenantId,
+    connection: refOf(row),
+    credentials: await connectionCredentials(tx, services.env, row),
+    logger: noopLogger,
+    now: () => new Date(),
+  };
 }
 
 /** The API path a provider may return to; it forwards to a callback page as it is. */
@@ -317,8 +349,13 @@ async function finishSignIn(
   const connectorId = connector.manifest.id;
   const id = existing?.id ?? uuidv7();
   let done: Awaited<ReturnType<typeof completeAuthorization>>;
+  // v0.12 bankfeed: a link widget's reconnect keeps the same grant (Plaid's update mode).
+  const reconnect = connector.beginLink
+    ? await reconnectContext(tx, services, existing)
+    : undefined;
   try {
     done = await completeAuthorization({
+      ...(reconnect ? { existing: reconnect } : {}),
       connector,
       params: input.params,
       session: { tenantId, userId: input.userId },
@@ -438,6 +475,52 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
           `signing in to ${connector.manifest.name} is not available yet`,
         );
       }
+      // v0.12 bankfeed: a hosted link widget (Plaid Link) opens in the page; its result comes back
+      // to the callback route below with the state, as a provider's redirect would.
+      if (connector.beginLink) {
+        const existing = await newestConnection(tx, tenantId, params.connector);
+        const reconnect = await reconnectContext(tx, services, existing);
+        const [t] = await tx
+          .select({ settings: tenant.settings })
+          .from(tenant)
+          .where(eq(tenant.id, tenantId));
+        const started = await beginLinkAuthorization({
+          connector,
+          tenantId,
+          userId: session.user.id,
+          redirectUri: oauthRedirectUri(c, services.env, params.connector),
+          webhookUrl: linkWebhookUrl(c, services.env, tenantId),
+          // The reader's language: their own, else the client's, else the browser's.
+          language: resolveLocale({
+            user: userLanguage(t?.settings, session.user.id),
+            client: clientLanguage(t?.settings),
+            browser: parseAcceptLanguage(c.req.header("accept-language")),
+          }),
+          stateSecret: stateSecret(services.env),
+          ...(reconnect ? { reconnect } : {}),
+        }).catch((error: unknown) => {
+          if (error instanceof HttpError) throw error;
+          reportHandled(`starting ${params.connector} failed`, error, {
+            connector: params.connector,
+          });
+          throw new HttpError(
+            502,
+            "sign_in_failed",
+            `${connector.manifest.name} did not start the sign-in`,
+          );
+        });
+        return {
+          connection: await connectorOut(
+            tx,
+            tenantId,
+            services.platform,
+            params.connector,
+            session.user.id,
+          ),
+          redirectUrl: null,
+          link: { ...started.link, state: started.state },
+        };
+      }
       const { redirectUrl } = await beginAuthorization({
         connector,
         tenantId,
@@ -553,6 +636,15 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     const t = await sandboxClient(ctx, params.id);
     await offeredTo(tx, t.id, params.connector);
     const connector = oauthConnector(services.platform, params.connector);
+    // DECISION: v0.12 bankfeed: a link widget (Plaid Link) is opened only from the portal, by the
+    // client admin; the back office has no Link screen, so the Sandbox client can't connect one.
+    if (!connector.authorize) {
+      throw new HttpError(
+        409,
+        "not_available",
+        `${connector.manifest.name} is connected from the portal only`,
+      );
+    }
     const { redirectUrl } = await beginAuthorization({
       connector,
       tenantId: t.id,
