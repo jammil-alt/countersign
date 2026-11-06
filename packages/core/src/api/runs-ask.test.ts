@@ -5,8 +5,10 @@ import {
   askFilterProblems,
   askFilterSchema,
   askSystemPrompt,
+  askToolSchema,
   askUserMessage,
   PortalAskFilter,
+  splitAskAnswer,
   tidyFilter,
 } from "./runs-ask";
 import { RunFilter } from "./runs-filter";
@@ -71,6 +73,32 @@ describe("plain-words questions", () => {
     const ops: AskContext = { ...portal, surface: "ops", clients: [{ id: CLIENT_A, name: "A" }] };
     expect(askFilterProblems({ clients: [CLIENT_A] }, ops)).toEqual([]);
     expect(askFilterProblems({ clients: [IRIS] }, ops)).toHaveLength(1);
+  });
+
+  // v0.14 W4-B (docs/plan.md §1.49 "Amounts", "Left out").
+  it("takes an amount and what was left out, and shows the amount as a chip", () => {
+    const schema = askToolSchema("portal");
+    const answer = schema.parse({
+      agents: [IRIS],
+      amount: { over: "5000.00", currency: "USD" },
+      leftOut: ["on rainy days"],
+    });
+    const { filter, leftOut } = splitAskAnswer(answer);
+    expect(leftOut).toEqual(["on rainy days"]);
+    expect(RunFilter.parse(filter)).toEqual(filter);
+    expect(askChips(filter, { agents: new Map(), connectors: new Map() })).toContainEqual({
+      key: "amount",
+      value: "over 5000.00 USD",
+    });
+    expect(schema.safeParse({ leftOut: Array(6).fill("x") }).success).toBe(false);
+    expect(schema.safeParse({ costOver: "1" }).success).toBe(false);
+    expect(askSystemPrompt(portal)).toContain("`amount`");
+    expect(
+      askFilterProblems(
+        { amount: { over: "10", under: "10", currency: "USD" } } as RunFilter,
+        portal,
+      ),
+    ).toEqual(["amount: under is not above over"]);
   });
 
   it("shows the filter as chips, by name", () => {

@@ -239,6 +239,49 @@ function kindForConnection(c: HealthConnection): FindingKind {
   return "connection_signin";
 }
 
+// v0.14 W4-B (docs/plan.md §1.27, §1.28 "Directory upkeep"): the daily check suggests adding the
+// vendors on recent transactions that the directory lacks, through `directory.suggest`'s port only:
+// one inbox item each for the client admin, never a change of its own.
+/** How far back the upkeep looks, and the most it suggests a day. */
+export const DIRECTORY_UPKEEP_DAYS = 30;
+export const DIRECTORY_UPKEEP_MAX = 5;
+
+// DECISION: deterministic (no model): a vendor on a transaction of the last 30 days with no
+// organization linked to it or of its name, never suggested before (a declined one isn't asked
+// again), becomes an `add_organization` suggestion of kind vendor; at most 5 a day. A test run's
+// check makes none (the port's `test_run`). Likely duplicates are not looked for yet.
+async function directoryUpkeep(ctx: ToolInvocation, at: Date): Promise<number> {
+  const directory = ctx.directory;
+  if (!directory?.unlistedVendors) return 0;
+  const unlisted = await directory.unlistedVendors(ctx.tenantId, {
+    sinceDays: DIRECTORY_UPKEEP_DAYS,
+    limit: DIRECTORY_UPKEEP_MAX,
+    now: at,
+  });
+  let made = 0;
+  for (const v of unlisted) {
+    const r = await directory
+      .suggest(ctx.tenantId, {
+        agentId: ctx.agentId,
+        agentVersionId: ctx.agentVersionId,
+        runId: ctx.runId,
+        suggestion: {
+          suggestion: {
+            action: "add_organization",
+            organization: { name: v.name.slice(0, 200), kinds: ["vendor"] },
+          },
+          reason: `${v.name.slice(0, 200)} is on recent transactions and isn't in the directory yet.`,
+          sources: v.sources,
+        },
+        test: ctx.mode === "test",
+      })
+      // A suggestion the directory now refuses (the name was added meanwhile) is skipped.
+      .catch(() => null);
+    if (r?.status === "suggested") made += 1;
+  }
+  return made;
+}
+
 export const supervisorCheck = defineInternalTool({
   id: SUPERVISOR_CHECK_TOOL,
   description:
@@ -261,6 +304,8 @@ export const supervisorCheck = defineInternalTool({
     }),
     findings: z.array(ReportOutput),
     sources: z.array(z.string()),
+    // v0.14 W4-B: directory additions suggested by the upkeep (absent: none, or no directory).
+    directorySuggestions: z.number().int().optional(),
   }),
   async run(_input, ctx) {
     const { health, findings } = ports(ctx);
@@ -365,12 +410,20 @@ export const supervisorCheck = defineInternalTool({
       sources,
     };
     if (!test) await findings.summarize(ctx.tenantId, summary);
+    // v0.14 W4-B: the directory's upkeep, after the findings (a failure here never hides them).
+    const directorySuggestions = await directoryUpkeep(ctx, at).catch((error: unknown) => {
+      console.warn(
+        `directory upkeep failed: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+      return 0;
+    });
     return {
       status: test ? ("would_check" as const) : ("checked" as const),
       reported: results.length,
       summary,
       findings: results,
       sources: uniq([...sources, ...results.flatMap((r) => r.sources)]),
+      ...(directorySuggestions > 0 ? { directorySuggestions } : {}),
     };
   },
 });

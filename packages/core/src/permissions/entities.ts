@@ -261,3 +261,63 @@ export function loosenedEntities(
   }
   return out;
 }
+
+// v0.14 W4-B: an entity turned off, caught at publish (docs/plan.md §1.44 "Off at publish").
+
+/** What the publish check knows about a write step's tool through its connection. */
+export interface PublishEntityInput {
+  tool: EntityToolRef;
+  /**
+   * The entity the step works on when it can be known before a run: the tool's own, or (an action
+   * step's) the literal value of its entity input. Undefined: not known until the call, not checked.
+   */
+  entity: string | undefined;
+  matrix: Partial<PermissionMatrix> | undefined;
+  grant?: EntityGrant | null | undefined;
+  /** The connector's `permissionEntities`; without them a scope can't be read and isn't checked. */
+  declared?: readonly PermissionEntity[] | undefined;
+}
+
+/**
+ * Who turns the step's entity off, if anyone: the connection's matrix (its entity level, or a scope
+ * that leaves the tool out), else the agent's grant. Null when neither does. Only ever refuses: an
+ * entity that is on here is still checked again at the call, where the gate folds everything.
+ */
+// DECISION: publish checks only what is certain before a run. A tool that reads its entity from its
+// input is checked only when an action step writes that input as plain text; a scope is checked
+// only when the connector's declared entities are passed (the builder in the browser has the
+// matrices but not the manifests, and a scope it can't read must not refuse a step the run would
+// allow). Delete is already refused by the verb check.
+export function entityOffBy(input: PublishEntityInput): "matrix" | "grant" | null {
+  const entity = input.entity;
+  if (entity === undefined) return null;
+  const { verb, id } = input.tool;
+  const offIn = (holder: { entities?: unknown } | null | undefined): boolean => {
+    const entities = readEntities(holder);
+    if (entities === null) return true;
+    if (own(entities, entity)?.[verb] === "off") return true;
+    if (input.declared === undefined) return false;
+    const tools = scopeTools(entities, entity, verb, input.declared);
+    return tools !== null && !tools.includes(id);
+  };
+  if (offIn(input.matrix)) return "matrix";
+  if (input.grant && offIn(input.grant)) return "grant";
+  return null;
+}
+
+/**
+ * The entity a step's call will work on, when it is known before the run: the tool's own entity,
+ * or an entity input written as plain text in the step. A value that maps to no entity is the call's
+ * `off` (entityOfCall's null), returned as the empty string so the caller can say so.
+ */
+export function publishEntity(
+  tool: Pick<EntityToolRef, "entity" | "entityInput">,
+  stepInput: unknown,
+): string | undefined {
+  if (tool.entity) return tool.entity;
+  const from = tool.entityInput;
+  if (!from || !isPlainObject(stepInput) || !Object.hasOwn(stepInput, from.field)) return undefined;
+  const value = stepInput[from.field];
+  if (typeof value !== "string" || value.includes("{{")) return undefined;
+  return own(from.values, value) ?? "";
+}

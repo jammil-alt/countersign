@@ -83,7 +83,12 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
   );
   let rateLimit = opts.rateLimitNext ?? 0;
   let refreshFails = false;
-  const state = { leadModifiedTime: leadGet.data[0]?.Modified_Time ?? null };
+  const state = {
+    leadModifiedTime: leadGet.data[0]?.Modified_Time ?? null,
+    // v0.14 W4-B: records the sync's list calls answer from, by module; and the watches asked.
+    listed: {} as Record<string, Record<string, unknown>[]>,
+    watches: [] as unknown[],
+  };
 
   const fetch: FetchLike = async (url: string, init: HttpRequestInit = {}) => {
     const method = (init.method ?? "GET").toUpperCase();
@@ -115,6 +120,31 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
     }
     const path = u.pathname;
     if (path === "/crm/v8/org") return jsonResponse(200, org);
+    // v0.14 W4-B: the sync's list calls (If-Modified-Since, oldest first, paged) and the watch.
+    const listedModule = /^\/crm\/v8\/(Leads|Contacts|Accounts|Deals)$/.exec(path)?.[1];
+    if (listedModule && method === "GET") {
+      const since = Date.parse(init.headers?.["if-modified-since"] ?? "1970-01-01T00:00:00Z");
+      const q = formDecode(url.split("?")[1] ?? "");
+      const page = Number(q.page ?? "1");
+      const per = Number(q.per_page ?? "200");
+      const all = (state.listed[listedModule] ?? [])
+        .filter((r) => Date.parse(String(r.Modified_Time)) > since)
+        .sort((a, b) => Date.parse(String(a.Modified_Time)) - Date.parse(String(b.Modified_Time)));
+      const slice = all.slice((page - 1) * per, page * per);
+      if (slice.length === 0) return jsonResponse(304, undefined);
+      return jsonResponse(200, {
+        data: slice,
+        info: { page, per_page: per, count: slice.length, more_records: all.length > page * per },
+      });
+    }
+    if (path === "/crm/v8/actions/watch" && method === "POST") {
+      state.watches.push(JSON.parse(init.body ?? "{}"));
+      return jsonResponse(200, {
+        watch: [
+          { code: "SUCCESS", status: "success", message: "Successfully subscribed", details: {} },
+        ],
+      });
+    }
     if (path === "/crm/v8/Leads/search") {
       return url.includes("nobody") ? jsonResponse(204, undefined) : jsonResponse(200, leadsSearch);
     }

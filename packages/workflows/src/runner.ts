@@ -26,9 +26,18 @@ export interface WaitedEvent<T = unknown> {
   timestamp?: Date;
 }
 
+// v0.14 W4-B: which try of a durable step this is, so a step's real attempts can be counted.
+export interface StepTry {
+  /** 1 on the first try; 2, 3… when the platform retries the step per its config. */
+  attempt: number;
+}
+
 export interface StepRunner {
-  /** Runs `fn` once, durably: retried per `config`, its (JSON) result stored under `name`. */
-  do<T>(name: string, fn: () => Promise<T>, config?: StepConfig): Promise<T>;
+  /**
+   * Runs `fn` once, durably: retried per `config`, its (JSON) result stored under `name`. `fn`
+   * is told which try it is (v0.14 W4-B; adapters that can't tell pass nothing: the first).
+   */
+  do<T>(name: string, fn: (attempt?: StepTry) => Promise<T>, config?: StepConfig): Promise<T>;
   /**
    * Waits for an event of `type` sent to this run. Rejects with WaitTimeoutError after `timeout`
    * (adapters convert the platform's own timeout error).

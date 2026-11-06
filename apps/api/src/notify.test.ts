@@ -322,6 +322,19 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       expect((await H.call(admin("a"), "POST", path)).status).toBe(403);
       expect((await H.call(OTHER_OPERATOR, "POST", path)).status).toBe(404);
       const before = emailsTo(admin("a")).length;
+      // v0.14 W4-B: without our mail the reminder does nothing (no rows, no log, the day kept).
+      const key = H.env.RESEND_API_KEY;
+      H.env.RESEND_API_KEY = "";
+      try {
+        const off = await H.call(OPERATOR, "POST", path);
+        expect(off.status).toBe(409);
+        expect(j(off.json).error.code).toBe("not_configured");
+      } finally {
+        H.env.RESEND_API_KEY = key ?? "";
+      }
+      expect(
+        await H.t.db.select().from(connectionChange).where(eq(connectionChange.connectionId, id)),
+      ).toEqual([]);
       const sent = await H.call(OPERATOR, "POST", path);
       expect(sent.status, JSON.stringify(sent.json)).toBe(200);
       expect(

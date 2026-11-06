@@ -10,7 +10,10 @@ import {
   generateEncryptionKey,
   hmacSha256Hex,
   WEBHOOK_SEND_TOOL,
+  ZOHO_RECORD_CHANGED_EVENT,
   ZOHO_TOOLS,
+  zohoChannelId,
+  zohoNotifyToken,
 } from "@countersign/connectors";
 import {
   fakePodio,
@@ -41,6 +44,7 @@ import {
 } from "./api.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
+import { runZohoSync, zohoCronTick } from "./zoho/sync";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -533,6 +537,126 @@ describe.skipIf(!h)("connectors through the API", () => {
       expect(action?.before).toMatchObject({ id: LEAD, fields: { Lead_Status: "Not Contacted" } });
       await executeRun(deps(), params, cloudflareStepRunner(approver("b")));
       expect(puts()).toHaveLength(1);
+    });
+
+    // v0.14 W4-B (docs/plan.md §1.9 "Sync (W4-B)").
+    it("syncs changes into raw records and events: history first, then news", async () => {
+      const zdeps = {
+        db: H.db,
+        platform: H.platform,
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+      };
+      const at = (iso: string) => () => new Date(iso);
+      zoho.state.listed.Deals = [
+        {
+          id: "5725767000000411001",
+          Deal_Name: "Kitchen",
+          Modified_Time: "2026-11-01T10:00:00+00:00",
+        },
+      ];
+      const first = await runZohoSync(
+        { ...zdeps, now: at("2026-11-06T12:00:00Z") },
+        {
+          tenantId: H.B.tenantId,
+          connectionId,
+        },
+      );
+      expect(first).toMatchObject({ pages: 4, stored: 1 });
+      const raws = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(and(eq(rawRecord.connectionId, connectionId), eq(rawRecord.connector, "zoho_crm")));
+      expect(raws.map((r) => [r.entityType, r.externalId])).toEqual([
+        ["Deals", "5725767000000411001"],
+      ]);
+      const changed = () =>
+        H.t.db
+          .select()
+          .from(event)
+          .where(and(eq(event.tenantId, H.B.tenantId), eq(event.type, ZOHO_RECORD_CHANGED_EVENT)));
+      // The first sync is history: no events.
+      expect(await changed()).toEqual([]);
+      zoho.state.listed.Deals.push({
+        id: "5725767000000411001",
+        Deal_Name: "Kitchen and bath",
+        Modified_Time: "2026-11-06T12:30:00+00:00",
+      });
+      zoho.state.listed.Leads = [
+        {
+          id: "5843104000000424999",
+          Last_Name: "Ortiz",
+          Modified_Time: "2026-11-06T12:31:00+00:00",
+        },
+      ];
+      const dispatched: string[] = [];
+      await runZohoSync(
+        { ...zdeps, now: at("2026-11-06T13:00:00Z") },
+        { tenantId: H.B.tenantId, connectionId },
+        async (ids) => dispatched.push(...ids),
+      );
+      const events = await changed();
+      expect(
+        events.map((e) => j(e.payload)).sort((a, b) => a.module.localeCompare(b.module)),
+      ).toEqual([
+        expect.objectContaining({
+          module: "Deals",
+          change: "updated",
+          recordId: "5725767000000411001",
+        }),
+        expect.objectContaining({
+          module: "Leads",
+          change: "created",
+          recordId: "5843104000000424999",
+        }),
+      ]);
+      expect(dispatched.sort()).toEqual(events.map((e) => e.id).sort());
+      const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+      expect(j(row?.syncCursor).zoho).toMatchObject({ initial: false, module: 0 });
+    });
+
+    it("takes Zoho's notifications only with the connection's token, and renews the watch", async () => {
+      const path = `/api/hooks/zoho_crm/${H.B.tenantId}/${connectionId}`;
+      const token = await zohoNotifyToken(H.env.OAUTH_STATE_SECRET as string, connectionId);
+      const note = (t: string, channel = zohoChannelId(connectionId)) => ({
+        channel_id: channel,
+        token: t,
+        module: "Deals",
+        operation: "update",
+        ids: ["5725767000000411001"],
+      });
+      const ok = await H.call(null, "POST", path, note(token));
+      expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+      expect(j(ok.json)).toEqual({ accepted: true });
+      await H.settle();
+      expect((await H.call(null, "POST", path, note(`${token.slice(0, -1)}0`))).status).toBe(401);
+      expect((await H.call(null, "POST", path, note(token, "123"))).status).toBe(401);
+      const otherConn = `/api/hooks/zoho_crm/${H.B.tenantId}/${H.B.connectionId}`;
+      expect((await H.call(null, "POST", otherConn, note(token))).status).toBe(401);
+
+      const watches = zoho.state.watches.length;
+      const tick = (iso: string) =>
+        zohoCronTick(
+          {
+            db: H.db,
+            platform: H.platform,
+            credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+            secret: H.env.OAUTH_STATE_SECRET,
+            origin: ORIGIN,
+            now: () => new Date(iso),
+          },
+          async () => {},
+          new Date(iso),
+        );
+      // Not the Zoho minute: nothing.
+      expect(await tick("2026-11-06T14:00:00Z")).toBe(0);
+      expect(await tick("2026-11-06T14:09:00Z")).toBeGreaterThanOrEqual(1);
+      expect(zoho.state.watches.length).toBe(watches + 1);
+      expect(j(zoho.state.watches.at(-1)).watch[0].notify_url).toBe(`${ORIGIN}${path}`);
+      // Renewed a day later, not before.
+      await tick("2026-11-06T14:24:00Z");
+      expect(zoho.state.watches.length).toBe(watches + 1);
+      await tick("2026-11-07T12:09:00Z");
+      expect(zoho.state.watches.length).toBe(watches + 2);
     });
 
     it("revokes the grant at Zoho when the client disconnects", async () => {
