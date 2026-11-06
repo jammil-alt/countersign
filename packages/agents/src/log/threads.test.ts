@@ -2,7 +2,7 @@
 // writes to the client, in an account thread of a live run; reading returns messages as data;
 // the account agent reads only what the portal shows; each client sees only its own threads.
 
-import { agent, agentVersion, event, message, thread } from "@countersign/db";
+import { agent, agentVersion, event, message, run, thread } from "@countersign/db";
 import { startAccountThread } from "@countersign/threads";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -21,6 +21,8 @@ describe.skipIf(!h)("threads tools", () => {
   let sloan: { id: string; versionId: string };
   let clerk: { id: string; versionId: string };
   let accountThreadId: string;
+  // v0.12 W2-D: another person's conversation in the same client.
+  let otherAccountThread: string;
 
   async function insertAgent(slug: string, name: string) {
     const [a] = await H.t.db
@@ -85,6 +87,22 @@ describe.skipIf(!h)("threads tools", () => {
     accountThreadId = (
       await H.client(H.A, (tx) => startAccountThread(tx, H.A.tenantId, H.A.userId))
     ).id;
+    otherAccountThread = (
+      await H.client(H.A, (tx) => startAccountThread(tx, H.A.tenantId, H.A.adminId))
+    ).id;
+    // v0.12 W2-D: Sloan's run, started by a message in that account thread.
+    await H.t.db.insert(run).values({
+      id: RUN,
+      tenantId: H.A.tenantId,
+      agentId: sloan.id,
+      agentVersionId: sloan.versionId,
+      workflowSlug: "chat",
+      trigger: {
+        type: "event",
+        eventType: "thread.message_posted",
+        payload: { threadId: accountThreadId },
+      },
+    });
   });
   afterAll(async () => {
     await H?.close();
@@ -92,10 +110,22 @@ describe.skipIf(!h)("threads tools", () => {
 
   it("lets the account agent answer the client in an account thread, and emits ids only", async () => {
     emitted.length = 0;
+    // v0.12 W2-D: only in the thread that asked, and citing a source.
+    for (const [threadId, sources] of [
+      [otherAccountThread, [accountThreadId]],
+      [accountThreadId, []],
+    ] as const) {
+      await expect(
+        threadsPost.run(
+          { text: "Hello", sources: [...sources], threadId, audience: "client" },
+          ctx(sloan),
+        ),
+      ).rejects.toThrow(/conversation it was asked in|cite your sources/);
+    }
     const out = await threadsPost.run(
       {
         text: "Your March bills are all signed.",
-        sources: [],
+        sources: [accountThreadId],
         threadId: accountThreadId,
         audience: "client",
       },

@@ -23,6 +23,8 @@ import { mcpRoutes } from "./mcp/routes";
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
+// v0.12 W2-D: Sloan, the account agent
+import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
@@ -129,6 +131,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   tableRouteHandlers(app);
   // v0.12 W1-C
   threadRouteHandlers(app);
+  // v0.12 W2-D: Sloan, the account agent
+  accountRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

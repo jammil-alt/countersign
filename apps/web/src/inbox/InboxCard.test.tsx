@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { changeModel, changeTarget } from "./change";
-import { InboxCard, type InboxCardItem } from "./InboxCard";
+import { InboxCard, type InboxCardItem, isAccountChangeItem } from "./InboxCard";
 
 const CHANGE: InboxCardItem = {
   id: "00000000-0000-4000-8000-0000000f0001",
@@ -140,5 +140,30 @@ describe("InboxCard: a person's question", () => {
     expect(onResolve).toHaveBeenCalledWith({ decision: "approve", answer: "Yes, new" });
     await userEvent.click(screen.getByTestId("inbox-item-decline"));
     expect(onResolve).toHaveBeenLastCalledWith({ decision: "reject" });
+  });
+});
+
+// v0.12 W2-D
+describe("InboxCard: a change Sloan drafted", () => {
+  it("shows how it is now and how it would be, in the server's words", () => {
+    renderCard({
+      item: {
+        ...CHANGE,
+        kind: "approval",
+        title: "Add Lisa as a signer",
+        payload: {
+          accountChange: {
+            now: ["Lisa is not on your team."],
+            after: ["Lisa joins your team and signs.", "Changes in Testkit → Lisa"],
+          },
+          sources: [],
+        },
+      },
+    });
+    expect(screen.getByText("Now")).toBeInTheDocument();
+    expect(screen.getByText("Lisa is not on your team.")).toBeInTheDocument();
+    expect(screen.getByText("After this change")).toBeInTheDocument();
+    expect(isAccountChangeItem({ payload: { accountChange: {} } })).toBe(true);
+    expect(isAccountChangeItem({ payload: {} })).toBe(false);
   });
 });

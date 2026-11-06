@@ -9,6 +9,8 @@ import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 import { accessRoutes } from "./access";
+// v0.12 W2-D: Sloan, the account agent
+import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
@@ -1821,5 +1823,7 @@ export const routes = {
   ...deskRoutes,
   // v0.12 W1-C
   ...threadRoutes,
+  // v0.12 W2-D: Sloan, the account agent
+  ...accountRoutes,
 } as const;
 export type Routes = typeof routes;

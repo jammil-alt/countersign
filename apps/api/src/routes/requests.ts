@@ -77,6 +77,57 @@ function statusFilter(status: "open" | "resolved" | "all"): SQL[] {
   return status === "all" ? [] : [eq(inboxItem.status, status)];
 }
 
+/**
+ * Raises a client's request: an operator item in the requests queue. v0.12 W2-D: a function, so
+ * Sloan's `account.pass_to_lead` raises it exactly as the portal does (`extra` keeps the thread).
+ */
+export async function raiseRequest(
+  tx: Tx,
+  tenantId: string,
+  input: {
+    text: string;
+    subject?: string | undefined;
+    serviceId?: string | undefined;
+    raisedBy: string;
+    extra?: Record<string, unknown>;
+  },
+): Promise<InboxRow> {
+  if (input.serviceId) {
+    // One of the services the client sees (its overview's list), nothing else.
+    const [service] = await tx
+      .select({ id: agent.id })
+      .from(agent)
+      .where(
+        and(
+          eq(agent.id, input.serviceId),
+          eq(agent.tenantId, tenantId),
+          eq(agent.kind, "client"),
+          eq(agent.testCopy, false),
+          inArray(agent.runStatus, ["active", "paused"]),
+        ),
+      );
+    if (!service) throw notFound("service");
+  }
+  const payload: RequestPayload = {
+    text: input.text,
+    subject: input.subject ?? null,
+    raisedBy: input.raisedBy,
+  };
+  const [row] = await tx
+    .insert(inboxItem)
+    .values({
+      tenantId,
+      kind: "change_request",
+      agentId: input.serviceId ?? null,
+      assigneeRole: "operator",
+      title: requestTitle(input.subject, input.text),
+      payload: { ...input.extra, ...payload },
+    })
+    .returning();
+  if (!row) throw new Error("request insert returned nothing");
+  return row;
+}
+
 /** Client users see the requests they raised; the client admin sees all of the client's. */
 // DECISION: a client_user's requests are their own (as their inbox is); the client admin, who
 // answers for the client, sees everyone's.
@@ -255,39 +306,12 @@ export function requestRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.portalRaiseRequest, async ({ tx, tenantIds, session, body }) => {
     const tenantId = tenantIds[0] as string;
-    if (body.serviceId) {
-      // One of the services the client sees (its overview's list), nothing else.
-      const [service] = await tx
-        .select({ id: agent.id })
-        .from(agent)
-        .where(
-          and(
-            eq(agent.id, body.serviceId),
-            eq(agent.tenantId, tenantId),
-            eq(agent.kind, "client"),
-            eq(agent.testCopy, false),
-            inArray(agent.runStatus, ["active", "paused"]),
-          ),
-        );
-      if (!service) throw notFound("service");
-    }
-    const payload: RequestPayload = {
+    const row = await raiseRequest(tx, tenantId, {
       text: body.text,
-      subject: body.subject ?? null,
+      subject: body.subject,
+      serviceId: body.serviceId,
       raisedBy: session.user.id,
-    };
-    const [row] = await tx
-      .insert(inboxItem)
-      .values({
-        tenantId,
-        kind: "change_request",
-        agentId: body.serviceId ?? null,
-        assigneeRole: "operator",
-        title: requestTitle(body.subject, body.text),
-        payload: { ...payload },
-      })
-      .returning();
-    if (!row) throw new Error("request insert returned nothing");
+    });
     const [item] = await portalRequests(tx, tenantId, [row]);
     if (!item) throw new Error("no request");
     return { item };

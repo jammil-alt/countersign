@@ -1,7 +1,8 @@
 // The seed (docs/plan.md §1.2 "Seeded and template definitions", "Sandbox client"): the operator,
 // the clients "Sandbox" and "Demo client" with their memberships, and the platform templates as v1
-// rows from packages/db/seed/agents/<slug>.v1.json. Idempotent: ids are uuid v5 of fixed names and
-// every insert skips what is already there, so running it twice changes nothing.
+// rows from packages/db/seed/agents/<slug>.v1.json, later seeded versions (`<slug>.v<n>.json`) as
+// the live version. Idempotent: ids are uuid v5 of fixed names and every insert skips what is
+// already there, so running it twice changes nothing.
 //
 // Node only (it reads the seed files); not exported from the package's Worker-safe index.
 
@@ -47,6 +48,33 @@ export async function loadSeedTemplates(): Promise<SeedTemplate[]> {
     out.push({ slug, bundle: result.value, hash: await bundleHash(result.value) });
   }
   return out;
+}
+
+// v0.12 W2-D: later seeded versions (`<slug>.v<n>.json`, n ≥ 2), e.g. the supervisor's v2, Sloan.
+export interface SeedTemplateVersion extends SeedTemplate {
+  version: number;
+}
+
+/** Every seeded version after the first, by slug then version. Throws on an invalid file. */
+export async function loadSeedVersions(): Promise<SeedTemplateVersion[]> {
+  const out: SeedTemplateVersion[] = [];
+  for (const file of await readdir(SEED_DIR)) {
+    const m = /^([a-z0-9-]+)\.v(\d{1,4})\.json$/.exec(file);
+    if (!m?.[1] || !m[2] || Number(m[2]) < 2) continue;
+    const raw: unknown = JSON.parse(await readFile(new URL(file, SEED_DIR), "utf8"));
+    const result = validateBundle(raw);
+    if (!result.valid || !result.value) {
+      const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
+      throw new Error(`seed/agents/${file} is not a valid bundle: ${errors}`);
+    }
+    out.push({
+      slug: m[1],
+      version: Number(m[2]),
+      bundle: result.value,
+      hash: await bundleHash(result.value),
+    });
+  }
+  return out.sort((a, b) => a.slug.localeCompare(b.slug) || a.version - b.version);
 }
 
 const seedId = (name: string) => uuidv5(name, SEED_NAMESPACE);
@@ -151,6 +179,50 @@ export async function seed(db: Db): Promise<SeedResult> {
         await tx.update(agent).set({ liveVersionId: v1.id }).where(eq(agent.id, row.id));
       }
       seeded[t.slug] = { agentId: row.id, versionId: v1.id };
+    }
+
+    // v0.12 W2-D: later seeded versions become the template's live version, once: a version with
+    // the same bundle already there (seeded, or installed by the back office's install route)
+    // changes nothing. Publishing a template changes no client agent (invariant 11): clients'
+    // forks move by the usual reviewed update.
+    for (const v of await loadSeedVersions()) {
+      const template = seeded[v.slug];
+      if (!template) continue;
+      const versions = await tx
+        .select({
+          id: agentVersion.id,
+          version: agentVersion.version,
+          hash: agentVersion.bundleHash,
+        })
+        .from(agentVersion)
+        .where(eq(agentVersion.agentId, template.agentId));
+      if (versions.some((x) => x.hash === v.hash)) continue;
+      const [row] = await tx
+        .select({ liveVersionId: agent.liveVersionId })
+        .from(agent)
+        .where(eq(agent.id, template.agentId));
+      const id = await seedId(`template:${v.slug}:v${v.version}`);
+      await tx.insert(agentVersion).values({
+        id,
+        tenantId: null,
+        agentId: template.agentId,
+        // DECISION: the next free number, so an operator's own versions keep theirs.
+        version: Math.max(0, ...versions.map((x) => x.version)) + 1,
+        bundle: v.bundle,
+        bundleHash: v.hash,
+        status: "live",
+        changeNote: `Seeded platform template v${v.version}`,
+        releaseNote: `Seeded v${v.version}`,
+        authorType: "operator",
+        parentVersionId: row?.liveVersionId ?? null,
+      });
+      if (row?.liveVersionId) {
+        await tx
+          .update(agentVersion)
+          .set({ status: "retired" })
+          .where(eq(agentVersion.id, row.liveVersionId));
+      }
+      await tx.update(agent).set({ liveVersionId: id }).where(eq(agent.id, template.agentId));
     }
 
     return { tenants, users, templates: seeded };
