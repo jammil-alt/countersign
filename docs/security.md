@@ -116,8 +116,9 @@ branches.
   - `main` is protected: a pull request, passing checks and CodeQL are required, and force
     pushes and deletion are blocked.
   - Only the admin can bypass it.
-- CI runs lint, the layering check, typecheck and every test. It checks migrations against a
-  **schema-only** copy of production, so client data never reaches a CI runner (in PR #81).
+- CI runs lint, the layering check, typecheck and every test, and applies every migration to its
+  own Postgres. It **never connects to Neon**, so client data never reaches a CI runner (in PR
+  #81). Migrations meet real rows on staging first, in a transaction, before production.
 - **CodeQL** (security queries) runs on pull requests, on `main` and weekly (in PR #81).
 - **Dependabot** sends alerts and security updates, plus weekly grouped version updates.
 - **Secret scanning** with push protection is on.

@@ -17,7 +17,7 @@ branches.
 
 | PR | What | Order |
 |---|---|---|
-| #81 | CI: schema-only database copy, CodeQL, Dependabot | First. "analyze" is a required check and comes from this PR |
+| #81 | CI: no database copy (CI never connects to Neon), CodeQL, Dependabot | First. "analyze" is a required check and comes from this PR |
 | #83 | Sign-in: 30-minute idle limit, 12-hour sessions | Any time after #81 |
 | #82 | Migration 0017: the audit log, `tenant.retired_at`, plan §1.35 | Before #84 |
 | #84 | The controls and the back-office screens | Last. Retarget its base to `main` first |
