@@ -118,6 +118,11 @@ export const tenant = pgTable("tenant", {
   settings: json("settings").notNull().default({}),
   workosOrganizationId: text("workos_organization_id").unique(),
   createdAt: createdAt(),
+  /**
+   * When the operator retired the client (offboarding, docs/plan.md §1.35): nobody signs in to it,
+   * no agent runs for it, and its data is purged once the retention period has passed.
+   */
+  retiredAt: ts("retired_at"),
 });
 
 export const appUser = pgTable("app_user", {
@@ -2149,6 +2154,47 @@ export const accessRelease = pgTable(
   ],
 );
 
+// ── Audit log (docs/plan.md §1.35) ───────────────────────────────────────────────────────────────
+
+export const AUDIT_OUTCOMES = ["ok", "refused", "error"] as const;
+export const AUDIT_ACTOR_KINDS = ["user", "system", "anonymous"] as const;
+
+/**
+ * Who did what, when, from where, to which records: one row per request to a session route (reads
+ * included), per sign-in, sign-out and refused sign-in, and per operator action outside a request.
+ * Append-only for everyone but the table's owner (trigger and grants, migration 0017). `tenant_id`
+ * is the client acted in, or null (sign-in, cross-client back-office lists). No foreign keys, so
+ * the log outlives a purged client or user (it holds ids, never the records' content).
+ */
+export const auditEvent = pgTable(
+  "audit_event",
+  {
+    id: id(),
+    tenantId: uuid("tenant_id"),
+    actorKind: text("actor_kind").$type<(typeof AUDIT_ACTOR_KINDS)[number]>().notNull(),
+    actorUserId: uuid("actor_user_id"),
+    /** The address signed in with, as it was then. */
+    actorEmail: text("actor_email"),
+    actorRole: text("actor_role"),
+    /** `GET /api/runs/:id` for a route; `session.sign_in`, `client.retire`… otherwise. */
+    action: text("action").notNull(),
+    outcome: text("outcome").$type<(typeof AUDIT_OUTCOMES)[number]>().notNull(),
+    httpStatus: integer("http_status"),
+    /** The ids the action named (route params, `?client=`); never bodies or record content. */
+    target: json("target").notNull().default({}),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("audit_event_tenant_idx").on(t.tenantId, t.createdAt),
+    index("audit_event_actor_idx").on(t.actorUserId, t.createdAt),
+    index("audit_event_created_idx").on(t.createdAt),
+    check("audit_event_outcome_check", oneOf(t.outcome, AUDIT_OUTCOMES)),
+    check("audit_event_actor_kind_check", oneOf(t.actorKind, AUDIT_ACTOR_KINDS)),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -2200,6 +2246,7 @@ export const TENANT_TABLES = [
   "billing_agent_day",
   "billing_statement",
   "billing_statement_line",
+  "audit_event",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -2211,6 +2258,7 @@ export const OPERATOR_TABLES = [
   "agent_version",
   "agent_change",
   "feedback",
+  "audit_event",
 ] as const satisfies readonly TenantTable[];
 
 /** Global tables only operator sessions may read or write (row-level security on `app.operator`). */

@@ -12,6 +12,7 @@ import {
   agentGrant,
   agentVersion,
   appUser,
+  auditEvent,
   billingAgentDay,
   billingAgentPrice,
   billingEvent,
@@ -435,6 +436,14 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     body: "We open at 8am.",
     tsv: sql`to_tsvector('english', 'Opening hours We open at 8am.')`,
   });
+  await db.insert(auditEvent).values({
+    tenantId,
+    actorKind: "user",
+    actorUserId: u.id,
+    action: "GET /api/runs",
+    outcome: "ok",
+    httpStatus: 200,
+  });
 
   return {
     tenantId,
@@ -482,6 +491,12 @@ export async function insertOperatorRows(db: Db): Promise<{ agentVersionId: stri
     comment: "Back office",
     path: "/ops",
     viewport: { width: 1280, height: 800 },
+  });
+  await db.insert(auditEvent).values({
+    actorKind: "anonymous",
+    action: "session.sign_in",
+    outcome: "refused",
+    httpStatus: 403,
   });
   return { agentVersionId: av?.id ?? "" };
 }
