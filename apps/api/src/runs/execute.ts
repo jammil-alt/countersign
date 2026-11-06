@@ -30,6 +30,8 @@ import {
   HANDOFF_SOURCES_MAX,
   isUuid,
   type Locale,
+  // v0.13 W2-I
+  type OversightSettings,
   type Processor,
   parseCoveredProcessors,
   RUN_SUCCEEDED_EVENT,
@@ -75,6 +77,8 @@ import { codesFor } from "../codes/client";
 import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/policy";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
+// v0.13 W2-I
+import { oversightPort } from "../oversight/port";
 import type { Platform } from "../platform";
 import { dbDocumentServices } from "../qbo/documents";
 import { dbSyncedRecords } from "../qbo/receivables";
@@ -215,6 +219,8 @@ type Loaded =
       resume: RunResume | null;
       // v0.12 W2-B: the automation versions its use steps pin.
       automations?: Record<string, AutomationDefinition>;
+      // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off).
+      oversight?: OversightSettings;
     }
   | { ok: false; reason: string; cancelled?: true };
 
@@ -372,6 +378,8 @@ export async function executeRun(
         resume: await resumeOf(tx, params, wf.workflow),
         // v0.12 W2-B
         automations: await automationsOf(tx, info.tenantId, wf.workflow),
+        // v0.13 W2-I
+        ...(v?.bundle.definition.oversight ? { oversight: v.bundle.definition.oversight } : {}),
       };
     }),
   );
@@ -417,6 +425,8 @@ export async function executeRun(
                 workflowSlug: info.workflowSlug,
                 stepId: result.nodeId ?? null,
                 error: (result.reason ?? "failed").slice(0, 1000),
+                // v0.13 W2-I: the agent's diagnosis, when it reviewed the failure.
+                ...(result.diagnosis ? { diagnosis: result.diagnosis.slice(0, 2000) } : {}),
               },
             },
             { registry: deps.platform.events, testRun: info.mode === "test" },
@@ -491,6 +501,11 @@ export async function executeRun(
     ...(loaded.resume ? { resume: loaded.resume } : {}),
     // v0.12 W2-B
     ...(loaded.automations ? { automations: loaded.automations } : {}),
+    // v0.13 W2-I: run oversight; the executor asks only for steps whose failures are reviewed.
+    oversight: {
+      port: oversightPort(runtime, db, info, loaded.oversight),
+      settings: loaded.oversight,
+    },
   };
 
   let result: RunResult;

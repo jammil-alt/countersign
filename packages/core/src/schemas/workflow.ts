@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { Duration } from "../duration";
 import { LocalizedString, localizedText } from "../i18n/locale";
+// v0.13 W2-I
+import { StepReview } from "../oversight/decision";
 // v0.12 W2-E: who may start a message trigger.
 import { PeopleFilter } from "../triggers/people";
 import { Approval } from "./approval";
@@ -41,6 +43,8 @@ export const SkillStep = z.object({
   // v0.13 W2-H: the model this step runs on, over the skill's (task) or the agent's (agent).
   /** Overrides the model of a `task` or `agent` skill; not allowed on a `tool` skill (§10.11). */
   model: ModelChoice.optional(),
+  // v0.13 W2-I: run oversight for this step: `off`, `always`, or (absent) follow the agent (§10.11).
+  review: StepReview.optional(),
 });
 
 export const ActionStep = z.object({
@@ -49,6 +53,8 @@ export const ActionStep = z.object({
   tool: ToolId,
   input: TemplateObject.default({}),
   approval: Approval.prefault({}),
+  // v0.13 W2-I
+  review: StepReview.optional(),
 });
 
 // v0.12 W1-D: quick answers (ARCHITECTURE §11.1).

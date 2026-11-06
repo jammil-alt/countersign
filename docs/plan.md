@@ -1370,6 +1370,24 @@ came from the Wave 1 migrations PR.
 | Sloan | `run.failed` gains an optional `diagnosis` (the last decision's note, operator side only). Sloan's triage reading it is a follow-up on W2-D's files, after both merge. |
 | Table | Migration 0029, with Wave 2's other migrations in one PR (`claude/w2-migrations`; §8.3): `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
 
+Decisions made while building M31 (oversight on failures):
+
+| Topic | Decision |
+|---|---|
+| Verdicts | The port answers the executor with a verdict: `none` (no intervention: a limit, an answer that fails validation, a failed model call or review), or the decision's action with its note. `none` writes no row; the step fails exactly as without oversight, and a review that throws never hides the step's own error. // DECISION |
+| Who counts | The executor counts interventions per step (2) and per run (`maxPerRun`) from the verdicts it applied (a replay counts the same stored verdicts); the port checks `maxPerRun` and `maxCostUsd` again from the run's decision rows. Every recorded decision counts, `stop` included. // DECISION |
+| Write check | Made by the port before the model is asked, so no call is spent on a step that can't be retried. A step's actions (all attempts, by `step_run_id`) that are `executing`, `done` or `failed` stop it, except a failure for want of a release (`error.release`), which never started: a connector's error can't prove nothing went out. The stop is a decision row with model `none` and no cost, and an operator `review` item (subject `oversight_stop`). // DECISION |
+| Keys | `retry` and an approved `ask` keep the previous attempt's key node; `retry_with` keys its writes under `${nodeId}:o${seq}` (`SkillStepRequest.keyNode`, `ActionStepRequest.keyNode`, carried through a release wait). // DECISION |
+| Step row | A retry is `log.start` with `attempt`: the one row's `attempts` rises to it and its `input` becomes the attempt's, so the run view and a release's re-run see the corrected input; `input_before`/`input_after` keep the change. // DECISION |
+| Ask | Kind `approval`, subject `oversight_ask`, title in the client's words ("Before we try "Find the vendor" again: …") with the agent's question, payload without the note, error or model. A test run's goes to the operator. Declined or timed out: the step's `onReject` — `continue` skips the step (`skipped`, "not approved"), `stop` fails it with its own error. // DECISION |
+| Stop | A model's `stop` after a failure opens no item: the run fails as it would, and the note rides on `run.failed` as `diagnosis` for Sloan's triage. Only the write check's stop opens an operator item. // DECISION |
+| Proposal | `change` is plain words, never a bundle patch. The fingerprint uses the step path without loop indexes, so a loop's iterations share one proposal; an open one with the same fingerprint is reused (advisory lock, as findings). A decision row points at its ask, else its stop, else its proposal item. // DECISION |
+| Context | Earlier steps' timeline lines from the run's `step_run` rows; "the last 5 failures" are this step's last 5 decisions in the agent's other runs (an unreviewed failure has nothing to learn from, and a retried step's row no longer holds its error). The data is the result of a `read_step` call already made, so it arrives in a tool-result block; `tool_choice` forces `finish`. // DECISION |
+| Model and cost | The review runs on `oversight.model`, else the agent's model; its call is a `model_call` row and its cost is added to the step and the run (usage and billing count it like any model call). // DECISION |
+| Portal words | Computed when the timeline is read: one line per decision (`TimelineStep.oversight`), in the client's language. A corrected field is named by the step's input schema (`title`, else the field name in words); more than one field: "Corrected the input and tried again". An ask names the person it went to. The five languages other than English are drafts for the owner's fluent speakers. // DECISION |
+| Defaults | New agents from the back office's blank agent start with `oversight: { review: 'failures' }` (`NEW_AGENT_OVERSIGHT`); the API stores a bundle as given, and Builder drafts (W3-A) use the same constant. // DECISION |
+| Lab route | `GET /api/ops/oversight` ships with M31 (filters: client, agent, action, cause, limit); its totals are over the decisions it lists. // DECISION |
+
 ### People and voice samples (W1-G)
 
 Decisions made while building §1.42 (ARCHITECTURE v0.12 §6.1, §6.4; migration 0025).

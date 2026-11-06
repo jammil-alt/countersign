@@ -17,6 +17,9 @@ export const RunFailedPayload = z.strictObject({
   stepId: z.string().nullable(),
   /** Why, as the executor recorded it: never a secret, at most 1000 characters. */
   error: z.string().max(1000),
+  // v0.13 W2-I: the agent's own diagnosis (the last oversight decision's note), operator side
+  // only, so the supervisor's triage can read it rather than make its own model call (§10.11).
+  diagnosis: z.string().max(2000).optional(),
 });
 export type RunFailedPayload = z.infer<typeof RunFailedPayload>;
 
