@@ -58,6 +58,15 @@ export interface Secrets {
   /** Our Slack app "Mezonas": posts to the channels a client picks (ARCHITECTURE §6.11). */
   SLACK_CLIENT_ID?: string;
   SLACK_CLIENT_SECRET?: string;
+  // v0.14 W4-A: WhatsApp through Meta (docs/plan.md §1.57): Mezonas' Meta app, a Tech Provider.
+  /** The Meta app's id (public; the portal's Embedded Signup page opens Meta's SDK with it). */
+  META_APP_ID?: string;
+  /** The Meta app's secret: exchanges Embedded Signup's code and signs webhooks. Never logged. */
+  META_APP_SECRET?: string;
+  /** Our own string, typed into Meta's webhook settings: the GET handshake must echo it back. */
+  META_WEBHOOK_VERIFY_TOKEN?: string;
+  /** The Embedded Signup configuration's id (Facebook Login for Business). */
+  META_CONFIG_ID?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;

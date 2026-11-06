@@ -408,6 +408,39 @@ secrets are set.
    Connections, connects Google Chat, gets a code, adds Mezonas to a space and sends
    `@Mezonas <code>` there.
 
+### WhatsApp through Meta (W4-A, plan §1.57)
+
+A client connects its own WhatsApp Business number from the portal with Meta's Embedded Signup.
+Built against a fake Graph API; what we couldn't check is under "To verify" in
+`packages/connectors/src/whatsapp_meta/NOTES.md`. Registered everywhere; "Not available yet" until
+the four secrets below and `OAUTH_STATE_SECRET` are set, and `/api/hooks/whatsapp_meta` answers 503
+until `META_APP_SECRET` and `META_WEBHOOK_VERIFY_TOKEN` are.
+1. **Business verification** of Mezonas' Meta business (Business Settings → Security Center): the
+   long pole, start it first.
+2. Register Mezonas as a **Tech Provider** (WhatsApp Business Platform; we don't pay for clients'
+   messages, so not a Solution Partner) and accept the terms.
+3. A Meta **app** of type *Business* with *WhatsApp* and *Facebook Login for Business*. Its App ID is
+   the Worker secret `META_APP_ID` (public, but set like the others); Settings → Basic → App secret
+   is `META_APP_SECRET` (the secret, never an access token: it verifies every webhook).
+4. **App review** for Advanced access to `whatsapp_business_messaging` and
+   `whatsapp_business_management`; until then only the app's testers can finish the sign-up.
+5. Facebook Login for Business → **Configurations**: a *WhatsApp Embedded Signup* configuration
+   with a system-user access token (no expiry) and those two permissions. Its id is
+   `META_CONFIG_ID`. Allowed domains for the JS SDK: `staging.mezonas.com` and `app.mezonas.com`.
+6. WhatsApp → Configuration → **Webhook**: callback URL `https://app.mezonas.com/api/hooks/whatsapp_meta`
+   (staging: `https://staging.mezonas.com/api/hooks/whatsapp_meta`, on a second app or the app's
+   test mode); verify token: a long random string of our own, the Worker secret
+   `META_WEBHOOK_VERIFY_TOKEN`. Then subscribe to the **`messages`** field (subscribing to nothing
+   passes the handshake and delivers nothing).
+7. The app's Graph version set to **v26.0** (the code pins it in every URL).
+8. No Mezonas system user is needed for clients (each client's sign-up gives its own token); one is
+   useful only to test on Mezonas' own test number.
+Then the operator offers "WhatsApp (your own number)" to a client, and its admin clicks **Connect
+WhatsApp (your own number)** in Connections, picks the business, account and number in Meta's
+window, and verifies the number there. Group messages stay off unless the operator turns them on
+for the client (`PUT /api/ops/clients/:id/messaging/whatsapp-groups`), once Meta's groups API is
+verified (NOTES.md).
+
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
@@ -483,6 +516,11 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `GOOGLE_CHAT_PROJECT_NUMBER` (the audience of Chat's tokens; see "Google Chat" above).
   Until both are set, Google Chat shows
   "Not available yet" in the portal and `/api/hooks/gchat` answers 503.
+- Needed by WhatsApp through Meta (W4-A, plan §1.57), the same way: `META_APP_ID`,
+  `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` and `META_CONFIG_ID` (see "WhatsApp through Meta"
+  above). Wiring them into `deploy.yml` is its own PR. Until all four and `OAUTH_STATE_SECRET` are
+  set, it shows "Not available yet"; without the secret or the verify token,
+  `/api/hooks/whatsapp_meta` answers 503.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -548,7 +586,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta; not yet in `deploy.yml`) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 

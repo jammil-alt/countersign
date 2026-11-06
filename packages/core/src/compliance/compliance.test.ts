@@ -87,6 +87,10 @@ describe("processors", () => {
       expect(processorsForOffer(c), c).toEqual([]);
     }
     expect(processorsForOffer("twilio").sort()).toEqual(["elevenlabs", "meta_whatsapp", "twilio"]);
+    // v0.14 W4-A: WhatsApp on the client's own number through Meta: Meta's WhatsApp, as Twilio's.
+    expect(processorsForOffer("whatsapp_meta")).toEqual(["meta_whatsapp"]);
+    expect(processorsForTool("whatsapp.send", "whatsapp_meta")).toEqual(["meta_whatsapp"]);
+    expect(processorsForTool("message.get", "whatsapp_meta")).toEqual(["meta_whatsapp"]);
     // v0.12 bankfeed: Plaid is Mezonas' processor, not the client's tool.
     expect(processorsForOffer("bankfeed")).toEqual(["plaid"]);
     expect(processorsForTool("bankfeed.transaction.query", "bankfeed")).toEqual(["plaid"]);

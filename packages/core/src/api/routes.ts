@@ -76,6 +76,8 @@ import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
 import { triggerRoutes } from "./triggers";
 import { usageRoutes } from "./usage";
+// v0.14 W4-A: WhatsApp through Meta
+import { whatsappMetaRoutes } from "./whatsapp-meta";
 // v0.14 W4-B
 import { zohoRoutes } from "./zoho";
 
@@ -1912,5 +1914,7 @@ export const routes = {
   ...slackRoutes,
   // v0.14 capture: WhatsApp conversations and their capture.
   ...conversationRoutes,
+  // v0.14 W4-A: WhatsApp through Meta (the webhook and the groups setting).
+  ...whatsappMetaRoutes,
 } as const;
 export type Routes = typeof routes;

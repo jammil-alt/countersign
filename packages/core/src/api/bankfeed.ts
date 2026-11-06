@@ -9,11 +9,16 @@ import { defineRoute } from "./contract";
 
 /** What the portal opens Plaid Link with. The token is short-lived and reads nothing by itself. */
 export const LinkStartView = z.object({
-  provider: z.literal("plaid"),
+  // v0.14 W4-A: `meta` is Meta's Embedded Signup (WhatsApp): `token` is its configuration's id,
+  // with the app's id and the Graph version, all public values (docs/plan.md §1.57).
+  provider: z.enum(["plaid", "meta"]),
   token: z.string(),
   expiresAt: z.string().nullable(),
   /** The signed state, posted back with Link's result to the callback route. */
   state: z.string(),
+  // v0.14 W4-A
+  appId: z.string().optional(),
+  graphVersion: z.string().optional(),
 });
 export type LinkStartView = z.infer<typeof LinkStartView>;
 

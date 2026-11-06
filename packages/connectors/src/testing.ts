@@ -401,3 +401,15 @@ export {
 } from "./slack/fake";
 export * from "./stripe/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";
+// v0.14 W4-A: WhatsApp through Meta (docs/plan.md §1.57).
+export {
+  DEFAULT_FAKE_ACCOUNTS,
+  FAKE_META,
+  FAKE_META_MEDIA_HOST,
+  type FakeMeta,
+  type FakeMetaAccount,
+  type FakeMetaSend,
+  fakeInboundPayload,
+  fakeMeta,
+  fakeStatusPayload,
+} from "./whatsapp_meta/fake";

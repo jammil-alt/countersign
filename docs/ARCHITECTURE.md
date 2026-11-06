@@ -1249,6 +1249,13 @@ about 8). Twilio has no WhatsApp groups (WhatsApp retired its old groups API in 
 "group" sample fans out one-to-one chats through Conversations). Unofficial WhatsApp clients are out:
 they break WhatsApp's terms.
 
+**Through Meta (W4-A, `docs/plan.md` §1.57).** The `whatsapp_meta` connector (the client's own number,
+connected with Meta's Embedded Signup) feeds the same capture: its messages are routed by the number
+they came to, stored once per `wamid`, and their attachments fetched with Meta's two-step download
+(the media id resolved on the client's number, then the signed link on Meta's media host, both with
+the client's token) under the same checks. Group messages are kept, as `group` conversations, only
+where the operator turned groups on for the client; their payload is still to verify.
+
 **Compliance.** Twilio is already a processor, and `meta_whatsapp` is listed for `whatsapp.*`. The
 public privacy page says that we archive messages sent to a client's number and, where the client
 turns it on, their attachments, on the client's behalf. Conversations, their change log and the

@@ -1263,4 +1263,20 @@ export const de: Messages = {
     "Nichts ausgewählt. Öffnen Sie die Auswahl erneut oder gehen Sie zurück.",
   "gsheets.pick.failed":
     "Die Auswahl von Google hat sich nicht geöffnet. Prüfen Sie, ob Pop-ups erlaubt sind, und versuchen Sie es erneut.",
+  // v0.14 W4-A: WhatsApp through Meta (needs a fluent speaker's review).
+  "connections.whatsappMeta.description":
+    "Verbinden Sie Ihre eigene WhatsApp-Business-Nummer über Meta. Agenten schreiben Ihren Kontakten von dieser Nummer, und wir bewahren auf, was diese Ihnen senden.",
+  "connections.whatsappMeta.connect": "WhatsApp verbinden (Ihre eigene Nummer)",
+  "whatsappMeta.signup.title": "Ihre WhatsApp-Nummer verbinden",
+  "whatsappMeta.signup.subtitle":
+    "Meta öffnet ein Fenster, in dem Sie Ihr WhatsApp-Business-Konto und Ihre Nummer wählen. Ihre Facebook-Anmeldung sehen wir nie.",
+  "whatsappMeta.signup.open": "Fenster von Meta öffnen",
+  "whatsappMeta.signup.loading": "Fenster von Meta wird geladen…",
+  "whatsappMeta.signup.saving": "Ihre Nummer wird verbunden…",
+  "whatsappMeta.signup.cancelled":
+    "Es wurde nichts verbunden. Öffnen Sie das Fenster von Meta erneut, oder gehen Sie zurück.",
+  "whatsappMeta.signup.failed":
+    "Das Fenster von Meta hat sich nicht geöffnet. Prüfen Sie, ob Pop-ups erlaubt sind, und versuchen Sie es erneut.",
+  "whatsappMeta.signup.notSetUp":
+    "Die eigene WhatsApp-Nummer lässt sich hier noch nicht verbinden. Wir sagen Ihnen Bescheid, sobald es geht.",
 };

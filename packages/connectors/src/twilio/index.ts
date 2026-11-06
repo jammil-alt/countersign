@@ -34,6 +34,8 @@ import {
   type SentRecord,
 } from "../messaging/services";
 import {
+  // v0.14 W4-A
+  isMetaMessageId,
   MESSAGE_GET_TOOL,
   MESSAGES_SEARCH_TOOL,
   MESSAGING_EVENTS,
@@ -862,6 +864,10 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
     ],
     sharedNamespaces: [...MESSAGING_NAMESPACES, ...CALL_NAMESPACES],
     events: [...MESSAGING_EVENTS, ...CALL_EVENTS],
+    // v0.14 W4-A: Meta's message ids (`wamid.…`) are read through Meta's connector.
+    handlesInput: (toolId, input) =>
+      toolId !== MESSAGE_GET_TOOL ||
+      !isMetaMessageId(String((input as { sid?: unknown } | null)?.sid ?? "")),
     tools: [
       defineReadTool({
         id: MESSAGES_SEARCH_TOOL,

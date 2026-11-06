@@ -103,6 +103,8 @@ import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
+// v0.14 W4-A
+import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
@@ -201,6 +203,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   slackRoutes(app);
   // v0.14 capture: WhatsApp conversations and their capture
   conversationRouteHandlers(app);
+  // v0.14 W4-A: WhatsApp through Meta (the webhook and the groups setting)
+  whatsappMetaRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

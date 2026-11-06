@@ -36,6 +36,8 @@ import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
 import { PortalServiceScreen } from "./screens/Service";
 import { PortalSettingsScreen } from "./screens/Settings";
+// v0.14 W4-A
+import { WhatsappMetaSignupScreen } from "./screens/WhatsappMetaSignup";
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const { t } = useI18n();
@@ -139,6 +141,8 @@ export function PortalApp() {
         <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
         {/* v0.14 W4-D: Google Sheets' picking page (always loaded as a document). */}
         <Route path="connections/gsheets/pick" element={<GsheetsPickScreen />} />
+        {/* v0.14 W4-A: Meta's Embedded Signup (always loaded as a document). */}
+        <Route path="connections/whatsapp_meta/signup" element={<WhatsappMetaSignupScreen />} />
         <Route path="access" element={<PortalAccessScreen />} />
         <Route path="documents/:id" element={<PortalDocumentScreen />} />
         <Route path="records" element={<PortalRecordsScreen />} />
