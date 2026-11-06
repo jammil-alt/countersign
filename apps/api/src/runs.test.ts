@@ -720,6 +720,7 @@ describe.skipIf(!h)("runs", () => {
         return H.instances.start(p);
       },
       sendEvent: H.instances.sendEvent.bind(H.instances),
+      terminate: H.instances.terminate.bind(H.instances),
     };
     const d = { db: H.db, instances: counting };
     const [byId, sweep] = await Promise.all([
@@ -756,6 +757,7 @@ describe.skipIf(!h)("runs", () => {
         throw new Error("the Workflows engine is unreachable");
       },
       sendEvent: async () => {},
+      terminate: async () => "missing" as const,
     };
     expect(await dispatchByIds({ db: H.db, instances: down }, H.B.tenantId, [e.id])).toBe(1);
     const [given] = await H.t.db.select().from(event).where(eq(event.id, e.id));

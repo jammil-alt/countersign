@@ -137,6 +137,7 @@ describe("portal layout", () => {
       "Inbox",
       "Runs",
       "Reports",
+      "Records",
       "Connections",
       "Access",
       "Requests",
