@@ -3,7 +3,7 @@
 // its approver, and its run status: activate (with every reason it can't yet), pause, retire, and
 // the test run activation needs. None of this is a new version: it is the agent row, logged.
 import type { AgentBundle } from "@countersign/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
@@ -22,8 +22,10 @@ import {
 } from "../../ui/primitives";
 import { GrantsPanel } from "./GrantsPanel";
 import {
+  JSON_INPUT_PROPS,
   type PayloadSource,
   PayloadSourceSelect,
+  parsePayload,
   payloadFor,
   samplePayload,
   triggerEventType,
@@ -75,7 +77,12 @@ export function OperationPanel({
   // DECISION: while the live version's latest test run is going, the activation check polls every
   // 2 s (the run page's rate, plan §1.2 "Live updates"), so it turns ready when the run passes.
   const testRun = activation.data?.testRun ?? null;
-  usePoll(activation.reload, testRun ? isRunGoing(testRun.status) : false, 2_000);
+  usePoll(
+    activation.reload,
+    testRun ? isRunGoing(testRun.status) : false,
+    2_000,
+    activation.loading,
+  );
   const [grantsVersion, setGrantsVersion] = useState(0);
   return (
     <div className="flex flex-col gap-5">
@@ -126,7 +133,14 @@ function StatusCard({
   const action = useAction();
   const [retiring, setRetiring] = useState(false);
   const [done, setDone] = useState<string | null>(null);
-  const status = agent.runStatus ?? "draft";
+  // The agent as activate, pause or retire answered it: the chip shows the new status at once,
+  // not after the agent screen has reloaded the whole agent (versions and bundles) to learn it.
+  const [answered, setAnswered] = useState<AgentSummary | null>(null);
+  // Once the screen's own copy of the agent changes, it is the newer one again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clears on a change to the prop's status.
+  useEffect(() => setAnswered(null), [agent.runStatus]);
+  const status =
+    (answered && answered.id === agent.id ? answered.runStatus : agent.runStatus) ?? "draft";
 
   async function run(kind: "activate" | "pause" | "retire") {
     setRetiring(false);
@@ -138,6 +152,7 @@ function StatusCard({
           : apiRoutes.opsRetire;
     const res = await action.call(route, { params: { id: agent.id } });
     if (res.ok) {
+      setAnswered(res.data.agent);
       setDone(
         kind === "activate"
           ? "Active: its triggers start runs now."
@@ -174,7 +189,10 @@ function StatusCard({
       {activation.error ? (
         <ErrorNotice error={activation.error} onRetry={activation.reload} />
       ) : null}
-      {!activation.data && !activation.error ? <Loading label="Checking activation…" /> : null}
+      {/* The check only matters until the agent is active: once it is, nothing waits on it. */}
+      {!activation.data && !activation.error && status !== "active" && status !== "retired" ? (
+        <Loading label="Checking activation…" />
+      ) : null}
       {testRun && live && status !== "retired" && (testGoing || testRun.status === "failed") ? (
         <p
           className="mb-3 text-ink"
@@ -283,10 +301,11 @@ function TestRun({
 }) {
   const workflows = liveBundle?.workflows ?? [];
   const [workflow, setWorkflow] = useState(workflows[0]?.slug ?? "");
-  const [payload, setPayload] = useState("{}");
+  // Blank means `{}` (the placeholder): a prefilled `{}` left an extra brace when `{…}` was typed.
+  const [payload, setPayload] = useState("");
   const [source, setSource] = useState<PayloadSource>("manual");
   const [started, setStarted] = useState<string | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
+  const parsed = parsePayload(payload);
   const action = useAction();
   const catalog = useApi(apiRoutes.opsEventCatalog);
   const chosen = workflows.find((w) => w.slug === workflow)?.workflow ?? null;
@@ -316,18 +335,10 @@ function TestRun({
   }
 
   async function start() {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(payload || "{}");
-      setParseError(null);
-    } catch {
-      setParseError("The input must be JSON, e.g. {}.");
-      return;
-    }
-    if (!live) return;
+    if (!live || !parsed.ok) return;
     const res = await action.call(apiRoutes.opsTestRun, {
       params: { id: agent.id, vid: live.id },
-      body: { workflow, payload: parsed },
+      body: { workflow, payload: parsed.value },
     });
     if (res.ok) {
       setStarted(res.data.runId);
@@ -350,7 +361,7 @@ function TestRun({
               setWorkflow(e.target.value);
               // Another workflow's trigger: its own sample and events.
               setSource("manual");
-              setPayload("{}");
+              setPayload("");
             }}
           >
             {workflows.map((w) => (
@@ -372,9 +383,14 @@ function TestRun({
         </Field>
       </div>
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
-        <Field label="Input (JSON)" error={parseError ?? undefined}>
+        <Field
+          label="Input (JSON)"
+          error={parsed.ok ? undefined : "The input must be JSON, e.g. {}."}
+        >
           <TextArea
+            {...JSON_INPUT_PROPS}
             data-testid="agent-test-run-payload-input"
+            invalid={!parsed.ok}
             className="font-mono text-sm"
             rows={source === "manual" ? 2 : 6}
             value={payload}
@@ -387,7 +403,7 @@ function TestRun({
         </Field>
         <Button
           data-testid="agent-test-run-start"
-          disabled={action.busy || !workflow}
+          disabled={action.busy || !workflow || !parsed.ok}
           onClick={start}
         >
           Test-run v{live.version}

@@ -801,6 +801,17 @@ Open after §1.32: everything marked UNCHECKED in `stripe/NOTES.md` (docs.stripe
 reachable from the build environment); the owner's real prices, credits and credit price; whether a
 client agent's own test runs are billed; a statement for a month a client was set up part-way
 through charges only the days recorded after set-up; a walk in Chromium.
+
+### 1.33 Run page polish (owner's Bill clerk test run, 2026-11-06)
+
+| Topic | Decision |
+|---|---|
+| Summaries with an empty slot | `renderSummary` (core) answers null when any reference in a skill's or tool's summary has no value (missing, null or blank), and callers say the step without that part: the executor writes "<label>: done", runAgent keeps its fallback, a tool call has no summary. A summary is never a sentence with a gap ("total unchanged at"). A test run's write had `{ wouldHaveDone, actionId, before }` as its output, which no write tool's summary can fill. // DECISION |
+| Test-run timeline | A test run's write (an action, or a skill that proposed one) is `done` with `notWritten` from the agent port; the executor, in one place for every tool, writes "Would itemize the bill (test run, not written)" from the step's name (`TIMELINE_WORDS.wouldWrite`, in the six languages). `notWritten` is ignored in a live run. // DECISION |
+| Test-run notices | A test run's notify step sends nothing: no thread message (it used to post an operator-only message on the run's thread in the client's data; nothing showed it, in the portal or the back office), no email. The rendered text stays on the step's input for the run log, its output is `{ sent: false }` and the timeline says "Would say what changed (test run, not sent)" (`wouldSend`). The notify port keeps its audience check as a second guard. // DECISION |
+| Polling | `usePoll` skips a tick while a load is still in flight. A reload aborts the request before it, so a 2 s poll on top of answers that took longer cancelled every answer, and the run page kept saying "Running" after the run was done. The run's end is committed in `run:finish` before the usage rollup, which is its own durable step (`run:usage`). // DECISION |
+| Test-run input | The Input (JSON) boxes start blank with a `{}` placeholder; blank means `{}`. A prefilled `{}` left an extra `}` after anything typed or pasted into it. The box is a plain textarea (no spelling, capitals or autocorrect), checked as you type; invalid JSON is said under it and the run can't start. |
+| Activate and pause | The status chip shows the agent as activate, pause or retire answered it, at once, until the screen's own copy of the agent catches up. "Checking activation…" only shows for an agent that isn't active or retired. |
 ---
 
 ## 2. Package layering

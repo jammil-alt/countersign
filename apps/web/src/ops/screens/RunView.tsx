@@ -52,7 +52,7 @@ export function OpsRunScreen() {
   const session = useSession();
   const { data, error, loading, reload } = useApi(apiRoutes.opsRun, { params: { id } });
   const going = data ? isRunGoing(data.run.status) : false;
-  usePoll(reload, going, 2_000);
+  usePoll(reload, going, 2_000, loading);
 
   const workflow = useMemo(() => {
     const parsed = data?.workflow ? Workflow.safeParse(data.workflow.definition) : null;

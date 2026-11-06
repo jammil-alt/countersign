@@ -261,7 +261,7 @@ function summarize(
 ): string | null {
   if (def.summary) {
     try {
-      return renderSummary(def.summary, output, language);
+      return renderSummary(def.summary, output, language) ?? fallback ?? null;
     } catch {
       return fallback ?? null;
     }
@@ -442,7 +442,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     let fallback = o.summary;
     if (handlerSummary && input.language && input.language !== "en") {
       try {
-        fallback = renderSummary(handlerSummary, o.output, input.language);
+        fallback = renderSummary(handlerSummary, o.output, input.language) ?? fallback;
       } catch {
         // Keep the English line the tool call rendered.
       }

@@ -263,8 +263,8 @@ export async function executeRun(
     }),
   );
 
-  const finish = (result: RunResult) =>
-    runner.do("run:finish", async () => {
+  const finish = async (result: RunResult) => {
+    await runner.do("run:finish", async () => {
       await withTenant(db, info.tenantId, async (tx) => {
         const [exists] = await tx.select({ id: run.id }).from(run).where(eq(run.id, info.id));
         if (!exists) return;
@@ -299,8 +299,6 @@ export async function executeRun(
           );
           if (row) emitted.push(row);
         }
-        // Every day the run touched: one that waited overnight added to more than today.
-        await rollupUsageForRun(tx, { tenantId: info.tenantId, runId: info.id });
       });
       // Best effort: whatever this misses (or a replay lost), the cron sweep dispatches.
       if (deps.instances && emitted.length > 0) {
@@ -308,6 +306,17 @@ export async function executeRun(
       }
       return null;
     });
+    // DECISION: usage is rolled up in its own step once the run's end is committed, so the run page
+    // shows Done as soon as the run is done, not after every day it touched is recomputed in the
+    // same transaction. A rollup that fails retries alone; the hourly sweep covers it too.
+    await runner.do("run:usage", async () => {
+      await withTenant(db, info.tenantId, async (tx) => {
+        // Every day the run touched: one that waited overnight added to more than today.
+        await rollupUsageForRun(tx, { tenantId: info.tenantId, runId: info.id });
+      });
+      return null;
+    });
+  };
 
   if (!loaded.ok) {
     const result: RunResult = { status: "failed", reason: loaded.reason };

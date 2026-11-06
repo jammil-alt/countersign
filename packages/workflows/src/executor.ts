@@ -179,8 +179,19 @@ class Executor {
 
   // ── skill and action steps ────────────────────────────────────────────────────────────────────
 
-  summaryFor(step: SkillStep | ActionStep, output: unknown, rejected: boolean): string {
+  /**
+   * The step's timeline line. A test run's write says what would have been done, in one place for
+   * every tool (its summary template describes a write that happened). A template that can't fill
+   * every slot falls back to the label: never a sentence with a gap.
+   */
+  summaryFor(
+    step: SkillStep | ActionStep,
+    output: unknown,
+    rejected: boolean,
+    notWritten = false,
+  ): string {
     if (rejected) return `${clientLabel(step)}: ${this.words.notApproved}`;
+    if (notWritten) return this.words.wouldWrite(step.name);
     const catalog = this.ctx.catalog ?? {};
     const template =
       step.kind === "skill"
@@ -188,7 +199,7 @@ class Executor {
         : catalog.tools?.[step.tool]?.summary;
     if (template) {
       try {
-        const line = renderSummary(template, output, this.ctx.run.language).trim();
+        const line = renderSummary(template, output, this.ctx.run.language);
         if (line) return line;
       } catch {
         // A broken template falls back to the label: the timeline never shows model text.
@@ -209,7 +220,7 @@ class Executor {
   ): Promise<StepOutcome> {
     const done: StepOutcome =
       outcome.kind === "approval" && this.testRun
-        ? { kind: "done", output: outcome.output ?? null }
+        ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
     let update: StepRunUpdate;
     switch (done.kind) {
@@ -217,7 +228,12 @@ class Executor {
         update = {
           status: rejected ? "skipped" : "succeeded",
           output: done.output,
-          summary: this.summaryFor(step, done.output, rejected),
+          summary: this.summaryFor(
+            step,
+            done.output,
+            rejected,
+            this.testRun && done.notWritten === true,
+          ),
         };
         if (done.costUsd !== undefined) update.costUsd = done.costUsd;
         if (done.tokensIn !== undefined) update.tokensIn = done.tokensIn;
@@ -593,6 +609,17 @@ class Executor {
         nodeType: "notify",
         input: { channel: step.channel, to, text, ...(sources.length ? { sources } : {}) },
       });
+      // DECISION: a test run's notice is not sent anywhere, not even as an operator-only thread
+      // message in the client's data: its text stays on the step (the run log shows it), and the
+      // timeline says it would have been sent (ARCHITECTURE §10.4: test runs never reach clients).
+      if (this.testRun) {
+        await log.update(id, {
+          status: "succeeded",
+          output: { sent: false },
+          summary: this.words.wouldSend(step.name),
+        });
+        return null;
+      }
       await notify.send({ run, step, nodeId: name, channel: step.channel, to, text, sources });
       await log.update(id, {
         status: "succeeded",
