@@ -1090,14 +1090,17 @@ From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a p
 | Drive | The connection creates its folder (`Mezonas` + the client's chosen name) at sign-in and keeps its id in `config`; `drive.file.upload` takes a document id and a path template; before state: whether a file of that name exists in the target folder. |
 | Outlook | Same input and once-only rules as `gmail.send` (§1.31); Graph `sendMail` takes no idempotency key, so the attempt is recorded first. |
 
-### 1.53 A model per step (W2-H, M30; no migration; ARCHITECTURE v0.13 §10.11)
+### 1.53 Task skills and a model per step (W2-H, M30; no migration; ARCHITECTURE v0.13 §9.2, §10.11)
 
 | Topic | Decision |
 |---|---|
-| Shape | `model?: { id, maxTokens? }` on `skill` steps and on `SkillDefinition`, the same shape as the agent's `model`. Tiers (Fast, Standard, Strong) are the builder's labels, not stored. // DECISION: an id, so a step and an agent name models the same way. |
-| Resolution | Step, then skill, then `definition.model`, in one function in `packages/agents/src/runtime/` used by `run-agent.ts` and `planned.ts` (today both read `definition.model.id` directly). `maxTokens` follows the same order. |
-| Validation | One function in `core/src/workflow/validate.ts`: the id is in `packages/llm`'s priced list (`MODELS` plus `pricing.ts`); `model` on a step whose skill is mode `tool` is an error on that step's `model` field. Core cannot import `llm`, so the validator takes the known ids as a parameter (the server passes them; the builder gets them from `GET /api/ops/models`). |
-| Defaults | Built-in skills set no model, so they and their recorded fixtures are unchanged. The Materials pack and the documents capability keep their own model choices. |
+| Modes | `SkillDefinition.mode`: `'tool' \| 'task' \| 'agent'`. `task`: `model` required, prompt = platform preamble + the skill's instructions + input (as data), no agent instructions, no memory notes. `agent`: the agent's model, instructions and memory, as today; `model` refused on the definition. `skill_version` stores the definition as JSON, so no migration; existing rows parse as `agent`. |
+| Shape | `model?: { id, maxTokens? }` on `task` skills (required) and on `skill` steps (optional override), the same shape as the agent's `model`. Tiers (Fast, Standard, Strong) are the builder's labels, not stored. // DECISION: an id, so skills, steps and agents name models the same way. |
+| Resolution | Step override, else `task` → the skill's `model`, `agent` → `definition.model`; one function in `packages/agents/src/runtime/model.ts`, used by `run-agent.ts` and `planned.ts` (today both read `definition.model.id` directly). `maxTokens` follows the same order. Budgets (`maxSteps`, `maxCostUsd`) stay the agent's for both modes. |
+| Prompt | `run-agent.ts` builds the `task` prompt without `## How you work` and without memory; the client's language still applies (it is the run's). The untrusted-text rule and `finish` typed to the skill's output are the same. |
+| Validation | Skill: `task` without `model`, or `agent` with one, is an error. Step (one function in `core/src/workflow/validate.ts`): the id is in `packages/llm`'s priced list (`MODELS` plus `pricing.ts`); `model` on a step whose skill is `tool` is an error on that step's `model` field. Core cannot import `llm`, so the validators take the known ids as a parameter (the server passes them; the builder gets them from `GET /api/ops/models`). |
+| Library | The Skills library offers `task` (with a model, default Haiku) or `agent` (default) for operator-written skills; the Builder (W3-A) proposes `task` for jobs with typed input and output that need no voice or memory. |
+| Defaults | Existing and built-in skills stay as they are, so their recorded fixtures are unchanged. Moving a built-in skill to `task` is its own change with re-recorded fixtures. The Materials pack and the documents capability keep their own model choices. |
 | Cost | Nothing new: W1-E's `model_call` rows already carry the model, and step cost already rolls up. |
 | Merge | `model` is a step field; three-way merge handles it like `input`. |
 
@@ -1648,18 +1651,24 @@ tools with before states and once-only writes, `NOTES.md` listing what to verify
 **Done when** Google Drive files a document by month and Outlook sends an approved email once, both
 against fakes; Ramp and HubSpot follow in the same way.
 
-### M30: A model per step (W2-H, §1.53)
+### M30: Task skills and a model per step (W2-H, §1.53)
 
-Work: `model` on skill steps and skills; resolution in the runtime; validation; `GET /api/ops/models`
-(id, label, price per million tokens) for the builder; the run view's per-step model.
+Work: the `task` mode and `model` on skills; `model` on skill steps; resolution and the `task` prompt in
+the runtime; validation of skills and steps; the Skills library's mode and model fields (API);
+`GET /api/ops/models` (id, label, price per million tokens) for the builder; the run view's per-step
+model.
 
-Tests: resolution order (step, skill, agent) including `maxTokens`; validation errors on an unknown
-id and on a `tool` skill step; a bundle without `model` hashes as before; a merge where both sides set
-a step's model conflicts and one side alone doesn't; replay fixtures for two models in one run.
+Tests: resolution (step override; `task` → skill; `agent` → agent) including `maxTokens`; a `task`
+skill's prompt has no agent instructions and no memory notes, an `agent` skill's has both; the same
+`task` skill gives the same request in two different agents; validation errors (unknown id, `task`
+without a model, `agent` with one, `model` on a `tool` step); stored skills and bundles parse and hash
+as before; a merge where both sides set a step's model conflicts and one side alone doesn't; replay
+fixtures for two models in one run.
 
-**Done when** one workflow (with the fake model) reads an invoice on Haiku and drafts an email on
-Sonnet, the run's model calls show both models and per-step cost, and `model` on a `tool` skill step
-fails validation.
+**Done when** one workflow (with the fake model) reads an invoice with a `task` skill on Haiku and
+drafts an email with an `agent` skill on the agent's Sonnet, a step override moves the draft to Opus,
+the run's model calls show each model and per-step cost, and a `task` skill without a model fails
+validation.
 
 ### M31: Run oversight on failures (W2-I, §1.54)
 
@@ -1762,7 +1771,9 @@ Answered (2026-11-06, ARCHITECTURE v0.12; the lead's recommended defaults, recor
 
 Answered (2026-11-06, ARCHITECTURE v0.13, owner)
 - **The agent oversees its runs.** The workflow stays the operator's plan; clean steps run as code,
-  reading steps on a cheap model, judgment steps on the agent's model or a stronger one; the agent
+  `task` skills (typed jobs, the same in any agent) on their own default model, usually cheap, and
+  `agent` skills (judgment and drafting in the agent's voice) on the agent's model with its
+  instructions and memory; a step may override either's model; the agent
   reviews failed steps (and, where set, steps that feed a write) on a model the operator picks, and
   fixes what it can within the plan. Lasting fixes are proposals. Build order: a model per step (M30),
   oversight on failures (M31), checkpoint reviews (M32).
@@ -1826,7 +1837,8 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | `packages/core/src/workflow/validate.ts` | One new function per stream (W2-B use steps, W2-E triggers, W2-H step models, W2-I checkpoints), called from the existing entry point |
 | `packages/core/src/schemas/{agent,skill}.ts` | W2-G: `clientView`; W2-H: skill `model`; W2-I: definition `oversight` |
 | `packages/workflows/src/{executor,ports}.ts` | W1-E owns them in Wave 1. Wave 2: W2-B the expansion call; W2-I `OversightPort` and one hook block in `work()` |
-| `packages/agents/src/runtime/{run-agent,planned}.ts` | W2-H: the model resolution call (one line each) |
+| `packages/agents/src/runtime/{run-agent,planned}.ts` | W2-H: the model resolution call (one line each) and the `task` prompt in `run-agent.ts` |
+| `apps/api/src/routes/ops-skills.ts` | W2-C: the publish gate; W2-H: the skill's mode and model (one block) |
 | `packages/agents/src/runtime/call-tool.ts` | W1-A: `effectiveMode` at the decision; W1-D: `whyApproval` and `batch_key` on the proposal; W1-G: the recipient's autonomy ceiling; W2-A: the entity |
 | `packages/core/src/permissions/decide.ts` | W1-G: `ceilings` parameter (wave 1); W2-A: entities (wave 2) |
 | `apps/api/src/runs/ports.ts` | W1-C: `createForPerson` (lead); W1-D: `resolution()` (undo window) |
@@ -1877,7 +1889,7 @@ The exports (data export and accountant export, running outside the waves) neede
 | W2-E | Triggers: six kinds (M25) | none | trigger parts of `core/src/schemas/workflow.ts`, trigger validation, `core/src/{triggers,holidays}/`, `packages/workflows/src/router.ts`, schedules in `runs/dispatch.ts`, `apps/api/src/routes/{triggers,hooks}.ts`, agent addresses in `email.ts`, inbound dispatch in `twilio-hooks.ts` | W1-A, W1-C, W1-G |
 | W2-F | Command center, search, plain-words questions (M26) | none | `apps/api/src/routes/{command-center,search}.ts`, `apps/api/src/{search,runs-ask}/`, `core/src/api/{command-center,search,runs-ask}.ts` | W1-E (`RunFilter`), W1-H |
 | W2-G | KPIs and client view, credits, the client's audit export (M27) | none | `clientView` in `core/src/schemas/agent.ts`, `core/src/kpi/`, `core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/{client-view,audit-export}.ts`, `apps/api/src/billing/credits-out.ts` | W1-A, W1-B, W1-H |
-| W2-H | A model per step (M30, v0.13) | none | `core/src/schemas/{workflow,skill}.ts` (its blocks), the step-model check in `validate.ts`, the resolution in `agents/src/runtime/model.ts`, `apps/api/src/routes/ops-models.ts`, `core/src/api/models.ts` | W1-E |
+| W2-H | Task skills and a model per step (M30, v0.13) | none | `core/src/schemas/{workflow,skill}.ts` (its blocks), the step-model check in `validate.ts`, the resolution in `agents/src/runtime/model.ts` and the `task` prompt in `run-agent.ts`, the Skills library's mode and model in `ops-skills.ts` (one block, after W2-C's publish gate), `apps/api/src/routes/ops-models.ts`, `core/src/api/models.ts` | W1-E |
 | W2-I | Run oversight (M31–M32, v0.13) | 0031 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
 | **Wave 3** | | | | |
 | W3-A | The Builder as a conversation (M28) | 0029 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
@@ -1988,9 +2000,10 @@ check holds.
 Table), credits-out on the hourly billing pass, the client's audit export and a run's audit trail.
 Done when M27's check holds.
 
-**W2-H: A model per step (M30, §1.53).** ARCHITECTURE §10.11 (first part), §9.2. Add `model` to skill
-steps and skills, one resolution function used by `run-agent.ts` and `planned.ts`, the validation with
-known ids passed in, `GET /api/ops/models`, and the run view's per-step model. No migration, no UI
+**W2-H: Task skills and a model per step (M30, §1.53).** ARCHITECTURE §9.2, §10.11 (first part). Add the
+`task` mode (own required model; no agent instructions or memory in its prompt), `model` on skill
+steps as an override, one resolution function used by `run-agent.ts` and `planned.ts`, validation of
+skills and steps with known ids passed in, the Skills library's mode and model, `GET /api/ops/models`, and the run view's per-step model. No migration, no UI
 beyond what breaks. Small; start as soon as W1-E merges. Done when M30's check holds.
 
 **W2-I: Run oversight (M31, then M32; §1.54).** ARCHITECTURE §10.11, §5.6. Migration 0031 in its own PR

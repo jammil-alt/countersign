@@ -6,9 +6,11 @@
 
 > **v0.13 (2026-11-06, owner):** **The agent oversees its own runs, and each step runs on the model
 > it needs.** A workflow stays the operator's fixed plan; the client agent that owns it now watches its
-> runs. Clean steps (rules, forks, actions, automations, `tool` skills) run as code with no model. A
-> skill step can name its own model, so reading an invoice runs on a fast, cheap model and analysis or
-> drafting on a stronger one. When a step fails, or a checkpoint step (one whose output feeds a write)
+> runs. Clean steps (rules, forks, actions, automations, `tool` skills) run as code with no model.
+> Skills come in a third mode, **`task`**: a typed job (input in, output out) on the skill's own
+> default model, the same whichever agent runs it, so reading an invoice runs on a fast, cheap model.
+> **`agent`** skills depend on the agent: they run on its model with its instructions and memory, for
+> analysis and drafting in its voice. A step can override either's model. When a step fails, or a checkpoint step (one whose output feeds a write)
 > finishes, the agent reviews it on the model the operator picks for oversight and decides one thing:
 > continue, retry, retry with a corrected input, ask a person, or stop. It never changes its plan, its
 > approvals or its permissions during a run, and a corrected write is decided again by the gate. A fix
@@ -371,10 +373,12 @@ only what a test or an existing screen needs.
   (§10.9), events dispatched right after commit (§8), background document reading counted as the
   client's usage (§13), a portal records list (§14), and "sync now" that always starts or queues a
   sync (§6.2)
-- **Run oversight and a model per step** (v0.13, §10.11): a skill step may name its own model; the
-  client agent reviews failed steps and checkpoint steps on its oversight model and continues, retries,
-  retries with a corrected input, asks a person or stops, within limits, never changing its plan,
-  approvals or permissions; a fix that should last is a proposal to the operator
+- **Run oversight and a model per step** (v0.13, §10.11): `task` skills run on their own default model,
+  the same in any agent; `agent` skills run on the agent's model with its instructions and memory; a
+  skill step may override the model; the client agent reviews failed steps and checkpoint steps on its
+  oversight model and continues, retries, retries with a corrected input, asks a person or stops,
+  within limits, never changing its plan, approvals or permissions; a fix that should last is a
+  proposal to the operator
 
 Out (designed for, not built):
 - Client self-serve building;
@@ -1261,13 +1265,26 @@ const SkillDefinition = z.object({
 - **Built-in skills** are code: platform skills (`docs.find-support`, `docs.extract`, `threads.summarize`,
   `inbox.ask`) and pack skills (`materials.*`). Their version is the package version.
 - **Operator-written skills** are created in the back office's Skills library, shared or for one client: name, description, instructions, a selection of
-  existing tools, input and output fields (a form that produces the JSON Schema), settings. Always mode
-  `agent`. Saved as `skill_version` rows with the same draft → publish → rollback rules as agents.
+  existing tools, input and output fields (a form that produces the JSON Schema), settings. Mode
+  `agent`, or `task` with a model (v0.13). Saved as `skill_version` rows with the same draft → publish → rollback rules as agents.
 - A client agent can use a skill only when the client has the required connections bound and packs
   enabled. Forking a template into a client shows what's missing there.
-- **v0.13:** `SkillDefinition` + `model?: { id, maxTokens? }`, the skill's default model when its mode
-  is `agent` (a step's own `model` wins; §10.11). Built-in skills set none, so they keep today's model
-  and their recorded fixtures.
+- **v0.13: three modes.** `mode` becomes `'tool' | 'task' | 'agent'`, and `SkillDefinition` gains
+  `model?: { id, maxTokens? }`:
+  - `tool`: code (a handler), no model. Unchanged.
+  - `task`: a typed job that does not depend on the agent running it, such as reading an invoice into
+    JSON, classifying a line or summarising a thread. `model` is **required**: the skill's default,
+    chosen for the job. The prompt is the platform preamble, the skill's instructions and the input;
+    **no** agent instructions and **no** memory notes. Same input, same model, same instructions in
+    every agent, so its tests (§9.10) hold wherever it is used.
+  - `agent`: depends on the agent. Runs on the agent's `definition.model` with the agent's
+    instructions and memory notes, as today: analysis, judgment and drafting in its voice. `model` is
+    not allowed on the skill (the agent decides).
+  - A step may override the model of a `task` or `agent` skill (§10.11). Changing a task skill's
+    default model is a new skill version, so client agents pinned to the old one don't change.
+  - Existing skills stay `agent` (stored rows parse unchanged); built-in skills move to `task` one at
+    a time, each with its recorded fixtures re-recorded. // DECISION: no bulk move.
+
 
 ### 9.3 Versioning, templates and client agents
 
@@ -1798,14 +1815,15 @@ when a step goes wrong the agent looks at it and decides what happens next, insi
 | Work | Runs as | Examples |
 |---|---|---|
 | Clean | Code, no model | Fork rules, `action` steps, `tool`-mode skills, waits, notifications |
-| Reading | A skill step on a fast model | Reading an invoice into JSON, classifying, adjudicating a match |
-| Judgment | A skill step on the agent's model or a stronger one | Analysis, drafting a message, an exception |
+| Reading | A `task` skill on its own default model, usually fast | Reading an invoice into JSON, classifying, adjudicating a match |
+| Judgment | An `agent` skill on the agent's model, with its instructions and memory | Analysis, drafting a message in its voice, an exception |
 | Oversight | The agent, on its oversight model | Why did this step fail, and what now; is this output right before we write |
 
-**A model per step.** A `skill` step whose skill is mode `agent` may set `model: { id, maxTokens? }`.
-The runtime uses the step's model, else the skill's default (`SkillDefinition.model`, §9.2), else the
-agent's `definition.model`. Validation: the id is one `packages/llm` knows and prices; `model` on a
-`tool`-mode skill step is an error. The builder labels the choices Fast (Haiku), Standard (Sonnet),
+**Which model a step runs on.** By the skill's mode (§9.2): a `task` skill on its own `model`, an
+`agent` skill on the agent's `definition.model`. A `skill` step may override either with
+`model: { id, maxTokens? }` (a big document on a stronger model; one agent's drafting on Opus).
+Validation: the id is one `packages/llm` knows and prices; `model` on a `tool`-mode skill step, or on
+an `agent`-mode skill definition, is an error; a `task` skill without `model` is an error. The builder labels the choices Fast (Haiku), Standard (Sonnet),
 Strong (Opus) and OpenAI. Each call is a `model_call` row with its model (§10.10), so the run view shows
 cost per step. A merge treats `model` as one step field. // DECISION: a model id on the step, like the
 agent's, not named tiers; tiers are the builder's labels.
@@ -2554,7 +2572,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M27 | KPIs and the client view, credits, the client's audit export | A template's KPIs show on its client agent's page and in the Weekly Table; credits running out with `pause` pauses billable agents and tells the admin; the admin downloads the audit export |
 | M28 | The Builder as a conversation | A three-turn session drafts an agent, one change is undone alone, `/skill` changes one setting, a new skill is drafted with tests from examples, and two steps are saved as an automation |
 | M29 | New connectors | Google Drive files a document by month and Outlook sends an approved email, both against fakes; Ramp and HubSpot after them |
-| M30 | (v0.13) A model per step | One workflow reads an invoice on Haiku and drafts an email on Sonnet; its model calls show both models and per-step cost; `model` on a `tool` skill step fails validation |
+| M30 | (v0.13) Task skills and a model per step | One workflow reads an invoice with a `task` skill on Haiku (no agent instructions or memory in its prompt) and drafts an email with an `agent` skill on the agent's Sonnet; a step override moves the draft to Opus; model calls show each model and per-step cost; a `task` skill without a model fails validation |
 | M31 | Run oversight on failures | A lookup that fails on a vendor name with a trailing space is corrected and the run finishes, with one decision row and one proposal for the operator; a write that reached the client's tool is never retried; past the limit the step fails as before; the portal shows only "Corrected and tried again" |
 | M32 | Checkpoint reviews | An extraction that feeds a create-bill step is reviewed; a wrong total is corrected before the bill is proposed and the approver sees the corrected input; with `review: 'failures'` a clean run makes no oversight call |
 
@@ -2633,7 +2651,8 @@ Decided:
   the same client (§10.10); background reading is the client's usage (§13).
 - v0.13 (owner, 2026-11-06): the client agent oversees its runs on a model the operator picks, deciding
   within the plan (continue, retry, retry with a corrected input, ask a person, stop) and proposing
-  lasting fixes; skill steps name their own model; we keep our executor on Cloudflare Workflows
+  lasting fixes; skills are `tool`, `task` (own default model, agent-independent) or `agent` (the
+  agent's model, instructions and memory), and a step may override the model; we keep our executor on Cloudflare Workflows
   rather than adopting a graph library (LangGraph) (§10.11).
 
 Open:
