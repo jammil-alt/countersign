@@ -199,6 +199,9 @@ function NodeErrors({ errors, node }: { errors: readonly ValidationError[]; node
 const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
   fork: "Paths are checked top to bottom. A run takes the first path whose rules match, then continues after the fork.",
   for_each: "Runs the steps inside once for each item of a list.",
+  // v0.12 W2-B
+  use_automation:
+    "Runs a saved chain of steps as one step. Its steps are edited in the automation, not here.",
   person: "Waits for a person in the inbox before the run goes on.",
 };
 
@@ -521,6 +524,49 @@ function KindFields(
           </Row>
         </>
       );
+    // v0.12 W2-B: a read-only card for the automation, and its input as a form from its schema
+    // (docs/plan.md §1.45). The automation's own steps are not in the bundle.
+    case "use_automation": {
+      const automation = props.data.catalog.automations?.find((a) => a.ref === step.automation);
+      return (
+        <>
+          <Row label="Automation" field="automation" errors={fieldErrors}>
+            <p
+              className="reference text-ink"
+              data-field="automation"
+              data-testid="builder-automation"
+              tabIndex={-1}
+            >
+              {automation ? automation.name : step.automation}
+              <span className="font-sans text-ink-muted">
+                {" "}
+                · v{automation ? automation.version : (step.automation.split("@")[1] ?? "?")}
+              </span>
+            </p>
+          </Row>
+          {automation?.description ? (
+            <p className="text-sm text-ink-muted">{automation.description}</p>
+          ) : null}
+          {automation ? (
+            <p className="text-sm text-ink-muted">
+              {automation.definition.steps.length}{" "}
+              {automation.definition.steps.length === 1 ? "step" : "steps"}
+            </p>
+          ) : null}
+          <Section title="Input">
+            <SchemaForm
+              schema={automation?.definition.input}
+              value={step.input}
+              onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+              paths={paths}
+              prefix="input"
+              errors={fieldErrors}
+              testPrefix="builder-input"
+            />
+          </Section>
+        </>
+      );
+    }
     case "stop":
       return (
         <Row label="End the run as" field="status" errors={fieldErrors}>

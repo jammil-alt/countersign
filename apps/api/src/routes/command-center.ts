@@ -1,0 +1,734 @@
+// v0.12 W2-F: the command center and its live feed (ARCHITECTURE §13.1; docs/plan.md §1.49), and
+// the mounting of search and plain-words questions (./search.ts). Every figure is one SQL query
+// over existing rows, across the clients the operator serves (or the one asked for): RLS scopes
+// the transaction and every query also names the clients (invariant 1). Back office only.
+
+import {
+  AGENT_RECENT_RUNS,
+  BLOCKED_LONG_HOURS,
+  type CommandCenter,
+  clientHealth,
+  ESCALATION_LIST_MAX,
+  type Escalation,
+  FAILED_RUN_ESCALATION_DAYS,
+  FEED_DEFAULT_HOURS,
+  FEED_LIMIT,
+  type FeedItem,
+  HEALTH_DAYS,
+  LOW_CONFIDENCE_DEFAULT,
+  lowConfidenceThreshold,
+  newestFeed,
+  routes,
+  shareOf,
+  sortEscalations,
+} from "@countersign/core";
+import {
+  agent,
+  agentVersion,
+  connection,
+  docExtraction,
+  document,
+  externalAction,
+  inboxItem,
+  run,
+  stepRun,
+  type Tx,
+  tenant,
+} from "@countersign/db";
+import { and, desc, eq, gt, gte, inArray, isNotNull, ne, or, type SQL, sql } from "drizzle-orm";
+import type { Hono } from "hono";
+import { type AppEnv, ensureClient, mount } from "../http";
+import { searchRoutes } from "./search";
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** The clients a request covers: the one asked for (if served), else every client served. */
+function scopeIds(ctx: { tenantIds: readonly string[] }, client: string | undefined): string[] {
+  if (client) {
+    ensureClient(ctx, client);
+    return [client];
+  }
+  return [...ctx.tenantIds];
+}
+
+/** `x in (…)` over uuids, as parameters. */
+function uuidList(ids: readonly string[]): SQL {
+  return sql.join(
+    ids.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+}
+
+/** A timestamp as ISO 8601 text in UTC, from raw SQL. */
+function isoText(column: SQL | unknown): SQL<string> {
+  return sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+}
+
+/** The first line of a run's error, short. */
+function errorLine(error: unknown): string {
+  const e = (error ?? {}) as { reason?: unknown; message?: unknown };
+  const raw =
+    typeof e.reason === "string" ? e.reason : typeof e.message === "string" ? e.message : "";
+  const line = raw.split("\n")[0]?.trim() ?? "";
+  if (!line) return "Failed";
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+}
+
+/** Open items no operator holds: assigned to a client role or a client person. */
+// DECISION: an open item waits on the client when it is not the operator's (role `operator`,
+// which lead checks also use): client roles and items addressed to one client person.
+const clientAssigned = sql`coalesce(${inboxItem.assigneeRole}, '') <> 'operator'`;
+
+interface Names {
+  clients: Map<string, string>;
+  agents: Map<string, { id: string; name: string; serviceName: string | null }>;
+}
+
+async function namesFor(tx: Tx, ids: readonly string[], agentIds: Iterable<string | null>) {
+  const clients = await tx
+    .select({ id: tenant.id, name: tenant.name, settings: tenant.settings })
+    .from(tenant)
+    .where(inArray(tenant.id, [...ids]));
+  const wanted = [...new Set([...agentIds].filter((v): v is string => !!v))];
+  const agents = wanted.length
+    ? await tx
+        .select({ id: agent.id, name: agent.name, serviceName: agent.serviceName })
+        .from(agent)
+        .where(inArray(agent.id, wanted))
+    : [];
+  const names: Names = {
+    clients: new Map(clients.map((c) => [c.id, c.name])),
+    agents: new Map(agents.map((a) => [a.id, a])),
+  };
+  return { names, clients };
+}
+
+const clientRef = (names: Names, id: string) => ({ id, name: names.clients.get(id) ?? "" });
+const agentRef = (names: Names, id: string | null) => (id ? (names.agents.get(id) ?? null) : null);
+
+/** The low-confidence threshold of each client, as SQL over `doc_extraction.tenant_id`. */
+function thresholdSql(thresholds: ReadonlyMap<string, string>): SQL {
+  const cases = [...thresholds.entries()]
+    .filter(([, t]) => t !== LOW_CONFIDENCE_DEFAULT)
+    .map(([id, t]) => sql`when ${id}::uuid then ${t}::numeric`);
+  if (cases.length === 0) return sql`${LOW_CONFIDENCE_DEFAULT}::numeric`;
+  return sql`(case ${docExtraction.tenantId} ${sql.join(cases, sql` `)} else ${LOW_CONFIDENCE_DEFAULT}::numeric end)`;
+}
+
+// ── The command center ──────────────────────────────────────────────────────────────────────────
+
+async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandCenter> {
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekAgo = new Date(now.getTime() - HEALTH_DAYS * DAY_MS);
+  const failedSince = new Date(now.getTime() - FAILED_RUN_ESCALATION_DAYS * DAY_MS);
+  const base: CommandCenter = {
+    at: now.toISOString(),
+    today: today.toISOString(),
+    agentsLive: { count: 0, clients: [] },
+    runningNow: { runs: 0, steps: 0 },
+    needUs: { count: 0, blockedLong: 0 },
+    waitingOnClients: { count: 0, oldestSince: null, oldestAgeSeconds: null },
+    runsToday: { runs: 0, clean: 0, cleanShare: null },
+    spendToday: { costUsd: "0", stepsUsd: "0", readingUsd: "0", perRunUsd: null },
+    escalations: [],
+    lowConfidence: [],
+    health: [],
+    agents: [],
+  };
+  if (ids.length === 0) return base;
+
+  // Client agents (not test copies): the live count, connection users and the agents table.
+  const clientAgents = await tx
+    .select()
+    .from(agent)
+    .where(
+      and(
+        inArray(agent.tenantId, ids),
+        eq(agent.kind, "client"),
+        eq(agent.status, "active"),
+        eq(agent.testCopy, false),
+        or(sql`${agent.runStatus} is null`, ne(agent.runStatus, "retired")),
+      ),
+    )
+    .orderBy(agent.tenantId, agent.slug);
+  const templateIds = clientAgents.map((a) => a.templateId);
+  const { names, clients } = await namesFor(tx, ids, [
+    ...clientAgents.map((a) => a.id),
+    ...templateIds,
+  ]);
+
+  // Agents live: active client agents, by client.
+  const liveByClient = new Map<string, number>();
+  for (const a of clientAgents) {
+    if (a.runStatus !== "active" || !a.tenantId) continue;
+    liveByClient.set(a.tenantId, (liveByClient.get(a.tenantId) ?? 0) + 1);
+  }
+
+  // Running now: runs queued or running, and their steps in flight.
+  // (Joined, not a correlated subquery: drizzle leaves a single table's columns unqualified in
+  // its select list, which would bind them inside a subquery to the wrong table.)
+  const [running] = await tx
+    .select({
+      runs: sql<number>`count(distinct ${run.id})::int`,
+      steps: sql<number>`(count(${stepRun.id}) filter (where ${stepRun.status} = 'running'))::int`,
+    })
+    .from(run)
+    .leftJoin(stepRun, and(eq(stepRun.runId, run.id), eq(stepRun.tenantId, run.tenantId)))
+    .where(and(inArray(run.tenantId, ids), inArray(run.status, ["queued", "running"])));
+
+  // ── Escalations ──
+  type Pending = Omit<Escalation, "agent"> & { agentId: string | null };
+  const escalations: Pending[] = [];
+  const items = await tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, ids),
+        eq(inboxItem.status, "open"),
+        eq(inboxItem.assigneeRole, "operator"),
+        // DECISION: a test run's items (always the operator's) block no client: left out.
+        sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
+      ),
+    );
+  for (const i of items) {
+    escalations.push({
+      kind: "item",
+      id: i.id,
+      client: clientRef(names, i.tenantId),
+      agentId: i.agentId,
+      runId: i.runId,
+      title: i.title,
+      blockedSince: i.createdAt.toISOString(),
+    });
+  }
+  const failed = await tx
+    .select()
+    .from(run)
+    .where(
+      and(
+        inArray(run.tenantId, ids),
+        eq(run.mode, "live"),
+        eq(run.status, "failed"),
+        gte(run.createdAt, failedSince),
+        sql`not exists (select 1 from run retry where retry.retry_of = ${run.id} and retry.tenant_id = ${run.tenantId})`,
+      ),
+    );
+  for (const r of failed) {
+    escalations.push({
+      kind: "failed_run",
+      id: r.id,
+      client: clientRef(names, r.tenantId),
+      agentId: r.agentId,
+      runId: r.id,
+      title: errorLine(r.error),
+      blockedSince: (r.finishedAt ?? r.createdAt).toISOString(),
+    });
+  }
+  const broken = await tx
+    .select()
+    .from(connection)
+    .where(and(inArray(connection.tenantId, ids), eq(connection.status, "error")));
+  for (const c of broken) {
+    const users = clientAgents.filter(
+      (a) =>
+        a.tenantId === c.tenantId &&
+        (Object.values(a.bindings).includes(c.id) || Object.values(a.channels).includes(c.id)),
+    );
+    // DECISION: a connection in error escalates only while an agent uses it (a binding or a
+    // channel), as §13.1 says; it is blocked since the connection last changed.
+    if (users.length === 0) continue;
+    escalations.push({
+      kind: "connection",
+      id: c.id,
+      client: clientRef(names, c.tenantId),
+      agentId: users[0]?.id ?? null,
+      runId: null,
+      title: c.connector,
+      blockedSince: c.updatedAt.toISOString(),
+    });
+  }
+
+  // Low confidence: today's readings under each client's threshold.
+  const thresholds = new Map(clients.map((c) => [c.id, lowConfidenceThreshold(c.settings)]));
+  const threshold = thresholdSql(thresholds);
+  const lowReadings = await tx
+    .select({
+      id: docExtraction.id,
+      tenantId: docExtraction.tenantId,
+      documentId: docExtraction.documentId,
+      versionId: docExtraction.agentVersionId,
+      confidence: docExtraction.confidence,
+      createdAt: docExtraction.createdAt,
+      filename: document.filename,
+      agentId: agentVersion.agentId,
+      version: agentVersion.version,
+      templateVersionId: agentVersion.basedOnTemplateVersionId,
+    })
+    .from(docExtraction)
+    .innerJoin(
+      document,
+      and(eq(document.id, docExtraction.documentId), eq(document.tenantId, docExtraction.tenantId)),
+    )
+    .leftJoin(agentVersion, eq(agentVersion.id, docExtraction.agentVersionId))
+    .where(
+      and(
+        inArray(docExtraction.tenantId, ids),
+        gte(docExtraction.createdAt, today),
+        isNotNull(docExtraction.confidence),
+        sql`${docExtraction.confidence} < ${threshold}`,
+      ),
+    )
+    .orderBy(docExtraction.createdAt);
+  // DECISION: each document read under the threshold today escalates once (its latest such
+  // reading), blocked since that reading; the low-confidence figure counts every reading.
+  const latestPerDocument = new Map<string, (typeof lowReadings)[number]>();
+  for (const r of lowReadings) latestPerDocument.set(r.documentId, r);
+  for (const r of latestPerDocument.values()) {
+    escalations.push({
+      kind: "low_confidence",
+      id: r.id,
+      client: clientRef(names, r.tenantId),
+      agentId: r.agentId ?? null,
+      runId: null,
+      title: r.filename,
+      blockedSince: r.createdAt.toISOString(),
+    });
+  }
+
+  // Names for every agent an escalation or reading points at.
+  const moreAgents = [
+    ...escalations.map((e) => e.agentId),
+    ...lowReadings.map((r) => r.agentId),
+  ].filter((id): id is string => !!id && !names.agents.has(id));
+  const templateVersionIds = [
+    ...new Set(lowReadings.map((r) => r.templateVersionId).filter((v): v is string => !!v)),
+  ];
+  const templateVersions = templateVersionIds.length
+    ? await tx
+        .select({
+          id: agentVersion.id,
+          agentId: agentVersion.agentId,
+          version: agentVersion.version,
+        })
+        .from(agentVersion)
+        .where(inArray(agentVersion.id, templateVersionIds))
+    : [];
+  const extra = await namesFor(tx, [], [...moreAgents, ...templateVersions.map((t) => t.agentId)]);
+  for (const [id, a] of extra.names.agents) names.agents.set(id, a);
+  const sorted = sortEscalations(
+    escalations.map(({ agentId, ...rest }) => ({ ...rest, agent: agentRef(names, agentId) })),
+  );
+  const blockedLongBefore = new Date(now.getTime() - BLOCKED_LONG_HOURS * HOUR_MS).toISOString();
+
+  const groups = new Map<string, CommandCenter["lowConfidence"][number]>();
+  for (const r of lowReadings) {
+    const key = `${r.tenantId}:${r.versionId ?? "background"}`;
+    const confidence = r.confidence ?? "0";
+    const g = groups.get(key);
+    if (g) {
+      g.readings += 1;
+      if (Number(confidence) < Number(g.lowest)) g.lowest = confidence;
+      continue;
+    }
+    const tv = templateVersions.find((t) => t.id === r.templateVersionId);
+    groups.set(key, {
+      client: clientRef(names, r.tenantId),
+      agent: agentRef(names, r.agentId ?? null),
+      versionId: r.versionId,
+      version: r.version ?? null,
+      template: tv
+        ? { id: tv.agentId, name: names.agents.get(tv.agentId)?.name ?? "", version: tv.version }
+        : null,
+      threshold: thresholds.get(r.tenantId) ?? LOW_CONFIDENCE_DEFAULT,
+      readings: 1,
+      lowest: confidence,
+    });
+  }
+
+  // Waiting on clients: open items the client holds, and the oldest's age.
+  const [waiting] = await tx
+    .select({
+      count: sql<number>`count(*)::int`,
+      oldest: sql<string | null>`${isoText(sql`min(${inboxItem.createdAt})`)}`,
+    })
+    .from(inboxItem)
+    .where(and(inArray(inboxItem.tenantId, ids), eq(inboxItem.status, "open"), clientAssigned));
+
+  // Runs today (live, UTC) and the clean ones: succeeded with no step retried.
+  const retried = tx
+    .select({ runId: stepRun.runId, tenantId: stepRun.tenantId })
+    .from(stepRun)
+    .where(and(inArray(stepRun.tenantId, ids), gt(stepRun.attempts, 1)))
+    .groupBy(stepRun.runId, stepRun.tenantId)
+    .as("retried");
+  const noRetry = and(eq(retried.runId, run.id), eq(retried.tenantId, run.tenantId));
+  const clean = sql<number>`(count(*) filter (where ${run.status} = 'succeeded' and ${retried.runId} is null))::int`;
+  const [todayRuns] = await tx
+    .select({ runs: sql<number>`count(*)::int`, clean })
+    .from(run)
+    .leftJoin(retried, noRetry)
+    .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, today)));
+
+  // Model spend today: step runs (any mode: test runs cost the same) and background readings.
+  const stepDay = sql`coalesce(${stepRun.startedAt}, ${run.createdAt})`;
+  const [steps] = await tx
+    .select({
+      usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
+      runs: sql<number>`count(distinct ${stepRun.runId})::int`,
+      perRun: sql<
+        string | null
+      >`(sum(${stepRun.costUsd}) / nullif(count(distinct ${stepRun.runId}), 0))::numeric(14,4)::text`,
+    })
+    .from(stepRun)
+    .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+    .where(
+      and(inArray(stepRun.tenantId, ids), sql`${stepDay} >= ${today.toISOString()}::timestamptz`),
+    );
+  const [reading] = await tx
+    .select({ usd: sql<string>`coalesce(sum(${docExtraction.costUsd}), 0)::numeric(14,4)::text` })
+    .from(docExtraction)
+    .where(
+      and(
+        inArray(docExtraction.tenantId, ids),
+        sql`${docExtraction.agentVersionId} is null`,
+        gte(docExtraction.createdAt, today),
+      ),
+    );
+  const [spend] = await tx.execute<{ total: string }>(
+    sql`select (${steps?.usd ?? "0"}::numeric + ${reading?.usd ?? "0"}::numeric)::numeric(14,4)::text as total`,
+  );
+
+  // Client health over 7 days.
+  const weekRuns = await tx
+    .select({ tenantId: run.tenantId, runs: sql<number>`count(*)::int`, clean })
+    .from(run)
+    .leftJoin(retried, noRetry)
+    .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, weekAgo)))
+    .groupBy(run.tenantId);
+  const responses = await tx
+    .select({
+      tenantId: inboxItem.tenantId,
+      hours: sql<number>`(percentile_cont(0.5) within group (order by extract(epoch from (${inboxItem.resolvedAt} - ${inboxItem.createdAt}))) / 3600)::float8`,
+    })
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, ids),
+        eq(inboxItem.status, "resolved"),
+        gte(inboxItem.resolvedAt, weekAgo),
+        clientAssigned,
+      ),
+    )
+    .groupBy(inboxItem.tenantId);
+  const health = clients
+    .map((c) => {
+      const w = weekRuns.find((x) => x.tenantId === c.id);
+      const resp = responses.find((x) => x.tenantId === c.id);
+      const cleanShare = shareOf(w?.clean ?? 0, w?.runs ?? 0);
+      const medianResponseHours =
+        resp?.hours === null || resp?.hours === undefined
+          ? null
+          : Math.round(Number(resp.hours) * 10) / 10;
+      const openEscalations = sorted.filter((e) => e.client.id === c.id).length;
+      return {
+        id: c.id,
+        name: c.name,
+        status: clientHealth({ cleanShare, medianResponseHours, openEscalations }),
+        cleanShare,
+        runs: w?.runs ?? 0,
+        medianResponseHours,
+        openEscalations,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // The agents table: state now, last 24 runs, cost over 7 days.
+  const agentIds = clientAgents.map((a) => a.id);
+  const recent = agentIds.length
+    ? await tx.execute<{
+        id: string;
+        agent_id: string;
+        status: string;
+        mode: string;
+        created_at: string;
+      }>(sql`
+        select id, agent_id, status, mode, created_at from (
+          select ${run.id} as id, ${run.agentId} as agent_id, ${run.status} as status,
+                 ${run.mode} as mode, ${isoText(run.createdAt)} as created_at,
+                 row_number() over (partition by ${run.agentId} order by ${run.createdAt} desc, ${run.id} desc) as n
+          from ${run}
+          where ${run.tenantId} in (${uuidList(ids)}) and ${run.agentId} in (${uuidList(agentIds)})
+        ) x where n <= ${AGENT_RECENT_RUNS}
+        order by agent_id, created_at desc`)
+    : [];
+  const open = agentIds.length
+    ? await tx
+        .select({ agentId: run.agentId, n: sql<number>`count(*)::int` })
+        .from(run)
+        .where(
+          and(
+            inArray(run.tenantId, ids),
+            inArray(run.agentId, agentIds),
+            inArray(run.status, ["queued", "running", "waiting"]),
+          ),
+        )
+        .groupBy(run.agentId)
+    : [];
+  const weekCost = agentIds.length
+    ? await tx
+        .select({
+          agentId: run.agentId,
+          usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
+        })
+        .from(stepRun)
+        .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+        .where(
+          and(
+            inArray(stepRun.tenantId, ids),
+            inArray(run.agentId, agentIds),
+            sql`${stepDay} >= ${weekAgo.toISOString()}::timestamptz`,
+          ),
+        )
+        .groupBy(run.agentId)
+    : [];
+  const recentRows = [...recent];
+  const agents = clientAgents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    serviceName: a.serviceName,
+    client: clientRef(names, a.tenantId as string),
+    template: a.templateId
+      ? { id: a.templateId, name: names.agents.get(a.templateId)?.name ?? "" }
+      : null,
+    status: a.runStatus ?? "draft",
+    stage: a.stage ?? null,
+    openRuns: open.find((o) => o.agentId === a.id)?.n ?? 0,
+    recentRuns: recentRows
+      .filter((r) => r.agent_id === a.id)
+      .map((r) => ({ id: r.id, status: r.status, mode: r.mode, createdAt: r.created_at })),
+    cost7dUsd: weekCost.find((w) => w.agentId === a.id)?.usd ?? "0.0000",
+  }));
+
+  const oldest = waiting?.oldest ?? null;
+  return {
+    ...base,
+    agentsLive: {
+      count: [...liveByClient.values()].reduce((s, n) => s + n, 0),
+      clients: clients
+        .filter((c) => liveByClient.has(c.id))
+        .map((c) => ({ id: c.id, name: c.name, agents: liveByClient.get(c.id) ?? 0 }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    },
+    runningNow: { runs: running?.runs ?? 0, steps: running?.steps ?? 0 },
+    needUs: {
+      count: sorted.length,
+      blockedLong: sorted.filter((e) => e.blockedSince < blockedLongBefore).length,
+    },
+    waitingOnClients: {
+      count: waiting?.count ?? 0,
+      oldestSince: oldest,
+      oldestAgeSeconds: oldest
+        ? Math.max(0, Math.floor((now.getTime() - Date.parse(oldest)) / 1000))
+        : null,
+    },
+    runsToday: {
+      runs: todayRuns?.runs ?? 0,
+      clean: todayRuns?.clean ?? 0,
+      cleanShare: shareOf(todayRuns?.clean ?? 0, todayRuns?.runs ?? 0),
+    },
+    spendToday: {
+      costUsd: spend?.total ?? "0.0000",
+      stepsUsd: steps?.usd ?? "0.0000",
+      readingUsd: reading?.usd ?? "0.0000",
+      perRunUsd: steps?.perRun ?? null,
+    },
+    escalations: sorted.slice(0, ESCALATION_LIST_MAX),
+    lowConfidence: [...groups.values()],
+    health,
+    agents,
+  };
+}
+
+// ── The feed ────────────────────────────────────────────────────────────────────────────────────
+
+async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
+  if (ids.length === 0) return [];
+  type Raw = Omit<FeedItem, "client" | "agent"> & { tenantId: string; agentId: string | null };
+  const raw: Raw[] = [];
+
+  // Client-visible step summaries of live runs.
+  const steps = await tx
+    .select({
+      id: stepRun.id,
+      tenantId: stepRun.tenantId,
+      runId: stepRun.runId,
+      agentId: run.agentId,
+      summary: stepRun.summary,
+      at: stepRun.finishedAt,
+    })
+    .from(stepRun)
+    .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+    .where(
+      and(
+        inArray(stepRun.tenantId, ids),
+        eq(run.mode, "live"),
+        eq(stepRun.status, "succeeded"),
+        isNotNull(stepRun.summary),
+        gt(stepRun.finishedAt, since),
+      ),
+    )
+    .orderBy(desc(stepRun.finishedAt))
+    .limit(FEED_LIMIT);
+  // DECISION: "client-visible" step summaries are the summaries of live runs' finished steps (the
+  // line the timeline shows); internal steps write none.
+  for (const s of steps) {
+    if (!s.at || !s.summary) continue;
+    raw.push({ ...s, id: `step:${s.id}`, kind: "step", at: s.at.toISOString(), text: s.summary });
+  }
+
+  // Writes done in the client's tools.
+  const writes = await tx
+    .select({
+      id: externalAction.id,
+      tenantId: externalAction.tenantId,
+      runId: externalAction.runId,
+      agentId: run.agentId,
+      tool: externalAction.tool,
+      at: externalAction.executedAt,
+    })
+    .from(externalAction)
+    .leftJoin(run, and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)))
+    .where(
+      and(
+        inArray(externalAction.tenantId, ids),
+        eq(externalAction.status, "done"),
+        gt(externalAction.executedAt, since),
+      ),
+    )
+    .orderBy(desc(externalAction.executedAt))
+    .limit(FEED_LIMIT);
+  for (const w of writes) {
+    if (!w.at) continue;
+    raw.push({
+      id: `write:${w.id}`,
+      kind: "write",
+      at: w.at.toISOString(),
+      tenantId: w.tenantId,
+      runId: w.runId,
+      agentId: w.agentId,
+      text: w.tool,
+    });
+  }
+
+  // Signatures: items a person resolved.
+  const signed = await tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, ids),
+        eq(inboxItem.status, "resolved"),
+        isNotNull(inboxItem.resolvedBy),
+        gt(inboxItem.resolvedAt, since),
+      ),
+    )
+    .orderBy(desc(inboxItem.resolvedAt))
+    .limit(FEED_LIMIT);
+  for (const i of signed) {
+    if (!i.resolvedAt) continue;
+    raw.push({
+      id: `signature:${i.id}`,
+      kind: "signature",
+      at: i.resolvedAt.toISOString(),
+      tenantId: i.tenantId,
+      runId: i.runId,
+      agentId: i.agentId,
+      text: i.title,
+    });
+  }
+
+  // Failures of live runs.
+  const failures = await tx
+    .select()
+    .from(run)
+    .where(
+      and(
+        inArray(run.tenantId, ids),
+        eq(run.mode, "live"),
+        eq(run.status, "failed"),
+        sql`coalesce(${run.finishedAt}, ${run.createdAt}) > ${since.toISOString()}::timestamptz`,
+      ),
+    )
+    .orderBy(desc(sql`coalesce(${run.finishedAt}, ${run.createdAt})`))
+    .limit(FEED_LIMIT);
+  for (const r of failures) {
+    raw.push({
+      id: `failure:${r.id}`,
+      kind: "failure",
+      at: (r.finishedAt ?? r.createdAt).toISOString(),
+      tenantId: r.tenantId,
+      runId: r.id,
+      agentId: r.agentId,
+      text: errorLine(r.error),
+    });
+  }
+
+  // Sloan's drafted changes: account-change items, when drafted (docs/plan.md §1.47).
+  const drafts = await tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, ids),
+        eq(inboxItem.subjectType, "account_change"),
+        gt(inboxItem.createdAt, since),
+      ),
+    )
+    .orderBy(desc(inboxItem.createdAt))
+    .limit(FEED_LIMIT);
+  for (const d of drafts) {
+    raw.push({
+      id: `draft:${d.id}`,
+      kind: "draft",
+      at: d.createdAt.toISOString(),
+      tenantId: d.tenantId,
+      runId: d.runId,
+      agentId: d.agentId,
+      text: d.title,
+    });
+  }
+
+  const kept = newestFeed(raw);
+  const { names } = await namesFor(
+    tx,
+    ids,
+    kept.map((r) => r.agentId),
+  );
+  return kept.map(({ tenantId, agentId, ...rest }) => ({
+    ...rest,
+    client: clientRef(names, tenantId),
+    agent: agentRef(names, agentId),
+  }));
+}
+
+// ── Routes ──────────────────────────────────────────────────────────────────────────────────────
+
+export function commandCenterRoutes(app: Hono<AppEnv>): void {
+  mount(app, routes.opsCommandCenter, async (ctx) =>
+    commandCenter(ctx.tx, scopeIds(ctx, ctx.query.client), new Date()),
+  );
+
+  mount(app, routes.opsFeed, async (ctx) => {
+    const now = new Date();
+    const since = ctx.query.since
+      ? new Date(ctx.query.since)
+      : new Date(now.getTime() - FEED_DEFAULT_HOURS * HOUR_MS);
+    const items = await feed(ctx.tx, scopeIds(ctx, ctx.query.client), since);
+    return { at: now.toISOString(), items };
+  });
+
+  // Search and plain-words questions, both surfaces.
+  searchRoutes(app);
+}

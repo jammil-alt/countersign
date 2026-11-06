@@ -23,6 +23,8 @@ export * from "./log/run-log";
 export * from "./log/threads-port";
 export * from "./log/usage";
 export * from "./registry/agents";
+// v0.12 W2-B
+export * from "./registry/automations";
 export * from "./registry/grants";
 export * from "./registry/lineage";
 export * from "./registry/people";
