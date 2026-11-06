@@ -73,6 +73,8 @@ describe("processors", () => {
       "browser",
       "upload",
       // v0.12 W3-B
+      "ramp",
+      "hubspot",
       "gdrive",
       "outlook",
       // v0.14 W4-E

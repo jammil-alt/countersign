@@ -27,9 +27,13 @@ import {
   createGmailConnector,
   // v0.14 W4-D
   createGsheetsConnector,
+  // v0.12 W3-B
+  createHubspotConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
+  // v0.12 W3-B
+  createRampConnector,
   createResendConnector,
   // v0.14 W4-C
   createSlackConnector,
@@ -164,6 +168,11 @@ type OAuthEnvKey =
   | "PODIO_CLIENT_SECRET"
   | "GOOGLE_CLIENT_ID"
   | "GOOGLE_CLIENT_SECRET"
+  // v0.12 W3-B
+  | "RAMP_CLIENT_ID"
+  | "RAMP_CLIENT_SECRET"
+  | "HUBSPOT_CLIENT_ID"
+  | "HUBSPOT_CLIENT_SECRET"
   // v0.12 W3-B: Outlook's Entra app.
   | "OUTLOOK_CLIENT_ID"
   | "OUTLOOK_CLIENT_SECRET"
@@ -193,6 +202,8 @@ export function platformFor(
     env.QBO_WEBHOOK_VERIFIER ? "qbo-hook" : "-",
     env.GOOGLE_CLIENT_ID ?? "-",
     // v0.12 W3-B
+    env.RAMP_CLIENT_ID ?? "-",
+    env.HUBSPOT_CLIENT_ID ?? "-",
     env.OUTLOOK_CLIENT_ID ?? "-",
     // v0.14 W4-E: whether the key is set, never the key.
     env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
@@ -296,6 +307,10 @@ export function deploymentConnectors(
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),
+    // v0.12 W3-B: Ramp and HubSpot, registered everywhere like Zoho; each signs in once its client
+    // id and secret and OAUTH_STATE_SECRET are set (ARCHITECTURE §6.11, docs/plan.md §1.52).
+    createRampConnector(oauthClient(env.RAMP_CLIENT_ID, env.RAMP_CLIENT_SECRET, env)),
+    createHubspotConnector(oauthClient(env.HUBSPOT_CLIENT_ID, env.HUBSPOT_CLIENT_SECRET, env)),
     // v0.12 bankfeed: bank and card feeds through Plaid (ARCHITECTURE §6.11, docs/plan.md §1.52),
     // registered everywhere like Zoho; a client connects in Plaid Link once PLAID_CLIENT_ID,
     // PLAID_SECRET and OAUTH_STATE_SECRET are set. PLAID_ENV picks sandbox or production.
@@ -310,4 +325,14 @@ export function deploymentConnectors(
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),
   ];
+}
+
+// v0.12 W3-B: an OAuth client for a connector, only when its id, secret and OAUTH_STATE_SECRET are
+// all set; otherwise none, and the portal shows "not available yet".
+function oauthClient(
+  clientId: string | undefined,
+  clientSecret: string | undefined,
+  env: Pick<Bindings, "OAUTH_STATE_SECRET">,
+): { clientId?: string; clientSecret?: string } {
+  return clientId && clientSecret && env.OAUTH_STATE_SECRET ? { clientId, clientSecret } : {};
 }
