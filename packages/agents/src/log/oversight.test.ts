@@ -400,6 +400,103 @@ describe.skipIf(!harness)("run oversight: the review and its record", () => {
     expect(item?.assigneeRole).toBe("client_admin");
   });
 
+  // ── v0.13 M32: checkpoints ─────────────────────────────────────────────────────────────────
+
+  it("reviews a checkpoint with its output in the tool result; continue is no intervention", async () => {
+    const ids = await failedStep(READ_STEP, { note: "Oak board" });
+    const model = new FakeModel([
+      finish({ action: "continue", note: "The amount matches the note.", sources: [] }),
+    ]);
+    const checkpoint = {
+      cause: "checkpoint" as const,
+      input: { note: "Oak board" },
+      error: "",
+      errorKey: "",
+      output: { name: "Oak board", amount: "CHECKPOINT-OUTPUT-100" },
+      settings: OversightSettings.parse({ review: "checkpoints", maxPerRun: 1 }),
+    };
+    expect(await overseeStep(h.deps(model), store(), request(READ_STEP, ids, checkpoint))).toEqual({
+      action: "continue",
+      note: "The amount matches the note.",
+    });
+    const req = model.requests[0];
+    expect(req?.system).toContain("finished");
+    expect(req?.system).not.toContain("CHECKPOINT-OUTPUT");
+    expect(JSON.stringify(req?.messages.at(-1))).toContain("CHECKPOINT-OUTPUT-100");
+    // `retry` is not a checkpoint's to choose.
+    const tools = req?.tools as {
+      name: string;
+      input_schema: { properties: { action: { enum: string[] } } };
+    }[];
+    expect(tools.find((t) => t.name === "finish")?.input_schema.properties.action.enum).toEqual([
+      "continue",
+      "retry_with",
+      "ask",
+      "stop",
+    ]);
+    // A continue counts toward no limit: with maxPerRun 1, the next review still happens.
+    const next = new FakeModel([finish({ action: "continue", note: "Fine.", sources: [] })]);
+    expect(
+      (await overseeStep(h.deps(next), store(), request(READ_STEP, ids, { ...checkpoint, seq: 2 })))
+        .action,
+    ).toBe("continue");
+    expect(next.requests).toHaveLength(1);
+  });
+
+  it("never offers a checkpoint whose write went out a run again", async () => {
+    const ids = await failedStep(WRITE_STEP, { id: "r1", amount: "1.00" });
+    await h.client(h.A, (tx) =>
+      tx.insert(externalAction).values({
+        tenantId: h.A.tenantId,
+        connectionId: h.A.connectionId,
+        tool: TESTKIT_UPDATE_TOOL,
+        runId: ids.runId,
+        stepRunId: ids.stepRunId,
+        agentVersionId: versionId,
+        input: { id: "r1", amount: "1.00" },
+        idempotencyKey: `${ids.runId}:step-update:0`,
+        status: "done",
+      }),
+    );
+    const checkpoint = {
+      cause: "checkpoint" as const,
+      input: { id: "r1", amount: "1.00" },
+      error: "",
+      errorKey: "",
+      output: { record: { id: "r1" } },
+    };
+    const model = new FakeModel([
+      finish({ action: "retry_with", input: { id: "r1", amount: "2.00" }, note: "n", sources: [] }),
+    ]);
+    const verdict = await overseeStep(h.deps(model), store(), request(WRITE_STEP, ids, checkpoint));
+    expect(verdict).toEqual({ action: "none", reason: "retry_with is not allowed for this step" });
+    expect(model.requests[0]?.system).toContain("can't run again");
+    expect(await decisions(ids.runId)).toEqual([]);
+  });
+
+  it("titles a checkpoint's ask for going on, not trying again", async () => {
+    const ids = await failedStep(READ_STEP, { note: "x" });
+    const verdict = await overseeStep(
+      h.deps(
+        new FakeModel([
+          finish({ action: "ask", question: "Is 100.00 right?", note: "n", sources: [] }),
+        ]),
+      ),
+      store(),
+      request(READ_STEP, ids, {
+        cause: "checkpoint",
+        error: "",
+        errorKey: "",
+        output: { amount: "100.00" },
+      }),
+    );
+    if (verdict.action !== "ask") throw new Error("expected an ask");
+    const [item] = await h.client(h.A, (tx) =>
+      tx.select().from(inboxItem).where(eq(inboxItem.id, verdict.inboxItemId)),
+    );
+    expect(item?.title).toBe('Before we go on from "Read the note": Is 100.00 right?');
+  });
+
   it("keeps decisions in their client (RLS)", async () => {
     const rows = await h.client(h.B, (tx) => tx.select().from(oversightDecision));
     expect(rows).toEqual([]);

@@ -29,6 +29,8 @@ import {
   renderSummary,
   renderTemplate,
   resolveTemplate,
+  // v0.13 M32
+  reviewsAfterSuccess,
   reviewsFailures,
   runErrorKey,
   type SkillStep,
@@ -39,6 +41,8 @@ import {
   type UseAutomationStep,
   type WaitStep,
   type Workflow,
+  // v0.13 M32
+  workflowCheckpoints,
 } from "@countersign/core";
 import { type AutomationResolver, ExpandError, type Expansions, expandAutomations } from "./expand";
 import {
@@ -135,6 +139,18 @@ function withDiagnosis(diagnosis: string | undefined): { diagnosis?: string } {
   return diagnosis === undefined ? {} : { diagnosis };
 }
 
+/**
+ * v0.13 M32: a step's key among the checkpoints. Inside a use step (`…${use}/${inner}`, the use
+ * step's own name may carry a loop's `${loop}:${i}:`), the use step's id and the inner step's id.
+ */
+function checkpointKey(name: string, stepId: string): string {
+  const slash = name.indexOf("/");
+  if (slash < 0) return stepId;
+  const useName = name.slice(0, slash);
+  const useId = useName.slice(useName.lastIndexOf(":") + 1);
+  return `${useId}/${stepId}`;
+}
+
 // DECISION: a write step whose approval names no timeout waits 7 days, then counts as not
 // approved (its onReject applies). An unanswered approval must never turn into a write.
 export const DEFAULT_APPROVAL_TIMEOUT: Duration = "7 days";
@@ -183,6 +199,19 @@ export async function executeWorkflow(
     };
   }
   const ex = new Executor(runner, ctx, expansions);
+  // v0.13 M32: checkpoints, from the version's steps and the automations they expand to. Pure over
+  // immutable versions, so a replay computes the same set.
+  if (ctx.oversight) {
+    ex.checkpoints = new Set(
+      workflowCheckpoints(workflow, {
+        ...(ctx.catalog?.skills ? { skills: ctx.catalog.skills } : {}),
+        ...(ctx.catalog?.tools ? { tools: ctx.catalog.tools } : {}),
+        automations: Object.fromEntries(
+          Object.values(expansions).map((e) => [e.ref, { steps: e.steps }]),
+        ),
+      }),
+    );
+  }
   try {
     await ex.runList(workflow.steps, { prefix: "", scope: { trigger, steps: {} }, top: true });
     return { status: "succeeded" };
@@ -207,6 +236,11 @@ class Executor {
   // v0.13 W2-I
   /** Oversight decisions taken in this run so far (each counts toward `maxPerRun`). */
   interventions = 0;
+  /**
+   * v0.13 M32: the workflow's checkpoints (`workflowCheckpoints`): a step by its id, an
+   * automation's inner step as `${useStepId}/${innerId}`.
+   */
+  checkpoints: ReadonlySet<string> = new Set();
 
   get testRun(): boolean {
     return this.ctx.run.mode === "test";
@@ -435,6 +469,15 @@ class Executor {
       if (done.kind === "skipped") {
         frame.scope.steps[step.id] = { output: null };
         return;
+      }
+      // v0.13 M32: stopped at a checkpoint, before the write it feeds.
+      if (done.kind === "cancelled") {
+        throw new RunEnd({
+          status: "cancelled",
+          reason: done.reason,
+          nodeId: name,
+          ...withDiagnosis(done.diagnosis),
+        });
       }
       return this.finishWork(step, name, frame, approval, done.attempt, done.diagnosis);
     }
@@ -940,6 +983,20 @@ class Executor {
     return oversight !== undefined && reviewsFailures(oversight.settings, step);
   }
 
+  /**
+   * v0.13 M32: whether an attempt that succeeded is reviewed before the run goes on: done (not a
+   * write a person turned down), and a checkpoint under `checkpoints`, any step under `all`, or a
+   * step with `review: 'always'`.
+   */
+  checksAfter(step: SkillStep | ActionStep, name: string, attempt: Attempt | { thrown: unknown }) {
+    if ("thrown" in attempt || attempt.outcome.kind !== "done" || attempt.rejected) return false;
+    return reviewsAfterSuccess(
+      this.ctx.oversight?.settings,
+      step,
+      this.checkpoints.has(checkpointKey(name, step.id)),
+    );
+  }
+
   /** The first attempt and its thrown error, if any: a review never hides the step's own error. */
   async tryAttempt(
     step: SkillStep | ActionStep,
@@ -972,6 +1029,8 @@ class Executor {
     | { kind: "attempt"; attempt: Attempt; diagnosis?: string }
     | { kind: "thrown"; error: unknown; diagnosis?: string }
     | { kind: "skipped" }
+    // v0.13 M32: a checkpoint the agent (or the person it asked) stopped.
+    | { kind: "cancelled"; reason: string; diagnosis?: string }
   > {
     const oversight = this.ctx.oversight;
     if (!oversight) throw new Error("unreachable");
@@ -986,7 +1045,11 @@ class Executor {
         ? { kind: "thrown" as const, error: current.thrown, ...withDiagnosis(diagnosis) }
         : { kind: "attempt" as const, attempt: current, ...withDiagnosis(diagnosis) };
 
-    for (let seq = 1; failedAttempt(current); seq++) {
+    // A failed attempt is reviewed when the step's failures are; one that succeeded (v0.13 M32)
+    // when it is a checkpoint under `checkpoints`, under `all`, or with `review: 'always'`.
+    for (let seq = 1; ; seq++) {
+      const failing = failedAttempt(current);
+      if (!failing && !this.checksAfter(step, name, current)) break;
       // DECISION: the executor counts interventions per step and per run (a replay counts the same
       // stored verdicts again); the port holds the cost limit, from the decisions' recorded cost.
       if (seq > OVERSIGHT_MAX_PER_STEP || this.interventions >= maxPerRun) break;
@@ -998,12 +1061,16 @@ class Executor {
         }
       }
       const failed = current;
-      const error =
-        "thrown" in failed
+      const cause = failing ? ("failed" as const) : ("checkpoint" as const);
+      const error = !failing
+        ? ""
+        : "thrown" in failed
           ? message(failed.thrown)
           : failed.outcome.kind === "failed"
             ? failed.outcome.error
             : "failed";
+      const output =
+        !("thrown" in failed) && failed.outcome.kind === "done" ? failed.outcome.output : undefined;
       let verdict: OversightVerdict;
       try {
         verdict = await this.runner.do(
@@ -1025,10 +1092,11 @@ class Executor {
               nodeId: name,
               stepRunId,
               seq,
-              cause: "failed",
+              cause,
               input,
               error,
-              errorKey: errorKeyOf(step, error),
+              errorKey: failing ? errorKeyOf(step, error) : "",
+              ...(failing ? {} : { output }),
               attempts: seq,
               ...(frame.automation ? { automation: frame.automation } : {}),
             });
@@ -1036,13 +1104,19 @@ class Executor {
           this.ctx.stepConfig,
         );
       } catch {
-        // A review that fails is no intervention: the step's own error stands.
+        // A review that fails is no intervention: the step's own error (or output) stands.
         break;
       }
+      // DECISION: `continue` after a checkpoint changes nothing, so it is not an intervention: it
+      // counts toward neither limit (docs/plan.md §1.54).
       if (verdict.action === "none" || verdict.action === "continue") break;
       this.interventions += 1;
       diagnosis = verdict.note;
-      if (verdict.action === "stop") break;
+      if (verdict.action === "stop") {
+        // v0.13 M32: a stop at a checkpoint cancels the run before the write it feeds.
+        if (!failing) return { kind: "cancelled", reason: "oversight_stop", diagnosis };
+        break;
+      }
       if (verdict.action === "ask") {
         const timeout = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
         const answer = await this.awaitResolution(
@@ -1050,10 +1124,16 @@ class Executor {
           verdict.inboxItemId,
           timeout,
         );
+        // v0.13 M32: approved at a checkpoint, the run goes on with the output as it is.
+        if (answer?.approved === true && !failing) break;
         if (answer?.approved !== true) {
           // DECISION: a person who declines (or doesn't answer) is the step's `onReject`:
-          // `continue` skips the step and the run goes on; `stop` fails it with its own error.
-          if (approval.onReject !== "continue") break;
+          // `continue` skips the step and the run goes on; `stop` fails it with its own error
+          // (a failure) or cancels the run (a checkpoint, as a rejected write does).
+          if (approval.onReject !== "continue") {
+            if (!failing) return { kind: "cancelled", reason: "rejected", diagnosis };
+            break;
+          }
           await this.runner.do(`${name}:oversee:${seq}:skipped`, async () => {
             const stepRunId =
               "thrown" in failed
