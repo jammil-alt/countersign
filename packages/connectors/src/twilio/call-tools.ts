@@ -190,6 +190,7 @@ export function callTools(
         "Call a contact from the client's number with a voice agent, for a stated purpose. Only contacts who agreed to calls, outside quiet hours. The agent can only look things up during the call.",
       verb: "create",
       summary: "Called {{contactName}}",
+      recipient: { path: "to", channel: "voice" },
       fixedInputs: VOICE_FIXED_INPUTS,
       input: CallPlaceInput,
       output: CallPlaceOutput,

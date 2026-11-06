@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ToolAmount } from "../approvals/rules";
+import { ToolRecipient } from "../directory/autonomy";
 import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { SideEffect, Verb } from "./permissions";
 import { ToolDisplay } from "./tool-display";
@@ -39,6 +40,9 @@ export const ToolSpec = z
      * and kinds. Writes only; without it the card falls back to the record's own fields.
      */
     display: ToolDisplay.optional(),
+    // v0.12 W1-G: a send tool names the person it messages (docs/plan.md §1.42), so the gate adds
+    // their autonomy for the channel as a ceiling.
+    recipient: ToolRecipient.optional(),
     // v0.12 W1-F: the record type the tool touches (ARCHITECTURE §6.1 "Permissions per record
     // type"), e.g. `invoice`. Declared now; the matrix and grant entities arrive with W2-A.
     entity: z

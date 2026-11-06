@@ -672,7 +672,9 @@ export function reachPort(deps: ReachDeps): ReachPort {
           req.approval.required === "not_required" &&
           // v0.12 W1-A: in trial and signoff the plan always needs a signature (§10.9).
           effectiveMode(definition, loaded.agentRow.stage) === "act" &&
-          plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto");
+          plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto") &&
+          // v0.12 W1-G: the person's `approval` on a planned channel asks for a sign (§1.42).
+          !plan.needsSignature;
         // The person's language, else their organization's, else the client's (§1.27).
         const language = (await contactLanguage(tx, who)).language;
         const stored: StoredPlan = {

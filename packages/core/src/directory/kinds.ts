@@ -24,8 +24,11 @@ export type Relationship = z.infer<typeof Relationship>;
 export const DirectorySource = z.string().regex(/^[a-z][a-z0-9_]{0,39}$/, "a source like manual");
 export type DirectorySource = z.infer<typeof DirectorySource>;
 
-/** The connectors whose contact reads can feed the directory today (Zoho CRM and Podio). */
-export const DIRECTORY_IMPORT_CONNECTORS = ["zoho_crm", "podio"] as const;
+/**
+ * The connectors whose reads can feed the directory today: Zoho CRM and Podio, and QuickBooks'
+ * synced vendors and customers (v0.12 W1-G, docs/plan.md §1.42).
+ */
+export const DIRECTORY_IMPORT_CONNECTORS = ["zoho_crm", "podio", "qbo"] as const;
 export const DirectoryImportConnector = z.enum(DIRECTORY_IMPORT_CONNECTORS);
 export type DirectoryImportConnector = z.infer<typeof DirectoryImportConnector>;
 

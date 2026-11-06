@@ -23,6 +23,7 @@ import {
   QuietHours,
   type ReachChannel,
   type ReachContact,
+  readAutonomy,
 } from "@countersign/core";
 import {
   clientLanguageOf,
@@ -66,6 +67,8 @@ export function reachContactOf(row: ContactRow): ReachContact {
     quietHours: q.success ? q.data : null,
     consent: (row.consent ?? {}) as ContactConsent,
     optedOutAt: row.optedOutAt,
+    // v0.12 W1-G: the person's autonomy per channel (docs/plan.md §1.42).
+    autonomy: readAutonomy(row.autonomy),
   };
 }
 
@@ -123,6 +126,8 @@ export function contactView(
     },
     canCall: callBlock(state) === null,
     canEmail: consentBlockFor(reachContactOf(row), "email") === null,
+    // v0.12 W1-G: per channel; a channel left out narrows nothing.
+    autonomy: readAutonomy(row.autonomy),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

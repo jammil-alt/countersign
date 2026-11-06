@@ -60,19 +60,26 @@ export function decideToolCall(input: {
   grant?: GrantLimits | null | undefined;
   stepApproval?: ApprovalRequirement | undefined;
   agentMode: AgentMode;
+  // v0.12 W1-G: extra ceilings (docs/plan.md §1.42), e.g. a message's recipient's autonomy for the
+  // channel. `off` refuses the call, `approval` makes a write wait; none of them loosens anything.
+  ceilings?: readonly PermissionLevel[] | undefined;
 }): WriteDecision {
   if (input.sideEffect === "internal") return "run";
+  // v0.12 W1-G: the strictest input wins.
+  if (input.ceilings?.includes("off")) return "refused";
   const matrix = input.grant ? effectiveMatrix(input.matrix, input.grant) : input.matrix;
   if (input.sideEffect === "none") {
     if (matrix === undefined) return "run";
     return levelFor(matrix, "read") === "off" ? "refused" : "run";
   }
-  return decideWrite({
+  const decision = decideWrite({
     verb: input.verb,
     matrix,
     stepApproval: input.stepApproval,
     agentMode: input.agentMode,
   });
+  // v0.12 W1-G: an `approval` ceiling turns a write that would run on its own into one that waits.
+  return decision === "run" && input.ceilings?.includes("approval") ? "approval" : decision;
 }
 
 const STRICTNESS: Record<PermissionLevel, number> = { auto: 0, approval: 1, off: 2 };

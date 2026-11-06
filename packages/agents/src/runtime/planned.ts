@@ -6,12 +6,14 @@
 
 import { captureBefore } from "@countersign/connectors";
 import {
+  autonomyMessage,
   decideToolCall,
   fixedInputProblem,
   grantAllowsTool,
   type JsonObject,
   type ModelChoice,
   type ReachLanguage,
+  recipientOf,
   releaseOf,
 } from "@countersign/core";
 import { createLlmClient } from "@countersign/llm";
@@ -117,6 +119,15 @@ async function plannedDispatch(
     stepApproval: "not_required",
     agentMode: "act",
   });
+  // v0.12 W1-G: a person's `off` stops the next attempt at once, even inside an approved plan
+  // (docs/plan.md §1.42). `approval` was settled when the plan was made: the plan's sign covers it.
+  const recipient = recipientOf(tool.spec, call.input);
+  if (recipient && deps.ports.store.contactAutonomy) {
+    const autonomy = await deps.ports.store.contactAutonomy(step.tenantId, recipient);
+    if (autonomy === "off") {
+      return { status: "refused", reason: autonomyMessage(recipient.channel, "off") };
+    }
+  }
   if (decision === "refused") {
     return {
       status: "refused",
