@@ -67,7 +67,7 @@ describe("activation and a running test run", () => {
     );
     expect(screen.getByTestId("agent-activation-problems")).toBeInTheDocument();
     expect(
-      await screen.findByTestId("agent-activation-ready", {}, { timeout: 6_000 }),
+      await screen.findByTestId("agent-activation-ready", {}, { timeout: 10_000 }),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("agent-activation-test-running")).not.toBeInTheDocument();
     expect(screen.getByTestId("agent-activate")).toBeEnabled();

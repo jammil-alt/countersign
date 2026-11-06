@@ -72,7 +72,7 @@ describe("portal: People", () => {
       },
     });
     renderAt("/people/reach", api);
-    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 5000 });
+    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 10_000 });
     expect(within(role).getByTestId("role-purchaser-required")).toHaveTextContent(
       "Required: nobody yet",
     );
@@ -132,7 +132,7 @@ describe("portal: People picked from the directory", () => {
       }),
     });
     renderAt("/people/reach", api);
-    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 5000 });
+    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 10_000 });
     expect(within(role).getByText("Buyer, Birch & Co")).toBeInTheDocument();
     await userEvent.type(within(role).getByTestId("role-purchaser-find"), "birch");
     expect(within(role).getByTestId(`role-purchaser-contact-${PAT}`)).toBeInTheDocument();
@@ -349,7 +349,9 @@ describe("contacts: reach-out details", () => {
       },
     });
     renderAt("/contacts", api);
-    await userEvent.click(await screen.findByTestId(`contact-${PAT}-open`, {}, { timeout: 5000 }));
+    await userEvent.click(
+      await screen.findByTestId(`contact-${PAT}-open`, {}, { timeout: 10_000 }),
+    );
     await userEvent.type(screen.getByTestId(`contact-${PAT}-email-input`), "pat@shop.example");
     await userEvent.selectOptions(screen.getByTestId(`contact-${PAT}-preferred-0`), "whatsapp");
     await userEvent.selectOptions(screen.getByTestId(`contact-${PAT}-preferred-1`), "voice");

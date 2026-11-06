@@ -200,7 +200,8 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: pnpm --filter @countersign/web exec playwright install --with-deps chromium
 
-      # The local passwords .env.example expects, so `wrangler dev` reads it as it is.
+      # The local passwords .env.example expects, so `wrangler dev` reads it as it is. SEED_E2E=1
+      # also seeds the Desk item the walkthroughs sign and undo (never set on staging).
       - name: A seeded Postgres with Neon's roles
         if: steps.scope.outputs.run == 'true'
         env:
@@ -210,6 +211,7 @@ jobs:
           PGPASSWORD: ci
           CS_OWNER_PASSWORD: cs_owner
           CS_WORKER_PASSWORD: cs_worker
+          SEED_E2E: "1"
         run: scripts/setup-postgres.sh > /dev/null
 
       - name: The app on wrangler dev

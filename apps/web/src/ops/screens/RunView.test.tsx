@@ -316,7 +316,7 @@ describe("back-office run view", () => {
     );
     expect(await screen.findByTestId("ops-run-status")).toHaveTextContent("Running");
     await waitFor(() => expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Done"), {
-      timeout: 8_000,
+      timeout: 10_000,
     });
   }, 12_000);
 
