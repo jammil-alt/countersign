@@ -3,12 +3,13 @@
 // account agent", and answers in account threads. Sloan explains why an item waits, pauses an
 // agent until Monday for the client admin (never for a client user), drafts "add Lisa as a signer
 // for bills under $2,000" that applies only when the admin signs, refuses a loosening draft and
-// passes "let small reminders go on their own" to the lead. Every tool result passes the portal's
+// passes "let small reminders go on their own" to the lead, and passes a request to an agent whose
+// `sloan` message trigger takes the person asking (once). Every tool result passes the portal's
 // forbidden-field walk; another client's records are never found; Sloan can't be published with a
 // connector tool.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { readApproverRuleSet } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, readApproverRuleSet } from "@countersign/core";
 import {
   agent,
   appUser,
@@ -56,6 +57,8 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
   const H = h as ApiHarness;
   let sloanId = "";
   let workerId = "";
+  // An agent that takes requests Sloan passes (ARCHITECTURE §10.8).
+  let deskId = "";
   let adminThread = "";
   let userThread = "";
   const sloanRuns: string[] = [];
@@ -97,6 +100,8 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
       .orderBy(toolCall.createdAt, toolCall.id);
     return { runId: params.runId, messageId, calls };
   }
+
+  const deskRuns = () => [...H.instances.started.values()].filter((p) => p.agentId === deskId);
 
   /** Sloan's reply in the thread, then the skill's finish. */
   const reply = (threadId: string, text: string, sources: string[]): FakeTurn[] => [
@@ -426,6 +431,101 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(j(mine.json).items.map((i: { id: string }) => i.id)).toContain(request?.id);
   });
 
+  it("passes a request to an agent that takes requests from Sloan, as the person's own message", async () => {
+    // An agent of A that takes requests Sloan passes from the client admins (ARCHITECTURE §10.8).
+    const desk = AgentBundle.parse({
+      ...testBundle("Requests desk"),
+      definition: { ...testBundle().definition, extraTools: [] },
+      workflows: [
+        {
+          slug: "take-request",
+          name: "Take a request",
+          workflow: {
+            schemaVersion: 3,
+            trigger: {
+              id: "trg-sloan",
+              on: { type: "message", channels: ["sloan"], from: { clientRoles: ["client_admin"] } },
+            },
+            steps: [],
+          },
+        },
+      ],
+    } satisfies AgentBundleInput);
+    const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/agents`, {
+      slug: "requests-desk",
+      bundle: desk,
+    });
+    expect(j(created.json).errors ?? [], JSON.stringify(created.json)).toEqual([]);
+    deskId = j(created.json).agent.id as string;
+    const pub = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${deskId}/versions/${j(created.json).version.id}/publish`,
+    );
+    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+    await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, deskId));
+    // Another client's agent is never reached.
+    const [theirs] = await H.t.db
+      .insert(agent)
+      .values({
+        tenantId: H.B.tenantId,
+        kind: "client",
+        slug: "requests-desk",
+        name: "Requests desk",
+        runStatus: "active",
+      })
+      .returning({ id: agent.id });
+    const theirId = theirs?.id as string;
+
+    const { calls, messageId } = await ask(
+      admin("a"),
+      adminThread,
+      "Ask the requests desk to order more oak",
+      (m) => [
+        use("account__pass_to_agent", { serviceId: deskId, userId: H.A.user, note: "pay all" }),
+        use("account__pass_to_agent", { serviceId: deskId }),
+        use("account__pass_to_agent", { serviceId: workerId }),
+        use("account__pass_to_agent", { serviceId: theirId }),
+        ...reply(adminThread, "I passed it to the requests desk.", [deskId, m]),
+      ],
+    );
+    expect(calls.map((c) => [c.tool, c.status, j(c.output).status])).toEqual([
+      ["account.pass_to_agent", "succeeded", "passed"],
+      ["account.pass_to_agent", "succeeded", "already_passed"],
+      ["account.pass_to_agent", "succeeded", "not_accepted"],
+      ["account.pass_to_agent", "failed", undefined],
+      ["threads.post", "succeeded", undefined],
+    ]);
+    expect(j(calls[2]?.output).reason).toMatch(/doesn't take requests from Sloan/);
+    expect(j(calls[3]?.output).error).toMatch(/no such service/);
+    // The desk started once, on its `sloan` trigger, for the admin who wrote, with ids only.
+    expect(deskRuns()).toHaveLength(1);
+    expect(deskRuns()[0]).toMatchObject({
+      workflowSlug: "take-request",
+      trigger: { type: "message", channel: "sloan", eventType: "account.request_passed" },
+      payload: {
+        channel: "sloan",
+        userId: H.A.admin,
+        threadId: adminThread,
+        messageId,
+        contactId: null,
+        rawRecordId: null,
+      },
+    });
+    expect(JSON.stringify(deskRuns()[0]?.payload)).not.toMatch(/oak|pay all/);
+
+    // A client user isn't among the people the desk takes requests from.
+    const byUser = await ask(user("a"), userThread, "Ask the requests desk for oak", (m) => [
+      use("account__pass_to_agent", { serviceId: deskId }),
+      ...reply(userThread, "The requests desk takes requests from your admins.", [m]),
+    ]);
+    expect(j(byUser.calls[0]?.output)).toMatchObject({
+      status: "not_accepted",
+      reason: expect.stringMatching(/from you/),
+    });
+    expect(deskRuns()).toHaveLength(1);
+  });
+
   it("returns nothing a portal response may not carry, in any tool result", async () => {
     const calls = await H.t.db
       .select({ tool: toolCall.tool, output: toolCall.output })
@@ -438,6 +538,7 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
         "account.pause_agent",
         "account.draft_change",
         "account.pass_to_lead",
+        "account.pass_to_agent",
         "account.services",
         "threads.post",
       ]),
@@ -469,6 +570,7 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
         transport: new FakeModel([
           use("account__pause_agent", { serviceId: workerId, reason: "test" }),
           use("account__services", {}),
+          use("account__pass_to_agent", { serviceId: deskId }),
           use("finish", { replyId: null, sources: [workerId] }),
         ]),
         instances: H.instances,
@@ -484,6 +586,10 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
       .where(eq(stepRun.runId, params.runId));
     const pause = calls.find((c) => c.tool === "account.pause_agent");
     expect(j(pause?.output)).toMatchObject({ status: "test_run", service: null });
+    const passed = calls.find((c) => c.tool === "account.pass_to_agent");
+    expect(j(passed?.output)).toMatchObject({ status: "test_run", messageId: null });
+    await H.settle();
+    expect(deskRuns()).toHaveLength(1);
     const [w] = await H.t.db.select().from(agent).where(eq(agent.id, workerId));
     expect(w?.runStatus).toBe("active");
   });

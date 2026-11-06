@@ -6,15 +6,18 @@
 // - the caller is the client's account agent (the supervisor's fork, `platform` kind);
 // - who is asking: the person whose message started the run (`thread.message_posted` in an
 //   account thread, in the run's trigger), and their role in this client;
-// - that the role allows the action (reads and passing to the lead: any client person; pausing
-//   and drafting: the client admin).
+// - that the role allows the action (reads and passing to the lead or to an agent: any client
+//   person; pausing and drafting: the client admin).
 //
 // A test run reads as the client admin would and writes nothing. The views and writes themselves
 // are the portal's own code, handed in by apps/api (AccountViews), so Sloan sees and does exactly
-// what the portal would.
+// what the portal would. Passing a request to an agent has no portal twin: the port emits
+// `account.request_passed` itself, through the runtime's emitter in the same transaction, and the
+// router starts the agent's `sloan` message triggers (ARCHITECTURE §10.8).
 
 import {
   ACCOUNT_AGENT_SLUG,
+  ACCOUNT_REQUEST_PASSED_EVENT,
   type AccountAction,
   type AccountChange,
   type AccountRunSummary,
@@ -22,22 +25,37 @@ import {
   type AccountRunView,
   type AccountService,
   type AccountWaitExplanation,
+  acceptingTriggers,
+  acceptsSloan,
   isPlainObject,
   mayAskFor,
+  passToAgentEvent,
   ThreadMessagePostedPayload,
 } from "@countersign/core";
-import { agent, appUser, type Db, membership, run, type Tx, withTenant } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import {
+  agent,
+  agentVersion,
+  appUser,
+  type Db,
+  event,
+  membership,
+  run,
+  type Tx,
+  withTenant,
+} from "@countersign/db";
+import { and, eq, sql } from "drizzle-orm";
 import { AgentsError } from "../errors";
 import type {
   AccountCall,
   AccountDraftOutcome,
   AccountPassInput,
   AccountPassOutcome,
+  AccountPassToAgentOutcome,
   AccountPauseOutcome,
   AccountPort,
   AccountWaiting,
 } from "../tools/account";
+import type { Emit } from "./external-actions";
 
 /** The person Sloan acts for in this call. */
 export interface AccountAsker {
@@ -154,7 +172,95 @@ async function askerOf(tx: Tx, tenantId: string, call: AccountCall): Promise<Acc
   };
 }
 
-export function dbAccountPort(db: Db, views: AccountViews): AccountPort {
+const NOT_ACCEPTED = {
+  self: "Sloan can't pass a request to itself",
+  notLive: "that service isn't running now, so it can't take a request",
+  noSloan: "that service doesn't take requests from Sloan: offer to pass it to the lead",
+  notForAsker: "that service doesn't take requests from you: ask your admin or the lead",
+} as const;
+
+const notAccepted = (reason: string): AccountPassToAgentOutcome => ({
+  status: "not_accepted",
+  reason,
+  messageId: null,
+});
+
+/**
+ * Passes the asker's own message to one agent of this client (ARCHITECTURE §9.8, §10.8): checks
+ * that the agent's live version has a message trigger on channel `sloan` whose People filter
+ * takes the asker, then emits `account.request_passed` in the port's transaction. The router
+ * checks the same filter again when it starts the run.
+ */
+async function passToAgent(
+  s: AccountScope,
+  serviceId: string,
+  emit: Emit | undefined,
+): Promise<AccountPassToAgentOutcome> {
+  if (serviceId === s.call.agentId) return notAccepted(NOT_ACCEPTED.self);
+  // Only an agent of this client (RLS and the filter both): another client's is not found.
+  const [target] = await s.tx
+    .select({
+      id: agent.id,
+      slug: agent.slug,
+      status: agent.status,
+      runStatus: agent.runStatus,
+      bundle: agentVersion.bundle,
+    })
+    .from(agent)
+    .leftJoin(
+      agentVersion,
+      and(eq(agentVersion.id, agent.liveVersionId), eq(agentVersion.tenantId, agent.tenantId)),
+    )
+    .where(and(eq(agent.id, serviceId), eq(agent.tenantId, s.tenantId), eq(agent.kind, "client")));
+  if (!target) throw new AccountRefusal("there is no such service for this client");
+  if (target.slug === ACCOUNT_AGENT_SLUG) return notAccepted(NOT_ACCEPTED.self);
+  if (!target.bundle) return notAccepted(NOT_ACCEPTED.notLive);
+  if (!acceptsSloan(target.bundle)) return notAccepted(NOT_ACCEPTED.noSloan);
+  // A test run asks as the client admin would (the asker's role); a live one as the person.
+  const sender = { kind: "user" as const, userId: s.asker.userId ?? "", role: s.asker.role };
+  if (acceptingTriggers(target.bundle, "sloan", sender).length === 0) {
+    return notAccepted(NOT_ACCEPTED.notForAsker);
+  }
+  // Paused, draft or retired agents start nothing (the router's `isRunnable`).
+  if (target.status !== "active" || target.runStatus !== "active") {
+    return notAccepted(NOT_ACCEPTED.notLive);
+  }
+  if (s.asker.test) return { status: "test_run", reason: null, messageId: null };
+
+  const { userId, threadId, messageId } = s.asker;
+  if (!userId || !threadId || !messageId) {
+    throw new AccountRefusal("Sloan passes only a person's message in an account conversation");
+  }
+  if (!emit) throw new Error("passing a request to a service is not available here");
+  // DECISION: a message goes to an agent once: a second pass (a retried step, the model asking
+  // twice) answers `already_passed` instead of starting the agent again.
+  const [before] = await s.tx
+    .select({ id: event.id })
+    .from(event)
+    .where(
+      and(
+        eq(event.tenantId, s.tenantId),
+        eq(event.type, ACCOUNT_REQUEST_PASSED_EVENT),
+        eq(event.subjectId, threadId),
+        sql`${event.payload}->>'agentId' = ${target.id}`,
+        sql`${event.payload}->>'messageId' = ${messageId}`,
+      ),
+    )
+    .limit(1);
+  if (before) return { status: "already_passed", reason: null, messageId };
+  await emit(
+    s.tx,
+    s.tenantId,
+    passToAgentEvent({ agentId: target.id, threadId, messageId, userId }),
+  );
+  return { status: "passed", reason: null, messageId };
+}
+
+export function dbAccountPort(
+  db: Db,
+  views: AccountViews,
+  options: { emit?: Emit } = {},
+): AccountPort {
   /** Runs `body` for the asker in the client's transaction, once their role allows `action`. */
   const scoped = <T>(
     tenantId: string,
@@ -206,5 +312,7 @@ export function dbAccountPort(db: Db, views: AccountViews): AccountPort {
           ? Promise.resolve({ status: "test_run" as const, requestId: null })
           : views.passToLead(s, input),
       ),
+    passToAgent: (tenantId, call, input) =>
+      scoped(tenantId, call, "pass", (s) => passToAgent(s, input.serviceId, options.emit)),
   };
 }
