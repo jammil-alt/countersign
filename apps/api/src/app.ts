@@ -16,6 +16,8 @@ import {
   requestState,
   stripeFor,
 } from "./http";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
@@ -34,6 +36,7 @@ import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 import { languageRouteHandlers } from "./routes/language";
+import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
@@ -109,6 +112,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   releaseRoutes(app);
   browserRoutes(app);
   complianceRouteHandlers(app);
+  // v0.12 W1-A: go-live stages and client controls
+  lifecycleRoutes(app);
   exportRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
@@ -145,6 +150,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           : {}),
       },
       scheduledTime,
+    );
+    // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
+    // move to signoff (hourly, at the usage sweep's minute).
+    await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
+      console.error("lifecycle tick failed", error),
     );
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>

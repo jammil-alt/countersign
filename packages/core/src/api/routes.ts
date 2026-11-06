@@ -22,6 +22,8 @@ import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { qboRoutes } from "./qbo";
@@ -1805,6 +1807,9 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 W1-A: go-live stages and client controls
+  ...lifecycleRoutes,
+  // v0.12 W1-D: the Desk
   ...deskRoutes,
 } as const;
 export type Routes = typeof routes;

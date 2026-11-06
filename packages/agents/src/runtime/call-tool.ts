@@ -12,6 +12,7 @@ import {
   batchKeyOf,
   changeFacts,
   decideToolCall,
+  effectiveMode,
   explainWrite,
   fixedInputProblem,
   grantAllowsTool,
@@ -133,7 +134,6 @@ async function dispatch(
   tool: RegisteredTool,
   input: unknown,
 ): Promise<ToolOutcome> {
-  const mode = step.agent.bundle.definition.permissions.mode;
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
     const resumed = await resumeProposed(deps, step, tool);
@@ -198,6 +198,17 @@ async function dispatch(
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
   }
+  // v0.12 W1-A: the go-live stage, read fresh like the matrix: in trial and signoff every write
+  // needs a signature, whatever the step, matrix or mode say (ARCHITECTURE §10.9). Reads don't ask.
+  // v0.12 W1-D: the stage is kept for the explanation (`whyApproval`).
+  const stage =
+    tool.spec.sideEffect === "external"
+      ? await deps.ports.store.agentStage(step.tenantId, step.agent.agentId)
+      : null;
+  const mode =
+    tool.spec.sideEffect === "external"
+      ? effectiveMode(step.agent.bundle.definition, stage)
+      : step.agent.bundle.definition.permissions.mode;
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
     verb: tool.spec.verb,
@@ -297,8 +308,10 @@ async function dispatch(
               matrix: conn.permissions,
               grant,
               stepApproval: step.approval?.required,
-              // The definition's own mode; a stage that forces signatures is passed as `stage`.
-              agentMode: step.agent.bundle.definition.permissions.mode,
+              // The mode the gate used, the definition's own and the stage that forced it.
+              agentMode: mode,
+              definitionMode: step.agent.bundle.definition.permissions.mode,
+              stage,
               route: { source: approver.source, ruleId: approver.ruleId },
             }) as JsonObject,
           },

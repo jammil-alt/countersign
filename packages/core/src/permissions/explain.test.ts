@@ -51,6 +51,25 @@ describe("explainWrite", () => {
     ).toBeUndefined();
   });
 
+  it("names the stage, not the mode, when the stage forced the effective mode", () => {
+    const base = {
+      verb: "create" as const,
+      matrix: { create: "auto" as const },
+      stepApproval: "not_required" as const,
+      agentMode: "suggest_only" as const,
+    };
+    expect(explainWrite({ ...base, definitionMode: "act", stage: "signoff" })).toMatchObject({
+      reasons: ["stage"],
+      stage: "signoff",
+    });
+    expect(
+      explainWrite({ ...base, definitionMode: "suggest_only", stage: "trial" }).reasons,
+    ).toEqual(["mode", "stage"]);
+    expect(explainWrite({ ...base, definitionMode: "act", stage: "bench" }).reasons).toEqual([
+      "mode",
+    ]);
+  });
+
   it("never changes the gate's decision", () => {
     const input = {
       sideEffect: "external" as const,

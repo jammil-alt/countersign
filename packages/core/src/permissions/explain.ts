@@ -51,15 +51,19 @@ export interface ExplainWriteInput {
   grant?: GrantLimits | null | undefined;
   /** The step's approval setting; absent means `required`. */
   stepApproval?: ApprovalRequirement | undefined;
-  /** The agent's own mode, as its definition sets it (not the mode a stage forces). */
+  /** The mode the gate decided with: core `effectiveMode(definition, stage)`. */
   agentMode: AgentMode;
+  /** The agent's own mode, as its definition sets it; absent = `agentMode`. */
+  definitionMode?: AgentMode | undefined;
   /**
    * The agent's go-live stage (ARCHITECTURE §10.9). Trial and sign-off force a signature on every
    * write; absent until the stage is known to the caller.
    */
-  // DECISION: the stage is its own reason, beside `mode`: W1-A's effectiveMode turns a stage into
-  // `suggest_only` for the gate, so the gate passes the definition's mode here and the stage
-  // separately, and the person reads "in its trial" rather than "only suggests".
+  // DECISION: the stage is its own reason, beside `mode`: effectiveMode turns trial and sign-off
+  // into `suggest_only` for the gate, so the explanation names `stage` for that, and `mode` only
+  // when the effective mode asks for a signature for another reason (the definition only
+  // suggests, or a stage other than trial and sign-off), so a person reads "in its trial" rather
+  // than "only suggests".
   stage?: string | null | undefined;
   /** The level the recipient's autonomy sets for this channel (docs/plan.md §1.42), if any. */
   person?: PermissionLevel | null | undefined;
@@ -79,8 +83,9 @@ export function explainWrite(input: ExplainWriteInput): WhyApproval {
     reasons.push("matrix");
   }
   if (input.grant && grantLevel(input.grant, input.verb) === "approval") reasons.push("grant");
-  if (input.agentMode === "suggest_only") reasons.push("mode");
   const stage = input.stage === "trial" || input.stage === "signoff" ? input.stage : undefined;
+  const ownMode = input.definitionMode ?? input.agentMode;
+  if (input.agentMode === "suggest_only" && !(stage && ownMode === "act")) reasons.push("mode");
   if (stage) reasons.push("stage");
   if (input.person === "approval") reasons.push("person");
   return {
