@@ -36,8 +36,8 @@ site's (see "The public site" below), and other records on the zone (e.g. `datum
 untouched.
 App on `app.mezonas.com`, staging on `staging.mezonas.com` (owner, 2026-11-03).
 
-CI's own throwaway Neon branches are named `ci-run<id>-<attempt>`, copied from `main` and deleted
-when the run ends.
+CI never connects to Neon: client data never reaches a CI runner (`docs/plan.md` §1.35). Neon
+holds no `ci-run…` branches any more.
 
 ## 1. What a person must create
 
@@ -551,8 +551,17 @@ and, after approval, itemizes the bill, attaches the invoice and notes it in the
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;
   marking a PR ready runs the check.
 - **`checks.yml`**: install, Biome lint, layering check, typecheck, then tests against a Postgres 16 +
-  pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`). With the Neon settings present,
-  it also copies `main` to a throwaway branch, applies the migrations to it, and deletes it.
+  pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`), which also applies
+  every migration from scratch. It never connects to Neon. It used to copy `main` to a throwaway
+  branch; that would put client data on a runner, and Neon refuses schema-only branches on this
+  project (our SQL-made `cs_runtime` role counts as a "legacy web access role"). A migration that only
+  fails on real rows (a new `not null` on old data) fails on staging first: `deploy.yml` migrates
+  staging in a transaction before its Worker deploys, and production only from a later tag.
+- **`codeql.yml`**: CodeQL's security queries on ready pull requests, pushes to `main` and weekly.
+  Findings are under Security → Code scanning.
+- **Dependabot** (`.github/dependabot.yml`): security updates as GitHub learns of them; npm and
+  Actions version updates weekly, grouped. Turn on Dependabot alerts and security updates, and
+  secret scanning with push protection, in the repository's Settings → Code security.
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then

@@ -1,0 +1,23 @@
+# Dependency updates (SOC 2 CC7.1, PCI DSS 6.3.3): security fixes as soon as GitHub knows of them,
+# version updates once a week, grouped so they arrive as one pull request per ecosystem. Each one
+# runs CI like any other pull request; nothing merges on its own.
+version: 2
+updates:
+  - package-ecosystem: npm # pnpm workspaces: Dependabot reads pnpm-lock.yaml
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dependencies:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]

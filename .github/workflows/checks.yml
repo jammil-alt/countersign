@@ -9,20 +9,19 @@ name: Checks
 # root package.json, the lockfile, tsconfig, scripts, fixtures, workflows); a change to docs and
 # Markdown alone runs no tests. Pushes to main and deploys always run everything.
 #
-# Two databases, as in Plenary Labs:
-#  - A Postgres 16 + pgvector service container (the same image as docker-compose.yml), set up with
-#    Neon's roles by scripts/setup-postgres.sh, is what the tests run against (fast: no network round
-#    trips). The runner's own Postgres has no pgvector package, so it isn't used.
-#  - A throwaway Neon branch copied from `main` checks that migrations apply to production's real
-#    schema and data. Skipped until the NEON_API_KEY secret and NEON_PROJECT_ID variable exist.
+# The database: a Postgres 16 + pgvector service container (the same image as docker-compose.yml),
+# set up with Neon's roles by scripts/setup-postgres.sh, which also applies every migration from
+# scratch. The runner's own Postgres has no pgvector package, so it isn't used.
+#
+# CI never connects to Neon (docs/plan.md §1.35): a copy of production would put client data (it may
+# hold health or card data) on a runner, and Neon refuses schema-only branches on this project (its
+# SQL-made `cs_runtime` role counts as a "legacy web access role"). Migrations meet real rows on
+# staging first: deploy.yml migrates staging, in a transaction, before its Worker deploys, and
+# production only after that.
 
 on:
   workflow_call:
     inputs:
-      neon-parent:
-        description: Neon branch the throwaway branch is copied from.
-        type: string
-        default: main
       scope:
         description: "`all` runs every package's tests; `affected` (pull requests) runs only the packages the change touches and those that depend on them."
         type: string
@@ -68,11 +67,6 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
-    env:
-      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-      NEON_BRANCH: ci-run${{ github.run_id }}-${{ github.run_attempt }}
-      NEONCTL: neonctl@4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -148,24 +142,3 @@ jobs:
         run: pnpm --filter "...[origin/${{ inputs.base }}]" test
         env:
           LLM_MODE: replay
-
-      - name: Create a Neon branch for this run
-        id: neon
-        if: env.NEON_API_KEY != '' && env.NEON_PROJECT_ID != ''
-        run: |
-          set -euo pipefail
-          npx --yes "$NEONCTL" branches create --project-id "$NEON_PROJECT_ID" \
-            --name "$NEON_BRANCH" --parent '${{ inputs.neon-parent }}' --output json > /dev/null
-          echo "created=true" >> "$GITHUB_OUTPUT"
-          url=$(npx --yes "$NEONCTL" connection-string "$NEON_BRANCH" \
-            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
-          echo "::add-mask::$url"
-          echo "NEON_DATABASE_URL=$url" >> "$GITHUB_ENV"
-
-      - name: Migrations apply to a copy of production
-        if: env.NEON_DATABASE_URL != ''
-        run: DIRECT_DATABASE_URL="$NEON_DATABASE_URL" pnpm --filter @countersign/db run --if-present db:migrate
-
-      - name: Delete the Neon branch
-        if: always() && steps.neon.outputs.created == 'true'
-        run: npx --yes "$NEONCTL" branches delete "$NEON_BRANCH" --project-id "$NEON_PROJECT_ID"
