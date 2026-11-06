@@ -23,12 +23,15 @@ import { languageRoutes, SessionLanguage } from "./language";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
+import { tableRoutes } from "./table";
 // v0.12 W1-C: threads, the lead and `/commands`
 import { PortalLead, threadRoutes } from "./threads";
 import { usageRoutes } from "./usage";
@@ -1801,6 +1804,9 @@ export const routes = {
   ...qboRoutes,
   // v0.12 W1-A: go-live stages and client controls
   ...lifecycleRoutes,
+  // v0.12 W1-B: notifications, the Table and the Weekly Table
+  ...notifyRoutes,
+  ...tableRoutes,
   // v0.12 W1-C
   ...threadRoutes,
 } as const;
