@@ -14,6 +14,8 @@ export * from "./api/account";
 export * from "./api/approver-rules";
 // v0.12 W2-B: automations
 export * from "./api/automations";
+// v0.12 bankfeed
+export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";

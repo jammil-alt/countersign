@@ -287,6 +287,12 @@ export const en = {
   "callback.subtitle": "Finishing the sign-in to your tool.",
   "callback.back": "Back to Connections",
   "callback.connecting": "Connecting…",
+  // v0.12 bankfeed: bank and card feeds through Plaid.
+  "connections.bankfeed.description":
+    "Read the transactions of your bank accounts and cards. Nothing here can move money.",
+  "connections.bankfeed.connect": "Connect bank or card",
+  "callback.linkLost":
+    "This bank sign-in started in another tab or window. Start again from Connections.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Access",

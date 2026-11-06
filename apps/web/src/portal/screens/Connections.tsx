@@ -13,6 +13,7 @@ import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connect
 // v0.14 W4-E
 import { GchatSetup } from "../../connections/GchatSetup";
 import { MatrixTable } from "../../connections/MatrixTable";
+import { openPlaidLink } from "../../connections/plaidLink";
 import { WebhookSetup } from "../../connections/WebhookSetup";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
@@ -37,6 +38,13 @@ type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][num
 /** Connectors whose description we show in the reader's language (else the API's English). */
 const DESCRIPTIONS: Record<string, PlainKey> = {
   gmail: "connections.gmail.description",
+  // v0.12 bankfeed
+  bankfeed: "connections.bankfeed.description",
+};
+
+/** v0.12 bankfeed: the connect button's words, where "Connect" alone says too little. */
+const CONNECT_LABELS: Record<string, PlainKey> = {
+  bankfeed: "connections.bankfeed.connect",
 };
 
 function descriptionOf(item: Offered, { t }: Pick<I18n, "t">): string {
@@ -180,6 +188,18 @@ export function PortalConnectionsScreen() {
                         });
                         // An OAuth connector answers where the provider's sign-in starts.
                         if (res.redirectUrl) window.location.assign(res.redirectUrl);
+                        // v0.12 bankfeed: Plaid Link opens here; its result goes to the callback.
+                        if (res.link) {
+                          const done = await openPlaidLink(res.link);
+                          if (done) {
+                            await api.call(apiRoutes.portalAuthorizeCallback, {
+                              params: { connector: c.connector },
+                              body: {
+                                params: { public_token: done.publicToken, state: done.state },
+                              },
+                            });
+                          }
+                        }
                       })
                     }
                   />
@@ -390,7 +410,9 @@ function AvailableCard({
               void onConnect().finally(() => setBusy(false));
             }}
           >
-            {reconnect ? t("connections.reconnect") : t("connections.connect")}
+            {reconnect
+              ? t("connections.reconnect")
+              : t(CONNECT_LABELS[item.connector] ?? "connections.connect")}
           </Button>
         ) : (
           <p className="text-sm text-ink-muted">{t("connections.adminCanConnect")}</p>
