@@ -17,7 +17,9 @@ export * from "./store";
  * Emits `thread.message_posted` with packages/senses' outbox, collecting each row for the caller
  * to dispatch after commit.
  */
-export function senseEmitPosted(options: EmitOptions & { collect?: EventRow[] } = {}): EmitPosted {
+export function senseEmitPosted(
+  options: Omit<EmitOptions, "collect"> & { collect?: EventRow[] } = {},
+): EmitPosted {
   const { collect, ...emitOptions } = options;
   return async (tx: Tx, event) => {
     const row = await emit(tx, event, emitOptions);
