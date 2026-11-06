@@ -74,8 +74,7 @@ function ruleAt(rules: readonly Rule[], segs: Segments): Tolerance | null {
 /** Whether some rule names a field under `segs` (or `segs` itself). */
 function ruleBelow(rules: readonly Rule[], segs: Segments): boolean {
   return rules.some(
-    (r) =>
-      r.segs.length >= segs.length && segs.every((s, i) => segMatches(r.segs[i] as string, s)),
+    (r) => r.segs.length >= segs.length && segs.every((s, i) => segMatches(r.segs[i] as string, s)),
   );
 }
 

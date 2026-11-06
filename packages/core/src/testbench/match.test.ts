@@ -30,9 +30,9 @@ describe("matchers", () => {
   it("money tolerance compares with decimals, strings or numbers", () => {
     const matcher = m({ tolerances: { "lines.*.price": { kind: "money", abs: "0.01" } } });
     const expected = { lines: [{ price: "10.0000" }, { price: "2.50" }] };
-    expect(matchOutput(matcher, expected, { lines: [{ price: "10.01" }, { price: 2.5 }] }).pass).toBe(
-      true,
-    );
+    expect(
+      matchOutput(matcher, expected, { lines: [{ price: "10.01" }, { price: 2.5 }] }).pass,
+    ).toBe(true);
     const off = matchOutput(matcher, expected, { lines: [{ price: "10.02" }, { price: "2.5" }] });
     expect(off.pass).toBe(false);
     expect(off.diff[0]).toMatchObject({ path: "lines.0.price", problem: "outside_tolerance" });
@@ -62,7 +62,9 @@ describe("matchers", () => {
 
   it("label: only the label field, and it counts for precision", () => {
     const matcher = m({ kind: "label", label: { field: "verdict", positive: "same" } });
-    expect(matchOutput(matcher, { verdict: "same", why: "x" }, { verdict: "same" }).pass).toBe(true);
+    expect(matchOutput(matcher, { verdict: "same", why: "x" }, { verdict: "same" }).pass).toBe(
+      true,
+    );
     expect(labelOutcome(matcher, { verdict: "different" }, { verdict: "same" })).toMatchObject({
       predicted: true,
       actual: false,
