@@ -49,6 +49,8 @@ export * from "./api/table";
 // v0.12 W2-C: the test bench
 export * from "./api/testbench";
 export * from "./api/threads";
+// v0.12 W2-E
+export * from "./api/triggers";
 export * from "./api/usage";
 export * from "./approvals/rules";
 export * from "./billing";
@@ -81,6 +83,8 @@ export * from "./directory/search";
 export * from "./directory/voice-samples";
 export * from "./documents/extraction";
 export * from "./duration";
+// v0.12 W2-E
+export * from "./holidays/us";
 export * from "./i18n/desk";
 export * from "./i18n/gmail-test";
 export * from "./i18n/lifecycle";
@@ -138,6 +142,8 @@ export * from "./testbench/match";
 export * from "./testbench/suite";
 export * from "./threads/command";
 export * from "./threads/schemas";
+// v0.12 W2-E
+export * from "./triggers";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 // v0.12 W2-B
