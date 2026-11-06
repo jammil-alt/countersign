@@ -1,6 +1,6 @@
 # UI plan: the owner's prototype, page by page
 
-Status: **draft for the owner to adjust** (2026-11-06). Source: [`docs/design/prototype.html`](design/prototype.html), the owner's clickable prototype (open it in a browser; hash routing, `#Start` lists every screen). It is built on the Mezonas design system's tokens (`packages/design-system/tokens.css`), with sample data for Harbor Millwork.
+Status: **UI-0 to UI-3 built and on staging** (2026-11-06); UI-4 (end-to-end) in progress. See [Status](#status) at the end. Source: [`docs/design/prototype.html`](design/prototype.html), the owner's clickable prototype (open it in a browser; hash routing, `#Start` lists every screen). It is built on the Mezonas design system's tokens (`packages/design-system/tokens.css`), with sample data for Harbor Millwork.
 
 The API for almost everything here exists already (built "API first", `docs/plan.md` §8). This plan turns it into screens. It replaces the rule "UI only where a screen would break" (plan §8.1) for the pages listed below.
 
@@ -123,3 +123,54 @@ Each wave is a set of parallel streams, each stream one PR, merged on green in o
 2. Whether "Accounts and vault" also holds the permission matrix, or the matrix stays on each connection's own page.
 3. The back-office agent page: one page with tabs (Overview, Workflow, Triggers, Runs, Versions, Tests, Settings), as in v1 screen 7.
 4. The phone layout: the prototype is desktop. We make every page usable at phone width unless you say otherwise.
+
+## Status
+
+UI-0 to UI-3 are merged to `main` (staging). No migrations; one small contract change (#163: portal inbox items carry the agent asking, `service: {id, name}`).
+
+| Wave | Stream | PR | Pages |
+|---|---|---|---|
+| UI-0 | Shell, routes, shared parts | #157 | both shells, ⌘K search, switchers, theme, route tables (`apps/web/src/{portal,ops}/routes.tsx`), redirects, `apps/web/src/ui` parts |
+| UI-1 | a | #160 | C1 The Table, C2 agent page |
+| UI-1 | b | #163 | C3 Your Desk |
+| UI-1 | c | #161 | C4 Accounts and vault, C5 People |
+| UI-1 | d | #159 | C6 Sloan, C7 Settings, C8 Weekly Table, C9 Runs, C10 run detail |
+| UI-2 | a | #162 | O1 Command center, Escalations, O9 Runs, O10 run detail |
+| UI-2 | b | #158 | O2 Agent lab, update merge, back-office agent page (tabs), test bench |
+| UI-2 | c | #165 | O5 New agent by conversation, O6 workflow builder, O7 Triggers |
+| UI-2 | d | #164 | O4 Skills and automations, O8 New skill, O3 Connectors |
+| UI-3 | a | #167 | records and receivables, upload, documents, reports, requests, knowledge, conversations, team, exports, connect flows, sign-in |
+| UI-3 | b | #168 | back-office client page (ten tabs), clients list, new client |
+| UI-3 | c | #166 | usage and billing, feedback, audit log, website logins, requests |
+
+### Decisions taken (owner to adjust)
+
+- Open question 1: Requests is its own page (`/requests`), linked from Sloan.
+- Open question 2: each connection's permission matrix sits on Accounts, folded, one per tool; approver rules live in Settings ("Sign-off").
+- Open question 3: the back-office agent page is one page with tabs (Overview, Workflow, Triggers, Runs, Versions, Tests, Settings).
+- Open question 4: every page is built to work at phone width; UI-4 checks it.
+- Portal agent addresses are `/agents/:id` (service id): no portal route serves a slug.
+- Theme (light, dark, system) is kept per browser.
+- Client users see Settings (their own notifications, language, approver rules); company sections stay admin-only.
+- The matrix keeps the app's Auto / Approval / Off words and colours: gold is kept for "waiting on you".
+- New agent and new skill start as a Builder conversation; the by-hand skill form stays while model keys are missing.
+- Usage and Billing share the "Usage and billing" heading with tabs.
+- Offering a connector to a client lives on Connectors (owner: also on the client's Connections page?).
+
+### Not served yet (the prototype shows it; no route serves it, so the page leaves it out)
+
+- **The Table, agent page:** each agent's role line and why it's still setting up; relative times; price-change and time-spent tiles; receipts on latest entries; Desk items due today.
+- **Desk:** a Messages view and the lead's replies; "Sign from your phone"; a period filter; the summary table across customers; undoing "Not now".
+- **Accounts, People:** "Changes this week"; who connected a tool; which agents use each record type; a person's tags and reachable hours; which agent sent each message; "Agents in touch" for client users.
+- **Runs, run detail (portal):** what happened on each run, who started it, how many changes; a "Changed my tools" tab; a "Signed by" filter; the workflow name, version and checker; a Documents tab; before state of changes already made.
+- **Weekly Table:** money figures; a portal view of the lead thread. **Settings:** plan price, next invoice, payment method, per-agent credits. **Sloan:** linking a drafted change to its message; "Message Ana".
+- **Command center, runs (back office):** client leads; each agent's step and step count; template versions; "Open as client"; total counts and quick-view counts; Slow view; Tries; Compare; version per run; Documents tab and per-run audit; client-view switch; which connection failed; "Ask client to reconnect".
+- **Agent lab:** where a template came from; editing a template's client view; cost per run over the last 100 runs.
+- **Builder, triggers:** "Draft the new skill"; quick replies; per-connector access levels and names; inline approval on step cards; a client's hooks for the operator (URL, last payload, test send); the agent's text and WhatsApp number; per-trigger on/off.
+- **Skills, connectors:** New automation outside the builder; test results on skill cards; a Beta status; used-by split; numbered decision rules; "Copy from a skill"; New connector; health checks; manifest version; named error causes.
+- **Client extras:** a receivable's own page and totals owed; a customer's organization page; changing a person's role or removing someone; paging documents past the latest 20.
+- **Back-office client page, business:** opening a thread; health over time; cost and runs per agent; billing history and trends; counts for Feedback and Requests.
+
+### Translations to review
+
+Every new portal string is in all six languages; es, fr, it, de and pt-BR need a fluent read (each PR lists its strings). Least sure: "The Table", "Your Desk", "Your sign", "No extra limit", "Voice samples", "Vault".

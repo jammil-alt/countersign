@@ -305,6 +305,8 @@ async function resolveSkill(
 type ContentBlock = LlmMessage["content"][number];
 type ToolUse = Extract<ContentBlock, { type: "tool_use" }>;
 type MessageParam = LlmRequest["messages"][number];
+/** The content of a user or assistant turn (a system turn takes text only). */
+type TurnContent = Extract<MessageParam, { role: "user" | "assistant" }>["content"];
 
 export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise<AgentResult> {
   const { store, log, platform } = deps.ports;
@@ -621,7 +623,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       return fail(`model call failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (response.stop_reason === "refusal") return fail("the model declined the task");
-    messages.push({ role: "assistant", content: response.content as MessageParam["content"] });
+    messages.push({ role: "assistant", content: response.content as TurnContent });
     const uses = response.content.filter((b): b is ToolUse => b.type === "tool_use");
     // Over budget: a valid finish in this answer still counts; nothing else runs.
     if (cost.gt(maxCost)) {
@@ -637,7 +639,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       });
       continue;
     }
-    const results: Extract<MessageParam["content"], unknown[]> = [];
+    const results: Extract<TurnContent, unknown[]> = [];
     let finished: { value: unknown } | null = null;
     for (const use of uses) {
       if (use.name === FINISH_TOOL) {
