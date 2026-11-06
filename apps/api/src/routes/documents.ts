@@ -44,6 +44,7 @@ import { guardModels, profileReader } from "../compliance/policy";
 import {
   type AppContext,
   type AppEnv,
+  contentDisposition,
   type HandlerCtx,
   HttpError,
   mount,
@@ -424,28 +425,30 @@ export function documentRoutes(app: Hono<AppEnv>): void {
     const payload = await verifyFileToken(services.env, c.req.param("token") ?? "");
     if (!payload)
       return c.json({ error: { code: "not_found", message: "link expired or invalid" } }, 404);
+    const headers = (contentType: string) => ({
+      "content-type": contentType,
+      // An export (a ZIP) is saved, a document opens in the browser's viewer.
+      "content-disposition": contentDisposition(
+        payload.f || "document",
+        contentType === "application/zip" ? "attachment" : "inline",
+      ),
+      "cache-control": "private, max-age=0, no-store",
+      "x-content-type-options": "nosniff",
+    });
+    // DECISION: with the R2 binding, the bytes stream through (a client export can be gigabytes);
+    // tests, with no binding, read the object store whole.
+    const bucket = services.env.ARTIFACTS as R2Bucket | undefined;
+    if (bucket) {
+      const object = await bucket.get(payload.k);
+      if (!object) return c.json({ error: { code: "not_found", message: "file not found" } }, 404);
+      return new Response(object.body, {
+        headers: headers(object.httpMetadata?.contentType ?? "application/octet-stream"),
+      });
+    }
     const object = await services.deps.objects(services.env).get(payload.k);
     if (!object) return c.json({ error: { code: "not_found", message: "file not found" } }, 404);
-    return new Response(object.bytes, {
-      headers: {
-        "content-type": object.info.contentType,
-        "content-disposition": contentDisposition(payload.f || "document"),
-        "cache-control": "private, max-age=0, no-store",
-        "x-content-type-options": "nosniff",
-      },
-    });
+    return new Response(object.bytes, { headers: headers(object.info.contentType) });
   });
 }
 
-/**
- * `inline` with the file's name: a plain ASCII fallback for old clients plus the exact name as
- * RFC 5987 UTF-8, so a non-Latin-1 name (e.g. a Chinese invoice) is a valid header, not a 500.
- */
-export function contentDisposition(name: string): string {
-  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_") || "document";
-  const utf8 = encodeURIComponent(name.replace(/[\r\n]/g, "")).replace(
-    /['()*]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-  return `inline; filename="${ascii}"; filename*=UTF-8''${utf8}`;
-}
+export { contentDisposition };
