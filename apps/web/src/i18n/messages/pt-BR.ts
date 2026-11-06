@@ -92,6 +92,7 @@ export const ptBR: Messages = {
   "nav.people": "Pessoas",
   "nav.access": "Acessos",
   "nav.directory": "Diretório",
+  "nav.records": "Registros",
   "page.service": "Serviço",
 
   // ── Overview ──
@@ -693,6 +694,28 @@ export const ptBR: Messages = {
   "record.notFound":
     "Não há página de registro para este id. Pode ser um registro de uma ferramenta ou pacote que não mostramos aqui.",
   "record.source": "Registro ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Registros",
+  "records.subtitle":
+    "O que suas ferramentas trouxeram, do mais recente ao mais antigo. Abra um para ver de onde veio.",
+  "records.kind.transactions": "Transações",
+  "records.kind.vendors": "Fornecedores",
+  "records.kind.items": "Itens",
+  "records.search": "Buscar registros",
+  "records.empty": "Nada por aqui ainda. Os registros chegam quando suas ferramentas sincronizam.",
+  "records.noMatch": "Nada corresponde a “{q}”.",
+  "records.col.date": "Data",
+  "records.col.type": "Tipo",
+  "records.col.vendor": "Fornecedor",
+  "records.col.number": "Número",
+  "records.col.total": "Total",
+  "records.col.name": "Nome",
+  "records.col.transactions": "Transações",
+  "records.col.description": "Descrição",
+  "records.col.source": "Origem",
+  "records.range": "{from}–{to} de {total}",
+  "records.previous": "Anterior",
+  "records.next": "Próximo",
 
   // ── Who approves ──
   "approvers.title": "Quem aprova",

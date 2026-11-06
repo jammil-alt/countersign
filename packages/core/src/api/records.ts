@@ -226,7 +226,27 @@ export const RecordList = z.object({
 });
 export type RecordList = z.infer<typeof RecordList>;
 
+/** The portal's records list (v0.12 W1-H): the back office's query without the source filter. */
+export const PortalRecordListQuery = z.object({
+  kind: RecordListKind.optional(),
+  /** Matches a doc number, memo, vendor or name, or an amount. */
+  q: z.string().trim().max(200).optional(),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
 export const recordRoutes = {
+  // v0.12 W1-H: the portal's records list (docs/plan.md §1.43).
+  portalRecords: defineRoute({
+    method: "GET",
+    path: "/api/records",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "Your records, newest first: the transactions, vendors and items your tools brought in, with counts and a search",
+    query: PortalRecordListQuery,
+    response: RecordList,
+  }),
   portalRecord: defineRoute({
     method: "GET",
     path: "/api/records/:id",

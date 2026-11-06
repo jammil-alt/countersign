@@ -8,8 +8,8 @@
 // 2. The client admin signs in to QuickBooks (fake OAuth) and the first sync brings the books in.
 //    A first invoice arrives while the agent is off (nothing runs). The operator binds the
 //    connection, publishes, test-runs on that invoice (nothing written) and activates.
-// 3. The client admin uploads the Northline invoice; the cron's sweep starts the run; the agent
-//    proposes three changes; the client admin reads each card in the portal inbox and signs it;
+// 3. The client admin uploads the Northline invoice; its run starts as soon as it is read (no
+//    cron tick); the agent proposes three changes; the client admin reads each card in the portal inbox and signs it;
 //    each write reaches the fake QuickBooks once.
 // 4. The portal's runs, timeline, activity report, service page and records show the result; the
 //    operator sees the run with its cost; usage rolls up; billing's daily record has the agent.
@@ -342,6 +342,11 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       vendor: { name: "Northline Panel Supply" },
     });
     expect(record.record.lines).toHaveLength(1);
+    // The portal's records list has it, from the client's QuickBooks (v0.12 W1-H).
+    const list = await ok(OWNER, "GET", "/api/records");
+    const row = list.page.rows.find((r: { id: string }) => r.id === ids.bill);
+    expect(row).toMatchObject({ docNumber: "20418", total: "9742.3500", sourceId: ids.connection });
+    expect(list.counts.transactions).toBeGreaterThanOrEqual(2);
   });
 
   /** Ages the client's undispatched events past the cron's 30 s, then ticks it: the runs started. */
@@ -417,7 +422,10 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
 
   // ── 3. The client uploads an invoice and signs the changes ───────────────────────────────────
 
-  it("the client admin uploads the Northline invoice and it is read", async () => {
+  let northline: RunParams | undefined;
+
+  it("the client admin uploads the Northline invoice; it is read and its run starts at once", async () => {
+    const before = new Set(H.instances.started.keys());
     const res = await upload(
       OWNER,
       "northline-20418.pdf",
@@ -440,15 +448,25 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     expect(list.documents.map((d: { id: string }) => d.id)).toEqual(
       expect.arrayContaining([ids.document, ids.firstDocument]),
     );
-  });
-
-  it("the cron's sweep starts the run; the client admin signs three changes, each written once", async () => {
-    // The extraction's event waits in the outbox for the cron's sweep (30 s old).
-    const started = await cronSweep();
+    // The extraction's event was dispatched right after its transaction committed (ARCHITECTURE
+    // §8): the run started with no cron tick, and nothing is left for the sweep.
+    const started = [...H.instances.started.entries()]
+      .filter(([id]) => !before.has(id))
+      .map(([, p]) => p);
     expect(started.map((p) => [p.agentId, p.mode, p.workflowSlug])).toEqual([
       [ids.clerk, "live", "invoice-read"],
     ]);
-    const params = started[0] as RunParams;
+    northline = started[0];
+    const waiting = await H.t.db
+      .select({ id: event.id })
+      .from(event)
+      .where(and(eq(event.tenantId, ids.client), isNull(event.dispatchedAt)));
+    expect(waiting).toEqual([]);
+    expect(await cronSweep()).toEqual([]);
+  });
+
+  it("the run goes; the client admin signs three changes, each written once", async () => {
+    const params = northline as RunParams;
     ids.run = params.runId;
 
     // The client admin reads each card in the portal inbox at the moment the run waits on it.
@@ -742,6 +760,8 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     "/api/documents",
     `/api/documents/${ids.document}`,
     `/api/records/${ids.bill}`,
+    "/api/records",
+    "/api/records?kind=vendors",
     "/api/reports/activity",
     `/api/services/${ids.clerk}`,
     "/api/billing",
