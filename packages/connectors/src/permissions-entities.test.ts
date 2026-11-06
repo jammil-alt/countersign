@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createBrowserConnector } from "./browser/index";
 import type { Connector } from "./connector";
 import { createGmailConnector } from "./gmail/index";
+import { createHubspotConnector } from "./hubspot/index";
 import {
   applyMatrixChange,
   connectionDefaults,
@@ -17,6 +18,7 @@ import {
 import { createPodioConnector } from "./podio/index";
 import { createQboConnector } from "./qbo/index";
 import { QBO_TOOLS } from "./qbo/tool-kit";
+import { createRampConnector } from "./ramp/index";
 import { createResendConnector } from "./resend/index";
 import { createTestkitConnector } from "./testkit/index";
 import { createTwilioConnector } from "./twilio/index";
@@ -35,6 +37,9 @@ const ALL: Connector[] = [
   createResendConnector(),
   createBrowserConnector(),
   createTestkitConnector(),
+  // v0.12 W3-B
+  createRampConnector(),
+  createHubspotConnector(),
 ];
 
 const qbo = createQboConnector().manifest;

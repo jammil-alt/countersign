@@ -42,6 +42,13 @@ export interface Secrets {
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
+  // v0.12 W3-B: Ramp and HubSpot (ARCHITECTURE §6.11, docs/plan.md §1.52).
+  /** Ramp developer app "Mezonas": OAuth client id and secret. */
+  RAMP_CLIENT_ID?: string;
+  RAMP_CLIENT_SECRET?: string;
+  /** HubSpot public app "Mezonas": OAuth client id and secret. */
+  HUBSPOT_CLIENT_ID?: string;
+  HUBSPOT_CLIENT_SECRET?: string;
   /** Mezonas' own Stripe account (billing, docs/plan.md §1.24); unset: billing is off. */
   STRIPE_SECRET_KEY?: string;
   /** The Stripe webhook endpoint's signing secret (`whsec_…`) for /api/billing/stripe/webhook. */

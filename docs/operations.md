@@ -243,7 +243,7 @@ Done by the owner (2026-11-05):
   sign-in in the client admin's session.
 - The operator's own sign-in to the Sandbox client (plan §1.5, to connect the sandbox company above)
   uses the same redirect URIs: the forwarder sends a signed back-office state to
-  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho or Podio.
+  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho, Podio, Ramp or HubSpot.
 - Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
   Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
   (every 15 minutes, and on any webhook).
@@ -345,6 +345,15 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
+- Needed by the Ramp connector (W3-B, docs/plan.md §1.52), the same way: `RAMP_CLIENT_ID`,
+  `RAMP_CLIENT_SECRET` (a Ramp developer app, scopes `transactions:read users:read receipts:write
+  business:read`, redirect URI `<APP_ORIGIN>/connections/ramp/callback`). New transactions are read
+  every 15 minutes by the cron; nothing else to set.
+- Needed by the HubSpot connector, the same way: `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (a
+  HubSpot public app in a developer account, scopes `oauth` and `crm.objects.{contacts,companies,deals}.{read,write}`,
+  redirect URI `<APP_ORIGIN>/connections/hubspot/callback`). Until the id, the secret and
+  `OAUTH_STATE_SECRET` are all set, each shows "Not available yet" in the portal. Copying the four
+  secrets into the Worker is a line each in `deploy.yml` (the owner's PR, like Google's).
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -410,7 +419,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 

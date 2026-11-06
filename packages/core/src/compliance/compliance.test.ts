@@ -63,7 +63,18 @@ describe("processors", () => {
     expect(processorsForTool("call.place", "twilio").sort()).toEqual(["elevenlabs", "twilio"]);
     expect(processorsForTool("email.send", "resend")).toEqual(["resend"]);
     // The client's own tools are not processors of ours.
-    for (const c of ["qbo", "gmail", "zoho_crm", "podio", "webhook", "browser", "upload"]) {
+    for (const c of [
+      "qbo",
+      "gmail",
+      "zoho_crm",
+      "podio",
+      "webhook",
+      "browser",
+      "upload",
+      // v0.12 W3-B
+      "ramp",
+      "hubspot",
+    ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }
     expect(processorsForOffer("twilio").sort()).toEqual(["elevenlabs", "meta_whatsapp", "twilio"]);

@@ -296,7 +296,21 @@ export {
   fakeGoogle,
   readSentEmail,
 } from "./gmail/fake";
+// v0.12 W3-B: Ramp and HubSpot (docs/plan.md §1.52).
+export {
+  FAKE_HUBSPOT,
+  type FakeHubspot,
+  type FakeHubspotObject,
+  fakeHubspot,
+} from "./hubspot/fake";
 export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
+export {
+  FAKE_RAMP,
+  type FakeRamp,
+  type FakeRampReceipt,
+  type FakeRampTransaction,
+  fakeRamp,
+} from "./ramp/fake";
 export {
   FAKE_RESEND_MAIN,
   type FakeResend,

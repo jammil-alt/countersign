@@ -2,8 +2,8 @@
 // permissions, credential encryption, shared OAuth plumbing and object storage. Connectors: `upload`
 // (uploads, purchase CSVs and email forwarding), `browser` (website logins, signed in by code),
 // `webhook` (in and out, for Zapier/Make/n8n), `gmail` (send only), `qbo` (QuickBooks Online),
-// `zoho_crm`, `podio`, and `testkit`, the test connector. Also `stripe/`, Mezonas' own billing client
-// (not a connector: no manifest, no agent tools).
+// `zoho_crm`, `podio`, `ramp`, `hubspot`, and `testkit`, the test connector. Also `stripe/`,
+// Mezonas' own billing client (not a connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
@@ -15,6 +15,8 @@ export * from "./elevenlabs/index";
 export * from "./gmail/index";
 export * from "./gmail/mime";
 export * from "./http";
+// v0.12 W3-B
+export * from "./hubspot/index";
 export * from "./invoke";
 export * from "./logger";
 export * from "./messaging/services";
@@ -25,6 +27,8 @@ export * from "./oauth/tokens";
 export * from "./permissions";
 export * from "./podio/index";
 export * from "./qbo/index";
+// v0.12 W3-B
+export * from "./ramp/index";
 export * from "./records/vendors";
 export * from "./registry";
 export * from "./release-codes";

@@ -23,6 +23,8 @@ import { mcpRoutes } from "./mcp/routes";
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
+// v0.12 W3-B
+import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
@@ -215,6 +217,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       console.error("qbo sync tick failed", error),
+    );
+    // v0.12 W3-B: Ramp's new card transactions every 15 minutes, as events (docs/plan.md §1.52).
+    await rampCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
+      console.error("ramp poll tick failed", error),
     );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
