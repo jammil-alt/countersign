@@ -161,6 +161,8 @@ export const en = {
   "inbox.openRequestsQueue": "Open the requests queue",
   "inbox.decline": "Decline",
   "inbox.sendAnswer": "Send answer",
+  "inbox.undo": "Undo",
+  "inbox.undoWindow": "Signed. We make the change in a minute; you can still undo it.",
   "inbox.reject": "Reject",
   "inbox.sign": "Sign",
   "inbox.findingSteps": "What to do",

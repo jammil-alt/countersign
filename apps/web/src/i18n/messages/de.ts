@@ -171,6 +171,9 @@ export const de: Messages = {
   "inbox.openRequestsQueue": "Anfragen öffnen",
   "inbox.decline": "Zurückweisen",
   "inbox.sendAnswer": "Antwort senden",
+  "inbox.undo": "Rückgängig",
+  "inbox.undoWindow":
+    "Unterschrieben. Wir nehmen die Änderung in einer Minute vor; Sie können sie noch rückgängig machen.",
   "inbox.reject": "Ablehnen",
   "inbox.sign": "Freigeben",
   "inbox.findingSteps": "Was zu tun ist",

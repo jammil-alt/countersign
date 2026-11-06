@@ -54,6 +54,15 @@ export function PortalInboxScreen() {
                   : t("inbox.outcome.resolved")
                 : null
             }
+            onUndo={
+              item.status === "resolved" && item.deliverAfter
+                ? async () => {
+                    await api.call(apiRoutes.portalUndoInbox, { params: { id: item.id } });
+                    reload();
+                    refreshCount();
+                  }
+                : null
+            }
             onResolve={
               item.status === "open"
                 ? async (body) => {

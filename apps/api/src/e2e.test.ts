@@ -272,6 +272,12 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     ]);
     const offered = await ok(OPERATOR, "GET", `/api/ops/clients/${ids.client}/connections`);
     expect([...offered.offered].sort()).toEqual(["qbo", "upload"]);
+    // v0.12 W1-D: a new client's approvals wait out a 60-second undo window; this walk-through
+    // switches it off so each signature reaches its run at once (src/desk.test.ts covers it).
+    const desk = await ok(OPERATOR, "PUT", `/api/ops/clients/${ids.client}/desk`, {
+      undoSeconds: 0,
+    });
+    expect(desk.settings).toEqual({ undoSeconds: 0 });
   });
 
   it("the operator installs the seeded Bill clerk template and forks it into the client", async () => {

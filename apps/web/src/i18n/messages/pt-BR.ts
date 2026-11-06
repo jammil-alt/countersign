@@ -168,6 +168,8 @@ export const ptBR: Messages = {
   "inbox.openRequestsQueue": "Abrir a fila de solicitações",
   "inbox.decline": "Recusar",
   "inbox.sendAnswer": "Enviar resposta",
+  "inbox.undo": "Desfazer",
+  "inbox.undoWindow": "Assinado. Fazemos a mudança em um minuto; você ainda pode desfazer.",
   "inbox.reject": "Rejeitar",
   "inbox.sign": "Assinar",
   "inbox.findingSteps": "O que fazer",

@@ -168,6 +168,8 @@ export const it: Messages = {
   "inbox.openRequestsQueue": "Apri la coda delle richieste",
   "inbox.decline": "Declina",
   "inbox.sendAnswer": "Invia la risposta",
+  "inbox.undo": "Annulla",
+  "inbox.undoWindow": "Firmato. Facciamo la modifica tra un minuto; può ancora annullarla.",
   "inbox.reject": "Rifiuta",
   "inbox.sign": "Firma",
   "inbox.findingSteps": "Cosa fare",

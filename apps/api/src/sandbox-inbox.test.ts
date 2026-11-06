@@ -138,7 +138,15 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
     // office.
     const [sandbox] = await H.t.db
       .insert(tenant)
-      .values({ name: "Sandbox", settings: { sandbox: true, connectors_offered: ["testkit"] } })
+      .values({
+        name: "Sandbox",
+        settings: {
+          sandbox: true,
+          connectors_offered: ["testkit"],
+          // v0.12 W1-D: the undo window is off here, so an approval reaches its run at once.
+          approvals: { undoSeconds: 0 },
+        },
+      })
       .returning();
     if (!sandbox) throw new Error("no sandbox");
     sandboxId = sandbox.id;
@@ -220,7 +228,10 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
     await H.t.db
       .update(tenant)
       .set({
-        settings: { connectors_offered: ["testkit"], approvals: { external_actions: "operator" } },
+        settings: {
+          connectors_offered: ["testkit"],
+          approvals: { external_actions: "operator", undoSeconds: 0 },
+        },
       })
       .where(eq(tenant.id, H.B.tenantId));
     const agentId = await liveAgent(H.B.tenantId, H.B.connectionId);
