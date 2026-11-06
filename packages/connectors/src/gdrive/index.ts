@@ -659,23 +659,11 @@ export function createGdriveConnector(options: GdriveOptions = {}): Connector {
     },
 
     tokens: refresher,
-
-    async revoke(ctx: ConnectionContext) {
-      const creds = OAuthTokens.safeParse(await ctx.credentials.get());
-      if (!creds.success) return;
-      const token = creds.data.refreshToken ?? creds.data.accessToken;
-      const res = await doFetch()(GOOGLE_DRIVE_REVOKE_URL, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: formEncode({ token }),
-        redirect: "manual",
-        signal: timeoutSignal(15_000),
-      });
-      // 400 invalid_token: already revoked.
-      if (!res.ok && res.status !== 400) {
-        throw new DriveApiError(res.status, `Google didn't revoke the grant (${res.status})`);
-      }
-    },
+    // DECISION: no `revoke`. Drive shares Gmail's Google OAuth client, and Google's revoke ends
+    // every scope the account granted that client, so revoking Drive's token could also end a Gmail
+    // connection made by the same Google account. Disconnect drops only our tokens; the person can
+    // remove Mezonas in their Google account. If the owner gives Drive its own OAuth client, the
+    // revoke can be turned back on (docs/plan.md §1.52).
 
     tools: [
       defineReadTool({

@@ -2,7 +2,7 @@
 // makes the connection's folder (found again on a reconnect); `drive.file.upload` files a document
 // by month, shows whether a file of that name is there as its before state, makes missing folders,
 // and files once per key (a retry after a lost answer finds the first file); approval is on by
-// default; `drive.file.list` sees only our files; tokens refresh, and disconnect revokes.
+// default; `drive.file.list` sees only our files; tokens refresh; disconnect never revokes at Google.
 import { DEFAULT_PERMISSIONS, decideToolCall } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import type { ConnectionRef, DocumentServices, StoredFile } from "../connector";
@@ -222,12 +222,12 @@ describe("google drive sign-in", () => {
     ).toMatchObject({ refreshToken: token });
   });
 
-  it("revokes the refresh token at Google on disconnect", async () => {
-    const { connector, ctx, grant, drive } = await setup();
-    await connector.revoke?.(ctx);
-    const call = drive.requests.find((r) => r.url === GOOGLE_DRIVE_REVOKE_URL);
-    expect(call?.body).toBe(`token=${encodeURIComponent(String(grant.credentials.refreshToken))}`);
-    await expect(connector.revoke?.(ctx)).resolves.toBeUndefined();
+  it("never revokes at Google: disconnect drops only our tokens, so Gmail's grant survives", async () => {
+    const { connector, drive } = await setup();
+    // No hook: the platform's disconnect skips the provider and drops the stored credentials.
+    expect(connector.revoke).toBeUndefined();
+    expect(drive.requests.some((r) => r.url === GOOGLE_DRIVE_REVOKE_URL)).toBe(false);
+    expect(drive.revoked()).toEqual([]);
   });
 });
 

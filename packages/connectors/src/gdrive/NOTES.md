@@ -22,8 +22,10 @@ Drive before a client connects, and the connector and fake fixed where they diff
   folderUrl, scopes: ["drive.file"]}`.
 - Tokens (access, refresh, expiry, granted scope, address) are encrypted in the vault with the
   client's own key. Refresh before expiry (5 minutes' margin) and once after a 401; `invalid_grant`
-  marks the connection as needing a person to connect again. Disconnect revokes the refresh token at
-  Google's revoke endpoint (400 means already revoked).
+  marks the connection as needing a person to connect again. Disconnect drops our tokens only and
+  never calls Google's revoke endpoint: Drive shares Gmail's OAuth client, and revoking could end a
+  Gmail connection made by the same Google account. The person can remove Mezonas in their Google
+  account (myaccount.google.com, "Third-party apps"). With a client of its own, Drive could revoke.
 - `drive.file.upload` (external, verb `create`, entity `file`, approval on by default): input
   `{documentId, path, date?, fileName?, ifExists}`. `path` is a template under the connection's
   folder with `{yyyy}`, `{yy}`, `{MM}`, `{dd}` filled from `date` (else today, UTC), e.g.
@@ -55,8 +57,9 @@ OAuth (the same Google client as Gmail):
 - **Revoking ends the whole grant for the client, not just Drive's.** If one person connects both
   Gmail and Drive with the same Google account, both connections share our OAuth client: does
   revoking Drive's refresh token also end Gmail's? We believe Google's revoke removes every scope
-  the account granted to the client. If so, either give Drive its own OAuth client in the project
-  (two more secrets) or have Drive's disconnect drop the tokens without revoking. Owner decision.
+  the account granted to the client. Until that is checked, Drive's disconnect doesn't revoke
+  (coordinator, 2026-11-06). The owner may later give Drive its own OAuth client in the project
+  (two more secrets) and turn the revoke back on.
 - With `include_granted_scopes=false`, a Drive sign-in by an account that already granted
   `gmail.send` gets a token with `drive.file` only, and Gmail's refresh token keeps working. Google
   allows 100 live refresh tokens per account and client.

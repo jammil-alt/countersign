@@ -328,9 +328,9 @@ Google Drive uses the same Google project and OAuth client as Gmail ("Mezonas we
 3. Add the redirect URIs `https://staging.mezonas.com/connections/gdrive/callback`,
    `https://app.mezonas.com/connections/gdrive/callback` and
    `http://localhost:8787/connections/gdrive/callback` to the client.
-4. Decide whether Drive keeps sharing Gmail's client: revoking Drive's grant at disconnect may also
-   end a Gmail connection made by the same Google account (NOTES.md, "To verify"). A client of its
-   own would need two more secrets.
+4. Drive's disconnect drops our tokens without revoking at Google, so it can't end a Gmail
+   connection made by the same Google account on the shared client (plan §1.52). To have it revoke,
+   give Drive an OAuth client of its own (two more secrets) and turn the revoke back on.
 
 Outlook needs an Entra app of Mezonas' own:
 1. A multi-tenant app registration "Mezonas" (supported accounts: any organizational directory and
