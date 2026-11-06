@@ -1,8 +1,22 @@
-# Mezonas — Architecture v0.12
+# Mezonas — Architecture v0.13
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.13 (2026-11-06, owner):** **The agent oversees its own runs, and each step runs on the model
+> it needs.** A workflow stays the operator's fixed plan; the client agent that owns it now watches its
+> runs. Clean steps (rules, forks, actions, automations, `tool` skills) run as code with no model. A
+> skill step can name its own model, so reading an invoice runs on a fast, cheap model and analysis or
+> drafting on a stronger one. When a step fails, or a checkpoint step (one whose output feeds a write)
+> finishes, the agent reviews it on the model the operator picks for oversight and decides one thing:
+> continue, retry, retry with a corrected input, ask a person, or stop. It never changes its plan, its
+> approvals or its permissions during a run, and a corrected write is decided again by the gate. A fix
+> that should last comes to the operator as a proposal. We keep our own executor rather than a graph
+> library such as LangGraph: workflows are versioned data merged by step id and run durably by
+> Cloudflare Workflows (§10.11). Changed: §1, §2, §5.6 (new), §9.1, §9.2, §10.1, §10.11 (new), §14,
+> §18 (M30–M32), §20; CLAUDE.md invariant 9 (one sentence); `docs/plan.md` §1.53–§1.54, M30–M32,
+> §7, §8.
 
 > **v0.12 (2026-11-06, owner's prototype):** **The service as the client lives it, and the back office
 > that runs it.** The owner's 21-screen prototype adds, for clients: **Sloan**, the account agent on
@@ -357,6 +371,10 @@ only what a test or an existing screen needs.
   (§10.9), events dispatched right after commit (§8), background document reading counted as the
   client's usage (§13), a portal records list (§14), and "sync now" that always starts or queues a
   sync (§6.2)
+- **Run oversight and a model per step** (v0.13, §10.11): a skill step may name its own model; the
+  client agent reviews failed steps and checkpoint steps on its oversight model and continues, retries,
+  retries with a corrected input, asks a person or stops, within limits, never changing its plan,
+  approvals or permissions; a fix that should last is a proposal to the operator
 
 Out (designed for, not built):
 - Client self-serve building;
@@ -372,6 +390,8 @@ Out (designed for, not built):
 - Slack and bank or card feeds until the owner decides (§6.11); Gmail push notifications (v1 polls);
   sending email without a person's approval; code steps in workflows; A/B versions; custom collections
   and fields UI; nesting automations inside automations
+- An agent changing its own workflow, approvals or permissions while it runs: oversight decides within
+  the plan, and lasting fixes are proposals the operator applies (v0.13, §10.11)
 - Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials; use cases such as
   collections (Cole), invoice intake (Iris) and card receipts (Remy) are built from these parts
   separately, like Pia (v0.9)
@@ -397,7 +417,7 @@ Out (designed for, not built):
 | Email (optional) | Resend | Behind an interface; SMS later |
 | Tests | Vitest (`@cloudflare/vitest-pool-workers` for Worker and Workflow tests); Playwright e2e | |
 
-Models (configurable per agent version and per skill, defaults):
+Models (configurable per agent version, per skill and per skill step, §10.11; defaults):
 - `claude-sonnet-5-5` — extraction, agent reasoning, Builder
 - `claude-haiku-5-5` — high-volume classification and adjudication (e.g. item matching)
 - `claude-opus-5-5` — optional for the Builder on complex requests
@@ -737,6 +757,23 @@ Tables with `tenant_id null` here (`automation`, `test_case`, `test_suite_run`, 
 `builder_*`) follow the templates' policy (§4): null rows only in operator sessions; a client's rows
 in its own scope. A test case made from a client's records carries that client's id and never runs
 or shows outside it (invariant 1).
+
+### 5.6 v0.13 additions
+
+```sql
+-- 0031 run oversight (§10.11)
+oversight_decision(id, tenant_id, run_id, step_run_id, node_id, seq int /*1.. per node*/,
+                   cause /*failed|checkpoint*/, action /*continue|retry|retry_with|ask|stop*/,
+                   input_before jsonb null, input_after jsonb null /*retry_with only*/,
+                   note text /*the agent's diagnosis; operator only*/,
+                   proposal jsonb null /*{summary, change}*/, inbox_item_id null,
+                   sources jsonb /*record ids it relied on*/, model text, cost_usd numeric(14,4),
+                   tokens_in int, tokens_out int, agent_version_id, created_at)
+```
+
+A tenant table with forced RLS; `cs_runtime` may insert and select, never update or delete (like
+`audit_event`). Read by the back office's run view and the agent lab; no portal route returns it.
+`step_run` keeps one row per step: a retried step increments `attempts`.
 
 ---
 
@@ -1180,6 +1217,18 @@ const AgentDefinition = z.object({
 });
 ```
 
+**v0.13** (`AgentDefinition` stays `schemaVersion: 2`; the field is optional, so stored bundles parse
+and hash the same):
+
+```ts
+oversight: z.object({                              // §10.11; absent: off (agents before v0.13 run as today)
+  review: z.enum(['off', 'failures', 'checkpoints', 'all']),
+  model: z.object({ id: z.string(), maxTokens: z.number().default(2048) }).optional(), // default: `model`
+  maxPerRun: z.number().int().min(0).max(10).default(3),     // interventions per run
+  maxCostUsd: z.number().default(0.25),                      // per run, on top of `budgets`
+}).optional(),
+```
+
 Every item a merge must line up carries a **stable id** that survives forking and editing: workflows
 by `slug`, steps and fork paths by `id` (generated once, copied on fork, never reused), skills by `skill`.
 
@@ -1216,6 +1265,9 @@ const SkillDefinition = z.object({
   `agent`. Saved as `skill_version` rows with the same draft → publish → rollback rules as agents.
 - A client agent can use a skill only when the client has the required connections bound and packs
   enabled. Forking a template into a client shows what's missing there.
+- **v0.13:** `SkillDefinition` + `model?: { id, maxTokens? }`, the skill's default model when its mode
+  is `agent` (a step's own `model` wins; §10.11). Built-in skills set none, so they keep today's model
+  and their recorded fixtures.
 
 ### 9.3 Versioning, templates and client agents
 
@@ -1532,6 +1584,13 @@ a new charge and on a texted photo). The run's `trigger` records which one fired
 `trigger.type`); validation types `{{trigger.<path>}}` against every trigger of the workflow: a field
 some triggers lack is typed as optional (it may be empty), never an error.
 
+**v0.13 additions** (still `schemaVersion: 3`; both optional):
+
+```ts
+'skill'            + model?: { id: string, maxTokens?: number }   /*mode 'agent' skills only; §10.11*/
+'skill' | 'action' + review?: 'auto' | 'off' | 'always'           /*default 'auto': the agent's oversight decides*/
+```
+
 ### 10.2 Validation (shared by builder and server, in `packages/core`)
 
 A workflow can be saved as a draft with errors, but only a valid one can be test-run or published.
@@ -1729,6 +1788,110 @@ A client agent's `stage` (§5.5): **bench** → **trial** → **signoff** → **
   how it started, who signed, which tool it changed, attempts, cost (operator only), error key, client,
   template, version. Plain-words questions (§11.6) produce the same filter.
 - **Short ids:** a run is shown as `R-` and the last 6 hex characters of its id, as records are.
+
+### 10.11 Run oversight and a model per step (v0.13, owner 2026-11-06)
+
+The workflow stays the operator's fixed plan (§10.1). The client agent that owns it now oversees its
+runs: work that needs no judgment runs as code, work that needs some runs on the model it needs, and
+when a step goes wrong the agent looks at it and decides what happens next, inside the plan.
+
+| Work | Runs as | Examples |
+|---|---|---|
+| Clean | Code, no model | Fork rules, `action` steps, `tool`-mode skills, waits, notifications |
+| Reading | A skill step on a fast model | Reading an invoice into JSON, classifying, adjudicating a match |
+| Judgment | A skill step on the agent's model or a stronger one | Analysis, drafting a message, an exception |
+| Oversight | The agent, on its oversight model | Why did this step fail, and what now; is this output right before we write |
+
+**A model per step.** A `skill` step whose skill is mode `agent` may set `model: { id, maxTokens? }`.
+The runtime uses the step's model, else the skill's default (`SkillDefinition.model`, §9.2), else the
+agent's `definition.model`. Validation: the id is one `packages/llm` knows and prices; `model` on a
+`tool`-mode skill step is an error. The builder labels the choices Fast (Haiku), Standard (Sonnet),
+Strong (Opus) and OpenAI. Each call is a `model_call` row with its model (§10.10), so the run view shows
+cost per step. A merge treats `model` as one step field. // DECISION: a model id on the step, like the
+agent's, not named tiers; tiers are the builder's labels.
+
+**Oversight settings** (`definition.oversight`, §9.1; absent means `off`, so agents built before v0.13
+run as today):
+- `review`: `off`; `failures` (review failed steps); `checkpoints` (failures, plus checkpoint steps
+  after they succeed); `all` (every skill and action step after it finishes).
+- `model`: what oversight reasons on; default the agent's model. This is the agent's "brain"; steps are
+  its hands.
+- `maxPerRun` (default 3 interventions) and `maxCostUsd` (default $0.25, on top of the agent's budget).
+- A step may set `review: 'off' | 'always'` (default `auto`: follow the agent).
+- New agents, Builder drafts and new templates start with `review: 'failures'`. // DECISION: not on
+  for existing agents, so their runs, costs and recorded fixtures don't change unasked.
+
+**Reviewed steps.** `skill` and `action` steps, and the inner ones of an automation (§10.7) under their
+expanded node ids. Forks, loops, waits, notifications and person steps fail as today. A **checkpoint**
+is computed by validation, never guessed by the model: a skill step whose output a later write step's
+input template references (an `action`, or a skill step whose tools can write), or any step with
+`review: 'always'`.
+
+**What the agent sees.** One model call with no tools, given: the step's definition and its skill's or
+tool's description and input schema; the step's resolved input; its output, or its error with the
+error key (§10.10) and attempt count; the plain summaries of the run's earlier steps; for a failure,
+the last 5 failures of the same step in this client agent's runs with the decisions taken. Inputs,
+outputs, errors and summaries go in as data in a tool-result block, never in the instructions
+(invariant 9). Nothing from the vault, another client, or another agent's prompts.
+
+**Decisions** (a Zod schema in core, `oversight/decision.ts`; the agent answers through `finish`):
+
+| Decision | After | Effect |
+|---|---|---|
+| `continue` | A checkpoint | The run goes on. |
+| `retry {after?}` | A failure | The step runs again with the same input after `after` (default 30 s, at most 1 hour): timeouts, rate limits, a connection that came back. |
+| `retry_with {input}` | Either | The step runs again with a corrected input, which must validate against the skill's or tool's input schema; recorded field by field (`input_before`, `input_after`). |
+| `ask {question}` | Either | An inbox item to the step's approver (default the lead) in the platform's words with the agent's question; the run waits. Approved: continue (a checkpoint) or retry (a failure). Rejected: the step's `onReject`. |
+| `stop` | Either | A failure fails the run; a checkpoint cancels it. The agent's note goes to the operator. |
+
+Any decision may carry a `proposal {summary, change}`: a lasting fix in plain words (add a trim step,
+raise a timeout, add a vendor alias). It becomes an operator inbox item (`kind: 'review'`, subject
+`oversight_proposal`), fingerprinted like the supervisor's findings so the same fix is proposed once.
+The operator applies it in the builder or the Builder conversation; nothing changes a bundle on its own.
+
+**Guardrails.**
+- **The plan is fixed.** Oversight never adds, skips, reorders or edits steps, never changes an
+  approval, matrix, grant, mode or stage, and calls no tools (invariants 3, 4, 9). The decision schema
+  has no field for any of these.
+- **Writes.** A `retry_with` on a write step is a new input, so the gate decides again (§9.5) and an
+  approval given for the old input never carries; in trial and signoff every write is signed, as
+  before. A write step is retried only when its external action never reached `executing` (refused,
+  invalid, or failed before the call). One that reached the client's tool and failed is a `stop` with
+  an operator item, because its before state may no longer hold. A `retry` keeps the action's
+  idempotency key; a `retry_with` uses `${nodeId}:o${seq}`.
+- **Limits.** At most 2 interventions per step and `maxPerRun` per run, within `maxCostUsd`. Past a
+  limit, or when the answer fails validation, the step fails exactly as it does without oversight. A
+  failed review never hides the step's own error.
+- **Durable.** Each review is `step.do('${nodeId}:oversee:${seq}')` and each retry
+  `${nodeId}:retry:${seq}`, so a replayed instance finds the same decision and never decides twice.
+  Each decision is an `oversight_decision` row (§5.6) with `agent_version_id` and the record ids it
+  relied on (invariant 10).
+- **Test runs** run oversight too, so the bench shows it, and write nothing, as any test run. Its
+  calls are recorded and replayed like any model call (`LLM_MODE=replay`).
+- **Run controls** (§10.10) are unchanged; a run the operator retries starts its intervention count
+  at 0.
+
+**Who sees what.** The back office's run view shows each decision, the agent's note, the input change,
+the model and the cost. The portal's run timeline shows only the platform's words for each decision, in
+the client's language ("Tried again", "Corrected the vendor name and tried again", "Asked Dana"), never
+the agent's note, a prompt or a cost (invariant 11). A run that still fails emits `run.failed` with the
+agent's diagnosis attached, so Sloan's triage (§9.8) can use it instead of making its own model call.
+
+**Usage.** Oversight's model calls count in the run's cost, the client's usage and credits like any
+other (§13). `failures` costs nothing on a clean run; `all` roughly doubles a run's model calls.
+
+**Why not a graph library.** Considered and declined (owner, 2026-11-06): LangGraph and similar graphs
+are defined in code, while our workflows are versioned data, built in the builder and merged three
+ways by stable step ids, so we would compile our schema into a graph anyway; Cloudflare Workflows
+already keeps runs durable through approvals that wait for days, and a second checkpoint store would
+split the truth about a run and hold client data outside RLS (invariant 1); model calls must go through
+`packages/llm` for replay, cost and redaction. Oversight adds the one dynamic choice that matters, a
+decision at a failed or checked step, without free-form edges.
+
+**Built in** (`docs/plan.md` §1.53, §1.54): the decision schema, checkpoint computation and portal
+words in `packages/core`; an `OversightPort` the executor calls (`packages/workflows`), so the
+executor stays free of models; the review itself in `packages/agents/src/runtime/oversee.ts`, its rows
+written from `src/log/`; the wiring in `apps/api`.
 
 ---
 
@@ -2191,6 +2354,17 @@ Portal (client)
   Settings     PUT  /api/settings/my-notifications {email, sms}   PUT /api/billing/credits-out {onCreditsOut}
                GET  /api/audit/export.csv?from=&to=
 ```
+
+**v0.13 routes** (operator only; `packages/core/src/api/oversight.ts`):
+```
+  Runs         GET  /api/ops/runs/:id gains `oversight` (decisions per step: action, note, input change,
+               model, cost)
+  Oversight    GET  /api/ops/oversight?agent=&client=&since=&action=   (decisions and open proposals,
+               with counts by action and by step, for the agent lab)
+```
+Oversight settings and a step's `model` and `review` change through the existing bundle edits (a new
+version, like every edit). The portal's run timeline shows only the platform's words for a decision.
+
 The MCP server's tools read through the back office's own route handlers, scoped to the clients the
 operator serves; its one write (`feedback_resolve`) takes a preview call and a confirm call.
 All bodies validated with Zod. The route contract declares each route's roles; middleware sets
@@ -2380,6 +2554,9 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M27 | KPIs and the client view, credits, the client's audit export | A template's KPIs show on its client agent's page and in the Weekly Table; credits running out with `pause` pauses billable agents and tells the admin; the admin downloads the audit export |
 | M28 | The Builder as a conversation | A three-turn session drafts an agent, one change is undone alone, `/skill` changes one setting, a new skill is drafted with tests from examples, and two steps are saved as an automation |
 | M29 | New connectors | Google Drive files a document by month and Outlook sends an approved email, both against fakes; Ramp and HubSpot after them |
+| M30 | (v0.13) A model per step | One workflow reads an invoice on Haiku and drafts an email on Sonnet; its model calls show both models and per-step cost; `model` on a `tool` skill step fails validation |
+| M31 | Run oversight on failures | A lookup that fails on a vendor name with a trailing space is corrected and the run finishes, with one decision row and one proposal for the operator; a write that reached the client's tool is never retried; past the limit the step fails as before; the portal shows only "Corrected and tried again" |
+| M32 | Checkpoint reviews | An extraction that feeds a create-bill step is reviewed; a wrong total is corrected before the bill is proposed and the approver sees the corrected input; with `review: 'failures'` a clean run makes no oversight call |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
@@ -2454,6 +2631,10 @@ Decided:
   the run's event, not the write's path (§11.1); notifications send through Mezonas' own `resend` path
   (§11.3); the Weekly Table's PDF is rendered by `pdf-lib` on request (§11.4); replay is a test run in
   the same client (§10.10); background reading is the client's usage (§13).
+- v0.13 (owner, 2026-11-06): the client agent oversees its runs on a model the operator picks, deciding
+  within the plan (continue, retry, retry with a corrected input, ask a person, stop) and proposing
+  lasting fixes; skill steps name their own model; we keep our executor on Cloudflare Workflows
+  rather than adopting a graph library (LangGraph) (§10.11).
 
 Open:
 - v0.12, for the owner (`docs/plan.md` §7): the agent address domain (`<agent>@<client>.agents.mezonas.com`

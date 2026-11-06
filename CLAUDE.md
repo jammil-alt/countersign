@@ -14,8 +14,9 @@ client's tools (QuickBooks Online and Gmail) within each connection's permission
 such as Pia (material cost management for a millwork shop, the Materials pack) are built separately
 from this plan, only from platform parts (ARCHITECTURE v0.9).
 
-- What to build: `docs/ARCHITECTURE.md` (v0.12). Do not add features outside its §1 v1 scope.
-  v0.12 (the owner's prototype) is built API first in streams: `docs/plan.md` §8.
+- What to build: `docs/ARCHITECTURE.md` (v0.13). Do not add features outside its §1 v1 scope.
+  v0.12 (the owner's prototype) and v0.13 (run oversight and a model per step) are built API first in
+  streams: `docs/plan.md` §8.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
@@ -108,7 +109,9 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    credentials. Test runs never write. An agent in its trial or sign-off stage has every write signed;
    an undo window or a person's edit before signing never writes outside the external-action path.
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
-   instructions. Agents cannot change their own permissions.
+   instructions. Agents cannot change their own permissions. During a run an agent may retry a step or
+   correct its input, never change its plan, approvals or permissions; a corrected write is decided
+   again by the gate (ARCHITECTURE §10.11).
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
 11. **The operator builds; clients use.** Only `operator` reaches `/api/ops` (templates, client agents, runs
