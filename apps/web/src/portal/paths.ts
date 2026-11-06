@@ -7,10 +7,14 @@ export const PORTAL_PATHS = {
   // portal route takes the service id and none returns a slug, so no lookup is needed.
   agent: (serviceId: string) => `/agents/${serviceId}`,
   accounts: "/accounts",
-  vault: "/accounts/access",
+  // The vault is the Accounts page's right rail.
+  vault: "/accounts#vault",
   people: "/people",
-  directory: "/people/directory",
+  organizations: "/people/organizations",
   contacts: "/people/contacts",
+  reach: "/people/reach",
+  voice: "/people/voice",
+  peopleImport: "/people/import",
   settings: "/settings",
   billing: "/settings/billing",
   reports: "/reports",

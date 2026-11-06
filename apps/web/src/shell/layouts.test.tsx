@@ -228,9 +228,6 @@ describe("portal layout", () => {
         "reports",
         "records",
         "requests",
-        "access",
-        "directory",
-        "contacts",
         "knowledge",
         "conversations",
         "billing",
@@ -246,9 +243,6 @@ describe("portal layout", () => {
       reports: "/reports",
       records: "/records",
       requests: "/requests",
-      access: "/accounts/access",
-      directory: "/people/directory",
-      contacts: "/people/contacts",
       knowledge: "/knowledge",
       conversations: "/conversations",
       billing: "/settings/billing",
@@ -292,8 +286,8 @@ describe("portal layout", () => {
     await screen.findByTestId("shell-portal");
     expect(screen.queryByTestId("portal-nav-settings")).toBeNull();
     expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
-    // Client users read the directory: People opens it.
-    expect(screen.getByTestId("portal-nav-people")).toHaveAttribute("href", "/people/directory");
+    // Client users read People too (its people and organizations).
+    expect(screen.getByTestId("portal-nav-people")).toHaveAttribute("href", "/people");
     expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
   });
 

@@ -1,6 +1,7 @@
-// The portal's Access page (docs/plan.md §1.26): every vault item with whether its secret is
-// stored (never the secret), each agent's access; the client admin enters an API-key tool's login,
-// tightens (only stricter levels are offered) and revokes; a client user only reads.
+// The vault on the portal's Accounts page (docs/plan.md §1.26; C4): every vault item with whether
+// its secret is stored (never the secret), each agent's access; the client admin enters an API-key
+// tool's login, tightens (only stricter levels are offered) and revokes; a client user only reads.
+// `/access` is the old address: it lands on `/accounts#vault`.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -99,6 +100,7 @@ describe("portal access page", () => {
     });
     renderAt(api);
     const card = await screen.findByTestId("vault-item-acme");
+    await userEvent.click(within(card).getByTestId("vault-item-open"));
     expect(within(card).getByTestId("vault-secret-state")).toHaveTextContent("Secret stored");
     const fields = within(card).getByTestId("vault-fields");
     expect(fields).toHaveTextContent("agent@demo.example.com");
@@ -120,7 +122,9 @@ describe("portal access page", () => {
       },
     });
     renderAt(api);
-    const agent = await screen.findByTestId(`vault-agent-${AGENT}`);
+    const card = await screen.findByTestId("vault-item-acme");
+    await userEvent.click(within(card).getByTestId("vault-item-open"));
+    const agent = within(card).getByTestId(`vault-agent-${AGENT}`);
     await userEvent.click(within(agent).getByTestId("vault-agent-tighten"));
     const create = within(agent).getByTestId("vault-agent-level-create");
     const levels = within(create)
@@ -147,7 +151,9 @@ describe("portal access page", () => {
       },
     });
     renderAt(api);
-    const agent = await screen.findByTestId(`vault-agent-${AGENT}`);
+    const card = await screen.findByTestId("vault-item-acme");
+    await userEvent.click(within(card).getByTestId("vault-item-open"));
+    const agent = within(card).getByTestId(`vault-agent-${AGENT}`);
     await userEvent.click(within(agent).getByTestId("vault-agent-revoke"));
     expect(agent).toHaveTextContent("Purchasing stops using Acme supplies at once.");
     await userEvent.click(within(agent).getByTestId("vault-agent-revoke-confirm"));
@@ -211,6 +217,7 @@ describe("portal access page", () => {
     });
     renderAt(api);
     const card = await screen.findByTestId("vault-item-acme");
+    await userEvent.click(within(card).getByTestId("vault-item-open"));
     expect(within(card).queryByTestId("vault-agent-tighten")).toBeNull();
     expect(within(card).queryByTestId("vault-replace")).toBeNull();
     expect(within(card).queryByTestId("vault-disconnect")).toBeNull();
@@ -324,6 +331,7 @@ describe("portal access page", () => {
       });
       renderAt(api);
       const card = await screen.findByTestId("vault-item-browser-supplier");
+      await userEvent.click(within(card).getByTestId("vault-item-open"));
       expect(within(card).getByTestId("vault-browser-tier")).toHaveTextContent("Low risk");
       expect(within(card).getByTestId("vault-browser-identity")).toHaveTextContent(
         "agent-abcdefghijkl@agents.mezonas.com",
@@ -376,6 +384,7 @@ describe("portal access page", () => {
       });
       renderAt(api);
       const card = await screen.findByTestId("vault-item-browser-supplier");
+      await userEvent.click(within(card).getByTestId("vault-item-open"));
       const section = within(card).getByTestId("release-section");
       expect(section).toHaveTextContent("Off: agents use it without asking anyone first.");
       await userEvent.click(within(section).getByTestId("release-edit"));
@@ -414,6 +423,7 @@ describe("portal access page", () => {
       });
       renderAt(api);
       const card = await screen.findByTestId("vault-item-browser-supplier");
+      await userEvent.click(within(card).getByTestId("vault-item-open"));
       expect(within(card).getByTestId("vault-browser-stopped")).toHaveTextContent(
         "the site showed a CAPTCHA",
       );
