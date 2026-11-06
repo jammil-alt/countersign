@@ -310,7 +310,12 @@ describe("skill and action steps", () => {
         ]),
         {},
       );
-      expect(result).toEqual({ status: "failed", reason, nodeId: "s" });
+      expect(result).toEqual({
+        status: "failed",
+        reason,
+        nodeId: "s",
+        errorKey: reason.startsWith("escalated") ? "skill:escalated" : "skill:failed",
+      });
       expect(h.row("s")?.status).toBe("failed");
       expect(h.row("never")).toBeUndefined();
     }
@@ -436,7 +441,12 @@ describe("person steps", () => {
         expect(result.status).toBe("succeeded");
         expect(h.sent[0]?.text).toBe("approved=false");
       } else {
-        expect(result).toEqual({ status: "failed", reason: "timeout", nodeId: "ok" });
+        expect(result).toEqual({
+          status: "failed",
+          reason: "timeout",
+          nodeId: "ok",
+          errorKey: "person:timeout",
+        });
         expect(h.sent).toHaveLength(0);
       }
       expect(h.operatorNotices).toHaveLength(onTimeout === "notify_operator" ? 1 : 0);
@@ -642,7 +652,13 @@ describe("for_each", () => {
       ]),
       { lines: [0, 1, 2, 3] },
     );
-    expect(result).toEqual({ status: "failed", reason: "bad line", nodeId: "each:1:line" });
+    expect(result).toEqual({
+      status: "failed",
+      reason: "bad line",
+      nodeId: "each:1:line",
+      // The step that failed names the error, not the loop around it.
+      errorKey: "skill:failed",
+    });
     expect(h.agentCalls).toHaveLength(2);
     expect(h.row("each")?.status).toBe("failed");
   });

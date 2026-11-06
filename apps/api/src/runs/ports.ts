@@ -144,6 +144,8 @@ export function agentPort(
         approval,
         mode: run.mode,
         language: run.language,
+        // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
+        ...(run.retryOf ? { retryOf: run.retryOf } : {}),
       });
       switch (r.status) {
         case "succeeded":
@@ -191,6 +193,8 @@ export function agentPort(
         // The step as written in the version: fixed inputs are checked against it, not `input`.
         literalInput: step.input,
         externalIndex: { next: 0 },
+        // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
+        ...(run.retryOf ? { retryOf: run.retryOf } : {}),
       };
       const o = await callTool(deps, ctx, { toolId: step.tool, input });
       switch (o.status) {

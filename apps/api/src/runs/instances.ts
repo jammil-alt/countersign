@@ -3,8 +3,16 @@
 
 import type { RunRequest } from "@countersign/workflows";
 
-/** RunWorkflow's params: the router's run request, as is. Plain JSON. */
-export type RunParams = RunRequest;
+/**
+ * RunWorkflow's params: the router's run request, plus what a retry repeats (v0.12 W1-E,
+ * ARCHITECTURE §10.10). Plain JSON.
+ */
+export type RunParams = RunRequest & {
+  /** The failed run this one retries. */
+  retryOf?: string;
+  /** The top-level step it runs from; the steps before it are reused from `retryOf`. */
+  resumeFrom?: string | null;
+};
 
 export interface RunEvent {
   type: string;
@@ -22,6 +30,11 @@ export interface RunInstances {
    * waits for is never read, and an instance that has ended takes nothing.
    */
   sendEvent(runId: string, event: RunEvent): Promise<void>;
+  /**
+   * Ends a run's instance (a cancel, W1-E). `missing` when it never started, `ended` when it had
+   * already finished; neither is an error.
+   */
+  terminate(runId: string): Promise<"terminated" | "ended" | "missing">;
 }
 
 /** Instance states that will never wait for an event again. */
@@ -48,6 +61,14 @@ export function workflowInstances(binding: Workflow): RunInstances {
       if (ENDED.has(status)) return;
       await instance.sendEvent({ type: event.type, payload: event.payload });
     },
+    async terminate(runId) {
+      const instance = await binding.get(runId).catch(() => null);
+      if (!instance) return "missing";
+      const { status } = await instance.status();
+      if (ENDED.has(status)) return "ended";
+      await instance.terminate();
+      return "terminated";
+    },
   };
 }
 
@@ -55,6 +76,7 @@ export function workflowInstances(binding: Workflow): RunInstances {
 export class MemoryInstances implements RunInstances {
   readonly started = new Map<string, RunParams>();
   readonly events: { runId: string; event: RunEvent }[] = [];
+  readonly terminated: string[] = [];
   /** The next this-many sends throw, as an unreachable engine would. */
   failSends = 0;
 
@@ -70,5 +92,12 @@ export class MemoryInstances implements RunInstances {
       throw new Error("the Workflows engine is unreachable");
     }
     this.events.push({ runId, event });
+  }
+
+  async terminate(runId: string): Promise<"terminated" | "ended" | "missing"> {
+    if (!this.started.has(runId)) return "missing";
+    if (this.terminated.includes(runId)) return "ended";
+    this.terminated.push(runId);
+    return "terminated";
   }
 }

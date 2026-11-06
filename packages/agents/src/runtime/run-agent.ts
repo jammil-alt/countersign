@@ -28,8 +28,10 @@ import {
 import {
   createLlmClient,
   type LlmCallRecord,
+  type LlmExchange,
   type LlmMessage,
   type LlmRequest,
+  providerOf,
 } from "@countersign/llm";
 import type { ResolvedSkill } from "../registry/skills";
 import { AGENTS_ASK_TOOL } from "../tools/ask";
@@ -70,6 +72,9 @@ export interface RunAgentInput {
    * on a budget hit and no asks of its own. Set by `askAgent`, never by a workflow.
    */
   asked?: { budget: AskBudget; tools: string[] } | undefined;
+  // v0.12 W1-E
+  /** A retry's step: the failed run whose approved, not-done writes it may carry (§10.10). */
+  retryOf?: string | undefined;
 }
 
 export interface AskBudget {
@@ -357,6 +362,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     externalIndex: { next: 0 },
     language: input.language,
     readOnly: asked !== undefined,
+    ...(input.retryOf ? { retryOf: input.retryOf } : {}),
     // No asks within an ask: the asked agent can't start a chain.
     ask: asked
       ? undefined
@@ -459,7 +465,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   const maxCost = asked
     ? Decimal.min(definition.budgets.maxCostUsd, asked.budget.maxCostUsd)
     : new Decimal(definition.budgets.maxCostUsd);
-  const onCall = async (record: LlmCallRecord) => {
+  const onCall = async (record: LlmCallRecord, exchange: LlmExchange) => {
     modelCalls += 1;
     const callCost = new Decimal(record.costUsd ?? "0");
     cost = cost.plus(callCost);
@@ -473,6 +479,22 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       { runId: input.runId, stepRunId },
       { costUsd: callCost.toFixed(6), tokensIn: inTokens, tokensOut: record.usage.outputTokens },
     );
+    // v0.12 W1-E: the call itself, with its request and answer (ARCHITECTURE §10.10).
+    await deps.ports.modelCalls?.record(input.tenantId, {
+      runId: input.runId,
+      stepRunId,
+      agentVersionId: input.agentVersionId,
+      provider: providerOf(record.model),
+      model: record.model,
+      tokensIn: inTokens,
+      tokensOut: record.usage.outputTokens,
+      costUsd: record.costUsd,
+      durationMs: record.durationMs,
+      stopReason: record.stopReason,
+      request: exchange.request,
+      answer: exchange.response,
+      error: record.error,
+    });
   };
   const llm = createLlmClient({ transport: deps.transport, onCall });
 

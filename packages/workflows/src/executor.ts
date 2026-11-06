@@ -24,6 +24,7 @@ import {
   renderSummary,
   renderTemplate,
   resolveTemplate,
+  runErrorKey,
   type SkillStep,
   type Step,
   type StopStep,
@@ -58,6 +59,19 @@ export interface ExecutorContext {
   stepConfig?: StepConfig;
   /** How long a write waits for approval when its step names no timeout. */
   approvalTimeout?: Duration;
+  // v0.12 W1-E: retry from the failed step (ARCHITECTURE §10.10; docs/plan.md §1.40).
+  /** A retry: the top-level steps before `from` are not run again, their outputs reused. */
+  resume?: RunResume;
+}
+
+/** What a retry starts from. Small JSON: apps/api loads it in a durable step. */
+export interface RunResume {
+  /** The top-level step the retry runs from (the failed one, or the fork or loop it was in). */
+  from: string;
+  /** The run retried, as people see it (`R-1a2b3c`), for the reused steps' summaries. */
+  of: string;
+  /** Top-level step id → its row in the run retried (succeeded or skipped), output as stored. */
+  reused: Record<string, { status: "succeeded" | "skipped"; output: unknown }>;
 }
 
 export type RunEndStatus = "succeeded" | "failed" | "cancelled";
@@ -68,6 +82,8 @@ export interface RunResult {
   reason?: string;
   /** The durable name of the step that ended it. */
   nodeId?: string;
+  /** A failure's `error.key`: `<tool id or step kind>:<code>` of the step that failed (W1-E). */
+  errorKey?: string;
 }
 
 // DECISION: a write step whose approval names no timeout waits 7 days, then counts as not
@@ -84,6 +100,8 @@ interface Frame {
   /** Prepended to step ids for durable names: "" at the top, `${loop}:${i}:` inside a loop. */
   prefix: string;
   scope: RunContext;
+  /** The workflow's own step list (not a fork path or a loop): where a retry resumes. */
+  top?: boolean;
 }
 
 /**
@@ -98,7 +116,7 @@ export async function executeWorkflow(
 ): Promise<RunResult> {
   const ex = new Executor(runner, ctx);
   try {
-    await ex.runList(workflow.steps, { prefix: "", scope: { trigger, steps: {} } });
+    await ex.runList(workflow.steps, { prefix: "", scope: { trigger, steps: {} }, top: true });
     return { status: "succeeded" };
   } catch (error) {
     if (error instanceof RunEnd) return error.result;
@@ -126,7 +144,44 @@ class Executor {
   }
 
   async runList(steps: readonly Step[], frame: Frame): Promise<void> {
-    for (const step of steps) await this.runStep(step, frame);
+    const resume = frame.top ? this.ctx.resume : undefined;
+    let reached = !resume || !steps.some((s) => s.id === resume.from);
+    for (const step of steps) {
+      if (resume && !reached) {
+        if (step.id === resume.from) reached = true;
+        else if (resume.reused[step.id]) {
+          await this.reuse(step, resume, frame);
+          continue;
+        }
+      }
+      await this.runStep(step, frame);
+    }
+  }
+
+  /**
+   * A retry's step before the failed one (ARCHITECTURE §10.10): not run again. Its row is copied
+   * from the run retried, with its output, and the summary says where it came from.
+   */
+  async reuse(step: Step, resume: RunResume, frame: Frame): Promise<void> {
+    const row = resume.reused[step.id];
+    if (!row) return;
+    await this.runner.do(`${step.id}:reused`, async () => {
+      const id = await this.ctx.log.start({
+        runId: this.ctx.run.id,
+        nodeId: step.id,
+        nodeType: step.kind,
+        ...(step.kind === "skill" ? { skillRef: step.skill } : {}),
+      });
+      // DECISION: a step skipped in the run retried (a write a person turned down, a person step
+      // that timed out with `continue`) stays skipped: copying it as succeeded would misreport it.
+      await this.ctx.log.update(id, {
+        status: row.status,
+        output: row.output,
+        summary: `reused from ${resume.of}`,
+      });
+      return null;
+    });
+    frame.scope.steps[step.id] = { output: row.output };
   }
 
   async runStep(step: Step, frame: Frame): Promise<void> {
@@ -150,9 +205,20 @@ class Executor {
           return await this.stop(step, name);
       }
     } catch (error) {
-      if (error instanceof RunEnd) throw error;
+      if (error instanceof RunEnd) {
+        // The innermost step that failed names the error (`error.key`, docs/plan.md §1.40).
+        if (error.result.status === "failed" && error.result.errorKey === undefined) {
+          error.result.errorKey = errorKeyOf(step, error.result.reason);
+        }
+        throw error;
+      }
       await this.recordFailure(step, name, message(error));
-      throw new RunEnd({ status: "failed", reason: message(error), nodeId: name });
+      throw new RunEnd({
+        status: "failed",
+        reason: message(error),
+        nodeId: name,
+        errorKey: errorKeyOf(step, message(error)),
+      });
     }
   }
 
@@ -641,6 +707,36 @@ class Executor {
     });
     throw new RunEnd({ status: step.status, reason: "stop", nodeId: name });
   }
+}
+
+/** `<tool id or step kind>:<code>`: an action step names its tool, any other step its kind. */
+function errorKeyOf(step: Step, reason: string | undefined): string {
+  return runErrorKey(
+    { tool: step.kind === "action" ? step.tool : null, kind: step.kind },
+    reason ?? null,
+  );
+}
+
+/**
+ * Where a retry of a run that failed at `nodeId` resumes (docs/plan.md §1.40): the top-level step
+ * that is, or holds, the failed one. Only top-level steps are resumable, so a failure inside a fork
+ * path or a loop resumes at that fork or loop. Null when no step matches (it failed before any).
+ */
+export function resumePoint(
+  workflow: Pick<Workflow, "steps">,
+  nodeId: string | null,
+): string | null {
+  if (!nodeId) return null;
+  // A durable name is the step id, `${loop}:${i}:${child}` in a loop, or a suffix after `:`.
+  const id = nodeId.split(":")[0] ?? nodeId;
+  const holds = (step: Step): boolean => {
+    if (step.id === id) return true;
+    if (step.kind === "fork") {
+      return [...step.paths.flatMap((p) => p.steps), ...step.otherwise.steps].some(holds);
+    }
+    return step.kind === "for_each" && step.steps.some(holds);
+  };
+  return workflow.steps.find(holds)?.id ?? null;
 }
 
 /**

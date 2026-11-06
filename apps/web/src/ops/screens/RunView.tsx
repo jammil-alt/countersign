@@ -39,6 +39,7 @@ import {
   type Tone,
 } from "../../ui/primitives";
 import { checklistRows } from "../run/checklist";
+import { ModelCalls, RunControls } from "../run/RunControls";
 import { type StepNames, stepNames } from "../workflow/describe";
 import { operatorMayResolve } from "./Inbox";
 
@@ -128,11 +129,15 @@ export function OpsRunScreen() {
           .filter(Boolean)
           .join(" · ")}
         actions={
-          waitingOnYou.length > 0 ? (
-            <Badge tone="warning" testId="ops-run-waiting">
-              Waiting on you · {waitingOnYou.length}
-            </Badge>
-          ) : undefined
+          <span className="flex flex-wrap items-center justify-end gap-2">
+            {waitingOnYou.length > 0 ? (
+              <Badge tone="warning" testId="ops-run-waiting">
+                Waiting on you · {waitingOnYou.length}
+              </Badge>
+            ) : null}
+            {/* v0.12 W1-E: retry, cancel, replay. */}
+            <RunControls run={run} onChanged={reload} />
+          </span>
         }
       />
       {run.status === "failed" && failure ? (
@@ -233,6 +238,8 @@ export function OpsRunScreen() {
         </div>
       </div>
 
+      {/* v0.12 W1-E: the run's model calls, back office only. */}
+      <ModelCalls runId={run.id} />
       <RunLog data={data} names={names} />
     </div>
   );

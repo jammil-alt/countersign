@@ -325,3 +325,58 @@ describe("back-office run view", () => {
     ]);
   });
 });
+
+// v0.12 W1-E: run controls and model calls.
+describe("run controls", () => {
+  it("retries a failed live run from its failed step and lists the run's model calls", async () => {
+    const failed = detail("resolved");
+    failed.run = {
+      ...failed.run,
+      status: "failed",
+      error: { reason: "HTTP 401", nodeId: "update", key: "testkit.record.update:unauthorized" },
+      finishedAt: "2026-11-03T10:01:00.000Z",
+    } as unknown as typeof failed.run;
+    const retried: string[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => failed,
+      [`GET /api/ops/runs/${RUN_ID}/model-calls`]: () => ({
+        modelCalls: [
+          {
+            id: "00000000-0000-4000-8000-0000000f5001",
+            runId: RUN_ID,
+            stepRunId: "00000000-0000-4000-8000-0000000f2001",
+            agentVersionId: null,
+            provider: "anthropic",
+            model: "claude-opus-5-5",
+            tokensIn: 1200,
+            tokensOut: 80,
+            costUsd: "0.0123",
+            durationMs: 900,
+            stopReason: "end_turn",
+            createdAt: "2026-11-03T10:00:20.000Z",
+          },
+        ],
+      }),
+      [`POST /api/ops/runs/${RUN_ID}/retry`]: () => {
+        retried.push(RUN_ID);
+        return { runId: RUN_ID, shortId: "R-0f1001", resumeFrom: "update" };
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("ops-run-short-id")).toHaveTextContent("R-0f1001");
+    // Failed runs are retried; a run that has ended isn't cancelled.
+    expect(screen.queryByTestId("ops-run-cancel")).toBeNull();
+    const calls = await screen.findByTestId("ops-run-model-calls");
+    await waitFor(() => expect(calls).toHaveTextContent("anthropic · claude-opus-5-5"));
+    expect(calls).toHaveTextContent("end_turn");
+    await userEvent.click(screen.getByTestId("ops-run-retry"));
+    await waitFor(() => expect(retried).toEqual([RUN_ID]));
+  });
+});

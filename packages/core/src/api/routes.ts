@@ -30,6 +30,14 @@ import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
+import { runControlRoutes } from "./run-controls";
+import {
+  OpsRunsQuery,
+  PortalRunsQuery,
+  RunErrorGroup,
+  RunStatusSchema,
+  RunsPerDay,
+} from "./runs-filter";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W1-C: threads, the lead and `/commands`
@@ -101,14 +109,7 @@ export const ValidationErrorSchema = z.object({
   workflow: z.string().optional(),
 });
 
-export const RunStatusSchema = z.enum([
-  "queued",
-  "running",
-  "waiting",
-  "succeeded",
-  "failed",
-  "cancelled",
-]);
+// v0.12 W1-E: RunStatusSchema lives with RunFilter (./runs-filter.ts).
 export const InboxStatusSchema = z.enum(["open", "resolved", "expired"]);
 export const InboxKindSchema = z.enum([
   "approval",
@@ -1315,16 +1316,14 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary: "Runs across the clients served",
-    query: z.object({
-      client: ApiId.optional(),
-      status: RunStatusSchema.optional(),
-      agent: ApiId.optional(),
-      mode: z.enum(["live", "test"]).optional(),
-      /** Runs created at or after this time (ISO 8601). */
-      since: z.iso.datetime({ offset: true }).optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
+    // v0.12 W1-E: RunFilter as query parameters, `perDay=1`, `groupBy=error` (docs/plan.md §1.40).
+    query: OpsRunsQuery,
+    response: z.object({
+      runs: z.array(OpsRun),
+      agents: z.array(OpsAgentRef),
+      perDay: RunsPerDay.optional(),
+      groups: z.array(RunErrorGroup).optional(),
     }),
-    response: z.object({ runs: z.array(OpsRun), agents: z.array(OpsAgentRef) }),
   }),
   opsRun: defineRoute({
     method: "GET",
@@ -1551,12 +1550,9 @@ export const portalRoutes = {
     auth: "session",
     roles: CLIENT,
     summary: "Runs of your services (never test runs)",
-    query: z.object({
-      service: ApiId.optional(),
-      status: RunStatusSchema.optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-    }),
-    response: z.object({ runs: z.array(PortalRunSummary) }),
+    // v0.12 W1-E: RunFilter without the back office's keys (docs/plan.md §1.40).
+    query: PortalRunsQuery,
+    response: z.object({ runs: z.array(PortalRunSummary), perDay: RunsPerDay.optional() }),
   }),
   portalRun: defineRoute({
     method: "GET",
@@ -1802,6 +1798,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 W1-E
+  ...runControlRoutes,
   // v0.12 W1-A: go-live stages and client controls
   ...lifecycleRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
