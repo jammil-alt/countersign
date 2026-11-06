@@ -1206,4 +1206,19 @@ export const en = {
   "gsheets.pick.cancelled": "Nothing was chosen. Open the picker again, or go back.",
   "gsheets.pick.failed":
     "Google's picker didn't open. Check that pop-ups are allowed, then try again.",
+  // v0.14 W4-A: WhatsApp through Meta (Connections and the signup page; docs/plan.md §1.57).
+  "connections.whatsappMeta.description":
+    "Connect your own WhatsApp Business number through Meta. Agents message your contacts from it, and we keep what they send you.",
+  "connections.whatsappMeta.connect": "Connect WhatsApp (your own number)",
+  "whatsappMeta.signup.title": "Connect your WhatsApp number",
+  "whatsappMeta.signup.subtitle":
+    "Meta opens a window where you choose your WhatsApp Business account and number. We never see your Facebook login.",
+  "whatsappMeta.signup.open": "Open Meta's window",
+  "whatsappMeta.signup.loading": "Loading Meta's window…",
+  "whatsappMeta.signup.saving": "Connecting your number…",
+  "whatsappMeta.signup.cancelled": "Nothing was connected. Open Meta's window again, or go back.",
+  "whatsappMeta.signup.failed":
+    "Meta's window didn't open. Check that pop-ups are allowed, then try again.",
+  "whatsappMeta.signup.notSetUp":
+    "Connecting your own WhatsApp number isn't set up here yet. We'll tell you when it is.",
 } as const;

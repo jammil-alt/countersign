@@ -8,14 +8,18 @@
 import {
   ContentStore,
   type FetchLike,
+  // v0.14 W4-A: Meta's two-step download for a `whatsapp_meta` connection's messages.
+  fetchMetaMedia,
   fetchTwilioMedia,
   mediaSidOf,
+  metaCredentialsOf,
   type ObjectStore,
   readTwilioConfig,
   TransientMediaError,
   TWILIO_CONNECTOR_ID,
   TWILIO_MESSAGE_ENTITY,
   twilioCredentialsOf,
+  WHATSAPP_META_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
   acceptingTriggers,
@@ -138,19 +142,18 @@ export async function captureOne(
     const conversationId = storedCaptureOf(raw.payload)?.conversationId ?? params.conversationId;
     if (!media || !conversationId) return null;
     const conv = await getConversation(tx, tenantId, conversationId);
+    // v0.14 W4-A: the message's connection, Twilio's or Meta's, with its own credentials.
     const [conn] = await tx
       .select()
       .from(connection)
-      .where(
-        and(
-          eq(connection.id, params.connectionId),
-          eq(connection.tenantId, tenantId),
-          eq(connection.connector, TWILIO_CONNECTOR_ID),
-        ),
-      );
+      .where(and(eq(connection.id, params.connectionId), eq(connection.tenantId, tenantId)));
     const auth =
-      conn && readTwilioConfig(conn.config)
+      conn?.connector === TWILIO_CONNECTOR_ID && readTwilioConfig(conn.config)
         ? twilioCredentialsOf(await (await connectionCredentials(tx, deps.env, conn)).get())
+        : null;
+    const meta =
+      conn?.connector === WHATSAPP_META_CONNECTOR_ID && conn.status === "connected"
+        ? metaCredentialsOf(await (await connectionCredentials(tx, deps.env, conn)).get())
         : null;
     return {
       prior,
@@ -158,7 +161,9 @@ export async function captureOne(
       capture: conv.capture as ConversationCapture,
       conversationId: conv.id,
       contactId: conv.contactId,
+      connector: conn?.connector ?? TWILIO_CONNECTOR_ID,
       auth,
+      meta,
     };
   });
   if (!prep) return { index, status: "failed", documentId: null, read: false };
@@ -187,15 +192,24 @@ export async function captureOne(
       media.contentType,
       capture.attachments === "off" ? "capture_off" : "type_not_allowed",
     );
-  } else if (!prep.auth) {
+  } else if (!prep.auth && !prep.meta) {
     outcome = failed(media.contentType, "unauthorized");
   } else {
-    const got = await fetchTwilioMedia(deps.fetch, prep.auth, {
-      messageSid: params.messageSid,
-      mediaSid: media.mediaSid,
-      contentType: media.contentType,
-      maxBytes: capture.maxBytes,
-    });
+    // v0.14 W4-A: Meta's two-step download, on the client's number, with its business token.
+    const got = prep.meta
+      ? await fetchMetaMedia(deps.fetch, {
+          token: prep.meta.accessToken,
+          phoneNumberId: prep.meta.phoneNumberId,
+          mediaId: media.mediaSid,
+          contentType: media.contentType,
+          maxBytes: capture.maxBytes,
+        })
+      : await fetchTwilioMedia(deps.fetch, prep.auth as NonNullable<typeof prep.auth>, {
+          messageSid: params.messageSid,
+          mediaSid: media.mediaSid,
+          contentType: media.contentType,
+          maxBytes: capture.maxBytes,
+        });
     if (!got.ok) {
       outcome =
         got.status === "refused"
@@ -222,8 +236,8 @@ export async function captureOne(
           source: "message",
           connectionId: params.connectionId,
           bytes,
-          // Ids only, never the sender's filename.
-          filename: `whatsapp-${params.messageSid}-${index}.${extensionFor(media.contentType)}`,
+          // Ids only, never the sender's filename (v0.14 W4-A: a wamid's `+`, `/` and `=` as `-`).
+          filename: `whatsapp-${fileSafeId(params.messageSid)}-${index}.${extensionFor(media.contentType)}`,
           mimeType: media.contentType,
           meta: {
             channel: "whatsapp",
@@ -258,7 +272,8 @@ export async function captureOne(
       .values({
         tenantId,
         connectionId: params.connectionId,
-        connector: TWILIO_CONNECTOR_ID,
+        // v0.14 W4-A: the message's connector (Twilio or Meta).
+        connector: prep.connector,
         entityType: MESSAGE_MEDIA_ENTITY,
         externalId: key,
         externalVersion: String(tries),
@@ -298,6 +313,21 @@ class AlreadyCaptured extends Error {
   override name = "AlreadyCaptured";
 }
 
+/** v0.14 W4-A: a message id as a file name part: letters, digits, `.`, `_`; anything else `-`. */
+export function fileSafeId(sid: string): string {
+  let out = "";
+  for (const ch of sid.slice(0, 200)) {
+    const ok =
+      (ch >= "a" && ch <= "z") ||
+      (ch >= "A" && ch <= "Z") ||
+      (ch >= "0" && ch <= "9") ||
+      ch === "." ||
+      ch === "_";
+    out += ok ? ch : "-";
+  }
+  return out;
+}
+
 const refused = (contentType: string, reason: MediaOutcome["reason"]): MediaOutcome => ({
   status: "refused",
   reason,
@@ -328,8 +358,9 @@ async function notifyAgent(
   const collect = new EmittedEvents();
   const sent = await withTenant(deps.db, tenantId, async (tx) => {
     collectEmitted(tx, collect);
+    // v0.14 W4-A: with its connector (Twilio or Meta), for the marker below.
     const [raw] = await tx
-      .select({ payload: rawRecord.payload })
+      .select({ payload: rawRecord.payload, connector: rawRecord.connector })
       .from(rawRecord)
       .where(and(eq(rawRecord.id, params.rawRecordId), eq(rawRecord.tenantId, tenantId)));
     const conversationId =
@@ -365,7 +396,7 @@ async function notifyAgent(
       .values({
         tenantId,
         connectionId: params.connectionId,
-        connector: TWILIO_CONNECTOR_ID,
+        connector: raw?.connector ?? TWILIO_CONNECTOR_ID,
         entityType: CAPTURE_NOTIFIED_ENTITY,
         externalId: `${params.messageSid}:${a.id}`,
         externalVersion: null,

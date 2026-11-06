@@ -60,4 +60,6 @@ export * from "./upload/index";
 export * from "./voice/services";
 export * from "./voice/spec";
 export * from "./webhook/index";
+// v0.14 W4-A: WhatsApp through Meta (docs/plan.md §1.57).
+export * from "./whatsapp_meta/index";
 export * from "./zoho_crm/index";

@@ -231,7 +231,9 @@ export async function validateForPublish(
   });
   const result = validateBundle(bundle, {
     skills: { ...used.skills, ...skills },
-    tools: ctx.tools.specs(),
+    // v0.14 W4-A: a client agent's shared ids (`whatsapp.send`) are checked against the connector
+    // its bindings name (Twilio or Meta).
+    tools: ctx.tools.specs(row.kind === "client" ? row.bindings : undefined),
     models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
     ...(row.kind === "client" ? { publish: { matrices: await boundMatrices(tx, row) } } : {}),
@@ -728,6 +730,9 @@ export function requiredConnectors(
   tools: ToolRegistry,
   // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
   automations: Record<string, AutomationDefinition> = {},
+  // v0.14 W4-A: a client agent's bindings, so a shared id needs the connector it is bound to
+  // (Twilio or Meta for `whatsapp.send`); without them, the first that supplies it.
+  bindings?: Readonly<Record<string, string>>,
 ): string[] {
   const out = new Set<string>();
   for (const w of bundle.workflows) {
@@ -753,7 +758,7 @@ export function requiredConnectors(
   }
   for (const id of toolIds) {
     const t = tools.get(id);
-    if (t?.kind === "connector") out.add(t.connector.manifest.id);
+    if (t?.kind === "connector") out.add(tools.connectorFor(id, bindings));
     else if (t && isExternalTool(t.spec) && t.spec.connector) out.add(t.spec.connector);
   }
   return [...out].sort();
@@ -795,7 +800,13 @@ export async function activationProblems(
   for (const ref of used.missing)
     problems.push(`automation ${ref} is not available to this client`);
 
-  const connectors = requiredConnectors(live.bundle, skills, input.ctx.tools, used.automations);
+  const connectors = requiredConnectors(
+    live.bundle,
+    skills,
+    input.ctx.tools,
+    used.automations,
+    row.bindings,
+  );
   const bound = Object.values(row.bindings);
   const rows = bound.length
     ? await tx

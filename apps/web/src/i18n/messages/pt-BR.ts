@@ -1239,4 +1239,19 @@ export const ptBR: Messages = {
   "gsheets.pick.cancelled": "Nada foi escolhido. Abra o seletor de novo ou volte.",
   "gsheets.pick.failed":
     "O seletor do Google não abriu. Verifique se as janelas pop-up estão permitidas e tente de novo.",
+  // v0.14 W4-A: WhatsApp through Meta (needs a fluent speaker's review).
+  "connections.whatsappMeta.description":
+    "Conecte seu próprio número do WhatsApp Business pela Meta. Os agentes escrevem para seus contatos a partir dele, e guardamos o que eles enviam para você.",
+  "connections.whatsappMeta.connect": "Conectar WhatsApp (seu próprio número)",
+  "whatsappMeta.signup.title": "Conecte seu número do WhatsApp",
+  "whatsappMeta.signup.subtitle":
+    "A Meta abre uma janela onde você escolhe sua conta do WhatsApp Business e o número. Nunca vemos seu login do Facebook.",
+  "whatsappMeta.signup.open": "Abrir a janela da Meta",
+  "whatsappMeta.signup.loading": "Carregando a janela da Meta…",
+  "whatsappMeta.signup.saving": "Conectando seu número…",
+  "whatsappMeta.signup.cancelled": "Nada foi conectado. Abra a janela da Meta de novo, ou volte.",
+  "whatsappMeta.signup.failed":
+    "A janela da Meta não abriu. Verifique se pop-ups estão permitidos e tente de novo.",
+  "whatsappMeta.signup.notSetUp":
+    "Conectar seu próprio número do WhatsApp ainda não está disponível aqui. Avisaremos quando estiver.",
 };

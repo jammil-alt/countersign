@@ -48,6 +48,8 @@ import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { connectionCredentials, vaultFor } from "../secrets";
+// v0.14 W4-A
+import { accountTakenElsewhere } from "../whatsapp-meta/inbound";
 import { opsConnection } from "./mappers";
 import { offeredConnectors, sandboxClient } from "./ops-clients";
 import { newConnectionMatrix } from "./ops-connectors";
@@ -369,6 +371,9 @@ async function finishSignIn(
       redirectUri: oauthRedirectUri(c, services.env, connectorId),
       stateSecret: stateSecret(services.env),
       cipher: await vaultFor(tx, services.env),
+      // v0.14 W4-A: one client per account where the connector asks (a WhatsApp number).
+      accountTaken: (externalAccountId) =>
+        accountTakenElsewhere(services.db, { tenantId, connector: connectorId, externalAccountId }),
     });
   } catch (error) {
     if (error instanceof OAuthCallbackError) {

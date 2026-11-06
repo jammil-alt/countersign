@@ -32,6 +32,23 @@ interface Entry {
 
 const PLATFORM = new Set<string>(PLATFORM_EVENT_TYPES);
 
+// v0.14 W4-A: one event type from two connectors: both must be connectors, the type in a
+// namespace the new one declares as shared (not its own id), and the payloads the same.
+function sharedType(
+  existing: Entry,
+  spec: EventTypeSpec,
+  connectorId: string,
+  sharedNamespaces: readonly string[],
+): boolean {
+  const ns = spec.type.split(".")[0] ?? "";
+  return (
+    existing.source.startsWith("connector:") &&
+    ns !== connectorId &&
+    sharedNamespaces.includes(ns) &&
+    JSON.stringify(existing.spec.payload) === JSON.stringify(spec.payload)
+  );
+}
+
 export class EventTypeRegistry {
   readonly #entries = new Map<string, Entry>();
 
@@ -88,6 +105,9 @@ export class EventTypeRegistry {
         );
       }
       const existing = this.#entries.get(spec.type);
+      // v0.14 W4-A: a type in a shared namespace (`message.received`) may come from several
+      // connectors (Twilio and Meta) when they declare the same payload; the first one stands.
+      if (existing && sharedType(existing, spec, connectorId, sharedNamespaces)) continue;
       if (existing)
         throw new Error(`event ${spec.type} is already registered by ${existing.source}`);
       const payload = z.fromJSONSchema(spec.payload as Parameters<typeof z.fromJSONSchema>[0]);

@@ -110,15 +110,22 @@ export async function callTool(
   });
   let outcome: ToolOutcome;
   try {
-    // Refused by the platform's policy (e.g. HIPAA mode): logged like any refused call.
-    const refusal = await deps.policy?.refuseTool({
-      tenantId: step.tenantId,
-      toolId: call.toolId,
-      connectorId: tool.kind === "connector" ? tool.connector.manifest.id : null,
-    });
-    outcome = refusal
-      ? { status: "refused", reason: refusal }
-      : await dispatch(deps, step, tool, call.input);
+    // v0.14 W4-A: a shared id (`whatsapp.send`) goes to the connector this agent is bound to.
+    const resolved =
+      tool.kind === "connector" ? deps.tools.resolve(call.toolId, step.agent, call.input) : tool;
+    if ("refused" in resolved) {
+      outcome = { status: "refused", reason: resolved.refused };
+    } else {
+      // Refused by the platform's policy (e.g. HIPAA mode): logged like any refused call.
+      const refusal = await deps.policy?.refuseTool({
+        tenantId: step.tenantId,
+        toolId: call.toolId,
+        connectorId: resolved.kind === "connector" ? resolved.connector.manifest.id : null,
+      });
+      outcome = refusal
+        ? { status: "refused", reason: refusal }
+        : await dispatch(deps, step, resolved, call.input);
+    }
   } catch (error) {
     outcome = { status: "failed", error: errorText(error) };
   }

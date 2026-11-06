@@ -1246,4 +1246,20 @@ export const it: Messages = {
   "gsheets.pick.cancelled": "Nessun foglio scelto. Apri di nuovo il selettore o torna indietro.",
   "gsheets.pick.failed":
     "Il selettore di Google non si è aperto. Controlla che i pop-up siano consentiti e riprova.",
+  // v0.14 W4-A: WhatsApp through Meta (needs a fluent speaker's review).
+  "connections.whatsappMeta.description":
+    "Collega il tuo numero WhatsApp Business tramite Meta. Gli agenti scrivono ai tuoi contatti da quel numero, e conserviamo ciò che ti inviano.",
+  "connections.whatsappMeta.connect": "Collega WhatsApp (il tuo numero)",
+  "whatsappMeta.signup.title": "Collega il tuo numero WhatsApp",
+  "whatsappMeta.signup.subtitle":
+    "Meta apre una finestra in cui scegli il tuo account WhatsApp Business e il numero. Non vediamo mai il tuo accesso a Facebook.",
+  "whatsappMeta.signup.open": "Apri la finestra di Meta",
+  "whatsappMeta.signup.loading": "Caricamento della finestra di Meta…",
+  "whatsappMeta.signup.saving": "Collegamento del tuo numero…",
+  "whatsappMeta.signup.cancelled":
+    "Non è stato collegato nulla. Apri di nuovo la finestra di Meta, o torna indietro.",
+  "whatsappMeta.signup.failed":
+    "La finestra di Meta non si è aperta. Controlla che i pop-up siano consentiti, poi riprova.",
+  "whatsappMeta.signup.notSetUp":
+    "Collegare il tuo numero WhatsApp non è ancora disponibile qui. Ti avviseremo quando lo sarà.",
 };

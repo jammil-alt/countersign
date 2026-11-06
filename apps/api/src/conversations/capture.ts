@@ -601,3 +601,81 @@ export async function conversationMessages(
     };
   });
 }
+
+// ── v0.14 W4-A: WhatsApp groups through Meta (docs/plan.md §1.57) ─────────────────────────────────
+
+/** Whether the client has WhatsApp group messages turned on (`messaging.whatsappGroups`; off). */
+export async function whatsappGroupsOn(tx: Tx, tenantId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const settings = isPlainObject(row?.settings) ? row.settings : {};
+  const messaging = isPlainObject(settings.messaging) ? settings.messaging : {};
+  return messaging.whatsappGroups === true;
+}
+
+/**
+ * A group's conversation on the connection, made on its first message with the client's default
+ * and attachments off (with a system change row): a group's members aren't all the client's
+ * known contacts, so its files are fetched only after a person turns that on.
+ */
+// DECISION: groups start like a stranger's conversation (plan §1.55's rule for unknown senders).
+export async function ensureGroupConversation(
+  tx: Tx,
+  input: { tenantId: string; connectionId: string; externalId: string; title: string },
+): Promise<ConversationRow> {
+  const find = async () => {
+    const [row] = await tx
+      .select()
+      .from(conversation)
+      .where(
+        and(
+          eq(conversation.tenantId, input.tenantId),
+          eq(conversation.connectionId, input.connectionId),
+          eq(conversation.channel, "whatsapp"),
+          eq(conversation.kind, "group"),
+          eq(conversation.externalId, input.externalId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  };
+  const existing = await find();
+  if (existing) return existing;
+  const clientDefault = await clientDefaultCapture(tx, input.tenantId);
+  const capture = initialCapture(clientDefault, false);
+  const [made] = await tx
+    .insert(conversation)
+    .values({
+      tenantId: input.tenantId,
+      connectionId: input.connectionId,
+      channel: "whatsapp",
+      kind: "group",
+      externalId: input.externalId,
+      title: input.title.slice(0, 200) || "WhatsApp group",
+      capture: toStored(capture),
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (!made) {
+    const raced = await find();
+    if (!raced) throw new Error("conversation vanished after a conflicting insert");
+    return raced;
+  }
+  if (capture.attachments !== clientDefault.attachments) {
+    await tx.insert(conversationChange).values({
+      tenantId: input.tenantId,
+      conversationId: made.id,
+      actorId: null,
+      side: "system",
+      change: {
+        setting: "capture",
+        before: clientDefault,
+        after: capture,
+        reason: "a group: its members aren't all known contacts",
+      },
+    });
+  }
+  return made;
+}

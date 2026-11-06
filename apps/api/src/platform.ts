@@ -37,6 +37,8 @@ import {
   createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
+  // v0.14 W4-A
+  createWhatsappMetaConnector,
   createZohoCrmConnector,
   plaidEnvironment,
   QBO_CONNECTOR_ID,
@@ -79,7 +81,9 @@ function readSkillName(toolId: string): string {
 export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinition[] {
   return connectors.list().flatMap((c) =>
     c.manifest.tools
-      .filter((t) => t.sideEffect === "none")
+      // v0.14 W4-A: a shared read (`messages.search` from Twilio and Meta) is one skill, the first
+      // connector's; the tool it calls still goes to whichever the agent is bound to.
+      .filter((t) => t.sideEffect === "none" && connectors.providersOf(t.id)[0] === c)
       .map((t) =>
         SkillDefinition.parse({
           schemaVersion: 1,
@@ -93,7 +97,9 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
           input: t.input,
           output: t.output,
           ...(t.summary ? { summary: t.summary } : {}),
-          requiresConnectors: [c.manifest.id],
+          // v0.14 W4-A: a shared read needs whichever of its connectors the agent is bound to
+          // (counted from its handler tool), not the first one's.
+          requiresConnectors: connectors.providersOf(t.id).length > 1 ? [] : [c.manifest.id],
         }),
       ),
   );
@@ -173,6 +179,11 @@ type OAuthEnvKey =
   // v0.14 W4-C: our Slack app.
   | "SLACK_CLIENT_ID"
   | "SLACK_CLIENT_SECRET"
+  // v0.14 W4-A: Mezonas' Meta app (WhatsApp through Meta).
+  | "META_APP_ID"
+  | "META_APP_SECRET"
+  | "META_CONFIG_ID"
+  | "META_WEBHOOK_VERIFY_TOKEN"
   // v0.12 bankfeed: Plaid.
   | "PLAID_CLIENT_ID"
   | "PLAID_SECRET"
@@ -199,6 +210,10 @@ export function platformFor(
     env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
     // v0.14 W4-C
     env.SLACK_CLIENT_ID ?? "-",
+    // v0.14 W4-A: the app's id, and whether the secrets are set (never the secrets).
+    env.META_APP_ID ?? "-",
+    env.META_CONFIG_ID ?? "-",
+    env.META_APP_SECRET && env.META_WEBHOOK_VERIFY_TOKEN ? "meta" : "-",
     // v0.12 bankfeed
     env.PLAID_CLIENT_ID ?? "-",
     env.PLAID_SECRET ? "plaid-secret" : "-",
@@ -292,6 +307,19 @@ export function deploymentConnectors(
     // are set.
     createSlackConnector(
       slackReady ? { clientId: env.SLACK_CLIENT_ID, clientSecret: env.SLACK_CLIENT_SECRET } : {},
+    ),
+    // v0.14 W4-A: WhatsApp on the client's own number through Meta (docs/plan.md §1.57):
+    // registered everywhere; a client connects it with Meta's Embedded Signup once META_APP_ID,
+    // META_APP_SECRET, META_CONFIG_ID, META_WEBHOOK_VERIFY_TOKEN and OAUTH_STATE_SECRET are set.
+    createWhatsappMetaConnector(
+      env.OAUTH_STATE_SECRET
+        ? {
+            appId: env.META_APP_ID,
+            appSecret: env.META_APP_SECRET,
+            configId: env.META_CONFIG_ID,
+            verifyToken: env.META_WEBHOOK_VERIFY_TOKEN,
+          }
+        : {},
     ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.

@@ -1261,4 +1261,20 @@ export const fr: Messages = {
     "Aucune feuille choisie. Ouvrez à nouveau le sélecteur, ou revenez en arrière.",
   "gsheets.pick.failed":
     "Le sélecteur de Google ne s'est pas ouvert. Vérifiez que les fenêtres pop-up sont autorisées, puis réessayez.",
+  // v0.14 W4-A: WhatsApp through Meta (needs a fluent speaker's review).
+  "connections.whatsappMeta.description":
+    "Connectez votre propre numéro WhatsApp Business via Meta. Les agents écrivent à vos contacts depuis ce numéro, et nous gardons ce qu'ils vous envoient.",
+  "connections.whatsappMeta.connect": "Connecter WhatsApp (votre propre numéro)",
+  "whatsappMeta.signup.title": "Connectez votre numéro WhatsApp",
+  "whatsappMeta.signup.subtitle":
+    "Meta ouvre une fenêtre où vous choisissez votre compte WhatsApp Business et votre numéro. Nous ne voyons jamais vos identifiants Facebook.",
+  "whatsappMeta.signup.open": "Ouvrir la fenêtre de Meta",
+  "whatsappMeta.signup.loading": "Chargement de la fenêtre de Meta…",
+  "whatsappMeta.signup.saving": "Connexion de votre numéro…",
+  "whatsappMeta.signup.cancelled":
+    "Rien n'a été connecté. Ouvrez à nouveau la fenêtre de Meta, ou revenez en arrière.",
+  "whatsappMeta.signup.failed":
+    "La fenêtre de Meta ne s'est pas ouverte. Vérifiez que les fenêtres pop-up sont autorisées, puis réessayez.",
+  "whatsappMeta.signup.notSetUp":
+    "La connexion de votre propre numéro WhatsApp n'est pas encore disponible ici. Nous vous préviendrons dès qu'elle le sera.",
 };

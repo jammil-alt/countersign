@@ -72,6 +72,10 @@ const CONNECTOR_PROCESSORS: Record<string, readonly Processor[]> = {
   // processor (a subprocessor on the site), unlike the bank itself or QuickBooks. A client in
   // HIPAA mode can't be offered the bank feed until `plaid` is in BAA_PROCESSORS.
   bankfeed: ["plaid"],
+  // v0.14 W4-A: WhatsApp on the client's own number through Meta's Cloud API (docs/plan.md §1.57):
+  // the messages pass through Meta to us, as they do for Twilio's WhatsApp, so it is the same
+  // processor (`meta_whatsapp`) a client in HIPAA mode needs covered.
+  whatsapp_meta: ["meta_whatsapp"],
 };
 
 /** The processors a connector sends a client's data to, whichever of its tools is used. */
