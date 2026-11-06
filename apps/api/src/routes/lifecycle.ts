@@ -139,6 +139,7 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       slug: ctx.params.slug,
       input: ctx.body.input,
       userId: ctx.session.user.id,
+      role: ctx.role,
     });
     ctx.afterCommit(() => ctx.services.instances.start(request));
     return { runId: request.runId };

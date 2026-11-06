@@ -20,6 +20,7 @@ import { z } from "zod";
 import { executeAction } from "./actions";
 import type { ToolOutcome } from "./call-tool";
 import { asJsonObject, connectionContext, type RuntimeDeps, type StepContext } from "./context";
+import { recordModelCall } from "./model-call";
 
 export interface PlannedAction {
   toolId: string;
@@ -217,13 +218,25 @@ export async function composeReachMessage(
   const definition = step.agent.bundle.definition;
   const llm = createLlmClient({
     transport: deps.transport,
-    onCall: async (record) => {
+    onCall: async (record, exchange) => {
       const tokensIn =
         record.usage.inputTokens + record.usage.cacheWriteTokens + record.usage.cacheReadTokens;
       await deps.ports.log.addUsage(
         step.tenantId,
         { runId: step.runId, stepRunId: step.stepRunId },
         { costUsd: record.costUsd ?? "0", tokensIn, tokensOut: record.usage.outputTokens },
+      );
+      // v0.12 W1-E: the call itself, on the reach-out's step (docs/plan.md §1.40).
+      await recordModelCall(
+        deps.ports.modelCalls,
+        step.tenantId,
+        {
+          runId: step.runId,
+          stepRunId: step.stepRunId,
+          agentVersionId: step.agent.agentVersionId,
+        },
+        record,
+        exchange,
       );
     },
   });

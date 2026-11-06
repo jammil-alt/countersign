@@ -175,6 +175,8 @@ function RecordsTable({
       </table>
     );
   }
+  // The API lists receivables too (docs/plan.md §1.43); their table waits for the owner's screens.
+  if (data.page.kind !== "items") return null;
   return (
     <table data-testid="portal-records-items">
       <thead>

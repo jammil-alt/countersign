@@ -138,7 +138,8 @@ export const tableRoutes = {
     path: "/api/weekly/:weekStart/decisions/:decisionId/reply",
     auth: "session",
     roles: CLIENT,
-    summary: "Answer a decision in the lead thread (501 not_yet until threads are built)",
+    summary:
+      "Answer a decision of a sent weekly summary: your message in the lead thread, linked from the decision (409 replied once answered)",
     params: z.object({ weekStart: WeekStartParam, decisionId: Id }),
     body: z.strictObject({ text: z.string().trim().min(1).max(4000) }),
     response: z.object({ messageId: z.string() }),

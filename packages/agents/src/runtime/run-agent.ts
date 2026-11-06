@@ -31,7 +31,6 @@ import {
   type LlmExchange,
   type LlmMessage,
   type LlmRequest,
-  providerOf,
 } from "@countersign/llm";
 import type { ResolvedSkill } from "../registry/skills";
 import { AGENTS_ASK_TOOL } from "../tools/ask";
@@ -39,6 +38,7 @@ import type { AskAnswer, AskInput, RunMode } from "../tools/types";
 import { callTool, type ToolOutcome } from "./call-tool";
 import type { RuntimeDeps, StepContext } from "./context";
 import { checkAgainst, objectSchema } from "./json-schema";
+import { recordModelCall } from "./model-call";
 import type { PinnedAgent } from "./ports";
 
 export interface RunAgentInput {
@@ -492,21 +492,13 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       { costUsd: callCost.toFixed(6), tokensIn: inTokens, tokensOut: record.usage.outputTokens },
     );
     // v0.12 W1-E: the call itself, with its request and answer (ARCHITECTURE §10.10).
-    await deps.ports.modelCalls?.record(input.tenantId, {
-      runId: input.runId,
-      stepRunId,
-      agentVersionId: input.agentVersionId,
-      provider: providerOf(record.model),
-      model: record.model,
-      tokensIn: inTokens,
-      tokensOut: record.usage.outputTokens,
-      costUsd: record.costUsd,
-      durationMs: record.durationMs,
-      stopReason: record.stopReason,
-      request: exchange.request,
-      answer: exchange.response,
-      error: record.error,
-    });
+    await recordModelCall(
+      deps.ports.modelCalls,
+      input.tenantId,
+      { runId: input.runId, stepRunId, agentVersionId: input.agentVersionId },
+      record,
+      exchange,
+    );
   };
   const llm = createLlmClient({ transport: deps.transport, onCall });
 

@@ -16,6 +16,7 @@ import {
 } from "@countersign/core";
 import { inboxItem, membership, run, type Tx, tenant } from "@countersign/db";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
+import { senseEmitPosted } from "@countersign/threads";
 import { type InboxResolution, inboxEventType } from "@countersign/workflows";
 import { and, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
@@ -150,6 +151,7 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
         approved,
         by: { userId: input.by.userId, role: input.by.role },
         note,
+        emitPosted: senseEmitPosted({ registry: input.registry, collect: input.collect, testRun }),
       });
     }
     // An accepted suggestion changes the directory in this transaction, or nothing is resolved.
