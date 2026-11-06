@@ -29,6 +29,7 @@ import {
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 // v0.12 W2-G
 import { DEFAULT_APP_ORIGIN } from "../notify/outbox";
+import { reportHandled } from "../observability/report";
 import { creditsOutPass } from "./credits-out";
 import {
   type BillingConfig,
@@ -354,7 +355,12 @@ export async function billingTick(
           pricing,
           origin: deps.origin ?? DEFAULT_APP_ORIGIN,
         }),
-      ).catch((error: unknown) => console.error(`credits for client ${client.id} failed`, error));
+      ).catch((error: unknown) =>
+        reportHandled(`credits for client ${client.id} failed`, error, {
+          job: "billing",
+          client: client.id,
+        }),
+      );
       const built = await run(async (tx) => {
         await recordAgentDays(tx, { tenantId: client.id, day: today, pricing });
         // A client set up after the month ended has no statement for it.
@@ -380,11 +386,14 @@ export async function billingTick(
           actorId: null,
           config,
         }).catch((error: unknown) => {
-          console.error(`sending statement ${d.id} failed`, error);
+          reportHandled(`sending statement ${d.id} failed`, error, { job: "billing" });
         });
       }
     } catch (error) {
-      console.error(`billing for client ${client.id} failed`, error);
+      reportHandled(`billing for client ${client.id} failed`, error, {
+        job: "billing",
+        client: client.id,
+      });
     }
   }
 }

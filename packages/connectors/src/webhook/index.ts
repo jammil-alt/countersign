@@ -1,4 +1,4 @@
-import { type JsonObject, uuidv7 } from "@countersign/core";
+import { type JsonObject, trimTrailingSlashes, uuidv7 } from "@countersign/core";
 import { z } from "zod";
 import { type Connector, defineConnector, defineWriteTool } from "../connector";
 import {
@@ -186,7 +186,7 @@ export function setOutbound(
 
 /** The URL a client pastes into its Zap: the hook's endpoint with its token. */
 export function hookUrl(origin: string, tenantId: string, hookId: string, token: string): string {
-  return `${origin.replace(/\/+$/, "")}/api/hooks/${tenantId}/${hookId}?token=${encodeURIComponent(token)}`;
+  return `${trimTrailingSlashes(origin)}/api/hooks/${tenantId}/${hookId}?token=${encodeURIComponent(token)}`;
 }
 
 // ── Receiving ────────────────────────────────────────────────────────────────────────────────────

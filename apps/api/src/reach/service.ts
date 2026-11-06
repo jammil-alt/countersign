@@ -83,6 +83,7 @@ import {
   reachContactOf,
   type ThreadMessageBody,
 } from "../messaging/contacts";
+import { reportHandled } from "../observability/report";
 import type { RunInstances } from "../runs/instances";
 
 export type ReachOutRow = typeof reachOut.$inferSelect;
@@ -262,7 +263,9 @@ async function wake(deps: Pick<ReachDeps, "instances">, row: Pick<ReachOutRow, "
       payload: { reachOutId: row.id },
     });
   } catch (error) {
-    console.error(`waking run ${row.runId} for reach-out ${row.id} failed`, error);
+    reportHandled(`waking run ${row.runId} for reach-out ${row.id} failed`, error, {
+      job: "reach",
+    });
   }
 }
 
@@ -1209,7 +1212,7 @@ export async function reachOutTick(
     try {
       result.escalated += await attemptFrom(deps, tenantId, row.id, now);
     } catch (error) {
-      console.error(`reach-out ${row.id}: escalation failed`, error);
+      reportHandled(`reach-out ${row.id}: escalation failed`, error, { job: "reach" });
     }
   }
 

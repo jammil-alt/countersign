@@ -40,6 +40,7 @@ import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { McpDeps } from "./mcp/routes";
+import { reportHandled } from "./observability/report";
 import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { workerTransport } from "./runs/execute";
@@ -120,7 +121,9 @@ export type AppContext = Context<AppEnv>;
 
 /** Hands work to the runtime after the response; without an execution context, runs it now. */
 export function waitUntil(c: Context, promise: Promise<unknown>): void {
-  const logged = promise.catch((error: unknown) => console.error("deferred work failed", error));
+  const logged = promise.catch((error: unknown) =>
+    reportHandled("deferred work failed", error, { kind: "deferred" }),
+  );
   try {
     c.executionCtx.waitUntil(logged);
   } catch {
@@ -167,7 +170,9 @@ export function requestState(deps: AppDeps) {
           c,
           (async () => {
             for (const task of tasks) {
-              await task().catch((error: unknown) => console.error("deferred task failed", error));
+              await task().catch((error: unknown) =>
+                reportHandled("deferred task failed", error, { kind: "deferred" }),
+              );
             }
             await done?.();
           })(),
@@ -245,6 +250,19 @@ export function toHttpError(error: unknown): HttpError {
   return pgStatus(error) ?? new HttpError(500, "internal", "something went wrong");
 }
 
+/**
+ * A handler answered with something its route's contract does not allow: a bug on our side. The
+ * caller gets the plain 500; Sentry gets the validation error (paths and expectations, not values)
+ * once, grouped by route, rather than the generic 500 errorResponse would send.
+ */
+function contractBroken(c: Context, spec: RouteSpec, error: z.ZodError) {
+  reportHandled(`response of ${spec.method} ${spec.path} does not match its contract`, error, {
+    kind: "contract",
+    route: `${spec.method} ${spec.path}`,
+  });
+  return c.json({ error: { code: "internal", message: "something went wrong" } }, 500);
+}
+
 export function errorResponse(c: Context, error: unknown, setCookies: readonly string[] = []) {
   const e = toHttpError(error);
   if (e.status === 500) {
@@ -320,8 +338,7 @@ async function parseInput<R extends RouteSpec>(c: AppContext, spec: R) {
 function respond<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) {
   const out = spec.response.safeParse(result);
   if (!out.success) {
-    console.error(`response of ${spec.method} ${spec.path} does not match its contract`, out.error);
-    return errorResponse(c, new HttpError(500, "internal", "something went wrong"));
+    return contractBroken(c, spec, out.error);
   }
   return c.json(out.data as object);
 }
@@ -409,7 +426,9 @@ export async function inScope<T>(
     ? withOperator(services.db, ids, run)
     : withTenant(services.db, portalClient as string, run));
   for (const task of after) {
-    await task().catch((error: unknown) => console.error("after-commit task failed", error));
+    await task().catch((error: unknown) =>
+      reportHandled("after-commit task failed", error, { kind: "after_commit" }),
+    );
   }
   return output;
 }
@@ -454,8 +473,7 @@ export function mountFile<R extends RouteSpec>(
 function sendFile<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) {
   const out = spec.response.safeParse(result);
   if (!out.success) {
-    console.error(`response of ${spec.method} ${spec.path} does not match its contract`, out.error);
-    return errorResponse(c, new HttpError(500, "internal", "something went wrong"));
+    return contractBroken(c, spec, out.error);
   }
   const file = out.data as FileResult;
   // c.body keeps the headers already set on the context (the session's cookies).
@@ -683,8 +701,7 @@ export function mountStream<R extends RouteSpec>(
 function sendStream<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) {
   const out = spec.response.safeParse(result);
   if (!out.success) {
-    console.error(`response of ${spec.method} ${spec.path} does not match its contract`, out.error);
-    return errorResponse(c, new HttpError(500, "internal", "something went wrong"));
+    return contractBroken(c, spec, out.error);
   }
   const file = out.data as StreamResult;
   return c.body(file.stream, 200, {

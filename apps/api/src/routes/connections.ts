@@ -37,6 +37,7 @@ import {
   parseAcceptLanguage,
   resolveLocale,
   routes,
+  trimTrailingSlashes,
   userLanguage,
   uuidv7,
 } from "@countersign/core";
@@ -165,7 +166,7 @@ export async function offeredTo(tx: Tx, tenantId: string, connectorId: string): 
 // DECISION: QuickBooks returns to the API path too: the Intuit app has
 // `/api/connections/qbo/callback` registered (ARCHITECTURE §14, plan §1.30).
 export function oauthRedirectUri(c: AppContext, env: Bindings, connectorId: string): string {
-  const origin = (env.APP_ORIGIN?.trim() || new URL(c.req.url).origin).replace(/\/+$/, "");
+  const origin = trimTrailingSlashes(env.APP_ORIGIN?.trim() || new URL(c.req.url).origin);
   // DECISION: Google's OAuth client (owner, 2026-11-05) registers `/api/connections/gmail/callback`
   // per environment, so Gmail returns to that API path (GOOGLE_REDIRECT_URI when set, ARCHITECTURE
   // §17), which only forwards the parameters to the portal page below (`API_RETURN_PATH`).
@@ -181,7 +182,7 @@ export function oauthRedirectUri(c: AppContext, env: Bindings, connectorId: stri
  * client is in the path, so the webhook looks only in that client (routes/bankfeed.ts).
  */
 export function linkWebhookUrl(c: AppContext, env: Bindings, tenantId: string): string {
-  const origin = (env.APP_ORIGIN?.trim() || new URL(c.req.url).origin).replace(/\/+$/, "");
+  const origin = trimTrailingSlashes(env.APP_ORIGIN?.trim() || new URL(c.req.url).origin);
   return `${origin}${buildPath(routes.bankfeedWebhook.path, { tenantId })}`;
 }
 

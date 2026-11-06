@@ -31,6 +31,7 @@ import {
   scopeOf,
   toHttpError,
 } from "../http";
+import { healthFindings } from "../observability/health";
 import { opsFeedbackItem, resolveFeedback } from "../routes/feedback";
 import { opsConnection } from "../routes/mappers";
 import { latestHealthSummary } from "../routes/supervisor";
@@ -590,6 +591,53 @@ const recordsSearch: Tool<OpsToolCtx> = {
   },
 };
 
+const opsHealth: Tool<OpsToolCtx> = {
+  name: "ops_health",
+  title: "Platform health",
+  description:
+    "What went wrong across the clients you serve, or for one client, in the last `hours` (default 24): failed live runs and failed writes to clients' tools grouped by error key, and what is stuck now (runs that stopped before finishing, signed items their run never took, connections in error or not syncing). Each finding has sample ids for run_get, inbox_list or connections_list.",
+  input: z.strictObject({
+    client: ClientId.optional(),
+    hours: z.int().min(1).max(168).default(24),
+  }),
+  annotations: READ,
+  async run(ctx, args) {
+    const { client, hours } = args as { client?: string; hours: number };
+    if (client && !ctx.session.servedTenantIds.includes(client)) {
+      throw new HttpError(404, "not_found", "client not found");
+    }
+    const now = new Date();
+    const findings = await asOperator(ctx, ({ tx, tenantIds }) =>
+      healthFindings(tx, client ? [client] : tenantIds, {
+        from: new Date(now.getTime() - hours * 3_600_000),
+        to: now,
+        now,
+        states: true,
+      }),
+    );
+    findings.sort((a, b) => b.count - a.count);
+    const failures = findings.filter((f) => f.kind === "run_failed" || f.kind === "action_failed");
+    const stuck = findings.length - failures.length;
+    return dataResult(
+      "ops_health",
+      findings.length === 0
+        ? `Nothing failed in the last ${plural(hours, "hour")} and nothing is stuck.`
+        : `${plural(failures.length, "failure group")} in the last ${plural(hours, "hour")}, ${plural(stuck, "stuck or broken group")} now.`,
+      {
+        hours,
+        findings: findings.map((f) => ({
+          kind: f.kind,
+          key: f.key,
+          count: f.count,
+          ids: f.ids,
+          unconfirmed: f.unconfirmed === true,
+          client: { id: f.tenantId, name: clientName(ctx, f.tenantId) },
+        })),
+      },
+    );
+  },
+};
+
 export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   whoami,
   clientsList,
@@ -602,6 +650,7 @@ export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   inboxList,
   connectionsList,
   recordsSearch,
+  opsHealth,
 ];
 
 /**
