@@ -67,8 +67,9 @@ export function buildPath(path: string, params: Record<string, string | number> 
  * Field names a portal response may never carry (CLAUDE.md invariant 11): agent bundles,
  * instructions, prompts and cost.
  */
+// v0.12 W1-E: model calls (their list, bodies and stop reasons) are the operator's too (§10.10).
 export const FORBIDDEN_PORTAL_FIELD =
-  /^(bundle|definition|instructions|prompts?|systemPrompt|cost|costUsd|cost_usd|modelCost|tokensIn|tokensOut|tokens_in|tokens_out)$/i;
+  /^(bundle|definition|instructions|prompts?|systemPrompt|cost|costUsd|cost_usd|modelCost|tokensIn|tokensOut|tokens_in|tokens_out|modelCalls?|model_calls?|bodyKey|body_key|stopReason|stop_reason|costOver)$/i;
 
 /**
  * Field names no response may carry, on any surface (CLAUDE.md invariant 13: secrets are

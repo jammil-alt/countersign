@@ -28,6 +28,9 @@ export * from "./api/reach";
 export * from "./api/records";
 export * from "./api/requests";
 export * from "./api/routes";
+// v0.12 W1-E
+export * from "./api/run-controls";
+export * from "./api/runs-filter";
 export * from "./api/supervisor";
 export * from "./api/table";
 export * from "./api/usage";
