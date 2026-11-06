@@ -10,6 +10,7 @@
 import {
   type ActionStep,
   type Approval,
+  automationSkillRef,
   clientLabel,
   DEFAULT_APPROVAL,
   type Duration,
@@ -30,9 +31,11 @@ import {
   type StopStep,
   TIMELINE_WORDS,
   type TimelineWords,
+  type UseAutomationStep,
   type WaitStep,
   type Workflow,
 } from "@countersign/core";
+import { type AutomationResolver, ExpandError, type Expansions, expandAutomations } from "./expand";
 import {
   type AgentPort,
   type InboxPort,
@@ -62,6 +65,9 @@ export interface ExecutorContext {
   // v0.12 W1-E: retry from the failed step (ARCHITECTURE §10.10; docs/plan.md §1.40).
   /** A retry: the top-level steps before `from` are not run again, their outputs reused. */
   resume?: RunResume;
+  // v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
+  /** The automation versions the workflow's use steps pin, loaded in the run's load step. */
+  automations?: AutomationResolver;
 }
 
 /** What a retry starts from. Small JSON: apps/api loads it in a durable step. */
@@ -102,6 +108,9 @@ interface Frame {
   scope: RunContext;
   /** The workflow's own step list (not a fork path or a loop): where a retry resumes. */
   top?: boolean;
+  // v0.12 W2-B
+  /** Inside a use step: the automation (`slug@version`) its steps come from. */
+  automation?: string;
 }
 
 /**
@@ -114,7 +123,23 @@ export async function executeWorkflow(
   workflow: Workflow,
   trigger: unknown,
 ): Promise<RunResult> {
-  const ex = new Executor(runner, ctx);
+  // v0.12 W2-B: automations expand before execution (ARCHITECTURE §10.7; docs/plan.md §1.45).
+  // Pure and over immutable versions, so a replay or a retry expands the same steps and ids.
+  // DECISION: a pinned version the run can't load fails the run at its use step before any step
+  // runs, rather than part-way through.
+  let expansions: Expansions;
+  try {
+    expansions = expandAutomations(workflow, ctx.automations ?? {});
+  } catch (error) {
+    if (!(error instanceof ExpandError)) throw error;
+    return {
+      status: "failed",
+      reason: error.message,
+      nodeId: error.stepId,
+      errorKey: runErrorKey({ tool: null, kind: "use_automation" }, error.message),
+    };
+  }
+  const ex = new Executor(runner, ctx, expansions);
   try {
     await ex.runList(workflow.steps, { prefix: "", scope: { trigger, steps: {} }, top: true });
     return { status: "succeeded" };
@@ -132,6 +157,8 @@ class Executor {
   constructor(
     readonly runner: StepRunner,
     readonly ctx: ExecutorContext,
+    // v0.12 W2-B
+    readonly expansions: Expansions = {},
   ) {}
 
   get testRun(): boolean {
@@ -203,6 +230,9 @@ class Executor {
           return await this.notifyStep(step, name, frame);
         case "stop":
           return await this.stop(step, name);
+        // v0.12 W2-B
+        case "use_automation":
+          return await this.useAutomation(step, name, frame);
       }
     } catch (error) {
       if (error instanceof RunEnd) {
@@ -348,7 +378,15 @@ class Executor {
         const stepRunId = await log.start(
           step.kind === "skill" ? { ...start, skillRef: step.skill } : start,
         );
-        const request = { run, nodeId: name, stepRunId, input, approval };
+        const request = {
+          run,
+          nodeId: name,
+          stepRunId,
+          input,
+          approval,
+          // v0.12 W2-B: an automation's step runs as the using agent, with the automation's skills.
+          ...(frame.automation ? { automation: frame.automation } : {}),
+        };
         const outcome =
           step.kind === "skill"
             ? await agent.runSkill({ ...request, step })
@@ -695,6 +733,68 @@ class Executor {
     });
   }
 
+  // ── v0.12 W2-B: use steps (ARCHITECTURE §10.7; docs/plan.md §1.45) ──────────────────────────
+
+  /**
+   * A use step: its input resolved, then the automation's steps under `${name}/`, reading only
+   * `{{input...}}` and each other; then its output from the automation's `output`. Nothing after it
+   * sees an inner step. Its own row (`skill_ref` `automation:<slug>@<version>`) takes its status
+   * from its children.
+   */
+  async useAutomation(step: UseAutomationStep, name: string, frame: Frame): Promise<void> {
+    const { run, log } = this.ctx;
+    const expanded = this.expansions[step.id];
+    if (!expanded) throw new Error(`automation ${step.automation} was not expanded`);
+    const started = await this.runner.do(name, async () => {
+      const input = resolveTemplate(step.input, frame.scope);
+      const id = await log.start({
+        runId: run.id,
+        nodeId: name,
+        nodeType: "use_automation",
+        skillRef: automationSkillRef(expanded.ref),
+        input,
+      });
+      await log.update(id, { status: "running" });
+      return { stepRunId: id, input };
+    });
+    // DECISION: inside, only `{{input...}}` and the automation's own steps: not the trigger, not
+    // an enclosing loop's item, not the workflow's steps (ARCHITECTURE §10.7). A stop step inside
+    // ends the run, as anywhere.
+    const inner: Frame = {
+      prefix: `${name}/`,
+      scope: { trigger: undefined, input: started.input, steps: {} },
+      automation: expanded.ref,
+    };
+    let ended: RunEnd | undefined;
+    try {
+      await this.runList(expanded.steps, inner);
+    } catch (error) {
+      if (!(error instanceof RunEnd)) throw error;
+      ended = error;
+    }
+    const output = ended ? null : resolveTemplate(expanded.output, inner.scope);
+    const label = clientLabel(step);
+    await this.runner.do(`${name}:done`, async () => {
+      const status = ended?.result.status;
+      await log.update(started.stepRunId, {
+        // DECISION: a use step's row has no `cancelled` status: one its steps cancelled (a
+        // rejected write, a stop) is `skipped`, like a write a person turned down.
+        status: status === "failed" ? "failed" : status === "cancelled" ? "skipped" : "succeeded",
+        ...(ended ? {} : { output }),
+        summary: `${label}: ${
+          status === undefined
+            ? this.words.done
+            : status === "failed"
+              ? this.words.failed
+              : this.words.stopped[status]
+        }`,
+      });
+      return null;
+    });
+    if (ended) throw ended;
+    frame.scope.steps[step.id] = { output };
+  }
+
   async stop(step: StopStep, name: string): Promise<void> {
     const { run, log } = this.ctx;
     await this.runner.do(name, async () => {
@@ -727,8 +827,9 @@ export function resumePoint(
   nodeId: string | null,
 ): string | null {
   if (!nodeId) return null;
-  // A durable name is the step id, `${loop}:${i}:${child}` in a loop, or a suffix after `:`.
-  const id = nodeId.split(":")[0] ?? nodeId;
+  // A durable name is the step id, `${loop}:${i}:${child}` in a loop, or a suffix after `:`;
+  // v0.12 W2-B: inside a use step, `${use}/${inner}` (the use step is what resumes).
+  const id = nodeId.split(/[:/]/)[0] ?? nodeId;
   const holds = (step: Step): boolean => {
     if (step.id === id) return true;
     if (step.kind === "fork") {

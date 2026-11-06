@@ -7,6 +7,7 @@ import {
   dbModelCalls,
   finishRun,
   type RuntimeDeps,
+  resolveAutomation,
   rollupUsageForRun,
 } from "@countersign/agents";
 import {
@@ -22,6 +23,8 @@ import {
   type UrlSigner,
 } from "@countersign/connectors";
 import {
+  type AutomationDefinition,
+  automationRefs,
   // v0.12 W2-E
   HANDOFF_OUTPUT_MAX_BYTES,
   HANDOFF_SOURCES_MAX,
@@ -203,8 +206,34 @@ const STEP_CONFIG = {
 } as const;
 
 type Loaded =
-  | { ok: true; workflow: Workflow; language: Locale; resume: RunResume | null }
+  | {
+      ok: true;
+      workflow: Workflow;
+      language: Locale;
+      resume: RunResume | null;
+      // v0.12 W2-B: the automation versions its use steps pin.
+      automations?: Record<string, AutomationDefinition>;
+    }
   | { ok: false; reason: string; cancelled?: true };
+
+// v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
+/**
+ * The automation versions a workflow's use steps pin, resolved in the run's own client (its own
+ * automations and its copies of shared ones). Read once, in the run's load step, so a replay
+ * expands the same steps; a reference that resolves to nothing fails the run at that use step.
+ */
+async function automationsOf(
+  tx: Tx,
+  tenantId: string,
+  workflow: Workflow,
+): Promise<Record<string, AutomationDefinition>> {
+  const out: Record<string, AutomationDefinition> = {};
+  for (const ref of automationRefs([workflow])) {
+    const found = await resolveAutomation(tx, { tenantId, ref });
+    if (found) out[ref] = found.definition;
+  }
+  return out;
+}
 
 /** The agents runtime over the database, as a run (or the cron, for reach-outs) uses it. */
 export function runtimeFor(
@@ -337,6 +366,8 @@ export async function executeRun(
         workflow: wf.workflow,
         language: await tenantLocale(tx, info.tenantId),
         resume: await resumeOf(tx, params, wf.workflow),
+        // v0.12 W2-B
+        automations: await automationsOf(tx, info.tenantId, wf.workflow),
       };
     }),
   );
@@ -454,6 +485,8 @@ export async function executeRun(
       timeout: STEP_CONFIG.timeout,
     },
     ...(loaded.resume ? { resume: loaded.resume } : {}),
+    // v0.12 W2-B
+    ...(loaded.automations ? { automations: loaded.automations } : {}),
   };
 
   let result: RunResult;

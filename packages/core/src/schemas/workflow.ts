@@ -141,12 +141,36 @@ export const ForEachStep = z.object({
   },
 });
 
+// v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
+/** An automation pinned to one version: `<slug>@<version>`. */
+export const AutomationRef = z
+  .string()
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\d{0,8}$/,
+    "an automation slug and its version, e.g. follow-up@2",
+  );
+
+/**
+ * A reusable chain of steps used as one step. Its input is checked against the automation's input
+ * schema; its output is the automation's `output`. `approvals` (client agents only, set by the
+ * operator) overrides an inner write step's approval, by the inner step's id.
+ */
+export const UseAutomationStep = z.object({
+  ...base,
+  kind: z.literal("use_automation"),
+  automation: AutomationRef,
+  input: TemplateObject.default({}),
+  approvals: z.record(NodeId, Approval).optional(),
+});
+
 export type SkillStep = z.infer<typeof SkillStep>;
 export type ActionStep = z.infer<typeof ActionStep>;
 export type PersonStep = z.infer<typeof PersonStep>;
 export type WaitStep = z.infer<typeof WaitStep>;
 export type NotifyStep = z.infer<typeof NotifyStep>;
 export type StopStep = z.infer<typeof StopStep>;
+// v0.12 W2-B
+export type UseAutomationStep = z.infer<typeof UseAutomationStep>;
 export interface ForkPath {
   id: string;
   name: string;
@@ -182,7 +206,9 @@ export type Step =
   | ForEachStep
   | WaitStep
   | NotifyStep
-  | StopStep;
+  | StopStep
+  // v0.12 W2-B
+  | UseAutomationStep;
 export type StepKind = Step["kind"];
 export const STEP_KINDS = [
   "skill",
@@ -193,6 +219,8 @@ export const STEP_KINDS = [
   "wait",
   "notify",
   "stop",
+  // v0.12 W2-B
+  "use_automation",
 ] as const satisfies readonly StepKind[];
 
 // The annotation breaks the type cycle between Step and the container steps' getters.
@@ -206,6 +234,8 @@ export const Step: z.ZodType<Step> = z
     WaitStep,
     NotifyStep,
     StopStep,
+    // v0.12 W2-B
+    UseAutomationStep,
   ])
   .meta({ id: "Step" }) as unknown as z.ZodType<Step>;
 
@@ -312,7 +342,11 @@ export function isClientVisible(step: Step): boolean {
     step.kind === "skill" ||
     step.kind === "action" ||
     step.kind === "person" ||
-    step.kind === "notify"
+    step.kind === "notify" ||
+    // v0.12 W2-B: a use step is one piece of work on the timeline; its inner steps are not in the
+    // bundle, so they never show there (ARCHITECTURE §10.6, §10.7).
+    // DECISION: shown by default, like a skill step.
+    step.kind === "use_automation"
   );
 }
 

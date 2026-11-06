@@ -13,6 +13,8 @@ export {
   type RunResume,
   resumePoint,
 } from "./executor";
+// v0.12 W2-B
+export * from "./expand";
 export {
   type FakeCall,
   FakeStepRunner,

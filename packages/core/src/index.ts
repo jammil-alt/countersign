@@ -6,9 +6,13 @@
 
 export * from "./api/access";
 export * from "./api/approver-rules";
+// v0.12 W2-B: automations
+export * from "./api/automations";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
+// v0.12 W2-F: the command center, search and plain-words questions
+export * from "./api/command-center";
 export * from "./api/compliance";
 export * from "./api/contract";
 // v0.12 W1-D: the Desk
@@ -33,7 +37,11 @@ export * from "./api/requests";
 export * from "./api/routes";
 // v0.12 W1-E
 export * from "./api/run-controls";
+// v0.12 W2-F
+export * from "./api/runs-ask";
 export * from "./api/runs-filter";
+// v0.12 W2-F
+export * from "./api/search";
 export * from "./api/supervisor";
 export * from "./api/table";
 export * from "./api/threads";
@@ -102,6 +110,8 @@ export * from "./roles";
 export * from "./rules/compile";
 export * from "./schemas/agent";
 export * from "./schemas/approval";
+// v0.12 W2-B
+export * from "./schemas/automation";
 export * from "./schemas/common";
 export * from "./schemas/connector";
 export * from "./schemas/event";
@@ -123,5 +133,7 @@ export * from "./threads/schemas";
 export * from "./triggers";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
+// v0.12 W2-B
+export * from "./workflow/automation";
 export * from "./workflow/validate";
 export * from "./workflow/walk";

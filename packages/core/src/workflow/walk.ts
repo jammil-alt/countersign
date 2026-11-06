@@ -1,4 +1,4 @@
-import type { ForEachStep, ForkStep, Step, Workflow } from "../schemas/workflow";
+import type { ForEachStep, ForkStep, Step, UseAutomationStep, Workflow } from "../schemas/workflow";
 
 /** Where a step sits in a workflow's tree, and what runs before it on its own path. */
 export interface StepLocation {
@@ -68,4 +68,21 @@ export function nodeIds(workflow: Workflow): string[] {
     }
   });
   return ids;
+}
+
+// v0.12 W2-B: the automations a workflow uses (ARCHITECTURE §10.7).
+/** Every use step of the workflows, nested ones included, in run order. */
+export function useSteps(workflows: readonly Pick<Workflow, "steps">[]): UseAutomationStep[] {
+  const out: UseAutomationStep[] = [];
+  for (const w of workflows) {
+    walkSteps(w, ({ step }) => {
+      if (step.kind === "use_automation") out.push(step);
+    });
+  }
+  return out;
+}
+
+/** The pinned automation references (`slug@version`) the workflows use, each once. */
+export function automationRefs(workflows: readonly Pick<Workflow, "steps">[]): string[] {
+  return [...new Set(useSteps(workflows).map((s) => s.automation))];
 }
