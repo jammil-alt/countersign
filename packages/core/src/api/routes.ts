@@ -15,6 +15,8 @@ import { automationRoutes, BuilderAutomation } from "./automations";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
+// v0.12 W2-F: the command center, search and plain-words questions
+import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
 import { defineRoute } from "./contract";
 import { deskRoutes } from "./desk";
@@ -1836,6 +1838,8 @@ export const routes = {
   ...automationRoutes,
   // v0.12 W1-C
   ...threadRoutes,
+  // v0.12 W2-F: the command center, search and plain-words questions
+  ...commandCenterRoutes,
   // v0.13 W2-H: models for task skills and skill steps.
   ...modelRoutes,
 } as const;
