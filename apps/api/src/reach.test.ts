@@ -48,7 +48,7 @@ import {
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
-import { reachOutTick } from "./reach/service";
+import { planWhyApproval, reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -69,6 +69,14 @@ const fetch: FetchLike = (url, init) =>
       : twilio.fetch(url, init);
 const PAT = "+15555550100";
 const PURPOSE = "Confirm Friday's delivery of the oak order";
+/**
+ * The plan approval's reasons for the agent below: the step and Twilio's `create` ask, and on the
+ * bench it only suggests.
+ */
+const WHY_ON_BENCH = {
+  reasons: ["step", "matrix", "mode"],
+  route: { source: "default", ruleId: null },
+};
 
 const h = await createApiHarness({
   connectors: () => [
@@ -517,6 +525,8 @@ describe.skipIf(!h)("reach out through the API", () => {
             message: "Can you confirm Friday's delivery? Reply YES or NO.",
           });
           expect(item.payload.sources).toEqual(["PO-1042"]);
+          // v0.12 W1-D: why it waits, as a tool proposal says it (the agent is on the bench).
+          expect(item.payload.whyApproval).toEqual(WHY_ON_BENCH);
         });
       }
       if (type.startsWith("reachout-")) {
@@ -914,5 +924,46 @@ describe.skipIf(!h)("reach out through the API", () => {
     );
     expect(theirs.items).toEqual([]);
     expect(j((await H.call(admin("b"), "GET", "/api/people")).json).items).toEqual([]);
+  });
+});
+
+// v0.12 W1-D: a reach-out plan's approval says why it waits, with a tool proposal's reasons
+// (docs/plan.md §1.39), the person's own setting included (§1.42).
+describe("why a reach-out plan waits", () => {
+  const base = {
+    levels: ["auto", "auto"],
+    stepApproval: "not_required" as const,
+    definitionMode: "act" as const,
+    stage: "live",
+    needsSignature: false,
+    route: { source: "default" as const, ruleId: null },
+  };
+
+  it("names nothing a live agent's automatic plan would wait for", () => {
+    expect(planWhyApproval(base)).toEqual({
+      reasons: [],
+      route: { source: "default", ruleId: null },
+    });
+  });
+
+  it("names the step, a channel that asks, the mode, the stage and the person", () => {
+    expect(planWhyApproval({ ...base, stepApproval: "required" }).reasons).toEqual(["step"]);
+    expect(planWhyApproval({ ...base, levels: ["auto", "approval"] }).reasons).toEqual(["matrix"]);
+    expect(planWhyApproval({ ...base, definitionMode: "suggest_only" }).reasons).toEqual(["mode"]);
+    expect(planWhyApproval({ ...base, stage: "trial" })).toMatchObject({
+      reasons: ["stage"],
+      stage: "trial",
+    });
+    expect(planWhyApproval({ ...base, stage: "signoff" })).toMatchObject({ stage: "signoff" });
+    expect(planWhyApproval({ ...base, stage: "bench" }).reasons).toEqual(["mode"]);
+    expect(planWhyApproval({ ...base, needsSignature: true }).reasons).toEqual(["person"]);
+    expect(
+      planWhyApproval({
+        ...base,
+        route: { source: "rule", ruleId: "r1" },
+        stepApproval: "required",
+        needsSignature: true,
+      }),
+    ).toEqual({ reasons: ["step", "person"], route: { source: "rule", ruleId: "r1" } });
   });
 });

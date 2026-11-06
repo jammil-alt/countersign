@@ -13,7 +13,7 @@ const VENDOR = "00000000-0000-4000-8000-0000000b7003";
 const SOURCE = "00000000-0000-4000-8000-0000000b7009";
 
 const base = {
-  counts: { transactions: 1, vendors: 1, items: 0 },
+  counts: { transactions: 1, vendors: 1, items: 0, receivables: 0 },
   lastSyncAt: "2026-11-05T10:00:00.000Z",
   sources: [
     {

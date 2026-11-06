@@ -9,7 +9,16 @@ import {
   type AgentBundleInput,
   AgentBundle as AgentBundleSchema,
 } from "@countersign/core";
-import { agent, agentChange, auditEvent, event, inboxItem, run, withTenant } from "@countersign/db";
+import {
+  agent,
+  agentChange,
+  auditEvent,
+  event,
+  inboxItem,
+  membership,
+  run,
+  withTenant,
+} from "@countersign/db";
 import { and, desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -245,7 +254,7 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
       .where(and(eq(inboxItem.agentId, id), eq(inboxItem.subjectType, "go_live")));
     expect(open).toHaveLength(1);
 
-    // Rejected: back to trial with a new start, the reason kept and passed to the operator.
+    // Rejected: back to trial with a new start, the reason kept and posted to the client's lead.
     await ok(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
       decision: "reject",
       note: "It missed two vendor credits",
@@ -254,12 +263,36 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
     expect(back.stage).toBe("trial");
     expect(back.trial).toMatchObject({ minDays: 0, minRuns: 3, runs: 0 });
     expect(back.rejections.map((r: Json) => r.reason)).toEqual(["It missed two vendor credits"]);
+    // An operator note in the lead thread, from the client admin who rejected; no review item.
+    const lead = await ok(OPERATOR, "GET", `/api/ops/clients/${A().tenantId}/threads?subject=lead`);
+    const leadId = lead.threads[0].id as string;
+    const notes = (await ok(OPERATOR, "GET", `/api/ops/threads/${leadId}/messages`)).messages;
+    const note = notes.find(
+      (m: Json) => m.text === "Kept Records clerk in trial: It missed two vendor credits",
+    );
+    expect(note).toMatchObject({
+      audience: "operator",
+      sender: { type: "user", id: A().admin },
+      sources: [item.id],
+    });
+    const posted = await H.t.db
+      .select()
+      .from(event)
+      .where(and(eq(event.type, "thread.message_posted"), eq(event.subjectId, leadId)));
+    expect(posted.map((e) => (e.payload as Json).messageId)).toContain(note.id);
+    // The client doesn't see the note meant for the lead.
+    const portalLead = await ok(admin("a"), "GET", "/api/threads?subject=lead");
+    const portalNotes = await ok(
+      admin("a"),
+      "GET",
+      `/api/threads/${portalLead.threads[0].id}/messages`,
+    );
+    expect(portalNotes.messages.map((m: Json) => m.id)).not.toContain(note.id);
     const opsItems = await H.t.db
       .select()
       .from(inboxItem)
       .where(and(eq(inboxItem.agentId, id), eq(inboxItem.subjectType, "go_live_rejected")));
-    expect(opsItems).toHaveLength(1);
-    expect(opsItems[0]).toMatchObject({ assigneeRole: "operator", kind: "review" });
+    expect(opsItems).toHaveLength(0);
 
     // Runs again since the new start, asked again, approved: live.
     await liveRuns(id, versionId, 3);
@@ -432,6 +465,28 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
 
     const otherClient = await H.call(admin("b"), "GET", `/api/services/${id}/run-forms`);
     expect(otherClient.status).toBe(404);
+
+    // A viewer (membership.can_sign false) sees the forms but starts nothing, like on the Desk.
+    const signs = (canSign: boolean) =>
+      H.t.db
+        .update(membership)
+        .set({ canSign })
+        .where(and(eq(membership.tenantId, A().tenantId), eq(membership.userId, A().user)));
+    await signs(false);
+    try {
+      expect((await ok(user("a"), "GET", `/api/services/${id}/run-forms`)).forms).toHaveLength(1);
+      const viewer = await H.call(
+        user("a"),
+        "POST",
+        `/api/services/${id}/workflows/client-run/run`,
+        { input: { note: "from a viewer" } },
+      );
+      expect([viewer.status, (viewer.json as Json).error.code]).toEqual([403, "cannot_sign"]);
+      const runs = await H.t.db.select().from(run).where(eq(run.agentId, id));
+      expect(runs.filter((x) => x.workflowSlug === "client-run")).toHaveLength(1);
+    } finally {
+      await signs(true);
+    }
   });
 
   it("runs a past event live once, never on the bench and never a test run's event", async () => {

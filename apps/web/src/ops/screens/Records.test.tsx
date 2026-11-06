@@ -56,7 +56,7 @@ const TXN = {
 
 function list(over: Record<string, unknown> = {}) {
   return {
-    counts: { transactions: 312, vendors: 41, items: 18 },
+    counts: { transactions: 312, vendors: 41, items: 18, receivables: 0 },
     lastSyncAt: SYNCED.toISOString(),
     sources: SOURCES,
     total: 312,
@@ -240,7 +240,7 @@ describe("back-office records", () => {
 
   it("says plainly when there is nothing yet, or nothing matches", async () => {
     const empty = {
-      counts: { transactions: 0, vendors: 0, items: 0 },
+      counts: { transactions: 0, vendors: 0, items: 0, receivables: 0 },
       lastSyncAt: null,
       sources: [],
       total: 0,

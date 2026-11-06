@@ -124,6 +124,10 @@ export async function extractInBackground(
     parseCoveredProcessors(services.env.BAA_PROCESSORS),
   );
   const content = new ContentStore(services.deps.objects(services.env));
+  // DECISION: a background read keeps no `model_call` row: the table names a run and step (both
+  // NOT NULL, with foreign keys), and this read has neither. Its tokens and cost are on its
+  // `doc_extraction` row and in `usage_platform_daily` (docs/plan.md §1.43); a read inside a run
+  // (`docs.extract`) is recorded as its step's model call.
   const llm = createLlmClient({ transport });
   // v0.12 W1-H: each document's events (read, failed, linked) are dispatched as soon as its
   // transactions commit, so a run triggered by `document.extracted` starts at once (§8).

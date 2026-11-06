@@ -39,6 +39,7 @@ import {
   type RuntimeDeps,
   type StepContext,
 } from "./context";
+import { recordModelCall } from "./model-call";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
 
 export type ToolOutcome =
@@ -195,6 +196,19 @@ async function dispatch(
           step.tenantId,
           { runId: step.runId, stepRunId: step.stepRunId },
           usage,
+        ),
+      // v0.12 W1-E: a tool's own model call (a document read) is the step's `model_call` too.
+      recordModelCall: (record, exchange) =>
+        recordModelCall(
+          deps.ports.modelCalls,
+          step.tenantId,
+          {
+            runId: step.runId,
+            stepRunId: step.stepRunId,
+            agentVersionId: step.agent.agentVersionId,
+          },
+          record,
+          exchange,
         ),
     });
     const out = tool.tool.output.safeParse(raw);
