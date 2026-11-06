@@ -31,5 +31,7 @@ export const PLATFORM_EVENT_TYPES = [
   "run.failed",
   "connection.needs_attention",
   "health.checked",
+  // v0.12 W1-C: payload in ../threads/schemas.ts.
+  "thread.message_posted",
 ] as const;
 export type PlatformEventType = (typeof PLATFORM_EVENT_TYPES)[number];

@@ -19,6 +19,8 @@ import {
   findStep,
   isClientVisible,
   isPlainObject,
+  LEAD_ASSIGNEE,
+  leadCheckLabel,
   type Role,
   routes,
   type Step,
@@ -46,6 +48,8 @@ import type { Platform } from "../platform";
 import { dispatchEvents } from "../runs/dispatch";
 import { matrixEdit } from "./mappers";
 import { latestHealthSummary, portalFindings } from "./supervisor";
+// v0.12 W1-C
+import { leadFirstName } from "./threads";
 
 type ConnectionRow = typeof connection.$inferSelect;
 
@@ -369,6 +373,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       .from(stepRun)
       .where(and(eq(stepRun.runId, params.id), eq(stepRun.tenantId, tenantId)))
       .orderBy(stepRun.startedAt, stepRun.id);
+    // v0.12 W1-C: a lead check's label carries the lead's first name ("Ana: Check new matches").
+    const isLeadCheck = (step: Step) => step.kind === "person" && step.assignee === LEAD_ASSIGNEE;
+    const leadName = steps.some((s) => {
+      const step = stepOfNode(lookup, s.nodeId);
+      return !!step && isLeadCheck(step);
+    })
+      ? await leadFirstName(tx, tenantId)
+      : null;
     const timeline = steps.flatMap((s) => {
       const step = stepOfNode(lookup, s.nodeId);
       // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
@@ -376,7 +388,9 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       return [
         {
           id: s.id,
-          label: clientLabel(step),
+          label: isLeadCheck(step)
+            ? leadCheckLabel(clientLabel(step), leadName)
+            : clientLabel(step),
           status: s.status,
           summary: s.summary,
           sources: sourcesOf(s.output),
