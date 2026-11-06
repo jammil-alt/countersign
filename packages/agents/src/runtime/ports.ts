@@ -42,6 +42,8 @@ export interface ApprovalRouting {
   revision: number;
   clientDefault: string | null;
   members: ReadonlySet<string>;
+  /** v0.12 W1-D: the client's viewers (`membership.can_sign` false): never assigned anything. */
+  viewers?: ReadonlySet<string>;
 }
 
 export interface MemoryNoteRecord {
@@ -185,6 +187,9 @@ export interface ExternalActionRecord {
   result: unknown;
   error: unknown;
   before: unknown;
+  // v0.12 W1-D: the signer's edit before signing (ARCHITECTURE §11.1). `input` stays the agent's;
+  // execution uses the edit when there is one.
+  editedInput?: JsonObject | null;
 }
 
 export interface ProposeActionInput {
@@ -205,6 +210,8 @@ export interface ProposeActionInput {
     assigneeRole: "operator" | "client_admin" | "client_user" | null;
     assigneeUserId: string | null;
     payload: JsonObject;
+    /** v0.12 W1-D: `<run id>:<top step id>`, shared by the items one step proposes. */
+    batchKey?: string | null;
   } | null;
 }
 
@@ -226,7 +233,8 @@ export interface ExternalActionStore {
   byKey(tenantId: string, idempotencyKey: string): Promise<ExternalActionRecord | null>;
   /**
    * Moves `approved` → `executing` and returns the action, or returns it as it is (done, failed,
-   * executing, proposed, rejected) for the caller to decide.
+   * executing, proposed, rejected) for the caller to decide. An approved action whose inbox item is
+   * still inside its undo window (`deliver_after` in the future) is not claimed (v0.12 W1-D).
    */
   claim(
     tenantId: string,

@@ -92,7 +92,9 @@ async function addClient(
 ): Promise<Client> {
   const [row] = await t.db
     .insert(tenant)
-    .values({ name, settings: { connectors_offered: ["testkit"] } })
+    // The undo window (v0.12 W1-D) is off for the shared clients, so a test's approval reaches its
+    // run at once; src/desk.test.ts turns it on where it is under test.
+    .values({ name, settings: { connectors_offered: ["testkit"], approvals: { undoSeconds: 0 } } })
     .returning();
   if (!row) throw new Error("no tenant");
   const admin = await addUser(t, `admin@${slug}.example.com`, `${name} admin`);

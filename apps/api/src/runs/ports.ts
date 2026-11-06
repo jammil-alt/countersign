@@ -301,6 +301,8 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
           nodeId: item.nodeId,
           mode: item.step.mode,
           ...(run.mode === "test" ? { testRun: true } : {}),
+          // v0.12 W1-D: quick answers, from the version's step (the answer must be one of them).
+          ...(item.step.mode === "ask" && item.step.choices ? { choices: item.step.choices } : {}),
         };
         const [row] = await tx
           .insert(inboxItem)
@@ -324,10 +326,14 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
     resolution(inboxItemId) {
       return withTenant(db, run.tenantId, async (tx) => {
         const [row] = await tx
-          .select()
+          .select({
+            item: inboxItem,
+            // v0.12 W1-D: inside its undo window an approval is not yet the run's to take.
+            held: sql<boolean>`coalesce(${inboxItem.deliverAfter} > now(), false)`,
+          })
           .from(inboxItem)
           .where(and(eq(inboxItem.id, inboxItemId), eq(inboxItem.tenantId, run.tenantId)));
-        return row?.status === "resolved" ? toRunResolution(row) : null;
+        return row?.item.status === "resolved" && !row.held ? toRunResolution(row.item) : null;
       });
     },
     async expire(inboxItemId) {

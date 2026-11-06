@@ -10,7 +10,7 @@ import {
   defineConnector,
   defineWriteTool,
 } from "@countersign/connectors";
-import { agent, appUser, connection, contact, membership } from "@countersign/db";
+import { agent, appUser, connection, contact, inboxItem, membership } from "@countersign/db";
 import { addVoiceSample } from "@countersign/documents";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -178,6 +178,15 @@ describe.skipIf(!harness)("autonomy at the gate", () => {
     });
     expect(text.status).toBe("awaiting_approval");
     expect(sent).toHaveLength(1);
+    // The Desk says why: the person asked to see it first.
+    const itemId = text.status === "awaiting_approval" ? text.inboxItemId : null;
+    const [item] = await h.t.db
+      .select({ payload: inboxItem.payload })
+      .from(inboxItem)
+      .where(eq(inboxItem.id, itemId ?? ""));
+    const why = (item?.payload as { whyApproval?: { reasons?: string[] } } | undefined)
+      ?.whyApproval;
+    expect(why?.reasons).toEqual(["person"]);
   });
 
   it("narrows nothing for someone not in the directory, and `auto` loosens nothing", async () => {

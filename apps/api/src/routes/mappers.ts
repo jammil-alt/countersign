@@ -153,6 +153,10 @@ export function opsAction(a: ActionRow, platform: Registries) {
     approvedBy: a.approvedBy,
     approvedAt: iso(a.approvedAt),
     executedAt: iso(a.executedAt),
+    // v0.12 W1-D: the signer's edit before signing; `input` stays the agent's (both show).
+    editedInput: a.editedInput ?? null,
+    editedBy: a.editedBy,
+    editedAt: iso(a.editedAt),
   };
 }
 
@@ -178,6 +182,10 @@ export function opsInboxItem(i: InboxRow, operator: Approver, platform: Registri
     createdAt: i.createdAt.toISOString(),
     resolvedAt: iso(i.resolvedAt),
     resolvableByOperator: mayResolve(i, operator),
+    // v0.12 W1-D: the Desk's undo window, snooze and batch.
+    deliverAfter: iso(i.deliverAfter),
+    snoozedUntil: iso(i.snoozedUntil),
+    batchKey: i.batchKey,
   };
 }
 

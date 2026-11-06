@@ -10,9 +10,11 @@ import {
 } from "@countersign/connectors";
 import {
   autonomyMessage,
+  batchKeyOf,
   changeFacts,
   decideToolCall,
   effectiveMode,
+  explainWrite,
   fixedInputProblem,
   grantAllowsTool,
   type JsonObject,
@@ -217,12 +219,14 @@ async function dispatch(
       : null;
   // v0.12 W1-A: the go-live stage, read fresh like the matrix: in trial and signoff every write
   // needs a signature, whatever the step, matrix or mode say (ARCHITECTURE §10.9). Reads don't ask.
+  // v0.12 W1-D: the stage is kept for the explanation (`whyApproval`).
+  const stage =
+    tool.spec.sideEffect === "external"
+      ? await deps.ports.store.agentStage(step.tenantId, step.agent.agentId)
+      : null;
   const mode =
     tool.spec.sideEffect === "external"
-      ? effectiveMode(
-          step.agent.bundle.definition,
-          await deps.ports.store.agentStage(step.tenantId, step.agent.agentId),
-        )
+      ? effectiveMode(step.agent.bundle.definition, stage)
       : step.agent.bundle.definition.permissions.mode;
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
@@ -325,7 +329,24 @@ async function dispatch(
             // What chose the approver: a rule (with the rules' revision), the step, the agent,
             // the client's default, or the default (the client admin).
             approverRoute: { source: approver.source, ruleId: approver.ruleId, revision },
+            // v0.12 W1-D: why it waits, over the gate's own inputs (core explainWrite); the
+            // gate's decision above is unchanged.
+            whyApproval: explainWrite({
+              verb: tool.spec.verb,
+              matrix: conn.permissions,
+              grant,
+              stepApproval: step.approval?.required,
+              // The mode the gate used, the definition's own and the stage that forced it.
+              agentMode: mode,
+              definitionMode: step.agent.bundle.definition.permissions.mode,
+              stage,
+              // v0.12 W1-G: the recipient's autonomy (reason `person` when it is `approval`).
+              person: autonomy,
+              route: { source: approver.source, ruleId: approver.ruleId },
+            }) as JsonObject,
           },
+          // v0.12 W1-D: the items one step proposes are signed together.
+          batchKey: batchKeyOf(step.runId, step.stepId),
         }
       : null,
   });

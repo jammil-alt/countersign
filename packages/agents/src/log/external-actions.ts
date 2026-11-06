@@ -4,7 +4,7 @@
 
 import type { JsonObject } from "@countersign/core";
 import { type Db, externalAction, inboxItem, run, type Tx, withTenant } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ExternalActionRecord, ExternalActionStore } from "../runtime/ports";
 
@@ -36,6 +36,7 @@ function toRecord(row: Row): ExternalActionRecord {
     result: row.result,
     error: row.error,
     before: row.before,
+    editedInput: (row.editedInput ?? null) as JsonObject | null,
   };
 }
 
@@ -119,6 +120,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             assigneeUserId: input.inbox.assigneeUserId,
             title: input.inbox.title,
             payload: { ...input.inbox.payload, actionId: inserted.id },
+            batchKey: input.inbox.batchKey ?? null,
           })
           .returning({ id: inboxItem.id });
         if (!item) throw new Error("inbox item insert returned nothing");
@@ -164,6 +166,9 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
               eq(externalAction.id, actionId),
               eq(externalAction.tenantId, tenantId),
               eq(externalAction.status, "approved"),
+              // v0.12 W1-D: never inside the undo window. The database's clock decides, as it
+              // does for undo and for delivery, so the three agree (ARCHITECTURE §11.1).
+              sql`not exists (select 1 from ${inboxItem} where ${inboxItem.id} = ${externalAction.inboxItemId} and ${inboxItem.tenantId} = ${externalAction.tenantId} and ${inboxItem.deliverAfter} > now())`,
             ),
           )
           .returning();
@@ -234,6 +239,11 @@ export interface Approver {
    * the server from the item's client, never from a request.
    */
   sandbox?: boolean;
+  /**
+   * v0.12 W1-D: false for a viewer (`membership.can_sign`), who signs nothing. Set only by the
+   * server from the membership; absent means a signer (operators, and callers that predate it).
+   */
+  canSign?: boolean;
 }
 
 export interface ResolveExternalActionInput {
@@ -262,6 +272,8 @@ export function mayResolve(
   // DECISION: the Sandbox client is the operator's own test client and has no client people, so
   // there the operator resolves every item, whoever it is assigned to (docs/plan.md §1.5). Real
   // clients are unchanged: the operator resolves only what is assigned or delegated to them.
+  // v0.12 W1-D: a viewer is never an approver, whatever the item names (ARCHITECTURE §4).
+  if (by.canSign === false) return false;
   if (by.role === "operator" && by.sandbox === true) return true;
   if (item.assigneeUserId) return item.assigneeUserId === by.userId;
   switch (item.assigneeRole) {
@@ -358,4 +370,70 @@ export async function resolveExternalActionTx(
     },
   });
   return result(true);
+}
+
+// ── v0.12 W1-D: the Desk (ARCHITECTURE §11.1) ────────────────────────────────────────────────────
+
+async function lockedAction(tx: Tx, tenantId: string, inboxItemId: string): Promise<Row> {
+  const [action] = await tx
+    .select()
+    .from(externalAction)
+    .where(and(eq(externalAction.tenantId, tenantId), eq(externalAction.inboxItemId, inboxItemId)))
+    .for("update");
+  if (!action) throw notFound(`the external action of inbox item ${inboxItemId}`);
+  return action;
+}
+
+/** The proposed action behind an open inbox item, locked for an edit. */
+export async function proposedActionTx(
+  tx: Tx,
+  tenantId: string,
+  inboxItemId: string,
+): Promise<ExternalActionRecord> {
+  const action = await lockedAction(tx, tenantId, inboxItemId);
+  if (action.status !== "proposed") {
+    throw new AgentsError("invalid_state", `this change was already ${action.status}`);
+  }
+  return toRecord(action);
+}
+
+/**
+ * Stores a person's checked edit of a proposed action (checkEditedInput first): `edited_input`,
+ * who and when; `input` stays the agent's version. The caller has locked the open item.
+ */
+export async function recordEditTx(
+  tx: Tx,
+  input: { tenantId: string; inboxItemId: string; edited: JsonObject; by: string; at: Date },
+): Promise<ExternalActionRecord> {
+  const [row] = await tx
+    .update(externalAction)
+    .set({ editedInput: input.edited, editedBy: input.by, editedAt: input.at })
+    .where(
+      and(
+        eq(externalAction.tenantId, input.tenantId),
+        eq(externalAction.inboxItemId, input.inboxItemId),
+        eq(externalAction.status, "proposed"),
+      ),
+    )
+    .returning();
+  if (!row) throw new AgentsError("invalid_state", "this change is no longer waiting to be signed");
+  return toRecord(row);
+}
+
+/**
+ * Puts an approved action back to `proposed` (an undo inside its window). False when it has left
+ * `approved` (claimed, executing or done): then it is too late, and nothing changes.
+ */
+export async function reopenApprovedTx(
+  tx: Tx,
+  tenantId: string,
+  inboxItemId: string,
+): Promise<boolean> {
+  const action = await lockedAction(tx, tenantId, inboxItemId);
+  if (action.status !== "approved") return false;
+  await tx
+    .update(externalAction)
+    .set({ status: "proposed", approvedBy: null, approvedAt: null })
+    .where(and(eq(externalAction.id, action.id), eq(externalAction.status, "approved")));
+  return true;
 }
