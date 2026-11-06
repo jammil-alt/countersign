@@ -215,7 +215,10 @@ describe.skipIf(!harness)("runtime", () => {
   it("the stage: only a live agent writes without a signature; read fresh at every call", async () => {
     const setStage = (stage: "bench" | "trial" | "signoff" | "live") =>
       h.ops((tx) =>
-        tx.update(agent).set({ stage }).where(eq(agent.id, agentOf(h.A).agentId)),
+        tx
+          .update(agent)
+          .set({ stage })
+          .where(eq(agent.id, agentOf(h.A).agentId)),
       );
     await h.setPermissions(h.A, { update: "auto" });
     let n = 500;
@@ -241,7 +244,10 @@ describe.skipIf(!harness)("runtime", () => {
       await setStage("trial");
       expect((await callTool(h.deps(), s, update("602.00"))).status).toBe("awaiting_approval");
       // Reads never ask, whatever the stage.
-      const read = await callTool(h.deps(), await step(h.A), { toolId: TESTKIT_QUERY_TOOL, input: {} });
+      const read = await callTool(h.deps(), await step(h.A), {
+        toolId: TESTKIT_QUERY_TOOL,
+        input: {},
+      });
       expect(read.status).toBe("done");
     } finally {
       await setStage("live");

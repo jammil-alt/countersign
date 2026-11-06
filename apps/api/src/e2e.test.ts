@@ -411,6 +411,14 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     await ok(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/activate`);
     const agent = await ok(OPERATOR, "GET", `/api/ops/agents/${ids.clerk}`);
     expect(agent.agent.runStatus).toBe("active");
+    // v0.12 W1-A: activating starts the trial: every write is signed for 14 days and 25 runs.
+    const goLive = await ok(OPERATOR, "GET", `/api/ops/agents/${ids.clerk}/go-live`);
+    expect(goLive.goLive).toMatchObject({
+      stage: "trial",
+      writes: true,
+      trial: { minDays: 14, minRuns: 25, runs: 0, ready: false },
+      signoff: null,
+    });
     // The portal never shows a test run.
     expect((await ok(OWNER, "GET", "/api/runs")).runs).toEqual([]);
   });
@@ -727,6 +735,69 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     expect(
       after.agents.find((a: { agent: { id: string } }) => a.agent.id === ids.clerk),
     ).toMatchObject({ behind: 0 });
+  });
+
+  // ── 5b. v0.12 W1-A: the first invoice, which arrived while the agent was off, runs live once ──
+
+  it("the operator runs the agent live once on the invoice that arrived while it was off", async () => {
+    // A publish keeps the stage.
+    const goLive = await ok(OPERATOR, "GET", `/api/ops/agents/${ids.clerk}/go-live`);
+    expect(goLive.goLive.stage).toBe("trial");
+    const recent = await ok(
+      OPERATOR,
+      "GET",
+      `/api/ops/clients/${ids.client}/events?type=document.extracted`,
+    );
+    const e = recent.events.find(
+      (x: { payload: { documentId: string } }) => x.payload.documentId === ids.firstDocument,
+    );
+    expect(e).toBeDefined();
+    // Not the client's to start.
+    const portal = await H.call(OWNER, "POST", `/api/ops/agents/${ids.clerk}/run-event`, {
+      eventId: e.id,
+    });
+    expect(portal.status).toBe(403);
+
+    const res = await ok(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/run-event`, {
+      eventId: e.id,
+    });
+    expect(res.runs.map((r: { workflow: string }) => r.workflow)).toEqual(["invoice-read"]);
+    const params = H.instances.started.get(res.runs[0].runId) as RunParams;
+    expect(params).toMatchObject({
+      mode: "live",
+      agentId: ids.clerk,
+      workflowSlug: "invoice-read",
+    });
+    const run = await ok(OPERATOR, "GET", `/api/ops/runs/${params.runId}`);
+    expect(run.run.trigger).toMatchObject({
+      type: "event",
+      eventId: e.id,
+      replayedBy: expect.any(String),
+    });
+    // It runs as any live run: the client admin answers what it asks.
+    const asked: string[] = [];
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const inbox = await ok(OWNER, "GET", "/api/inbox");
+      const item = inbox.items.find(
+        (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type,
+      );
+      if (!item) throw new Error(`no open item for ${type}`);
+      asked.push(item.title);
+      await ok(OWNER, "POST", `/api/inbox/${item.id}/resolve`, { decision: "approve" });
+      return H.instances.events.find((x) => x.event.type === type)?.event.payload;
+    });
+    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    expect(asked.length).toBeGreaterThan(0);
+    const portalRuns = await ok(OWNER, "GET", "/api/runs");
+    expect(portalRuns.runs.map((r: { id: string }) => r.id)).toContain(params.runId);
+
+    // Once: the same event never starts this agent again.
+    const again = await H.call(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/run-event`, {
+      eventId: e.id,
+    });
+    expect([again.status, j(again.json).error.code]).toEqual([409, "already_ran"]);
   });
 
   // ── 6. Isolation and the portal's invariants ─────────────────────────────────────────────────

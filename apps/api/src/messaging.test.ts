@@ -441,7 +441,10 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active", stage: "live" }).where(eq(agent.id, agentId));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, agentId));
     });
 
     async function startedBy(from: string, body: string) {
@@ -566,7 +569,10 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active", stage: "live" }).where(eq(agent.id, agentId));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, agentId));
       const [pat] = await H.t.db.select().from(contact).where(eq(contact.phone, PAT));
       patId = pat?.id ?? "";
     });

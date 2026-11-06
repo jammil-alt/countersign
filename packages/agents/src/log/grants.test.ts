@@ -53,9 +53,9 @@ describe.skipIf(!harness)("grants at the gate", () => {
       });
       await publish(tx, { agentId: forked.agent.id, versionId: forked.version.id, ctx: h.ctx });
       await tx
-          .update(agent)
-          .set({ runStatus: "active", stage: "live" })
-          .where(eq(agent.id, forked.agent.id));
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, forked.agent.id));
       return forked;
     });
     agentId = a.agent.id;

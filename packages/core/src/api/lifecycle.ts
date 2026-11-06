@@ -151,7 +151,7 @@ export const lifecycleRoutes = {
   }),
   portalServiceControls: defineRoute({
     method: "GET",
-    path: "/api/services/controls",
+    path: "/api/controls",
     auth: "session",
     roles: CLIENT_ADMIN,
     summary: "Your services with who paused them, why and until when",
