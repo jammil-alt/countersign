@@ -26,7 +26,8 @@ consistency, and code may be copied from it, but nothing is shared: no runtime d
 database, Worker, bucket, WorkOS application, key or secret. Never point anything here at Plenary Labs'
 resources.
 
-Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys).
+Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys),
+`docs/security.md` (the security controls and settings), `docs/hipaa-plan.md` (what's open for HIPAA, SOC 2 and PCI).
 
 ## Layout
 
