@@ -407,9 +407,11 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       await pass(B, at(6, "09:10"));
       const signoffs = (await rows(B)).filter((r) => r.kind === "signoff");
       expect(signoffs.map((r) => r.dedupeKey)).toEqual([`signoff:${item}:${H.B.admin}`]);
-      expect(emailsTo(admin("b")).at(-1)?.subject).toBe(
-        "An agent waits for your sign-off to go live",
+      // The same pass may also send the hourly digest, in either order: count, don't take the last.
+      const signoffMails = emailsTo(admin("b")).filter(
+        (e) => e.subject === "An agent waits for your sign-off to go live",
       );
+      expect(signoffMails).toHaveLength(1);
     });
   });
 
