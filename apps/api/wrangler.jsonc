@@ -37,10 +37,12 @@
 
   // One Workflow class runs any workflow of any client agent; the instance id is the run id
   // (ARCHITECTURE §10.3).
-  // QuickBooks sync runs as its own Workflow, one instance per sync of one connection (plan M9).
+  // QuickBooks sync runs as its own Workflow, one instance per sync of one connection (plan M9),
+  // and so does each client data export (docs/plan.md §1.36).
   "workflows": [
     { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
-    { "name": "mezonas-local-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" }
+    { "name": "mezonas-local-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
+    { "name": "mezonas-local-export", "binding": "EXPORT_WORKFLOW", "class_name": "ExportWorkflow" }
   ],
 
   // Non-secret configuration. Secrets (WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD, ANTHROPIC_API_KEY,
@@ -80,6 +82,11 @@
           "name": "mezonas-staging-qbo-sync",
           "binding": "QBO_SYNC",
           "class_name": "QboSyncWorkflow"
+        },
+        {
+          "name": "mezonas-staging-export",
+          "binding": "EXPORT_WORKFLOW",
+          "class_name": "ExportWorkflow"
         }
       ],
       // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
@@ -118,7 +125,8 @@
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas" }],
       "workflows": [
         { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
-        { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" }
+        { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
+        { "name": "mezonas-export", "binding": "EXPORT_WORKFLOW", "class_name": "ExportWorkflow" }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
       "ratelimits": [

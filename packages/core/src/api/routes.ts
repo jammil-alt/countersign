@@ -16,6 +16,7 @@ import { complianceRoutes } from "./compliance";
 import { defineRoute } from "./contract";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
+import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
@@ -1779,6 +1780,7 @@ export const routes = {
   ...portalRoutes,
   ...feedbackRoutes,
   ...complianceRoutes,
+  ...exportRoutes,
   ...onboardingRoutes,
   ...requestRoutes,
   ...languageRoutes,
