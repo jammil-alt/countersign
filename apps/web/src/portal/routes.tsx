@@ -19,9 +19,9 @@ import {
   PortalPeopleScreen,
 } from "./screens/Contacts";
 import { PortalConversationsScreen } from "./screens/Conversations";
+import { PortalDeskScreen } from "./screens/Desk";
 import { PortalDocumentScreen } from "./screens/Document";
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
-import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OverviewScreen } from "./screens/Overview";
@@ -41,7 +41,7 @@ export const portalRoutes = (
     {/* C2 Agent (UI-1a) */}
     <Route path="agents/:id" element={<PortalServiceScreen />} />
     {/* C3 Your Desk (UI-1b) */}
-    <Route path="desk" element={<PortalInboxScreen />} />
+    <Route path="desk" element={<PortalDeskScreen />} />
     {/* C4 Accounts and vault (UI-1c) */}
     <Route path="accounts" element={<PortalConnectionsScreen />} />
     <Route path="accounts/access" element={<PortalAccessScreen />} />
