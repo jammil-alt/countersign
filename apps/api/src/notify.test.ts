@@ -330,7 +330,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
         expect(off.status).toBe(409);
         expect(j(off.json).error.code).toBe("not_configured");
       } finally {
-        H.env.RESEND_API_KEY = key;
+        H.env.RESEND_API_KEY = key ?? "";
       }
       expect(
         await H.t.db.select().from(connectionChange).where(eq(connectionChange.connectionId, id)),
