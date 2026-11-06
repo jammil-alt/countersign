@@ -71,7 +71,7 @@ describe("portal: People", () => {
         return { people: peopleOf(body.people) };
       },
     });
-    renderAt("/people", api);
+    renderAt("/people/reach", api);
     const role = await screen.findByTestId("role-purchaser", {}, { timeout: 5000 });
     expect(within(role).getByTestId("role-purchaser-required")).toHaveTextContent(
       "Required: nobody yet",
@@ -131,7 +131,7 @@ describe("portal: People picked from the directory", () => {
         ],
       }),
     });
-    renderAt("/people", api);
+    renderAt("/people/reach", api);
     const role = await screen.findByTestId("role-purchaser", {}, { timeout: 5000 });
     expect(within(role).getByText("Buyer, Birch & Co")).toBeInTheDocument();
     await userEvent.type(within(role).getByTestId("role-purchaser-find"), "birch");

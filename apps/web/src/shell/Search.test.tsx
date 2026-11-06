@@ -140,7 +140,7 @@ describe("search groups", () => {
       t,
     );
     const hrefs = groups.flatMap((g) => g.hits.map((h) => h.href));
-    expect(hrefs).toEqual(["/records?kind=receivables", "/people/directory", "/documents/doc1"]);
+    expect(hrefs).toEqual(["/records?kind=receivables", "/people?person=p1", "/documents/doc1"]);
     expect(groups.find((g) => g.label === "People")?.hits[0]?.meta).toBe(
       "AP · Lakeside · jen@lakeside.example",
     );

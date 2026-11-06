@@ -1,5 +1,10 @@
 // Shared test data and a fake API: a router over `METHOD /path` that answers like the Worker.
-import { AgentBundle, type AgentBundleInput, type SessionResponse } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  type SessionResponse,
+  type TableView,
+} from "@countersign/core";
 import { type ApiClient, createApiClient } from "../api/client";
 
 export const OPERATOR_SESSION: SessionResponse = {
@@ -30,6 +35,43 @@ export const CLIENT_SESSION: SessionResponse = {
   activeTenantId: "00000000-0000-4000-8000-00000000a002",
   language: { effective: "en", user: null, client: null },
 };
+
+/** One portal service as `GET /api/table` lists it (C1 The Table), with nothing going on. */
+export function tableService(
+  id: string,
+  name: string,
+  over: Partial<TableView["services"][number]> = {},
+): TableView["services"][number] {
+  return {
+    id,
+    name,
+    description: null,
+    status: "active",
+    stage: "live",
+    now: null,
+    runsDone: 0,
+    kpis: [],
+    ...over,
+  };
+}
+
+/** `GET /api/table` for the demo client: a quiet week unless the test says otherwise. */
+export function tableView(over: Partial<TableView> = {}): TableView {
+  return {
+    client: { id: "00000000-0000-4000-8000-00000000a002", name: "Demo client", timezone: "UTC" },
+    week: {
+      weekStart: "2026-11-02",
+      from: "2026-11-02T00:00:00.000Z",
+      to: "2026-11-09T00:00:00.000Z",
+    },
+    services: [],
+    figures: { runsDone: 0, changes: { automatic: 0, signed: 0 } },
+    recent: [],
+    desk: { open: 0, top: [] },
+    lead: null,
+    ...over,
+  };
+}
 
 /** A bundle whose workflow has a trigger, skills, an action and a fork with two paths. */
 export const FORK_BUNDLE_INPUT: AgentBundleInput = {

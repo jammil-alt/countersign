@@ -6,7 +6,7 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Loaded, Page } from "../../ui/page";
-import { buttonClass, EmptyState, PageHeader, SectionLabel, Tag } from "../../ui/primitives";
+import { buttonClass, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { OPS_PATHS } from "../paths";
 
 type Clients = ResponseOf<typeof apiRoutes.opsClients>["clients"];
@@ -43,17 +43,6 @@ export function NewClientLink() {
     <Link to="/ops/clients/new" className={buttonClass("primary")} data-testid="ops-new-client">
       New client
     </Link>
-  );
-}
-
-/** The clients table on the command center, with its own heading and load. */
-export function ClientsTable() {
-  const state = useApi(apiRoutes.opsClients);
-  return (
-    <section>
-      <SectionLabel>Clients</SectionLabel>
-      <Loaded state={state}>{(data) => <ClientRows clients={data.clients} />}</Loaded>
-    </section>
   );
 }
 
