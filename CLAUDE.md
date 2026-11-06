@@ -14,7 +14,8 @@ client's tools (QuickBooks Online and Gmail) within each connection's permission
 such as Pia (material cost management for a millwork shop, the Materials pack) are built separately
 from this plan, only from platform parts (ARCHITECTURE v0.9).
 
-- What to build: `docs/ARCHITECTURE.md` (v0.10). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.12). Do not add features outside its §1 v1 scope.
+  v0.12 (the owner's prototype) is built API first in streams: `docs/plan.md` §8.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
@@ -104,7 +105,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    loosens; clients can tighten their matrix, which overrides steps at once. Delete is off. Clients sign in
    to their own tools, or, for a browser connection on a site the operator allows, the client admin
    enters the login of a dedicated agent account into the vault; the operator never sees a client's
-   credentials. Test runs never write.
+   credentials. Test runs never write. An agent in its trial or sign-off stage has every write signed;
+   an undo window or a person's edit before signing never writes outside the external-action path.
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
    instructions. Agents cannot change their own permissions.
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
@@ -113,7 +115,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     across clients, usage). Publishing a template changes no client agent; a client agent changes only by
     its own new version, including a reviewed update merge. Forks and promotions never carry one client's
     memory, records or connections anywhere else. No portal route returns agent bundles, instructions,
-    prompts or cost. Contract tests enforce these.
+    prompts or cost. Sloan, the client's account agent, sees only what the portal shows, writes only
+    internal records for the person asking, and never loosens a rule. Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 13. **Access is explicit and secrets stay apart.** An agent reaches a connection only through its binding,
