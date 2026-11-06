@@ -2210,6 +2210,7 @@ The exports (data export and accountant export, running outside the waves) neede
 | W4-B | Follow-ups from Waves 1–3 | none expected (0032 spare) | each item's own files, small marked blocks elsewhere | — |
 | W4-C | Slack (ARCHITECTURE §6.11, row 6; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/slack/`, one line in `apps/api/src/platform.ts` | W2-A (entities) |
 | W4-D | Google Sheets (ARCHITECTURE §6.11, row 7) | none expected | `packages/connectors/src/gsheets/`, one line in `apps/api/src/platform.ts` | W3-B's Drive (shared Google client) |
+| W4-E | Google Chat (ARCHITECTURE §6.11, row 8; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/gchat/`, its interaction route, one line in `apps/api/src/platform.ts` | W4-C's pattern (Slack) |
 
 **Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
 
@@ -2377,3 +2378,17 @@ current values as before state, refused if they changed since). Behind approval,
 Disconnect drops our tokens without revoking (the shared client, as Drive). Against a fake. Owner:
 the Sheets API enabled, the picker's browser key restricted to our origins. Done when an agent
 appends a row once to a picked sheet after approval, and a sheet the client didn't pick is refused.
+
+**W4-E: Google Chat (ARCHITECTURE §6.11, row 8).** Slack's counterpart for clients on Google
+Workspace: a Google Chat app of Mezonas' own that posts to the spaces the client adds it to. The
+app authenticates as itself (a service account with the `chat.bot` scope; no per-client user tokens).
+A space belongs to a client only after proof: the client admin gets a one-time code in the portal and
+mentions the app with it in the space; the app's interaction endpoint (Google-signed bearer token
+verified) binds that space to that client. Never by email domain alone. `gchat.message.post` is
+`external` (create, entity `message`), behind approval, posted once (a client-assigned message id
+where the API takes one, else the attempt recorded first), plain text with mentions of everyone
+stripped; only to bound spaces; no reading of messages beyond the binding mention. Removing the app
+from a space unbinds it. Against a fake. Owner: the Chat API configured on the Google project (app
+name, avatar, HTTP endpoint), the service account and its key as a secret, and the app published to
+the Google Workspace Marketplace (each client's Workspace admin must allow it). Done when an approved
+post goes once to a bound space, an unbound space is refused, and a space is bound only by its code.
