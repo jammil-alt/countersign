@@ -66,7 +66,11 @@ async function entriesOut(
     tx,
     rows.map((r) => r.updatedBy.id),
   );
-  return rows.map((r) => ({
+  // Voice samples (migration 0025) aren't FAQs or policies: they get their own list (W1-G).
+  const listed = rows.filter(
+    (r): r is KnowledgeEntryView & { kind: KnowledgeEntry["kind"] } => r.kind !== "voice_sample",
+  );
+  return listed.map((r) => ({
     id: r.id,
     kind: r.kind,
     status: r.status,
