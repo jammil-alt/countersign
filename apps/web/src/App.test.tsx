@@ -109,6 +109,8 @@ describe("app", () => {
 
     // Operators land in the back office.
     await user.click(await screen.findByTestId("ops-client-00000000-0000-4000-8000-00000000a001"));
+    // The client page opens on its Overview; its agents are on the Agents tab.
+    await user.click(await screen.findByRole("link", { name: "Agents" }));
     const card = await screen.findByTestId("ops-agent-card-material-costs");
     expect(within(card).getByText("Live")).toBeInTheDocument();
     await user.click(within(card).getByText("Material costs"));

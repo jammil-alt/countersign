@@ -97,7 +97,7 @@ describe("back-office documents", () => {
     expect(row).toHaveTextContent("Northline Panel Supply");
     expect(row).toHaveTextContent("$9,742.35");
     expect(row).toHaveTextContent("Needs review");
-    expect(screen.getByText(/Demo client · 1 document/)).toBeInTheDocument();
+    expect(screen.getByText("1 document, newest first")).toBeInTheDocument();
     expect(screen.getByTestId("ops-nav-documents")).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/documents`,

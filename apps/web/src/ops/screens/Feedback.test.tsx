@@ -5,7 +5,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../../test/fixtures";
+import {
+  fakeApi,
+  OPERATOR_SESSION,
+  opsClientSettings,
+  Reply,
+  SANDBOX_DETAIL,
+} from "../../test/fixtures";
 
 const ID = "00000000-0000-4000-8000-0000000fb001";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
@@ -120,6 +126,8 @@ describe("client feedback switch", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${client}`]: () => SANDBOX_DETAIL,
+      // The switch sits on the client page's Settings tab.
+      [`GET /api/ops/clients/${client}/settings`]: () => opsClientSettings(client),
       [`GET /api/ops/clients/${client}/feedback`]: () => ({ enabled, changes }),
       [`PUT /api/ops/clients/${client}/feedback`]: ({ init }) => {
         const body = JSON.parse(String(init.body)) as { enabled: boolean; reason: string };
@@ -136,7 +144,7 @@ describe("client feedback switch", () => {
         return { enabled, changes };
       },
     });
-    renderAt(`/ops/clients/${client}`, api);
+    renderAt(`/ops/clients/${client}/settings`, api);
     const section = await screen.findByTestId("ops-client-feedback");
     expect(within(section).getByTestId("ops-client-feedback-state")).toHaveTextContent("Off");
     await userEvent.click(within(section).getByTestId("ops-client-feedback-toggle"));

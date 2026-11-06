@@ -13,6 +13,9 @@ import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
+import { ClientAgentsScreen } from "./client/ClientAgents";
+import { ClientExportsScreen } from "./client/ClientExports";
+import { ClientOverviewScreen } from "./client/ClientOverview";
 import { LabScreen } from "./lab/LabScreen";
 import { MergeScreen } from "./merge/MergeScreen";
 import { AgentPage } from "./screens/AgentPage";
@@ -20,7 +23,6 @@ import { OpsAgentRedirect } from "./screens/AgentRedirect";
 import { OpsAuditScreen } from "./screens/AuditLog";
 import { OpsBillingScreen } from "./screens/Billing";
 import { OpsBrowserSitesScreen } from "./screens/BrowserSites";
-import { ClientDetailScreen } from "./screens/ClientDetail";
 import { ClientDirectoryRoute } from "./screens/ClientDirectory";
 import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
@@ -65,10 +67,11 @@ export const opsRoutes = (
     <Route path="skills/:id" element={<SkillPage />} />
     <Route path="connectors" element={<OpsConnectorsScreen />} />
 
-    {/* Clients: the client page and new client (UI-3) */}
+    {/* Clients: the client page with its tabs (client/ClientFrame.tsx) and new client (UI-3b) */}
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
-    <Route path="clients/:clientId" element={<ClientDetailScreen />} />
+    <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
+    <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
     <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
     <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
     <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
@@ -79,6 +82,7 @@ export const opsRoutes = (
     <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
     <Route path="clients/:clientId/records/:recordId" element={<OpsRecordScreen />} />
     <Route path="clients/:clientId/messaging" element={<OpsMessagingScreen />} />
+    <Route path="clients/:clientId/exports" element={<ClientExportsScreen />} />
     {/* Usage, billing, feedback, audit, website logins, requests (UI-3) */}
     <Route path="usage" element={<OpsUsageScreen />} />
     <Route path="billing" element={<OpsBillingScreen />} />

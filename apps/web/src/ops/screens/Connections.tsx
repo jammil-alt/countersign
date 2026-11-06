@@ -16,7 +16,6 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { shortTime } from "../../runs/format";
-import { useSession } from "../../session/session";
 import {
   Badge,
   Button,
@@ -24,17 +23,23 @@ import {
   EmptyState,
   ErrorNotice,
   Loading,
-  PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
+import { ClientFrame } from "../client/ClientFrame";
 
 type Data = ResponseOf<typeof apiRoutes.opsClientConnections>;
 
 export function OpsConnectionsScreen() {
   const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <Connections clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+function Connections({ clientId }: { clientId: string }) {
   const api = useApiClient();
-  const session = useSession();
-  const clientName = session.tenants.find((t) => t.id === clientId)?.name ?? "This client";
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientConnections, {
     params: { id: clientId },
   });
@@ -51,14 +56,11 @@ export function OpsConnectionsScreen() {
   );
   return (
     <div>
-      <PageHeader
-        title="Connections"
-        subtitle={
-          data.sandbox
-            ? `${clientName}: your own test client, so you connect its tools here. Test runs never write to them.`
-            : `${clientName}: the tools offered, what is connected, and what agents may do in each. The client signs in from their portal; you never connect on their behalf.`
-        }
-      />
+      <p className="mb-6 text-ink-muted" data-testid="ops-connections-intro">
+        {data.sandbox
+          ? "Your own test client, so you connect its tools here. Test runs never write to them."
+          : "The tools offered, what is connected, and what agents may do in each. The client signs in from their portal; you never connect on their behalf."}
+      </p>
       <div className="flex flex-col gap-6">
         <section>
           <SectionLabel>

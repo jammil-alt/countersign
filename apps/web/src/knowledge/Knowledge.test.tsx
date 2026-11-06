@@ -253,7 +253,7 @@ describe("back office knowledge tab", () => {
     expect(await screen.findByRole("link", { name: "Knowledge" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
       "href",
-      `/ops/clients/${CLIENT}`,
+      `/ops/clients/${CLIENT}/agents`,
     );
   });
 });
