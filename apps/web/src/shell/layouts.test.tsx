@@ -295,7 +295,7 @@ describe("portal layout", () => {
     expect(lead.querySelector(".mz-lead")).toHaveTextContent("AR");
   });
 
-  it("hides Settings and the admin pages from a client user", async () => {
+  it("hides the admin pages from a client user, and keeps their own settings", async () => {
     const api = fakeApi({
       "GET /api/session": () => ({
         ...CLIENT_SESSION,
@@ -306,7 +306,8 @@ describe("portal layout", () => {
     });
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
-    expect(screen.queryByTestId("portal-nav-settings")).toBeNull();
+    // Settings holds everyone's own notifications and language (UI-1d); the company's are the admin's.
+    expect(screen.getByTestId("portal-nav-settings")).toHaveAttribute("href", "/settings");
     expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
     // Client users read the directory: People opens it.
     expect(screen.getByTestId("portal-nav-people")).toHaveAttribute("href", "/people/directory");
