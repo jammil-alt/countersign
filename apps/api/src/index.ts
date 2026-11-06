@@ -7,6 +7,8 @@ import { handleEmail } from "./email";
 import type { Bindings } from "./env";
 
 export { app } from "./app";
+// v0.14 capture: WhatsApp attachments
+export { CaptureWorkflow } from "./conversations/workflow";
 export { ExportWorkflow } from "./exports/workflow";
 export { QboSyncWorkflow } from "./qbo/workflow";
 export { RunWorkflow } from "./runs/workflow";

@@ -89,6 +89,8 @@ export const es: Messages = {
   "nav.settings": "Ajustes",
   "nav.knowledge": "Conocimiento",
   "nav.contacts": "Contactos",
+  // v0.14 capture
+  "nav.conversations": "Conversaciones",
   "nav.billing": "Facturación",
   "nav.people": "Personas",
   "nav.access": "Accesos",
@@ -266,6 +268,19 @@ export const es: Messages = {
   "connections.gmail.testSend": "Enviar un correo de prueba",
   "connections.gmail.testSent":
     "Enviado a {address}. Revise la carpeta Enviados y la bandeja de entrada de ese buzón.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publique mensajes en los canales de Slack que elija. No podemos leer sus mensajes.",
+  "slack.section": "Slack · canales",
+  "slack.workspace": "Espacio de trabajo: {name}",
+  "slack.help":
+    "Los agentes publican solo en los canales que elija. Agregue la app Mezonas a un canal en Slack antes de elegirlo.",
+  "slack.noChannels": "No hay canales públicos en este espacio de trabajo.",
+  "slack.notMember": "Agregue Mezonas a este canal en Slack",
+  "slack.gone": "ya no aparece en Slack",
+  "slack.noPicks": "Ningún canal elegido: los agentes no pueden publicar en Slack.",
+  "slack.picked": { one: "{count} canal elegido", other: "{count} canales elegidos" },
+  "slack.saved": "Guardado.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Sin conectar",
   "connection.status.disconnected": "Desconectada",
@@ -823,6 +838,37 @@ export const es: Messages = {
   "contacts.subtitle":
     "Las personas a las que podemos escribir por correo, SMS o WhatsApp, o llamar por usted. Solo contactamos a quienes aceptaron, y nunca en horas de silencio.",
   "contacts.adminOnly": "Su administrador mantiene la lista de contactos.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversaciones",
+  "conversations.subtitle":
+    "Chats de WhatsApp con su número. Elija qué guardamos de cada uno: los mensajes y sus adjuntos como documentos.",
+  "conversations.adminOnly":
+    "Su administrador elige qué guardamos de las conversaciones de WhatsApp.",
+  "conversations.empty":
+    "Aún no hay conversaciones de WhatsApp. Empieza una cuando alguien escribe a su número.",
+  "conversations.lastMessage": "Último mensaje {when}",
+  "conversations.noMessages": "Aún no hay mensajes.",
+  "conversations.keepMessages": "Guardar mensajes",
+  "conversations.attachments": "Descargar adjuntos",
+  "conversations.attachments.off": "No",
+  "conversations.attachments.documents": "PDF e imágenes",
+  "conversations.attachments.all": "Todos los archivos",
+  "conversations.yes": "Sí",
+  "conversations.no": "No",
+  "conversations.showMessages": "Ver mensajes",
+  "conversations.hideMessages": "Ocultar mensajes",
+  "conversations.notKept": "No guardado",
+  "conversations.downloadNow": "Descargar ahora",
+  "conversations.downloading": {
+    one: "Descargando {count} adjunto.",
+    other: "Descargando {count} adjuntos.",
+  },
+  "conversations.failed": "No funcionó. Inténtelo de nuevo.",
+  "conversations.attachment.not_downloaded": "Sin descargar",
+  "conversations.attachment.pending": "Descargando",
+  "conversations.attachment.filed": "Archivado",
+  "conversations.attachment.refused": "No aceptado",
+  "conversations.attachment.failed": "No se pudo descargar",
   "contacts.empty":
     "Aún no hay contactos. Añada a las personas que sus agentes pueden contactar, con cómo lo aceptaron.",
   "contacts.channel.sms": "SMS",
@@ -1160,4 +1206,42 @@ export const es: Messages = {
     one: "{count} persona",
     other: "{count} personas",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · espacios",
+  "gchat.spacesTitle": "Espacios conectados",
+  "gchat.help":
+    "Los agentes publican solo en estos espacios y solo después de que usted apruebe cada mensaje. No podemos leer sus mensajes.",
+  "gchat.noSpaces": "Aún no hay espacios conectados.",
+  "gchat.groupChat": "Chat de grupo",
+  "gchat.boundBy": "Conectado {time} por {name}",
+  "gchat.boundAt": "Conectado {time}",
+  "gchat.codeTitle": "Conectar un espacio",
+  "gchat.steps":
+    "En Google Chat, agregue Mezonas al espacio y envíe allí este mensaje. El código funciona una sola vez.",
+  "gchat.codeExpires": "Válido hasta {time}.",
+  "gchat.codeWaiting": "Hay un código válido hasta {time}. Si no lo tiene, pida uno nuevo.",
+  "gchat.getCode": "Obtener un código",
+  "gchat.newCode": "Obtener un código nuevo",
+  "gchat.adminAllow":
+    "¿No encuentra Mezonas en Google Chat? El administrador de Google Workspace debe permitir la app.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Lea y agregue filas en las hojas de Google Sheets que elija. No podemos abrir ninguna otra.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Los agentes solo pueden abrir las hojas que usted elija aquí. Se eligen en la propia ventana de Google.",
+  "gsheets.none": "Aún no hay hojas elegidas.",
+  "gsheets.choose": "Elegir hojas",
+  "gsheets.remove": "Quitar",
+  "gsheets.otherAccount": "Elegida con otra cuenta de Google. Elíjala de nuevo para usarla.",
+  "gsheets.notSetUp": "Elegir hojas aún no está disponible aquí. Le avisaremos cuando lo esté.",
+  "gsheets.pick.title": "Elegir hojas de Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google abre una ventana para que elija las hojas que pueden usar los agentes. Solo vemos esas.",
+  "gsheets.pick.open": "Abrir el selector de Google",
+  "gsheets.pick.loading": "Cargando el selector de Google…",
+  "gsheets.pick.saving": "Guardando su elección…",
+  "gsheets.pick.cancelled": "No eligió ninguna hoja. Abra el selector otra vez o vuelva.",
+  "gsheets.pick.failed":
+    "El selector de Google no se abrió. Compruebe que las ventanas emergentes estén permitidas e inténtelo de nuevo.",
 };

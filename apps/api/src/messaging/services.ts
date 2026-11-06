@@ -29,8 +29,12 @@ import {
   withTenant,
 } from "@countersign/db";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+// v0.14 W4-C
+import { dbWriteAttempts } from "../attempts";
 import type { VoiceDeps } from "../calls/answer";
 import { dbVoiceServices } from "../calls/services";
+// v0.14 capture
+import { captureFactsOf } from "../conversations/capture";
 import type { Platform } from "../platform";
 import { dbEmailServices } from "../reach/email";
 import {
@@ -209,6 +213,13 @@ export function dbMessagingServices(db: Db, connection: ConnectionRef): Messagin
       });
     },
 
+    // v0.14 capture: what the platform keeps of these messages (docs/plan.md §1.55).
+    messageFacts(sids) {
+      return withTenant(db, tenantId, (tx) =>
+        captureFactsOf(tx, tenantId, connection.id, sids.slice(0, 100)),
+      );
+    },
+
     recordOutbound(m) {
       return withTenant(db, tenantId, (tx) => recordOutboundTx(tx, tenantId, m));
     },
@@ -305,6 +316,8 @@ export function connectorServicesFor(
   return (connection) => ({
     messaging: dbMessagingServices(db, connection),
     email: dbEmailServices(db, connection),
+    // v0.14 W4-C: writes the provider takes no idempotency key for (Slack posts).
+    attempts: dbWriteAttempts(db, connection),
     ...(calls ? { voice: dbVoiceServices(db, connection, calls) } : {}),
   });
 }

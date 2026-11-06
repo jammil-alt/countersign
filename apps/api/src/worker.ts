@@ -5,6 +5,8 @@
 // inert. Pattern from Plenary Labs' apps/api/src/worker.ts.
 
 import * as Sentry from "@sentry/cloudflare";
+// v0.14 capture: WhatsApp attachments
+import { CaptureWorkflow as Capture } from "./conversations/workflow";
 import { ExportWorkflow as Export } from "./exports/workflow";
 import api from "./index";
 import { sentryOptions } from "./observability/sentry";
@@ -17,5 +19,7 @@ export const RunWorkflow = Sentry.instrumentWorkflowWithSentry(sentryOptions, Ru
 export const QboSyncWorkflow = Sentry.instrumentWorkflowWithSentry(sentryOptions, QboSync);
 export const ExportWorkflow = Sentry.instrumentWorkflowWithSentry(sentryOptions, Export);
 export const TestSuiteWorkflow = Sentry.instrumentWorkflowWithSentry(sentryOptions, TestSuite);
+// v0.14 capture
+export const CaptureWorkflow = Sentry.instrumentWorkflowWithSentry(sentryOptions, Capture);
 
 export default Sentry.withSentry(sentryOptions, api);

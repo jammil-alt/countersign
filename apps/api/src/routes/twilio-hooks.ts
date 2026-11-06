@@ -27,13 +27,27 @@ import {
   twilioCredentialsOf,
   verifyTwilioSignature,
 } from "@countersign/connectors";
-import { redactCardNumbers, routes, TWIML_EMPTY } from "@countersign/core";
+import {
+  type ConversationCapture,
+  captureAllows,
+  redactCardNumbers,
+  routes,
+  TWIML_EMPTY,
+} from "@countersign/core";
 import { connection, message, rawRecord, type Tx, withTenant } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { consumeTextReply, type Wake, wakeRelease } from "../access/release";
+// v0.14 capture: WhatsApp conversations and their attachments
+import {
+  type ConversationRow,
+  ensureDirectConversation,
+  type StoredCapture,
+} from "../conversations/capture";
+import { type CaptureParams, captureAgentOf } from "../conversations/media";
+import { captureDepsFor, captureJobsFor } from "../conversations/start";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import {
   applyKeyword,
@@ -124,6 +138,8 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       let released: Wake | null = null;
       // v0.12 W2-E
       let replies: InboundReply[] = [];
+      // v0.14 capture: the attachments to fetch once this transaction commits.
+      let capture: CaptureParams | null = null;
       await withTenant(services.db, tenantId, async (tx) => {
         const { row, config } = await verified(tx, c, tenantId, form, "messages");
         // A card number in a text is never stored (PCI DSS 3.3, docs/plan.md §1.35).
@@ -174,6 +190,42 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
             return;
           }
         }
+        // v0.14 capture: a WhatsApp message belongs to its contact's conversation, made on the
+        // first message (the contact too, as below), whose setting decides what the record keeps:
+        // the text or not, and which attachments to fetch (docs/plan.md §1.55).
+        let conv: ConversationRow | null = null;
+        let knownBefore: boolean | null = null;
+        if (msg.channel === "whatsapp") {
+          let who = await findContactByNumber(tx, tenantId, "whatsapp", msg.from);
+          knownBefore = who !== null;
+          who ??= await createContact(
+            tx,
+            tenantId,
+            { name: msg.profileName?.trim() || msg.from, whatsapp: msg.from },
+            null,
+            now,
+          );
+          conv = await ensureDirectConversation(tx, {
+            tenantId,
+            connectionId: row.id,
+            channel: "whatsapp",
+            contactId: who.id,
+            title: who.name,
+            knownContact: knownBefore,
+          });
+        }
+        const setting = conv ? (conv.capture as ConversationCapture) : null;
+        const archive = setting?.archive ?? true;
+        const kept: StoredCapture | null =
+          conv && setting
+            ? {
+                conversationId: conv.id,
+                archive,
+                wanted: msg.media
+                  .filter((m) => m.mediaSid && captureAllows(setting, m.contentType))
+                  .map((m) => m.index),
+              }
+            : null;
         const [stored] = await tx
           .insert(rawRecord)
           .values({
@@ -188,10 +240,13 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
               channel: msg.channel,
               from: msg.from,
               to: msg.to,
-              text: msg.text,
+              // v0.14 capture: with archiving off, only the envelope is kept.
+              text: archive ? msg.text : "",
               numMedia: msg.numMedia,
+              // Index, declared type and media SID: never Twilio's link.
               media: msg.media,
               profileName: msg.profileName,
+              ...(kept ? { capture: kept } : {}),
             },
             syncedAt: now,
           })
@@ -199,9 +254,20 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
           .returning({ id: rawRecord.id });
         // Delivered before (Twilio retries, or a replay): acknowledged, nothing more.
         if (!stored) return;
+        if (kept && kept.wanted.length > 0) {
+          capture = {
+            tenantId,
+            connectionId: row.id,
+            rawRecordId: stored.id,
+            messageSid: msg.sid,
+            indexes: kept.wanted,
+            reason: "inbound",
+          };
+        }
 
         let contactRow = await findContactByNumber(tx, tenantId, msg.channel, msg.from);
-        const knownContact = contactRow !== null;
+        // v0.14 capture: a WhatsApp contact made above for this message is still a stranger.
+        const knownContact = knownBefore ?? contactRow !== null;
         if (!contactRow) {
           // DECISION: someone not yet a contact becomes one, with no consent, so their thread and
           // any STOP are kept; consent still has to be given before anyone texts them.
@@ -223,7 +289,8 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
         const body: ThreadMessageBody = {
           direction: "in",
           channel: msg.channel,
-          text: msg.text,
+          // v0.14 capture: not kept when the conversation keeps no text.
+          text: archive ? msg.text : "",
           sid: msg.sid,
           rawRecordId: stored.id,
           status: null,
@@ -278,12 +345,29 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
             now,
             registry: services.platform.events,
             collect,
+            // v0.14 capture: the conversation's agent hears of the message after its downloads.
+            skipAgentId: setting && kept ? captureAgentOf(setting, kept.wanted) : null,
           });
         }
       });
       if (collect.length > 0) {
         c.get("req").deferred.push(() =>
           dispatchEvents({ db: services.db, instances: services.instances }, collect),
+        );
+      }
+      // v0.14 capture: the attachments are fetched after the commit, as a durable job.
+      if (capture) {
+        const params: CaptureParams = capture;
+        c.get("req").deferred.push(() =>
+          captureJobsFor(
+            services.env,
+            captureDepsFor({
+              db: services.db,
+              env: services.env,
+              deps: services.deps,
+              platform: services.platform,
+            }),
+          ).start(params),
         );
       }
       // v0.12 W2-E: the fixed replies go after the commit.
