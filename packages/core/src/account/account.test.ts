@@ -7,6 +7,7 @@ import { forbiddenPortalFields } from "../api/contract";
 import type { ApproverRule } from "../approvals/rules";
 import { LOCALES } from "../i18n/locale";
 import { AgentBundle, type AgentBundleInput } from "../schemas/agent";
+import { AutomationDefinition } from "../schemas/automation";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import {
@@ -218,6 +219,37 @@ function bundle(over: {
 }
 
 describe("the account agent's publish guard", () => {
+  it("looks inside the automations its use steps pin", () => {
+    const b = bundle({});
+    const w = b.workflows[0];
+    if (!w) throw new Error("no workflow");
+    w.workflow.steps = [
+      {
+        id: "use",
+        name: "Use",
+        kind: "use_automation",
+        automation: "fix-it@1",
+        input: {},
+      } as never,
+    ];
+    const automation = AutomationDefinition.parse({
+      schemaVersion: 1,
+      slug: "fix-it",
+      name: "Fix it",
+      steps: [{ id: "write", name: "Write", kind: "action", tool: "testkit.record.update" }],
+    });
+    const errors = accountAgentProblems({
+      slug: "supervisor",
+      bundle: b,
+      skills: SKILLS,
+      tools: TOOLS,
+      automations: { "fix-it@1": automation },
+    });
+    expect(errors.map((e) => [e.stepId, e.field, e.code])).toEqual([
+      ["use", "automation", "tool_not_allowed"],
+    ]);
+  });
+
   it("refuses connector and external tools wherever they appear, and any binding", () => {
     const errors = accountAgentProblems({
       slug: "supervisor",

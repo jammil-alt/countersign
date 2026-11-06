@@ -5,9 +5,11 @@
 // connection binding: Sloan sees only what the portal shows and writes only internal records.
 
 import type { AgentBundle } from "../schemas/agent";
+import type { AutomationDefinition } from "../schemas/automation";
 import { parseSkillRef } from "../schemas/common";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
+import type { Step } from "../schemas/workflow";
 import { ACCOUNT_AGENT_SLUG } from "../threads/schemas";
 import type { ValidationError } from "../workflow/validate";
 import { walkSteps } from "../workflow/walk";
@@ -41,6 +43,8 @@ export function accountAgentProblems(input: {
   skills: Readonly<Record<string, SkillDefinition>>;
   tools: Readonly<Record<string, ToolSpec>>;
   bindings?: Readonly<Record<string, string>> | undefined;
+  /** The automations its use steps pin, by reference (W2-B). */
+  automations?: Readonly<Record<string, AutomationDefinition>> | undefined;
 }): ValidationError[] {
   const { bundle, tools } = input;
   if (!isAccountAgent(input.slug, bundle)) return [];
@@ -65,12 +69,24 @@ export function accountAgentProblems(input: {
       refuse(id, `definition.skills.${i}.skill`, null);
     }
   });
+  /** A step's tools: an action's, a skill's; `at` is the bundle's step that holds it. */
+  const check = (step: Step, at: { id: string; field: string }, slug: string) => {
+    if (step.kind === "action") refuse(step.tool, at.field || "tool", at.id, slug);
+    if (step.kind === "skill") {
+      const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
+      for (const id of skill ? skillTools(skill) : []) refuse(id, at.field || "skill", at.id, slug);
+    }
+  };
   for (const w of bundle.workflows) {
     walkSteps(w.workflow, ({ step }) => {
-      if (step.kind === "action") refuse(step.tool, "tool", step.id, w.slug);
-      if (step.kind === "skill") {
-        const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
-        for (const id of skill ? skillTools(skill) : []) refuse(id, "skill", step.id, w.slug);
+      check(step, { id: step.id, field: "" }, w.slug);
+      // v0.12 W2-B: an automation's steps count as the use step's own.
+      if (step.kind === "use_automation") {
+        const automation = input.automations?.[step.automation];
+        if (!automation) return;
+        walkSteps({ steps: automation.steps }, ({ step: inner }) => {
+          check(inner, { id: step.id, field: "automation" }, w.slug);
+        });
       }
     });
   }
