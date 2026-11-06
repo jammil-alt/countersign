@@ -315,6 +315,37 @@ CASA):
 - Then switch the consent screen to "In production" and submit for verification. Refresh tokens
   stop expiring after 7 days once it is in production.
 
+### Google Drive and Outlook (W3-B, M29)
+
+Built against fakes only; what we couldn't check is under "To verify" in
+`packages/connectors/src/gdrive/NOTES.md` and `packages/connectors/src/outlook/NOTES.md`. Both are
+registered everywhere and show "Not available yet" until their keys are set.
+
+Google Drive uses the same Google project and OAuth client as Gmail ("Mezonas web"):
+1. Enable the Google Drive API in the project `mezonas`.
+2. Add the scope `https://www.googleapis.com/auth/drive.file` to the consent screen (non-sensitive:
+   only the files Mezonas makes).
+3. Add the redirect URIs `https://staging.mezonas.com/connections/gdrive/callback`,
+   `https://app.mezonas.com/connections/gdrive/callback` and
+   `http://localhost:8787/connections/gdrive/callback` to the client.
+4. Drive's disconnect drops our tokens without revoking at Google, so it can't end a Gmail
+   connection made by the same Google account on the shared client (plan §1.52). To have it revoke,
+   give Drive an OAuth client of its own (two more secrets) and turn the revoke back on.
+
+Outlook needs an Entra app of Mezonas' own:
+1. A multi-tenant app registration "Mezonas" (supported accounts: any organizational directory and
+   personal Microsoft accounts), web platform, redirect URIs
+   `https://staging.mezonas.com/connections/outlook/callback`,
+   `https://app.mezonas.com/connections/outlook/callback` and
+   `http://localhost:8787/connections/outlook/callback`.
+2. Delegated API permissions `Mail.Send`, `openid`, `email`, `offline_access` (remove the default
+   `User.Read` if it can be; the connector accepts it but never uses it). No read permission.
+3. A client secret (note its expiry, 24 months at most) as the Worker secrets
+   `OUTLOOK_CLIENT_ID` (the application id) and `OUTLOOK_CLIENT_SECRET`, copied like the
+   others once `deploy.yml` is wired (its own PR).
+4. Publisher verification (a Microsoft Partner Network id tied to mezonas.com), so work tenants
+   show a verified publisher and allow their users to consent.
+
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
@@ -345,6 +376,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
+- Google Drive (W3-B, plan §1.52) needs no new secret: it signs in with `GOOGLE_CLIENT_ID` and
+  `GOOGLE_CLIENT_SECRET` (see "Google Drive and Outlook" above) and `OAUTH_STATE_SECRET`.
+- Needed by the Outlook connector (W3-B, plan §1.52), the same way: `OUTLOOK_CLIENT_ID` and
+  `OUTLOOK_CLIENT_SECRET` (the Entra app's application id and a client secret, redirect URI
+  `<APP_ORIGIN>/connections/outlook/callback`). Wiring them into `deploy.yml` is its own PR. Until
+  both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -410,7 +447,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook; not yet in `deploy.yml`) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
