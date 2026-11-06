@@ -112,8 +112,49 @@ describe("portal settings in Spanish", () => {
     });
     renderAt("/settings", api);
     expect(await screen.findByRole("heading", { name: "Ajustes" })).toBeInTheDocument();
+    // UI-3a: the team has its own page; Settings links to it with the count.
     expect(await screen.findByText("1 persona usa su portal.")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-users-admin@demo.example.com")).toHaveTextContent(
+    const emails = screen.getByTestId("portal-settings-notifications");
+    expect(emails).toHaveTextContent("Resumen semanal");
+    expect(within(emails).getByTestId("portal-notifications-off")).toHaveTextContent(
+      "Los correos llegarán pronto",
+    );
+    expect(within(emails).getByTestId("portal-notifications-save")).toHaveTextContent("Guardar");
+    expect(screen.getByTestId("portal-settings-approvals")).toHaveTextContent(
+      "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
+    );
+  });
+
+  it("lists the team and invites in Spanish", async () => {
+    const users = [
+      {
+        userId: "u-1",
+        email: "admin@demo.example.com",
+        name: null,
+        role: "client_admin",
+        signedIn: null,
+      },
+    ];
+    const api = portalApi("es", {
+      "GET /api/users": () => ({ users }),
+      "GET /api/team": () => ({ members: [], settings: { undoSeconds: 0 } }),
+      "POST /api/users": ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        const added = {
+          userId: "u-2",
+          email: body.email,
+          name: null,
+          role: body.role,
+          signedIn: false,
+        };
+        users.push(added as unknown as (typeof users)[number]);
+        return { member: added, email: { status: "sent", reason: null } };
+      },
+    });
+    renderAt("/settings/team", api);
+    expect(await screen.findByRole("heading", { name: "Equipo" })).toBeInTheDocument();
+    expect(await screen.findByText("1 persona usa su portal.")).toBeInTheDocument();
+    expect(screen.getByTestId("portal-team-admin@demo.example.com")).toHaveTextContent(
       "Administrador",
     );
     const form = screen.getByTestId("portal-invite");
@@ -128,15 +169,6 @@ describe("portal settings in Spanish", () => {
       "Enviamos una invitación a ana@demo.example.com.",
     );
     expect(await screen.findByText("2 personas usan su portal.")).toBeInTheDocument();
-    const emails = screen.getByTestId("portal-settings-notifications");
-    expect(emails).toHaveTextContent("Resumen semanal");
-    expect(within(emails).getByTestId("portal-notifications-off")).toHaveTextContent(
-      "Los correos llegarán pronto",
-    );
-    expect(within(emails).getByTestId("portal-notifications-save")).toHaveTextContent("Guardar");
-    expect(screen.getByTestId("portal-settings-approvals")).toHaveTextContent(
-      "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
-    );
   });
 });
 
@@ -232,8 +264,10 @@ describe("records and documents", () => {
     expect(page).toHaveTextContent("Noch kein Dokument verknüpft.");
     // The memo is the tool's own words.
     expect(page).toHaveTextContent("Sheet goods");
-    // The way back (the sidebar has the same link).
-    expect(screen.getAllByRole("link", { name: "Abläufe" })).toHaveLength(2);
+    // The way back: the records list (UI-3a).
+    expect(
+      screen.getAllByRole("link", { name: "Einträge" }).map((a) => a.getAttribute("href")),
+    ).toContain("/records");
   });
 
   it("says in Spanish when an id is no record", async () => {
@@ -298,7 +332,10 @@ describe("records and documents", () => {
       `/records/${TXN}`,
     );
     expect(screen.getByTestId("portal-document-original")).toHaveTextContent("Abrir el original");
-    expect(screen.getAllByRole("link", { name: "Cuentas" })).toHaveLength(2);
+    // The way back: the documents on Upload (UI-3a).
+    expect(
+      screen.getAllByRole("link", { name: "Documentos" }).map((a) => a.getAttribute("href")),
+    ).toContain("/upload");
   });
 });
 
