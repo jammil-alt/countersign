@@ -5,6 +5,7 @@ import { DEFAULT_PERMISSIONS, type PermissionMatrix } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { createBrowserConnector } from "./browser/index";
 import type { Connector } from "./connector";
+import { createGchatConnector } from "./gchat/index";
 import { createGdriveConnector } from "./gdrive/index";
 import { createGmailConnector } from "./gmail/index";
 import { createOutlookConnector } from "./outlook/index";
@@ -40,6 +41,8 @@ const ALL: Connector[] = [
   // v0.12 W3-B
   createGdriveConnector(),
   createOutlookConnector(),
+  // v0.14 W4-E
+  createGchatConnector(),
 ];
 
 const qbo = createQboConnector().manifest;

@@ -10,6 +10,8 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
+// v0.14 W4-E
+import { GchatSetup } from "../../connections/GchatSetup";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { WebhookSetup } from "../../connections/WebhookSetup";
 import type { PlainKey } from "../../i18n/catalog";
@@ -119,6 +121,12 @@ export function PortalConnectionsScreen() {
                 .map((c) => (
                   <WebhookSetup key={c.connector} connectionId={c.connection?.id ?? ""} />
                 ))
+            : null}
+          {/* v0.14 W4-E: Google Chat's spaces and binding code, for the client admin. */}
+          {isAdmin
+            ? connected
+                .filter((c) => c.connector === "gchat" && c.connection)
+                .map((c) => <GchatSetup key={c.connector} connectionId={c.connection?.id ?? ""} />)
             : null}
 
           {withRows.length > 0 ? (

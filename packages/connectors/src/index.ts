@@ -2,9 +2,10 @@
 // permissions, credential encryption, shared OAuth plumbing and object storage. Connectors: `upload`
 // (uploads, purchase CSVs and email forwarding), `browser` (website logins, signed in by code),
 // `webhook` (in and out, for Zapier/Make/n8n), `gmail` (send only), `qbo` (QuickBooks Online),
-// `zoho_crm`, `podio`, `gdrive` (Google Drive, only the files we make), `outlook` (send only), and
-// `testkit`, the test connector. Also `stripe/`, Mezonas' own billing client (not a connector: no
-// manifest, no agent tools).
+// `zoho_crm`, `podio`, `gdrive` (Google Drive, only the files we make), `outlook` (send only),
+// `gchat` (Google Chat, posts to the spaces a client binds; v0.14 W4-E), and `testkit`, the test
+// connector. Also `stripe/`, Mezonas' own billing client (not a connector: no manifest, no agent
+// tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
@@ -13,6 +14,8 @@ export * from "./connector";
 export * from "./credentials";
 export * from "./credentials-accessor";
 export * from "./elevenlabs/index";
+// v0.14 W4-E
+export * from "./gchat/index";
 export * from "./gdrive/index";
 export * from "./gdrive/path";
 export * from "./gmail/index";

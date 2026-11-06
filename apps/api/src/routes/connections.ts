@@ -10,6 +10,8 @@ import {
   type ConnectionRef,
   type Connector,
   completeAuthorization,
+  // v0.14 W4-E
+  GCHAT_CONNECTOR_ID,
   GMAIL_CONNECTOR_ID,
   GmailApiError,
   GmailNoAddressError,
@@ -76,7 +78,8 @@ export async function connectNoAuth(
 ): Promise<string> {
   const { tenantId } = input;
   const connector = input.platform.connectors.get(input.connector);
-  if (connector?.manifest.auth !== "none") {
+  // v0.14 W4-E: `canSignIn` also asks the deployment (Google Chat needs its app's keys).
+  if (connector?.manifest.auth !== "none" || !canSignIn(connector)) {
     throw new HttpError(
       409,
       "not_available",
@@ -265,6 +268,8 @@ export async function disconnect(
   }
   // The vault's read model of the credentials goes with them (docs/plan.md §1.26).
   const { vault: _vault, ...config } = row.config as Record<string, unknown>;
+  // v0.14 W4-E: a disconnected Google Chat keeps no space, so another client may bind them later.
+  if (row.connector === GCHAT_CONNECTOR_ID) config.spaces = [];
   await tx
     .update(connection)
     .set({ status: "disconnected", credentialsEncrypted: null, config })

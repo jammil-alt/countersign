@@ -2,8 +2,8 @@
 // client's data to, and whether a client in HIPAA mode may use it. A processor may receive a HIPAA
 // client's data only when it is listed in `BAA_PROCESSORS` (a Worker variable the owner sets once
 // that vendor's BAA is signed). The client's own tools (QuickBooks, Gmail, Zoho CRM, Podio, its
-// webhook endpoints, the sites of its browser logins) are the client's vendors, not ours: they are
-// not processors here.
+// webhook endpoints, the sites of its browser logins, its Google Chat: v0.14 W4-E) are the
+// client's vendors, not ours: they are not processors here.
 
 import { z } from "zod";
 

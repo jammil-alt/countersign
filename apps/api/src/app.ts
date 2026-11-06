@@ -43,6 +43,8 @@ import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
+// v0.14 W4-E: Google Chat
+import { gchatRoutes } from "./routes/gchat";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -170,6 +172,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   triggerRouteHandlers(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // v0.14 W4-E: Google Chat's events and the portal's card
+  gchatRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

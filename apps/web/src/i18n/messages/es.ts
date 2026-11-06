@@ -1154,4 +1154,22 @@ export const es: Messages = {
     one: "{count} persona",
     other: "{count} personas",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · espacios",
+  "gchat.spacesTitle": "Espacios conectados",
+  "gchat.help":
+    "Los agentes publican solo en estos espacios y solo después de que usted apruebe cada mensaje. No podemos leer sus mensajes.",
+  "gchat.noSpaces": "Aún no hay espacios conectados.",
+  "gchat.groupChat": "Chat de grupo",
+  "gchat.boundBy": "Conectado {time} por {name}",
+  "gchat.boundAt": "Conectado {time}",
+  "gchat.codeTitle": "Conectar un espacio",
+  "gchat.steps":
+    "En Google Chat, agregue Mezonas al espacio y envíe allí este mensaje. El código funciona una sola vez.",
+  "gchat.codeExpires": "Válido hasta {time}.",
+  "gchat.codeWaiting": "Hay un código válido hasta {time}. Si no lo tiene, pida uno nuevo.",
+  "gchat.getCode": "Obtener un código",
+  "gchat.newCode": "Obtener un código nuevo",
+  "gchat.adminAllow":
+    "¿No encuentra Mezonas en Google Chat? El administrador de Google Workspace debe permitir la app.",
 };

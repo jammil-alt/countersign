@@ -1117,4 +1117,22 @@ export const en = {
     one: "{count} person",
     other: "{count} people",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · spaces",
+  "gchat.spacesTitle": "Connected spaces",
+  "gchat.help":
+    "Agents post only in these spaces, and only after you approve each post. We can't read your messages.",
+  "gchat.noSpaces": "No spaces connected yet.",
+  "gchat.groupChat": "Group chat",
+  "gchat.boundBy": "Connected {time} by {name}",
+  "gchat.boundAt": "Connected {time}",
+  "gchat.codeTitle": "Connect a space",
+  "gchat.steps":
+    "In Google Chat, add Mezonas to the space, then send this message there. The code works once.",
+  "gchat.codeExpires": "Works until {time}.",
+  "gchat.codeWaiting": "A code is waiting until {time}. If you don't have it, get a new one.",
+  "gchat.getCode": "Get a code",
+  "gchat.newCode": "Get a new code",
+  "gchat.adminAllow":
+    "Can't find Mezonas in Google Chat? Your Google Workspace admin needs to allow the app.",
 } as const;

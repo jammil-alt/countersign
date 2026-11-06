@@ -19,6 +19,8 @@ import {
   type Connector,
   ConnectorRegistry,
   createBrowserConnector,
+  // v0.14 W4-E
+  createGchatConnector,
   createGdriveConnector,
   createGmailConnector,
   createOutlookConnector,
@@ -157,7 +159,10 @@ type OAuthEnvKey =
   | "GOOGLE_CLIENT_SECRET"
   // v0.12 W3-B: Outlook's Entra app.
   | "OUTLOOK_CLIENT_ID"
-  | "OUTLOOK_CLIENT_SECRET";
+  | "OUTLOOK_CLIENT_SECRET"
+  // v0.14 W4-E: the Google Chat app.
+  | "GOOGLE_CHAT_SERVICE_ACCOUNT"
+  | "GOOGLE_CHAT_PROJECT_NUMBER";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -175,6 +180,9 @@ export function platformFor(
     env.GOOGLE_CLIENT_ID ?? "-",
     // v0.12 W3-B
     env.OUTLOOK_CLIENT_ID ?? "-",
+    // v0.14 W4-E: whether the key is set, never the key.
+    env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
+    env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -243,6 +251,12 @@ export function deploymentConnectors(
         ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
         : {},
     ),
+    // v0.14 W4-E: Google Chat, the app of Mezonas' own: registered everywhere; a client connects it
+    // once GOOGLE_CHAT_SERVICE_ACCOUNT and GOOGLE_CHAT_PROJECT_NUMBER are set.
+    createGchatConnector({
+      serviceAccount: env.GOOGLE_CHAT_SERVICE_ACCOUNT,
+      projectNumber: env.GOOGLE_CHAT_PROJECT_NUMBER,
+    }),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),
