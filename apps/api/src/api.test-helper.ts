@@ -34,6 +34,8 @@ import { createPlatform, type Platform } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
+// v0.12 W2-C
+import type { TestSuiteJobs } from "./testbench/instances";
 
 export interface Client {
   tenantId: string;
@@ -135,6 +137,9 @@ export interface HarnessOptions {
   exports?: ExportJobs;
   /** The MCP server's authorization server, audit, rate limit and clock (fakes). */
   mcp?: McpDeps;
+  // v0.12 W2-C
+  /** Test suite jobs (in memory); none by default. */
+  testSuites?: TestSuiteJobs;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -176,6 +181,8 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     qboSync: () => options.qboSync ?? null,
     exports: () => options.exports ?? null,
     ...(options.mcp ? { mcp: options.mcp } : {}),
+    // v0.12 W2-C
+    ...(options.testSuites ? { testSuites: () => options.testSuites as TestSuiteJobs } : {}),
   });
   const env = {
     ENVIRONMENT: "development",

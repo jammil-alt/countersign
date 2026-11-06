@@ -591,6 +591,12 @@ its 30 days end (the deletion waits for an export being built, up to a day). Cli
 their accountant export and their own audit log from `/api/exports/accountant` and
 `/api/exports/audit` (`?from=YYYY-MM-DD&to=YYYY-MM-DD`).
 
+**Test suites.** `POST /api/ops/tests/run` runs a skill's or template's test cases as its own
+Workflow, `TestSuiteWorkflow` (binding `TEST_SUITE_WORKFLOW`; `mezonas-staging-test-suite` on
+staging), which wrangler creates on the next deploy. Skill cases call the model live (they need
+`ANTHROPIC_API_KEY`) and never reach a client's tools; template cases are test runs in the Sandbox
+client.
+
 **The audit log and access review** are at `/ops/audit` (operators only). Review access every
 quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
 date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must

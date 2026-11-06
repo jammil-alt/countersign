@@ -48,6 +48,8 @@ import {
 } from "./runs-filter";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
+// v0.12 W2-C: the test bench
+import { testbenchRoutes } from "./testbench";
 // v0.12 W1-C: threads, the lead and `/commands`
 import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
@@ -1836,6 +1838,8 @@ export const routes = {
   ...automationRoutes,
   // v0.12 W1-C
   ...threadRoutes,
+  // v0.12 W2-C: the test bench, skill tests and the agent lab
+  ...testbenchRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions
   ...commandCenterRoutes,
   // v0.12 W2-E
