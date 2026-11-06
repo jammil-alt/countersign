@@ -42,7 +42,17 @@
   "workflows": [
     { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
     { "name": "mezonas-local-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
-    { "name": "mezonas-local-export", "binding": "EXPORT_WORKFLOW", "class_name": "ExportWorkflow" }
+    {
+      "name": "mezonas-local-export",
+      "binding": "EXPORT_WORKFLOW",
+      "class_name": "ExportWorkflow"
+    },
+    // v0.12 W2-C: one instance per test suite run (docs/plan.md §1.46).
+    {
+      "name": "mezonas-local-test-suite",
+      "binding": "TEST_SUITE_WORKFLOW",
+      "class_name": "TestSuiteWorkflow"
+    }
   ],
 
   // Non-secret configuration. Secrets (WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD, ANTHROPIC_API_KEY,
@@ -87,6 +97,11 @@
           "name": "mezonas-staging-export",
           "binding": "EXPORT_WORKFLOW",
           "class_name": "ExportWorkflow"
+        },
+        {
+          "name": "mezonas-staging-test-suite",
+          "binding": "TEST_SUITE_WORKFLOW",
+          "class_name": "TestSuiteWorkflow"
         }
       ],
       // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
@@ -126,7 +141,12 @@
       "workflows": [
         { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
         { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
-        { "name": "mezonas-export", "binding": "EXPORT_WORKFLOW", "class_name": "ExportWorkflow" }
+        { "name": "mezonas-export", "binding": "EXPORT_WORKFLOW", "class_name": "ExportWorkflow" },
+        {
+          "name": "mezonas-test-suite",
+          "binding": "TEST_SUITE_WORKFLOW",
+          "class_name": "TestSuiteWorkflow"
+        }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
       "ratelimits": [

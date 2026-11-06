@@ -44,6 +44,8 @@ import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { workerTransport } from "./runs/execute";
 import { type RunInstances, workflowInstances } from "./runs/instances";
+// v0.12 W2-C
+import type { TestSuiteJobs } from "./testbench/instances";
 
 // ── Dependencies and per-request state ───────────────────────────────────────────────────────────
 
@@ -72,6 +74,9 @@ export interface AppDeps {
   qboSync?(env: Bindings): QboSyncInstances | null;
   /** Client data exports (ExportWorkflow); default the EXPORT_WORKFLOW binding. Tests pass memory. */
   exports?(env: Bindings): ExportJobs | null;
+  // v0.12 W2-C
+  /** Test suites (TestSuiteWorkflow); default the TEST_SUITE_WORKFLOW binding. Tests pass their own. */
+  testSuites?(env: Bindings): TestSuiteJobs | null;
   /** The MCP server's authorization server, audit, rate limit and clock; tests pass fakes. */
   mcp?: McpDeps;
 }

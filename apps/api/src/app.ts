@@ -39,6 +39,8 @@ import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
+// v0.12 W2-C: the test bench, skill tests and the agent lab
+import { labRoutes } from "./routes/lab";
 import { languageRouteHandlers } from "./routes/language";
 import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
@@ -64,6 +66,8 @@ import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
+// v0.12 W2-C
+import { testbenchRoutes } from "./routes/testbench";
 // v0.12 W1-C
 import { threadRouteHandlers } from "./routes/threads";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
@@ -138,6 +142,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsAutomationRoutes(app);
   // v0.12 W1-C
   threadRouteHandlers(app);
+  // v0.12 W2-C: the test bench, skill tests and the agent lab
+  testbenchRoutes(app);
+  labRoutes(app);
   // v0.12 W2-F: the command center, search and plain-words questions
   commandCenterRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
