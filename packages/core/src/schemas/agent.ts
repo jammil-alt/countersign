@@ -1,4 +1,6 @@
 import { z } from "zod";
+// v0.12 W2-G
+import { ClientView } from "../kpi/schema";
 import { DecimalString } from "../money";
 import { PersonRole } from "../reach/rules";
 import { SkillRef, Slug, ToolId } from "./common";
@@ -49,6 +51,9 @@ export const AgentDefinition = z
       })
       .prefault({}),
     memory: z.object({ enabled: z.boolean().default(true) }).prefault({}),
+    // v0.12 W2-G: what the client sees of this agent (ARCHITECTURE §9.9). Optional with no
+    // default, so bundles without it parse and hash as they were.
+    clientView: ClientView.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

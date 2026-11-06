@@ -1,7 +1,8 @@
 // Exports (docs/plan.md §1.36): the client data export (operator: start one, list them with a
-// short-lived link), the accountant export (client admin and operator) and the client's audit log
-// (client admin). Every request is audited by mount(); each export also writes its own audit row
-// naming what it covered, and starting a client data export is logged in the client's change log.
+// short-lived link) and the accountant export (client admin and operator); the client's audit log
+// is routes/audit-export.ts (W2-G). Every request is audited by mount(); each export also writes
+// its own audit row naming what it covered, and starting a client data export is logged in the
+// client's change log.
 
 import { SIGNED_URL_TTL_SECONDS } from "@countersign/connectors";
 import { type ClientExport, routes, uuidv7 } from "@countersign/core";
@@ -12,7 +13,7 @@ import { auditInTx } from "../audit";
 import type { Bindings } from "../env";
 import { exportFilename } from "../exports/client-data";
 import { type ExportJobs, exportJobs } from "../exports/instances";
-import { accountantExport, auditExport } from "../exports/period";
+import { accountantExport } from "../exports/period";
 import { type ExportManifest, exportRunning, listManifests, writeManifest } from "../exports/store";
 import {
   type AppContext,
@@ -95,7 +96,7 @@ async function exportView(
 
 /** The export's own audit row, beside mount's: what it covered. */
 async function auditExportRow(
-  ctx: Pick<HandlerCtx<typeof routes.portalAuditExport>, "c" | "tx" | "session">,
+  ctx: Pick<HandlerCtx<typeof routes.portalAccountantExport>, "c" | "tx" | "session">,
   tenantId: string,
   action: string,
   target: Record<string, string>,
@@ -238,16 +239,5 @@ export function exportRoutes(app: Hono<AppEnv>): void {
     },
   );
 
-  // ── The client's audit log (client admin) ─────────────────────────────────────────────────────
-
-  mountFile(app, routes.portalAuditExport, async ({ c, tx, tenantIds, query, session }) => {
-    const tenantId = tenantIds[0] as string;
-    const file = await auditExport(tx, tenantId, query);
-    await auditExportRow({ c, tx, session }, tenantId, "export.audit", {
-      from: query.from,
-      to: query.to,
-      rows: String(file.rows),
-    });
-    return file;
-  });
+  // v0.12 W2-G: the client's audit log is routes/audit-export.ts (ARCHITECTURE §11.7).
 }

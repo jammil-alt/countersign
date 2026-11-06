@@ -51,7 +51,8 @@ function numbers(counts: NotificationCounts, locale: Locale, weekStart?: string)
     n: fmt.format(counts.items ?? counts.messages ?? 0),
     runs: fmt.format(counts.runs ?? 0),
     changes: fmt.format(counts.changes ?? 0),
-    credits: fmt.format((counts.block ?? 0) * CREDITS_BLOCK),
+    // v0.12 W2-G: the count the billing pass gives, else the block × 2,500.
+    credits: fmt.format(counts.credits ?? (counts.block ?? 0) * CREDITS_BLOCK),
     week,
   };
 }
