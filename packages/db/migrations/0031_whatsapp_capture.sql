@@ -24,7 +24,7 @@ CREATE TABLE "conversation" (
 	CONSTRAINT "conversation_shape_check" CHECK (("conversation"."kind" = 'direct' and "conversation"."contact_id" is not null and "conversation"."external_id" is null) or ("conversation"."kind" = 'group' and "conversation"."external_id" is not null)),
 	CONSTRAINT "conversation_title_check" CHECK (length("conversation"."title") between 1 and 200),
 	CONSTRAINT "conversation_external_id_check" CHECK ("conversation"."external_id" is null or length("conversation"."external_id") between 1 and 200),
-	CONSTRAINT "conversation_capture_check" CHECK (jsonb_typeof("conversation"."capture") = 'object' and jsonb_typeof("conversation"."capture"->'archive') = 'boolean' and "conversation"."capture"->>'attachments' in ('off', 'documents', 'all') and case when jsonb_typeof("conversation"."capture"->'maxBytes') = 'number' then ("conversation"."capture"->>'maxBytes')::numeric between 1 and 33554432 else false end)
+	CONSTRAINT "conversation_capture_check" CHECK (jsonb_typeof("conversation"."capture") = 'object' and coalesce(jsonb_typeof("conversation"."capture"->'archive') = 'boolean', false) and coalesce("conversation"."capture"->>'attachments' in ('off', 'documents', 'all'), false) and case when jsonb_typeof("conversation"."capture"->'maxBytes') = 'number' then ("conversation"."capture"->>'maxBytes')::numeric between 1 and 33554432 else false end)
 );
 --> statement-breakpoint
 CREATE TABLE "conversation_change" (

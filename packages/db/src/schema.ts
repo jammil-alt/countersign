@@ -3158,7 +3158,7 @@ export const conversation = pgTable(
     ),
     check(
       "conversation_capture_check",
-      sql`jsonb_typeof(${t.capture}) = 'object' and jsonb_typeof(${t.capture}->'archive') = 'boolean' and ${t.capture}->>'attachments' in ('off', 'documents', 'all') and case when jsonb_typeof(${t.capture}->'maxBytes') = 'number' then (${t.capture}->>'maxBytes')::numeric between 1 and 33554432 else false end`,
+      sql`jsonb_typeof(${t.capture}) = 'object' and coalesce(jsonb_typeof(${t.capture}->'archive') = 'boolean', false) and coalesce(${t.capture}->>'attachments' in ('off', 'documents', 'all'), false) and case when jsonb_typeof(${t.capture}->'maxBytes') = 'number' then (${t.capture}->>'maxBytes')::numeric between 1 and 33554432 else false end`,
     ),
   ],
 );

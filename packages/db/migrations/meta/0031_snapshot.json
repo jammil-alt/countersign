@@ -4578,7 +4578,7 @@
         },
         "conversation_capture_check": {
           "name": "conversation_capture_check",
-          "value": "jsonb_typeof(\"conversation\".\"capture\") = 'object' and jsonb_typeof(\"conversation\".\"capture\"->'archive') = 'boolean' and \"conversation\".\"capture\"->>'attachments' in ('off', 'documents', 'all') and case when jsonb_typeof(\"conversation\".\"capture\"->'maxBytes') = 'number' then (\"conversation\".\"capture\"->>'maxBytes')::numeric between 1 and 33554432 else false end"
+          "value": "jsonb_typeof(\"conversation\".\"capture\") = 'object' and coalesce(jsonb_typeof(\"conversation\".\"capture\"->'archive') = 'boolean', false) and coalesce(\"conversation\".\"capture\"->>'attachments' in ('off', 'documents', 'all'), false) and case when jsonb_typeof(\"conversation\".\"capture\"->'maxBytes') = 'number' then (\"conversation\".\"capture\"->>'maxBytes')::numeric between 1 and 33554432 else false end"
         }
       },
       "isRLSEnabled": false
