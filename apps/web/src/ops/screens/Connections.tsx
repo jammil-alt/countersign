@@ -38,12 +38,17 @@ export function OpsConnectionsScreen() {
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientConnections, {
     params: { id: clientId },
   });
+  // v0.12 W2-A: each connector's record types, for the matrix's entity rows.
+  const catalog = useApi(apiRoutes.opsConnectors);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!data) return null;
 
   const names = Object.fromEntries(data.connectors.map((c) => [c.id, c.name]));
+  const entitiesOf = Object.fromEntries(
+    (catalog.data?.connectors ?? []).map((c) => [c.id, c.permissionEntities]),
+  );
   return (
     <div>
       <PageHeader
@@ -112,6 +117,7 @@ export function OpsConnectionsScreen() {
               id: c.id,
               name: names[c.connector] ?? c.connector,
               permissions: c.permissions,
+              entities: entitiesOf[c.connector],
             }))}
             onSave={async (id, edit) => {
               await api.call(apiRoutes.opsUpdateConnection, {

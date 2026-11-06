@@ -19,6 +19,7 @@ import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
+import { OpsConnectorsScreen } from "./screens/Connectors";
 import { OpsDocumentScreen, OpsDocumentsScreen } from "./screens/Documents";
 import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
@@ -82,6 +83,8 @@ function OpsBackOffice() {
         <Route path="requests" element={<OpsRequestsScreen />} />
         <Route path="billing" element={<OpsBillingScreen />} />
         <Route path="browser-sites" element={<OpsBrowserSitesScreen />} />
+        {/* v0.12 W2-A: the connectors catalog */}
+        <Route path="connectors" element={<OpsConnectorsScreen />} />
         <Route path="feedback" element={<OpsFeedbackScreen />} />
         <Route path="audit" element={<OpsAuditScreen />} />
         <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />

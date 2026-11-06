@@ -59,6 +59,7 @@ function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinitio
   const plural = entity === "Bill" ? "bills" : "purchases";
   return defineReadTool({
     id: entity === "Bill" ? QBO_TOOLS.billQuery : QBO_TOOLS.purchaseQuery,
+    entity: entity === "Bill" ? "bill" : "purchase",
     description:
       entity === "Bill"
         ? "Find bills in QuickBooks by id, vendor, number or date, with their lines and SyncToken."
@@ -212,6 +213,7 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
   const word = entity === "Bill" ? "bill" : "purchase";
   return defineWriteTool({
     id: entity === "Bill" ? QBO_TOOLS.billUpdateLines : QBO_TOOLS.purchaseUpdateLines,
+    entity: word,
     description: `Itemize a QuickBooks ${word}: replace lines (usually its one account line) with the invoice's item lines. The total must stay the same, or the change is refused.`,
     verb: "update",
     summary: `Itemized the ${word} into {{lineCount}} lines; total unchanged at {{total}}`,
@@ -297,6 +299,7 @@ function updateMemoTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinit
   const word = entity === "Bill" ? "bill" : "purchase";
   return defineWriteTool({
     id: entity === "Bill" ? QBO_TOOLS.billUpdateMemo : QBO_TOOLS.purchaseUpdateMemo,
+    entity: word,
     description: `Set the memo of a QuickBooks ${word} (its private note). Nothing else changes.`,
     verb: "update",
     summary: `Updated the ${word}'s memo`,
@@ -387,6 +390,7 @@ function updatePurchaseCostTool(clientFor: ClientFor): ToolDefinition {
   });
   return defineWriteTool({
     id: QBO_TOOLS.itemUpdatePurchaseCost,
+    entity: "item",
     description:
       "Set an item's purchase cost in QuickBooks (what new purchases of it default to). Nothing else changes.",
     verb: "update",
@@ -481,6 +485,7 @@ const ATTACHABLE_TYPES = new Set([
 function uploadTool(clientFor: ClientFor): ToolDefinition {
   return defineWriteTool({
     id: QBO_TOOLS.attachableUpload,
+    entity: "attachment",
     description:
       "Attach a stored document (the invoice) to a QuickBooks bill, purchase or vendor credit.",
     verb: "create",
@@ -593,6 +598,7 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     txnQueryTool("Bill", clientFor),
     defineReadTool({
       id: QBO_TOOLS.vendorQuery,
+      entity: "vendor",
       description: "Find vendors in QuickBooks by name, or list them.",
       summary: "Found {{vendors.length}} vendors",
       input: z.object({
@@ -618,6 +624,7 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     }),
     defineReadTool({
       id: QBO_TOOLS.itemQuery,
+      entity: "item",
       description:
         "Find products and services (items) in QuickBooks by name, with their purchase cost.",
       summary: "Found {{items.length}} items",
@@ -644,6 +651,7 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     }),
     defineReadTool({
       id: QBO_TOOLS.attachableList,
+      entity: "attachment",
       description: "List the attachments on a QuickBooks bill, purchase or vendor credit.",
       summary: "Found {{attachments.length}} attachments",
       input: z.object({ entity: AttachTo, entityId: QboId }),

@@ -48,6 +48,7 @@ import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { reachContactOf } from "../messaging/contacts";
 import { forwardingAddress } from "../reach/replies";
 import { cipherFor, connectionCredentials } from "../secrets";
+import { newConnectionMatrix } from "./ops-connectors";
 
 async function peopleView(tx: Tx, row: AgentRow): Promise<AgentPeople> {
   const roles = await agentRoles(tx, row);
@@ -277,6 +278,11 @@ export function reachRoutes(app: Hono<AppEnv>): void {
           status: "connected",
           externalAccountId: sendingDomain,
           config: config as unknown as Record<string, unknown>,
+          // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+          permissions: await newConnectionMatrix(
+            ctx.tx,
+            ctx.services.platform.connectors.get(RESEND_CONNECTOR_ID)?.manifest,
+          ),
           connectedBy: ctx.session.user.id,
         })
         .returning({ id: connection.id });

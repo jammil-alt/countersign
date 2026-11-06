@@ -150,6 +150,8 @@ export function defineReadTool<I extends z.ZodType, O extends z.ZodType>(def: {
   summary?: string;
   /** The record type it reads (ToolSpec `entity`, v0.12). */
   entity?: string;
+  /** v0.12 W2-A: the input field that names its record type (ToolSpec `entityInput`). */
+  entityInput?: { field: string; values: Record<string, string> };
   input: I;
   output: O;
   run(input: z.output<I>, ctx: ToolContext): Promise<z.input<O>>;
@@ -164,6 +166,7 @@ export function defineReadTool<I extends z.ZodType, O extends z.ZodType>(def: {
       verb: "read",
       ...(def.summary === undefined ? {} : { summary: def.summary }),
       ...(def.entity === undefined ? {} : { entity: def.entity }),
+      ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),
     },
     handler: {
       kind: "read",
@@ -194,6 +197,8 @@ export function defineWriteTool<
   recipient?: ToolRecipient;
   /** The record type it touches (ToolSpec `entity`, v0.12). */
   entity?: string;
+  /** v0.12 W2-A: the input field that names its record type (ToolSpec `entityInput`). */
+  entityInput?: { field: string; values: Record<string, string> };
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -215,6 +220,7 @@ export function defineWriteTool<
       ...(def.display === undefined ? {} : { display: def.display }),
       ...(def.recipient === undefined ? {} : { recipient: def.recipient }),
       ...(def.entity === undefined ? {} : { entity: def.entity }),
+      ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),
     },
     handler: {
       kind: "write",
@@ -379,6 +385,7 @@ export function defineConnector(
     events,
     sharedNamespaces,
     credentialFields,
+    permissionEntities,
     tools,
     ...hooks
   } = def;
@@ -400,6 +407,8 @@ export function defineConnector(
     ...(events === undefined ? {} : { events }),
     ...(sharedNamespaces === undefined ? {} : { sharedNamespaces }),
     ...(credentialFields === undefined ? {} : { credentialFields }),
+    // v0.12 W2-A
+    ...(permissionEntities === undefined ? {} : { permissionEntities }),
   });
   if (!parsed.success) {
     problems.push(
