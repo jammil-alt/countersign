@@ -48,7 +48,7 @@ describe.skipIf(!h)("sync now", () => {
   it("starts one when none runs, queues one while it runs, and the ending sync starts it", async () => {
     const first = await requestQboSync(H.db, syncs, params);
     expect(first).toMatchObject({ started: true, queued: false });
-    expect(first.instanceId).toMatch(new RegExp(`^qbo-${params.connectionId}-now-`));
+    expect(first.instanceId?.startsWith(`qbo-${params.connectionId}-now-`)).toBe(true);
     // Within the same minute: queued, not merged into the first one's slot.
     const now = await requestQboSync(H.db, syncs, { ...params, reason: "operator" });
     expect(now).toEqual({ started: false, queued: true, instanceId: first.instanceId });

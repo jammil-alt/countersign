@@ -553,7 +553,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     const res = await call(OPERATOR, "POST", `/api/ops/connections/${connectionId}/sync`);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(j(res.json)).toMatchObject({ started: true, queued: false });
-    expect(j(res.json).instanceId).toMatch(new RegExp(`^qbo-${connectionId}-now-`));
+    expect(j(res.json).instanceId.startsWith(`qbo-${connectionId}-now-`)).toBe(true);
     // Asked again while it runs: queued, not lost (202).
     const again = await call(OPERATOR, "POST", `/api/ops/connections/${connectionId}/sync`);
     expect(again.status).toBe(202);

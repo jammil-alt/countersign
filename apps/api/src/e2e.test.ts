@@ -336,7 +336,7 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     // after it (never two at once), and then nothing more.
     expect(await runStartedSyncs()).toBe(2);
     expect([...syncs.started.values()].map((p) => p.reason)).toEqual(["connected", "operator"]);
-    expect([...syncs.started.keys()][1]).toMatch(new RegExp(`^qbo-${ids.connection}-now-`));
+    expect([...syncs.started.keys()][1]?.startsWith(`qbo-${ids.connection}-now-`)).toBe(true);
     expect(await runStartedSyncs()).toBe(0);
     // With none running, "sync now" starts one at once.
     const again = await ok(OPERATOR, "POST", `/api/ops/connections/${ids.connection}/sync`);
