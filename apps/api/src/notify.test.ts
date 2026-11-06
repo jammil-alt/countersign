@@ -734,10 +734,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
     it("rows are written skipped, not_configured", async () => {
       const C = H.C.tenantId;
       await addItem(C, { role: "client_admin", createdAt: at(9, "09:00") });
-      const none = notifyDepsFromEnv(
-        { ...H.env, RESEND_API_KEY: undefined } as typeof H.env,
-        fetch,
-      );
+      const none = notifyDepsFromEnv({ ...H.env, RESEND_API_KEY: "" }, fetch);
       expect(none.mailer.isConfigured).toBe(false);
       const before = resend.emails.length;
       await notifyPass(H.db, none, C, at(9, "10:00"));

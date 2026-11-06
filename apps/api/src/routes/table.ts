@@ -285,7 +285,7 @@ export function tableRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalWeeklyPdf, async ({ c, tx, tenantIds, params, session }) => {
     const t = await clientOf(tx, tenantIds[0] as string);
     const row = await weeklyRow(tx, t.id, params.weekStart);
-    if (!row || row.status !== "sent") throw notFound("weekly summary");
+    if (row?.status !== "sent") throw notFound("weekly summary");
     const locale = localeFor(t, session.user.id);
     const bytes = await weeklyPdf({
       table: await weeklyView(tx, row),
