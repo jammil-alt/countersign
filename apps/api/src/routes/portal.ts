@@ -94,11 +94,29 @@ async function userNames(tx: Tx, ids: (string | null)[]) {
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 
+/** UI-1b: the client agents items belong to, by id, as the portal names them (its service name). */
+async function serviceRefs(tx: Tx, rows: InboxRow[]) {
+  const wanted = [...new Set(rows.map((r) => r.agentId).filter((v): v is string => v !== null))];
+  if (wanted.length === 0) return new Map<string, { id: string; name: string }>();
+  const agents = await tx
+    .select({ id: agent.id, name: agent.name, serviceName: agent.serviceName })
+    .from(agent)
+    .where(
+      and(
+        inArray(agent.id, wanted),
+        inArray(agent.tenantId, [...new Set(rows.map((r) => r.tenantId))]),
+        eq(agent.kind, "client"),
+      ),
+    );
+  return new Map(agents.map((a) => [a.id, { id: a.id, name: serviceName(a) }]));
+}
+
 export async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) {
   const names = await userNames(
     tx,
     rows.map((r) => r.resolvedBy),
   );
+  const services = await serviceRefs(tx, rows);
   return rows.map((i) => ({
     id: i.id,
     kind: i.kind,
@@ -115,6 +133,8 @@ export async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) 
     deliverAfter: iso(i.deliverAfter),
     snoozedUntil: iso(i.snoozedUntil),
     batchKey: i.batchKey,
+    // UI-1b: which of the client's agents asks, for the Desk's list (null for platform items).
+    service: (i.agentId ? services.get(i.agentId) : undefined) ?? null,
   }));
 }
 

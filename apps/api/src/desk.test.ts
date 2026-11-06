@@ -313,6 +313,8 @@ describe.skipIf(!h)("the Desk", () => {
       });
       expect(card.batchKey).toBe(`${runId}:send1`);
       expect(card.deliverAfter).toBeNull();
+      // UI-1b: the Desk names the agent that asks, by its service name, and nothing more of it.
+      expect(card.service).toEqual({ id: agentId, name: "Mail" });
 
       // Edits: only editable fields, validated by the tool and the connector, routed again.
       const original = (await actionOf(item.id)).input as Record<string, unknown>;
