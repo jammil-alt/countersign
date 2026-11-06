@@ -808,7 +808,7 @@ be disabled, as in `db:purge-client`.
 - **`codeql.yml`**: CodeQL's security queries on ready pull requests, pushes to `main` and weekly.
   Findings are under Security → Code scanning.
 - **Dependabot** (`.github/dependabot.yml`): security updates as GitHub learns of them; npm and
-  Actions version updates weekly, grouped. Turn on Dependabot alerts and security updates, and
+  Actions version updates monthly, one grouped pull request each, majors included. Turn on Dependabot alerts and security updates, and
   secret scanning with push protection, in the repository's Settings → Code security.
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
