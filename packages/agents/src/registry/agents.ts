@@ -233,6 +233,17 @@ export async function validateForPublish(
     tools: ctx.tools.specs(),
     ...(ctx.events ? { events: ctx.events } : {}),
     ...(row.kind === "client" ? { publish: { matrices: await boundMatrices(tx, row) } } : {}),
+    // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.
+    ...(row.kind === "client" && row.tenantId
+      ? {
+          packs: (
+            await tx
+              .select({ pack: tenantPack.pack })
+              .from(tenantPack)
+              .where(eq(tenantPack.tenantId, row.tenantId))
+          ).map((p) => p.pack),
+        }
+      : {}),
     // v0.12 W2-B
     automations: used.automations,
     clientAgent: row.kind === "client",

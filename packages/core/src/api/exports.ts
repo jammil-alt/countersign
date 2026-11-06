@@ -138,13 +138,6 @@ export const exportRoutes = {
     query: ExportPeriod,
     response: ExportFile,
   }),
-  portalAuditExport: defineRoute({
-    method: "GET",
-    path: "/api/exports/audit",
-    auth: "session",
-    roles: CLIENT_ADMIN,
-    summary: "Your audit log for a period, as CSV",
-    query: AuditPeriod,
-    response: ExportFile,
-  }),
+  // v0.12 W2-G: the client's audit log moved to `GET /api/audit/export.csv` (api/client-view.ts),
+  // streamed and with people named as ARCHITECTURE §11.7 says.
 } as const;

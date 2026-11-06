@@ -28,6 +28,8 @@ export const WeeklyAgentStats = z.object({
       label: z.string(),
       value: z.string(),
       unit: z.string().optional(),
+      // v0.12 W2-G: the records the KPI counted (invariant 10).
+      sources: Sources.optional(),
     }),
   ),
 });

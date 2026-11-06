@@ -19,6 +19,8 @@ import {
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
+// v0.12 W2-G
+import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 import { reachOutTick } from "./reach/service";
@@ -26,9 +28,11 @@ import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
+import { auditExportRoutes } from "./routes/audit-export";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
+import { clientViewRoutes } from "./routes/client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./routes/command-center";
 import { complianceRouteHandlers } from "./routes/compliance";
@@ -145,6 +149,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   threadRouteHandlers(app);
   // v0.12 W2-D: Sloan, the account agent
   accountRoutes(app);
+  // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+  clientViewRoutes(app);
+  auditExportRoutes(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);
   labRoutes(app);
@@ -203,7 +210,8 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       console.error("qbo sync tick failed", error),
     );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-      await billingTick({ db, stripe: stripeFor(deps, env) }, scheduledTime);
+      // v0.12 W2-G: `origin` for the credits notifications the pass queues.
+      await billingTick({ db, stripe: stripeFor(deps, env), origin: originOf(env) }, scheduledTime);
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
