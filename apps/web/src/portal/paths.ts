@@ -18,4 +18,7 @@ export const PORTAL_PATHS = {
   requests: "/requests",
   knowledge: "/knowledge",
   conversations: "/conversations",
+  // UI-1d
+  weekly: "/weekly",
+  sloan: "/sloan",
 } as const;

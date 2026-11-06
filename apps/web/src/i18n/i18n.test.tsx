@@ -214,9 +214,9 @@ describe("the portal in the session's language", () => {
     renderAt("/runs", api);
     expect(await screen.findByRole("heading", { name: "Abläufe" })).toBeInTheDocument();
     const table = await screen.findByTestId("portal-runs");
-    expect(within(table).getByText("Service")).toBeInTheDocument();
+    expect(within(table).getByText("Agent")).toBeInTheDocument();
     expect(within(table).getByText("Dauer")).toBeInTheDocument();
-    expect(within(table).getByText("Wartet")).toBeInTheDocument();
+    expect(within(table).getByText("Wartet auf Sie")).toBeInTheDocument();
     expect(within(table).getByText(/3\. Nov\., \d{2}:00/)).toBeInTheDocument();
     expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Ihr Schreibtisch");
   });
