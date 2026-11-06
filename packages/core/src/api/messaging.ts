@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContactAutonomy } from "../directory/autonomy";
 import { DIRECTORY_TITLE_MAX, Relationship } from "../directory/kinds";
 import { LanguageUsed } from "../directory/language";
 import { Locale } from "../i18n/locale";
@@ -10,7 +11,6 @@ import {
   E164,
   QuietHours,
 } from "../messaging/rules";
-import { ContactAutonomy } from "../directory/autonomy";
 import { ReachChannel, RoleName } from "../reach/rules";
 import { defineRoute } from "./contract";
 

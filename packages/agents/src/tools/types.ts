@@ -164,7 +164,11 @@ export interface KnowledgePort {
   /** The client's voice samples, newest first; optional: absent, `knowledge.voice_samples` fails. */
   voiceSamples?(
     tenantId: string,
-    input: { personUserId?: string | undefined; channel?: VoiceSampleChannel | undefined; limit: number },
+    input: {
+      personUserId?: string | undefined;
+      channel?: VoiceSampleChannel | undefined;
+      limit: number;
+    },
   ): Promise<{ samples: VoiceSampleForTool[]; channelMatched: boolean }>;
 }
 

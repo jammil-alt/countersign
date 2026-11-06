@@ -14,14 +14,9 @@ import { PermissionLevel } from "../schemas/permissions";
 // nothing, so contacts made before v0.12 behave exactly as before; every other input (matrix,
 // grant, step, mode) still decides, and every step that writes starts with approval on.
 export const ContactAutonomy = z
-  .strictObject({
-    email: PermissionLevel.optional(),
-    sms: PermissionLevel.optional(),
-    whatsapp: PermissionLevel.optional(),
-    voice: PermissionLevel.optional(),
-  })
+  .partialRecord(ReachChannel, PermissionLevel)
   .meta({ id: "ContactAutonomy" });
-export type ContactAutonomy = z.infer<typeof ContactAutonomy>;
+export type ContactAutonomy = Partial<Record<ReachChannel, PermissionLevel>>;
 
 const STRICTNESS: Record<PermissionLevel, number> = { auto: 0, approval: 1, off: 2 };
 

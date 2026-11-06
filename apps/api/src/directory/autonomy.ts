@@ -4,11 +4,7 @@
 // (invariant 8: only the operator loosens). Every change is a `contact_change` row with before and
 // after; the request itself is in the audit log like every other.
 
-import {
-  type ContactAutonomy,
-  clientAutonomyProblem,
-  readAutonomy,
-} from "@countersign/core";
+import { type ContactAutonomy, clientAutonomyProblem, readAutonomy } from "@countersign/core";
 import { contact, contactChange, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { HttpError, notFound } from "../http";

@@ -81,7 +81,13 @@ export async function handleEmail(
         console.log(`voice sample email dropped: ${voice.reason}`, { tenantId: voice.tenantId });
         return { status: "dropped", tenantId: voice.tenantId, reason: "unknown_address" };
       }
-      return { status: "accepted", tenantId: voice.tenantId, documents: [], skipped: [], events: [] };
+      return {
+        status: "accepted",
+        tenantId: voice.tenantId,
+        documents: [],
+        skipped: [],
+        events: [],
+      };
     }
     const content = new ContentStore(deps.objects(env));
     const outcome = await receiveForwardedEmail(

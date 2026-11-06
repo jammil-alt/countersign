@@ -12,7 +12,13 @@ import {
   type VoiceSampleMeta,
   voiceSampleText,
 } from "@countersign/core";
-import { appUser, knowledgeEntry, knowledgeEntryVersion, membership, type Tx } from "@countersign/db";
+import {
+  appUser,
+  knowledgeEntry,
+  knowledgeEntryVersion,
+  membership,
+  type Tx,
+} from "@countersign/db";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   archiveKnowledgeEntry,
@@ -77,7 +83,8 @@ export async function voicePerson(
 ): Promise<VoicePerson> {
   if (personUserId) {
     const [p] = await people(tx, tenantId, { ids: [personUserId] });
-    if (!p) throw new KnowledgeError("not_a_person", "that person is not one of this client's users");
+    if (!p)
+      throw new KnowledgeError("not_a_person", "that person is not one of this client's users");
     return { id: p.id, name: p.name, email: p.email };
   }
   const [admin] = await people(tx, tenantId, { role: "client_admin" });
@@ -119,7 +126,7 @@ export async function addVoiceSample(
   input: {
     title: string;
     text: string;
-    personUserId?: string | null;
+    personUserId?: string | null | undefined;
     channel: VoiceSampleChannel;
     author: KnowledgeAuthor;
   },
@@ -146,8 +153,8 @@ export async function editVoiceSample(
   input: {
     title: string;
     text: string;
-    personUserId?: string | null;
-    channel?: VoiceSampleChannel;
+    personUserId?: string | null | undefined;
+    channel?: VoiceSampleChannel | undefined;
     baseVersion: number;
     author: KnowledgeAuthor;
   },
@@ -194,7 +201,11 @@ export interface VoiceSampleView {
 export async function listVoiceSamples(
   tx: Tx,
   tenantId: string,
-  input: { personUserId?: string | undefined; channel?: VoiceSampleChannel | undefined; limit: number },
+  input: {
+    personUserId?: string | undefined;
+    channel?: VoiceSampleChannel | undefined;
+    limit: number;
+  },
 ): Promise<{ samples: VoiceSampleView[]; channelMatched: boolean }> {
   const read = async (channel: VoiceSampleChannel | undefined) => {
     const rows = await entriesQuery(

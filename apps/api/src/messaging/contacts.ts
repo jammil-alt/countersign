@@ -21,9 +21,9 @@ import {
   type MessagingChannel,
   normalizePhone,
   QuietHours,
-  readAutonomy,
   type ReachChannel,
   type ReachContact,
+  readAutonomy,
 } from "@countersign/core";
 import {
   clientLanguageOf,

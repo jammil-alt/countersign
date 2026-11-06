@@ -4,8 +4,8 @@ import {
   type JsonObject,
   type PermissionMatrix,
   type ToolAmount,
-  type ToolRecipient,
   type ToolDisplay,
+  type ToolRecipient,
   type ToolSpec,
   type Verb,
 } from "@countersign/core";

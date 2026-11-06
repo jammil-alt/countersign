@@ -159,9 +159,7 @@ export async function listKnowledgeEntries(
     tenantId,
     options.includeArchived ? undefined : eq(knowledgeEntry.status, "active"),
     // v0.12 W1-G: voice samples are listed on their own.
-    options.kind
-      ? eq(knowledgeEntry.kind, options.kind)
-      : ne(knowledgeEntry.kind, "voice_sample"),
+    options.kind ? eq(knowledgeEntry.kind, options.kind) : ne(knowledgeEntry.kind, "voice_sample"),
   )
     .orderBy(desc(knowledgeEntry.updatedAt), desc(knowledgeEntry.id))
     .limit(500);

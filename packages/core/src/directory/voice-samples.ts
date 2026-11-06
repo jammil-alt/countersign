@@ -50,7 +50,8 @@ const FORWARDED = [
   /^begin forwarded message:\s*$/i,
 ];
 /** Header lines of a forwarded block: `From:`, `Date:`, `Subject:`, `To:`, `Cc:`, `Sent:`. */
-const FORWARD_HEADER = /^(from|de|von|da|date|fecha|datum|data|sent|enviado|subject|asunto|objet|assunto|oggetto|betreff|to|para|à|a|an|cc)\s*:/i;
+const FORWARD_HEADER =
+  /^(from|de|von|da|date|fecha|datum|data|sent|enviado|subject|asunto|objet|assunto|oggetto|betreff|to|para|à|a|an|cc)\s*:/i;
 
 /** The new words above any quoted history (`>` lines, "On … wrote:", "Original Message"). */
 function aboveQuoted(lines: readonly string[]): string[] {
@@ -84,7 +85,11 @@ export function voiceSampleText(raw: string): string {
       body = lines.slice(0, marker);
     } else {
       let i = marker + 1;
-      while (i < lines.length && (FORWARD_HEADER.test((lines[i] as string).trim()) || !(lines[i] as string).trim())) i++;
+      while (
+        i < lines.length &&
+        (FORWARD_HEADER.test((lines[i] as string).trim()) || !(lines[i] as string).trim())
+      )
+        i++;
       body = lines.slice(i);
     }
   }
