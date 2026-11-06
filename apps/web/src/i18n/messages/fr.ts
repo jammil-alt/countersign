@@ -1186,4 +1186,27 @@ export const fr: Messages = {
     one: "{count} personne",
     other: "{count} personnes",
   },
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Lisez et ajoutez des lignes dans les feuilles Google Sheets que vous choisissez. Nous ne pouvons ouvrir aucune autre feuille.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Les agents ne peuvent ouvrir que les feuilles que vous choisissez ici. Vous les choisissez dans la fenêtre de Google.",
+  "gsheets.none": "Aucune feuille choisie pour l'instant.",
+  "gsheets.choose": "Choisir des feuilles",
+  "gsheets.remove": "Retirer",
+  "gsheets.otherAccount":
+    "Choisie avec un autre compte Google. Choisissez-la à nouveau pour l'utiliser.",
+  "gsheets.notSetUp":
+    "Le choix des feuilles n'est pas encore disponible ici. Nous vous préviendrons dès qu'il le sera.",
+  "gsheets.pick.title": "Choisir des feuilles Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google ouvre une fenêtre où vous choisissez les feuilles que les agents peuvent utiliser. Nous ne voyons que celles-là.",
+  "gsheets.pick.open": "Ouvrir le sélecteur de Google",
+  "gsheets.pick.loading": "Chargement du sélecteur de Google…",
+  "gsheets.pick.saving": "Enregistrement de votre choix…",
+  "gsheets.pick.cancelled":
+    "Aucune feuille choisie. Ouvrez à nouveau le sélecteur, ou revenez en arrière.",
+  "gsheets.pick.failed":
+    "Le sélecteur de Google ne s'est pas ouvert. Vérifiez que les fenêtres pop-up sont autorisées, puis réessayez.",
 };

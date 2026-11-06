@@ -23,6 +23,8 @@ import {
   createBrowserConnector,
   createGdriveConnector,
   createGmailConnector,
+  // v0.14 W4-D
+  createGsheetsConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -260,6 +262,10 @@ export function deploymentConnectors(
     // v0.12 W3-B: Google Drive (drive.file, on Gmail's Google client) and Outlook (send only), like
     // Gmail: registered everywhere, signing in once their client and OAUTH_STATE_SECRET are set.
     createGdriveConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
+    // v0.14 W4-D: Google Sheets (drive.file, picked sheets only), on the same Google client.
+    createGsheetsConnector(
       googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
     ),
     createOutlookConnector(

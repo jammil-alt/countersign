@@ -46,6 +46,8 @@ import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -125,6 +127,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 bankfeed: Plaid's webhook
   bankfeedRoutes(app);
   connectionRoutes(app);
+  // v0.14 W4-D: Google Sheets' picking
+  gsheetsRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
   documentRoutes(app);

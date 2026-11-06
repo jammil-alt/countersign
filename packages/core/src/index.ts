@@ -33,6 +33,8 @@ export * from "./api/directory";
 export * from "./api/documents";
 export * from "./api/exports";
 export * from "./api/feedback";
+// v0.14 W4-D
+export * from "./api/gsheets";
 export * from "./api/knowledge";
 export * from "./api/language";
 // v0.12 W1-A: go-live stages and client controls

@@ -1175,4 +1175,25 @@ export const it: Messages = {
     one: "{count} persona",
     other: "{count} persone",
   },
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Leggi e aggiungi righe nei fogli Google Sheets che scegli. Non possiamo aprire nessun altro foglio.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Gli agenti possono aprire solo i fogli che scegli qui. Li scegli nella finestra di Google.",
+  "gsheets.none": "Nessun foglio scelto per ora.",
+  "gsheets.choose": "Scegli i fogli",
+  "gsheets.remove": "Rimuovi",
+  "gsheets.otherAccount": "Scelto con un altro account Google. Sceglilo di nuovo per usarlo.",
+  "gsheets.notSetUp":
+    "La scelta dei fogli non è ancora disponibile qui. Ti avviseremo quando lo sarà.",
+  "gsheets.pick.title": "Scegli i fogli Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google apre una finestra in cui scegli i fogli che gli agenti possono usare. Vediamo solo quelli.",
+  "gsheets.pick.open": "Apri il selettore di Google",
+  "gsheets.pick.loading": "Caricamento del selettore di Google…",
+  "gsheets.pick.saving": "Salvataggio della tua scelta…",
+  "gsheets.pick.cancelled": "Nessun foglio scelto. Apri di nuovo il selettore o torna indietro.",
+  "gsheets.pick.failed":
+    "Il selettore di Google non si è aperto. Controlla che i pop-up siano consentiti e riprova.",
 };

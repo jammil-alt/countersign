@@ -318,6 +318,13 @@ export {
   fakeGoogle,
   readSentEmail,
 } from "./gmail/fake";
+// v0.14 W4-D: Google Sheets.
+export {
+  FAKE_GOOGLE_SHEETS,
+  type FakeGoogleSheets,
+  type FakeSpreadsheet,
+  fakeGoogleSheets,
+} from "./gsheets/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,

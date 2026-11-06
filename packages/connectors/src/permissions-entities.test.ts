@@ -8,6 +8,8 @@ import { createBrowserConnector } from "./browser/index";
 import type { Connector } from "./connector";
 import { createGdriveConnector } from "./gdrive/index";
 import { createGmailConnector } from "./gmail/index";
+// v0.14 W4-D
+import { createGsheetsConnector } from "./gsheets/index";
 import { createOutlookConnector } from "./outlook/index";
 import {
   applyMatrixChange,
@@ -43,6 +45,8 @@ const ALL: Connector[] = [
   // v0.12 W3-B
   createGdriveConnector(),
   createOutlookConnector(),
+  // v0.14 W4-D
+  createGsheetsConnector(),
   // v0.14 W4-C
   createSlackConnector(),
   // v0.12 bankfeed
