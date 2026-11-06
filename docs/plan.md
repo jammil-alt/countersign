@@ -2225,6 +2225,12 @@ The exports (data export and accountant export, running outside the waves) neede
 | **Wave 3** | | | | |
 | W3-A | The Builder as a conversation (M28) | 0030 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
 | W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0031 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| **Wave 4** (owner, 2026-11-06; after Wave 3) | | | | |
+| W4-A | WhatsApp through Meta (`whatsapp_meta`, §1.19) | none expected | `packages/connectors/src/whatsapp_meta/`, its webhook route, one line in `apps/api/src/platform.ts` | M33 (WhatsApp passive capture: `conversation`, media download) |
+| W4-B | Follow-ups from Waves 1–3 | none expected (0032 spare) | each item's own files, small marked blocks elsewhere | — |
+| W4-C | Slack (ARCHITECTURE §6.11, row 6; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/slack/`, one line in `apps/api/src/platform.ts` | W2-A (entities) |
+| W4-D | Google Sheets (ARCHITECTURE §6.11, row 7) | none expected | `packages/connectors/src/gsheets/`, one line in `apps/api/src/platform.ts` | W3-B's Drive (shared Google client) |
+| W4-E | Google Chat (ARCHITECTURE §6.11, row 8; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/gchat/`, its interaction route, one line in `apps/api/src/platform.ts` | W4-C's pattern (Slack) |
 
 **Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
 
@@ -2353,3 +2359,56 @@ cases, save as automation. Drafts start with `oversight.review: 'failures'` and 
 **W3-B: New connectors (M29, §1.52).** ARCHITECTURE §6.11. Google Drive, then Outlook, against fakes;
 Ramp and HubSpot after; nothing for the aggregator or Slack until the owner decides. Done when M29's
 check holds.
+
+**Wave 4 (owner, 2026-11-06).** Plan §8 had no Wave 4; the owner added it. Migrations: 0031 belongs to
+WhatsApp passive capture (M33, §1.55); 0032 is Wave 4's spare. The bank and card feed (W3-B's row 5,
+vendor Plaid, owner 2026-11-06) is being built alongside and is not a Wave 4 stream.
+
+**W4-A: WhatsApp through Meta (§1.19).** The `whatsapp_meta` connector: the client connects its own
+WhatsApp Business Account from the portal through Meta's Embedded Signup (the operator never holds its
+credentials); the same `whatsapp.*` tool ids as Twilio (`sharedNamespaces`), resolved by the agent's
+binding; Meta's webhook verified by `X-Hub-Signature-256` over the raw body; inbound messages once per
+`wamid`; media by Meta's two-step download into M33's capture, under each conversation's setting;
+groups (`conversation.kind = group`) only where the client has Official Business Account status
+(to verify against Meta's docs). Against a fake. Going live needs Mezonas registered as a Meta Tech
+Provider (owner). Starts once M33 merges. Done when a Meta-connected client's direct conversation
+captures a document exactly as M33's check does on Twilio, and `whatsapp.send` works through either
+connector without the workflow changing.
+
+**W4-B: Follow-ups.** Small items the Wave 1–3 streams left open, none needing an owner decision:
+an entity set to off is caught at publish, not only at run time (W2-A); PDFs over the model's page
+limit are split for extraction (stream D); run questions keep an amount filter (W2-F); a step's real
+attempt count (W2-B's clean-run rate); `/remind` for a connection to fix, by email through Resend
+(M5); Zoho CRM and Podio sync and webhooks (stream G); directory upkeep through `directory.suggest`
+(§1.27). Each item its own commit; record decisions where the item's section is.
+
+**W4-C: Slack (ARCHITECTURE §6.11, row 6).** The `slack` connector: Slack OAuth v2 installing a bot
+with `chat:write` (and `channels:read` to list channels); the client admin installs it into the
+client's own workspace from the portal and picks the channels an agent may post to;
+`slack.message.post` is `external` (create, entity `message`), behind approval, posted once (the
+attempt recorded before Slack is called, as `gmail.send`); no reading of messages. Against a fake.
+Owner: a Slack app with the redirect URI and public distribution. Done when an approved post goes
+once to a picked channel and a channel not picked is refused.
+
+**W4-D: Google Sheets (ARCHITECTURE §6.11, row 7).** The `gsheets` connector on the Google client
+Drive and Gmail use, with the `drive.file` scope only (non-sensitive): sheets Mezonas creates, and
+sheets the client picks with Google's file picker. Tools: `sheets.range.read` (read),
+`sheets.rows.append` (`external`, create) and `sheets.range.update` (`external`, update, the cells'
+current values as before state, refused if they changed since). Behind approval, once per action.
+Disconnect drops our tokens without revoking (the shared client, as Drive). Against a fake. Owner:
+the Sheets API enabled, the picker's browser key restricted to our origins. Done when an agent
+appends a row once to a picked sheet after approval, and a sheet the client didn't pick is refused.
+
+**W4-E: Google Chat (ARCHITECTURE §6.11, row 8).** Slack's counterpart for clients on Google
+Workspace: a Google Chat app of Mezonas' own that posts to the spaces the client adds it to. The
+app authenticates as itself (a service account with the `chat.bot` scope; no per-client user tokens).
+A space belongs to a client only after proof: the client admin gets a one-time code in the portal and
+mentions the app with it in the space; the app's interaction endpoint (Google-signed bearer token
+verified) binds that space to that client. Never by email domain alone. `gchat.message.post` is
+`external` (create, entity `message`), behind approval, posted once (a client-assigned message id
+where the API takes one, else the attempt recorded first), plain text with mentions of everyone
+stripped; only to bound spaces; no reading of messages beyond the binding mention. Removing the app
+from a space unbinds it. Against a fake. Owner: the Chat API configured on the Google project (app
+name, avatar, HTTP endpoint), the service account and its key as a secret, and the app published to
+the Google Workspace Marketplace (each client's Workspace admin must allow it). Done when an approved
+post goes once to a bound space, an unbound space is refused, and a space is bound only by its code.

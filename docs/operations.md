@@ -342,7 +342,7 @@ Outlook needs an Entra app of Mezonas' own:
    `User.Read` if it can be; the connector accepts it but never uses it). No read permission.
 3. A client secret (note its expiry, 24 months at most) as the Worker secrets
    `OUTLOOK_CLIENT_ID` (the application id) and `OUTLOOK_CLIENT_SECRET`, copied like the
-   others once `deploy.yml` is wired (its own PR).
+   others by `deploy.yml` when set.
 4. Publisher verification (a Microsoft Partner Network id tied to mezonas.com), so work tenants
    show a verified publisher and allow their users to consent.
 
@@ -368,6 +368,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Gmail, M10; see "Google" above) and `QBO_CLIENT_ID`,
   `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (QuickBooks Online, M9) are copied like the API keys when
   set. Staging has the development keys of both apps (2026-11-05).
+- The new connectors (plan §1.52), copied like the API keys when set: `OUTLOOK_CLIENT_ID` and
+  `OUTLOOK_CLIENT_SECRET` (Outlook), `RAMP_CLIENT_ID` and `RAMP_CLIENT_SECRET` (Ramp),
+  `HUBSPOT_CLIENT_ID` and `HUBSPOT_CLIENT_SECRET` (HubSpot), `PLAID_CLIENT_ID` and `PLAID_SECRET`
+  (the Plaid bank and card feed). Google Drive uses `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+  Each connector stays "Not available yet" until its keys and `OAUTH_STATE_SECRET` are set. Add
+  each as a secret of the GitHub environment (`staging` first), then redeploy.
 - Needed by the Zoho CRM connector (stream G, 2026-11-04): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only
