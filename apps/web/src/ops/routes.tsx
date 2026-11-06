@@ -13,6 +13,7 @@ import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
+import { CommandCenterScreen } from "./command/CommandCenter";
 import { LabScreen } from "./lab/LabScreen";
 import { MergeScreen } from "./merge/MergeScreen";
 import { AgentPage } from "./screens/AgentPage";
@@ -33,7 +34,6 @@ import { OpsInboxScreen } from "./screens/Inbox";
 import { OpsMessagingScreen } from "./screens/Messaging";
 import { NewClientScreen } from "./screens/NewClient";
 import { OpsOAuthCallbackScreen } from "./screens/OAuthCallback";
-import { OverviewScreen } from "./screens/Overview";
 import { OpsRecordsScreen } from "./screens/Records";
 import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunsScreen } from "./screens/Runs";
@@ -44,7 +44,7 @@ import { NewSkillScreen, SkillPage, SkillsScreen } from "./skills/SkillScreens";
 export const opsRoutes = (
   <>
     {/* O1 Command center (UI-2a) */}
-    <Route index element={<OverviewScreen />} />
+    <Route index element={<CommandCenterScreen />} />
     {/* Escalations, O9 Runs, O10 Run detail (UI-2a) */}
     <Route path="inbox" element={<OpsInboxScreen />} />
     <Route path="runs" element={<OpsRunsScreen />} />
