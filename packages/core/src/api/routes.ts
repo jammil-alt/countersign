@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
@@ -14,6 +15,7 @@ import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
 import { complianceRoutes } from "./compliance";
 import { defineRoute } from "./contract";
+import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
 import { exportRoutes } from "./exports";
@@ -264,6 +266,10 @@ export const OpsAction = z.object({
   approvedBy: z.string().nullable(),
   approvedAt: NullableTimestamp,
   executedAt: NullableTimestamp,
+  // v0.12 W1-D: the signer's edit before signing; `input` stays the agent's (both show).
+  editedInput: z.unknown().optional(),
+  editedBy: z.string().nullable().optional(),
+  editedAt: NullableTimestamp.optional(),
 });
 
 export const OpsInboxItem = z.object({
@@ -292,6 +298,8 @@ export const OpsInboxItem = z.object({
    * server decides; the back office only reads it.
    */
   resolvableByOperator: z.boolean(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
 });
 
 /** The client agent a run or inbox item belongs to, for the back office's lists (Track B). */
@@ -386,6 +394,8 @@ export const PortalInboxItem = z.object({
   createdAt: Timestamp,
   resolvedAt: NullableTimestamp,
   resolvedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
 });
 
 export const ToolAccessSchema = z.object({
@@ -1531,6 +1541,8 @@ export const portalRoutes = {
     query: z.object({
       status: InboxStatusSchema.default("open"),
       kind: InboxKindSchema.optional(),
+      // v0.12 W1-D: open items leave "waiting" while snoozed; `snoozed` lists them.
+      view: z.enum(["waiting", "snoozed"]).optional(),
     }),
     response: z.object({ items: z.array(PortalInboxItem) }),
   }),
@@ -1805,6 +1817,8 @@ export const routes = {
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   ...tableRoutes,
+  // v0.12 W1-D: the Desk
+  ...deskRoutes,
   // v0.12 W1-C
   ...threadRoutes,
 } as const;

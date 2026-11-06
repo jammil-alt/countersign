@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Duration } from "../duration";
+import { LocalizedString } from "../i18n/locale";
 import { Approval } from "./approval";
 import {
   JsonSchema,
@@ -44,6 +45,18 @@ export const ActionStep = z.object({
   approval: Approval.prefault({}),
 });
 
+// v0.12 W1-D: quick answers (ARCHITECTURE §11.1).
+/** One quick answer to a person step's question: shown as a button with its label. */
+export const PersonChoice = z.strictObject({
+  value: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[A-Za-z0-9_-]+$/, "letters, digits, - and _"),
+  label: LocalizedString,
+});
+export type PersonChoice = z.infer<typeof PersonChoice>;
+
 export const PersonStep = z.object({
   ...base,
   kind: z.literal("person"),
@@ -60,6 +73,9 @@ export const PersonStep = z.object({
   channel: z.enum(["inbox", "email"]).default("inbox"),
   onReject: z.enum(["stop", "continue"]).default("stop"),
   onTimeout: z.enum(["stop", "continue", "notify_operator"]),
+  // v0.12 W1-D: only on `ask`; the answer is one `value`, and a fork can branch on
+  // `steps.<id>.output.answer`.
+  choices: z.array(PersonChoice).min(1).max(6).optional(),
 });
 
 export const WaitStep = z.object({ ...base, kind: z.literal("wait"), for: Duration });
