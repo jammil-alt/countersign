@@ -49,6 +49,11 @@ export type StepOutcome =
   | {
       kind: "done";
       output: unknown;
+      /**
+       * A test run's write, recorded as proposed and never made (ARCHITECTURE §10.4): the timeline
+       * says what would have been done, not what was. Only honoured in a test run.
+       */
+      notWritten?: boolean;
       costUsd?: string;
       tokensIn?: number;
       tokensOut?: number;
@@ -176,7 +181,10 @@ export interface InboxPort {
 }
 
 export interface NotifyPort {
-  /** A notify step (rendered). In a test run the port must not message the client. */
+  /**
+   * A notify step (rendered). Never called for a test run: the executor records the text on the
+   * step and sends nothing (ARCHITECTURE §10.4).
+   */
   send(message: {
     run: RunInfo;
     step: NotifyStep;

@@ -238,7 +238,53 @@ describe("skill and action steps", () => {
     expect(result.status).toBe("succeeded");
     expect(runner.names("wait")).toEqual([]);
     expect(h.resumeCalls).toHaveLength(0);
-    expect(h.row("write")).toMatchObject({ status: "succeeded", output: { wouldUpdate: "x" } });
+    expect(h.row("write")).toMatchObject({
+      status: "succeeded",
+      output: { wouldUpdate: "x" },
+      summary: "Would update the record (test run, not written)",
+    });
+  });
+
+  it("says a test run's write would have been made, whatever the tool's summary", async () => {
+    const h = new Harness({ ...RUN, mode: "test" });
+    // As apps/api answers a test run's write: done, recorded as proposed, never made.
+    h.handlers.write = () => ({
+      kind: "done",
+      output: { wouldHaveDone: true, actionId: "ea-1", before: null },
+      notWritten: true,
+    });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
+      wf([action({ client: { visible: true, label: "Updated the record" } })]),
+      { what: "x" },
+    );
+    expect(h.row("write")?.summary).toBe("Would update the record (test run, not written)");
+  });
+
+  it("never reads a live write as not written", async () => {
+    const h = new Harness();
+    h.handlers.write = (req) => ({ kind: "done", output: req.input, notWritten: true });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
+      wf([action()]),
+      { what: "Acme" },
+    );
+    expect(h.row("write")?.summary).toBe("Updated Acme");
+  });
+
+  it("falls back to the label when the summary can't fill a slot", async () => {
+    const h = new Harness();
+    h.handlers.write = () => ({ kind: "done", output: { id: "1" } });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
+      wf([action({ client: { visible: true, label: "Updated the record" } })]),
+      { what: "x" },
+    );
+    // Never "Updated " with nothing after it.
+    expect(h.row("write")?.summary).toBe("Updated the record: done");
   });
 
   it("fails the run on escalation, failure or a thrown error, and records why", async () => {
@@ -660,6 +706,36 @@ describe("wait, notify and stop", () => {
       run: RUN,
       sources: [],
     });
+  });
+
+  it("in a test run sends nothing, keeps the text on the step and says it wasn't sent", async () => {
+    const h = new Harness({ ...RUN, mode: "test" });
+    for (const channel of ["thread", "email", "digest"] as const) {
+      await executeWorkflow(
+        new FakeStepRunner(),
+        h.context(),
+        wf([
+          {
+            id: `n-${channel}`,
+            kind: "notify",
+            name: "Say what changed",
+            channel,
+            message: "Bill {{trigger.bill}} now has 6 lines.",
+            sources: ["{{trigger.doc}}"],
+            client: { visible: true, label: "Told you what changed" },
+          },
+        ]),
+        { bill: "20418", doc: "d1" },
+      );
+      expect(h.row(`n-${channel}`)).toMatchObject({
+        status: "succeeded",
+        input: { channel, text: "Bill 20418 now has 6 lines.", sources: ["d1"] },
+        output: { sent: false },
+        summary: "Would say what changed (test run, not sent)",
+      });
+    }
+    // Nothing reached the notify port: no thread message, no email, nothing a client could see.
+    expect(h.sent).toEqual([]);
   });
 
   it("cites its sources: ids and lists of ids, flattened, without blanks or repeats", async () => {

@@ -148,6 +148,10 @@ export function agentPort(
           return {
             kind: "done",
             output: r.output,
+            // A test run's skill that proposed writes: recorded, never made.
+            ...(r.pendingActions.some((p) => p.status === "would_have_done")
+              ? { notWritten: true }
+              : {}),
             costUsd: r.costUsd,
             tokensIn: r.tokensIn,
             tokensOut: r.tokensOut,
@@ -195,6 +199,7 @@ export function agentPort(
           return {
             kind: "done",
             output: { wouldHaveDone: true, actionId: o.actionId, before: o.before ?? null },
+            notWritten: true,
           };
         case "awaiting_approval":
           return (
@@ -353,7 +358,8 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
 }
 
 /**
- * Notify steps. v1 has no email provider wired, so every channel posts to the run's thread.
+ * Notify steps. v1 has no email provider wired, so every channel posts to the run's thread. The
+ * executor never sends a test run's notice; the audience check below stays as a second guard.
  */
 // DECISION: until Resend is configured, `email` and `digest` notices are thread messages for the
 // operator; only `thread` notices of live runs are client-facing. Test runs never message clients.

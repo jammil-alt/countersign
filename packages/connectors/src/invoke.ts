@@ -85,7 +85,7 @@ function parse(
 function summarize(spec: ToolSpec, output: unknown): string | undefined {
   if (!spec.summary) return undefined;
   try {
-    return renderSummary(spec.summary, output);
+    return renderSummary(spec.summary, output) ?? undefined;
   } catch {
     // A broken summary template must not fail a tool call that already happened.
     return undefined;
