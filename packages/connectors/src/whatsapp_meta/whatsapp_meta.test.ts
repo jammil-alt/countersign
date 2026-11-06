@@ -35,6 +35,7 @@ import {
   verifyMetaChallenge,
   verifyMetaSignature,
 } from "./index";
+import { newPin } from "./signup";
 
 const enc = (s: string) => utf8(s);
 const NUMBER = DEFAULT_FAKE_ACCOUNTS[0]?.numbers[0]?.id as string;
@@ -706,5 +707,17 @@ describe("the shared ids", () => {
       false,
     );
     expect(createWhatsappMetaConnector({ ...FAKE_META }).isConfigured?.()).toBe(true);
+  });
+});
+
+describe("newPin", () => {
+  it("is six digits, and every digit turns up", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const pin = newPin();
+      expect(pin).toMatch(/^\d{6}$/);
+      for (const d of pin) seen.add(d);
+    }
+    expect(seen.size).toBe(10);
   });
 });

@@ -72,13 +72,19 @@ export function displayE164(raw: string | undefined): string | null {
   return normalizePhone(raw) ?? normalizePhone(`+${raw.trim()}`);
 }
 
-/** A six-digit PIN from the CSPRNG (rejection sampling, so every PIN is as likely). */
+/**
+ * A six-digit PIN from the CSPRNG. Each digit is a byte's low four bits, drawn again when 10–15,
+ * so every digit is as likely; no modulo (CodeQL js/biased-cryptographic-random).
+ */
 export function newPin(): string {
-  for (;;) {
-    const b = randomBytes(4);
-    const n = (((b[0] ?? 0) << 24) >>> 0) + ((b[1] ?? 0) << 16) + ((b[2] ?? 0) << 8) + (b[3] ?? 0);
-    if (n < 4_294_000_000) return String(n % 1_000_000).padStart(6, "0");
+  let pin = "";
+  while (pin.length < 6) {
+    for (const byte of randomBytes(8)) {
+      const digit = byte & 0x0f;
+      if (digit < 10 && pin.length < 6) pin += String(digit);
+    }
   }
+  return pin;
 }
 
 function refuse(message: string): never {
