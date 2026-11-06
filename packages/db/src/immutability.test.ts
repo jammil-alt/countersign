@@ -6,6 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator, withTenant } from "./client";
 import {
+  AUTOMATION_DEFINITION,
   BUNDLE,
   type ClientFixture,
   insertClient,
@@ -372,7 +373,7 @@ describe.skipIf(!online)("immutability", () => {
   it("automation_version: the definition can't change, the status can, nothing is deleted (0027)", async () => {
     for (const change of [
       { definitionHash: "x" },
-      { definition: { changed: true } },
+      { definition: { ...AUTOMATION_DEFINITION, name: "Changed" } },
       { version: 2 },
       { changeNote: "rewritten" },
     ]) {

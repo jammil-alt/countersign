@@ -10,6 +10,8 @@ import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 import { accessRoutes } from "./access";
 import { approverRuleRoutes } from "./approver-rules";
+// v0.12 W2-B: automations
+import { automationRoutes, BuilderAutomation } from "./automations";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
@@ -628,6 +630,8 @@ export const BuilderCatalog = z.object({
   ),
   tools: z.array(ToolSpec),
   connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
+  // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
+  automations: z.array(BuilderAutomation).default([]),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
@@ -1826,6 +1830,8 @@ export const routes = {
   ...tableRoutes,
   // v0.12 W1-D: the Desk
   ...deskRoutes,
+  // v0.12 W2-B: automations
+  ...automationRoutes,
   // v0.12 W1-C
   ...threadRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions
