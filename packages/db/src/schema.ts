@@ -7,7 +7,12 @@
 //
 // This file imports only drizzle-orm at runtime, so drizzle-kit can load it on its own.
 
-import type { AgentBundle, PermissionMatrix, SkillDefinition } from "@countersign/core";
+import type {
+  AgentBundle,
+  AutomationDefinition,
+  PermissionMatrix,
+  SkillDefinition,
+} from "@countersign/core";
 import { type SQL, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -2676,7 +2681,7 @@ export const automationVersion = pgTable(
     tenantId: optionalTenantId(),
     automationId: uuid("automation_id").notNull(),
     version: integer("version").notNull(),
-    definition: json("definition").notNull(),
+    definition: json<AutomationDefinition>("definition").notNull(),
     definitionHash: text("definition_hash").notNull(),
     status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("draft"),
     changeNote: text("change_note"),

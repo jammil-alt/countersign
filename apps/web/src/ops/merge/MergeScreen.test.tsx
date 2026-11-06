@@ -30,7 +30,7 @@ const TEMPLATE = {
   bindings: {},
   serviceName: null,
 };
-const CATALOG: BuilderCatalog = { skills: [], tools: [], connectors: [] };
+const CATALOG: BuilderCatalog = { skills: [], tools: [], connectors: [], automations: [] };
 
 const BASE_INPUT: AgentBundleInput = {
   schemaVersion: 1,

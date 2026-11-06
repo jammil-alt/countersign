@@ -5,6 +5,7 @@
 import {
   type AgentRow,
   activate,
+  automationContext,
   copyClientAgent,
   createClientAgent,
   createTemplate,
@@ -100,9 +101,18 @@ async function bindTestCopy(
     bundle,
     catalog: ctx.services.platform.catalog,
   });
-  const needed = requiredConnectors(bundle, skills, ctx.services.platform.tools).filter(
-    (c) => !copy.bindings[c],
-  );
+  // v0.12 W2-B: and the connectors of the automations it uses.
+  const used = await automationContext(ctx.tx, {
+    tenantId,
+    bundle,
+    catalog: ctx.services.platform.catalog,
+  });
+  const needed = requiredConnectors(
+    bundle,
+    skills,
+    ctx.services.platform.tools,
+    used.automations,
+  ).filter((c) => !copy.bindings[c]);
   if (needed.length === 0) return copy;
   const rows = await ctx.tx
     .select({ id: connection.id, connector: connection.connector })

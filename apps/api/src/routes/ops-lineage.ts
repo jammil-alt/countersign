@@ -33,6 +33,8 @@ import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { agentSummary, versionSummary } from "./mappers";
+// v0.12 W2-B
+import { builderAutomations } from "./ops-automations";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 
@@ -270,6 +272,14 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         name: c.manifest.name,
         icon: c.manifest.icon || null,
       })),
+      // v0.12 W2-B: automations a use step can pin (ARCHITECTURE §10.7).
+      automations: await builderAutomations(tx, {
+        tenantId: row.tenantId,
+        tenantIds: ctx.tenantIds,
+        bundle: latest?.bundle ?? null,
+        skills: Object.fromEntries([...skills.values()].map((s) => [s.ref, s.definition])),
+        platform,
+      }),
     };
   });
 

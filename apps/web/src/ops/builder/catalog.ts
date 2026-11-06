@@ -40,6 +40,9 @@ export function typingContext(data: BuilderData): TypingContext {
   const tools: Record<string, ToolSpec> = {};
   for (const t of data.catalog.tools) tools[t.id] = t;
   const events: Record<string, EventTypeSpec> = {};
+  // v0.12 W2-B: the automations use steps pin, as the server validates with them.
+  const automations: NonNullable<TypingContext["automations"]> = {};
+  for (const a of data.catalog.automations ?? []) automations[a.ref] = a.definition;
   for (const e of data.events) {
     events[e.type] = {
       type: e.type,
@@ -49,7 +52,7 @@ export function typingContext(data: BuilderData): TypingContext {
       ...(e.subjectType ? { subjectType: e.subjectType } : {}),
     };
   }
-  return { skills, tools, events };
+  return { skills, tools, events, automations };
 }
 
 /**
