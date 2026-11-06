@@ -9,6 +9,14 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # Biome is pinned to Plenary Labs' version (CLAUDE.md); newer ones reformat files, Markdown
+      # included. It moves when Plenary Labs' does, by hand.
+      - dependency-name: "@biomejs/biome"
+      # Node's types follow the Node we run (.nvmrc, 22): a newer major's types don't match the
+      # runtime (Node 26's broke apps/mfa's typecheck, #101). Minor and patch updates still come.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       dependencies:
         patterns: ["*"]

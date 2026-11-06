@@ -1,6 +1,7 @@
 // The Hono app: every /api route, built from injectable dependencies so the same app runs in the
 // Worker and in Node tests (with a test database and in-memory Workflow instances).
 
+import { credentialKeysFromEnv } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import { bankfeedCron } from "./bankfeed/sync";
@@ -26,6 +27,8 @@ import { mcpRoutes } from "./mcp/routes";
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
+// v0.12 W3-B
+import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
@@ -102,10 +105,13 @@ import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 // v0.14 W4-A
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
-import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
-import { forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+// v0.14 W4-B
+import { zohoRoutes } from "./routes/zoho";
+import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
+import { credentialsFor, forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
 import { securityHeaders } from "./security-headers";
 import { vaultTick } from "./vault/upkeep";
+import { zohoCronTick } from "./zoho/sync";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -132,6 +138,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   deskRoutes(app);
   portalRouteHandlers(app);
   qboRoutes(app);
+  // v0.14 W4-B: Zoho CRM's notifications.
+  zohoRoutes(app);
   // v0.12 bankfeed: Plaid's webhook
   bankfeedRoutes(app);
   connectionRoutes(app);
@@ -247,6 +255,25 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       console.error("qbo sync tick failed", error),
     );
+    // v0.12 W3-B: Ramp's new card transactions every 15 minutes, as events (docs/plan.md §1.52).
+    await rampCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
+      console.error("ramp poll tick failed", error),
+    );
+    // v0.14 W4-B: Zoho CRM, every 15 minutes: the watch renewed when due, then a poll of each
+    // connected Zoho (docs/plan.md §1.9 "Sync (W4-B)"). Needs the credentials' key.
+    if (env.ENCRYPTION_KEY) {
+      await zohoCronTick(
+        {
+          db,
+          platform,
+          credentials: credentialsFor(db, credentialKeysFromEnv(env)),
+          secret: env.OAUTH_STATE_SECRET,
+          origin: env.APP_ORIGIN?.trim() ? originOf(env) : undefined,
+        },
+        (tenantId, ids) => dispatchByIds({ db, instances }, tenantId, ids),
+        scheduledTime,
+      ).catch((error: unknown) => console.error("zoho sync tick failed", error));
+    }
     // v0.14 capture: captures left pending start again (every 10 minutes, docs/plan.md §1.55).
     if (scheduledTime.getUTCMinutes() % 10 === CAPTURE_CRON_MINUTE) {
       const capture = captureDepsFor({ db, env, deps, platform });

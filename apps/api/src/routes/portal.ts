@@ -481,11 +481,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     return { item: item as NonNullable<typeof item> };
   });
 
-  mount(app, routes.portalRuns, async ({ tx, tenantIds, query }) => {
+  mount(app, routes.portalRuns, async ({ tx, tenantIds, query, services }) => {
     // v0.12 W1-E: RunFilter without the back office's keys (refused by the query schema), the
     // client's own live runs only.
     const tenantId = tenantIds[0] as string;
-    const where = runFilterWhere(portalRunFilter(query.filter));
+    const where = runFilterWhere(
+      portalRunFilter(query.filter),
+      services.platform.ctx.tools.specs(),
+    );
     const runs = await runSummaries(tx, tenantId, where, query.limit);
     if (!query.perDay) return { runs };
     const scope = [eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where];

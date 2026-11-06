@@ -18,6 +18,8 @@ import { automationRoutes, BuilderAutomation } from "./automations";
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
+// v0.12 W3-A: the Builder as a conversation
+import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";
@@ -76,6 +78,8 @@ import { triggerRoutes } from "./triggers";
 import { usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
+// v0.14 W4-B
+import { zohoRoutes } from "./zoho";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -1864,6 +1868,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.14 W4-B: Zoho CRM notifications
+  ...zohoRoutes,
   // v0.12 bankfeed: Plaid's webhook
   ...bankfeedRoutes,
   // v0.12 W1-G: people (autonomy).
@@ -1898,6 +1904,8 @@ export const routes = {
   ...modelRoutes,
   // v0.13 W2-I: run oversight decisions for the agent lab.
   ...oversightRoutes,
+  // v0.12 W3-A: the Builder as a conversation.
+  ...builderRoutes,
   // v0.14 W4-E: Google Chat
   ...gchatRoutes,
   // v0.14 W4-D: Google Sheets' picking

@@ -18,6 +18,8 @@ export * from "./api/automations";
 export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
+// v0.12 W3-A: the Builder as a conversation
+export * from "./api/builder";
 export * from "./api/calls";
 // v0.12 W2-G: KPIs and the client view, credits, the client's audit export
 export * from "./api/client-view";
@@ -75,6 +77,8 @@ export * from "./api/triggers";
 export * from "./api/usage";
 // v0.14 W4-A: WhatsApp through Meta
 export * from "./api/whatsapp-meta";
+// v0.14 W4-B
+export * from "./api/zoho";
 export * from "./approvals/rules";
 export * from "./billing";
 export * from "./browser/site";
@@ -90,6 +94,8 @@ export {
 } from "./bundle/flatten";
 export * from "./bundle/merge";
 export * from "./bundle/select";
+// v0.12 W3-A: closest templates
+export * from "./bundle/similarity";
 export * from "./calls/rules";
 export * from "./canonical";
 export * from "./codes/service";

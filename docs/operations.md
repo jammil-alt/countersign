@@ -243,7 +243,7 @@ Done by the owner (2026-11-05):
   sign-in in the client admin's session.
 - The operator's own sign-in to the Sandbox client (plan §1.5, to connect the sandbox company above)
   uses the same redirect URIs: the forwarder sends a signed back-office state to
-  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho or Podio.
+  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho, Podio, Ramp or HubSpot.
 - Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
   Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
   (every 15 minutes, and on any webhook).
@@ -483,11 +483,19 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   Its picking page needs two more values, public (Google restricts them to our origins) but set
   like the others, copied when set: `GOOGLE_PICKER_API_KEY` (a browser API key) and
   `GOOGLE_PROJECT_NUMBER` (the project's number). Without them Sheets connects, but no sheet can
-  be picked ("Choosing sheets isn't set up here yet"). Wiring them into `deploy.yml` is its own PR.
+  be picked ("Choosing sheets isn't set up here yet").
 - Needed by the Outlook connector (W3-B, plan §1.52), the same way: `OUTLOOK_CLIENT_ID` and
   `OUTLOOK_CLIENT_SECRET` (the Entra app's application id and a client secret, redirect URI
-  `<APP_ORIGIN>/connections/outlook/callback`). Wiring them into `deploy.yml` is its own PR. Until
-  both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
+  `<APP_ORIGIN>/connections/outlook/callback`). Until both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
+- Needed by the Ramp connector (W3-B, docs/plan.md §1.52), the same way: `RAMP_CLIENT_ID`,
+  `RAMP_CLIENT_SECRET` (a Ramp developer app, scopes `transactions:read users:read receipts:write
+  business:read`, redirect URI `<APP_ORIGIN>/connections/ramp/callback`). New transactions are read
+  every 15 minutes by the cron; nothing else to set.
+- Needed by the HubSpot connector, the same way: `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (a
+  HubSpot public app in a developer account, scopes `oauth` and `crm.objects.{contacts,companies,deals}.{read,write}`,
+  redirect URI `<APP_ORIGIN>/connections/hubspot/callback`). Until the id, the secret and
+  `OAUTH_STATE_SECRET` are all set, each shows "Not available yet" in the portal. `deploy.yml`
+  copies the four secrets into the Worker (#134).
 - Needed by the bank and card feed (`bankfeed`, Plaid; plan §1.52): `PLAID_CLIENT_ID` and
   `PLAID_SECRET` (the secret of the environment `PLAID_ENV` names: Plaid's sandbox secret on
   staging, its production secret in production), copied like the API keys; `PLAID_ENV` is a var in
@@ -499,17 +507,14 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   production). No webhook URL is set in the dashboard: each item's Link token names
   `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
   `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
-  sandbox first: `packages/connectors/src/bankfeed/NOTES.md`. Copying the two secrets in
-  `deploy.yml` is its own PR.
+  sandbox first: `packages/connectors/src/bankfeed/NOTES.md`.
 - Needed by the Slack connector (W4-C, plan §1.56), the same way: `SLACK_CLIENT_ID` and
   `SLACK_CLIENT_SECRET` (our Slack app's client id and secret, redirect URL
-  `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Wiring them into `deploy.yml` is
-  its own PR. Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
-
+  `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
 - Needed by the Google Chat connector (W4-E, plan §1.60), the same way:
   `GOOGLE_CHAT_SERVICE_ACCOUNT` (the service account's key JSON, as one secret) and
   `GOOGLE_CHAT_PROJECT_NUMBER` (the audience of Chat's tokens; see "Google Chat" above).
-  Wiring them into `deploy.yml` is its own PR. Until both are set, Google Chat shows
+  Until both are set, Google Chat shows
   "Not available yet" in the portal and `/api/hooks/gchat` answers 503.
 - Needed by WhatsApp through Meta (W4-A, plan §1.57), the same way: `META_APP_ID`,
   `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` and `META_CONFIG_ID` (see "WhatsApp through Meta"
@@ -581,7 +586,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack; not yet in `deploy.yml`), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values; not yet in `deploy.yml`), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat; not yet in `deploy.yml`), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta; not yet in `deploy.yml`) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta; not yet in `deploy.yml`) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
