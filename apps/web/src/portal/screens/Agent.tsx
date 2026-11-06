@@ -25,6 +25,7 @@ import { periodLabel } from "../../usage/format";
 import { agentChip, isGoing, stageWord } from "../agentState";
 import { PORTAL_PATHS } from "../paths";
 import { runsNote } from "./Reports";
+import { WeeklyAndSloan } from "./Table";
 
 const RUN_POLL_MS = 5_000;
 
@@ -89,9 +90,12 @@ function AgentPage({ id, detail, reload }: { id: string; detail: Detail; reload:
           }
           subtitle={service.description ?? t("service.noDescription")}
           actions={
-            isAdmin && control ? (
-              <PauseControl control={control} name={name} onChange={refresh} />
-            ) : null
+            <>
+              <WeeklyAndSloan quiet />
+              {isAdmin && control ? (
+                <PauseControl control={control} name={name} onChange={refresh} />
+              ) : null}
+            </>
           }
         />
         {session.lead ? (

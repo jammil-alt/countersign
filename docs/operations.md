@@ -866,8 +866,16 @@ be disabled, as in `db:purge-client`.
   show, one page per route, so new screens are swept without editing it. A page fails on a crash
   (an empty `#root`), a page error, a console error, an `/api` answer of 500 or more, or a link to
   "Not found". It clicks and submits nothing. Routes no seeded link reaches (a run, a document) are
-  listed as a note, not a failure; they are covered once the seed has such rows. Docs-only pull
-  requests skip it. Locally: `pnpm dev`, then `pnpm --filter @countersign/web sweep`.
+  listed as a note, not a failure; they are covered once the seed has such rows. It runs in light
+  and dark at desktop width and in dark at phone width (390×844), where a page that scrolls
+  sideways also fails. Then **the walkthroughs** (`apps/web/e2e/walkthroughs.mjs`) click through the
+  prototype's two paths (`#Start`), the client's morning and the back office's, by the links each
+  screen shows (opening the menu on a phone), in dark at desktop width and light at phone width.
+  They are read-only: a request that would change anything fails the step. A step the seed can't
+  support (no client agent, no run) is skipped with a note. Docs-only pull requests skip both.
+  Locally: `pnpm dev`, then `pnpm --filter @countersign/web sweep`; `SWEEP_LOOKS` picks the looks
+  (`desktop-light`, `desktop-dark`, `phone-light`, `phone-dark`) and `SWEEP_SHOTS=<folder>` saves a
+  screenshot of every page in each (`apps/web/e2e/harness.mjs`).
 
 ## 3. Migrations
 

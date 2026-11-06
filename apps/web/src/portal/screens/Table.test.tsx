@@ -190,6 +190,11 @@ describe("The Table", () => {
     expect(screen.getByTestId("table-week-line")).toHaveTextContent(
       "Your agents finished 38 runs this week. 5 things wait on you.",
     );
+    expect(screen.getByRole("link", { name: "Open the Weekly Table" })).toHaveAttribute(
+      "href",
+      "/weekly",
+    );
+    expect(screen.getByRole("link", { name: "Ask Sloan" })).toHaveAttribute("href", "/sloan");
 
     const working = screen.getByTestId("table-working");
     expect(working).toHaveTextContent("1 running · 1 waiting on you · 1 setting up");
@@ -403,6 +408,8 @@ describe("the Table's account check", () => {
     expect(screen.getByText("Recordatorio")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Revisar y firmar" })).toBeInTheDocument();
     expect(screen.getByText("Trabajando ahora")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Abrir la Mesa semanal" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Preguntar a Sloan" })).toBeInTheDocument();
   });
 
   it("a finding on the Desk lists its steps and is closed with Done", async () => {

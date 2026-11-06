@@ -4,7 +4,7 @@
 // on you, questions, not now (snoozed), done. A client user sees only what is theirs (the API
 // filters); a viewer sees and never signs. Every action reloads the shell's Desk count.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { DeskDetail } from "../../desk/DeskDetail";
@@ -16,8 +16,16 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { Select } from "../../ui/forms";
 import { Page } from "../../ui/page";
-import { Card, EmptyState, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import {
+  buttonClass,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+  PageHeader,
+} from "../../ui/primitives";
 import { useRefreshInboxCount } from "../inboxCount";
+import { PORTAL_PATHS } from "../paths";
 
 const VIEWS = ["waiting", "questions", "later", "done"] as const;
 type View = (typeof VIEWS)[number];
@@ -182,25 +190,36 @@ export function PortalDeskScreen() {
           title={t("desk.title")}
           subtitle={t("desk.subtitle")}
           actions={
-            agents.length > 1 ? (
-              <Select
-                aria-label={t("desk.filter.agent")}
-                data-testid="desk-agent-filter"
-                value={agentFilter}
-                onChange={(e) => {
-                  setAgentFilter(e.target.value);
-                  setSelected(null);
-                }}
-                className="w-48"
+            <>
+              {/* DECISION: requests (the client's own asks of us) open from the Desk's header;
+                  where they finally live is open for the owner (docs/ui-plan.md, question 1). */}
+              <Link
+                to={PORTAL_PATHS.requests}
+                className={buttonClass("secondary")}
+                data-testid="desk-requests"
               >
-                <option value="">{t("desk.filter.allAgents")}</option>
-                {agents.map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </Select>
-            ) : null
+                {t("nav.requests")}
+              </Link>
+              {agents.length > 1 ? (
+                <Select
+                  aria-label={t("desk.filter.agent")}
+                  data-testid="desk-agent-filter"
+                  value={agentFilter}
+                  onChange={(e) => {
+                    setAgentFilter(e.target.value);
+                    setSelected(null);
+                  }}
+                  className="w-48"
+                >
+                  <option value="">{t("desk.filter.allAgents")}</option>
+                  {agents.map(([id, name]) => (
+                    <option key={id} value={id}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              ) : null}
+            </>
           }
         />
         <fieldset className="ds-seg min-w-0 max-w-full overflow-x-auto" data-testid="desk-views">
