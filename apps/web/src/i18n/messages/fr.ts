@@ -89,6 +89,8 @@ export const fr: Messages = {
   "nav.settings": "Paramètres",
   "nav.knowledge": "Connaissances",
   "nav.contacts": "Contacts",
+  // v0.14 capture
+  "nav.conversations": "Conversations",
   "nav.billing": "Facturation",
   "nav.people": "Personnes",
   "nav.access": "Accès",
@@ -846,6 +848,37 @@ export const fr: Messages = {
   "contacts.subtitle":
     "Les personnes que nous pouvons contacter pour vous par e-mail, SMS, WhatsApp ou téléphone. Nous ne contactons que celles qui ont accepté, et jamais pendant les heures de silence.",
   "contacts.adminOnly": "Votre administrateur tient la liste des contacts.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversations",
+  "conversations.subtitle":
+    "Les discussions WhatsApp avec votre numéro. Choisissez ce que nous gardons de chacune : les messages, et leurs pièces jointes comme documents.",
+  "conversations.adminOnly":
+    "Votre administrateur choisit ce que nous gardons des conversations WhatsApp.",
+  "conversations.empty":
+    "Aucune conversation WhatsApp pour l'instant. Une conversation commence quand quelqu'un écrit à votre numéro.",
+  "conversations.lastMessage": "Dernier message {when}",
+  "conversations.noMessages": "Aucun message pour l'instant.",
+  "conversations.keepMessages": "Garder les messages",
+  "conversations.attachments": "Télécharger les pièces jointes",
+  "conversations.attachments.off": "Non",
+  "conversations.attachments.documents": "PDF et images",
+  "conversations.attachments.all": "Tous les fichiers",
+  "conversations.yes": "Oui",
+  "conversations.no": "Non",
+  "conversations.showMessages": "Voir les messages",
+  "conversations.hideMessages": "Masquer les messages",
+  "conversations.notKept": "Non gardé",
+  "conversations.downloadNow": "Télécharger maintenant",
+  "conversations.downloading": {
+    one: "Téléchargement de {count} pièce jointe.",
+    other: "Téléchargement de {count} pièces jointes.",
+  },
+  "conversations.failed": "Cela n'a pas marché. Réessayez.",
+  "conversations.attachment.not_downloaded": "Non téléchargée",
+  "conversations.attachment.pending": "Téléchargement",
+  "conversations.attachment.filed": "Classée",
+  "conversations.attachment.refused": "Non prise",
+  "conversations.attachment.failed": "Téléchargement impossible",
   "contacts.empty":
     "Aucun contact pour l'instant. Ajoutez les personnes que vos agents peuvent contacter, avec la façon dont elles ont accepté.",
   "contacts.channel.sms": "SMS",

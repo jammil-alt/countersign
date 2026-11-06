@@ -54,7 +54,26 @@ example signature (`GvWf1cFY/Q7PnoempGyD5oXAezc=` for token `12345`), which is i
 |---|---|
 | `GET /Accounts/{sid}/Messages.json?To=&From=&DateSent>=YYYY-MM-DD&PageSize=` → `messages[]` with `sid`, `from`, `to`, `body`, `status`, `direction` (`inbound`, `outbound-api`, `outbound-reply`), `date_sent` (RFC 2822), `num_media` | UNCHECKED: the `DateSent>` parameter spelling and paging (`next_page_uri`, not followed) |
 | `GET /Accounts/{sid}/Messages/{SM}.json` | UNCHECKED |
-| Media URLs need auth to fetch | UNCHECKED. Media is not downloaded. We keep the URLs in the raw record only |
+| Media URLs need auth to fetch | See "Media (v0.14 capture)" below. From v0.14 the raw record keeps the media SID, never the URL |
+
+## Media (v0.14 capture, docs/plan.md §1.55)
+
+Written 2026-11-06. `twilio.com` was still outside the build environment's network, so these come
+from web search results that quote Twilio's media resource pages and its WhatsApp FAQ, not from
+the live docs. The fake Twilio (`fake.ts`) follows them.
+
+| Fact | Status |
+|---|---|
+| An inbound message's media is `MediaUrl{i}` = `https://api.twilio.com/2010-04-01/Accounts/{AC}/Messages/{MM}/Media/{ME}` with `MediaContentType{i}` and `NumMedia` (at most 10) | UNCHECKED (long-standing). We keep index, type and the ME… SID, and rebuild the URL from validated SIDs |
+| Twilio keeps inbound media until its Media resource is deleted | From search results only (Twilio's media resource page). We never delete it: **open owner choice** whether to delete it once filed |
+| Media URLs need HTTP Basic auth (an API key SID and secret, per the newer page) | From search results only. An older page says they are public unless "Enforce HTTP Auth on Media URLs" is on in the Console. We always send the subaccount's SID and auth token: UNCHECKED that the auth token (not only an API key) is accepted |
+| With auth on, the request answers with a redirect to a signed link valid about 4 hours | From search results only (the older page). We follow one redirect by hand, HTTPS only, without our credentials |
+| The signed link's host | UNCHECKED. `TWILIO_MEDIA_REDIRECT_ORIGINS` in `media.ts` lists `media.twiliocdn.com`, `mms.twiliocdn.com` and `s3-external-1.amazonaws.com`; any other origin is refused (`redirect_refused`). Check against a real redirect before a client turns attachments on, and adjust the list |
+| The signed link answers with `Content-Length` and the file's `Content-Type` | UNCHECKED. A missing length is fine (we count while reading); a missing or `application/octet-stream` type is accepted and the bytes are checked against the declared type |
+| No size in the webhook | UNCHECKED. We record a size only once downloaded |
+| WhatsApp's own media limits (images about 5 MB, documents up to 100 MB) | UNCHECKED. Our limit per conversation is 20 MB by default, 32 MB at most |
+| Twilio charges for stored media | UNCHECKED |
+| Twilio has no WhatsApp groups | From search results only: Twilio's WhatsApp FAQ says WhatsApp retired its groups API in April 2020; its "group messaging" sample fans out one-to-one chats through Conversations. Groups wait for Meta's connector (§1.19) |
 
 ## Webhooks
 
