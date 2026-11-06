@@ -39,6 +39,10 @@ export interface Secrets {
   /** Google Cloud's OAuth client "Mezonas web": Gmail, send only (ARCHITECTURE §6.4). */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  // v0.12 W3-B: Google Drive signs in with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET above.
+  /** The Entra app registration "Mezonas": Outlook, send only (ARCHITECTURE §6.11). */
+  OUTLOOK_CLIENT_ID?: string;
+  OUTLOOK_CLIENT_SECRET?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
