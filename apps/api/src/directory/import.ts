@@ -11,6 +11,7 @@ import {
   noopLogger,
   PODIO_CONNECTOR_ID,
   PODIO_TOOLS,
+  QBO_CONNECTOR_ID,
   type PodioItem,
   parseCsv,
   runReadTool,
@@ -35,12 +36,15 @@ import {
   type OrganizationPatchInput,
   type ParsedImportRow,
   type PersonImportRow,
+  QBO_DIRECTORY_ENTITIES,
+  type QboDirectoryEntity,
   type Relationship,
   rowFromPodio,
+  rowFromQbo,
   rowFromZoho,
 } from "@countersign/core";
-import { connection, contact, organization, type Tx } from "@countersign/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { connection, contact, organization, rawRecord, type Tx } from "@countersign/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { z } from "zod";
 import type { Bindings } from "../env";
 import { HttpError, notFound } from "../http";
@@ -80,12 +84,24 @@ export async function importSources(tx: Tx, tenantId: string): Promise<ImportSou
     .where(
       and(
         eq(connection.tenantId, tenantId),
-        inArray(connection.connector, [ZOHO_CRM_CONNECTOR_ID, PODIO_CONNECTOR_ID]),
+        inArray(connection.connector, IMPORT_CONNECTORS),
         eq(connection.status, "connected"),
       ),
     );
   return rows.map((r) => {
-    const config = (r.config ?? {}) as { orgName?: unknown };
+    const config = (r.config ?? {}) as { orgName?: unknown; companyName?: unknown };
+    // v0.12 W1-G: QuickBooks, named by its company.
+    if (r.connector === QBO_CONNECTOR_ID) {
+      return {
+        connectionId: r.id,
+        connector: r.connector,
+        label:
+          typeof config.companyName === "string"
+            ? `QuickBooks: ${config.companyName}`
+            : "QuickBooks",
+        status: r.status,
+      };
+    }
     const name = r.connector === ZOHO_CRM_CONNECTOR_ID ? "Zoho CRM" : "Podio";
     return {
       connectionId: r.id,
@@ -114,9 +130,20 @@ export async function rowsFromConnector(
     .from(connection)
     .where(and(eq(connection.id, input.connectionId), eq(connection.tenantId, tenantId)));
   if (!row) throw notFound("connection");
+  // v0.12 W1-G: QuickBooks vendors and customers, from what was synced (docs/plan.md §1.42).
+  if (row.connector === QBO_CONNECTOR_ID) {
+    if (row.status !== "connected") {
+      throw new HttpError(409, "not_connected", "connect it again first");
+    }
+    return rowsFromQbo(tx, tenantId, row.id, input);
+  }
   const connector = deps.platform.connectors.get(row.connector);
   if (!connector || ![ZOHO_CRM_CONNECTOR_ID, PODIO_CONNECTOR_ID].includes(row.connector)) {
-    throw new HttpError(422, "not_importable", "the directory imports from Zoho CRM or Podio");
+    throw new HttpError(
+      422,
+      "not_importable",
+      "the directory imports from Zoho CRM, Podio or QuickBooks",
+    );
   }
   if (row.status !== "connected") {
     throw new HttpError(409, "not_connected", "connect it again first");
@@ -167,6 +194,78 @@ export async function rowsFromConnector(
     const message = error instanceof Error ? error.message : String(error);
     throw new HttpError(502, "connector_failed", `the connected tool didn't answer: ${message}`);
   }
+}
+
+// ── v0.12 W1-G: QuickBooks (docs/plan.md §1.42) ─────────────────────────────────────────────────
+
+const IMPORT_CONNECTORS = [ZOHO_CRM_CONNECTOR_ID, PODIO_CONNECTOR_ID, QBO_CONNECTOR_ID];
+const QBO_IMPORT_MAX = 2000;
+
+/**
+ * The connection's synced vendors and customers (the latest raw version of each, active and not
+ * deleted) as organization rows, optionally those whose name contains `query`. Read from what
+ * sync stored, so nothing is asked of QuickBooks and its read permission was already applied.
+ */
+// DECISION: QuickBooks rows come from synced raw records rather than a live query: sync already
+// keeps every vendor (and, after W1-F, every customer), and a preview must not spend the client's
+// API limits. Customers appear once W1-F syncs them; until then a QuickBooks import is vendors.
+async function rowsFromQbo(
+  tx: Tx,
+  tenantId: string,
+  connectionId: string,
+  input: z.output<typeof ConnectorPreviewBody>,
+): Promise<{ source: string; rows: ParsedImportRow<Row>[]; more: boolean }> {
+  if (input.kind !== "organizations") {
+    throw new HttpError(
+      422,
+      "not_importable",
+      "QuickBooks gives vendors and customers: import them as organizations",
+    );
+  }
+  const entities = Object.keys(QBO_DIRECTORY_ENTITIES) as QboDirectoryEntity[];
+  const raw = await tx
+    .select({
+      entityType: rawRecord.entityType,
+      externalId: rawRecord.externalId,
+      payload: rawRecord.payload,
+      isDeleted: rawRecord.isDeleted,
+    })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, tenantId),
+        eq(rawRecord.connectionId, connectionId),
+        inArray(rawRecord.entityType, entities),
+      ),
+    )
+    .orderBy(rawRecord.entityType, rawRecord.externalId, desc(rawRecord.syncedAt));
+  const latest = new Map<string, (typeof raw)[number]>();
+  for (const r of raw) {
+    const key = `${r.entityType}:${r.externalId}`;
+    if (!latest.has(key)) latest.set(key, r);
+  }
+  const word = input.query?.toLowerCase();
+  const kept = [...latest.values()].filter((r) => {
+    const p = (r.payload ?? {}) as Record<string, unknown>;
+    if (r.isDeleted || p.Active === false) return false;
+    if (!word) return true;
+    return [p.DisplayName, p.CompanyName].some(
+      (v) => typeof v === "string" && v.toLowerCase().includes(word),
+    );
+  });
+  return {
+    source: QBO_CONNECTOR_ID,
+    rows: kept
+      .slice(0, QBO_IMPORT_MAX)
+      .map((r, i) =>
+        rowFromQbo(
+          r.entityType as QboDirectoryEntity,
+          (r.payload ?? {}) as Record<string, unknown>,
+          i + 1,
+        ),
+      ),
+    more: kept.length > QBO_IMPORT_MAX,
+  };
 }
 
 // ── Matching ────────────────────────────────────────────────────────────────────────────────────

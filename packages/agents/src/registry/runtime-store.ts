@@ -2,11 +2,12 @@
 // client (withTenant), so a run sees its own client's rows and nothing else (invariant 1).
 
 import type { ConnectionRef } from "@countersign/connectors";
-import { readApproverRuleSet } from "@countersign/core";
+import { autonomyFor, readApproverRuleSet, readAutonomy } from "@countersign/core";
 import {
   agent,
   agentVersion,
   connection,
+  contact,
   type Db,
   membership,
   memoryNote,
@@ -113,6 +114,23 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
         tenantId,
         async (tx) => (await grantOf(tx, { tenantId, agentId, connectionId }))?.limits ?? null,
       );
+    },
+
+    // v0.12 W1-G: the recipient's autonomy for the channel (docs/plan.md §1.42).
+    contactAutonomy(tenantId, recipient) {
+      return withTenant(db, tenantId, async (tx) => {
+        const column =
+          recipient.channel === "email"
+            ? contact.email
+            : recipient.channel === "whatsapp"
+              ? contact.whatsapp
+              : contact.phone;
+        const [row] = await tx
+          .select({ autonomy: contact.autonomy })
+          .from(contact)
+          .where(and(eq(contact.tenantId, tenantId), eq(column, recipient.to)));
+        return row ? autonomyFor(readAutonomy(row.autonomy), recipient.channel) : null;
+      });
     },
 
     approvalRouting(tenantId) {

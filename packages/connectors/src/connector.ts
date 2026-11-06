@@ -4,6 +4,7 @@ import {
   type JsonObject,
   type PermissionMatrix,
   type ToolAmount,
+  type ToolRecipient,
   type ToolDisplay,
   type ToolSpec,
   type Verb,
@@ -169,6 +170,8 @@ export function defineWriteTool<
   amount?: ToolAmount;
   /** How the change reads on its approval card (ToolSpec `display`). */
   display?: ToolDisplay;
+  // v0.12 W1-G: the input field naming the person a send messages (ToolSpec `recipient`).
+  recipient?: ToolRecipient;
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -188,6 +191,7 @@ export function defineWriteTool<
       ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
       ...(def.amount === undefined ? {} : { amount: def.amount }),
       ...(def.display === undefined ? {} : { display: def.display }),
+      ...(def.recipient === undefined ? {} : { recipient: def.recipient }),
     },
     handler: {
       kind: "write",

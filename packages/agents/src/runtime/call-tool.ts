@@ -9,6 +9,7 @@ import {
   runReadTool,
 } from "@countersign/connectors";
 import {
+  autonomyMessage,
   changeFacts,
   decideToolCall,
   fixedInputProblem,
@@ -16,6 +17,7 @@ import {
   type JsonObject,
   levelFor,
   pickLocalized,
+  recipientOf,
   releaseOf,
   releaseSettingProblem,
   routeApproval,
@@ -196,6 +198,12 @@ async function dispatch(
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
   }
+  // v0.12 W1-G: a send's recipient's autonomy for the channel is one more ceiling, read fresh.
+  const recipient = recipientOf(tool.spec, input);
+  const autonomy =
+    recipient && deps.ports.store.contactAutonomy
+      ? await deps.ports.store.contactAutonomy(step.tenantId, recipient)
+      : null;
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
     verb: tool.spec.verb,
@@ -203,7 +211,12 @@ async function dispatch(
     grant,
     stepApproval: step.approval?.required,
     agentMode: mode,
+    ceilings: autonomy ? [autonomy] : undefined,
   });
+  // v0.12 W1-G: the person's own setting refuses before the matrix's words would.
+  if (decision === "refused" && recipient && autonomy === "off") {
+    return { status: "refused", reason: autonomyMessage(recipient.channel, "off") };
+  }
   if (decision === "refused") {
     const verb = tool.spec.sideEffect === "none" ? "read" : tool.spec.verb;
     return {

@@ -111,6 +111,12 @@ async function guard<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+// v0.12 W1-G: a voice sample is edited through its own routes, which clean its text (§1.42).
+async function faqOrPolicy(tx: Tx, tenantId: string, entryId: string): Promise<void> {
+  const entry = await getKnowledgeEntry(tx, tenantId, entryId);
+  if (!entry || entry.kind === "voice_sample") throw notFound("entry");
+}
+
 async function memoryNotes(tx: Tx, tenantId: string) {
   // Live notes only: a test run's notes are tagged with the run and stay out (ARCHITECTURE §10.4).
   const where = and(eq(memoryNote.tenantId, tenantId), eq(memoryNote.scope, "agent"));
@@ -186,6 +192,7 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.opsKnowledgeEdit, async (ctx) => {
     const { tx, params, body, session } = ctx;
     ensureClient(ctx, params.id);
+    await faqOrPolicy(tx, params.id, params.entryId);
     const row = await guard(() =>
       editKnowledgeEntry(tx, params.id, params.entryId, {
         ...body,
@@ -256,6 +263,7 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.portalKnowledgeEdit, async ({ tx, tenantIds, params, body, session }) => {
     const tenantId = tenantIds[0] as string;
+    await faqOrPolicy(tx, tenantId, params.id);
     const row = await guard(() =>
       editKnowledgeEntry(tx, tenantId, params.id, {
         ...body,

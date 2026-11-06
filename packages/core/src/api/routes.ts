@@ -21,6 +21,8 @@ import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { messagingRoutes } from "./messaging";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+// v0.12 W1-G: people (autonomy).
+import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
@@ -1791,5 +1793,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 W1-G: people (autonomy).
+  ...peopleRoutes,
+  ...voiceSampleRoutes,
 } as const;
 export type Routes = typeof routes;
