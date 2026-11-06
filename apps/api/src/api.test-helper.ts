@@ -14,7 +14,12 @@ import {
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
-import { AgentBundle, type AgentBundleInput, type SkillDefinition } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  FORBIDDEN_PORTAL_FIELD,
+  type SkillDefinition,
+} from "@countersign/core";
 import { appUser, connection, createDb, type Db, membership, tenant } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { type LlmTransport, withRecording } from "@countersign/llm";
@@ -235,6 +240,19 @@ export const OPERATOR = "operator@example.com";
 export const OTHER_OPERATOR = "other-operator@example.com";
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;
 export const user = (c: "a" | "b" | "c") => `user@${c}.example.com`;
+
+/**
+ * Every key in a JSON value that a portal response may never carry (invariant 11): the contract's
+ * forbidden fields, and `also` when a test is stricter (e.g. any key naming cost or tokens).
+ */
+export function forbiddenKeys(value: unknown, also?: RegExp, at = "$"): string[] {
+  if (Array.isArray(value)) return value.flatMap((v, i) => forbiddenKeys(v, also, `${at}[${i}]`));
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([k, v]) => [
+    ...(FORBIDDEN_PORTAL_FIELD.test(k) || also?.test(k) ? [`${at}.${k}`] : []),
+    ...forbiddenKeys(v, also, `${at}.${k}`),
+  ]);
+}
 
 /**
  * A bundle with one manual workflow: a change to the testkit record (approval on), a person's
