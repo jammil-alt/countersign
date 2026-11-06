@@ -144,6 +144,8 @@ export function agentPort(
         language: run.language,
         // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
         ...(run.retryOf ? { retryOf: run.retryOf } : {}),
+        // v0.12 W2-B: a step of an automation runs with the automation's skills.
+        ...(request.automation ? { automation: request.automation } : {}),
       });
       switch (r.status) {
         case "succeeded":

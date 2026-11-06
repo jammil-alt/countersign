@@ -75,6 +75,13 @@ export interface RunAgentInput {
   // v0.12 W1-E
   /** A retry's step: the failed run whose approved, not-done writes it may carry (§10.10). */
   retryOf?: string | undefined;
+  // v0.12 W2-B
+  /**
+   * A step of a use step: the automation (`slug@version`) it comes from. Using an automation brings
+   * its skills into the agent's allowed set (ARCHITECTURE §10.7): the agent need not list them, and
+   * a skill it doesn't list runs with the step's settings over the skill's defaults.
+   */
+  automation?: string | undefined;
 }
 
 export interface AskBudget {
@@ -337,8 +344,10 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     def = resolved.definition;
     const id = parseSkillRef(skillRef).id;
     const own = agent.bundle.definition.skills.find((s) => parseSkillRef(s.skill).id === id);
-    if (!own) return fail(`agent ${agent.slug} has no skill ${id}`);
-    settings = resolveSkillSettings(def, { ...own.settings, ...input.settings });
+    if (!own && input.automation === undefined) {
+      return fail(`agent ${agent.slug} has no skill ${id}`);
+    }
+    settings = resolveSkillSettings(def, { ...own?.settings, ...input.settings });
   } else if (input.asked) {
     def = askSkill(input.asked.tools);
   } else if (input.task !== undefined) {
