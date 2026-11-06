@@ -37,6 +37,7 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
 import type { Bindings } from "./env";
+import type { McpDeps } from "./mcp/routes";
 import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { workerTransport } from "./runs/execute";
@@ -67,6 +68,8 @@ export interface AppDeps {
   stripe?(env: Bindings): StripeClient | null;
   /** QuickBooks syncs (QboSyncWorkflow); default the QBO_SYNC binding. Tests pass memory. */
   qboSync?(env: Bindings): QboSyncInstances | null;
+  /** The MCP server's authorization server, audit, rate limit and clock; tests pass fakes. */
+  mcp?: McpDeps;
 }
 
 /** The Stripe client for billing, or null where billing is off (no key). */
@@ -341,6 +344,72 @@ export function requestedClient(c: AppContext): string | null {
   return c.req.query("client") ?? c.req.header("x-countersign-client") ?? null;
 }
 
+/** What a request may touch once its session, roles and client scope have been checked. */
+export interface Scope {
+  readonly role: Role;
+  /** The clients this request may touch: one for the portal, those served for the back office. */
+  readonly tenantIds: readonly string[];
+  readonly operator: boolean;
+}
+
+/**
+ * The route's roles and the client scope for a session (invariant 1): the back office gets the
+ * clients the operator serves, the portal exactly one client. Shared by `mount` and the MCP server.
+ */
+export function scopeOf(
+  session: Session,
+  roles: readonly Role[],
+  family: "ops" | "portal",
+): ({ readonly ok: true } & Scope) | AuthRefusal {
+  const role = requireRole(session, roles);
+  if (!role.ok) return role;
+  const scope = tenantScope(session, family);
+  if (!scope.ok) return scope;
+  return { ok: true, role: role.role, tenantIds: scope.tenantIds, operator: scope.operator };
+}
+
+/** The scoped part of a handler's context, inside its transaction. */
+export type Scoped = Scope & Pick<HandlerCtx<RouteSpec>, "tx" | "afterCommit" | "defer">;
+
+/**
+ * Runs `work` in one transaction scoped to `scope` (withOperator for the back office, withTenant
+ * for the portal: exactly one client), then the after-commit tasks.
+ */
+export async function inScope<T>(
+  c: AppContext,
+  scope: Scope,
+  work: (scoped: Scoped) => Promise<T>,
+): Promise<T> {
+  const ids = scope.tenantIds;
+  const portalClient = ids[0];
+  if (!scope.operator && (ids.length !== 1 || !portalClient)) {
+    throw new HttpError(403, "forbidden", "a portal request acts for exactly one client");
+  }
+  const services = c.get("req").services();
+  const after: (() => Promise<unknown>)[] = [];
+  const run = (tx: Tx) =>
+    work({
+      role: scope.role,
+      tenantIds: ids,
+      operator: scope.operator,
+      tx,
+      afterCommit: (task) => after.push(task),
+      defer: (task) => c.get("req").deferred.push(task),
+    });
+  const output = await (scope.operator
+    ? withOperator(services.db, ids, run)
+    : withTenant(services.db, portalClient as string, run));
+  for (const task of after) {
+    await task().catch((error: unknown) => console.error("after-commit task failed", error));
+  }
+  return output;
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: one registry holds the handlers of every route spec.
+type AnyHandler = (ctx: HandlerCtx<any>) => Promise<unknown>;
+/** Each app's mounted handlers by route spec, so the MCP server runs the same code as /api. */
+const mounted = new WeakMap<object, Map<RouteSpec, AnyHandler>>();
+
 /**
  * A session route: sign-in, the route's roles, the client scope, then the handler inside
  * withOperator (back office) or withTenant (portal).
@@ -352,6 +421,12 @@ export function mount<R extends RouteSpec>(
 ): void {
   if (spec.auth !== "session") throw new Error(`${spec.path} is public: use mountPublic`);
   const family = routeFamily(spec);
+  let handlers = mounted.get(app);
+  if (!handlers) {
+    handlers = new Map();
+    mounted.set(app, handlers);
+  }
+  handlers.set(spec, handler as AnyHandler);
   app.on(spec.method, spec.path, async (c) => {
     let setCookies: readonly string[] = [];
     try {
@@ -366,46 +441,54 @@ export function mount<R extends RouteSpec>(
       if (!result.ok) return refusalResponse(c, result);
       setCookies = result.setCookies;
       const { session } = result;
-      const role = requireRole(session, spec.roles);
-      if (!role.ok) return refusalResponse(c, { ...role, setCookies });
-      const scope = tenantScope(session, family);
+      const scope = scopeOf(session, spec.roles, family);
       if (!scope.ok) return refusalResponse(c, { ...scope, setCookies });
 
       const input = await parseInput(c, spec);
-      const after: (() => Promise<unknown>)[] = [];
-      const ids = scope.tenantIds;
-      const operator = scope.operator;
-      const portalClient = ids[0];
-      if (!operator && (ids.length !== 1 || !portalClient)) {
-        throw new HttpError(403, "forbidden", "a portal request acts for exactly one client");
-      }
-      const output = await (operator
-        ? withOperator(services.db, ids, run)
-        : withTenant(services.db, portalClient as string, run));
-      for (const task of after) {
-        await task().catch((error: unknown) => console.error("after-commit task failed", error));
-      }
+      const output = await inScope(c, scope, (scoped) =>
+        handler({ c, session, ...scoped, ...input, services }),
+      );
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
       return respond(c, spec, output);
-
-      function run(tx: Tx) {
-        return handler({
-          c,
-          tx,
-          session,
-          role: role.ok ? role.role : "client_user",
-          tenantIds: ids,
-          operator,
-          ...input,
-          services,
-          afterCommit: (task) => after.push(task),
-          defer: (task) => c.get("req").deferred.push(task),
-        });
-      }
     } catch (error) {
       return errorResponse(c, error, setCookies);
     }
   });
+}
+
+/** Raw inputs for `invokeRoute`, as a request carries them (query values are strings). */
+export interface RouteInput {
+  params?: Record<string, string>;
+  query?: Record<string, string>;
+  body?: unknown;
+}
+
+/**
+ * Calls a mounted route's handler for `session` without HTTP: the same roles, client scope, input
+ * schemas, transaction and response contract as the route itself. The MCP server reads through
+ * this, so its tools show what the back office shows, scoped as the back office is.
+ */
+export async function invokeRoute<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  c: AppContext,
+  session: Session,
+  spec: R,
+  raw: RouteInput = {},
+): Promise<z.output<R["response"]>> {
+  const handler = mounted.get(app)?.get(spec);
+  if (!handler) throw new Error(`${spec.method} ${spec.path} is not mounted`);
+  const scope = scopeOf(session, spec.roles, routeFamily(spec));
+  if (!scope.ok) throw new HttpError(scope.status, scope.code, scope.message);
+  const input = {
+    params: spec.params ? spec.params.parse(raw.params ?? {}) : undefined,
+    query: spec.query ? spec.query.parse(raw.query ?? {}) : undefined,
+    body: spec.body ? spec.body.parse(raw.body) : undefined,
+  };
+  const services = c.get("req").services();
+  const output = await inScope(c, scope, (scoped) =>
+    handler({ c, session, ...scoped, ...input, services }),
+  );
+  return spec.response.parse(output) as z.output<R["response"]>;
 }
 
 /** Throws 404 unless `tenantId` is one of the request's clients (ids in paths are untrusted). */

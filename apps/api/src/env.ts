@@ -58,6 +58,13 @@ export interface Vars {
   ENVIRONMENT?: string;
   AUTH_PROVIDER?: string;
   WORKOS_CLIENT_ID?: string;
+  /**
+   * This environment's AuthKit domain (`https://<name>.authkit.app`): the authorization server of
+   * the back office's MCP server at `<APP_ORIGIN>/mcp` (docs/plan.md §1.34). Empty: /mcp is off.
+   */
+  WORKOS_AUTHKIT_DOMAIN?: string;
+  /** What an MCP access token's `aud` must contain; unset, `<APP_ORIGIN>/mcp`. */
+  MCP_AUDIENCE?: string;
   APP_ORIGIN?: string;
   LLM_MODE?: string;
   /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
@@ -85,6 +92,13 @@ export interface OptionalBindings {
   /** QboSyncWorkflow: one instance per QuickBooks sync (cron, webhook, "sync now"). */
   QBO_SYNC?: Workflow;
   BROWSER?: BrowserWorker;
+  /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
+  MCP_RATE_LIMIT?: RateLimiterBinding;
+}
+
+/** Cloudflare's Rate Limiting binding, as much of it as is used. */
+export interface RateLimiterBinding {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
 export type Bindings = Omit<Env, keyof Vars | keyof OptionalBindings> &

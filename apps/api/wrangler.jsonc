@@ -11,12 +11,18 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
-  // The web app is served from the same Worker; /api/* reaches the Worker first (docs/plan.md §1.1).
+  // The web app is served from the same Worker; /api/* reaches the Worker first (docs/plan.md §1.1),
+  // and so do the back office's MCP server and its OAuth metadata (docs/plan.md §1.34).
   "assets": {
     "directory": "../web/dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/mcp", "/.well-known/oauth-*"]
   },
+
+  // MCP calls per operator (src/mcp/limits.ts). Namespace ids are per account: one per environment.
+  "ratelimits": [
+    { "name": "MCP_RATE_LIMIT", "namespace_id": "1100", "simple": { "limit": 120, "period": 60 } }
+  ],
 
   // The senses sweep and schedule check run every minute (docs/plan.md §1.2).
   "triggers": { "crons": ["* * * * *"] },
@@ -46,6 +52,8 @@
     "AUTH_PROVIDER": "dev",
     // Empty: WorkOS sign-in is off.
     "WORKOS_CLIENT_ID": "",
+    // Empty: the back office's MCP server (/mcp) is off (docs/operations.md, "MCP server").
+    "WORKOS_AUTHKIT_DOMAIN": "",
     "APP_ORIGIN": "http://localhost:8787",
     // live | record | replay. The Worker only ever calls the model live; tests use replay or fakes.
     "LLM_MODE": "live",
@@ -78,11 +86,21 @@
       "services": [
         { "binding": "CODES", "service": "mezonas-codes-staging", "entrypoint": "Codes" }
       ],
+      "ratelimits": [
+        {
+          "name": "MCP_RATE_LIMIT",
+          "namespace_id": "1101",
+          "simple": { "limit": 120, "period": 60 }
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "staging",
         "AUTH_PROVIDER": "workos",
         // WorkOS "Mezonas Staging" app, Staging environment. Client ids are not secrets.
         "WORKOS_CLIENT_ID": "client_01M6HNS5BGAXTK0TK2A1RRGWGP",
+        // PLACEHOLDER: the Staging environment's AuthKit domain (https://<name>.authkit.app), set
+        // when the owner turns on MCP sign-in in WorkOS (docs/operations.md, "MCP server").
+        "WORKOS_AUTHKIT_DOMAIN": "",
         "APP_ORIGIN": "https://staging.mezonas.com",
         "LLM_MODE": "live",
         "QBO_ENV": "sandbox"
@@ -100,11 +118,20 @@
         { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
+      "ratelimits": [
+        {
+          "name": "MCP_RATE_LIMIT",
+          "namespace_id": "1102",
+          "simple": { "limit": 120, "period": 60 }
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "production",
         "AUTH_PROVIDER": "workos",
         // PLACEHOLDER: the production WorkOS client id, set when WorkOS is provisioned.
         "WORKOS_CLIENT_ID": "",
+        // PLACEHOLDER: the Production environment's AuthKit domain, as for staging.
+        "WORKOS_AUTHKIT_DOMAIN": "",
         "APP_ORIGIN": "https://app.mezonas.com",
         "LLM_MODE": "live",
         // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off

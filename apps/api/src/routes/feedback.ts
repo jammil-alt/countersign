@@ -180,6 +180,44 @@ async function oneItem(tx: Tx, row: FeedbackRow): Promise<FeedbackItem> {
   return item;
 }
 
+/** One feedback item in the operator's scope, and its screenshot's key (null without one). */
+export async function opsFeedbackItem(
+  tx: Tx,
+  tenantIds: readonly string[],
+  id: string,
+): Promise<{ item: FeedbackItem; screenshotKey: string | null }> {
+  const row = await opsRow(tx, tenantIds, id);
+  return { item: await oneItem(tx, row), screenshotKey: row.screenshotKey };
+}
+
+/**
+ * Resolves open feedback as `userId`, with an optional note: the back office's Resolve and the MCP
+ * server's `feedback_resolve`. Only an open item changes (the update checks it again), so two
+ * resolves of the same item never both succeed.
+ */
+export async function resolveFeedback(
+  tx: Tx,
+  tenantIds: readonly string[],
+  id: string,
+  userId: string,
+  note: string | undefined,
+): Promise<FeedbackItem> {
+  const row = await opsRow(tx, tenantIds, id);
+  if (row.status === "resolved") throw new HttpError(409, "already_resolved", "already resolved");
+  const [updated] = await tx
+    .update(feedback)
+    .set({
+      status: "resolved",
+      resolvedAt: new Date(),
+      resolvedBy: userId,
+      resolutionNote: note?.trim() || null,
+    })
+    .where(and(eq(feedback.id, row.id), eq(feedback.status, "open")))
+    .returning();
+  if (!updated) throw new HttpError(409, "already_resolved", "already resolved");
+  return oneItem(tx, updated);
+}
+
 async function clientSetting(tx: Tx, tenantId: string) {
   const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
   if (!t) throw notFound("client");
@@ -286,22 +324,9 @@ export function feedbackRouteHandlers(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.opsResolveFeedback, async ({ tx, tenantIds, params, body, session }) => {
-    const row = await opsRow(tx, tenantIds, params.id);
-    if (row.status === "resolved") throw new HttpError(409, "already_resolved", "already resolved");
-    const [updated] = await tx
-      .update(feedback)
-      .set({
-        status: "resolved",
-        resolvedAt: new Date(),
-        resolvedBy: session.user.id,
-        resolutionNote: body.note?.trim() || null,
-      })
-      .where(eq(feedback.id, row.id))
-      .returning();
-    if (!updated) throw notFound("feedback");
-    return { item: await oneItem(tx, updated) };
-  });
+  mount(app, routes.opsResolveFeedback, async ({ tx, tenantIds, params, body, session }) => ({
+    item: await resolveFeedback(tx, tenantIds, params.id, session.user.id, body.note),
+  }));
 
   mount(app, routes.opsReopenFeedback, async ({ tx, tenantIds, params }) => {
     const row = await opsRow(tx, tenantIds, params.id);

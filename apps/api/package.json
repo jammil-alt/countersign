@@ -27,6 +27,7 @@
     "@sentry/cloudflare": "11.2.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.7",
+    "jose": "^6.2.15",
     "postgres": "^3.4.9",
     "zod": "^4.6.2"
   },

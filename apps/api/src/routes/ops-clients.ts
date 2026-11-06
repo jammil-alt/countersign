@@ -20,7 +20,7 @@ import {
   toolCall,
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
@@ -411,6 +411,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     if (query.status) where.push(eq(run.status, query.status));
     if (query.agent) where.push(eq(run.agentId, query.agent));
     if (query.mode) where.push(eq(run.mode, query.mode));
+    if (query.since) where.push(gte(run.createdAt, new Date(query.since)));
     const rows = await tx
       .select()
       .from(run)

@@ -26,6 +26,8 @@ Mezonas is the product name and the name of every public resource; `countersign`
 | Code service address (Twilio's webhooks only) | `https://codes-staging.mezonas.com` | `https://codes.mezonas.com` |
 | Agent email (code service) | `agents.staging.mezonas.com` | `agents.mezonas.com` |
 | WorkOS | staging environment | production environment |
+| MCP server (Claude connector, operators) | `https://staging.mezonas.com/mcp` | `https://app.mezonas.com/mcp` |
+| Rate limit namespace (`MCP_RATE_LIMIT`) | `1101` | `1102` |
 
 `apps/api/wrangler.jsonc`'s top level is local development only (dev sign-in) and is never deployed:
 `deploy.yml` always passes `--env=staging` or `--env=production`. The custom domains are created by
@@ -102,7 +104,8 @@ After the first run: save the project id from the run summary as the repository 
    `https://app.mezonas.com/`), which sign-out sends as `return_to`; without it WorkOS shows
    `app-homepage-url-not-found` after signing out (the old app homepage URL is only a deprecated
    fallback); Worker secrets `WORKOS_CLIENT_ID`,
-   `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
+   `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters). For the Claude
+   connector, each environment's AuthKit domain in `WORKOS_AUTHKIT_DOMAIN` ("MCP server" below).
 
 ### The public site (mezonas.com)
 
@@ -432,6 +435,61 @@ WorkOS with), name. It creates an `app_user` row that your first WorkOS sign-in 
 email claims, and an operator membership in every client. On staging it can run the seed first
 (Sandbox and Demo clients, the platform templates); the seed never runs on production. Safe to run
 again, e.g. after new clients exist.
+
+### MCP server (Claude connector for the back office)
+
+The back office as a Claude connector (`docs/plan.md` §1.34): `https://staging.mezonas.com/mcp`
+and `https://app.mezonas.com/mcp`, one code, each with its own WorkOS environment, users and
+data. Operators only; it reads what the back office shows for the clients you serve, and its one
+write (resolving feedback) takes two calls, a preview and a confirm. Off until
+`WORKOS_AUTHKIT_DOMAIN` is set for the environment.
+
+Sign-in is WorkOS AuthKit acting as the OAuth server for MCP clients: Claude registers itself
+with AuthKit, you sign in on AuthKit's page with your usual WorkOS sign-in, and AuthKit issues a
+short-lived token for `<environment>/mcp` that the Worker checks against AuthKit's keys. Nothing
+new to store: no new secret, no table (confirm tokens are sealed with `WORKOS_COOKIE_PASSWORD`).
+
+**In WorkOS, for each environment (Staging first, then Production)** (dashboard names as of
+writing; UNCHECKED, WorkOS renames them now and then):
+
+1. Choose the environment (Staging / Production) at the top of the dashboard.
+2. Applications → Configuration (or Connect → Configuration): turn on **Dynamic Client
+   Registration** (and, if offered, **Client ID Metadata Documents**). This is what lets
+   claude.ai register itself as an OAuth client of AuthKit.
+3. Domains (Authentication → AuthKit): copy the **AuthKit domain**, e.g.
+   `https://<something>.authkit.app` (or your custom auth domain if you set one).
+4. In `apps/api/wrangler.jsonc`, set `WORKOS_AUTHKIT_DOMAIN` under that environment's `vars` (it
+   is not a secret), merge to main (staging) or tag a release (production). Check:
+   `curl https://staging.mezonas.com/.well-known/oauth-protected-resource` answers JSON naming the
+   AuthKit domain.
+5. If AuthKit lets you restrict which redirect URIs dynamic clients may use, allow
+   `https://claude.ai/api/mcp/auth_callback` (claude.ai's connector callback; UNCHECKED).
+
+**In claude.ai** (once per environment): Settings → Connectors → **Add custom connector** → name it
+"Mezonas staging" (or "Mezonas"), URL `https://staging.mezonas.com/mcp` (or
+`https://app.mezonas.com/mcp`) → Add → Connect. Sign in on the AuthKit page with the address you
+use for the back office. Then ask Claude "whoami in Mezonas staging" to see the environment and
+your clients.
+
+If connecting fails:
+
+| You see | Why | What to do |
+|---|---|---|
+| 403 "sign in to the Mezonas back office in a browser once" | Your WorkOS user has never signed in to this environment's back office, so no Mezonas user carries its WorkOS id yet | Sign in at `https://staging.mezonas.com` once, then Connect again |
+| 403 "for operators" | You are signed in as a client user | Use an operator account |
+| 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
+| 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
+| 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
+| 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
+
+To cut a connector off: remove the person's operator memberships (takes effect on the next call),
+or end their sessions in WorkOS (tokens last as long as AuthKit's access-token lifetime, a few
+minutes by default; nothing here refreshes them). Every tool call is a log line
+`{"event":"mcp.tool_call",…}` in Workers Logs, with the operator, the tool, its arguments (never
+a confirm token) and the outcome.
+
+Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
+`apps/api/src/mcp.test.ts` run it against a fake AuthKit.
 
 ## 1.1 Onboarding a client (managed service)
 
