@@ -157,9 +157,12 @@ export function createTestkitConnector(
     icon: "flask",
     auth: "none",
     entities: ["Record"],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    permissionEntities: [{ id: "record", label: "Records", verbs: ["read", "update"] }],
     tools: [
       defineReadTool({
         id: TESTKIT_QUERY_TOOL,
+        entity: "record",
         description: "Find records by id or by part of their name.",
         summary: "Found {{records.length}} records",
         input: QueryInput,
@@ -170,6 +173,7 @@ export function createTestkitConnector(
       }),
       defineWriteTool({
         id: TESTKIT_UPDATE_TOOL,
+        entity: "record",
         description: "Change a record's name or amount.",
         verb: "update",
         summary: "Updated record {{record.id}}",

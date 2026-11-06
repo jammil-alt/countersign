@@ -88,6 +88,11 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
       { name: "password", label: "Agent account password", secret: true },
     ],
     entities: [],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    permissionEntities: [
+      { id: "page", label: "Pages", verbs: ["read"] },
+      { id: "file", label: "Files", verbs: ["read"] },
+    ],
     isConfigured: () => options.available !== false,
     bindingKey(input) {
       const site = BrowserSiteSlug.safeParse((input as { site?: unknown } | null)?.site);
@@ -96,6 +101,7 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
     tools: [
       defineReadTool({
         id: BROWSER_PAGE_READ_TOOL,
+        entity: "page",
         description:
           "Read a page of a website you are signed in to: its text and tables. Only the site's allowed pages open; settings, password, user, billing and delete pages never do.",
         summary: "Read {{url}}",
@@ -122,6 +128,7 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
       }),
       defineReadTool({
         id: BROWSER_FILE_DOWNLOAD_TOOL,
+        entity: "file",
         description:
           "Download a file (a PDF or an image, such as an invoice) from a website you are signed in to into the client's documents.",
         summary: "Downloaded {{filename}}",

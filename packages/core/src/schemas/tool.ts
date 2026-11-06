@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ToolAmount } from "../approvals/rules";
 import { ToolRecipient } from "../directory/autonomy";
 import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
-import { SideEffect, Verb } from "./permissions";
+import { EntityId, SideEffect, Verb } from "./permissions";
 import { ToolDisplay } from "./tool-display";
 
 /**
@@ -44,11 +44,24 @@ export const ToolSpec = z
     // their autonomy for the channel as a ceiling.
     recipient: ToolRecipient.optional(),
     // v0.12 W1-F: the record type the tool touches (ARCHITECTURE §6.1 "Permissions per record
-    // type"), e.g. `invoice`. Declared now; the matrix and grant entities arrive with W2-A.
-    entity: z
-      .string()
-      .regex(/^[a-z][a-z0-9_]{0,39}$/)
+    // type"), e.g. `invoice`. v0.12 W2-A: one of its connector's `permissionEntities`; matrices and
+    // grants set levels per entity.
+    entity: EntityId.optional(),
+    // v0.12 W2-A: a tool that works on several record types names the input field that says which
+    // (Zoho's `module`), and the entity of each of its values. The gate reads the entity from the
+    // call's input; a value it can't map is `off`.
+    // DECISION: declared data, not a connector hook, so the gate stays a pure function of the
+    // spec, the input and the matrices.
+    entityInput: z
+      .strictObject({
+        field: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/),
+        values: z.record(z.string().min(1).max(64), EntityId),
+      })
       .optional(),
+  })
+  .refine((t) => t.entity === undefined || t.entityInput === undefined, {
+    message: "a tool names its entity or the input field that says it, not both",
+    path: ["entityInput"],
   })
   // DECISION: an external tool names its connector explicitly, so the permission gate and the
   // publish check find the connection matrix without guessing from `source`.

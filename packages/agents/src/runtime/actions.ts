@@ -233,6 +233,12 @@ export async function checkEditedInput(
     matrix: conn.permissions,
     grant,
     agentMode: "suggest_only",
+    // v0.12 W2-A: the edited input's entity and scope count too.
+    entity: {
+      tool: tool.spec,
+      input: edited,
+      declared: tool.connector.manifest.permissionEntities,
+    },
   });
   if (!grantAllowsTool(grant, tool.spec.id) || decision === "refused") {
     return { ok: false, code: "refused", message: `${tool.spec.verb} is off for this change now` };

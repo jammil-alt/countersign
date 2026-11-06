@@ -7,6 +7,7 @@ import {
   type SideEffect,
   type Verb,
 } from "../schemas/permissions";
+import { type EntityCall, type EntityToolRef, entityCeiling } from "./entities";
 import { effectiveMatrix, type GrantLimits } from "./grants";
 
 export type WriteDecision = "run" | "approval" | "refused";
@@ -63,10 +64,30 @@ export function decideToolCall(input: {
   // v0.12 W1-G: extra ceilings (docs/plan.md §1.42), e.g. a message's recipient's autonomy for the
   // channel. `off` refuses the call, `approval` makes a write wait; none of them loosens anything.
   ceilings?: readonly PermissionLevel[] | undefined;
+  // v0.12 W2-A: the tool, its input and its connector's entities, so the entity's and the scope's
+  // levels (on the connection and the grant) fold into the verb's (docs/plan.md §1.44). Absent:
+  // the verb alone, as before.
+  entity?: (Omit<EntityCall, "tool"> & { tool: Omit<EntityToolRef, "verb"> }) | undefined;
 }): WriteDecision {
   if (input.sideEffect === "internal") return "run";
   // v0.12 W1-G: the strictest input wins.
   if (input.ceilings?.includes("off")) return "refused";
+  // v0.12 W2-A: entities. The connection's and the grant's entity levels (and scopes) for this
+  // call are one more ceiling: `off` refuses, `approval` makes a write wait.
+  if (input.entity) {
+    const ceiling = entityCeiling({
+      tool: { ...input.entity.tool, verb: input.sideEffect === "none" ? "read" : input.verb },
+      input: input.entity.input,
+      declared: input.entity.declared,
+      matrix: input.matrix,
+      grant: input.grant,
+    });
+    if (ceiling === "off") return "refused";
+    if (ceiling === "approval" && input.sideEffect === "external") {
+      const rest = decideToolCall({ ...input, entity: undefined });
+      return rest === "run" ? "approval" : rest;
+    }
+  }
   const matrix = input.grant ? effectiveMatrix(input.matrix, input.grant) : input.matrix;
   if (input.sideEffect === "none") {
     if (matrix === undefined) return "run";

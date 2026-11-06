@@ -2,7 +2,7 @@
 // "Permission matrix"): per verb `auto`, `approval` or `off`. The operator sets it and may loosen;
 // a client admin may only tighten from what is saved; a client user only reads it; delete stays
 // off for everyone in v1. The API enforces the same rules; this only offers what it would accept.
-import type { PermissionLevel, Verb } from "@countersign/core";
+import type { EntityPermissions, PermissionLevel, Verb } from "@countersign/core";
 import type { PlainKey } from "../i18n/catalog";
 import type { Tone } from "../ui/primitives";
 
@@ -34,6 +34,21 @@ export function allowedLevels(
   const levels = verb === "read" ? LEVELS.filter((l) => l !== "approval" || saved === l) : LEVELS;
   if (editor === "operator") return [...levels];
   return levels.filter((l) => !isLooser(l, saved));
+}
+
+/**
+ * v0.12 W2-A: the level that applies to an entity for a verb: the stricter of the verb's level and
+ * the entity's own (no entry: the verb's level), as the gate folds them.
+ */
+export function entityLevel(
+  permissions: Record<Verb, PermissionLevel> & { entities?: EntityPermissions | undefined },
+  entity: string,
+  verb: Verb,
+): PermissionLevel {
+  const entities = permissions.entities ?? {};
+  const own = Object.hasOwn(entities, entity) ? entities[entity]?.[verb] : undefined;
+  const base = permissions[verb];
+  return own !== undefined && isLooser(base, own) ? own : base;
 }
 
 export function levelTone(level: PermissionLevel): Tone {

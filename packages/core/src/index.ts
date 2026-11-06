@@ -22,6 +22,8 @@ export * from "./api/client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 export * from "./api/command-center";
 export * from "./api/compliance";
+// v0.12 W2-A: the connectors catalog
+export * from "./api/connectors";
 export * from "./api/contract";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
@@ -124,6 +126,7 @@ export * from "./notify/render";
 // v0.13 W2-I: run oversight
 export * from "./oversight/decision";
 export * from "./permissions/decide";
+export * from "./permissions/entities";
 export * from "./permissions/explain";
 export * from "./permissions/grants";
 export * from "./permissions/release";

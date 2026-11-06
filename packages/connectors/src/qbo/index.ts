@@ -35,6 +35,7 @@ import {
   tokensFrom,
 } from "./api";
 import { type QboSyncCursor, qboRawRecord, qboSyncPage } from "./sync";
+import { QBO_TOOLS } from "./tool-kit";
 import { qboTools } from "./tools";
 import { QBO_SIGNATURE_HEADER, verifyQboWebhook } from "./webhook";
 
@@ -97,6 +98,29 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
     icon: "book",
     auth: "oauth2",
     entities: [...QBO_SYNCED_ENTITIES],
+    // v0.12 W2-A: the record types a matrix and a grant set levels for (docs/plan.md §1.44).
+    permissionEntities: [
+      { id: "bill", label: "Bills", verbs: ["read", "create", "update"] },
+      { id: "purchase", label: "Purchases", verbs: ["read", "update"] },
+      { id: "item", label: "Items", verbs: ["read", "update"] },
+      { id: "vendor", label: "Vendors", verbs: ["read"] },
+      {
+        id: "invoice",
+        label: "Invoices",
+        verbs: ["read", "update"],
+        scopes: [
+          {
+            id: "notes_only",
+            label: "Notes only",
+            verb: "update",
+            tools: [QBO_TOOLS.invoiceAddNote],
+          },
+        ],
+      },
+      { id: "customer", label: "Customers", verbs: ["read"] },
+      { id: "payment", label: "Payments", verbs: ["read"] },
+      { id: "attachment", label: "Attachments", verbs: ["read", "create"] },
+    ],
     isConfigured: () => configured,
 
     async authorize(req) {
