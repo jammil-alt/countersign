@@ -14,6 +14,8 @@ import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
+// v0.12 bankfeed
+import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { callRoutes } from "./calls";
@@ -1659,9 +1661,14 @@ export const portalRoutes = {
     auth: "session",
     roles: ["client_admin", "client_user"],
     summary:
-      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
+      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts (a URL, or a link widget to open)",
     params: z.object({ connector: ConnectorId }),
-    response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
+    response: z.object({
+      connection: PortalConnection,
+      redirectUrl: z.string().nullable(),
+      // v0.12 bankfeed: Plaid Link, opened in the page, in place of a redirect.
+      link: LinkStartView.nullable().optional(),
+    }),
   }),
   portalAuthorizeCallback: defineRoute({
     method: "POST",
@@ -1847,6 +1854,8 @@ export const routes = {
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
+  // v0.12 bankfeed: Plaid's webhook
+  ...bankfeedRoutes,
   // v0.12 W1-G: people (autonomy).
   ...peopleRoutes,
   ...voiceSampleRoutes,

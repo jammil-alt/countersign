@@ -294,6 +294,12 @@ export const es: Messages = {
   "callback.subtitle": "Terminando el inicio de sesión en su herramienta.",
   "callback.back": "Volver a Conexiones",
   "callback.connecting": "Conectando…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lea los movimientos de sus cuentas bancarias y tarjetas. Nada aquí puede mover dinero.",
+  "connections.bankfeed.connect": "Conectar banco o tarjeta",
+  "callback.linkLost":
+    "Este inicio de sesión bancario empezó en otra pestaña o ventana. Vuelva a empezar desde Conexiones.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accesos",

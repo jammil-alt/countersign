@@ -3,6 +3,7 @@
 // for clients; default access for new clients; the framework's last line counts entities.
 import { DEFAULT_PERMISSIONS, type PermissionMatrix } from "@countersign/core";
 import { describe, expect, it } from "vitest";
+import { createBankfeedConnector } from "./bankfeed/index";
 import { createBrowserConnector } from "./browser/index";
 import type { Connector } from "./connector";
 import { createGdriveConnector } from "./gdrive/index";
@@ -40,6 +41,8 @@ const ALL: Connector[] = [
   // v0.12 W3-B
   createGdriveConnector(),
   createOutlookConnector(),
+  // v0.12 bankfeed
+  createBankfeedConnector(),
 ];
 
 const qbo = createQboConnector().manifest;

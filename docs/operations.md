@@ -382,6 +382,19 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `OUTLOOK_CLIENT_SECRET` (the Entra app's application id and a client secret, redirect URI
   `<APP_ORIGIN>/connections/outlook/callback`). Wiring them into `deploy.yml` is its own PR. Until
   both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
+- Needed by the bank and card feed (`bankfeed`, Plaid; plan §1.52): `PLAID_CLIENT_ID` and
+  `PLAID_SECRET` (the secret of the environment `PLAID_ENV` names: Plaid's sandbox secret on
+  staging, its production secret in production), copied like the API keys; `PLAID_ENV` is a var in
+  `wrangler.jsonc` (`sandbox` locally and on staging, `production` in production). In Plaid's
+  dashboard: allowed redirect URIs `<APP_ORIGIN>/connections/bankfeed/callback` for each
+  environment (`https://staging.mezonas.com/…`, `https://app.mezonas.com/…`, and
+  `http://localhost:8787/…` for sandbox), the Link customization's name "Mezonas", and OAuth
+  institution registration (the company profile and the questionnaire Plaid asks for before
+  production). No webhook URL is set in the dashboard: each item's Link token names
+  `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
+  `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
+  sandbox first: `packages/connectors/src/bankfeed/NOTES.md`. Copying the two secrets in
+  `deploy.yml` is its own PR.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -447,7 +460,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook; not yet in `deploy.yml`) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook; not yet in `deploy.yml`), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds; not yet in `deploy.yml`) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
