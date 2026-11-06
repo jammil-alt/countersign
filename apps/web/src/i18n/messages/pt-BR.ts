@@ -88,6 +88,8 @@ export const ptBR: Messages = {
   "nav.settings": "Configurações",
   "nav.knowledge": "Conhecimento",
   "nav.contacts": "Contatos",
+  // v0.14 capture
+  "nav.conversations": "Conversas",
   "nav.billing": "Faturamento",
   "nav.people": "Pessoas",
   "nav.access": "Acessos",
@@ -836,6 +838,36 @@ export const ptBR: Messages = {
   "contacts.subtitle":
     "As pessoas para quem podemos mandar e-mail, SMS ou WhatsApp, ou ligar, por você. Só contatamos quem concordou, e nunca em horários de silêncio.",
   "contacts.adminOnly": "Seu administrador mantém a lista de contatos.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Conversas",
+  "conversations.subtitle":
+    "Conversas de WhatsApp com o seu número. Escolha o que guardamos de cada uma: as mensagens e os anexos como documentos.",
+  "conversations.adminOnly": "Seu administrador escolhe o que guardamos das conversas de WhatsApp.",
+  "conversations.empty":
+    "Ainda não há conversas de WhatsApp. Uma começa quando alguém escreve para o seu número.",
+  "conversations.lastMessage": "Última mensagem {when}",
+  "conversations.noMessages": "Ainda não há mensagens.",
+  "conversations.keepMessages": "Guardar mensagens",
+  "conversations.attachments": "Baixar anexos",
+  "conversations.attachments.off": "Não",
+  "conversations.attachments.documents": "PDFs e imagens",
+  "conversations.attachments.all": "Todos os arquivos",
+  "conversations.yes": "Sim",
+  "conversations.no": "Não",
+  "conversations.showMessages": "Ver mensagens",
+  "conversations.hideMessages": "Ocultar mensagens",
+  "conversations.notKept": "Não guardada",
+  "conversations.downloadNow": "Baixar agora",
+  "conversations.downloading": {
+    one: "Baixando {count} anexo.",
+    other: "Baixando {count} anexos.",
+  },
+  "conversations.failed": "Não deu certo. Tente de novo.",
+  "conversations.attachment.not_downloaded": "Não baixado",
+  "conversations.attachment.pending": "Baixando",
+  "conversations.attachment.filed": "Arquivado",
+  "conversations.attachment.refused": "Não aceito",
+  "conversations.attachment.failed": "Não foi possível baixar",
   "contacts.empty":
     "Nenhum contato ainda. Adicione as pessoas que seus agentes podem contatar, com a forma como concordaram.",
   "contacts.channel.sms": "SMS",
@@ -1168,6 +1200,24 @@ export const ptBR: Messages = {
     one: "{count} pessoa",
     other: "{count} pessoas",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · espaços",
+  "gchat.spacesTitle": "Espaços conectados",
+  "gchat.help":
+    "Os agentes publicam só nestes espaços e só depois que você aprova cada mensagem. Não conseguimos ler suas mensagens.",
+  "gchat.noSpaces": "Nenhum espaço conectado ainda.",
+  "gchat.groupChat": "Chat em grupo",
+  "gchat.boundBy": "Conectado {time} por {name}",
+  "gchat.boundAt": "Conectado {time}",
+  "gchat.codeTitle": "Conectar um espaço",
+  "gchat.steps":
+    "No Google Chat, adicione o Mezonas ao espaço e envie esta mensagem lá. O código funciona uma vez.",
+  "gchat.codeExpires": "Vale até {time}.",
+  "gchat.codeWaiting": "Há um código válido até {time}. Se você não tiver, gere um novo.",
+  "gchat.getCode": "Gerar um código",
+  "gchat.newCode": "Gerar um novo código",
+  "gchat.adminAllow":
+    "Não encontra o Mezonas no Google Chat? O administrador do Google Workspace precisa permitir o app.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
   "connections.gsheets.description":
     "Leia e adicione linhas nas planilhas do Google Sheets que você escolher. Não conseguimos abrir nenhuma outra.",

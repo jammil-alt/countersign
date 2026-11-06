@@ -333,6 +333,13 @@ export {
   type FakeRegisteredCall,
   fakeElevenLabs,
 } from "./elevenlabs/fake";
+// v0.14 W4-E: Google Chat (docs/plan.md §1.60).
+export {
+  FAKE_GCHAT,
+  type FakeChatMessage,
+  type FakeGoogleChat,
+  fakeGoogleChat,
+} from "./gchat/fake";
 // v0.12 W3-B: Google Drive and Outlook (docs/plan.md §1.52).
 export {
   FAKE_GOOGLE_DRIVE,

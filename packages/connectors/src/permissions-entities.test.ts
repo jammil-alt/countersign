@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createBankfeedConnector } from "./bankfeed/index";
 import { createBrowserConnector } from "./browser/index";
 import type { Connector } from "./connector";
+import { createGchatConnector } from "./gchat/index";
 import { createGdriveConnector } from "./gdrive/index";
 import { createGmailConnector } from "./gmail/index";
 // v0.14 W4-D
@@ -45,6 +46,8 @@ const ALL: Connector[] = [
   // v0.12 W3-B
   createGdriveConnector(),
   createOutlookConnector(),
+  // v0.14 W4-E
+  createGchatConnector(),
   // v0.14 W4-D
   createGsheetsConnector(),
   // v0.14 W4-C

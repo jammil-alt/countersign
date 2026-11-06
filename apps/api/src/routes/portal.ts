@@ -162,7 +162,8 @@ export function canSignIn(
   connector: Pick<Connector, "manifest" | "isConfigured" | "authorize" | "beginLink"> | undefined,
 ): boolean {
   if (!connector) return false;
-  if (connector.manifest.auth === "none") return true;
+  // v0.14 W4-E: a connector without sign-in may still need the deployment's keys (Google Chat).
+  if (connector.manifest.auth === "none") return connector.isConfigured?.() !== false;
   if (connector.manifest.auth === "oauth2") {
     // v0.12 bankfeed: or a hosted link widget (Plaid Link) in place of a redirect.
     return (

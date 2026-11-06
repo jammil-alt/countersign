@@ -49,6 +49,11 @@ export interface Secrets {
   /** The Entra app registration "Mezonas": Outlook, send only (ARCHITECTURE §6.11). */
   OUTLOOK_CLIENT_ID?: string;
   OUTLOOK_CLIENT_SECRET?: string;
+  // v0.14 W4-E: the Google Chat app (docs/plan.md §1.60).
+  /** The Chat app's service account key JSON, as one secret (`chat.bot`); never logged. */
+  GOOGLE_CHAT_SERVICE_ACCOUNT?: string;
+  /** The Google Cloud project number: the audience of Chat's tokens to the app. */
+  GOOGLE_CHAT_PROJECT_NUMBER?: string;
   // v0.14 W4-C
   /** Our Slack app "Mezonas": posts to the channels a client picks (ARCHITECTURE §6.11). */
   SLACK_CLIENT_ID?: string;
@@ -122,6 +127,9 @@ export interface OptionalBindings {
   // v0.12 W2-C
   /** TestSuiteWorkflow: one instance per test suite run (docs/plan.md §1.46). */
   TEST_SUITE_WORKFLOW?: Workflow;
+  // v0.14 capture
+  /** CaptureWorkflow: one instance per WhatsApp message whose attachments are fetched (§1.55). */
+  CAPTURE_WORKFLOW?: Workflow;
   BROWSER?: BrowserWorker;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;

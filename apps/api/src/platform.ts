@@ -21,6 +21,8 @@ import {
   // v0.12 bankfeed
   createBankfeedConnector,
   createBrowserConnector,
+  // v0.14 W4-E
+  createGchatConnector,
   createGdriveConnector,
   createGmailConnector,
   // v0.14 W4-D
@@ -165,6 +167,9 @@ type OAuthEnvKey =
   // v0.12 W3-B: Outlook's Entra app.
   | "OUTLOOK_CLIENT_ID"
   | "OUTLOOK_CLIENT_SECRET"
+  // v0.14 W4-E: the Google Chat app.
+  | "GOOGLE_CHAT_SERVICE_ACCOUNT"
+  | "GOOGLE_CHAT_PROJECT_NUMBER"
   // v0.14 W4-C: our Slack app.
   | "SLACK_CLIENT_ID"
   | "SLACK_CLIENT_SECRET"
@@ -189,6 +194,9 @@ export function platformFor(
     env.GOOGLE_CLIENT_ID ?? "-",
     // v0.12 W3-B
     env.OUTLOOK_CLIENT_ID ?? "-",
+    // v0.14 W4-E: whether the key is set, never the key.
+    env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
+    env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
     // v0.14 W4-C
     env.SLACK_CLIENT_ID ?? "-",
     // v0.12 bankfeed
@@ -273,6 +281,12 @@ export function deploymentConnectors(
         ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
         : {},
     ),
+    // v0.14 W4-E: Google Chat, the app of Mezonas' own: registered everywhere; a client connects it
+    // once GOOGLE_CHAT_SERVICE_ACCOUNT and GOOGLE_CHAT_PROJECT_NUMBER are set.
+    createGchatConnector({
+      serviceAccount: env.GOOGLE_CHAT_SERVICE_ACCOUNT,
+      projectNumber: env.GOOGLE_CHAT_PROJECT_NUMBER,
+    }),
     // v0.14 W4-C: Slack (posts to the channels a client picks), like Outlook: registered
     // everywhere, signing in once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and OAUTH_STATE_SECRET
     // are set.

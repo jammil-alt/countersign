@@ -20,6 +20,8 @@ import {
   PortalDirectoryScreen,
   PortalPeopleScreen,
 } from "./screens/Contacts";
+// v0.14 capture
+import { PortalConversationsScreen } from "./screens/Conversations";
 import { PortalDocumentScreen } from "./screens/Document";
 // v0.14 W4-D
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
@@ -97,6 +99,12 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                   label={t("nav.contacts")}
                   testId="portal-nav-contacts"
                 />
+                {/* v0.14 capture */}
+                <SidebarLink
+                  to="/conversations"
+                  label={t("nav.conversations")}
+                  testId="portal-nav-conversations"
+                />
                 <SidebarLink to="/billing" label={t("nav.billing")} testId="portal-nav-billing" />
                 <SidebarLink to="/people" label={t("nav.people")} testId="portal-nav-people" />
                 <SidebarLink
@@ -138,6 +146,8 @@ export function PortalApp() {
         <Route path="requests" element={<PortalRequestsScreen />} />
         <Route path="knowledge" element={<PortalKnowledgeScreen />} />
         <Route path="contacts" element={<PortalContactsScreen />} />
+        {/* v0.14 capture */}
+        <Route path="conversations" element={<PortalConversationsScreen />} />
         <Route path="directory" element={<PortalDirectoryScreen />} />
         <Route path="people" element={<PortalPeopleScreen />} />
         <Route path="billing" element={<PortalBillingScreen />} />

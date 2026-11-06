@@ -27,12 +27,16 @@ export * from "./api/compliance";
 // v0.12 W2-A: the connectors catalog
 export * from "./api/connectors";
 export * from "./api/contract";
+// v0.14 capture
+export * from "./api/conversations";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
 export * from "./api/directory";
 export * from "./api/documents";
 export * from "./api/exports";
 export * from "./api/feedback";
+// v0.14 W4-E: Google Chat
+export * from "./api/gchat";
 // v0.14 W4-D
 export * from "./api/gsheets";
 export * from "./api/knowledge";
@@ -147,6 +151,8 @@ export * from "./schemas/approval";
 export * from "./schemas/automation";
 export * from "./schemas/common";
 export * from "./schemas/connector";
+// v0.14 capture
+export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";

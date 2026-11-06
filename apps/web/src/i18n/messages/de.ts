@@ -90,6 +90,8 @@ export const de: Messages = {
   "nav.settings": "Einstellungen",
   "nav.knowledge": "Wissen",
   "nav.contacts": "Kontakte",
+  // v0.14 capture
+  "nav.conversations": "Unterhaltungen",
   "nav.billing": "Abrechnung",
   "nav.people": "Personen",
   "nav.access": "Zugriff",
@@ -853,6 +855,36 @@ export const de: Messages = {
   "contacts.subtitle":
     "Die Personen, die wir für Sie per E-Mail, SMS oder WhatsApp anschreiben oder anrufen dürfen. Wir kontaktieren nur, wer zugestimmt hat, und nie in Ruhezeiten.",
   "contacts.adminOnly": "Ihr Admin pflegt die Kontaktliste.",
+  // v0.14 capture: WhatsApp conversations (docs/plan.md §1.55); five languages need a fluent review.
+  "conversations.title": "Unterhaltungen",
+  "conversations.subtitle":
+    "WhatsApp-Chats mit Ihrer Nummer. Wählen Sie, was wir von jedem behalten: die Nachrichten und ihre Anhänge als Dokumente.",
+  "conversations.adminOnly": "Ihr Admin wählt, was wir von WhatsApp-Unterhaltungen behalten.",
+  "conversations.empty":
+    "Noch keine WhatsApp-Unterhaltungen. Eine beginnt, wenn jemand Ihrer Nummer schreibt.",
+  "conversations.lastMessage": "Letzte Nachricht {when}",
+  "conversations.noMessages": "Noch keine Nachrichten.",
+  "conversations.keepMessages": "Nachrichten behalten",
+  "conversations.attachments": "Anhänge herunterladen",
+  "conversations.attachments.off": "Aus",
+  "conversations.attachments.documents": "PDFs und Bilder",
+  "conversations.attachments.all": "Alle Dateien",
+  "conversations.yes": "Ja",
+  "conversations.no": "Nein",
+  "conversations.showMessages": "Nachrichten zeigen",
+  "conversations.hideMessages": "Nachrichten ausblenden",
+  "conversations.notKept": "Nicht behalten",
+  "conversations.downloadNow": "Jetzt herunterladen",
+  "conversations.downloading": {
+    one: "{count} Anhang wird heruntergeladen.",
+    other: "{count} Anhänge werden heruntergeladen.",
+  },
+  "conversations.failed": "Das hat nicht geklappt. Versuchen Sie es noch einmal.",
+  "conversations.attachment.not_downloaded": "Nicht heruntergeladen",
+  "conversations.attachment.pending": "Wird heruntergeladen",
+  "conversations.attachment.filed": "Abgelegt",
+  "conversations.attachment.refused": "Nicht übernommen",
+  "conversations.attachment.failed": "Herunterladen fehlgeschlagen",
   "contacts.empty":
     "Noch keine Kontakte. Fügen Sie die Personen hinzu, die Ihre Agenten kontaktieren dürfen, und wie sie zugestimmt haben.",
   "contacts.channel.sms": "SMS",
@@ -1189,6 +1221,25 @@ export const de: Messages = {
     one: "{count} Person",
     other: "{count} Personen",
   },
+  // v0.14 W4-E: Google Chat (needs a fluent speaker's review).
+  "gchat.section": "Google Chat · Bereiche",
+  "gchat.spacesTitle": "Verbundene Bereiche",
+  "gchat.help":
+    "Agenten posten nur in diesen Bereichen und erst, wenn Sie jede Nachricht freigegeben haben. Wir können Ihre Nachrichten nicht lesen.",
+  "gchat.noSpaces": "Noch keine Bereiche verbunden.",
+  "gchat.groupChat": "Gruppenchat",
+  "gchat.boundBy": "Verbunden {time} von {name}",
+  "gchat.boundAt": "Verbunden {time}",
+  "gchat.codeTitle": "Bereich verbinden",
+  "gchat.steps":
+    "Fügen Sie Mezonas in Google Chat dem Bereich hinzu und senden Sie dort diese Nachricht. Der Code gilt einmal.",
+  "gchat.codeExpires": "Gültig bis {time}.",
+  "gchat.codeWaiting":
+    "Ein Code ist bis {time} gültig. Falls Sie ihn nicht haben, holen Sie einen neuen.",
+  "gchat.getCode": "Code holen",
+  "gchat.newCode": "Neuen Code holen",
+  "gchat.adminAllow":
+    "Mezonas nicht in Google Chat zu finden? Ihr Google-Workspace-Admin muss die App zulassen.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
   "connections.gsheets.description":
     "Lesen Sie Zeilen in den Google-Tabellen, die Sie auswählen, und fügen Sie neue hinzu. Andere Tabellen können wir nicht öffnen.",

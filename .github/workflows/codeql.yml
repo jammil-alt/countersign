@@ -30,3 +30,25 @@ jobs:
           languages: javascript-typescript, actions
           queries: security-extended
       - uses: github/codeql-action/analyze@v3
+        with:
+          output: codeql-results
+      # The findings in this run's log too (rule, severity, file:line), so whoever reads the job's
+      # log sees what an alert is about without the Security tab. Messages are CodeQL's own text.
+      - name: Findings
+        if: always()
+        run: |
+          shopt -s nullglob
+          files=(codeql-results/*.sarif)
+          [ ${#files[@]} -gt 0 ] || { echo "No SARIF output."; exit 0; }
+          for f in "${files[@]}"; do
+            jq -r '
+              .runs[] as $run
+              | [$run.tool.driver.rules[]?, $run.tool.extensions[]?.rules[]?] as $rules
+              | $run.results[]?
+              | . as $r
+              | ((first($rules[] | select(.id == $r.ruleId)) | .properties["security-severity"]) // "-") as $sev
+              | "\($r.ruleId)\tseverity=\($sev)\t\($r.locations[0].physicalLocation.artifactLocation.uri):\($r.locations[0].physicalLocation.region.startLine)\t\($r.message.text | gsub("\n"; " ") | .[0:200])"
+            ' "$f"
+          done | sort | tee codeql-findings.txt
+          echo "Findings: $(wc -l < codeql-findings.txt)"
+

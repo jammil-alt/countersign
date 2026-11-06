@@ -3,7 +3,7 @@
 // inputs and outputs here are provider-neutral, so a workflow keeps working when a client moves its
 // WhatsApp from Twilio to Meta; each provider supplies handlers behind them.
 
-import { E164, MessagingChannel } from "@countersign/core";
+import { AttachmentView, E164, MessagingChannel } from "@countersign/core";
 import { z } from "zod";
 
 /** Namespaces messaging connectors share (ConnectorManifest.sharedNamespaces). */
@@ -81,6 +81,16 @@ export const MessageRecord = z.object({
   sentAt: z.string().nullable(),
   numMedia: z.number().int(),
   errorCode: z.string().nullable(),
+  // v0.14 capture (docs/plan.md §1.55): what the platform keeps of the message.
+  /** False when the conversation wasn't keeping messages: `text` is empty. */
+  kept: z.boolean().optional(),
+  /** The WhatsApp conversation it belongs to. */
+  conversation: z
+    .object({ id: z.string(), kind: z.enum(["direct", "group"]), title: z.string() })
+    .nullable()
+    .optional(),
+  /** Its attachments: kept, downloaded (with the document's id) or not. Never a link. */
+  attachments: z.array(AttachmentView).optional(),
 });
 export type MessageRecord = z.infer<typeof MessageRecord>;
 

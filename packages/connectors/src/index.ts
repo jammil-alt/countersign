@@ -4,8 +4,9 @@
 // `webhook` (in and out, for Zapier/Make/n8n), `gmail` (send only), `qbo` (QuickBooks Online),
 // `zoho_crm`, `podio`, `gdrive` (Google Drive, only the files we make), `outlook` (send only),
 // `slack` (posts to picked channels), `bankfeed` (bank and card feeds through Plaid, read only),
-// `gsheets` (Google Sheets, only the sheets the client picks), and `testkit`, the test connector.
-// Also `stripe/`, Mezonas' own billing client (not a connector: no manifest, no agent tools).
+// `gsheets` (Google Sheets, only the sheets the client picks), `gchat` (Google Chat, posts to the
+// spaces a client binds; v0.14 W4-E), and `testkit`, the test connector. Also `stripe/`, Mezonas'
+// own billing client (not a connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
@@ -18,6 +19,8 @@ export * from "./connector";
 export * from "./credentials";
 export * from "./credentials-accessor";
 export * from "./elevenlabs/index";
+// v0.14 W4-E
+export * from "./gchat/index";
 export * from "./gdrive/index";
 export * from "./gdrive/path";
 export * from "./gmail/index";
