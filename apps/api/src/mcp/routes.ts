@@ -27,6 +27,7 @@ import type { Hono } from "hono";
 import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
 import { type AppContext, type AppDeps, type AppEnv, requestState } from "../http";
+import { reportHandled, reportProblem } from "../observability/report";
 import { logAuditSink, loggedArgs, type McpAuditSink } from "./audit";
 import {
   type AuthorizationServer,
@@ -127,7 +128,7 @@ async function authenticate(
   try {
     server = await authorizationServer.discover();
   } catch (error) {
-    console.error("mcp authorization server discovery failed", error);
+    reportHandled("mcp authorization server discovery failed", error, { kind: "mcp" });
     return {
       ok: false,
       response: jsonError(
@@ -210,7 +211,10 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
     const state = mcpStateOf(c.env);
     if (state.state === "off") return notOn();
     if (state.state === "misconfigured") {
-      console.error("mcp misconfigured", state.problems);
+      reportProblem("mcp misconfigured", {
+        kind: "mcp",
+        problems: state.problems.join("; ").slice(0, 200),
+      });
       return jsonError(503, RPC.internalError, "the MCP server is not set up here");
     }
     const { config } = state;
@@ -264,7 +268,7 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
             ...(ctx.audit.target ? { target: ctx.audit.target } : {}),
             durationMs: Date.now() - started,
           })
-          .catch((error: unknown) => console.error("mcp audit failed", error));
+          .catch((error: unknown) => reportHandled("mcp audit failed", error, { kind: "audit" }));
         return result;
       },
     };

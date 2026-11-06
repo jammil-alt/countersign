@@ -3,6 +3,7 @@
 // isolate's memory, which is all a test or a local Worker needs.
 
 import type { Bindings } from "../env";
+import { reportHandled } from "../observability/report";
 
 export interface RateLimiter {
   /** True when this call is within the limit for `key`. */
@@ -46,7 +47,7 @@ export function rateLimiterFor(env: Bindings): RateLimiter {
         return (await binding.limit({ key })).success;
       } catch (error) {
         // The limiter failing is not a reason to refuse an operator; the isolate's window still holds.
-        console.error("mcp rate limiter failed", error);
+        reportHandled("mcp rate limiter failed", error, { kind: "mcp" });
         return fallback.allow(key);
       }
     },

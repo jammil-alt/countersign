@@ -13,6 +13,7 @@ import {
   type StoredMedia,
   sendBlockMessage,
   TwilioNumber,
+  trimTrailingSlashes,
 } from "@countersign/core";
 import { z } from "zod";
 import {
@@ -139,7 +140,7 @@ export async function twilioAuthOf(ctx: Pick<ToolContext, "credentials">): Promi
 
 /** The webhook URLs for a client, from the deployment's origin. */
 export function twilioWebhookUrls(origin: string, tenantId: string) {
-  const base = `${origin.replace(/\/+$/, "")}/api/twilio/${tenantId}`;
+  const base = `${trimTrailingSlashes(origin)}/api/twilio/${tenantId}`;
   return { messages: `${base}/messages`, status: `${base}/status` };
 }
 

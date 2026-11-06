@@ -23,6 +23,7 @@ import { CSV_BOM, CSV_TYPE, type CsvValue, csvLine, jsonCell } from "../exports/
 import { periodOf } from "../exports/period";
 import { type AppEnv, auditActor, mount, mountStream, notFound } from "../http";
 import { leadUserId, tenantRow } from "../notify/people";
+import { reportHandled } from "../observability/report";
 
 type ClientRole = "client_admin" | "client_user";
 const isClientRole = (r: string | null | undefined): r is ClientRole =>
@@ -206,7 +207,7 @@ export function auditCsvStream(
           finish();
         }
       } catch (error) {
-        console.error("audit export stopped", error);
+        reportHandled("audit export stopped", error, { job: "audit_export" });
         controller.error(error);
         finish();
       }

@@ -14,6 +14,7 @@ import { type Db, inboxItem, run, withTenant } from "@countersign/db";
 import { inboxEventType } from "@countersign/workflows";
 import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { toRunResolution } from "../inbox";
+import { reportHandled } from "../observability/report";
 import type { RunInstances } from "./instances";
 
 /** How long the after-commit send gets before the cron sends again. */
@@ -82,7 +83,9 @@ export async function redeliverResolutions(
       sent++;
     } catch (error) {
       failed++;
-      console.error(`re-sending inbox item ${item.id} to run ${item.runId} failed`, error);
+      reportHandled(`re-sending inbox item ${item.id} to run ${item.runId} failed`, error, {
+        job: "resume",
+      });
     }
   }
   return { sent, failed };

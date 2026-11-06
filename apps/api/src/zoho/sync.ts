@@ -21,6 +21,7 @@ import {
 import { connection, type Db, rawRecord, tenant, withTenant } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, ne } from "drizzle-orm";
+import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { senseEmitter } from "../runs/dispatch";
 
@@ -330,9 +331,10 @@ export async function zohoCronTick(
       await runZohoSync(deps, c, (ids) => dispatch(c.tenantId, ids));
       synced += 1;
     } catch (error) {
-      console.error(
-        `zoho sync of connection ${c.connectionId} failed: ${error instanceof Error ? error.message : "unknown"}`,
-      );
+      reportHandled(`zoho sync of connection ${c.connectionId} failed`, error, {
+        job: "zoho_sync",
+        client: c.tenantId,
+      });
     }
   }
   return synced;
