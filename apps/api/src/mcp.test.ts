@@ -444,6 +444,7 @@ describe.skipIf(!h)("MCP server", () => {
         "inbox_list",
         "connections_list",
         "records_search",
+        "ops_health",
       ]);
       for (const t of tools) {
         expect(t.inputSchema.type).toBe("object");
@@ -557,6 +558,7 @@ describe.skipIf(!h)("MCP server", () => {
         ["inbox_list", { client: H.C.tenantId }],
         ["connections_list", { client: H.C.tenantId }],
         ["records_search", { client: H.C.tenantId }],
+        ["ops_health", { client: H.C.tenantId }],
         ["feedback_list", { client: H.C.tenantId }],
         ["feedback_get", { id: ids.feedbackC }],
         ["feedback_resolve", { id: ids.feedbackC }],
@@ -589,6 +591,18 @@ describe.skipIf(!h)("MCP server", () => {
       expect(out.text).not.toMatch(/credentials|accessToken|refreshToken/);
       const one = (await tool(opToken, "connections_list", { client: H.B.tenantId })).data();
       expect(one.connections.map((c: { id: string }) => c.id)).toEqual([H.B.connectionId]);
+    });
+
+    it("ops_health: findings across the operator's clients, each named", async () => {
+      const out = await tool(opToken, "ops_health", { hours: 48 });
+      expect(out.isError, out.text).toBeFalsy();
+      const data = out.data();
+      expect(data.hours).toBe(48);
+      for (const f of data.findings) {
+        expect([H.A.tenantId, H.B.tenantId]).toContain(f.client.id);
+        expect(f.client.name).toMatch(/^Client [AB]$/);
+      }
+      expect((await tool(opToken, "ops_health", { hours: 0 })).isError).toBe(true);
     });
 
     it("runs_list and run_get: filters, steps and the agent", async () => {

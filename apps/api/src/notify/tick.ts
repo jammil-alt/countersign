@@ -8,6 +8,7 @@ import { NOTIFY_PASS_MINUTES } from "@countersign/core";
 import { type Db, tenant, withTenant } from "@countersign/db";
 import { isNull } from "drizzle-orm";
 import type { Bindings } from "../env";
+import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { weeklyTick } from "../weekly/tables";
 import { mailerFromEnv, texterFromEnv } from "./mailer";
@@ -63,7 +64,10 @@ export async function notifyTick(
       if (pass) await notifyPass(db, deps, client.id, now);
       else if (queued) await sendNow(db, deps, client.id, now);
     } catch (error) {
-      console.error(`notifications for client ${client.id} failed`, error);
+      reportHandled(`notifications for client ${client.id} failed`, error, {
+        job: "notify",
+        client: client.id,
+      });
     }
   }
 }

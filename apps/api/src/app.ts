@@ -23,6 +23,8 @@ import { mcpRoutes } from "./mcp/routes";
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
+import { healthTick } from "./observability/health";
+import { reportHandled } from "./observability/report";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
@@ -209,16 +211,21 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
     // move to signoff (hourly, at the usage sweep's minute).
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
-      console.error("lifecycle tick failed", error),
+      reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),
     );
     // v0.12 W1-B: the Weekly Table every minute (Friday draft, Monday send) and the notification
     // pass every 5 minutes.
     await notifyTick(db, notifyDepsFromEnv(env, deps.fetch?.(env)), platform, scheduledTime).catch(
-      (error: unknown) => console.error("notification tick failed", error),
+      (error: unknown) => reportHandled("notification tick failed", error, { job: "notify" }),
     );
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
-      console.error("qbo sync tick failed", error),
+      reportHandled("qbo sync tick failed", error, { job: "qbo_sync" }),
+    );
+    // The platform's own health, hourly (observability/health.ts): failed runs and writes, and once
+    // a day what is stuck, to Sentry by error key.
+    await healthTick(db, scheduledTime).catch((error: unknown) =>
+      reportHandled("health tick failed", error, { job: "health" }),
     );
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
@@ -226,11 +233,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
-        console.error("vault upkeep failed", error),
+        reportHandled("vault upkeep failed", error, { job: "vault" }),
       );
       // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
       await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
-        console.error("retention sweep failed", error),
+        reportHandled("retention sweep failed", error, { job: "retention" }),
       );
     }
   } finally {

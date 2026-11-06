@@ -4,6 +4,7 @@
 // failure never holds up the next.
 
 import { type Db, tenant, withTenant } from "@countersign/db";
+import { reportHandled } from "../observability/report";
 import { USAGE_SWEEP_MINUTE } from "../runs/dispatch";
 import { resumeEndedPauses } from "./pause";
 import { advanceTrials } from "./stages";
@@ -18,7 +19,10 @@ export async function lifecycleTick(db: Db, scheduledTime: Date): Promise<void> 
         if (hourly) await advanceTrials(tx, id, scheduledTime);
       });
     } catch (error) {
-      console.error(`lifecycle cron for client ${id} failed`, error);
+      reportHandled(`lifecycle cron for client ${id} failed`, error, {
+        job: "lifecycle",
+        client: id,
+      });
     }
   }
 }

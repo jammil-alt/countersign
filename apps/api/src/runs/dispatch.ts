@@ -25,6 +25,7 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq, isNotNull } from "drizzle-orm";
+import { reportHandled } from "../observability/report";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
 // v0.12 W2-E
 import { countLimited, overLimit } from "../triggers/limits";
@@ -169,7 +170,9 @@ export async function dispatchTenant(
       await deps.instances.start(request);
     } catch (error) {
       failed.add(eventId);
-      console.error(`starting run ${request.runId} failed; the sweep tries again`, error);
+      reportHandled(`starting run ${request.runId} failed; the sweep tries again`, error, {
+        job: "dispatch",
+      });
     }
   }
   await wakeAll(deps.instances, claimed.woken);
@@ -189,7 +192,10 @@ export async function dispatchByIds(
   try {
     return await dispatchTenant(deps, tenantId, { ids });
   } catch (error) {
-    console.error(`dispatch for client ${tenantId} failed`, error);
+    reportHandled(`dispatch for client ${tenantId} failed`, error, {
+      job: "dispatch",
+      client: tenantId,
+    });
     return 0;
   }
 }
@@ -317,7 +323,10 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       // the sweep's, and the claim keeps a concurrent dispatch from taking any twice.
       await dispatchTenant(deps, client.id, { newerThanSeconds: 60 });
     } catch (error) {
-      console.error(`cron for client ${client.id} failed`, error);
+      reportHandled(`cron for client ${client.id} failed`, error, {
+        job: "schedules",
+        client: client.id,
+      });
     }
   }
 }

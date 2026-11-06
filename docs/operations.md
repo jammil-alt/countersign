@@ -477,6 +477,47 @@ IPs, model inputs or outputs, database query values or local variables; messages
 and anything shaped like a key or token is removed (`apps/api/src/observability/sentry.ts`,
 `apps/web/src/observability.ts`, with tests).
 
+**What reaches it** (`docs/plan.md` §1.55). Unhandled errors; errors the Worker catches and carries
+on from (`handled: yes`, with a `job` tag for the cron's passes and background work or a `kind`
+tag for the Worker's own plumbing, and `client` with the client's id); answers that break a
+route's contract (`kind: contract`, `route`); and the hourly **platform health** pass: failed live
+runs and failed writes to clients' tools, one issue per error key (`ops_health` tag; the event's
+extras hold up to five run or action ids for the MCP server's `run_get`), and once a day runs,
+approvals and connections that are stuck. The **cron monitor** `mezonas-cron` (Sentry → Crons)
+checks in every minute and opens an issue after three missed or failed ticks in a row. In the
+browser: screen crashes, unreachable API calls (not when the page is being left), 5xx answers
+and answers that break the contract (`kind`). Feedback from the Feedback button stays in
+`/ops/feedback` and the MCP server's `feedback_list`, not Sentry (screenshots can show client data).
+
+**Alerts** (set once in Sentry → Alerts; nothing in the repository sets them):
+
+| Alert | When | To |
+|---|---|---|
+| Production, at once | A new or regressed issue in `environment:production` (both projects), or an `ops_health` issue at level error | Email and phone, the owner |
+| Production volume | An issue seen more than 20 times in an hour in production | Email, the owner |
+| Staging, daily | New issues in `environment:staging` | The daily email digest only |
+| Cron | The `mezonas-cron` monitor fails (production) | Email and phone; it is set on the monitor itself |
+
+Turn on the GitHub integration (Settings → Integrations → GitHub, repository
+`jammil-alt/countersign`) so an issue links to its commit and a fix can resolve it: a commit or
+PR that says `Fixes MEZONAS-API-12` resolves the issue in that release, and Sentry marks it
+**regressed** if it comes back after.
+
+**Triage, once a week (15 minutes)**, or when an alert arrives. Bring the inbox to zero:
+
+1. Sentry, `is:unresolved` in `mezonas-api` and `mezonas-web`, production first, by frequency.
+   Each issue gets one of: a fix (an issue or PR that names it), **resolve** (fixed, or it was
+   one-off), **archive until it escalates** with a note saying why (a known outside cause), or
+   **ignore** for an expected `ops_health` key (an `escalated` run is the agent working as asked).
+   Never leave noise unresolved: an inbox nobody reads hides the issue that matters.
+2. `ops_health` on the MCP server (or the Crons and `ops_health` issues in Sentry): anything stuck
+   gets looked at with `run_get` or `connections_list`.
+3. `/ops/feedback` (or `feedback_list`): resolve with a note or link to the fix.
+4. Anything that needs code becomes a GitHub issue naming the Sentry issue; a Claude Code session
+   with the Sentry connector can read the stack trace, find the cause and open the fix PR.
+
+A fix ships with a test that fails without it (the error's input as a fixture where it can be).
+
 ### The first operator
 
 A fresh environment has no users, and sign-in only admits invited addresses, so the first operator

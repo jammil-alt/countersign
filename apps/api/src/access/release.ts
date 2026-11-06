@@ -87,6 +87,7 @@ import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError, notFound } from "../http";
 import { messagingSettings, reachContactOf } from "../messaging/contacts";
+import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { forwardingAddress } from "../reach/replies";
 import type { RunInstances } from "../runs/instances";
@@ -839,7 +840,7 @@ export function dbReleasePort(deps: ReleaseDeps): ReleasePort {
           return { releaseId: release.id, inboxItemId: item.id };
         });
       } catch (error) {
-        console.error("access release request failed", { tenantId, error: errorText(error) });
+        reportHandled("access release request failed", error, { job: "release", client: tenantId });
         return { refused: `we couldn't send a code to release this: ${errorText(error)}` };
       }
     },
@@ -1112,7 +1113,7 @@ export async function wakeRelease(instances: RunInstances | undefined, wake: Wak
       payload: { approved: true, answer: null, by: wake.by } satisfies InboxResolution,
     });
   } catch (error) {
-    console.error(`waking run ${wake.runId} for a release failed`, errorText(error));
+    reportHandled(`waking run ${wake.runId} for a release failed`, error, { job: "release" });
   }
 }
 
