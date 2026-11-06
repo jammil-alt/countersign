@@ -290,6 +290,8 @@ describe.skipIf(!online)("seed", () => {
       },
     ]);
     expect(users.demoAdmin).toBeTruthy();
+    // The id the end-to-end walkthrough signs and undoes (apps/web/e2e/walkthroughs.mjs).
+    expect(d.inboxItemId).toBe("c99a8abe-0e92-5dee-bf29-46ef82002f23");
 
     // Nothing of it reaches the Sandbox.
     const sandbox = await withTenant(t.db, tenants.sandbox, async (tx) => {

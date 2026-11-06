@@ -7,12 +7,14 @@
 // (./harness.mjs).
 //
 // Read-only: any request that would change something (a POST, PUT, PATCH or DELETE to /api other
-// than the dev sign-in) is stopped and fails the step, so nothing is signed, sent or run, and no
-// outside service is ever written to (CLAUDE.md invariant 8). Signing and undoing a Desk item is
-// left out for the same reason.
+// than the dev sign-in) is stopped and fails the step, so nothing is sent or run, and no outside
+// service is ever written to (CLAUDE.md invariant 8). One exception: in "Sign and undo", the
+// Desk's sign and undo of the one item the seed puts there (packages/db/src/seed.ts
+// `seedDemoDesk`), a change on the in-memory testkit that no run ever executes. It is signed and
+// then undone inside the window, so it waits again for the next look and the next run.
 //
 // A step the seeded data can't support (no client agent, no run) is skipped with a note, not
-// failed: the seed has templates and two clients, no agents or runs yet.
+// failed.
 //
 //   SWEEP_URL=http://localhost:8787 node e2e/walkthroughs.mjs
 //   SWEEP_LOOKS=desktop-light SWEEP_SHOTS=/tmp/shots node e2e/walkthroughs.mjs
@@ -34,6 +36,16 @@ import {
 
 const LOOK_NAMES = looks("desktop-dark,phone-light");
 
+/**
+ * The seeded Desk item: uuid v5 of "demo:run:desk:item" in the seed's namespace (seeded ids never
+ * change; packages/db/src/seed.test.ts checks this one).
+ */
+export const SEEDED_DESK_ITEM = "c99a8abe-0e92-5dee-bf29-46ef82002f23";
+/** The only writes a walkthrough may make, and only while `w.allowDesk` is on. */
+const DESK_WRITES = new Set(
+  ["resolve", "undo"].map((action) => `POST /api/inbox/${SEEDED_DESK_ITEM}/${action}`),
+);
+
 /** A step the seeded data can't support: noted, not failed. */
 class Skip extends Error {}
 
@@ -49,19 +61,24 @@ function matches(href, target) {
  */
 async function walk(browser, email, lookName, name, script, results) {
   const { context, page, problems, look } = await openPage(browser, email, lookName);
-  // Nothing in a walkthrough writes: stop and report any request that would.
+  // Nothing in a walkthrough writes: stop and report any request that would. The one exception is
+  // the seeded Desk item's sign and undo, while the step that does them allows it.
   await page.route("**/api/**", (route) => {
     const req = route.request();
-    if (req.method() === "GET" || new URL(req.url()).pathname.startsWith("/api/auth/dev/")) {
+    const path = new URL(req.url()).pathname;
+    if (req.method() === "GET" || path.startsWith("/api/auth/dev/")) {
       return route.continue();
     }
-    problems.push(`tried to write: ${req.method()} ${new URL(req.url()).pathname}`);
+    if (w.allowDesk && DESK_WRITES.has(`${req.method()} ${path}`)) return route.continue();
+    problems.push(`tried to write: ${req.method()} ${path}`);
     return route.abort();
   });
 
   let n = 0;
   const w = {
     page,
+    /** On only inside "Sign and undo": lets the seeded item's sign and undo through. */
+    allowDesk: false,
     async goto(path) {
       await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await settle(page);
@@ -179,12 +196,36 @@ async function clientWalk(w) {
     await w.expectLink("/requests", "Requests");
   });
   await w.step("Sign and undo", async () => {
-    throw new Skip(
-      (await w.page.$$("main [data-testid^='desk-entry-'], main [data-testid^='inbox-item-']"))
-        .length
-        ? "left out: signing would write"
-        : "the seed has nothing on the Desk to sign",
-    );
+    const page = w.page;
+    const entry = page.locator(`main [data-testid="desk-entry-${SEEDED_DESK_ITEM}"]`);
+    if ((await entry.count()) === 0) {
+      throw new Skip("the seeded change isn't waiting on the Desk (signed and not undone?)");
+    }
+    await entry.first().click();
+    await settle(page);
+    const detail = page.locator('main [data-testid="desk-detail"]');
+    const sign = detail.locator('[data-testid="desk-sign"]');
+    await sign.waitFor({ state: "visible", timeout: 10_000 });
+    w.allowDesk = true;
+    try {
+      await sign.click();
+      const outcome = detail.locator('[data-testid="desk-outcome"]');
+      await outcome.waitFor({ state: "visible", timeout: 10_000 });
+      const said = (await outcome.innerText()).trim();
+      if (said !== "Signed by you") throw new Error(`after signing it says "${said}"`);
+      const left = detail.locator('[data-testid="desk-undo-left"]');
+      await left.waitFor({ state: "visible", timeout: 5_000 });
+      if (!/\d+ seconds? to undo/.test(await left.innerText())) {
+        throw new Error(`no undo countdown: "${await left.innerText()}"`);
+      }
+      await detail.locator('[data-testid="desk-undo"]').click();
+      // Waiting again: its Sign button is back and the outcome is gone.
+      await sign.waitFor({ state: "visible", timeout: 10_000 });
+      if (await outcome.count()) throw new Error("still shows an outcome after Undo");
+    } finally {
+      w.allowDesk = false;
+    }
+    await settle(page);
   });
 
   await w.step("Runs", () => w.follow("/runs"));

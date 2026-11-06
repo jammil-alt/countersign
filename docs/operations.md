@@ -871,7 +871,9 @@ be disabled, as in `db:purge-client`.
   sideways also fails. Then **the walkthroughs** (`apps/web/e2e/walkthroughs.mjs`) click through the
   prototype's two paths (`#Start`), the client's morning and the back office's, by the links each
   screen shows (opening the menu on a phone), in dark at desktop width and light at phone width.
-  They are read-only: a request that would change anything fails the step. A step the seed can't
+  They are read-only: a request that would change anything fails the step, except in "Sign and
+  undo", which signs the one change the seed puts on the Demo client's Desk (on the in-memory
+  testkit, never executed) and undoes it inside the window, so it waits again. A step the seed can't
   support (no client agent, no run) is skipped with a note. Docs-only pull requests skip both.
   Locally: `pnpm dev`, then `pnpm --filter @countersign/web sweep`; `SWEEP_LOOKS` picks the looks
   (`desktop-light`, `desktop-dark`, `phone-light`, `phone-dark`) and `SWEEP_SHOTS=<folder>` saves a
