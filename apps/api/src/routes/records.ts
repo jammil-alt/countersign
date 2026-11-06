@@ -188,6 +188,12 @@ export function recordRouteHandlers(app: Hono<AppEnv>): void {
     return { record };
   });
 
+  // v0.12 W1-H: the portal's list of the client's own records (docs/plan.md §1.43): the back
+  // office's list, in the portal's one-client transaction, naming the client in every query.
+  mount(app, routes.portalRecords, async ({ tx, tenantIds, services, query }) =>
+    listRecords(tx, services.platform, tenantIds[0] as string, query),
+  );
+
   mount(app, routes.opsClientRecords, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
     return listRecords(ctx.tx, ctx.services.platform, ctx.params.id, ctx.query);

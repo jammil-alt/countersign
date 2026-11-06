@@ -6,6 +6,7 @@
 
 import type { ContentStore } from "@countersign/connectors";
 import {
+  Decimal,
   type InvoiceExtraction,
   InvoiceExtraction as InvoiceExtractionSchema,
   isExtractable,
@@ -20,7 +21,7 @@ import {
   type LlmCallRecord,
   type LlmClient,
 } from "@countersign/llm";
-import { emit } from "@countersign/senses";
+import { type EmittedEvents, emit } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
 import { DocumentError, type DocumentRow } from "./store";
 import { validateTotals } from "./validate";
@@ -111,6 +112,8 @@ export interface ExtractInput {
   testRun?: boolean;
   /** Called with the model call's usage and cost (successes and failures), for the run's step. */
   onCall?: (record: LlmCallRecord) => void | Promise<void>;
+  /** Records the ids of the events it emits, for the caller to dispatch after commit (§8). */
+  collect?: EmittedEvents;
 }
 
 export interface ExtractResult {
@@ -159,9 +162,25 @@ async function markFailed(deps: DocumentsDeps, input: ExtractInput, message: str
         subjectId: input.documentId,
         payload: { documentId: input.documentId, error: message.slice(0, 500) },
       },
-      { testRun: input.testRun === true },
+      {
+        testRun: input.testRun === true,
+        ...(input.collect ? { collect: input.collect } : {}),
+      },
     );
   });
+}
+
+/** Input tokens as a step counts them: uncached, cache writes and cache reads. */
+function readTokensIn(record: LlmCallRecord): number {
+  const u = record.usage;
+  return u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens;
+}
+
+/** The call's cost at the column's 4 places (decimal, never a float); 0 when it has no price. */
+// DECISION: rounded half up to 4 places, as numeric(14,4) would store it; a model without a price
+// reads as 0, as on a step.
+function readCost(record: LlmCallRecord): string {
+  return new Decimal(record.costUsd ?? "0").toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
 }
 
 /** Reads a document with the model and records what it read. */
@@ -211,6 +230,12 @@ export async function extractDocument(
         totalsMatch: check.ok,
         problems: check.problems,
         confidence: x.confidence.toFixed(3),
+        // v0.12 W1-H: what the reading cost, written once with the row (ARCHITECTURE §13). A
+        // background reading's (no agent version) is the client's usage (usage_platform_daily);
+        // an agent's is also on its step, and the rollup counts it there only.
+        tokensIn: readTokensIn(answer.record),
+        tokensOut: answer.record.usage.outputTokens,
+        costUsd: readCost(answer.record),
       })
       .returning({ id: docExtraction.id });
     if (!row) throw new Error("extraction insert returned nothing");
@@ -272,7 +297,10 @@ export async function extractDocument(
           totalsValid: check.ok,
         },
       },
-      { testRun: input.testRun === true },
+      {
+        testRun: input.testRun === true,
+        ...(input.collect ? { collect: input.collect } : {}),
+      },
     );
     return {
       documentId: doc.id,

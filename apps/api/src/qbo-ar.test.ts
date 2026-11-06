@@ -16,6 +16,7 @@ import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connector
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import {
   agent,
+  connection,
   event,
   externalAction,
   inboxItem,
@@ -25,7 +26,7 @@ import {
   withTenant,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { and, asc, eq, like } from "drizzle-orm";
+import { and, asc, eq, like, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -35,7 +36,8 @@ import {
   OPERATOR,
 } from "./api.test-helper";
 import { MemoryQboSyncInstances } from "./qbo/instances";
-import { runQboSync } from "./qbo/sync";
+import { dispatchByIds, runQboSync } from "./qbo/sync";
+import { requestQboSync, runQboSyncInstance } from "./qbo/sync-now";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -284,6 +286,63 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
       changed: ["balance", "status"],
     });
     expect(events.filter((e) => e.type === "receivable.paid")).toHaveLength(1);
+  });
+
+  // v0.12 W1-H: the AR sync is one sync at a time like the rest, a "sync now" while it runs is
+  // queued and run after it, its cursor keeps the AR fields beside the claim, and receivable.*
+  // events are dispatched right after their page (ARCHITECTURE §6.2, §8).
+  it("runs as one sync at a time, keeps its AR cursor beside the claim, and dispatches receivable events at once", async () => {
+    await H.t.db.execute(
+      sql`update connection set sync_cursor = sync_cursor - 'running' - 'pending' where id = ${connectionId}`,
+    );
+    const params = { tenantId: H.A.tenantId, connectionId, reason: "operator" as const };
+    const first = await requestQboSync(H.db, syncs, params);
+    expect(first.started).toBe(true);
+    // Asked again while it runs: queued.
+    expect(await requestQboSync(H.db, syncs, params)).toMatchObject({ queued: true });
+    qbo.put("Invoice", {
+      Id: "141",
+      SyncToken: "0",
+      TxnDate: "2026-11-06",
+      DocNumber: "1141",
+      CustomerRef: { value: "9", name: "Oak Street Dental" },
+      Line: [],
+      TotalAmt: 120,
+      Balance: 120,
+    });
+    const deps = {
+      db: H.db,
+      platform: H.platform,
+      content: new ContentStore(H.objects),
+      credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+      instances: syncs,
+    };
+    const inline = { do: <T>(_name: string, fn: () => Promise<T>) => fn() };
+    const out = await runQboSyncInstance(deps, params, first.instanceId as string, inline, (ids) =>
+      dispatchByIds({ db: H.db, instances: H.instances }, H.A.tenantId, ids),
+    );
+    // It handed over to the queued sync, and kept the AR cursor fields beside the claim.
+    expect(out.next).toBeTruthy();
+    const [conn] = await H.t.db
+      .select({ c: connection.syncCursor })
+      .from(connection)
+      .where(eq(connection.id, connectionId));
+    expect(conn?.c).toMatchObject({ phase: "cdc", ar: true, running: { instanceId: out.next } });
+    // The new invoice's event was dispatched right after its page, with no cron tick.
+    const r141 = (await receivables()).find((r) => r.externalId === "141");
+    const created = (await arEvents()).find(
+      (e) => e.type === "receivable.created" && e.subjectId === r141?.id,
+    );
+    expect(created?.dispatchedAt).not.toBeNull();
+    // The follow-on runs and lets the connection go.
+    const next = await runQboSyncInstance(deps, params, out.next as string, inline);
+    expect(next.next).toBeNull();
+    const [after] = await H.t.db
+      .select({ c: connection.syncCursor })
+      .from(connection)
+      .where(eq(connection.id, connectionId));
+    expect(after?.c).toMatchObject({ ar: true });
+    expect(after?.c).not.toHaveProperty("running");
   });
 
   it("reads the aging report with the receivables as sources, and notes one invoice after approval", async () => {

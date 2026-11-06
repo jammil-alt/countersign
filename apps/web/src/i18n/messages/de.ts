@@ -94,6 +94,7 @@ export const de: Messages = {
   "nav.people": "Personen",
   "nav.access": "Zugriff",
   "nav.directory": "Verzeichnis",
+  "nav.records": "Einträge",
   "page.service": "Service",
 
   // ── Overview ──
@@ -710,6 +711,28 @@ export const de: Messages = {
   "record.notFound":
     "Für diese ID gibt es keine Seite. Vielleicht ist es ein Eintrag eines Tools oder Pakets, das wir hier nicht zeigen.",
   "record.source": "Eintrag ·{tail}",
+  // v0.12 W1-H: the portal records list.
+  "records.title": "Einträge",
+  "records.subtitle":
+    "Was Ihre Tools gebracht haben, das Neueste zuerst. Öffnen Sie einen, um zu sehen, woher er kommt.",
+  "records.kind.transactions": "Buchungen",
+  "records.kind.vendors": "Lieferanten",
+  "records.kind.items": "Artikel",
+  "records.search": "Einträge durchsuchen",
+  "records.empty": "Noch nichts da. Einträge kommen, wenn Ihre Tools synchronisieren.",
+  "records.noMatch": "Nichts passt zu „{q}“.",
+  "records.col.date": "Datum",
+  "records.col.type": "Art",
+  "records.col.vendor": "Lieferant",
+  "records.col.number": "Nummer",
+  "records.col.total": "Summe",
+  "records.col.name": "Name",
+  "records.col.transactions": "Buchungen",
+  "records.col.description": "Beschreibung",
+  "records.col.source": "Quelle",
+  "records.range": "{from}–{to} von {total}",
+  "records.previous": "Zurück",
+  "records.next": "Weiter",
 
   // ── Who approves ──
   "approvers.title": "Wer freigibt",
