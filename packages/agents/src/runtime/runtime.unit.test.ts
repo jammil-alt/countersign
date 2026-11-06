@@ -50,6 +50,7 @@ describe("tool registry", () => {
       // v0.12 W2-D: Sloan's account tools
       "account.draft_change",
       "account.explain_wait",
+      "account.pass_to_agent",
       "account.pass_to_lead",
       "account.pause_agent",
       "account.resume_agent",

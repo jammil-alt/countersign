@@ -61,7 +61,7 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     // v0.12 W1-E: a retry's carried approvals; model calls when apps/api keeps them.
     carried: dbCarriedActions(db),
     ...(options.modelCalls ? { modelCalls: options.modelCalls } : {}),
-    // v0.12 W2-D: Sloan's account, as the portal shows it.
-    ...(options.account ? { account: dbAccountPort(db, options.account) } : {}),
+    // v0.12 W2-D: Sloan's account, as the portal shows it; passing to an agent emits.
+    ...(options.account ? { account: dbAccountPort(db, options.account, emit) } : {}),
   };
 }
