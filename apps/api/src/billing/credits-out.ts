@@ -238,7 +238,14 @@ const nextDay = (day: string) =>
 /** The client admins' notifications for one credits block (0: the included credits ran out). */
 async function notifyAdmins(
   tx: Tx,
-  input: { tenantId: string; period: string; block: number; credits: number; origin: string; at: Date },
+  input: {
+    tenantId: string;
+    period: string;
+    block: number;
+    credits: number;
+    origin: string;
+    at: Date;
+  },
 ): Promise<number> {
   const t = await tenantRow(tx, input.tenantId);
   if (!t || t.retiredAt) return 0;

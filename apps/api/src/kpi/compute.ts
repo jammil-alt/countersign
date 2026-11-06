@@ -63,7 +63,7 @@ function runsQuery(scope: KpiScope, m: Extract<Plain, { kind: "runs" }>, b: KpiB
   const at = sql`coalesce(r.finished_at, r.created_at)`;
   const status = m.status ?? "any";
   return sql`select count(*)::text as v,
-      (array_agg(r.id::text order by ${at} desc))[1:${LIMIT}] as ids
+      to_jsonb((array_agg(r.id::text order by ${at} desc))[1:${LIMIT}]) as ids
     from run r
     where r.tenant_id = ${scope.tenantId} and r.agent_id = ${scope.agentId} and r.mode = 'live'
       and ${at} >= ${b.from.toISOString()}::timestamptz and ${at} < ${b.to.toISOString()}::timestamptz
@@ -74,7 +74,7 @@ function runsQuery(scope: KpiScope, m: Extract<Plain, { kind: "runs" }>, b: KpiB
 /** Writes done to the client's tools by the agent's live runs, executed in the period. */
 function actionsQuery(scope: KpiScope, m: Extract<Plain, { kind: "actions" }>, b: KpiBounds): SQL {
   return sql`select count(*)::text as v,
-      (array_agg(ea.id::text order by ea.executed_at desc))[1:${LIMIT}] as ids
+      to_jsonb((array_agg(ea.id::text order by ea.executed_at desc))[1:${LIMIT}]) as ids
     from external_action ea
     join run r on r.id = ea.run_id and r.tenant_id = ea.tenant_id
     ${m.connector ? sql`join connection c on c.id = ea.connection_id and c.tenant_id = ea.tenant_id` : sql``}
@@ -101,16 +101,14 @@ function stepQuery(scope: KpiScope, m: Extract<Plain, { kind: "sum" | "count" }>
   const currencyPath = pathArray([...segments.slice(0, -1), "currency"]);
   const currency = sql`(s.output #>> ${currencyPath}::text[])`;
   const measure =
-    m.kind === "sum"
-      ? sql`coalesce(sum(${value}::numeric), 0)::text`
-      : sql`count(*)::text`;
+    m.kind === "sum" ? sql`coalesce(sum(${value}::numeric), 0)::text` : sql`count(*)::text`;
   const present =
     m.kind === "sum"
       ? sql`${value} ~ ${NUMERIC_TEXT}`
       : sql`jsonb_typeof(s.output #> ${path}::text[]) is not null and jsonb_typeof(s.output #> ${path}::text[]) <> 'null'`;
   return sql`select ${measure} as v,
-      (array_agg(distinct r.id::text))[1:${LIMIT}] as ids,
-      array_agg(distinct ${currency}) filter (where ${currency} is not null) as currencies
+      to_jsonb((array_agg(distinct r.id::text))[1:${LIMIT}]) as ids,
+      to_jsonb(array_agg(distinct ${currency}) filter (where ${currency} is not null)) as currencies
     from step_run s
     join run r on r.id = s.run_id and r.tenant_id = s.tenant_id
     where s.tenant_id = ${scope.tenantId} and r.agent_id = ${scope.agentId} and r.mode = 'live'

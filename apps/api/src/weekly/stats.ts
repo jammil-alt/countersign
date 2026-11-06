@@ -150,8 +150,14 @@ export async function weeklyStats(
   const documents = await documentsRead(tx, input.tenantId, b);
   const agents = await services(tx, input.tenantId);
   // v0.12 W2-G: each agent's KPIs over the week, in the client's language.
-  const [t] = await tx.select({ settings: tenant.settings }).from(tenant).where(eq(tenant.id, input.tenantId));
-  const kpis = await weekKpis(tx, agents, { locale: readerLocale({ settings: t?.settings ?? {} }, null), bounds: b });
+  const [t] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, input.tenantId));
+  const kpis = await weekKpis(tx, agents, {
+    locale: readerLocale({ settings: t?.settings ?? {} }, null),
+    bounds: b,
+  });
   return {
     weekStart: input.weekStart,
     from: b.from.toISOString(),

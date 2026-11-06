@@ -10,9 +10,9 @@ import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { creditsOutView, setCreditsOut } from "../billing/credits-out";
 import { type AppEnv, mount, notFound } from "../http";
+import { computeKpis } from "../kpi/compute";
 import { liveClientView, readerLocale, serviceView } from "../kpi/view";
 import { tenantRow } from "../notify/people";
-import { computeKpis } from "../kpi/compute";
 
 export function clientViewRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalServiceView, async ({ tx, tenantIds, params, session }) => {

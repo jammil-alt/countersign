@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { checkRouteContract, forbiddenPortalFields } from "../api/contract";
 import { clientViewRoutes, ServiceView } from "../api/client-view";
+import { checkRouteContract, forbiddenPortalFields } from "../api/contract";
 import { mergeBundles } from "../bundle/merge";
 import { bundleHash } from "../canonical";
-import { AgentBundle as AgentBundleSchema, type AgentBundleInput } from "../schemas/agent";
+import { type AgentBundleInput, AgentBundle as AgentBundleSchema } from "../schemas/agent";
 import { bundle, bundleInput, ctx, edit } from "../testing/fixtures";
 import { validateBundle } from "../workflow/validate";
 import { formatKpi } from "./format";
@@ -41,7 +41,13 @@ const view = {
       format: "money",
       measure: { kind: "sum", step: "s3", path: "overcharge", money: true },
     },
-    { id: "runs", label: "Invoices read", period: "week", format: "count", measure: { kind: "runs", workflow: "intake" } },
+    {
+      id: "runs",
+      label: "Invoices read",
+      period: "week",
+      format: "count",
+      measure: { kind: "runs", workflow: "intake" },
+    },
   ],
   panels: [
     { id: "main", kind: "kpis", kpis: ["auto", "caught", "runs"] },
@@ -75,7 +81,11 @@ describe("clientView in the bundle", () => {
         format: "percent",
         measure: {
           kind: "ratio",
-          numerator: { kind: "ratio", numerator: { kind: "ratio", numerator: plain, denominator: plain }, denominator: plain },
+          numerator: {
+            kind: "ratio",
+            numerator: { kind: "ratio", numerator: plain, denominator: plain },
+            denominator: plain,
+          },
           denominator: plain,
         },
       } as never);
@@ -99,7 +109,17 @@ describe("clientView in the bundle", () => {
   it("allows paths of dotted identifiers only", () => {
     expect(kpiPathProblem("match.matched")).toBeNull();
     expect(kpiPathProblem("a_1.b")).toBeNull();
-    for (const p of ["", "a..b", "a.0", "a[0]", "a.*", "1a", "a.__proto__", "constructor", "x.prototype.y"]) {
+    for (const p of [
+      "",
+      "a..b",
+      "a.0",
+      "a[0]",
+      "a.*",
+      "1a",
+      "a.__proto__",
+      "constructor",
+      "x.prototype.y",
+    ]) {
       expect(kpiPathProblem(p), p).not.toBeNull();
     }
     expect(kpiPathProblem("a".repeat(201))).not.toBeNull();

@@ -101,7 +101,9 @@ export const StreamFile = z.object({
   contentType: z.literal("text/csv; charset=utf-8"),
   stream: z.custom<ByteStream>(
     (v) =>
-      typeof v === "object" && v !== null && typeof (v as { getReader?: unknown }).getReader === "function",
+      typeof v === "object" &&
+      v !== null &&
+      typeof (v as { getReader?: unknown }).getReader === "function",
     "a stream",
   ),
 });

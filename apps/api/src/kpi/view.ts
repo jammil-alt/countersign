@@ -12,7 +12,7 @@ import {
   type ServiceView,
   userLanguage,
 } from "@countersign/core";
-import { agent, agentVersion, type Tx, tenantPack } from "@countersign/db";
+import { type agent, agentVersion, type Tx, tenantPack } from "@countersign/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { computeKpis } from "./compute";
 

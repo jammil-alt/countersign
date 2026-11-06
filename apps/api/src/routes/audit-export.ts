@@ -5,12 +5,7 @@
 // a page at a time, each page in its own client-scoped transaction after the request's commits,
 // so a year of rows never sits in memory; a request covers at most 366 days.
 
-import {
-  type AuditPeriod,
-  isPlainObject,
-  type RunAuditEntry,
-  routes,
-} from "@countersign/core";
+import { type AuditPeriod, isPlainObject, type RunAuditEntry, routes } from "@countersign/core";
 import {
   appUser,
   auditEvent,
@@ -59,10 +54,7 @@ export async function auditPeople(tx: Tx, tenantId: string): Promise<AuditPeople
   const leadId = leadUserId(t);
   let lead: AuditPeople["lead"] = null;
   if (leadId) {
-    const [u] = await tx
-      .select({ name: appUser.name })
-      .from(appUser)
-      .where(eq(appUser.id, leadId));
+    const [u] = await tx.select({ name: appUser.name }).from(appUser).where(eq(appUser.id, leadId));
     // DECISION: a lead with no name on record is shown as Mezonas, like the rest of us.
     lead = { id: leadId, name: u?.name ?? MEZONAS };
   }
@@ -98,7 +90,11 @@ export function nameOf(
     return { who: people.lead.name, side: "mezonas", role: "lead" };
   }
   const m = actor.userId ? people.members.get(actor.userId) : undefined;
-  const role = isClientRole(actor.role) ? actor.role : !actor.role && isClientRole(m?.role) ? m?.role : null;
+  const role = isClientRole(actor.role)
+    ? actor.role
+    : !actor.role && isClientRole(m?.role)
+      ? m?.role
+      : null;
   if (role) {
     return { who: m?.name ?? m?.email ?? actor.email ?? "", side: "client", role };
   }
@@ -225,7 +221,11 @@ export function auditCsvStream(
 // ── A run's audit trail ──────────────────────────────────────────────────────────────────────────
 
 /** Opening a run, from the portal, the back office or the back office's MCP server. */
-const OPEN_RUN_ACTIONS = ["GET /api/runs/:id", "GET /api/ops/runs/:id", "mcp GET /api/ops/runs/:id"];
+const OPEN_RUN_ACTIONS = [
+  "GET /api/runs/:id",
+  "GET /api/ops/runs/:id",
+  "mcp GET /api/ops/runs/:id",
+];
 
 /** What a request on one of the run's items did. */
 // DECISION: resolving shows as the signature (from the item's resolution), not also as a request.

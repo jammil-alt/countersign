@@ -19,18 +19,18 @@ import {
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
-// v0.12 W1-B: notifications, the Table and the Weekly Table
-import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 // v0.12 W2-G
 import { originOf } from "./notify/outbox";
-import { auditExportRoutes } from "./routes/audit-export";
-import { clientViewRoutes } from "./routes/client-view";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 import { approverRuleRoutes } from "./routes/approver-rules";
+import { auditExportRoutes } from "./routes/audit-export";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
+import { clientViewRoutes } from "./routes/client-view";
 import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";

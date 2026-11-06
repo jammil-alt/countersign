@@ -52,7 +52,11 @@ export const KpiPath = z.string().superRefine((path, ctx) => {
 export const KpiId = NodeId;
 
 export type Measure =
-  | { kind: "runs"; status?: "succeeded" | "failed" | "any" | undefined; workflow?: string | undefined }
+  | {
+      kind: "runs";
+      status?: "succeeded" | "failed" | "any" | undefined;
+      workflow?: string | undefined;
+    }
   | {
       kind: "actions";
       tool?: string | undefined;
