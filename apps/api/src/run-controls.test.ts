@@ -167,7 +167,9 @@ describe.skipIf(!h)("run controls", () => {
     const first = await failedAtWrite();
     const [failed] = await H.t.db.select().from(run).where(eq(run.id, first));
     // The error key names the tool that failed (docs/plan.md §1.40).
-    expect((failed?.error as { key?: string }).key).toMatch(new RegExp(`^${TESTKIT_UPDATE_TOOL}:`));
+    expect((failed?.error as { key?: string } | undefined)?.key).toMatch(
+      new RegExp(`^${TESTKIT_UPDATE_TOOL}:`),
+    );
     const [original] = await H.t.db
       .select()
       .from(externalAction)
@@ -196,12 +198,15 @@ describe.skipIf(!h)("run controls", () => {
       .from(externalAction)
       .where(eq(externalAction.id, original?.id as string));
     expect(after?.status).toBe("done");
-    expect(
-      await H.t.db.select().from(externalAction).where(eq(externalAction.runId, id)),
-    ).toEqual([]);
+    expect(await H.t.db.select().from(externalAction).where(eq(externalAction.runId, id))).toEqual(
+      [],
+    );
     const steps = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, id));
     const hello = steps.find((s) => s.nodeId === "hello");
-    expect(hello).toMatchObject({ status: "succeeded", summary: `reused from ${shortRunId(first)}` });
+    expect(hello).toMatchObject({
+      status: "succeeded",
+      summary: `reused from ${shortRunId(first)}`,
+    });
     const update = steps.find((s) => s.nodeId === "update");
     const [call] = await H.t.db
       .select()
@@ -263,7 +268,12 @@ describe.skipIf(!h)("run controls", () => {
       .where(eq(connection.id, H.A.connectionId));
     await H.t.db
       .update(connection)
-      .set({ permissions: { ...(conn?.permissions as object), update: "off" } })
+      .set({
+        permissions: {
+          ...(conn?.permissions as NonNullable<typeof conn>["permissions"]),
+          update: "off",
+        },
+      })
       .where(eq(connection.id, H.A.connectionId));
     try {
       const { params } = await retry(first);
@@ -402,7 +412,11 @@ describe.skipIf(!h)("run controls", () => {
     expect(j(twice.json).runs.length).toBeGreaterThanOrEqual(1);
     const retries = await H.t.db.select({ id: run.id, retryOf: run.retryOf }).from(run);
     const retried = retries.filter((r) => r.retryOf).map((r) => r.id);
-    expect(j(twice.json).runs.map((r: { id: string }) => r.id).sort()).toEqual(retried.sort());
+    expect(
+      j(twice.json)
+        .runs.map((r: { id: string }) => r.id)
+        .sort(),
+    ).toEqual(retried.sort());
     // Short ids, and who signed.
     const [some] = retried;
     const short = await H.call(OPERATOR, "GET", `/api/ops/runs?text=${shortRunId(some as string)}`);
@@ -422,7 +436,11 @@ describe.skipIf(!h)("run controls", () => {
     // The portal: its own live runs, never the back office's keys.
     const portal = await H.call(admin("a"), "GET", "/api/runs?statuses=failed&perDay=1");
     expect(portal.status).toBe(200);
-    expect(j(portal.json).runs.length).toBe(group.count);
+    const failedLive = await H.t.db
+      .select({ id: run.id })
+      .from(run)
+      .where(and(eq(run.tenantId, H.A.tenantId), eq(run.mode, "live"), eq(run.status, "failed")));
+    expect(j(portal.json).runs.length).toBe(failedLive.length);
     expect(forbiddenKeys(portal.json)).toEqual([]);
     for (const q of ["costOver=0", "mode=test", "errorKey=x", `clients=${H.B.tenantId}`]) {
       const refused = await H.call(admin("a"), "GET", `/api/runs?${q}`);
@@ -496,7 +514,9 @@ describe.skipIf(!h)("run controls", () => {
     expect(text).toContain("[card ending 1111]");
     expect(text).not.toContain("4111");
     expect(text).toContain("bytes not kept");
-    expect([...(await H.objects.list({ prefix: `tenants/${H.A.tenantId}/model-calls/` })).objects]).toHaveLength(1);
+    expect([
+      ...(await H.objects.list({ prefix: `tenants/${H.A.tenantId}/model-calls/` })).objects,
+    ]).toHaveLength(1);
     // Never the portal's, and never another operator's client.
     expect((await H.call(admin("a"), "GET", `/api/ops/model-calls/${call.id}`)).status).toBe(403);
     expect((await H.call(user("a"), "GET", `/api/ops/runs/${r.id}/model-calls`)).status).toBe(403);
