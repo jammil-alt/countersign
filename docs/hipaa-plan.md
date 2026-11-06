@@ -9,7 +9,7 @@ branches.
 
 **Where we are:**
 - The technical controls are built and green, in four pull requests not yet merged.
-- The settings in Cloudflare, GitHub and Neon are done. WorkOS needs confirming.
+- The settings in WorkOS, Cloudflare, GitHub and Neon are done.
 - Nothing administrative has started: no BAAs, policies, risk assessment or audit.
 - No client can be put in HIPAA mode until the first BAAs are signed.
 
@@ -25,14 +25,10 @@ branches.
 After #81 is merged, open PRs need "Update branch" so their CodeQL check runs. Each merge deploys
 to staging.
 
-## 2. Settings to confirm
+## 2. Settings outside the code
 
-- [ ] **WorkOS, staging and production:**
-  - Multi-factor auth on (Authentication → Features);
-  - Session lifetime of 12 hours with 30 minutes' inactivity (Applications → the app → Sessions).
-
-  Then sign out, and back in with an authenticator app. Everyone will be asked to set one up at
-  their next sign-in.
+All set on 2026-11-06: WorkOS (MFA and session limits), Cloudflare, GitHub and Neon. The record is
+`docs/security.md` §10.
 
 ## 3. Technical items still open
 

@@ -5,8 +5,7 @@ outside the code. It is the record behind HIPAA, SOC 2 and PCI DSS; what is stil
 `docs/hipaa-plan.md`. The design and its decisions are in `docs/plan.md` §1.35 (owner, 2026-11-05).
 
 Status, 2026-11-06:
-- The settings outside the code are in place (table below), except WorkOS: confirm its two
-  settings were saved.
+- The settings outside the code are all in place (table below).
 - The code is in four pull requests, not yet merged: #81, #82, #83 and #84.
 - Until they merge, the controls marked **(in PR)** exist only on their branches, not on staging.
 
@@ -28,8 +27,7 @@ branches.
 ## 2. Who can sign in, and for how long
 
 - Sign-in is through **WorkOS AuthKit**. Only invited, verified email addresses get in.
-- **Multi-factor authentication is required** in WorkOS, for email and password sign-ins (once
-  saved: see §10).
+- **Multi-factor authentication is required** in WorkOS, for email and password sign-ins (§10).
 - **Sessions end after 30 minutes without the person's own activity and 12 hours after sign-in**
   (in PR #83).
   - Our sealed cookie (`__Host-`, HttpOnly, Secure) records the last activity.
@@ -38,7 +36,7 @@ branches.
   - The app also signs out by itself.
   - An idle or expired session also ends WorkOS's session, so signing in again asks for the
     password and the second factor.
-- WorkOS sessions are capped at the same 12 hours and 30 minutes (once saved). That also covers the Ops MCP
+- WorkOS sessions are capped at the same 12 hours and 30 minutes. That also covers the Ops MCP
   connector, which signs in with 5-minute WorkOS access tokens instead of our cookie.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector. Portal routes never return agent definitions, prompts or costs.
@@ -145,12 +143,13 @@ branches.
 
 ## 10. Settings outside the code
 
-Set by the owner on 2026-11-06, with Claude in Chrome finding each setting.
+Set by the owner on 2026-11-06 (the owner confirmed WorkOS the same day), with Claude in Chrome
+finding each setting.
 
 | Where | Setting | Value |
 |---|---|---|
-| WorkOS, staging and production | Multi-factor auth (Authentication → Features) | To set: required for non-SSO sign-ins (was disabled). Not yet confirmed saved |
-| WorkOS, staging and production | Session lifetime (Applications → app → Sessions) | To set: 12 hours; 30 minutes inactivity (was 365 days; 2 days); access tokens stay 5 minutes. Not yet confirmed saved |
+| WorkOS, staging and production | Multi-factor auth (Authentication → Features) | Required for non-SSO sign-ins (was disabled) |
+| WorkOS, staging and production | Session lifetime (Applications → app → Sessions) | 12 hours; 30 minutes inactivity (was 365 days; 2 days); access tokens 5 minutes |
 | Cloudflare, `mezonas.com` | Rate limiting rule "API rate limit" | `/api/*` minus webhook paths; 50 per 10 s per IP; block 10 s |
 | Cloudflare, `mezonas.com` | Always Use HTTPS | On |
 | Cloudflare, `mezonas.com` | Minimum TLS version | 1.2 (1.3 enabled) |
