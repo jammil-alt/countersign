@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ToolAmount } from "../approvals/rules";
 import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { SideEffect, Verb } from "./permissions";
+import { ToolDisplay } from "./tool-display";
 
 /**
  * The serializable description of a tool (ARCHITECTURE §9.4): what manifests, the Builder and the
@@ -33,6 +34,11 @@ export const ToolSpec = z
      * §1.20). Tools without it never match an amount rule.
      */
     amount: ToolAmount.optional(),
+    /**
+     * How the change reads on an approval card: its name, the fields a person reads, their labels
+     * and kinds. Writes only; without it the card falls back to the record's own fields.
+     */
+    display: ToolDisplay.optional(),
   })
   // DECISION: an external tool names its connector explicitly, so the permission gate and the
   // publish check find the connection matrix without guessing from `source`.
@@ -43,6 +49,10 @@ export const ToolSpec = z
   .refine((t) => t.sideEffect !== "none" || t.verb === "read", {
     message: "a tool without side effects must have verb 'read'",
     path: ["verb"],
+  })
+  .refine((t) => t.display === undefined || t.sideEffect === "external", {
+    message: "only external tools describe a change for approval",
+    path: ["display"],
   })
   .meta({ id: "ToolSpec" });
 export type ToolSpec = z.infer<typeof ToolSpec>;

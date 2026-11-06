@@ -6,6 +6,7 @@ import { JsonSchema } from "../schemas/common";
 import { PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
+import { ToolDisplay } from "../schemas/tool-display";
 import { accessRoutes } from "./access";
 import { approverRuleRoutes } from "./approver-rules";
 import { billingRoutes } from "./billing";
@@ -225,9 +226,21 @@ export const OpsToolCall = z.object({
   externalActionId: z.string().nullable(),
 });
 
+/**
+ * How an external action reads on its card ("now / after this change"): the connector's name as
+ * people know it ("QuickBooks") and the tool's display spec, when it declares one. The server adds
+ * it from the tool registry, so items proposed before a tool declared one read the same.
+ */
+export const ChangeDisplayView = z.object({
+  connectorName: z.string(),
+  tool: ToolDisplay.nullable(),
+});
+export type ChangeDisplayView = z.infer<typeof ChangeDisplayView>;
+
 export const OpsAction = z.object({
   id: z.string(),
   tool: z.string(),
+  display: ChangeDisplayView.nullable().optional(),
   connectionId: z.string(),
   stepRunId: z.string().nullable(),
   status: z.string(),
@@ -253,6 +266,8 @@ export const OpsInboxItem = z.object({
   assigneeUserId: z.string().nullable(),
   title: z.string(),
   payload: z.record(z.string(), z.unknown()),
+  /** An external action's card: see ChangeDisplayView. */
+  display: ChangeDisplayView.nullable().optional(),
   status: InboxStatusSchema,
   resolution: z.unknown(),
   resolvedBy: z.string().nullable(),
@@ -351,6 +366,8 @@ export const PortalInboxItem = z.object({
   kind: InboxKindSchema,
   title: z.string(),
   payload: z.record(z.string(), z.unknown()),
+  /** An external action's card: see ChangeDisplayView. */
+  display: ChangeDisplayView.nullable().optional(),
   status: InboxStatusSchema,
   runId: z.string().nullable(),
   dueAt: NullableTimestamp,
@@ -1553,6 +1570,7 @@ export const portalRoutes = {
           id: z.string(),
           tool: z.string(),
           description: z.string(),
+          display: ChangeDisplayView.nullable().optional(),
           status: z.string(),
           executedAt: NullableTimestamp,
         }),

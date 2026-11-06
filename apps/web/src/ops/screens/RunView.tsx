@@ -9,7 +9,7 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ChangeTables } from "../../inbox/ChangePanel";
-import { changeTarget, connectorName, connectorOf } from "../../inbox/change";
+import { changeHeading } from "../../inbox/change";
 import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
 import { SourceLinks, sourcesOf } from "../../records/SourceLinks";
 import {
@@ -213,6 +213,7 @@ export function OpsRunScreen() {
                   key={i.id}
                   item={i}
                   testId={`ops-run-item-${i.id}`}
+                  showToolId
                   recordHref={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
                   onResolve={operatorMayResolve(i) ? (body) => resolve(i.id, body) : null}
                   waitingOn="Waiting on the client. Only they can answer it."
@@ -273,24 +274,30 @@ function ActionPanel({
   onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
 }) {
   const badge = actionBadge(action, testRun);
-  const connector = connectorName(connectorOf(action.tool));
-  const target = changeTarget(action.before, action.input);
+  const heading = changeHeading(action.display, action.tool, action.before, action.input);
+  const connector = heading.connector;
   const waiting = action.status === "proposed" && item?.status === "open";
   const mine = item ? operatorMayResolve(item) : false;
   return (
     <Card testId={`ops-run-action-${action.id}`} className="overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h3 className="font-medium text-ink">
-          {connector}
-          {target ? ` · ${target}` : ""}
-          <span className="ml-2 reference font-normal text-ink-muted">{action.tool}</span>
-        </h3>
+        <div className="min-w-0">
+          <h3 className="font-medium text-ink">
+            {heading.title}
+            <span className="ml-2 reference font-normal text-ink-muted">{action.tool}</span>
+          </h3>
+          {heading.description ? (
+            <p className="text-sm text-ink-muted" data-testid="ops-run-action-description">
+              {heading.description}
+            </p>
+          ) : null}
+        </div>
         <Badge tone={badge.tone} testId="ops-run-action-status">
           {badge.label}
         </Badge>
       </div>
       <div className="p-4">
-        <ChangeTables before={action.before} input={action.input} />
+        <ChangeTables before={action.before} input={action.input} display={action.display?.tool} />
       </div>
       <ActionFooter
         action={action}

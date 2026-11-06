@@ -1,15 +1,17 @@
 // The client portal (`/`, client roles): the client's own frame, with no switcher and no building
 // (ARCHITECTURE §15). Every screen reads in the session's language (docs/plan.md §1.18).
-import type { ReactNode } from "react";
-import { Route, Routes } from "react-router-dom";
+import { type ReactNode, useEffect, useRef } from "react";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { useI18n } from "../i18n/i18n";
 import { PortalRecordScreen } from "../records/RecordScreens";
+import { usePoll } from "../runs/usePoll";
 import { useSession } from "../session/session";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { Placeholder } from "../ui/primitives";
+import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { PortalAccessScreen } from "./screens/Access";
 import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConnectionsScreen } from "./screens/Connections";
@@ -37,7 +39,18 @@ export function PortalLayout({ children }: { children: ReactNode }) {
     session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0] ?? null;
   const isAdmin = client?.role === "client_admin";
   // The header's count; the overview screen reads the same route for its own panel.
+  // DECISION: the count reloads on each page change, every 20 s and after a resolve (it loaded
+  // once before, so an approval proposed while the portal was open never showed in it).
   const overview = useApi(apiRoutes.portalOverview);
+  const { pathname } = useLocation();
+  const { reload: reloadOverview } = overview;
+  const firstPath = useRef(pathname);
+  useEffect(() => {
+    if (pathname === firstPath.current) return;
+    firstPath.current = pathname;
+    reloadOverview();
+  }, [pathname, reloadOverview]);
+  usePoll(reloadOverview, true, INBOX_COUNT_POLL_MS);
   // The operator switches the Feedback button on per client; off, there is no button.
   const feedback = useApi(apiRoutes.portalFeedbackStatus);
 
@@ -92,7 +105,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           </nav>
         }
       >
-        {children}
+        <InboxCountProvider refresh={reloadOverview}>{children}</InboxCountProvider>
       </AppShell>
       {feedback.data?.enabled ? <FeedbackButton surface="portal" /> : null}
     </>

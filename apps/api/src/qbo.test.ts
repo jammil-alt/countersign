@@ -639,7 +639,15 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     });
     const attached = actions.find((a) => a.tool === QBO_TOOLS.attachableUpload);
     expect(attached).toMatchObject({ status: "done", approvedBy: H.A.admin });
-    expect(attached?.before).toEqual({ entity: "Bill", entityId: "145", attachments: [] });
+    // The bill by its number and vendor, and the file being attached, name it on the card.
+    expect(attached?.before).toEqual({
+      entity: "Bill",
+      entityId: "145",
+      docNumber: "INV-20931",
+      vendor: { id: "56", name: "Northwest Plywood Supply" },
+      attachments: [],
+      adding: { fileName: "nwp-INV-20931.pdf", size: pdf.length, contentType: "application/pdf" },
+    });
     const attachableId = j(attached?.result).attachableId;
     expect(qbo.fileOf(attachableId)).toEqual(pdf);
 

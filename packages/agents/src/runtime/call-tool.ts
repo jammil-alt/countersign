@@ -15,6 +15,7 @@ import {
   grantAllowsTool,
   type JsonObject,
   levelFor,
+  pickLocalized,
   releaseOf,
   releaseSettingProblem,
   routeApproval,
@@ -259,7 +260,12 @@ async function dispatch(
     status: automatic ? "approved" : "proposed",
     inbox: approver
       ? {
-          title: `${tool.spec.description} (${tool.spec.id})`,
+          // DECISION: the item's title is the tool's plain line for people (its display
+          // description) when it declares one, else its description; never its id, which is
+          // not for clients. The card renders the title in the reader's language from the spec.
+          title: tool.spec.display?.description
+            ? pickLocalized(tool.spec.display.description)
+            : tool.spec.description,
           agentId: step.agent.agentId,
           ...approver.assignee,
           payload: {

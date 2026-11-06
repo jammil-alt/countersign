@@ -123,6 +123,7 @@ export function OpsInboxScreen() {
               ]
                 .filter(Boolean)
                 .join(" · ")}
+              showToolId
               runHref={item.runId ? `/ops/runs/${item.runId}` : null}
               recordHref={(id) => `/ops/clients/${item.tenantId}/records/${id}`}
               outcome={item.status === "resolved" ? outcomeText(item.kind, approved, by) : null}

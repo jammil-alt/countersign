@@ -149,6 +149,13 @@ describe.skipIf(!h)("the Bill clerk", () => {
       },
     ]);
 
+  /**
+   * What client A's admin read before signing: each card as the portal inbox sent it, with the
+   * header's count (the overview's `needsYou.inbox`) and the inbox's open items at that moment.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
+  const seen: { item: any; count: number; open: number }[] = [];
+
   /** Approves every item the run waits on, as client A's admin; `before` runs first. */
   function approver(before: () => void) {
     return new FakeWorkflowStep(async (_name, type) => {
@@ -158,6 +165,12 @@ describe.skipIf(!h)("the Bill clerk", () => {
         (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type,
       );
       if (!item) throw new Error(`no open item for ${type}`);
+      const overview = await H.call(admin("a"), "GET", "/api/overview");
+      seen.push({
+        item,
+        count: j(overview.json).needsYou.inbox,
+        open: j(res.json).items.length,
+      });
       const done = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
         decision: "approve",
       });
@@ -404,10 +417,56 @@ describe.skipIf(!h)("the Bill clerk", () => {
     if (!params) throw new Error("the invoice started no run");
     const model = mapModel(docs.northline);
     const atWaits: number[] = [];
+    seen.length = 0;
     const step = approver(() => void atWaits.push(qbo.apiCalls("POST").length));
     expect(await executeRun(runDeps(model), params, cloudflareStepRunner(step))).toEqual({
       status: "succeeded",
     });
+
+    // The cards the client admin signed: each change named as the client knows the record, the
+    // tool's display from the registry, the before state in full, no tool id in any title.
+    const cards = seen.splice(0);
+    expect(cards.map((c) => c.item.payload.tool)).toEqual([
+      QBO_TOOLS.billUpdateLines,
+      QBO_TOOLS.attachableUpload,
+      QBO_TOOLS.billUpdateMemo,
+    ]);
+    for (const c of cards) {
+      // The header's count includes the open approval (external actions count).
+      expect(c.count).toBeGreaterThanOrEqual(1);
+      expect(c.count).toBe(c.open);
+      expect(c.item.title).not.toContain("qbo.");
+      expect(c.item.display).toMatchObject({
+        connectorName: "QuickBooks Online",
+        tool: { number: "before.docNumber", subject: "before.vendor" },
+      });
+      expect(c.item.payload.before).toMatchObject({
+        docNumber: "20418",
+        vendor: { id: "60", name: "Northline Panel Supply" },
+      });
+    }
+    const [lines, attach, memo] = cards.map((c) => c.item);
+    expect(lines.title).toBe(
+      "Replace the bill's lines with the items on the vendor's invoice. The total stays the same.",
+    );
+    expect(lines.display.tool.name).toMatchObject({
+      en: "QuickBooks bill",
+      es: expect.any(String),
+    });
+    expect(lines.payload.before).toMatchObject({
+      total: "9742.3500",
+      txnDate: "2026-10-28",
+      names: {
+        items: { "21": "Baltic birch 3/4in 5x5" },
+        accounts: { "80": "Job Materials" },
+      },
+    });
+    expect(attach.payload.before).toMatchObject({
+      entity: "Bill",
+      attachments: [],
+      adding: { fileName: expect.stringMatching(/\.pdf$/), size: expect.any(Number) },
+    });
+    expect(memo.payload.before).toMatchObject({ memo: null, total: "9742.3500", currency: "USD" });
     // Nothing is written before its approval: at the first wait nothing, then one at a time.
     expect(atWaits).toEqual([0, 1, 2]);
     expect(qbo.apiCalls("POST", "bill")).toHaveLength(2);

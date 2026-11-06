@@ -2,7 +2,12 @@
 // portal's inboxes. An external action shows the tool, the record and "now / after this change";
 // approvals approve or reject; a person's question takes an answer. Resolving calls the surface's
 // resolve route (passed in), which resumes the waiting run.
-import { DirectorySuggestionChange, isPlainObject, type ResolveBody } from "@countersign/core";
+import {
+  type ChangeDisplayView,
+  DirectorySuggestionChange,
+  isPlainObject,
+  type ResolveBody,
+} from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
@@ -14,7 +19,7 @@ import { shortTime } from "../runs/format";
 import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
 import { ChangeTables } from "./ChangePanel";
-import { changeTarget, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
+import { changeHeading, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
 
 export type ResolveInput = z.input<typeof ResolveBody>;
 
@@ -23,6 +28,8 @@ export interface InboxCardItem {
   kind: string;
   title: string;
   payload: Record<string, unknown>;
+  /** An external action's card: the connector's name and the tool's display (from the API). */
+  display?: ChangeDisplayView | null | undefined;
   status: string;
   runId: string | null;
   dueAt: string | null;
@@ -169,6 +176,7 @@ export function InboxCard({
   waitingOn,
   outcome,
   renderRelease,
+  showToolId,
   testId,
 }: {
   item: InboxCardItem;
@@ -189,6 +197,8 @@ export function InboxCard({
    * by a click: the surface that lets its person enter one renders it here.
    */
   renderRelease?: ((item: InboxCardItem) => ReactNode) | null;
+  /** The back office names the tool by its id as well; clients never see tool ids. */
+  showToolId?: boolean;
   testId?: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -208,8 +218,22 @@ export function InboxCard({
       : tool
         ? connectorOf(tool)
         : null;
-  const toolName = connector ? connectorName(connector, connectorNames) : null;
-  const target = isChange ? changeTarget(item.payload.before, item.payload.input) : null;
+  // The connector by its name ("QuickBooks"): from the API's display, else the names passed in.
+  const toolName = item.display?.connectorName
+    ? item.display.connectorName
+    : connector
+      ? connectorName(connector, connectorNames)
+      : null;
+  const heading =
+    isChange && tool
+      ? changeHeading(
+          toolName ? { connectorName: toolName, tool: item.display?.tool ?? null } : null,
+          tool,
+          item.payload.before,
+          item.payload.input,
+          i18n.locale,
+        )
+      : null;
   const facts = isChange ? [] : (suggestionFacts(item.payload, i18n) ?? payloadFacts(item.payload));
   const steps = findingSteps(item.payload);
   const sources = Array.isArray(item.payload.sources)
@@ -247,18 +271,22 @@ export function InboxCard({
 
       <div className="flex flex-col gap-1">
         <h3 className="mz-sign__title text-lg leading-6 font-medium">
-          {isChange && toolName ? `${toolName} · ${target ?? item.title}` : item.title}
+          {heading ? heading.title : item.title}
         </h3>
         {isChange ? (
-          <p className="text-sm text-ink-muted">
-            {tool ? item.title.replace(` (${tool})`, "") : item.title}
-            {tool ? <span className="ml-2 reference">{tool}</span> : null}
+          <p className="text-sm text-ink-muted" data-testid="inbox-item-description">
+            {heading?.description ?? (tool ? item.title.replace(` (${tool})`, "") : item.title)}
+            {tool && showToolId ? <span className="ml-2 reference">{tool}</span> : null}
           </p>
         ) : null}
       </div>
 
       {isChange ? (
-        <ChangeTables before={item.payload.before} input={item.payload.input} />
+        <ChangeTables
+          before={item.payload.before}
+          input={item.payload.input}
+          display={item.display?.tool}
+        />
       ) : facts.length > 0 ? (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
           {facts.map(([k, v]) => (

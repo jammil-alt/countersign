@@ -179,6 +179,16 @@ export const ptBR: Messages = {
   "change.noFields": "Sem campos.",
   "change.field": "Campo",
   "change.value": "Valor",
+  "change.noneYet": "Nenhum.",
+  "change.lines.description": "Descrição",
+  "change.lines.bookedTo": "Conta ou item",
+  "change.lines.qtyPrice": "Qtd. × preço",
+  "change.lines.amount": "Valor",
+  "change.lines.total": "Total",
+  "change.files.name": "Arquivo",
+  "change.files.size": "Tamanho",
+  "change.item.added": "adicionado",
+  "change.item.removed": "removido",
 
   // ── Runs ──
   "runs.title": "Execuções",
