@@ -37,6 +37,8 @@ export * from "./api/runs-filter";
 export * from "./api/supervisor";
 export * from "./api/table";
 export * from "./api/threads";
+// v0.12 W2-E
+export * from "./api/triggers";
 export * from "./api/usage";
 export * from "./approvals/rules";
 export * from "./billing";
@@ -69,6 +71,8 @@ export * from "./directory/search";
 export * from "./directory/voice-samples";
 export * from "./documents/extraction";
 export * from "./duration";
+// v0.12 W2-E
+export * from "./holidays/us";
 export * from "./i18n/desk";
 export * from "./i18n/gmail-test";
 export * from "./i18n/lifecycle";
@@ -115,6 +119,8 @@ export * from "./template/template";
 export * from "./template/typer";
 export * from "./threads/command";
 export * from "./threads/schemas";
+// v0.12 W2-E
+export * from "./triggers";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 export * from "./workflow/validate";

@@ -15,6 +15,8 @@ export * from "./log/documents-port";
 export * from "./log/external-actions";
 export * from "./log/findings-port";
 export * from "./log/health-port";
+// v0.12 W2-E
+export * from "./log/inbound-port";
 export * from "./log/knowledge-port";
 export * from "./log/model-calls";
 export * from "./log/platform-store";
@@ -42,6 +44,8 @@ export * from "./tools/ask";
 export * from "./tools/directory";
 export * from "./tools/docs";
 export * from "./tools/health";
+// v0.12 W2-E
+export * from "./tools/inbound";
 export * from "./tools/knowledge";
 export * from "./tools/platform";
 export * from "./tools/reach";

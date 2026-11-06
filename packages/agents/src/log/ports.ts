@@ -10,6 +10,8 @@ import { type DbDocumentsOptions, dbDocumentsPort } from "./documents-port";
 import { dbExternalActions, type Emit } from "./external-actions";
 import { dbFindingsPort } from "./findings-port";
 import { dbHealthPort } from "./health-port";
+// v0.12 W2-E
+import { dbInboundPort } from "./inbound-port";
 import { dbKnowledgePort } from "./knowledge-port";
 import type { ModelCallPort } from "./model-calls";
 import { dbPlatformStore } from "./platform-store";
@@ -47,6 +49,8 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     attention: dbConnectionAttention(db, emit),
     // v0.12 W1-C
     threads: dbThreadsPort(db, emit),
+    // v0.12 W2-E
+    inbound: dbInboundPort(db),
     ...(options.documents ? { documents: dbDocumentsPort(db, options.documents) } : {}),
     ...(options.release ? { release: options.release } : {}),
     // v0.12 W1-E: a retry's carried approvals; model calls when apps/api keeps them.

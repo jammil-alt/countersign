@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { Duration } from "../duration";
-import { LocalizedString } from "../i18n/locale";
+import { LocalizedString, localizedText } from "../i18n/locale";
+// v0.12 W2-E: who may start a message trigger.
+import { PeopleFilter } from "../triggers/people";
 import { Approval } from "./approval";
 import {
   JsonSchema,
@@ -207,6 +209,49 @@ export const Step: z.ZodType<Step> = z
   ])
   .meta({ id: "Step" }) as unknown as z.ZodType<Step>;
 
+// v0.12 W2-E: triggers, six kinds (ARCHITECTURE §10.1, §10.8; docs/plan.md §1.48). Each new kind is
+// a new union member and every new field is optional, so stored versions parse and hash as before.
+export const RATE_LIMIT_WINDOWS = ["minute", "hour", "day"] as const;
+/** Deliveries over `max` in the window start no run (a webhook trigger's guard). */
+export const TriggerRateLimit = z.strictObject({
+  max: z.number().int().min(1).max(10_000),
+  per: z.enum(RATE_LIMIT_WINDOWS),
+});
+export type TriggerRateLimit = z.infer<typeof TriggerRateLimit>;
+
+export const MESSAGE_CHANNELS = ["email", "sms", "whatsapp", "command", "sloan"] as const;
+export const MessageChannel = z.enum(MESSAGE_CHANNELS);
+export type MessageChannel = z.infer<typeof MessageChannel>;
+
+/** `reply.confirm`: fixed words to the sender, at most a text message long, with no references. */
+export const ReplyConfirm = localizedText(z.string().trim().min(1).max(320));
+
+export const WebhookTriggerOn = z.object({
+  type: z.literal("webhook"),
+  /** One of the client's inbound hooks (ARCHITECTURE §6.6). */
+  hookId: z.uuid(),
+  /** "Run only if", over the delivery (`{{trigger.data.…}}`). */
+  filter: Rules.optional(),
+  /** A template over the delivery: the same key twice starts one run. */
+  dedupeKey: TemplateString.optional(),
+  rateLimit: TriggerRateLimit.optional(),
+});
+
+export const MessageTriggerOn = z.object({
+  type: z.literal("message"),
+  channels: z.array(MessageChannel).min(1).max(MESSAGE_CHANNELS.length),
+  from: PeopleFilter,
+  reply: z.object({ confirm: ReplyConfirm }).optional(),
+});
+
+export const HandoffTriggerOn = z.object({
+  type: z.literal("handoff"),
+  /** Another agent of the same client (its slug), and optionally one of its workflows. */
+  from: z.object({ agent: Slug, workflow: Slug.optional() }),
+  filter: Rules.optional(),
+});
+// ── end v0.12 W2-E ──
+
 export const TriggerOn = z.discriminatedUnion("type", [
   z.object({ type: z.literal("event"), event: z.string().min(1), filter: Rules.optional() }),
   z.object({
@@ -214,6 +259,8 @@ export const TriggerOn = z.discriminatedUnion("type", [
     cron: z.string().min(1),
     /** IANA zone; default the client's timezone. */
     tz: z.string().optional(),
+    // v0.12 W2-E: skip US federal holidays (observed) and the client's own dates, in its zone.
+    skipHolidays: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("manual"),
@@ -225,11 +272,24 @@ export const TriggerOn = z.discriminatedUnion("type", [
       .optional(),
   }),
   z.object({ type: z.literal("command"), command: z.string().min(1) }),
+  // v0.12 W2-E
+  WebhookTriggerOn,
+  MessageTriggerOn,
+  HandoffTriggerOn,
 ]);
 export type TriggerOn = z.infer<typeof TriggerOn>;
 
 export const Trigger = z.object({ id: NodeId, on: TriggerOn });
 export type Trigger = z.infer<typeof Trigger>;
+
+// v0.12 W2-E
+/** What a successful run passes on: a template over the trigger and step outputs, and its sources. */
+export const WorkflowHandoff = z.object({
+  output: z.union([TemplateString, TemplateObject]),
+  /** Record ids: a reference to a list, or a list of ids and references. */
+  sources: z.union([TemplateString, z.array(TemplateString).max(50)]).optional(),
+});
+export type WorkflowHandoff = z.infer<typeof WorkflowHandoff>;
 
 /** ARCHITECTURE §10.1: one trigger, then a structured list of steps. */
 export const Workflow = z
@@ -237,6 +297,10 @@ export const Workflow = z
     schemaVersion: z.literal(3),
     trigger: Trigger,
     steps: z.array(Step),
+    // v0.12 W2-E: other ways to start the same workflow (each with its own id), and what a
+    // successful live run passes on to a handoff trigger (ARCHITECTURE §10.8).
+    moreTriggers: z.array(Trigger).max(9).optional(),
+    handoff: WorkflowHandoff.optional(),
   })
   .meta({ id: "Workflow" });
 export type Workflow = z.infer<typeof Workflow>;

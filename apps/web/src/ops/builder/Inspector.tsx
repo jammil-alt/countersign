@@ -1165,7 +1165,9 @@ function triggerPaths(workflow: Workflow, ctx: TypingContext): PathOption[] {
   return pathsAt(probe, "trigger-probe", ctx);
 }
 
-const DEFAULT_ON: Record<TriggerOn["type"], TriggerOn> = {
+// v0.12 W2-E: the builder offers the first four kinds; webhook, message and handoff triggers are
+// written in the bundle for now (backend first, docs/plan.md §1.48).
+const DEFAULT_ON: Record<"event" | "schedule" | "manual" | "command", TriggerOn> = {
   event: { type: "event", event: "document.received" },
   schedule: { type: "schedule", cron: "0 7 * * 1-5" },
   manual: { type: "manual", input: { type: "object", properties: {} } },
@@ -1194,7 +1196,10 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           onChange={(e) => {
             const type = e.target.value as TriggerOn["type"];
             const first = events[0]?.type;
-            const next = type === "event" && first ? { type, event: first } : DEFAULT_ON[type];
+            const next =
+              type === "event" && first
+                ? { type, event: first }
+                : DEFAULT_ON[type as keyof typeof DEFAULT_ON];
             onTrigger(next as TriggerOn, "trigger:type");
           }}
         >
@@ -1202,6 +1207,16 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           <option value="schedule">On a schedule</option>
           <option value="manual">By hand</option>
           <option value="command">From a thread command</option>
+          {/* v0.12 W2-E: shown when the bundle has one; set in the bundle for now. */}
+          <option value="webhook" disabled>
+            When a webhook arrives
+          </option>
+          <option value="message" disabled>
+            When someone sends a message
+          </option>
+          <option value="handoff" disabled>
+            When another agent finishes
+          </option>
         </SmallSelect>
       </Row>
       {on.type === "event" ? (
