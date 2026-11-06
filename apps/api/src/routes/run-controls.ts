@@ -4,7 +4,6 @@
 // saved views of the runs list. RunFilter's SQL is here too: both runs lists use it.
 
 import {
-  csvLine,
   errorGroupKey,
   type ModelCallBody,
   RUNS_CSV_COLUMNS,
@@ -33,7 +32,8 @@ import {
 import { resumePoint } from "@countersign/workflows";
 import { and, desc, eq, gt, gte, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, HttpError, iso, mount, notFound } from "../http";
+import { csvFile } from "../exports/csv";
+import { type AppEnv, ensureClient, HttpError, iso, mount, mountFile, notFound } from "../http";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
 
@@ -386,25 +386,7 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
     return { runId: req.runId, shortId: shortRunId(req.runId) };
   });
 
-  // The CSV route answers JSON like every route (`mount`: session, scope, audit, contract); this
-  // turns its answer into the file.
-  // DECISION: a small wrapper here rather than a file variant of `mount` in http.ts, which the
-  // exports stream is changing at the same time; once that lands this can move onto it.
-  app.use(routes.opsRunsCsv.path, async (c, next) => {
-    await next();
-    if (c.res.status !== 200) return;
-    const out = (await c.res.clone().json()) as {
-      filename: string;
-      contentType: string;
-      csv: string;
-    };
-    const headers = new Headers(c.res.headers);
-    headers.set("content-type", out.contentType);
-    headers.set("content-disposition", `attachment; filename="${out.filename}"`);
-    c.res = new Response(out.csv, { status: 200, headers });
-  });
-
-  mount(app, routes.opsRunsCsv, async (ctx) => {
+  mountFile(app, routes.opsRunsCsv, async (ctx) => {
     const { tx, query } = ctx;
     ensureFilterClients(ctx, query.filter);
     const rows = await tx
@@ -425,11 +407,11 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
       .where(and(inArray(run.tenantId, [...ctx.tenantIds]), ...runFilterWhere(query.filter)))
       .orderBy(desc(run.createdAt))
       .limit(RUNS_CSV_MAX);
-    const lines = [
-      csvLine(RUNS_CSV_COLUMNS),
-      ...rows.map(({ r, client, agent: name, version, attempts }) => {
+    const bytes = csvFile(
+      RUNS_CSV_COLUMNS,
+      rows.map(({ r, client, agent: name, version, attempts }) => {
         const error = r.error as { nodeId?: unknown } | null;
-        return csvLine([
+        return [
           shortRunId(r.id),
           client,
           name,
@@ -440,14 +422,14 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
           r.status === "failed" ? errorGroupKey(r.error) : "",
           attempts,
           r.costUsd,
-        ]);
+        ];
       }),
-    ];
+    );
     const day = new Date().toISOString().slice(0, 10);
     return {
       filename: `mezonas-runs-${day}.csv`,
       contentType: "text/csv; charset=utf-8" as const,
-      csv: `${lines.join("\r\n")}\r\n`,
+      bytes,
     };
   });
 

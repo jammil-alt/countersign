@@ -2553,7 +2553,8 @@ export const receivable = pgTable(
     /** `qbo`. */
     connector: text("connector").notNull(),
     externalId: text("external_id").notNull(),
-    docNumber: text("doc_number").notNull(),
+    /** QuickBooks' DocNumber; null when the invoice has none (it is optional there). */
+    docNumber: text("doc_number"),
     customerExternalId: text("customer_external_id").notNull(),
     customerName: text("customer_name").notNull(),
     /** The customer's organization in the client's directory, once matched or imported. */

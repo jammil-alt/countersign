@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
+import { ExportFile } from "./exports";
 import { OpsRunsQuery, RunFilter, RunStatusSchema } from "./runs-filter";
 
 // v0.12 W1-E: run controls and model calls (ARCHITECTURE §10.10, §14; docs/plan.md §1.40). Retry
@@ -166,13 +167,6 @@ export const SavedViewBody = z.strictObject({
   filters: RunFilter,
 });
 
-/** The runs CSV, as the handler hands it to the CSV response (apps/api sends `csv` as the file). */
-export const RunsCsv = z.object({
-  filename: z.string(),
-  contentType: z.literal("text/csv; charset=utf-8"),
-  csv: z.string(),
-});
-
 /** The CSV's columns (docs/plan.md §1.40). */
 export const RUNS_CSV_COLUMNS = [
   "id",
@@ -186,18 +180,6 @@ export const RUNS_CSV_COLUMNS = [
   "attempts",
   "cost",
 ] as const;
-
-/** One CSV field: quoted when it has a comma, quote or line break; formulas defused. */
-export function csvField(value: string | number | null | undefined): string {
-  let s = value === null || value === undefined ? "" : String(value);
-  // A cell starting with = + - @ runs as a formula in spreadsheets: prefix it with a quote.
-  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-export function csvLine(values: readonly (string | number | null | undefined)[]): string {
-  return values.map(csvField).join(",");
-}
 
 // ── Routes ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -239,7 +221,7 @@ export const runControlRoutes = {
     roles: OPS,
     summary: "The runs list as CSV: id, client, agent, version, started, status, failed step, …",
     query: OpsRunsQuery,
-    response: RunsCsv,
+    response: ExportFile,
   }),
   opsRunModelCalls: defineRoute({
     method: "GET",

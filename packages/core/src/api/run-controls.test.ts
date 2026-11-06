@@ -4,7 +4,6 @@ import { routes } from "./routes";
 import {
   CARRIED_APPROVAL_MAX_AGE_MS,
   carryDecision,
-  csvLine,
   errorGroupKey,
   OpsModelCall,
   runControlRoutes,
@@ -79,13 +78,6 @@ describe("carried approvals", () => {
     for (const status of ["proposed", "rejected"]) {
       expect(carryDecision({ status, approvedAt: signed(1), error: null }, now)).toBe("propose");
     }
-  });
-});
-
-describe("the runs CSV", () => {
-  it("quotes what needs quoting and defuses formulas", () => {
-    expect(csvLine(["a", "b,c", 'say "hi"', null, 3])).toBe('a,"b,c","say ""hi""",,3');
-    expect(csvLine(["=HYPERLINK(1)", "-0.5", "@x"])).toBe("'=HYPERLINK(1),-0.5,'@x");
   });
 });
 

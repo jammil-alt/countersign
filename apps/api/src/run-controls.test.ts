@@ -167,9 +167,8 @@ describe.skipIf(!h)("run controls", () => {
     const first = await failedAtWrite();
     const [failed] = await H.t.db.select().from(run).where(eq(run.id, first));
     // The error key names the tool that failed (docs/plan.md §1.40).
-    expect((failed?.error as { key?: string } | undefined)?.key).toMatch(
-      new RegExp(`^${TESTKIT_UPDATE_TOOL}:`),
-    );
+    const key = (failed?.error as { key?: string } | undefined)?.key ?? "";
+    expect(key.slice(0, TESTKIT_UPDATE_TOOL.length + 1)).toBe(`${TESTKIT_UPDATE_TOOL}:`);
     const [original] = await H.t.db
       .select()
       .from(externalAction)
@@ -459,7 +458,10 @@ describe.skipIf(!h)("run controls", () => {
     expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="mezonas-runs-/);
     expect(res.headers.get("cache-control")).toContain("no-store");
     const text = await res.text();
-    const lines = text.trim().split("\r\n");
+    const lines = text
+      .replace(/^\uFEFF/, "")
+      .trim()
+      .split("\r\n");
     expect(lines[0]).toBe(
       "id,client,agent,version,started,status,failed step,error key,attempts,cost",
     );

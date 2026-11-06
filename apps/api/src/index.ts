@@ -7,6 +7,7 @@ import { handleEmail } from "./email";
 import type { Bindings } from "./env";
 
 export { app } from "./app";
+export { ExportWorkflow } from "./exports/workflow";
 export { QboSyncWorkflow } from "./qbo/workflow";
 export { RunWorkflow } from "./runs/workflow";
 
