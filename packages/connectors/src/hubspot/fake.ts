@@ -134,11 +134,16 @@ export function fakeHubspot(opts: { now?: Date } = {}): FakeHubspot {
   }
 
   function view(o: FakeHubspotObject, props: string[] | null) {
-    const properties: Record<string, string | null> = { hs_object_id: o.id };
-    for (const [k, v] of Object.entries(o.properties)) {
-      if (!props || props.includes(k)) properties[k] = v;
-    }
-    if (props) for (const k of props) if (!(k in properties)) properties[k] = null;
+    // Built with fromEntries: the asked names come from the request's URL.
+    const shown = Object.entries(o.properties).filter(([k]) => !props || props.includes(k));
+    const missing = (props ?? [])
+      .filter((k) => k !== "hs_object_id" && !shown.some(([s]) => s === k))
+      .map((k): [string, null] => [k, null]);
+    const properties: Record<string, string | null> = Object.fromEntries([
+      ["hs_object_id", o.id],
+      ...shown,
+      ...missing,
+    ]);
     return {
       id: o.id,
       properties,

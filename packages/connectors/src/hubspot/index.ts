@@ -158,12 +158,13 @@ const RawRecord = z.looseObject({
 /** HubSpot's record JSON → HubspotRecord. Property values are strings (or null) in HubSpot. */
 export function mapHubspotRecord(objectType: HubspotObjectType, raw: unknown): HubspotRecord {
   const r = RawRecord.parse(raw);
-  const properties: Record<string, string | null> = {};
-  for (const [k, v] of Object.entries(r.properties ?? {})) {
-    // Keys come from HubSpot's answer: none may reach an object's prototype.
-    if (k === "hs_object_id" || UNSAFE_KEYS.has(k)) continue;
-    properties[k] = v === null || v === undefined ? null : String(v);
-  }
+  // Keys come from HubSpot's answer: built with fromEntries (no assignment by key) and without
+  // the names that could reach an object's prototype.
+  const properties: Record<string, string | null> = Object.fromEntries(
+    Object.entries(r.properties ?? {})
+      .filter(([k]) => k !== "hs_object_id" && !UNSAFE_KEYS.has(k))
+      .map(([k, v]) => [k, v === null || v === undefined ? null : String(v)]),
+  );
   return HubspotRecord.parse({
     id: String(r.id),
     objectType,
@@ -680,9 +681,9 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
             Object.keys(input.properties),
           );
           if (!current) return null;
-          const properties: Record<string, string | null> = {};
-          for (const k of Object.keys(input.properties))
-            properties[k] = current.properties[k] ?? null;
+          const properties: Record<string, string | null> = Object.fromEntries(
+            Object.keys(input.properties).map((k) => [k, current.properties[k] ?? null]),
+          );
           return {
             id: current.id,
             name: nameOf(current),

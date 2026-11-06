@@ -87,7 +87,8 @@ function readMultipart(body: Uint8Array, contentType: string) {
   // Latin-1 keeps one character per byte, so offsets into the text are offsets into the bytes.
   let text = "";
   for (const b of body) text += String.fromCharCode(b);
-  const fields: Record<string, string> = {};
+  // Field names come from the request body: collected as entries, built with fromEntries.
+  const entries: [string, string][] = [];
   let file: { filename: string; contentType: string; size: number } | null = null;
   for (const part of text.split(`--${boundary}`)) {
     const split = part.indexOf("\r\n\r\n");
@@ -101,9 +102,10 @@ function readMultipart(body: Uint8Array, contentType: string) {
       const type = /Content-Type: ([^\r\n]*)/.exec(head)?.[1] ?? "application/octet-stream";
       file = { filename, contentType: type, size: value.length };
     } else {
-      fields[name] = value;
+      entries.push([name, value]);
     }
   }
+  const fields: Record<string, string> = Object.fromEntries(entries);
   return { fields, file };
 }
 
