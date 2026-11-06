@@ -91,6 +91,9 @@ describe("Slack on the Connections page", () => {
       bodies.push(JSON.parse(String(init.body)));
       return CHANNELS;
     });
+    // The channels are part of the tool's card, open on request (the Accounts page).
+    const card = await screen.findByTestId("portal-connection-slack");
+    await userEvent.click(within(card).getByTestId("portal-connection-permissions-toggle"));
     const picker = await screen.findByTestId("slack-channels");
     expect(await within(picker).findByText("Workspace: Acme Millwork")).toBeTruthy();
     expect(within(picker).getByTestId("slack-picked-count").textContent).toBe("1 channel picked");

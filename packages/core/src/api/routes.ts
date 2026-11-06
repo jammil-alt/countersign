@@ -441,6 +441,9 @@ export const PortalInboxItem = z.object({
   resolvedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
   // v0.12 W1-D: the Desk's undo window, snooze and batch.
   ...DESK_ITEM_FIELDS,
+  // UI-1b: the client agent that asks (its service name, as the sidebar shows it); null when no
+  // agent does (a platform item). Never its bundle, instructions or cost (invariant 11).
+  service: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
 });
 
 export const ToolAccessSchema = z.object({

@@ -107,8 +107,11 @@ describe("app", () => {
     await user.click(operator);
     expect(api.signedInAs()).toBe("operator@example.com");
 
-    // Operators land in the back office.
-    await user.click(await screen.findByTestId("ops-client-00000000-0000-4000-8000-00000000a001"));
+    // Operators land in the back office's command center; a client opens from the sidebar.
+    expect(await screen.findByTestId("ops-command")).toBeInTheDocument();
+    await user.click(
+      await screen.findByTestId("ops-nav-client-00000000-0000-4000-8000-00000000a001"),
+    );
     const card = await screen.findByTestId("ops-agent-card-material-costs");
     expect(within(card).getByText("Live")).toBeInTheDocument();
     await user.click(within(card).getByText("Material costs"));
@@ -121,7 +124,7 @@ describe("app", () => {
       within(tabs)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Runs", "People", "Versions2", "Settings"]);
+    ).toEqual(["Overview", "Workflow", "Triggers", "Runs", "Versions2", "Tests", "Settings"]);
     expect(screen.getByText(/How it works · 5 steps, 1 fork$/)).toBeInTheDocument();
 
     await user.click(within(tabs).getByRole("link", { name: /^Versions/ }));

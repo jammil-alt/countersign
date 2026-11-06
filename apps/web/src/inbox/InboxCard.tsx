@@ -43,7 +43,7 @@ export interface InboxCardItem {
 }
 
 /** v0.12 W1-D: a question's quick answers (`payload.choices`), or null. */
-function quickAnswers(
+export function quickAnswers(
   payload: Record<string, unknown>,
   locale: Locale,
 ): { value: string; label: string }[] | null {
@@ -63,7 +63,7 @@ function quickAnswers(
   return out;
 }
 
-const KIND_LABEL: Record<string, PlainKey> = {
+export const KIND_LABEL: Record<string, PlainKey> = {
   external_action: "inbox.kind.external_action",
   approval: "inbox.kind.approval",
   request: "inbox.kind.request",
@@ -140,7 +140,10 @@ export function payloadFacts(payload: Record<string, unknown>): [string, string]
  * An agent's directory suggestion (plan §1.27) in plain words: why, and each field it would set.
  * What the agent wrote is data, shown as text.
  */
-function suggestionFacts(payload: Record<string, unknown>, i18n: I18n): [string, string][] | null {
+export function suggestionFacts(
+  payload: Record<string, unknown>,
+  i18n: I18n,
+): [string, string][] | null {
   const s = payload.directorySuggestion;
   if (!isPlainObject(s)) return null;
   const change = DirectorySuggestionChange.safeParse(s.change);

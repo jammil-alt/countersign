@@ -21,6 +21,7 @@ export interface StepItem {
   time?: ReactNode;
   /** Receipts, an in/out box, anything under the detail. */
   children?: ReactNode;
+  testId?: string;
 }
 
 const STATE_WORDS = {
@@ -38,7 +39,7 @@ export function StepList({ steps, testId }: { steps: readonly StepItem[]; testId
   return (
     <ol data-testid={testId} className={cx("ui-steps", timed && "ui-steps--timed")}>
       {steps.map((s, i) => (
-        <li key={s.key} data-state={s.state} className="ui-steps__item">
+        <li key={s.key} data-testid={s.testId} data-state={s.state} className="ui-steps__item">
           {timed ? <span className="ui-steps__time">{s.time}</span> : null}
           <span className="ui-steps__rail">
             <span className={cx("ui-steps__mark", `is-${s.state}`)}>

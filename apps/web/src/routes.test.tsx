@@ -5,6 +5,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { createRoutesFromElements, MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "./App";
+import { OPS_PATHS } from "./ops/paths";
 import { opsRoutes } from "./ops/routes";
 import { portalRoutes } from "./portal/routes";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "./test/fixtures";
@@ -60,7 +61,17 @@ describe("the portal's routes", () => {
   const all = paths(portalRoutes, "").filter((p) => !ACTS_ON_ARRIVAL(p));
 
   it("has the plan's new homes", () => {
-    for (const p of ["/", "/desk", "/agents/x", "/accounts", "/people", "/settings", "/runs"]) {
+    for (const p of [
+      "/",
+      "/desk",
+      "/agents/x",
+      "/accounts",
+      "/people",
+      "/settings",
+      "/runs",
+      "/weekly",
+      "/sloan",
+    ]) {
       const pattern = p.replace("/x", `/${ID}`);
       expect(all).toContain(pattern);
     }
@@ -77,8 +88,10 @@ describe("the portal's routes", () => {
     [`/services/${ID}`, `/agents/${ID}`],
     ["/inbox?status=open#top", "/desk?status=open#top"],
     ["/connections", "/accounts"],
-    ["/access", "/accounts/access"],
-    ["/directory", "/people/directory"],
+    ["/access", "/accounts#vault"],
+    ["/accounts/access?x=1", "/accounts?x=1#vault"],
+    ["/directory", "/people"],
+    ["/people/directory", "/people"],
     ["/contacts", "/people/contacts"],
     ["/billing", "/settings/billing"],
   ])("%s redirects to %s", async (from, to) => {
@@ -108,6 +121,19 @@ describe("the back office's routes", () => {
   it("sends /ops/templates to the Agent lab", async () => {
     renderAt("/ops/templates", true);
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/ops/lab"));
+  });
+
+  // UI-2c: the agent page's Workflow and Triggers tabs live under its splat route.
+  it.each([
+    OPS_PATHS.agentWorkflow(ID, "costs"),
+    `${OPS_PATHS.agent(ID, "costs")}/workflows/main`,
+    OPS_PATHS.agentTriggers(ID, "costs"),
+    OPS_PATHS.newAgent(ID),
+    OPS_PATHS.newTemplate,
+  ])("%s renders a page", async (path) => {
+    renderAt(path, true);
+    await screen.findByTestId("shell-ops");
+    expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
   });
 
   it("keeps the template pages under /ops/templates", () => {

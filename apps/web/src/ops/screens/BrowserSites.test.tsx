@@ -78,6 +78,26 @@ describe("ops websites", () => {
     expect(screen.getByTestId("site-default-blocked")).toHaveTextContent("billing and payment");
   });
 
+  it("counts the sites in each tier, with their client logins", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/browser-sites": () => ({
+        sites: [
+          site(),
+          site({ slug: "bank", name: "Bank", tier: "blocked", connections: 0 }),
+          site({ slug: "mill", name: "Mill portal", connections: 1 }),
+        ],
+      }),
+    });
+    renderAt(api);
+    await screen.findByTestId("site-supplier");
+    expect(screen.getByRole("heading", { name: "Website logins" })).toBeInTheDocument();
+    expect(screen.getByTestId("site-tier-count-low")).toHaveTextContent("2");
+    expect(screen.getByTestId("site-tier-count-low")).toHaveTextContent("3 client logins");
+    expect(screen.getByTestId("site-tier-count-medium")).toHaveTextContent("0");
+    expect(screen.getByTestId("site-tier-count-blocked")).toHaveTextContent("Agents can't sign in");
+  });
+
   it("saves an edited profile as a new version, and refuses one that doesn't parse", async () => {
     const posts: unknown[] = [];
     const api = fakeApi({

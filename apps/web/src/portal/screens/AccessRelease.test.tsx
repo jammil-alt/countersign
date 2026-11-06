@@ -82,7 +82,36 @@ function vault(on: boolean) {
   };
 }
 
+/** QuickBooks as the Accounts page lists it: connected, so it has its own card. */
+const QBO_OFFER = {
+  connector: "qbo",
+  name: "QuickBooks",
+  description: "Bills, vendors and items in QuickBooks Online.",
+  icon: null,
+  available: true,
+  credentialForm: false,
+  personal: false,
+  connection: {
+    id: CONN,
+    status: "connected",
+    externalAccountId: null,
+    accountName: null,
+    lastSyncAt: null,
+    permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+    access: [],
+    usedBy: [],
+    connectedByYou: false,
+  },
+};
+
+/** Human release is in the tool's card on the Accounts page, open on request. */
+async function openQuickBooks() {
+  const card = await screen.findByTestId("portal-connection-qbo");
+  await userEvent.click(within(card).getByTestId("portal-connection-permissions-toggle"));
+}
+
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
+  api.on("GET /api/connections", () => ({ connections: [QBO_OFFER] }));
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AppProviders client={api.client}>
@@ -110,6 +139,7 @@ describe("human release on the Access page", () => {
       },
     });
     renderAt("/access", api);
+    await openQuickBooks();
     const section = await screen.findByTestId("release-section");
     expect(within(section).getByTestId("release-summary")).toHaveTextContent(
       "Off: agents use it without asking anyone first.",
@@ -158,6 +188,7 @@ describe("human release on the Access page", () => {
       },
     });
     renderAt("/access", api);
+    await openQuickBooks();
     const live = await screen.findByTestId(`release-live-${LIVE}`);
     expect(live).toHaveTextContent("Intake · released by Ana Ruiz");
     expect(live).toHaveTextContent("For the run under way");
@@ -177,6 +208,7 @@ describe("human release on the Access page", () => {
       "GET /api/access": () => ({ items: [vault(true)], setup: [], canEdit: false, people: [] }),
     });
     renderAt("/access", api);
+    await openQuickBooks();
     const section = await screen.findByTestId("release-section");
     expect(section).toHaveTextContent("Ana Ruiz releases it with a code by text, for one run.");
     expect(within(section).getByTestId(`release-live-${LIVE}`)).toBeInTheDocument();
@@ -247,14 +279,16 @@ describe("entering a code from the inbox", () => {
       },
     });
     renderAt("/inbox", api);
-    const card = await screen.findByTestId(`inbox-item-${ITEM}`);
+    // UI-1b: the Desk lists it as "Enter code" and opens it on the right.
+    expect(await screen.findByTestId(`desk-entry-${ITEM}`)).toHaveTextContent("Enter code");
+    const card = await screen.findByTestId("desk-detail");
     const entry = await within(card).findByTestId("release-code-entry");
-    expect(within(card).getByTestId("inbox-item-status")).toHaveTextContent("Needs a code");
     expect(entry).toHaveTextContent("We sent a code to •••0142.");
-    // Answered only with the code: no approve, decline or answer.
-    expect(within(card).queryByTestId("inbox-item-approve")).toBeNull();
-    expect(within(card).queryByTestId("inbox-item-decline")).toBeNull();
-    expect(within(card).queryByTestId("inbox-item-answer-input")).toBeNull();
+    // Answered only with the code: no sign, decline, answer or Not now.
+    expect(within(card).queryByTestId("desk-sign")).toBeNull();
+    expect(within(card).queryByTestId("desk-decline")).toBeNull();
+    expect(within(card).queryByTestId("desk-answer-input")).toBeNull();
+    expect(within(card).queryByTestId("desk-not-now")).toBeNull();
     const input = within(entry).getByTestId("release-code-input");
     expect(input).toHaveAttribute("autocomplete", "one-time-code");
     await userEvent.type(input, "12a3456");
@@ -292,7 +326,7 @@ describe("entering a code from the inbox", () => {
       [`GET /api/access/requests/${ITEM}`]: () => ({ request: request({ mine: false }) }),
     });
     renderAt("/inbox", api);
-    const card = await screen.findByTestId(`inbox-item-${ITEM}`);
+    const card = await screen.findByTestId("desk-detail");
     expect(await within(card).findByTestId("release-code-not-mine")).toHaveTextContent(
       "Only the person we sent the code to can enter it.",
     );
