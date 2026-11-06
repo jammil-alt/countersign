@@ -38,6 +38,7 @@ import { z } from "zod";
 import { type AuditEntry, auditAction, auditAlone, auditInTx, auditTarget } from "./audit";
 import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
 import type { Bindings } from "./env";
+import type { ExportJobs } from "./exports/instances";
 import type { McpDeps } from "./mcp/routes";
 import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
@@ -69,6 +70,8 @@ export interface AppDeps {
   stripe?(env: Bindings): StripeClient | null;
   /** QuickBooks syncs (QboSyncWorkflow); default the QBO_SYNC binding. Tests pass memory. */
   qboSync?(env: Bindings): QboSyncInstances | null;
+  /** Client data exports (ExportWorkflow); default the EXPORT_WORKFLOW binding. Tests pass memory. */
+  exports?(env: Bindings): ExportJobs | null;
   /** The MCP server's authorization server, audit, rate limit and clock; tests pass fakes. */
   mcp?: McpDeps;
 }
@@ -420,6 +423,67 @@ export function mount<R extends RouteSpec>(
   spec: R,
   handler: (ctx: HandlerCtx<R>) => Promise<Result<R>>,
 ): void {
+  mountWith(app, spec, handler, respond);
+}
+
+/** What a file route's handler hands back: the bytes, their type and the name to save them as. */
+export interface FileResult {
+  filename: string;
+  contentType: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * A session route that answers with a file (an export's CSV or ZIP) instead of JSON: the same
+ * sign-in, roles, client scope, transaction and audit row as `mount`. The route's response schema
+ * checks what the handler hands back (core's `ExportFile`).
+ */
+export function mountFile<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  spec: R,
+  handler: (ctx: HandlerCtx<R>) => Promise<Result<R> & FileResult>,
+): void {
+  mountWith(app, spec, handler, sendFile);
+}
+
+function sendFile<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) {
+  const out = spec.response.safeParse(result);
+  if (!out.success) {
+    console.error(`response of ${spec.method} ${spec.path} does not match its contract`, out.error);
+    return errorResponse(c, new HttpError(500, "internal", "something went wrong"));
+  }
+  const file = out.data as FileResult;
+  // c.body keeps the headers already set on the context (the session's cookies).
+  return c.body(file.bytes as Uint8Array<ArrayBuffer>, 200, {
+    "content-type": file.contentType,
+    "content-disposition": contentDisposition(file.filename, "attachment"),
+    "cache-control": "private, max-age=0, no-store",
+  });
+}
+
+/**
+ * `inline` or `attachment` with the file's name: a plain ASCII fallback for old clients plus the
+ * exact name as RFC 5987 UTF-8, so a non-Latin-1 name (e.g. a Chinese invoice) is a valid header,
+ * not a 500.
+ */
+export function contentDisposition(
+  name: string,
+  kind: "inline" | "attachment" = "inline",
+): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_") || "document";
+  const utf8 = encodeURIComponent(name.replace(/[\r\n]/g, "")).replace(
+    /['()*]/g,
+    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${utf8}`;
+}
+
+function mountWith<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  spec: R,
+  handler: (ctx: HandlerCtx<R>) => Promise<unknown>,
+  send: (c: AppContext, spec: R, result: unknown) => Response | Promise<Response>,
+): void {
   if (spec.auth !== "session") throw new Error(`${spec.path} is public: use mountPublic`);
   const family = routeFamily(spec);
   let handlers = mounted.get(app);
@@ -473,7 +537,7 @@ export function mount<R extends RouteSpec>(
         return out;
       });
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
-      return respond(c, spec, output);
+      return send(c, spec, output);
     } catch (error) {
       const status = toHttpError(error).status;
       await auditAlone(
@@ -488,7 +552,8 @@ export function mount<R extends RouteSpec>(
 
 type AuditActor = Pick<AuditEntry, "actorKind" | "actorUserId" | "actorEmail" | "actorRole">;
 
-function auditActor(session: Session): AuditActor {
+/** Who a session is, for an audit row. */
+export function auditActor(session: Session): AuditActor {
   return {
     actorKind: "user",
     actorUserId: session.user.id,
