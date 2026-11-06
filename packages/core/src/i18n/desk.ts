@@ -51,7 +51,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       viewer: "Sees everything, signs nothing.",
       everythingElse: "Every change no rule sends to someone else.",
       rule: ({ what, verb, amount, agent }) =>
-        [
+        `${[
           verb === "create"
             ? "New records"
             : verb === "update"
@@ -64,7 +64,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
           agent ? `by ${agent}` : null,
         ]
           .filter(Boolean)
-          .join(" ") + ".",
+          .join(" ")}.`,
     },
   },
   es: {
@@ -84,7 +84,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       viewer: "Lo ve todo, no firma nada.",
       everythingElse: "Todo cambio que ninguna regla envía a otra persona.",
       rule: ({ what, verb, amount, agent }) =>
-        [
+        `${[
           verb === "create"
             ? "Registros nuevos"
             : verb === "update"
@@ -97,7 +97,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
           agent ? `de ${agent}` : null,
         ]
           .filter(Boolean)
-          .join(" ") + ".",
+          .join(" ")}.`,
     },
   },
   fr: {
@@ -117,7 +117,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       viewer: "Voit tout, ne signe rien.",
       everythingElse: "Tout changement qu'aucune règle n'envoie à quelqu'un d'autre.",
       rule: ({ what, verb, amount, agent }) =>
-        [
+        `${[
           verb === "create"
             ? "Nouveaux enregistrements"
             : verb === "update"
@@ -130,7 +130,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
           agent ? `par ${agent}` : null,
         ]
           .filter(Boolean)
-          .join(" ") + ".",
+          .join(" ")}.`,
     },
   },
   "pt-BR": {
@@ -150,7 +150,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       viewer: "Vê tudo, não assina nada.",
       everythingElse: "Toda mudança que nenhuma regra envia para outra pessoa.",
       rule: ({ what, verb, amount, agent }) =>
-        [
+        `${[
           verb === "create"
             ? "Novos registros"
             : verb === "update"
@@ -163,7 +163,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
           agent ? `de ${agent}` : null,
         ]
           .filter(Boolean)
-          .join(" ") + ".",
+          .join(" ")}.`,
     },
   },
   it: {
@@ -183,7 +183,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       viewer: "Vede tutto, non firma nulla.",
       everythingElse: "Ogni modifica che nessuna regola invia a qualcun altro.",
       rule: ({ what, verb, amount, agent }) =>
-        [
+        `${[
           verb === "create"
             ? "Nuovi record"
             : verb === "update"
@@ -196,7 +196,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
           agent ? `di ${agent}` : null,
         ]
           .filter(Boolean)
-          .join(" ") + ".",
+          .join(" ")}.`,
     },
   },
   de: {
@@ -216,7 +216,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       viewer: "Sieht alles, unterschreibt nichts.",
       everythingElse: "Jede Änderung, die keine Regel an jemand anderen sendet.",
       rule: ({ what, verb, amount, agent }) =>
-        [
+        `${[
           verb === "create"
             ? "Neue Datensätze"
             : verb === "update"
@@ -229,7 +229,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
           agent ? `von ${agent}` : null,
         ]
           .filter(Boolean)
-          .join(" ") + ".",
+          .join(" ")}.`,
     },
   },
 };

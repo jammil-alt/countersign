@@ -138,12 +138,15 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
     // office.
     const [sandbox] = await H.t.db
       .insert(tenant)
-      .values({ name: "Sandbox", settings: {
+      .values({
+        name: "Sandbox",
+        settings: {
           sandbox: true,
           connectors_offered: ["testkit"],
           // v0.12 W1-D: the undo window is off here, so an approval reaches its run at once.
           approvals: { undoSeconds: 0 },
-        }, })
+        },
+      })
       .returning();
     if (!sandbox) throw new Error("no sandbox");
     sandboxId = sandbox.id;
