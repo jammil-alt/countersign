@@ -39,7 +39,12 @@ function records(over: { bills?: { transactionId: string; externalId: string }[]
     },
     async receivableIds(ids) {
       const known: Record<string, string> = { "130": RECEIVABLE_130, "133": RECEIVABLE_133 };
-      return Object.fromEntries(ids.filter((id) => known[id]).map((id) => [id, known[id]]));
+      const out: Record<string, string> = {};
+      for (const id of ids) {
+        const r = known[id];
+        if (r) out[id] = r;
+      }
+      return out;
     },
   };
   return { services, asked };
@@ -246,7 +251,7 @@ describe("qbo: a note on an invoice", () => {
       ["Id", "PrivateNote", "SyncToken", "sparse"].sort(),
     );
     expect(post[0]?.url).toContain("requestid=");
-    const inv = s.qbo.get("Invoice", "132");
+    const inv = s.qbo.get("Invoice", "132") as Record<string, unknown> & { Id: string };
     expect(inv?.PrivateNote).toBe(
       "Deposit received by check\n2026-11-05: Called Pat; promised a check Friday",
     );
@@ -266,14 +271,14 @@ describe("qbo: a note on an invoice", () => {
 
   it("refuses a stale SyncToken and a note past QuickBooks' limit", async () => {
     const s = await setup();
-    const inv = s.qbo.get("Invoice", "132");
-    s.qbo.put("Invoice", { ...(inv as never), SyncToken: "1", PrivateNote: "Changed by a person" });
+    const inv = s.qbo.get("Invoice", "132") as Record<string, unknown> & { Id: string };
+    s.qbo.put("Invoice", { ...inv, SyncToken: "1", PrivateNote: "Changed by a person" });
     expect(
       await refusal(executeWrite(s.connector, QBO_TOOLS.invoiceAddNote, input, s.ctx())),
     ).toMatch(/changed in QuickBooks since it was read/);
     expect(s.qbo.apiCalls("POST", "invoice")).toHaveLength(0);
 
-    s.qbo.put("Invoice", { ...(inv as never), SyncToken: "2", PrivateNote: "x".repeat(3990) });
+    s.qbo.put("Invoice", { ...inv, SyncToken: "2", PrivateNote: "x".repeat(3990) });
     const long = { ...input, syncToken: "2" };
     expect(
       await refusal(captureBefore(s.connector, QBO_TOOLS.invoiceAddNote, long, s.ctx())),
