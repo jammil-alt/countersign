@@ -12,6 +12,7 @@ import {
   reconnectDayPrefix,
   retryReason,
   triesOf,
+  trimTrailingSlashes,
   weekOfKey,
   withPersonNotifications,
 } from "./notify";
@@ -45,6 +46,21 @@ describe("dedupe keys", () => {
     expect(dedupeKeys.lead(C, U)).toBe(`lead:${C}:${U}`);
     expect(dedupeKeys.credits("2026-11", 2, U)).toBe(`credits:2026-11:2:${U}`);
     expect(dedupeKeys.signoff(C, U)).toBe(`signoff:${C}:${U}`);
+  });
+});
+
+describe("links", () => {
+  it("trims trailing slashes, and 100k of them fast", () => {
+    expect(trimTrailingSlashes("https://x.test///")).toBe("https://x.test");
+    expect(trimTrailingSlashes("https://x.test")).toBe("https://x.test");
+    expect(trimTrailingSlashes("///")).toBe("");
+    expect(trimTrailingSlashes("")).toBe("");
+    expect(notificationLink("https://x.test/", "/inbox")).toBe("https://x.test/inbox");
+    const many = `https://x.test${"/".repeat(100_000)}a${"/".repeat(100_000)}`;
+    const started = Date.now();
+    expect(trimTrailingSlashes(many)).toBe(`https://x.test${"/".repeat(100_000)}a`);
+    expect(trimTrailingSlashes("/".repeat(100_000))).toBe("");
+    expect(Date.now() - started).toBeLessThan(200);
   });
 });
 

@@ -16,6 +16,7 @@ import {
   renderNotification,
   retryReason,
   triesOf,
+  trimTrailingSlashes,
   weekOfKey,
 } from "@countersign/core";
 import { notification, type Tx } from "@countersign/db";
@@ -37,7 +38,7 @@ export interface NotifyDeps {
 export const DEFAULT_APP_ORIGIN = "https://app.mezonas.com";
 
 export function originOf(env: Pick<Bindings, "APP_ORIGIN">): string {
-  return (env.APP_ORIGIN?.trim() || DEFAULT_APP_ORIGIN).replace(/\/+$/, "");
+  return trimTrailingSlashes(env.APP_ORIGIN?.trim() || DEFAULT_APP_ORIGIN);
 }
 
 /** One notification to write: a person, a channel, a kind, its key, page and counts. */

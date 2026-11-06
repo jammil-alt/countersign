@@ -771,7 +771,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
         // One link, to this app.
         const links = body.match(/https?:\/\/[^\s"<]+/g) ?? [];
         expect(new Set(links).size, body).toBe(1);
-        expect(links[0]?.startsWith(ORIGIN)).toBe(true);
+        expect(new URL(links[0] as string).origin).toBe(new URL(ORIGIN).origin);
         expect(body).not.toMatch(/<img|<script/i);
       }
     });

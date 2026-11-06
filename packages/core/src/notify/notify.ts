@@ -116,9 +116,16 @@ export function notificationPath(
   }
 }
 
+/** The text without its trailing `/`s; linear in the length (no regular expression). */
+export function trimTrailingSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
 /** APP_ORIGIN + path, without a doubled slash. */
 export function notificationLink(origin: string, path: string): string {
-  return `${origin.replace(/\/+$/, "")}${path}`;
+  return `${trimTrailingSlashes(origin)}${path}`;
 }
 
 // ── Preferences ─────────────────────────────────────────────────────────────────────────────────
