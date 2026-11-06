@@ -532,6 +532,7 @@ describe.skipIf(!h)("run controls", () => {
       runId: r.id,
       stepRunId: s.id,
       agentVersionId: r.agentVersionId,
+      action: "agent_turn",
       provider: "anthropic",
       model: "claude-opus-5-5",
       tokensIn: 120,

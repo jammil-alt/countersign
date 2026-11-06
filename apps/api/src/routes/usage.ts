@@ -43,6 +43,7 @@ import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
 import { runSummaries } from "./portal";
+import { tokenReport } from "./usage-tokens";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
 
@@ -579,6 +580,15 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
     const from = query.from ?? monthStart(to, 5);
     checkRange(from, to);
     return usageReport(tx, tenantIds, { ...query, from, to });
+  });
+
+  // Owner, 2026-11-06 (docs/plan.md §1.62): tokens by client, agent, model and action.
+  mount(app, routes.opsUsageTokens, async ({ tx, tenantIds, query }) => {
+    // DECISION: this month so far by default (UTC), the period an operator checks spend in.
+    const to = query.to ?? new Date().toISOString().slice(0, 10);
+    const from = query.from ?? monthStart(to);
+    checkRange(from, to);
+    return tokenReport(tx, tenantIds, { ...query, from, to });
   });
 
   mount(app, routes.portalActivityReport, async ({ tx, tenantIds, query, services }) => {

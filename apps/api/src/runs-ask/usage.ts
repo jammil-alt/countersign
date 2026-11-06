@@ -2,11 +2,13 @@
 // the client's usage under its account agent (Sloan): recorded as one of Sloan's test runs with one
 // step carrying the call's tokens and cost, then rolled up into usage_daily like any run. Without
 // an account agent, and for the back office's questions, the cost is the operator's: logged only.
+// The call is also a `model_call` row (action `question`, docs/plan.md §1.62), so Sloan's tokens
+// count by model and action with every other agent's.
 
-import { rollupUsageForRun } from "@countersign/agents";
-import { ACCOUNT_AGENT_SLUG, type RunFilter } from "@countersign/core";
-import { agent, agentVersion, run, stepRun, type Tx } from "@countersign/db";
-import type { LlmCallRecord } from "@countersign/llm";
+import { modelCallBodyKey, rollupUsageForRun } from "@countersign/agents";
+import { ACCOUNT_AGENT_SLUG, Decimal, type RunFilter, uuidv7 } from "@countersign/core";
+import { agent, agentVersion, modelCall, run, stepRun, type Tx } from "@countersign/db";
+import { type LlmCallRecord, providerOf } from "@countersign/llm";
 import { and, desc, eq } from "drizzle-orm";
 
 /** `run.workflow_slug` of a question's run: it runs no workflow. */
@@ -100,21 +102,47 @@ export async function recordAskUsage(tx: Tx, u: AskUsage): Promise<string | null
     })
     .returning({ id: run.id });
   if (!r) throw new Error("run insert returned nothing");
-  await tx.insert(stepRun).values({
+  const [step] = await tx
+    .insert(stepRun)
+    .values({
+      tenantId: u.tenantId,
+      runId: r.id,
+      nodeId: "question",
+      nodeType: "question",
+      agentVersionId: sloan.versionId,
+      input: { question: u.question },
+      output: u.filter ? { filter: u.filter } : { refused: u.refused ?? "not understood" },
+      status: "succeeded",
+      attempts: 1,
+      costUsd: cost,
+      tokensIn: u.record.usage.inputTokens,
+      tokensOut: u.record.usage.outputTokens,
+      startedAt: now,
+      finishedAt: now,
+    })
+    .returning({ id: stepRun.id });
+  if (!step) throw new Error("step run insert returned nothing");
+  // DECISION: the question's model call is recorded without its body: the step keeps the question
+  // and the filter it became, and the request is the fixed prompt around it. The run page says
+  // the body wasn't kept, as it does for one that failed to store.
+  const callId = uuidv7(now.getTime());
+  await tx.insert(modelCall).values({
+    id: callId,
     tenantId: u.tenantId,
     runId: r.id,
-    nodeId: "question",
-    nodeType: "question",
+    stepRunId: step.id,
     agentVersionId: sloan.versionId,
-    input: { question: u.question },
-    output: u.filter ? { filter: u.filter } : { refused: u.refused ?? "not understood" },
-    status: "succeeded",
-    attempts: 1,
-    costUsd: cost,
-    tokensIn: u.record.usage.inputTokens,
+    provider: providerOf(u.record.model),
+    model: u.record.model,
+    action: "question",
+    tokensIn:
+      u.record.usage.inputTokens + u.record.usage.cacheWriteTokens + u.record.usage.cacheReadTokens,
     tokensOut: u.record.usage.outputTokens,
-    startedAt: now,
-    finishedAt: now,
+    // numeric(14,4): rounded up, as every model call's, so a call never shows as free.
+    costUsd: new Decimal(cost).toDecimalPlaces(4, Decimal.ROUND_UP).toFixed(4),
+    durationMs: Math.max(0, Math.round(u.record.durationMs)),
+    stopReason: u.record.stopReason ?? "error",
+    bodyKey: modelCallBodyKey(u.tenantId, callId),
   });
   await rollupUsageForRun(tx, { tenantId: u.tenantId, runId: r.id, now });
   return r.id;

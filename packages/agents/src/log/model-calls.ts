@@ -6,7 +6,7 @@
 // object storage under the client's prefix. The back office reads them; the portal never does.
 
 import type { ObjectStore } from "@countersign/connectors";
-import { Decimal, redactCardNumbersDeep, uuidv7 } from "@countersign/core";
+import { Decimal, type ModelCallAction, redactCardNumbersDeep, uuidv7 } from "@countersign/core";
 import { type Db, modelCall, withTenant } from "@countersign/db";
 
 /** One model call of a run's step, as the runtime saw it. */
@@ -14,7 +14,9 @@ export interface ModelCallInput {
   runId: string;
   stepRunId: string;
   agentVersionId: string | null;
-  /** `anthropic` | `openai`. */
+  /** What the call was for (migration 0032). */
+  action: ModelCallAction;
+  /** `anthropic` | `openai` | `xai` | `google`. */
   provider: string;
   model: string;
   /** Input tokens, cache reads and writes included. */
@@ -87,6 +89,7 @@ export function dbModelCalls(
           agentVersionId: call.agentVersionId,
           provider: call.provider,
           model: call.model,
+          action: call.action,
           tokensIn: call.tokensIn,
           tokensOut: call.tokensOut,
           // numeric(14,4): rounded up to a ten-thousandth, so a call never shows as free.

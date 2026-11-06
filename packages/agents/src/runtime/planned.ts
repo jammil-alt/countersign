@@ -248,6 +248,7 @@ export async function composeReachMessage(
           runId: step.runId,
           stepRunId: step.stepRunId,
           agentVersionId: step.agent.agentVersionId,
+          action: "reach_out",
         },
         record,
         exchange,

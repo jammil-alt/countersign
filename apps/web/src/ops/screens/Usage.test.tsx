@@ -169,6 +169,79 @@ describe("ops usage", () => {
     expect(await screen.findByText(/No usage in this period/)).toBeInTheDocument();
   });
 
+  it("tallies tokens per client, and by agent, model and action", async () => {
+    const queries: URLSearchParams[] = [];
+    const tf = (calls: number, tokensIn: number, tokensOut: number, costUsd: string) => ({
+      calls,
+      tokensIn,
+      tokensOut,
+      costUsd,
+    });
+    const SLOAN = "00000000-0000-4000-8000-0000000c2003";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/usage": () => REPORT,
+      "GET /api/ops/usage/tokens": ({ url }) => {
+        queries.push(url.searchParams);
+        const demo = { id: DEMO, name: "Demo client" };
+        const sloan = { id: SLOAN, slug: "supervisor", name: "Sloan", account: true };
+        return {
+          from: "2026-11-01",
+          to: "2026-11-03",
+          total: tf(5, 4000, 400, "0.0450"),
+          rows: [
+            {
+              client: demo,
+              agent: sloan,
+              provider: "google",
+              model: "gemini:gemini-3.1-pro",
+              action: "question",
+              ...tf(2, 3000, 300, "0.0400"),
+            },
+          ],
+          byClient: [{ ...demo, ...tf(5, 4000, 400, "0.0450") }],
+          byAgent: [
+            { client: demo, agent: sloan, ...tf(2, 3000, 300, "0.0400") },
+            { client: demo, agent: null, ...tf(3, 1000, 100, "0.0050") },
+          ],
+          byModel: [
+            { provider: "google", model: "gemini:gemini-3.1-pro", ...tf(2, 3000, 300, "0.0400") },
+            { provider: "xai", model: "xai:grok-4.7", ...tf(3, 1000, 100, "0.0050") },
+          ],
+          byAction: [
+            { action: "question", ...tf(2, 3000, 300, "0.0400") },
+            { action: "background_read", ...tf(3, 1000, 100, "0.0050") },
+          ],
+        };
+      },
+    });
+    renderAt(`/ops/usage?client=${DEMO}`, api);
+    const byClient = await screen.findByTestId(`ops-usage-tokens-row-${DEMO}`);
+    expect(byClient).toHaveTextContent("4,000");
+    expect(byClient).toHaveTextContent("$0.05");
+    expect(queries[0]?.get("client")).toBe(DEMO);
+    expect(queries[0]?.get("from")).toBe(usageRange("6m").from);
+
+    await userEvent.click(screen.getByTestId("ops-usage-tokens-filter-agents"));
+    const sloan = await screen.findByTestId(`ops-usage-tokens-row-${DEMO}:${SLOAN}`);
+    expect(sloan).toHaveTextContent("Sloan");
+    expect(sloan).toHaveTextContent("Account agent");
+    expect(screen.getByTestId(`ops-usage-tokens-row-${DEMO}:`)).toHaveTextContent(
+      "No agent (background reading)",
+    );
+
+    await userEvent.click(screen.getByTestId("ops-usage-tokens-filter-models"));
+    expect(await screen.findByTestId("ops-usage-tokens-row-xai:grok-4.7")).toHaveTextContent("xAI");
+
+    await userEvent.click(screen.getByTestId("ops-usage-tokens-filter-actions"));
+    expect(await screen.findByTestId("ops-usage-tokens-row-question")).toHaveTextContent(
+      "Portal question",
+    );
+    expect(screen.getByTestId("ops-usage-tokens-row-background_read")).toHaveTextContent(
+      "Background reading",
+    );
+  });
+
   it("formats cost from decimal strings", () => {
     expect(cost("0.0000")).toBe("$0.00");
     expect(cost("0.0003")).toBe("$0.0003");

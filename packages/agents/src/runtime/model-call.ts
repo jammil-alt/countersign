@@ -2,7 +2,7 @@
 // the model client reports (`onCall`). Used by the agent loop, a reach-out's message and a tool's
 // own call (a document read by `docs.extract`).
 
-import { isUuid } from "@countersign/core";
+import { isUuid, type ModelCallAction } from "@countersign/core";
 import { type LlmCallRecord, type LlmExchange, providerOf } from "@countersign/llm";
 import type { ModelCallPort } from "../log/model-calls";
 
@@ -11,6 +11,8 @@ export interface ModelCallPlace {
   runId: string;
   stepRunId: string;
   agentVersionId: string | null;
+  /** What the call was for (docs/plan.md §1.62), so tokens can be counted by action. */
+  action: ModelCallAction;
 }
 
 /**

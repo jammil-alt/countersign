@@ -3,7 +3,8 @@
 // The filters live in the URL (`?client=`, `?template=`, `?view=`, `?range=`) so a client page or a
 // template can link straight to its usage. Drafted in the prototype's back-office style (no
 // prototype screen; docs/ui-plan.md): the period's figures as stat tiles, then the months and the
-// chosen grouping as tables in cards.
+// chosen grouping as tables in cards. Below them, tokens by client, agent, model and action
+// (`?tokens=`, docs/plan.md §1.62).
 import type { UsageFigures, UsageReport } from "@countersign/core";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -24,6 +25,7 @@ import {
 } from "../../usage/format";
 import { Select } from "../agents/ui";
 import { BusinessTabs, TableCard } from "./business";
+import { TOKEN_VIEWS, type TokenView, UsageTokens } from "./UsageTokens";
 
 const RANGES = [
   ["month", "This month", 0],
@@ -137,6 +139,8 @@ export function OpsUsageScreen() {
   const range = (RANGES.find(([k]) => k === params.get("range"))?.[0] ?? "6m") as RangeKey;
   const client = params.get("client") ?? "";
   const template = params.get("template") ?? "";
+  const tokenView = (TOKEN_VIEWS.find(([v]) => v === params.get("tokens"))?.[0] ??
+    "clients") as TokenView;
   const set = (patch: Record<string, string>) => {
     const next = new URLSearchParams(params);
     for (const [k, v] of Object.entries(patch)) {
@@ -228,6 +232,13 @@ export function OpsUsageScreen() {
           />
         )}
       </Loaded>
+      <UsageTokens
+        from={from}
+        to={to}
+        client={client}
+        view={tokenView}
+        onView={(v) => set({ tokens: v === "clients" ? "" : v })}
+      />
     </Page>
   );
 }

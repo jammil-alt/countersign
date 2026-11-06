@@ -213,6 +213,7 @@ async function dispatch(
             runId: step.runId,
             stepRunId: step.stepRunId,
             agentVersionId: step.agent.agentVersionId,
+            action: "tool_call",
           },
           record,
           exchange,

@@ -509,7 +509,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     await recordModelCall(
       deps.ports.modelCalls,
       input.tenantId,
-      { runId: input.runId, stepRunId, agentVersionId: input.agentVersionId },
+      { runId: input.runId, stepRunId, agentVersionId: input.agentVersionId, action: "agent_turn" },
       record,
       exchange,
     );
