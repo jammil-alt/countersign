@@ -9,7 +9,7 @@
     "test": "vitest run --passWithNoTests",
     "dev": "vite",
     "build": "vite build",
-    "sweep": "node e2e/route-sweep.mjs"
+    "sweep": "node e2e/route-sweep.mjs && node e2e/walkthroughs.mjs"
   },
   "dependencies": {
     "@countersign/core": "workspace:*",
