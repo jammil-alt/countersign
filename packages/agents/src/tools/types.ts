@@ -221,6 +221,16 @@ export interface DirectoryPort {
       test: boolean;
     },
   ): Promise<{ status: "suggested" | "duplicate" | "test_run"; inboxItemId: string | null }>;
+  // v0.14 W4-B: the supervisor's directory upkeep (docs/plan.md §1.27, §1.28 "Directory upkeep").
+  /**
+   * Vendors on the client's recent transactions that the directory doesn't have (no organization
+   * linked to the vendor or of its name) and that were never suggested before (waiting, accepted
+   * or declined), newest first, with the transactions as sources. Absent: no upkeep here.
+   */
+  unlistedVendors?(
+    tenantId: string,
+    input: { sinceDays: number; limit: number; now: Date },
+  ): Promise<{ vendorId: string; name: string; sources: string[] }[]>;
 }
 
 // ── Health (docs/plan.md §1.28) ──────────────────────────────────────────────────────────────────
