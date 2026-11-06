@@ -127,6 +127,9 @@ export interface OptionalBindings {
   // v0.12 W2-C
   /** TestSuiteWorkflow: one instance per test suite run (docs/plan.md §1.46). */
   TEST_SUITE_WORKFLOW?: Workflow;
+  // v0.14 capture
+  /** CaptureWorkflow: one instance per WhatsApp message whose attachments are fetched (§1.55). */
+  CAPTURE_WORKFLOW?: Workflow;
   BROWSER?: BrowserWorker;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;

@@ -8,6 +8,8 @@ import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
 import { purgeRetiredFiles } from "./compliance/retention";
+import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
+import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import type { Bindings } from "./env";
 import {
   type AppDeps,
@@ -41,6 +43,8 @@ import { commandCenterRoutes } from "./routes/command-center";
 import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
+// v0.14 capture: WhatsApp conversations and their capture
+import { conversationRouteHandlers } from "./routes/conversations";
 import { deskRoutes } from "./routes/desk";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
@@ -187,6 +191,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   gchatRoutes(app);
   // v0.14 W4-C: the Slack channel picker
   slackRoutes(app);
+  // v0.14 capture: WhatsApp conversations and their capture
+  conversationRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -237,6 +243,13 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       console.error("qbo sync tick failed", error),
     );
+    // v0.14 capture: captures left pending start again (every 10 minutes, docs/plan.md §1.55).
+    if (scheduledTime.getUTCMinutes() % 10 === CAPTURE_CRON_MINUTE) {
+      const capture = captureDepsFor({ db, env, deps, platform });
+      await captureCronTick(db, captureJobsFor(env, capture), scheduledTime).catch(
+        (error: unknown) => console.error("capture restart tick failed", error),
+      );
+    }
     // v0.12 bankfeed: every connected bank feed once an hour, behind Plaid's webhook (§1.52).
     await bankfeedCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
       console.error("bank feed sync tick failed", error),

@@ -27,6 +27,8 @@ import { complianceRoutes } from "./compliance";
 // v0.12 W2-A: the connectors catalog
 import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
+// v0.14 capture: WhatsApp conversations and their capture
+import { conversationRoutes } from "./conversations";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
@@ -1900,5 +1902,7 @@ export const routes = {
   ...gsheetsRoutes,
   // v0.14 W4-C: the Slack channel picker.
   ...slackRoutes,
+  // v0.14 capture: WhatsApp conversations and their capture.
+  ...conversationRoutes,
 } as const;
 export type Routes = typeof routes;
