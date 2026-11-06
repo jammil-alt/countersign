@@ -163,6 +163,9 @@ export function resolveTemplate(value: unknown, context: unknown): unknown {
 /** What a workflow template resolves against at run time. */
 export interface RunContext {
   trigger: unknown;
+  // v0.12 W2-B
+  /** Inside a use step: its resolved input (`{{input...}}`); there is no trigger there. */
+  input?: unknown;
   steps: Record<string, { output: unknown }>;
   item?: unknown;
   index?: number;
