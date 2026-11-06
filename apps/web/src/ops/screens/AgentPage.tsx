@@ -27,6 +27,7 @@ export function AgentPage() {
     <AgentScreen
       agentId={summary.id}
       base={`/ops/clients/${clientId}/agents/${slug}`}
+      clientName={client.data.client.name}
       connections={client.data.connections}
       members={client.data.members}
     />

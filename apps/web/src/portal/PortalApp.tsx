@@ -3,7 +3,7 @@
 // sidebar follows the owner's prototype (docs/ui-plan.md, "Client portal"); the routes live in
 // ./routes.tsx.
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
-import { Route, Routes, useLocation, useMatch } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation, useMatch } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
@@ -74,7 +74,14 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         context={
           <span data-testid="portal-client-name">{client?.name ?? t("shell.noClient")}</span>
         }
-        search={{ placeholder: t("shell.searchPlaceholder"), run: search }}
+        search={{
+          placeholder: t("shell.searchPlaceholder"),
+          run: search,
+          ask: {
+            label: (q) => t("shell.askSloan", { q }),
+            href: (q) => `${PORTAL_PATHS.sloan}?ask=${encodeURIComponent(q)}`,
+          },
+        }}
         desk={{
           to: PORTAL_PATHS.desk,
           label: t("shell.desk"),
@@ -133,8 +140,13 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                 />
               ))}
             </SidebarSection>
-            {/* UI-1d adds the Weekly Table here, with its `/weekly` route. */}
             <SidebarSection label={t("nav.yourBusiness")}>
+              <SidebarLink
+                to={PORTAL_PATHS.weekly}
+                icon="weekly-table"
+                label={t("nav.weekly")}
+                testId="portal-nav-weekly"
+              />
               <SidebarLink
                 to={PORTAL_PATHS.accounts}
                 icon="bank"
@@ -142,20 +154,19 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                 testId="portal-nav-accounts"
               />
               <SidebarLink
-                // Client users read the directory; the client admin also manages who agents reach.
-                to={isAdmin ? PORTAL_PATHS.people : PORTAL_PATHS.directory}
+                // Everyone reads it; the client admin also edits it (consent, reach, voice).
+                to={PORTAL_PATHS.people}
                 icon="team"
                 label={t("nav.people")}
                 testId="portal-nav-people"
               />
-              {isAdmin ? (
-                <SidebarLink
-                  to={PORTAL_PATHS.settings}
-                  icon="settings"
-                  label={t("nav.settings")}
-                  testId="portal-nav-settings"
-                />
-              ) : null}
+              {/* Everyone has settings of their own (notifications, language); the admin, all. */}
+              <SidebarLink
+                to={PORTAL_PATHS.settings}
+                icon="settings"
+                label={t("nav.settings")}
+                testId="portal-nav-settings"
+              />
             </SidebarSection>
             <SidebarMore label={t("nav.more")} testId="portal-nav-more">
               <SidebarLink
@@ -173,23 +184,9 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                 label={t("nav.requests")}
                 testId="portal-nav-requests"
               />
-              <SidebarLink
-                to={PORTAL_PATHS.vault}
-                label={t("nav.access")}
-                testId="portal-nav-access"
-              />
+              {/* The vault, the directory and contacts live on Accounts and People (UI-1c). */}
               {isAdmin ? (
                 <>
-                  <SidebarLink
-                    to={PORTAL_PATHS.directory}
-                    label={t("nav.directory")}
-                    testId="portal-nav-directory"
-                  />
-                  <SidebarLink
-                    to={PORTAL_PATHS.contacts}
-                    label={t("nav.contacts")}
-                    testId="portal-nav-contacts"
-                  />
                   <SidebarLink
                     to={PORTAL_PATHS.knowledge}
                     label={t("nav.knowledge")}
@@ -212,12 +209,24 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           </nav>
         }
         sidebarFooter={
-          // UI-1d adds the Sloan card above the lead, with its `/sloan` route.
-          session.lead ? (
-            <div className="px-2.5 py-1.5" data-testid="portal-lead">
-              <PersonBadge name={session.lead.name} line={t("nav.lead")} />
-            </div>
-          ) : null
+          <div className="flex flex-col gap-2">
+            <NavLink
+              to={PORTAL_PATHS.sloan}
+              className="ui-sloancard"
+              data-testid="portal-nav-sloan"
+            >
+              <AgentBadge name="Sloan" size="sm" />
+              <span className="min-w-0">
+                <span className="block font-medium text-ink">{t("nav.sloan")}</span>
+                <span className="block text-sm text-ink-muted">{t("nav.sloanLine")}</span>
+              </span>
+            </NavLink>
+            {session.lead ? (
+              <div className="px-2.5 py-1.5" data-testid="portal-lead">
+                <PersonBadge name={session.lead.name} line={t("nav.lead")} />
+              </div>
+            ) : null}
+          </div>
         }
       >
         <InboxCountProvider refresh={reloadOverview}>{children}</InboxCountProvider>
