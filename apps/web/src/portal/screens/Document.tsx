@@ -7,6 +7,7 @@ import { DocumentDetailView } from "../../documents/DocumentDetail";
 import { useI18n } from "../../i18n/i18n";
 import { usePoll } from "../../runs/usePoll";
 import { ErrorNotice, Loading } from "../../ui/primitives";
+import { PORTAL_PATHS } from "../paths";
 
 export function PortalDocumentScreen() {
   const { id = "" } = useParams();
@@ -22,23 +23,26 @@ export function PortalDocumentScreen() {
     window.open(fresh.url, "_blank", "noopener,noreferrer");
   }
 
+  // UI-3a: the page's column, with the way back to the documents (Upload) above the title.
   return (
-    <div className="max-w-6xl">
-      <p className="mb-2 text-sm">
-        <Link to="/accounts" className="text-ink-muted hover:underline">
-          {t("nav.accounts")}
-        </Link>
-      </p>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data ? (
-        <DocumentDetailView
-          data={data}
-          surface="portal"
-          onOpenOriginal={() => void openOriginal()}
-          transactionHref={(t) => `/records/${t}`}
-        />
-      ) : null}
+    <div className="ui-page" data-testid="portal-document-page">
+      <div>
+        <p className="eyebrow mb-2 text-ink-muted">
+          <Link to={PORTAL_PATHS.upload} className="text-link hover:underline">
+            {t("uploadPage.documents")}
+          </Link>
+        </p>
+        {loading && !data ? <Loading /> : null}
+        {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+        {data ? (
+          <DocumentDetailView
+            data={data}
+            surface="portal"
+            onOpenOriginal={() => void openOriginal()}
+            transactionHref={(t) => `/records/${t}`}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
