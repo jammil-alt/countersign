@@ -255,6 +255,10 @@ export const OpsAction = z.object({
   approvedBy: z.string().nullable(),
   approvedAt: NullableTimestamp,
   executedAt: NullableTimestamp,
+  // v0.12 W1-D: the signer's edit before signing; `input` stays the agent's (both show).
+  editedInput: z.unknown().optional(),
+  editedBy: z.string().nullable().optional(),
+  editedAt: NullableTimestamp.optional(),
 });
 
 export const OpsInboxItem = z.object({

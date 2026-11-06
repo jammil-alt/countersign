@@ -30,6 +30,9 @@ export const InviteBody = z.strictObject({
   email: z.string().trim().toLowerCase().max(INVITE_EMAIL_MAX).email(),
   name: z.string().trim().max(200).optional(),
   role: InvitableRole,
+  // v0.12 W1-D: "can sign" (default yes). A client user who can't is a viewer; a client admin
+  // always signs (ARCHITECTURE §4).
+  canSign: z.boolean().optional(),
 });
 export type InviteBody = z.infer<typeof InviteBody>;
 
@@ -41,6 +44,8 @@ export const Member = z.object({
   role: Role,
   /** Whether they have signed in yet; null where sign-in can't tell (the dev sign-in). */
   signedIn: z.boolean().nullable(),
+  /** v0.12 W1-D: false for a viewer, who signs nothing (`membership.can_sign`). */
+  canSign: z.boolean().optional(),
 });
 export type Member = z.infer<typeof Member>;
 

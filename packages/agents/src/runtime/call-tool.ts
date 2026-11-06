@@ -9,8 +9,10 @@ import {
   runReadTool,
 } from "@countersign/connectors";
 import {
+  batchKeyOf,
   changeFacts,
   decideToolCall,
+  explainWrite,
   fixedInputProblem,
   grantAllowsTool,
   type JsonObject,
@@ -288,7 +290,19 @@ async function dispatch(
             // What chose the approver: a rule (with the rules' revision), the step, the agent,
             // the client's default, or the default (the client admin).
             approverRoute: { source: approver.source, ruleId: approver.ruleId, revision },
+            // v0.12 W1-D: why it waits, over the gate's own inputs (core explainWrite); the
+            // gate's decision above is unchanged.
+            whyApproval: explainWrite({
+              verb: tool.spec.verb,
+              matrix: conn.permissions,
+              grant,
+              stepApproval: step.approval?.required,
+              agentMode: mode,
+              route: { source: approver.source, ruleId: approver.ruleId },
+            }) as JsonObject,
           },
+          // v0.12 W1-D: the items one step proposes are signed together.
+          batchKey: batchKeyOf(step.runId, step.stepId),
         }
       : null,
   });

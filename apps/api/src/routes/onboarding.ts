@@ -92,6 +92,7 @@ async function membersOf(
       name: appUser.name,
       role: membership.role,
       workosUserId: appUser.workosUserId,
+      canSign: membership.canSign,
     })
     .from(membership)
     .innerJoin(appUser, eq(appUser.id, membership.userId))
@@ -108,6 +109,7 @@ async function membersOf(
     name: r.name,
     role: r.role,
     signedIn: options.signIns ? r.workosUserId !== null : null,
+    canSign: r.canSign,
   }));
 }
 
@@ -125,7 +127,12 @@ function emailOf(delivery: InviteDelivery): InviteResult["email"] {
 export async function inviteToClient(
   ctx: Pick<HandlerCtx<RouteSpec>, "tx" | "services" | "afterCommit">,
   tenantId: string,
-  input: { email: string; name?: string | undefined; role: InvitableRole },
+  input: {
+    email: string;
+    name?: string | undefined;
+    role: InvitableRole;
+    canSign?: boolean | undefined;
+  },
   options: { surface: "ops" | "portal" },
 ): Promise<InviteResult> {
   const { tx } = ctx;
@@ -161,7 +168,12 @@ export async function inviteToClient(
   } else if (name && !existing?.name) {
     await tx.update(appUser).set({ name }).where(eq(appUser.id, userId));
   }
-  await tx.insert(membership).values({ tenantId, userId, role: input.role });
+  // v0.12 W1-D: a client admin always signs; a client user may be invited as a viewer.
+  if (input.role === "client_admin" && input.canSign === false) {
+    throw new HttpError(422, "admin_signs", "a client admin always signs");
+  }
+  const canSign = input.role === "client_admin" ? true : input.canSign !== false;
+  await tx.insert(membership).values({ tenantId, userId, role: input.role, canSign });
 
   const signIns = knowsSignIns(ctx);
   const result: InviteResult = {
@@ -171,6 +183,7 @@ export async function inviteToClient(
       name: name ?? existing?.name ?? null,
       role: input.role,
       signedIn: signIns ? !!existing?.workosUserId : null,
+      canSign,
     },
     email: { status: "failed", reason: "not_attempted" },
   };

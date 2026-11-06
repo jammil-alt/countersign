@@ -31,13 +31,14 @@ import {
   connectionChange,
   externalAction,
   inboxItem,
+  membership,
   run,
   stepRun,
   type Tx,
   tenant,
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, desc, eq, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { changeDisplay, itemDisplay, plainTitle } from "../change-display";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
@@ -56,13 +57,22 @@ type ConnectionRow = typeof connection.$inferSelect;
 export function portalInboxFilter(role: Role, userId: string): SQL {
   const notOperator = or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator"));
   if (role === "client_admin") return notOperator as SQL;
+  // v0.12 W1-D: items routed to the role skip viewers (`membership.can_sign` false).
+  const signs = sql`exists (select 1 from ${membership} where ${membership.tenantId} = ${inboxItem.tenantId} and ${membership.userId} = ${userId} and ${membership.canSign})`;
   return and(
     notOperator,
     or(
       eq(inboxItem.assigneeUserId, userId),
-      and(isNull(inboxItem.assigneeUserId), eq(inboxItem.assigneeRole, "client_user")),
+      and(isNull(inboxItem.assigneeUserId), eq(inboxItem.assigneeRole, "client_user"), signs),
     ),
   ) as SQL;
+}
+
+/** v0.12 W1-D: open items snoozed until later are out of "waiting" (ARCHITECTURE §11.1). */
+export function snoozedNow(snoozed: boolean): SQL {
+  return snoozed
+    ? sql`${inboxItem.snoozedUntil} > now()`
+    : sql`(${inboxItem.snoozedUntil} is null or ${inboxItem.snoozedUntil} <= now())`;
 }
 
 async function userNames(tx: Tx, ids: (string | null)[]) {
@@ -92,6 +102,10 @@ async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) {
     createdAt: i.createdAt.toISOString(),
     resolvedAt: iso(i.resolvedAt),
     resolvedBy: i.resolvedBy ? { id: i.resolvedBy, name: names.get(i.resolvedBy) ?? null } : null,
+    // v0.12 W1-D: the Desk's undo window, snooze and batch.
+    deliverAfter: iso(i.deliverAfter),
+    snoozedUntil: iso(i.snoozedUntil),
+    batchKey: i.batchKey,
   }));
 }
 
@@ -266,6 +280,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
           eq(inboxItem.tenantId, tenantId),
           eq(inboxItem.status, "open"),
           portalInboxFilter(role, session.user.id),
+          snoozedNow(false),
         ),
       );
     return {
@@ -296,6 +311,8 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
           eq(inboxItem.status, query.status),
           ...(query.kind ? [eq(inboxItem.kind, query.kind)] : []),
           portalInboxFilter(role, session.user.id),
+          // v0.12 W1-D: snoozed open items show only in `view=snoozed`.
+          ...(query.status === "open" ? [snoozedNow(query.view === "snoozed")] : []),
         ),
       )
       .orderBy(desc(inboxItem.createdAt))

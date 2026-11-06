@@ -130,6 +130,9 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
             and(
               eq(membership.tenantId, tenantId),
               inArray(membership.role, ["client_admin", "client_user"]),
+              // v0.12 W1-D: a viewer is never an approver: a rule naming one routes to the client
+              // admin, like a rule naming someone who left (ARCHITECTURE §4).
+              eq(membership.canSign, true),
             ),
           );
         return {

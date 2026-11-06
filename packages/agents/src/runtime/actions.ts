@@ -2,8 +2,20 @@
 // "External actions"). The workflow executor calls this in its own durable step keyed by the
 // action's idempotency key, after the approval resolved (or at once on the automatic path).
 
-import { executeWrite, UnconfirmedWriteError } from "@countersign/connectors";
-import { releaseOf } from "@countersign/core";
+import {
+  bindingKeyFor,
+  captureBefore,
+  executeWrite,
+  UnconfirmedWriteError,
+} from "@countersign/connectors";
+import {
+  decideToolCall,
+  editablePaths,
+  editProblem,
+  grantAllowsTool,
+  type JsonObject,
+  releaseOf,
+} from "@countersign/core";
 import { AgentsError, notFound } from "../errors";
 import { noteReconnect } from "./attention";
 import { connectionContext, type RuntimeDeps } from "./context";
@@ -75,6 +87,9 @@ export async function executeAction(
       case "rejected":
         return { status: "rejected", action };
       case "approved":
+        // v0.12 W1-D: approved but still inside its undo window: not executed now. The run is
+        // told once the window has passed, and an undo before then puts it back to proposed.
+        return { status: "awaiting_approval", action };
       case "executing":
         break;
     }
@@ -94,7 +109,9 @@ export async function executeAction(
     return { status: "failed", action: failed, error: "connection not found" };
   }
   try {
-    const written = await executeWrite(tool.connector, action.tool, action.input, {
+    // v0.12 W1-D: the signer's edit, when there is one, is what is written; `input` stays the
+    // agent's version (ARCHITECTURE §11.1).
+    const written = await executeWrite(tool.connector, action.tool, action.editedInput ?? action.input, {
       ...connectionContext(deps, input.tenantId, conn),
       idempotencyKey: action.idempotencyKey,
     });
@@ -155,4 +172,65 @@ async function releaseRefusal(
   return covered
     ? null
     : `the ${conn.connector} connection needs a person to release it, and no release is live`;
+}
+
+// ── v0.12 W1-D: edit before signing (ARCHITECTURE §11.1) ─────────────────────────────────────────
+
+export type EditCheck =
+  | { ok: true; input: JsonObject; before: unknown }
+  | { ok: false; code: "not_editable" | "invalid_input" | "refused"; message: string };
+
+/**
+ * Checks a person's edit of a proposed action before it is stored: it differs from the agent's
+ * input only in fields the tool's display marks editable (never fixed inputs, ids or guards), it
+ * reaches the same connection, the gate still lets the tool through that connection, and the
+ * connector's own proposal checks pass on it (its Zod input and its `before` hook, e.g. an itemize
+ * total). Who signs it is checked by the caller (the approver rules, again). Nothing is written.
+ */
+export async function checkEditedInput(
+  deps: RuntimeDeps,
+  input: { tenantId: string; action: ExternalActionRecord; edited: unknown },
+): Promise<EditCheck> {
+  const { action, edited, tenantId } = input;
+  const tool = deps.tools.get(action.tool);
+  if (tool?.kind !== "connector" || tool.spec.sideEffect !== "external") {
+    return { ok: false, code: "not_editable", message: `${action.tool} can't be edited` };
+  }
+  const problem = editProblem({
+    original: action.input,
+    edited,
+    paths: editablePaths(tool.spec.display, tool.spec.fixedInputs),
+  });
+  if (problem) return { ok: false, code: "not_editable", message: problem };
+  // The same binding: an edit never moves a change to another connection (e.g. a browser site).
+  if (bindingKeyFor(tool.connector, edited) !== bindingKeyFor(tool.connector, action.input)) {
+    return { ok: false, code: "not_editable", message: "the edit reaches a different connection" };
+  }
+  const conn = await deps.ports.store.connection(tenantId, action.connectionId);
+  const owner = action.runId ? await deps.ports.store.run(tenantId, action.runId) : null;
+  if (!conn || !owner) return { ok: false, code: "refused", message: "the connection is gone" };
+  const grant = await deps.ports.store.grant(tenantId, owner.agentId, conn.id);
+  // DECISION: the gate is asked again with the strictest mode: an edit can't make a change run
+  // without its signature, only show whether the connection or grant now refuses the tool.
+  const decision = decideToolCall({
+    sideEffect: tool.spec.sideEffect,
+    verb: tool.spec.verb,
+    matrix: conn.permissions,
+    grant,
+    agentMode: "suggest_only",
+  });
+  if (!grantAllowsTool(grant, tool.spec.id) || decision === "refused") {
+    return { ok: false, code: "refused", message: `${tool.spec.verb} is off for this change now` };
+  }
+  try {
+    const captured = await captureBefore(
+      tool.connector,
+      tool.spec.id,
+      edited,
+      connectionContext(deps, tenantId, conn),
+    );
+    return { ok: true, input: captured.input as JsonObject, before: captured.before };
+  } catch (error) {
+    return { ok: false, code: "invalid_input", message: message(error) };
+  }
 }
