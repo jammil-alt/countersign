@@ -9,8 +9,9 @@ import type { Bindings } from "../env";
 import { platformFor } from "../platform";
 import { credentialsFor } from "../runs/execute";
 import { workflowInstances } from "../runs/instances";
-import type { QboSyncParams } from "./instances";
-import { dispatchByIds, runQboSync } from "./sync";
+import { type QboSyncParams, qboSyncInstances } from "./instances";
+import { dispatchByIds } from "./sync";
+import { runQboSyncInstance } from "./sync-now";
 
 // DECISION: a page step retries 3 times with backoff (a busy or throttled QuickBooks) and gives
 // up after 5 minutes; the next cron tick starts again from the stored cursor.
@@ -31,9 +32,12 @@ export class QboSyncWorkflow extends WorkflowEntrypoint<Bindings, QboSyncParams>
         credentials: credentialsFor(db, credentialKeysFromEnv(this.env)),
       };
       const instances = workflowInstances(this.env.RUN_WORKFLOW);
-      return await runQboSync(
-        deps,
+      // v0.12 W1-H: the sync holds its connection, and its last step starts the sync asked for
+      // while it ran ("sync now", ARCHITECTURE §6.2).
+      return await runQboSyncInstance(
+        { ...deps, instances: this.env.QBO_SYNC ? qboSyncInstances(this.env.QBO_SYNC) : null },
         event.payload,
+        event.instanceId,
         {
           // Step results are plain JSON; the structural cast stands in for Rpc.Serializable.
           do: <T>(name: string, fn: () => Promise<T>) =>

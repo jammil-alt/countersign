@@ -188,6 +188,17 @@ describe.skipIf(!h)("the Bill clerk", () => {
       .select({ id: event.id })
       .from(event)
       .where(and(eq(event.type, "document.extracted"), eq(event.subjectId, documentId)));
+    // The invoices were read (and their events dispatched, to nobody) before the clerk went
+    // live; each case dispatches its invoice's event again as if it had just arrived.
+    await H.t.db
+      .update(event)
+      .set({ dispatchedAt: null })
+      .where(
+        inArray(
+          event.id,
+          rows.map((r) => r.id),
+        ),
+      );
     await dispatchByIds(
       { db: H.db, instances: H.instances },
       H.A.tenantId,

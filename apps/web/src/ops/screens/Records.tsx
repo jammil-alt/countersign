@@ -2,7 +2,7 @@
 // operator can see that a sync or a webhook arrived. Transactions, vendors and items, newest first,
 // with a search, a source filter and pages; each row opens the record page. The filters live in
 // the URL (`?kind=`, `?q=`, `?source=`, `?page=`) so a connection card can link to its own records.
-// Back office only: the portal has no list.
+// The portal has its own list (portal/screens/Records.tsx, v0.12 W1-H).
 import type {
   RecordList,
   RecordListItem,

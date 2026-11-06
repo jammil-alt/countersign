@@ -8,7 +8,15 @@ import {
   type TestDatabase,
 } from "@countersign/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { emit, markDispatched, undispatched } from "./outbox";
+import {
+  claimUndispatched,
+  collectEmitted,
+  EmittedEvents,
+  emit,
+  markDispatched,
+  releaseDispatched,
+  undispatched,
+} from "./outbox";
 import { EventPayloadError, EventTypeRegistry, UnknownEventTypeError } from "./registry";
 
 const online = await databaseAvailable();
@@ -187,5 +195,119 @@ describe.skipIf(!online)("senses outbox", () => {
       /not an event id/,
     );
     expect(await asClient(A, (tx) => markDispatched(tx, []))).toEqual([]);
+  });
+  // v0.12 W1-H: the after-commit dispatch's collector and the claim (ARCHITECTURE §8).
+
+  it("collects the ids a transaction emitted, bound to it or passed to emit", async () => {
+    const passed = new EmittedEvents();
+    const { bound, rows } = await asClient(A, async (tx) => {
+      const bound = collectEmitted(tx);
+      const one = await emit(tx, {
+        tenantId: A,
+        type: "document.extraction_failed",
+        payload: { documentId: DOC, error: "one" },
+      });
+      const two = await emit(
+        tx,
+        {
+          tenantId: A,
+          type: "document.extraction_failed",
+          payload: { documentId: DOC, error: "2" },
+        },
+        { collect: passed },
+      );
+      // A test run emits nothing, so collects nothing.
+      await emit(
+        tx,
+        {
+          tenantId: A,
+          type: "document.extraction_failed",
+          payload: { documentId: DOC, error: "3" },
+        },
+        { testRun: true },
+      );
+      return { bound, rows: [one, two] };
+    });
+    expect(bound.ids).toEqual(rows.map((r) => r?.id));
+    expect(passed.take()).toEqual([rows[1]?.id]);
+    expect(passed.ids).toEqual([]);
+    // Another transaction's emits go nowhere near it.
+    await asClient(A, (tx) =>
+      emit(tx, {
+        tenantId: A,
+        type: "document.extraction_failed",
+        payload: { documentId: DOC, error: "other" },
+      }),
+    );
+    expect(bound.ids).toHaveLength(2);
+  });
+
+  it("claims an event for one dispatcher at a time: a second skips it, then finds it stamped", async () => {
+    const row = await asClient(A, (tx) =>
+      emit(tx, {
+        tenantId: A,
+        type: "schedule.tick",
+        payload: { scheduledAt: new Date().toISOString() },
+      }),
+    );
+    if (!row) throw new Error("setup");
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    let claimedFirst: string[] = [];
+    // The first dispatcher claims it and holds the claim until it stamps and commits.
+    const first = asClient(A, async (tx) => {
+      const claimed = await claimUndispatched(tx, { ids: [row.id] });
+      claimedFirst = claimed.map((e) => e.id);
+      await held;
+      await markDispatched(tx, [row.id]);
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    // Meanwhile the sweep (any age) and the after-commit dispatch skip the locked row.
+    const sweep = await asClient(A, (tx) => claimUndispatched(tx, { olderThanSeconds: 0 }));
+    expect(sweep.map((e) => e.id)).not.toContain(row.id);
+    const byId = await asClient(A, (tx) => claimUndispatched(tx, { ids: [row.id] }));
+    expect(byId).toEqual([]);
+    release();
+    await first;
+    expect(claimedFirst).toEqual([row.id]);
+    // Once stamped, nobody claims it again.
+    expect(await asClient(A, (tx) => claimUndispatched(tx, { ids: [row.id] }))).toEqual([]);
+    // Given back (its run's instance could not start), the sweep takes it again.
+    expect(await asClient(A, (tx) => releaseDispatched(tx, [row.id]))).toEqual([row.id]);
+    const again = await asClient(A, (tx) => claimUndispatched(tx, { newerThanSeconds: 60 }));
+    expect(again.map((e) => e.id)).toContain(row.id);
+    // RLS: B's session claims none of A's.
+    expect(await asClient(B, (tx) => claimUndispatched(tx, { ids: [row.id] }))).toEqual([]);
+  });
+
+  it("claims by age: the sweep takes the old, the pass end the fresh", async () => {
+    const [old] = await t.db
+      .insert(event)
+      .values({
+        tenantId: B,
+        type: "schedule.tick",
+        payload: {},
+        createdAt: new Date(Date.now() - 300_000),
+      })
+      .returning();
+    const fresh = await asClient(B, (tx) =>
+      emit(tx, {
+        tenantId: B,
+        type: "schedule.tick",
+        payload: { scheduledAt: new Date().toISOString() },
+      }),
+    );
+    if (!old || !fresh) throw new Error("setup");
+    const sweep = await asClient(B, (tx) => claimUndispatched(tx, { olderThanSeconds: 30 }));
+    expect(sweep.map((e) => e.id)).toContain(old.id);
+    expect(sweep.map((e) => e.id)).not.toContain(fresh.id);
+    const pass = await asClient(B, (tx) => claimUndispatched(tx, { newerThanSeconds: 60 }));
+    expect(pass.map((e) => e.id)).toContain(fresh.id);
+    expect(pass.map((e) => e.id)).not.toContain(old.id);
+    await expect(asClient(B, (tx) => claimUndispatched(tx, { ids: ["x"] }))).rejects.toThrow(
+      /not an event id/,
+    );
   });
 });

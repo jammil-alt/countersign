@@ -12,6 +12,7 @@ import {
   billingPeriod,
   buildStatement,
   costAmount,
+  Decimal,
   type MeasureTotals,
   PLATFORM_FREE_TEMPLATE_SLUGS,
   type PricePoint,
@@ -31,6 +32,7 @@ import {
   type Tx,
   tenant,
   usageDaily,
+  usagePlatformDaily,
 } from "@countersign/db";
 import { and, eq, getTableColumns, gte, inArray, isNull, lte, type SQL, sql } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
@@ -67,8 +69,11 @@ export function defaultPrice(config: BillingConfig): PricePoint {
 
 // ── Measures: usage_daily's columns ─────────────────────────────────────────────────────────────
 
-/** The rollup table, or (in tests) a stand-in with more measure columns. */
-export type UsageTable = PgTable & { tenantId: PgColumn; day: PgColumn; agentId: PgColumn };
+/**
+ * The rollup table, or (in tests) a stand-in with more measure columns. `usage_platform_daily`
+ * (v0.12 W1-H) has no agent: its rows are the client's own usage (background reading).
+ */
+export type UsageTable = PgTable & { tenantId: PgColumn; day: PgColumn; agentId?: PgColumn };
 
 const KEY_COLUMNS = new Set(["tenant_id", "day", "agent_id"]);
 
@@ -98,6 +103,30 @@ export async function dailyTotals(
   input: { tenantId: string; from: string; to: string; unitCosts: readonly UnitCost[] },
   table: UsageTable = usageDaily,
 ): Promise<{ day: string; totals: MeasureTotals }[]> {
+  const agents = await tableTotals(tx, input, table);
+  // v0.12 W1-H: the client's own usage (background reading, ARCHITECTURE §13) counts into
+  // credits like its agents': same-named measures are added day by day, as decimals.
+  const platform = await tableTotals(tx, input, usagePlatformDaily);
+  if (platform.length === 0) return agents;
+  const byDay = new Map(agents.map((d) => [d.day, { ...d.totals }]));
+  for (const d of platform) {
+    const totals = byDay.get(d.day) ?? {};
+    for (const [measure, value] of Object.entries(d.totals)) {
+      totals[measure] = new Decimal(totals[measure] ?? 0).plus(value).toString();
+    }
+    byDay.set(d.day, totals);
+  }
+  return [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, totals]) => ({ day, totals }));
+}
+
+/** One rollup table's per-day totals of the priced measures. */
+async function tableTotals(
+  tx: Tx,
+  input: { tenantId: string; from: string; to: string; unitCosts: readonly UnitCost[] },
+  table: UsageTable,
+): Promise<{ day: string; totals: Record<string, string> }[]> {
   const priced = new Set(input.unitCosts.map((u) => u.measure));
   const cols = usageMeasures(table).filter((m) => priced.has(m.measure));
   if (cols.length === 0 || input.from > input.to) return [];
@@ -114,7 +143,9 @@ export async function dailyTotals(
         eq(table.tenantId, input.tenantId),
         gte(table.day, input.from),
         lte(table.day, input.to),
-        sql`${table.agentId} not in (select ${agent.id} from ${agent} where ${agent.tenantId} = ${input.tenantId} and ${agent.testCopy})`,
+        table.agentId
+          ? sql`${table.agentId} not in (select ${agent.id} from ${agent} where ${agent.tenantId} = ${input.tenantId} and ${agent.testCopy})`
+          : undefined,
       ),
     )
     .groupBy(table.day)) as Record<string, string>[];

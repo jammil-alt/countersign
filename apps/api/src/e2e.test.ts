@@ -8,8 +8,8 @@
 // 2. The client admin signs in to QuickBooks (fake OAuth) and the first sync brings the books in.
 //    A first invoice arrives while the agent is off (nothing runs). The operator binds the
 //    connection, publishes, test-runs on that invoice (nothing written) and activates.
-// 3. The client admin uploads the Northline invoice; the cron's sweep starts the run; the agent
-//    proposes three changes; the client admin reads each card in the portal inbox and signs it;
+// 3. The client admin uploads the Northline invoice; its run starts as soon as it is read (no
+//    cron tick); the agent proposes three changes; the client admin reads each card in the portal inbox and signs it;
 //    each write reaches the fake QuickBooks once.
 // 4. The portal's runs, timeline, activity report, service page and records show the result; the
 //    operator sees the run with its cost; usage rolls up; billing's daily record has the agent.
@@ -37,7 +37,7 @@ import {
   fakeQbo,
   fakeStripe,
 } from "@countersign/connectors/testing";
-import { billingAgentDay, event, transaction } from "@countersign/db";
+import { billingAgentDay, docExtraction, event, transaction } from "@countersign/db";
 import { loadSeedTemplates } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
@@ -54,7 +54,8 @@ import {
 } from "./api.test-helper";
 import { billingTick } from "./billing/jobs";
 import { MemoryQboSyncInstances } from "./qbo/instances";
-import { dispatchByIds, runQboSync } from "./qbo/sync";
+import { dispatchByIds } from "./qbo/sync";
+import { runQboSyncInstance } from "./qbo/sync-now";
 import { QBO_CRON_MINUTE, qboCronTick } from "./routes/qbo";
 import { cronTick } from "./runs/dispatch";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -162,14 +163,17 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       if (ranSyncs.has(id)) continue;
       ranSyncs.add(id);
       n += 1;
-      await runQboSync(
+      // As QboSyncWorkflow runs it: holding the connection, handing on to a sync asked for meanwhile.
+      await runQboSyncInstance(
         {
           db: H.db,
           platform: H.platform,
           content: new ContentStore(H.objects),
           credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+          instances: syncs,
         },
         params,
+        id,
         { do: (_name, fn) => fn() },
         (eventIds) =>
           dispatchByIds({ db: H.db, instances: H.instances }, params.tenantId, eventIds),
@@ -324,10 +328,25 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     expect(JSON.stringify(done)).not.toMatch(/access_?token|refresh_?token|"credentials"/i);
     await H.settle();
 
-    // Connecting started the first sync; QboSyncWorkflow runs it.
+    // Connecting started the first sync.
     expect([...syncs.started.values()]).toEqual([
       { tenantId: ids.client, connectionId: ids.connection, reason: "connected" },
     ]);
+    // The operator asks for a sync within the minute, while the first one runs: it is queued,
+    // not merged into the first one and lost (v0.12 W1-H, ARCHITECTURE §6.2).
+    const now = await H.call(OPERATOR, "POST", `/api/ops/connections/${ids.connection}/sync`);
+    expect(now.status, JSON.stringify(now.json)).toBe(202);
+    expect(j(now.json)).toMatchObject({ started: false, queued: true });
+    expect(syncs.started.size).toBe(1);
+    // QboSyncWorkflow runs the first sync; its last step starts the one asked for, which runs
+    // after it (never two at once), and then nothing more.
+    expect(await runStartedSyncs()).toBe(2);
+    expect([...syncs.started.values()].map((p) => p.reason)).toEqual(["connected", "operator"]);
+    expect([...syncs.started.keys()][1]?.startsWith(`qbo-${ids.connection}-now-`)).toBe(true);
+    expect(await runStartedSyncs()).toBe(0);
+    // With none running, "sync now" starts one at once.
+    const again = await ok(OPERATOR, "POST", `/api/ops/connections/${ids.connection}/sync`);
+    expect(again).toMatchObject({ started: true, queued: false });
     expect(await runStartedSyncs()).toBe(1);
     const [bill] = await H.t.db
       .select()
@@ -348,6 +367,11 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       vendor: { name: "Northline Panel Supply" },
     });
     expect(record.record.lines).toHaveLength(1);
+    // The portal's records list has it, from the client's QuickBooks (v0.12 W1-H).
+    const list = await ok(OWNER, "GET", "/api/records");
+    const row = list.page.rows.find((r: { id: string }) => r.id === ids.bill);
+    expect(row).toMatchObject({ docNumber: "20418", total: "9742.3500", sourceId: ids.connection });
+    expect(list.counts.transactions).toBeGreaterThanOrEqual(2);
   });
 
   /** Ages the client's undispatched events past the cron's 30 s, then ticks it: the runs started. */
@@ -431,7 +455,10 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
 
   // ── 3. The client uploads an invoice and signs the changes ───────────────────────────────────
 
-  it("the client admin uploads the Northline invoice and it is read", async () => {
+  let northline: RunParams | undefined;
+
+  it("the client admin uploads the Northline invoice; it is read and its run starts at once", async () => {
+    const before = new Set(H.instances.started.keys());
     const res = await upload(
       OWNER,
       "northline-20418.pdf",
@@ -454,15 +481,25 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     expect(list.documents.map((d: { id: string }) => d.id)).toEqual(
       expect.arrayContaining([ids.document, ids.firstDocument]),
     );
-  });
-
-  it("the cron's sweep starts the run; the client admin signs three changes, each written once", async () => {
-    // The extraction's event waits in the outbox for the cron's sweep (30 s old).
-    const started = await cronSweep();
+    // The extraction's event was dispatched right after its transaction committed (ARCHITECTURE
+    // §8): the run started with no cron tick, and nothing is left for the sweep.
+    const started = [...H.instances.started.entries()]
+      .filter(([id]) => !before.has(id))
+      .map(([, p]) => p);
     expect(started.map((p) => [p.agentId, p.mode, p.workflowSlug])).toEqual([
       [ids.clerk, "live", "invoice-read"],
     ]);
-    const params = started[0] as RunParams;
+    northline = started[0];
+    const waiting = await H.t.db
+      .select({ id: event.id })
+      .from(event)
+      .where(and(eq(event.tenantId, ids.client), isNull(event.dispatchedAt)));
+    expect(waiting).toEqual([]);
+    expect(await cronSweep()).toEqual([]);
+  });
+
+  it("the run goes; the client admin signs three changes, each written once", async () => {
+    const params = northline as RunParams;
     ids.run = params.runId;
 
     // The client admin reads each card in the portal inbox at the moment the run waits on it.
@@ -629,18 +666,32 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
   it("usage rolls up for the client, its agent and the template", async () => {
     const usage = await ok(OPERATOR, "GET", `/api/ops/usage?client=${ids.client}`);
     const client = usage.clients.find((c: { id: string }) => c.id === ids.client);
-    // The live run and the two test runs (their model calls cost the same). `documents` counts
-    // only documents an agent's version extracted (packages/agents/src/log/usage.ts); uploads
-    // are read in the background with no agent, so the client's reading shows nowhere here yet.
-    expect(client.total).toMatchObject({ runs: 2, documents: 0, externalActions: 3 });
-    expect(Number(client.total.costUsd)).toBeGreaterThan(0);
+    // The live run and the two test runs (their model calls cost the same).
+    // v0.12 W1-H (ARCHITECTURE §13): the two uploads were read in the background, with no agent:
+    // that reading is the client's own usage (usage_platform_daily), in its row and the total,
+    // with what the model calls cost. The clerk's documents are the ones its live run cited.
+    expect(usage.background.total).toMatchObject({ runs: 0, documents: 2 });
+    expect(usage.background.total.tokensIn).toBeGreaterThan(0);
+    expect(Number(usage.background.total.costUsd)).toBeGreaterThan(0);
+    expect(client.total).toMatchObject({ runs: 2, documents: 3, externalActions: 3 });
+    expect(Number(client.total.costUsd)).toBeGreaterThan(Number(usage.background.total.costUsd));
     const clerk = usage.agents.find((a: { id: string }) => a.id === ids.clerk);
     expect(clerk).toMatchObject({
       name: "Bill clerk",
       template: { id: ids.template, slug: "bill-clerk" },
       testCopy: false,
     });
-    expect(clerk.total.externalActions).toBe(3);
+    expect(clerk.total).toMatchObject({ externalActions: 3, documents: 1 });
+    // Each reading's cost is on its extraction row, written once (the row is immutable).
+    const reads = await H.t.db
+      .select({ cost: docExtraction.costUsd, tokensIn: docExtraction.tokensIn })
+      .from(docExtraction)
+      .where(and(eq(docExtraction.tenantId, ids.client), isNull(docExtraction.agentVersionId)));
+    expect(reads).toHaveLength(2);
+    for (const r of reads) {
+      expect(Number(r.cost)).toBeGreaterThan(0);
+      expect(r.tokensIn).toBeGreaterThan(0);
+    }
     const tpl = usage.templates.find((t: { id: string }) => t.id === ids.template);
     expect(tpl).toMatchObject({ clients: 1 });
   });
@@ -819,6 +870,8 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     "/api/documents",
     `/api/documents/${ids.document}`,
     `/api/records/${ids.bill}`,
+    "/api/records",
+    "/api/records?kind=vendors",
     "/api/reports/activity",
     `/api/services/${ids.clerk}`,
     "/api/billing",

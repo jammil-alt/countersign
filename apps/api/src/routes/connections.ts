@@ -379,7 +379,7 @@ async function finishSignIn(
   if (connectorId === QBO_CONNECTOR_ID) {
     // The first sync starts as soon as the client is connected (then the cron and webhooks).
     ctx.defer(() =>
-      startQboSync(qboSyncFor(services.deps, services.env), {
+      startQboSync(services.db, qboSyncFor(services.deps, services.env), {
         tenantId,
         connectionId: id,
         reason: "connected",
