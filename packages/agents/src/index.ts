@@ -42,6 +42,8 @@ export * from "./runtime/json-schema";
 export * from "./runtime/planned";
 export * from "./runtime/ports";
 export * from "./runtime/run-agent";
+// v0.12 W2-C: the test bench
+export * from "./testbench/run-skill";
 // v0.12 W2-D
 export * from "./tools/account";
 export * from "./tools/ask";
