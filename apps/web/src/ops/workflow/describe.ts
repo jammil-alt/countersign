@@ -20,6 +20,8 @@ export const KIND_LABEL: Record<StepKind | "trigger", string> = {
   wait: "Wait",
   notify: "Notify",
   stop: "Stop",
+  // v0.12 W2-B
+  use_automation: "Automation",
 };
 
 export function triggerTitle(trigger: Trigger): string {
@@ -71,6 +73,9 @@ export function stepDetail(step: Step): string | null {
       return step.to ? `${step.channel} · ${step.to}` : step.channel;
     case "stop":
       return step.status;
+    // v0.12 W2-B: the pinned version, e.g. polite-follow-up@2.
+    case "use_automation":
+      return step.automation;
   }
 }
 
