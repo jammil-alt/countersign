@@ -1,14 +1,18 @@
-# Dependency updates (SOC 2 CC7.1, PCI DSS 6.3.3): security fixes as soon as GitHub knows of them,
-# version updates once a week, grouped so they arrive as one pull request per ecosystem. Each one
-# runs CI like any other pull request; nothing merges on its own.
+# Dependency updates (SOC 2 CC7.1, PCI DSS 6.3.3).
+# - Security fixes: Dependabot security updates open a pull request as soon as GitHub knows of a
+#   vulnerable version, whatever the schedule below (repository Settings → Code security →
+#   Dependabot security updates). PCI DSS 6.3.3 asks for critical and high fixes within a month.
+# - Version updates: once a month, grouped so each ecosystem arrives as one pull request, majors
+#   included, so the queue stays short. Majors in the group can need work (vitest 5, postgres 4):
+#   test them as a whole and split one out by hand when it holds the rest back.
+# Each one runs CI like any other pull request; nothing merges on its own.
 version: 2
 updates:
   - package-ecosystem: npm # pnpm workspaces: Dependabot reads pnpm-lock.yaml
     directory: /
     schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
     ignore:
       # Biome is pinned to Plenary Labs' version (CLAUDE.md); newer ones reformat files, Markdown
       # included. It moves when Plenary Labs' does, by hand.
@@ -17,15 +21,20 @@ updates:
       # runtime (Node 26's broke apps/mfa's typecheck, #101). Minor and patch updates still come.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # vitest 5 waits for @cloudflare/vitest-pool-workers to support it (every release up to
+      # 0.23.0 needs vitest ^4.1.0; apps/api and apps/mfa run tests in workerd, #100). Root, web
+      # and site are already on 5; minor and patch updates still come.
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     groups:
       dependencies:
         patterns: ["*"]
-        update-types: [minor, patch]
+        update-types: [major, minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
+    open-pull-requests-limit: 1
     groups:
       actions:
         patterns: ["*"]
