@@ -1,8 +1,20 @@
-# Mezonas — Architecture v0.13
+# Mezonas — Architecture v0.14
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.14 (2026-11-06, owner):** **WhatsApp conversations are kept, and their attachments filed
+> where the client turns it on.** Parity with Respaldo's capture of documents sent by WhatsApp, by
+> pattern only (no code, key or Meta app is shared). Messages that reach a client's WhatsApp number
+> are archived as today; nobody replies to them on this path. Each chat is a **conversation**
+> (direct now through Twilio; groups later through Meta) with its own **capture** setting: keep the
+> messages, and download attachments (off, documents, or all), with a size limit and an optional
+> agent to start on new documents. Attachments are off by default. A downloaded file becomes one
+> document through the documents capability, so reading and linking apply as for an upload; with
+> downloads off we keep only that an attachment existed. The client admin and the operator may both
+> change the setting, and every change is logged. Changed: §5.5 (0031), §6.12 (new), §14, §15, §18
+> (M33), §20; `docs/plan.md` §1.55, M33, §8.
 
 > **v0.13 (2026-11-06, owner):** **The agent oversees its own runs, and each step runs on the model
 > it needs.** A workflow stays the operator's fixed plan; the client agent that owns it now watches its
@@ -659,7 +671,8 @@ deploy. Tenant tables have `tenant_id`, forced RLS on `app.tenant_ids` and no DE
 stated. Operator tables (no client) use the `browser_site` pattern: forced RLS `app_is_operator()`.
 Migration numbers are reserved in `docs/plan.md` §8; Wave 1's (0018–0025) are written together in
 one PR (`claude/w1-migrations`) so their Drizzle snapshots chain, and Wave 2's (0026–0029, run
-oversight's from §5.6 included) in another (`claude/w2-migrations`).
+oversight's from §5.6 included) in another (`claude/w2-migrations`). v0.14's 0031 (WhatsApp
+capture, §6.12) is its own PR (`claude/whatsapp-capture-migration`).
 
 ```
 -- 0018 platform fixes (§8, §13, plan §1.43)
@@ -759,6 +772,23 @@ builder_turn(id, tenant_id null, session_id, seq int, role /*operator|builder*/,
              bundle jsonb null /*the working draft after the turn*/,
              meta jsonb /*questions, gaps, notes, errors, the parsed command, the model*/)
   unique(session_id, seq)            -- immutable except undone_at (trigger); nothing deleted
+
+-- 0031 (v0.14) WhatsApp passive capture (§6.12, plan §1.55)
+conversation(id, tenant_id, connection_id, channel /*whatsapp; sms allowed, not made yet*/,
+             kind /*direct|group*/, contact_id null /*direct*/, external_id null /*group: the
+             provider's group id*/, title text, capture jsonb not null
+             /*{archive: bool, attachments: off|documents|all, maxBytes: int, agentId?: uuid}*/,
+             created_at, updated_at)
+  unique(connection_id, channel, contact_id) where kind = 'direct'
+  unique(connection_id, channel, external_id) where kind = 'group'
+  check: direct ⇒ contact_id set and external_id null; group ⇒ external_id set
+  -- runtime selects, inserts and updates (capture, title, updated_at); no DELETE
+conversation_change(id, tenant_id, conversation_id, actor_id null /*null: the system*/,
+                    side /*client|operator|system*/, change jsonb /*{setting: 'capture', before,
+                    after, reason?}*/, created_at)
+  -- insert and select only, immutable (trigger), like contact_change
+document source check + 'message'   /*a file sent in a message; meta names the message*/
+  -- the client's default capture is `tenant.settings.messaging.capture` (jsonb, no column)
 ```
 
 Tables with `tenant_id null` here (`automation`, `test_case`, `test_suite_run`, `test_case_result`,
@@ -1143,6 +1173,90 @@ keys are made by a build agent; the owner creates each developer app.
 
 Agents never sign in to a bank or card website (blocked tier, §6.10); feeds come only through the
 aggregator's API.
+
+### 6.12 WhatsApp passive capture (v0.14, owner 2026-11-06)
+
+Messages that reach a client's WhatsApp number (its Twilio sender today, `docs/plan.md` §1.22; Meta
+later, §1.19) are kept for the client, and their attachments are filed as documents where the client
+turned that on. **Passive:** nothing on this path replies; an agent works on what arrives only if a
+workflow of its own starts on it, and anything it sends goes through the gate as always. Same pattern
+as Respaldo's capture (claim once by message id, fetch in the background, size checked before and
+after, storage keys from ids only), with nothing shared.
+
+**Conversations.** A `conversation` (§5.5, 0031) is one WhatsApp chat on one connection: `direct` (one
+contact; Twilio, built now) or `group` (Meta's groups API, designed only: the schema takes it, nothing
+makes one yet). The first inbound message from a contact on a connection makes its conversation, in
+the webhook's transaction, with the client's default capture (`tenant.settings.messaging.capture`).
+Someone who wasn't a contact (§1.22 makes them one with no consent) gets the default with attachments
+**off** whatever the default says, so a stranger's files are never fetched until a person chooses to.
+SMS keeps today's behaviour and makes no conversation yet (`channel` leaves room for it).
+
+**Capture** (per conversation; `capture` jsonb):
+
+| Field | Meaning | Default |
+|---|---|---|
+| `archive` | keep the message text (raw record, contact thread). Off: only the envelope is kept (id, time, sender, channel, attachment facts) for dedupe, STOP and counts; the thread shows "Not kept"; agents read no text | `true` (today's behaviour) |
+| `attachments` | `off`: record only that each attachment existed (index, content type, size when known), never the bytes or a link; `documents`: PDFs and images; `all`: also audio, video and common office files from a fixed list. An unknown or executable type is refused even under `all` | `off` |
+| `maxBytes` | per file; refused above it | 20 MB, never above the documents capability's 32 MB |
+| `agentId` | a client agent of this client with a `whatsapp` message trigger, started with the new documents (below) | none |
+
+**Who changes it.** The client admin (portal) and the operator (back office) may each turn `archive`
+and `attachments` on or off: it is the client's data and the client's choice, not a permission on the
+client's tools, so invariant 8's "only the operator loosens" doesn't apply. `maxBytes` and `agentId`
+are the operator's (they are setup, and `agentId` wires an agent). The client default is the
+operator's. Every change is a `conversation_change` row (who, side, before, after, reason) or, for the
+default, a `tenant_change` row; client users can't see or change capture.
+
+**Download.** When a message has media (`NumMedia`, `MediaUrl{i}`, `MediaContentType{i}`) and the
+conversation's `attachments` allows the declared type, the media is fetched after the inbound
+transaction commits, as a durable job: one Workflow instance per message
+(`capture-<client>-<message sid>`), one step per media index, retried with backoff; a cron pass
+restarts captures left pending; without the Workflow binding (local, tests) it runs after the
+response.
+- The request goes only to Twilio's API origin (`https://api.twilio.com`, compared as
+  `new URL(x).origin`), on a URL built from validated ids (the client's subaccount SID, the message
+  SID and the media SID), never a URL taken from the webhook, with the client's subaccount
+  credentials. Twilio answers with a redirect to a short-lived signed link: followed once, by hand,
+  HTTPS only, without our credentials, and only to an origin on a fixed list (to verify, plan §1.55).
+- Size: the declared length is checked before reading and the bytes are counted while reading; the
+  read stops at `maxBytes`. Type: the response's type must match the declared one, and PDFs and images
+  must start with their own magic bytes.
+- Each file is stored once in R2 by sha256 through the documents capability (`storeDocument`,
+  `source: 'message'`), so `document.received` fires and the background reading and linking apply
+  as for an upload. The same file sent twice is one document (§7), named by both messages.
+- **Once per (message SID, media index):** a raw record `MessageMedia` keyed `<sid>:<index>`, inserted
+  in the same transaction as the document, holds the outcome (`filed` with the document id,
+  `refused` with the reason, `failed`). A retried webhook or step finds it and does nothing more.
+- The document's `meta` names its sources: the message's raw record, the conversation, the message SID
+  and the index. The raw records are never changed (invariant 3).
+- **Download now:** the operator or the client admin may fetch one message's attachments later, if
+  the conversation's setting allows them at that moment; the same job, the same once-only key.
+- Media stays at Twilio; deleting it there after filing is an open owner choice.
+
+**Agents.** `message.get` and `messages.search` (the provider-neutral ids, §1.22) gain the
+conversation (`id`, `kind`, `title`) and each attachment (`index`, `contentType`, `sizeBytes?`,
+`status`: not downloaded, pending, filed, refused or failed; `documentId` when filed). Text and files
+reach a model only in tool results (invariant 9); a document's content is read with the `docs.*`
+tools. With `capture.agentId` set, once a message's downloads finish, that agent gets
+`inbound.message` (§10.8, channel `whatsapp`) with the new document ids, through its existing message
+trigger and People filter; no new trigger kind, no reply, and the agent isn't started a second time
+for the same message.
+
+**Groups (design only).** Groups arrive with the `whatsapp_meta` connector (§1.19 of the plan). To
+verify before building: Meta's groups API needs an Official Business Account, a Tech Provider
+registration, groups created by the business, and limits on participants (third-party guides say
+about 8). Twilio has no WhatsApp groups (WhatsApp retired its old groups API in 2020; Twilio's
+"group" sample fans out one-to-one chats through Conversations). Unofficial WhatsApp clients are out:
+they break WhatsApp's terms.
+
+**Compliance.** Twilio is already a processor, and `meta_whatsapp` is listed for `whatsapp.*`. The
+public privacy page says that we archive messages sent to a client's number and, where the client
+turns it on, their attachments, on the client's behalf. Conversations, their change log and the
+filed documents follow the client's existing data handling: exports and retirement.
+
+**Screens.** Minimal, until the owner's redesign: the portal's `/conversations` (client admin) lists
+each conversation with its two switches; the back office shows the same on the client's messaging
+page, with the client default. Design-system classes only; portal words in six languages.
 
 ## 7. Documents capability
 
@@ -2391,6 +2505,23 @@ Portal (client)
 Oversight settings and a step's `model` and `review` change through the existing bundle edits (a new
 version, like every edit). The portal's run timeline shows only the platform's words for a decision.
 
+**v0.14 routes** (WhatsApp capture, §6.12; `packages/core/src/api/conversations.ts`):
+```
+Back office (operator)
+  Capture      GET  /api/ops/clients/:id/conversations          GET/PUT /api/ops/clients/:id/conversations/default
+               PUT  /api/ops/clients/:id/conversations/:conversationId/capture {capture, reason?}
+               GET  /api/ops/clients/:id/conversations/:conversationId/changes
+               POST /api/ops/clients/:id/conversations/:conversationId/messages/:rawRecordId/download
+Portal (client admin)
+  Capture      GET  /api/conversations          PUT /api/conversations/:id/capture {archive?, attachments?}
+               GET  /api/conversations/:id/changes
+               POST /api/conversations/:id/messages/:rawRecordId/download
+```
+A capture save over a newer `updatedAt` is 409 `stale`; an `agentId` that isn't this client's agent
+with a `whatsapp` message trigger is 422 `invalid_agent`; download now on a conversation whose
+setting refuses the attachment is 409 `capture_off`. The portal's answers carry no agent bundle,
+prompt, cost or Twilio link.
+
 The MCP server's tools read through the back office's own route handlers, scoped to the clients the
 operator serves; its one write (`feedback_resolve`) takes a preview call and a confirm call.
 All bodies validated with Zod. The route contract declares each route's roles; middleware sets
@@ -2458,6 +2589,7 @@ data:
 | New agent, workflow builder, new skill (by conversation) | `/api/ops/builder/sessions*` |
 | Triggers | `/api/ops/agents/:id/triggers`, the bundle's triggers |
 | Runs, run detail (back office) | `/api/ops/runs*`, model calls, saved views |
+| (v0.14) Conversations: capture per WhatsApp chat | `/api/conversations*` (portal `/conversations`), `/api/ops/clients/:id/conversations*` (the client's messaging page) |
 
 ---
 
@@ -2583,6 +2715,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M30 | (v0.13) Task skills and a model per step | One workflow reads an invoice with a `task` skill on Haiku (no agent instructions or memory in its prompt) and drafts an email with an `agent` skill on the agent's Sonnet; a step override moves the draft to Opus; model calls show each model and per-step cost; a `task` skill without a model fails validation |
 | M31 | Run oversight on failures | A lookup that fails on a vendor name with a trailing space is corrected and the run finishes, with one decision row and one proposal for the operator; a write that reached the client's tool is never retried; past the limit the step fails as before; the portal shows only "Corrected and tried again" |
 | M32 | Checkpoint reviews | An extraction that feeds a create-bill step is reviewed; a wrong total is corrected before the bill is proposed and the approver sees the corrected input; with `review: 'failures'` a clean run makes no oversight call |
+| M33 | (v0.14) WhatsApp passive capture | A WhatsApp photo from a contact whose conversation has attachments on becomes one document, extracted, linked to its message; with it off, only the attachment's existence is kept; a retried webhook makes nothing twice; the client admin toggles it and the change is logged |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
@@ -2662,8 +2795,14 @@ Decided:
   lasting fixes; skills are `tool`, `task` (own default model, agent-independent) or `agent` (the
   agent's model, instructions and memory), and a step may override the model; we keep our executor on Cloudflare Workflows
   rather than adopting a graph library (LangGraph) (§10.11).
+- v0.14 (owner, 2026-11-06): WhatsApp messages to a client's number are archived per conversation
+  and, where the client turns it on, their attachments are filed as documents; nothing on that path
+  replies; downloads are off by default; the client admin and the operator may both change it, and
+  every change is logged; groups wait for Meta's connector (§6.12).
 
 Open:
+- v0.14, for the owner (`docs/plan.md` §1.55): whether to delete media at Twilio once it is filed;
+  Twilio's media facts (auth, the redirect's host, retention) and Meta's groups requirements, to verify.
 - v0.12, for the owner (`docs/plan.md` §7): the agent address domain (`<agent>@<client>.agents.mezonas.com`
   needs Email Routing per client subdomain); the bank and card aggregator (vendor, cost); developer apps
   for Outlook, Ramp and HubSpot; whether trial days are billed; whether a client may set a person's
