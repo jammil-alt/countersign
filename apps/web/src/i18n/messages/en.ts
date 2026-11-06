@@ -259,6 +259,19 @@ export const en = {
   "connections.gmail.description": "Send email from your Gmail. We can't read your mailbox.",
   "connections.gmail.testSend": "Send a test email",
   "connections.gmail.testSent": "Sent to {address}. Check that mailbox's Sent folder and inbox.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Post messages to the Slack channels you pick. We can't read your messages.",
+  "slack.section": "Slack · channels",
+  "slack.workspace": "Workspace: {name}",
+  "slack.help":
+    "Agents post only to the channels you pick. Add the Mezonas app to a channel in Slack before you pick it.",
+  "slack.noChannels": "No public channels in this workspace.",
+  "slack.notMember": "Add Mezonas to this channel in Slack",
+  "slack.gone": "no longer listed in Slack",
+  "slack.noPicks": "No channels picked: agents can't post to Slack.",
+  "slack.picked": { one: "{count} channel picked", other: "{count} channels picked" },
+  "slack.saved": "Saved.",
   "connection.status.connected": "Connected",
   "connection.status.pending": "Not connected",
   "connection.status.disconnected": "Disconnected",
@@ -1141,4 +1154,24 @@ export const en = {
   "gchat.newCode": "Get a new code",
   "gchat.adminAllow":
     "Can't find Mezonas in Google Chat? Your Google Workspace admin needs to allow the app.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page).
+  "connections.gsheets.description":
+    "Read and add rows in the Google Sheets you choose. We can't open any other sheet.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Agents can open only the sheets you choose here. You choose them in Google's own window.",
+  "gsheets.none": "No sheets chosen yet.",
+  "gsheets.choose": "Choose sheets",
+  "gsheets.remove": "Remove",
+  "gsheets.otherAccount": "Chosen with another Google account. Choose it again to use it.",
+  "gsheets.notSetUp": "Choosing sheets isn't set up here yet. We'll tell you when it is.",
+  "gsheets.pick.title": "Choose Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google opens a window where you pick the sheets agents may use. We see only those.",
+  "gsheets.pick.open": "Open Google's picker",
+  "gsheets.pick.loading": "Loading Google's picker…",
+  "gsheets.pick.saving": "Saving your choice…",
+  "gsheets.pick.cancelled": "Nothing was chosen. Open the picker again, or go back.",
+  "gsheets.pick.failed":
+    "Google's picker didn't open. Check that pop-ups are allowed, then try again.",
 } as const;

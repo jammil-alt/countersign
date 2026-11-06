@@ -266,6 +266,19 @@ export const es: Messages = {
   "connections.gmail.testSend": "Enviar un correo de prueba",
   "connections.gmail.testSent":
     "Enviado a {address}. Revise la carpeta Enviados y la bandeja de entrada de ese buzón.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publique mensajes en los canales de Slack que elija. No podemos leer sus mensajes.",
+  "slack.section": "Slack · canales",
+  "slack.workspace": "Espacio de trabajo: {name}",
+  "slack.help":
+    "Los agentes publican solo en los canales que elija. Agregue la app Mezonas a un canal en Slack antes de elegirlo.",
+  "slack.noChannels": "No hay canales públicos en este espacio de trabajo.",
+  "slack.notMember": "Agregue Mezonas a este canal en Slack",
+  "slack.gone": "ya no aparece en Slack",
+  "slack.noPicks": "Ningún canal elegido: los agentes no pueden publicar en Slack.",
+  "slack.picked": { one: "{count} canal elegido", other: "{count} canales elegidos" },
+  "slack.saved": "Guardado.",
   "connection.status.connected": "Conectada",
   "connection.status.pending": "Sin conectar",
   "connection.status.disconnected": "Desconectada",
@@ -1178,4 +1191,24 @@ export const es: Messages = {
   "gchat.newCode": "Obtener un código nuevo",
   "gchat.adminAllow":
     "¿No encuentra Mezonas en Google Chat? El administrador de Google Workspace debe permitir la app.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Lea y agregue filas en las hojas de Google Sheets que elija. No podemos abrir ninguna otra.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Los agentes solo pueden abrir las hojas que usted elija aquí. Se eligen en la propia ventana de Google.",
+  "gsheets.none": "Aún no hay hojas elegidas.",
+  "gsheets.choose": "Elegir hojas",
+  "gsheets.remove": "Quitar",
+  "gsheets.otherAccount": "Elegida con otra cuenta de Google. Elíjala de nuevo para usarla.",
+  "gsheets.notSetUp": "Elegir hojas aún no está disponible aquí. Le avisaremos cuando lo esté.",
+  "gsheets.pick.title": "Elegir hojas de Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google abre una ventana para que elija las hojas que pueden usar los agentes. Solo vemos esas.",
+  "gsheets.pick.open": "Abrir el selector de Google",
+  "gsheets.pick.loading": "Cargando el selector de Google…",
+  "gsheets.pick.saving": "Guardando su elección…",
+  "gsheets.pick.cancelled": "No eligió ninguna hoja. Abra el selector otra vez o vuelva.",
+  "gsheets.pick.failed":
+    "El selector de Google no se abrió. Compruebe que las ventanas emergentes estén permitidas e inténtelo de nuevo.",
 };

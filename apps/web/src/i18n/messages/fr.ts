@@ -273,6 +273,19 @@ export const fr: Messages = {
   "connections.gmail.testSend": "Envoyer un e-mail de test",
   "connections.gmail.testSent":
     "Envoyé à {address}. Vérifiez le dossier Messages envoyés et la boîte de réception de cette adresse.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Publiez des messages dans les canaux Slack de votre choix. Nous ne pouvons pas lire vos messages.",
+  "slack.section": "Slack · canaux",
+  "slack.workspace": "Espace de travail : {name}",
+  "slack.help":
+    "Les agents publient uniquement dans les canaux que vous choisissez. Ajoutez l'app Mezonas à un canal dans Slack avant de le choisir.",
+  "slack.noChannels": "Aucun canal public dans cet espace de travail.",
+  "slack.notMember": "Ajoutez Mezonas à ce canal dans Slack",
+  "slack.gone": "ne figure plus dans Slack",
+  "slack.noPicks": "Aucun canal choisi : les agents ne peuvent pas publier dans Slack.",
+  "slack.picked": { one: "{count} canal choisi", other: "{count} canaux choisis" },
+  "slack.saved": "Enregistré.",
   "connection.status.connected": "Connecté",
   "connection.status.pending": "Non connecté",
   "connection.status.disconnected": "Déconnecté",
@@ -1192,4 +1205,27 @@ export const fr: Messages = {
   "gchat.newCode": "Obtenir un nouveau code",
   "gchat.adminAllow":
     "Vous ne trouvez pas Mezonas dans Google Chat ? L'administrateur de Google Workspace doit autoriser l'application.",
+  // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  "connections.gsheets.description":
+    "Lisez et ajoutez des lignes dans les feuilles Google Sheets que vous choisissez. Nous ne pouvons ouvrir aucune autre feuille.",
+  "gsheets.section": "Google Sheets",
+  "gsheets.help":
+    "Les agents ne peuvent ouvrir que les feuilles que vous choisissez ici. Vous les choisissez dans la fenêtre de Google.",
+  "gsheets.none": "Aucune feuille choisie pour l'instant.",
+  "gsheets.choose": "Choisir des feuilles",
+  "gsheets.remove": "Retirer",
+  "gsheets.otherAccount":
+    "Choisie avec un autre compte Google. Choisissez-la à nouveau pour l'utiliser.",
+  "gsheets.notSetUp":
+    "Le choix des feuilles n'est pas encore disponible ici. Nous vous préviendrons dès qu'il le sera.",
+  "gsheets.pick.title": "Choisir des feuilles Google Sheets",
+  "gsheets.pick.subtitle":
+    "Google ouvre une fenêtre où vous choisissez les feuilles que les agents peuvent utiliser. Nous ne voyons que celles-là.",
+  "gsheets.pick.open": "Ouvrir le sélecteur de Google",
+  "gsheets.pick.loading": "Chargement du sélecteur de Google…",
+  "gsheets.pick.saving": "Enregistrement de votre choix…",
+  "gsheets.pick.cancelled":
+    "Aucune feuille choisie. Ouvrez à nouveau le sélecteur, ou revenez en arrière.",
+  "gsheets.pick.failed":
+    "Le sélecteur de Google ne s'est pas ouvert. Vérifiez que les fenêtres pop-up sont autorisées, puis réessayez.",
 };

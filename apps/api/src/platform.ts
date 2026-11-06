@@ -25,10 +25,14 @@ import {
   createGchatConnector,
   createGdriveConnector,
   createGmailConnector,
+  // v0.14 W4-D
+  createGsheetsConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
   createResendConnector,
+  // v0.14 W4-C
+  createSlackConnector,
   createTestkitConnector,
   createTwilioConnector,
   createUploadConnector,
@@ -166,6 +170,9 @@ type OAuthEnvKey =
   // v0.14 W4-E: the Google Chat app.
   | "GOOGLE_CHAT_SERVICE_ACCOUNT"
   | "GOOGLE_CHAT_PROJECT_NUMBER"
+  // v0.14 W4-C: our Slack app.
+  | "SLACK_CLIENT_ID"
+  | "SLACK_CLIENT_SECRET"
   // v0.12 bankfeed: Plaid.
   | "PLAID_CLIENT_ID"
   | "PLAID_SECRET"
@@ -190,6 +197,8 @@ export function platformFor(
     // v0.14 W4-E: whether the key is set, never the key.
     env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
     env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
+    // v0.14 W4-C
+    env.SLACK_CLIENT_ID ?? "-",
     // v0.12 bankfeed
     env.PLAID_CLIENT_ID ?? "-",
     env.PLAID_SECRET ? "plaid-secret" : "-",
@@ -227,6 +236,10 @@ export function deploymentConnectors(
   const microsoftReady = Boolean(
     env.OUTLOOK_CLIENT_ID && env.OUTLOOK_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
   );
+  // v0.14 W4-C
+  const slackReady = Boolean(
+    env.SLACK_CLIENT_ID && env.SLACK_CLIENT_SECRET && env.OAUTH_STATE_SECRET,
+  );
   // v0.12 bankfeed
   const plaidReady = Boolean(env.PLAID_CLIENT_ID && env.PLAID_SECRET && env.OAUTH_STATE_SECRET);
   return [
@@ -259,6 +272,10 @@ export function deploymentConnectors(
     createGdriveConnector(
       googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
     ),
+    // v0.14 W4-D: Google Sheets (drive.file, picked sheets only), on the same Google client.
+    createGsheetsConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
     createOutlookConnector(
       microsoftReady
         ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
@@ -270,6 +287,12 @@ export function deploymentConnectors(
       serviceAccount: env.GOOGLE_CHAT_SERVICE_ACCOUNT,
       projectNumber: env.GOOGLE_CHAT_PROJECT_NUMBER,
     }),
+    // v0.14 W4-C: Slack (posts to the channels a client picks), like Outlook: registered
+    // everywhere, signing in once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and OAUTH_STATE_SECRET
+    // are set.
+    createSlackConnector(
+      slackReady ? { clientId: env.SLACK_CLIENT_ID, clientSecret: env.SLACK_CLIENT_SECRET } : {},
+    ),
     // Email sending (Resend): registered everywhere; a client gets a connection only when the
     // operator sets it up, which needs RESEND_API_KEY.
     createResendConnector(),

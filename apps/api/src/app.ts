@@ -48,6 +48,8 @@ import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
 // v0.14 W4-E: Google Chat
 import { gchatRoutes } from "./routes/gchat";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -79,6 +81,8 @@ import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./routes/slack";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
 // v0.12 W2-C
@@ -125,6 +129,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 bankfeed: Plaid's webhook
   bankfeedRoutes(app);
   connectionRoutes(app);
+  // v0.14 W4-D: Google Sheets' picking
+  gsheetsRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
   documentRoutes(app);
@@ -179,6 +185,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsOversightRoutes(app);
   // v0.14 W4-E: Google Chat's events and the portal's card
   gchatRoutes(app);
+  // v0.14 W4-C: the Slack channel picker
+  slackRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

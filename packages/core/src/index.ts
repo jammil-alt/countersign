@@ -35,6 +35,8 @@ export * from "./api/exports";
 export * from "./api/feedback";
 // v0.14 W4-E: Google Chat
 export * from "./api/gchat";
+// v0.14 W4-D
+export * from "./api/gsheets";
 export * from "./api/knowledge";
 export * from "./api/language";
 // v0.12 W1-A: go-live stages and client controls
@@ -59,6 +61,8 @@ export * from "./api/runs-ask";
 export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
+// v0.14 W4-C: the Slack channel picker
+export * from "./api/slack";
 export * from "./api/supervisor";
 export * from "./api/table";
 // v0.12 W2-C: the test bench
