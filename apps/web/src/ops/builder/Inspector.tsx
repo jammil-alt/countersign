@@ -356,6 +356,7 @@ function KindFields(
               <PersonPicker
                 field="assignee"
                 testId="builder-person-assignee"
+                allowLead
                 value={step.assignee}
                 members={props.members}
                 onChange={(v) =>
@@ -551,6 +552,7 @@ function PersonPicker({
   field,
   testId,
   allowDefault,
+  allowLead,
 }: {
   value: string | undefined;
   onChange(value: string | undefined): void;
@@ -558,10 +560,13 @@ function PersonPicker({
   field: string;
   testId: string;
   allowDefault?: string;
+  /** v0.12 W1-C: a person step may be a lead check, for the client's lead. */
+  allowLead?: boolean;
 }) {
   const known =
     value === undefined ||
     ["client_admin", "client_user", "operator"].includes(value) ||
+    (allowLead === true && value === "lead") ||
     members.some((m) => m.userId === value);
   return (
     <SmallSelect
@@ -574,6 +579,7 @@ function PersonPicker({
       <option value="client_admin">Client admin</option>
       <option value="client_user">Client user</option>
       <option value="operator">Operator</option>
+      {allowLead ? <option value="lead">The client's lead</option> : null}
       {members.map((m) => (
         <option key={m.userId} value={m.userId}>
           {m.name ?? m.email}

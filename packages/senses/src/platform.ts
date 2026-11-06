@@ -9,6 +9,7 @@ import {
   HealthSummary,
   type PlatformEventType,
   RunFailedPayload,
+  ThreadMessagePostedPayload,
 } from "@countersign/core";
 import { z } from "zod";
 
@@ -299,6 +300,23 @@ export const PLATFORM_EVENTS = {
       total: { amount: "4200.0000", currency: "USD" },
       balance: { amount: "0.0000", currency: "USD" },
       dueDate: "2026-12-01",
+    },
+  },
+  // v0.12 W1-C: threads (ARCHITECTURE §11.2). Ids only, never the text.
+  "thread.message_posted": {
+    description:
+      "Someone posted in a thread: a person, an agent or the system. A `/name` message names the agent it asks.",
+    subjectType: "thread",
+    payload: ThreadMessagePostedPayload,
+    sample: {
+      threadId: SAMPLE_ID,
+      subjectType: "lead",
+      subjectId: SAMPLE_ID_2,
+      messageId: "0192f7a0-0000-7000-8000-000000000003",
+      senderType: "user",
+      senderId: "0192f7a0-0000-7000-8000-000000000004",
+      audience: "client",
+      command: { name: "remy", agentId: "0192f7a0-0000-7000-8000-000000000005" },
     },
   },
 } as const satisfies Record<PlatformEventType, PlatformEventDef>;
