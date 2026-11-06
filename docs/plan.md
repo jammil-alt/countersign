@@ -866,6 +866,31 @@ limiting on `/api/*`, GitHub's secret scanning with push protection and branch p
 a tested restore from Neon's point-in-time history, and the policies and audits themselves.
 ---
 
+### 1.36–1.51 v0.12 decisions (TODO (resume))
+
+ARCHITECTURE v0.12 §1, §4, §5.5, §6.1, §6.2, §6.4, §6.11, §9.6–§9.10 and §10.7–§10.10 are written.
+Still to write: decision tables §1.36–§1.51 (one per stream below), milestones M13–M28, the §7
+"Answered (2026-11-06)" block (the owner's five defaults: Gmail send-only with voice samples; QBO AR and
+create bill; Stripe invoices by link; no signing by reply; go-live stages) and §8 "Execution plan,
+2026-11-06 night".
+
+Planned streams and reserved migrations (draft): 0018 client data export (running outside the waves,
+if it needs one); Wave 1: W1-A go-live stages and client controls (0019), W1-B notifications, the Table
+and the Weekly Table (0020), W1-C threads and the lead (0021), W1-D the Desk, sign-off and viewers
+(0022), W1-E run controls and model calls (0023), W1-F QuickBooks AR and create bill (0024), W1-G
+people and voice samples (0025); Wave 2: W2-A per-entity permissions and connectors catalog (0026),
+W2-B automations (0027), W2-C test bench and agent lab (0028), W2-D Sloan, W2-E triggers, W2-F command
+center and search, W2-G KPIs, client view, credits, client audit export (no migrations); Wave 3: W3-A
+the conversational Builder (0029), W3-B/C new connectors (0030 spare). Renumber if the merge order
+differs; tags must stay ascending.
+
+Coordinator input to fold in (from the API end-to-end test, PR #102): (1) run a client agent live on a
+past event (operator, writes behind approval) so a first invoice can go live: W1-A; (2) dispatch events
+right after commit, the cron sweep as backstop; (3) count background document reading: a cost column
+on `doc_extraction` and whose usage it is (needs a migration number); (4) a portal records list API;
+(5) "sync now" within a minute of connecting must start or queue a sync. Planned as W1-A (1) and a small
+"platform fixes" stream W1-H for (2)–(5). Merge origin/main (PR #102 edits M11) before finishing.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

@@ -1,8 +1,28 @@
-# Mezonas — Architecture v0.11
+# Mezonas — Architecture v0.12
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.12 (2026-11-06, owner's prototype):** **The service as the client lives it, and the back office
+> that runs it.** The owner's 21-screen prototype adds, for clients: **Sloan**, the account agent on
+> every client (the supervisor's client face, free); a named **Mezonas lead** per client, with a
+> thread to talk to and "lead checks" in workflows; **threads** with `/commands`; **the Weekly Table**,
+> a Monday digest with the lead's note; **notifications** by email and text (counts and a link, never
+> record content); **the Desk** with quick answers, "Not now", editing a drafted change before
+> signing, signing part of a batch and a 60-second undo; client **pause, pause all and Run now**;
+> **go-live stages** (test bench, trial, client sign-off, live); **permissions per record type**;
+> people with categories, tags, notes and per-channel autonomy; a **viewer** who can't sign;
+> search and plain-words queries; agent KPIs. For the back office: the **command center**, the
+> **agent lab** with a **test bench** and **skill tests**, **automations** (reusable step chains),
+> the **Builder as a conversation**, **six trigger kinds**, **run controls** (retry from the failed
+> step, cancel, replay as a test, model calls), and the **connectors catalog**. QuickBooks gains
+> **accounts receivable** and **create bill**. Gmail stays send-only; "write in your voice" learns
+> from **voice samples** the client gives us. The owner redoes the UI from the prototype separately,
+> so v0.12 is built **API first**. Changed: §1, §4, §5.5 (new), §6.1, §6.2, §6.4, §6.11 (new), §9.6,
+> §9.7, §9.8–§9.10 (new), §10.1, §10.7–§10.10 (new), §11, §11.1–§11.7 (new), §13.1 (new), §14,
+> §15, §16, §17, §18 (M13–M28), §19, §20; CLAUDE.md invariants 8 and 11 (one sentence each);
+> `docs/plan.md` §1.36–§1.51, M13–M28, §7, §8.
 
 > **v0.11 (2026-11-05, owner):** **A directory per client and a supervisor agent.** Each client has
 > one **directory** of the people and organizations its agents work with (employees, contractors,
@@ -159,6 +179,14 @@ How the parts fit:
 | Inbox | Where people approve, review and answer what agents ask | §11 |
 | Request | A client's ask to the operator (change or new service) | §11 |
 | Pack | A bundle of domain tools, skills, tables, reports and templates (e.g. Materials) | §12 |
+| Stage | Where a client agent is on its way live: test bench, trial, client sign-off, live (v0.12) | §10.9 |
+| Desk | The client's inbox: signs, questions, messages, what's in progress and done (v0.12) | §11.1 |
+| Thread | A conversation: with the lead, with Sloan, about an agent or a run; carries `/commands` (v0.12) | §11.2 |
+| Lead | The operator user each client sees by name as "your Mezonas lead" (v0.12) | §11.2 |
+| Sloan | The account agent on every client: the supervisor's client face (v0.12) | §9.8 |
+| Automation | A reusable, versioned chain of steps used as one workflow step (v0.12) | §10.7 |
+| Test case | A saved example with its expected answer, for a skill or a template (v0.12) | §9.10 |
+| Weekly Table | The Monday digest per client: stats, the lead's note, decisions, next week (v0.12) | §11.4 |
 
 ### First client and first agent
 
@@ -266,14 +294,83 @@ In:
   writing, and reports to the client admin (plain steps) and the operator (details); it changes
   nothing itself (`docs/plan.md` §1.28)
 
+Added in v0.12 (owner's prototype, 2026-11-06; `docs/plan.md` §1.36–§1.51, milestones M13–M28). Built
+**API first**: routes, data and tests; the owner redoes the screens from the prototype, so new UI is
+only what a test or an existing screen needs.
+- **Go-live stages** per client agent: test bench, trial on client data (every write signed, about 14
+  days or 25 runs, whichever is later), client sign-off, live; the operator may skip a stage with a
+  logged reason (§10.9). **Client controls:** the client admin pauses and resumes an agent or all of
+  them with a reason, and starts a workflow the operator opened to it with **Run now** and a short form
+- **Notifications** by email (Mezonas' own sending, through the `resend` code path) and by text where
+  the person allows it: items waiting, the Weekly Table, "please reconnect", credits; counts and a link
+  only (§11.3). **The Table** (the portal's home) and **the Weekly Table** (a Monday 7:00 digest in the
+  client's time zone with the lead's note, decisions and next week; a PDF on request) (§11.4)
+- **Threads** with participants' read state, `/commands` and sources on messages; **the lead**, a named
+  operator user per client, with a client↔lead thread and **lead checks** (person steps assigned to the
+  lead) (§11.2)
+- **The Desk** (§11.1): questions with quick answers; "Not now" until a time; editing a drafted change
+  before signing (the agent's and the person's versions both kept); signing part of a batch; undo for
+  60 seconds after signing, before the write runs; why each item needs a signature. **Sign-off and
+  viewers:** a client user may be a viewer who sees everything and signs nothing (§4)
+- **Run controls** (§10.10): retry from the failed step reusing what was already signed, cancel, replay
+  as a test run, group failures by error, saved views, and every model call of a run (operator only)
+- **QuickBooks:** accounts receivable (Invoice, Customer and Payment sync; `qbo.aging_report`;
+  `qbo.invoice.add_note`, which only changes the private note) and `qbo.bill.create`, behind approval;
+  delete stays off (§6.2)
+- **People:** categories (employee, contractor, vendor, customer), tags (e.g. cardholder), "what agents
+  should know" notes (data in tool results, never instructions), autonomy per person and channel (on its
+  own, your sign, off), import of vendors and customers from QuickBooks; **voice samples** in the
+  knowledge base for writing in the client's voice (§6.4, `docs/plan.md` §1.42)
+- **Permissions per record type** (§6.1): the matrix gains connector-defined entities (Bills, Items,
+  Vendors, Invoices, Customers…) × read, create, update, delete, plus scopes such as "notes only";
+  matrices saved before v0.12 apply to every entity. The **connectors catalog** in the back office
+  (status, errors in 24 hours, default access for new clients, who is waiting to connect)
+- **Automations** (§10.7): reusable, versioned step chains used as one `use_automation` step
+- **Test bench and skill tests** (§9.10): saved examples with expected answers per skill and template;
+  runs on drafts report pass rate, precision and cost; publishing a skill can require its tests to pass.
+  The **agent lab**: template status, versions behind, promote, test bench
+- **Sloan** (§9.8): the account agent, the supervisor's client face, on every client, free. It chats,
+  sees its client's agents, runs and receipts as the portal shows them, pauses and resumes agents,
+  drafts account changes for the client admin to sign, and passes requests to the lead. It never
+  loosens a rule and never sees the vault
+- **Triggers, six kinds** (§10.8): schedule (with holidays skipped), event, webhook (filters, dedupe key,
+  rate limit), manual (with a form, for the operator or the client), message (the agent's email
+  address, its text number, a `/command` in a thread, a request Sloan passes) and handoff from another
+  agent of the same client, with sources. Who may start one comes from People
+- **The command center** (§13.1): escalations by how long a client has been blocked, low-confidence
+  readings, client health, model spend today, a live feed. **Search** (⌘K) across agents, runs, records,
+  people and documents, and plain-words questions over runs, turned by the model into a typed filter,
+  never SQL (§11.6)
+- **Agent KPIs and the client view** (§9.9): a template declares a few KPIs computed from runs and step
+  outputs, and the panels the client's agent page shows; they travel with every fork
+- **Credits:** when a client's credits run out, either keep working and tell the client admin, or
+  pause its agents until they decide (§11.5). **Exports:** the client's data export and the
+  accountant's export (built tonight outside these milestones), and the client's own audit export
+  (§11.7)
+- **The Builder as a conversation** (§9.6): multi-turn, each change an undoable entry, `/skill`,
+  `/automation` and `/trigger`, "closest template, N% alike", drafting a new skill with tests from
+  examples, "Save as automation"
+- **New connectors**, in order: Google Drive (file PDFs to a folder), Outlook (send only, like Gmail),
+  Ramp, HubSpot; then bank and card feeds through an aggregator once the owner picks the vendor; Slack
+  last (§6.11)
+
 Out (designed for, not built):
 - Client self-serve building;
   showing workflows or instructions to clients; other operators on the platform (one operator in v1);
   automatic template updates (every update is reviewed per client)
-- Connectors beyond QBO, Gmail and upload (Slack, Google Drive, Outlook, bank and card feeds, Ramp,
-  HubSpot); Gmail push notifications (v1 polls); sending email without a person's approval; code steps
-  in workflows; A/B versions; custom collections and fields UI
-- Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials
+- Reading a client's mailbox through Google (restricted Gmail scopes and CASA): reading stays with
+  forwarding, and voice comes from samples the client gives us (owner, 2026-11-06)
+- Card on file and automatic charges: billing stays Stripe invoices paid by link (owner, 2026-11-06)
+- Signing by replying to a text or email: a notification links to the Desk, and signing needs a
+  signed-in session (owner, 2026-11-06)
+- Model-written replies in client threads from any agent but Sloan; translating messages (next, plan
+  §1.18); live push (the app polls)
+- Slack and bank or card feeds until the owner decides (§6.11); Gmail push notifications (v1 polls);
+  sending email without a person's approval; code steps in workflows; A/B versions; custom collections
+  and fields UI; nesting automations inside automations
+- Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials; use cases such as
+  collections (Cole), invoice intake (Iris) and card receipts (Remy) are built from these parts
+  separately, like Pia (v0.9)
 
 ---
 
@@ -361,7 +458,18 @@ serve from the back office.
 |---|---|---|
 | `operator` | The owner and their team | Everything in the back office: create clients, invite users, offer connectors and set their permissions and configuration, enable packs; build, test, **publish** and roll back templates, skills and client agents; fork, customize, update, promote, activate and pause client agents; work requests; see runs, usage and cost across their clients; approve on a client's behalf when delegated |
 | `client_admin` | The client's owner or manager | Portal: connect and disconnect tools (OAuth); approve external actions and reviews (default approver); answer requests; reports, runs and services; raise requests; invite client users; notification settings |
-| `client_user` | Client staff | Portal: inbox items assigned to them, reports, runs; raise requests |
+| `client_user` | Client staff | Portal: inbox items assigned to them, reports, runs; raise requests. A client user with **sign-off off** (`membership.can_sign = false`, v0.12) is a **viewer**: sees the Table, runs, reports and the Weekly Table, signs nothing |
+
+- **Sign-off and viewers (v0.12):** `membership.can_sign` (default true; always true for `client_admin`).
+  A viewer is never an approver: approver rules can't name one (422 `not_a_signer`), items routed to
+  the role `client_user` skip them, nothing is assigned to them, and resolving answers 403
+  `cannot_sign`. Viewers don't start Run now. What a signer may sign is still the approver rules
+  (`docs/plan.md` §1.20); "Bills under $2,000" is a rule pair the client admin (or a change Sloan
+  drafts) adds. // DECISION: a flag on the membership, not a fourth role, so the route contract and
+  every role check stay as they are.
+- **The lead (v0.12):** `tenant.settings.lead = {userId}`, an operator who serves the client, set by
+  the operator. The portal shows the lead by name (the one operator person a client sees named; others
+  stay "Mezonas"). Lead checks are person steps with `assignee: 'lead'` (§10.1), assigned to that user.
 
 - Tables: `tenant(id, name, timezone, settings jsonb, workos_organization_id, created_at)` (a client),
   `app_user`, `membership(tenant_id, user_id, role)`. An operator's memberships list the clients they
@@ -516,6 +624,108 @@ client-facing records get `ext jsonb default '{}'`, validated against the latest
 Each pack owns its tables (Drizzle schema inside the pack, migrations in the one shared sequence,
 same tenancy and RLS rules). Materials: §12.
 
+### 5.5 v0.12 additions (owner's prototype, 2026-11-06)
+
+Every change is additive, so the previous Worker keeps working while a migration applies before its
+deploy. Tenant tables have `tenant_id`, forced RLS on `app.tenant_ids` and no DELETE grant unless
+stated. Operator tables (no client) use the `browser_site` pattern: forced RLS `app_is_operator()`.
+Migration numbers are reserved in `docs/plan.md` §8.
+
+```
+-- 0019 go-live stages and client controls (§10.9, §11.5)
+agent  + stage text null /*bench|trial|signoff|live; null for templates*/
+       + stage_state jsonb not null default '{}'
+             /*{trial?: {startedAt, minDays, minRuns, setBy}, signoff?: {inboxItemId, askedAt},
+                skipped?: [{stage, reason, by, at}]}*/
+       + pause jsonb null /*{side: client|operator|system, by, reason, at, until?, all?: bool}*/
+  -- backfill: 'live' for client agents whose run_status is active, paused or retired (test copies
+  -- excluded); 'bench' for other client agents
+
+-- 0020 notifications and the Weekly Table (§11.3, §11.4)
+notification(id, tenant_id, user_id null, contact_id null, channel /*email|sms*/,
+             kind /*items_waiting|weekly_table|reconnect|credits|lead_message|signoff*/,
+             dedupe_key text, link text, counts jsonb, status /*queued|sent|failed|skipped*/,
+             reason text null, provider_id text null, created_at, sent_at null)
+  unique(tenant_id, channel, dedupe_key)       -- status, reason, provider_id and sent_at change
+weekly_table(id, tenant_id, week_start date, status /*draft|sent*/, stats jsonb,
+             note text null, note_by uuid null, decisions jsonb /*[{id, title, body, options[], sources[],
+             reply?: {by, at, messageId}}]*/, next_week text null, setup jsonb, sent_at null,
+             created_at, updated_at)
+  unique(tenant_id, week_start)
+
+-- 0021 threads and the lead (§11.2)
+thread + created_by uuid null references app_user
+thread_read(tenant_id, thread_id, user_id, last_read_at)   pk(thread_id, user_id); runtime may update
+unique index thread_lead_key on thread(tenant_id) where subject_type = 'lead'
+  -- subject types: 'lead' (subject_id = the tenant id), 'account' (a Sloan conversation; created_by =
+  -- the person), 'agent' (subject_id = the client agent), 'run', 'contact' (as today)
+
+-- 0022 the Desk, sign-off and viewers (§11.1, §4)
+inbox_item + deliver_after timestamptz null  /*approved, inside the undo window; the run is told after*/
+           + batch_key text null              /*`<run id>:<step id>`: items one step proposed together*/
+           + snoozed_until timestamptz null, + snoozed_by uuid null
+external_action + edited_input jsonb null, + edited_by uuid null, + edited_at timestamptz null
+                                               /*`input` stays the agent's version*/
+membership + can_sign boolean not null default true
+
+-- 0023 run controls (§10.10)
+run + retry_of uuid null /*the run this one retries*/, + resume_from text null /*the step id*/
+model_call(id, tenant_id, run_id, step_run_id, agent_version_id null, provider, model,
+           tokens_in, tokens_out, cost_usd numeric(14,4), duration_ms, stop_reason,
+           body_key text /*R2: tenants/<id>/model-calls/<id>.json*/, created_at)   -- insert only
+saved_view(id, user_id, surface /*ops_runs|portal_runs*/, name, filters jsonb, created_at,
+           updated_at)                         -- operator table; a user's own rows
+
+-- 0024 QuickBooks accounts receivable (§6.2)
+receivable(id, tenant_id, connection_id, connector, external_id, doc_number, customer_external_id,
+           customer_name, organization_id null, txn_date, due_date null, total, balance, currency,
+           status /*open|paid|void|deleted*/, private_note text null, source_raw_record_id,
+           ext jsonb, created_at, updated_at)
+  unique(connection_id, external_id)
+
+-- 0025 people and voice samples (§6.4, plan §1.42)
+contact + autonomy jsonb not null default '{}'   /*{email|sms|whatsapp|voice: auto|approval|off}*/
+knowledge_entry kind check + 'voice_sample'
+knowledge_entry_version + meta jsonb not null default '{}'   /*voice samples: {personUserId, channel}*/
+
+-- 0026 per-entity permissions and the connectors catalog (§6.1)
+connector_setting(connector text pk, status /*live|beta|in_review|building*/,
+                  default_permissions jsonb null, note text, updated_by, updated_at)  -- operator table
+  -- connection.permissions and agent_grant.limits gain an `entities` key: jsonb, no column change
+
+-- 0027 automations (§10.7)
+automation(id, tenant_id null, slug, name, description, live_version_id null, status, created_at)
+  unique(tenant_id, slug) nulls not distinct
+automation_version(id, tenant_id null, automation_id, version int, definition jsonb /*Automation*/,
+                   definition_hash, status /*draft|live|retired*/, change_note, author_id,
+                   parent_version_id null, created_at)
+  unique(automation_id, version)     -- immutable except status (trigger), like skill_version
+
+-- 0028 test bench (§9.10)
+test_case(id, tenant_id null, target_kind /*skill|template*/, target_id, name, input jsonb,
+          fixtures jsonb, expected jsonb, matcher jsonb, required bool, source /*manual|builder|run*/,
+          source_ref text null, created_by, created_at, archived_at null)
+test_suite_run(id, tenant_id null, target_kind, target_id, version_id, status /*running|done|failed*/,
+               total, passed, failed, metrics jsonb /*{passRate, precision?, costPerCase}*/, cost_usd,
+               started_by, created_at, finished_at null)
+test_case_result(id, tenant_id null, suite_run_id, test_case_id, status /*pass|fail|error*/,
+                 got jsonb, diff jsonb, cost_usd, run_id null, created_at)          -- insert only
+skill + require_tests boolean not null default false
+
+-- 0029 the Builder as a conversation (§9.6)
+builder_session(id, tenant_id null, kind /*agent|skill*/, agent_id null, skill_id null,
+                base_version_id null, bundle jsonb /*the working draft*/, status /*open|saved|closed*/,
+                created_by, created_at, updated_at)
+builder_turn(id, tenant_id null, session_id, seq int, role /*operator|builder*/, text,
+             command text null, changes jsonb /*[{id, label, before, after}]*/, undone_at null,
+             saved_version_id null, cost_usd, created_at)
+```
+
+Tables with `tenant_id null` here (`automation`, `test_case`, `test_suite_run`, `test_case_result`,
+`builder_*`) follow the templates' policy (§4): null rows only in operator sessions; a client's rows
+in its own scope. A test case made from a client's records carries that client's id and never runs
+or shows outside it (invariant 1).
+
 ---
 
 ## 6. Connections and tools
@@ -562,6 +772,27 @@ read `auto`, create and update `approval`, delete `off` (v1 has no delete tools)
 matrix; the client admin sees it in the portal and can tighten it, never loosen it; every change is a
 `connection_change` row.
 
+**Permissions per record type (v0.12).** A connector manifest declares the record types it touches
+(`permissionEntities: [{id: 'bill', label, verbs: [read, create, update], scopes?: [{id: 'notes_only',
+label, verb: 'update', tools: ['qbo.invoice.add_note']}]}]`) and each of its tools names one
+(`ToolSpec.entity`). The matrix keeps its verb levels and gains `entities: {[entity]: {read?, create?,
+update?, delete?, scope?: {[verb]: scopeId}}}`. The level for a call is the stricter of the verb's level
+and the entity's (a missing entity entry, or a matrix saved before v0.12, is the verb's level, so old
+matrices mean "all entities" with no data migration). A scope narrows a verb on an entity to the
+scope's tools; any other tool for that entity and verb is `off`. Grants gain the same `entities` key.
+The effective level is the strictest of: the connection's verb, the connection's entity, the grant's
+verb, the grant's entity, the step's approval, the agent's mode and stage (§10.9), and, for a message
+to a person, that person's autonomy for the channel (`docs/plan.md` §1.42). Delete stays off for every
+entity. The client admin tightens per entity; only the operator loosens. A tool without an entity (or
+a connector without `permissionEntities`) is governed by the verb alone, as before.
+
+**Connectors catalog (v0.12).** The operator's view of every registered connector: its status
+(`live`, `beta`, `in_review`, `building`, in `connector_setting`, set by the operator), clients
+connected, tools, errors in the last 24 hours (failed tool calls and connections in `error`), the
+**default access for new clients** (a matrix with entities, applied when a client's connection is
+first made; else the manifest's, else the platform's defaults), and **waiting to connect** (clients
+where it is offered, or an agent needs it, with no connection yet).
+
 Connectors produce raw records, files and tool results. Normalization happens in `packages/core` mappers
 per connector (`mapQboPurchase(raw) → TransactionInput`). The Connections screen lists every connector,
 its status for the tenant, and the tools it gives agents. Tool ids are `<connector>.<entity>.<verb>`
@@ -595,6 +826,24 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 - Rate limits: central throttle per realm with retry/backoff on 429.
 - Verify endpoint shapes, minor version, and current Intuit API terms against Intuit's developer docs
   before coding.
+- **Accounts receivable (v0.12, owner 2026-11-06).** Sync adds `Invoice`, `Customer` and `Payment`
+  (initial sync: customers whole, invoices and payments for 365 days; then CDC as for the rest).
+  Invoices map to `receivable` (§5.5) with their balance and status; payments stay raw records (the
+  evidence) and move their invoices' balance through the invoices' own CDC versions; customers stay raw
+  records and are offered to the directory as an import (never created there on their own). Events
+  `receivable.created`, `receivable.updated`, `receivable.paid` (balance reached zero), not raised for
+  history. Reads: `qbo.invoice.query`, `qbo.customer.query`, `qbo.payment.query`, and
+  `qbo.aging_report` (QuickBooks' A/R aging report, read live, as of a date, with each open invoice and
+  its bucket; sources are the receivables). Write: `qbo.invoice.add_note` (`external`, verb `update`,
+  entity `invoice`, scope `notes_only`): appends a dated line to the invoice's **PrivateNote** only, a
+  sparse update with the SyncToken; the before state is the old note; it can't touch anything else.
+- **Create bill (v0.12, owner 2026-11-06).** `qbo.bill.create` (`external`, verb `create`, entity
+  `bill`, `amount` declared for approver rules): vendor, dates, doc number, lines (account or item,
+  amount; items with qty and unit price), expected total. Refused when proposed and again before
+  writing if the lines don't add up to the total, the vendor isn't the company's, or a bill with the
+  same vendor and doc number exists (synced or found live); QuickBooks' `requestid` comes from the
+  action's key. Behind approval like every write; the default matrix keeps create at `approval`, and
+  the template that uses it starts with approval on (invariant 8). Delete stays off.
 
 ### 6.3 Upload connector
 
@@ -620,6 +869,14 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
   message the client's approver has seen, from that mailbox; replies come back through forwarding.
 - Google's review needs a live homepage and privacy policy on mezonas.com (the Limited Use statement),
   domain verification (done 2026-11-05), a demo video and a reason for the scope.
+- **Confirmed (owner, 2026-11-06): still send-only, no CASA.** Reading mail is forwarding: the client
+  sets a Gmail filter that forwards a label to its Mezonas address. **Writing in the client's voice**
+  learns only from **voice samples**: messages the client pastes into the knowledge base or forwards to
+  its forwarding address with the `+voice` tag, stored as `knowledge_entry(kind='voice_sample')` with
+  whose voice it is. Only that tagged address keeps a body (quoted history cut, at most 4,000
+  characters, card numbers redacted, allowed senders only); ordinary forwarding still keeps none.
+  The built-in skill `writing.draft-in-voice` reads samples with `knowledge.voice_samples` as tool
+  results (data, invariant 9), never from a mailbox.
 
 Later, only if a client needs it (restricted scopes, CASA or Workspace delegation):
 - `gmail.readonly` search and read, `gmail.labels`, `gmail.compose` drafts, with a narrow ingestion
@@ -802,6 +1059,25 @@ Each connection has a daily cap on sign-ins and optional hours. Each session rec
 the actions and screenshots; the client sees a plain summary in the run timeline and can disconnect, which
 deletes the stored login and session at once. The client confirms it owns the account and that the
 site's terms allow automated access; the operator checks the terms before allowing a site.
+
+### 6.11 New connectors (v0.12, design; build order below)
+
+Each is a connector like the others (manifest with `permissionEntities`, tools, vault credentials,
+portal sign-in by the client, approval on every write, delete off), built and tested against a fake,
+registered everywhere and signing in only once its keys are set (`isConfigured`). No new accounts or
+keys are made by a build agent; the owner creates each developer app.
+
+| Order | Connector | Auth and scope | Tools | Depends on |
+|---|---|---|---|---|
+| 1 | `gdrive` Google Drive | Google OAuth, `drive.file` only (files the app creates), in the existing Google project | `drive.file.upload` (`external`, create, entity `file`: a document into a folder the connection made, by a path template such as `Bills/{{yyyy}}/{{MM}}`), `drive.file.list` (read, our files only) | Google consent screen gains the scope (owner) |
+| 2 | `outlook` Outlook | Microsoft identity platform, delegated `Mail.Send`, `offline_access`, `openid email`; no read scope | `outlook.send`, the same input as `email.send` and `gmail.send`; sent once (attempt recorded first, as Gmail); replies come back by forwarding | An Entra app with publisher verification (owner) |
+| 3 | `ramp` Ramp | Ramp OAuth (authorization code) | `ramp.transaction.query`, `ramp.user.query` (reads); `ramp.receipt.upload` (`external`, create, entity `receipt`); event `ramp.transaction.created` from a poll every 15 minutes | A Ramp developer app (owner) |
+| 4 | `hubspot` HubSpot | HubSpot public app OAuth: contacts, companies, deals, notes, tasks; read and write | `hubspot.record.search`, `.get`; `hubspot.record.create`, `.update` (before state, stale check by `updatedAt`), `hubspot.note.create`, `hubspot.task.create`; a directory import source | A HubSpot developer account (owner) |
+| 5 | `bankfeed` bank and card feeds | An aggregator's hosted link flow (Plaid Link or the vendor's equivalent); read-only transactions | `bankfeed.transaction.query`; event `card.charge.created` / `bank.transaction.created` from the vendor's transactions sync; never money movement | **Owner decision:** vendor (Plaid, MX, Finicity, Teller), price per connected account, production review, and whether it is a HIPAA-mode processor |
+| 6 | `slack` Slack | Bot token, `chat:write` to channels the client picks | `slack.message.post` (`external`, create) | Owner said later (v0.8); built only when the owner asks |
+
+Agents never sign in to a bank or card website (blocked tier, §6.10); feeds come only through the
+aggregator's API.
 
 ## 7. Documents capability
 
@@ -1047,14 +1323,109 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
   and publishes.
 - A client's request can be handed to the Builder as the instruction for that client's agent.
 
+**The Builder as a conversation (v0.12).** A **session** (`builder_session`) holds a working bundle
+for one agent (new or existing, template or client agent) or one skill. Each operator turn goes to
+the Builder with the conversation so far, the registries, the automations, the client's people,
+connections and packs, and answers with text and a list of **changes**, each a labelled entry
+(`builder_turn.changes`: "+1 fork, step 4", "~1 step 3 setting · window 3 → 5 days"). Every entry can
+be undone on its own: undo reverts that entry with core's three-way merge (base = the bundle after the
+entry, ours = the working bundle, theirs = the bundle before it), so later entries stay; a conflict
+refuses the undo and says why. Commands in the box are parsed by `packages/threads`' parser:
+`/skill <id> <instruction>` (change that skill's step or this agent's settings for it; the skill's own
+defaults never change from here), `/automation <slug>` (place an automation), `/trigger <kind> …` (add
+or change a trigger). **Closest template:** `bundleSimilarity(a, b)` in core, a deterministic score over
+skills, tools, trigger kinds and the step-kind sequence; shown as "Collections v2 · 62% alike" with an
+offer to fork it instead. **Draft the new skill:** for a gap, the Builder drafts a `SkillDefinition`
+(always `agent` mode, or a rules-first plan written as steps) and, from examples the operator attaches,
+**test cases** with expected answers (§9.10; a client's examples stay that client's cases). **Save as
+automation:** selected steps become an automation draft (§10.7), and the draft agent uses it in their
+place. The guards are unchanged: every write step keeps approval on, new agents are `suggest_only`,
+unknown skills and tools become gaps, ids are made by the server once. Save writes an ordinary draft
+version (`author_type = 'builder'`); nothing is published from a conversation.
+
 ### 9.7 Platform agents (templates kind `platform`, seeded as v1 rows)
 
 | slug | kind | skills |
 | --- | --- | --- |
 | `document-clerk` | platform | `docs.find-support`, `docs.extract` (forked into each client automatically when a client agent needs it) |
 | `coordinator` | platform | `route-ask`, `review` (multi-agent review: collect views, write one summary with disagreements) |
-| `supervisor` | platform | `supervisor.triage`, `supervisor.report`, `supervisor.daily-check` (watches the client's runs, connections, logins, codes and waiting items; reads with `health.*`, asks with `agents.ask`; reports, changes nothing; `docs/plan.md` §1.28) |
+| `supervisor` | platform | **Sloan** from v2 (v0.12, §9.8): `supervisor.triage`, `supervisor.report`, `supervisor.daily-check` (watches the client's runs, connections, logins, codes and waiting items; reads with `health.*`, asks with `agents.ask`; reports; `docs/plan.md` §1.28) plus `account.chat` (the client's conversation, with the `account.*` tools) |
 | `builder` | platform | `draft-agent`, `revise-agent` (back office only; runs outside any client) |
+
+### 9.8 Sloan, the account agent (v0.12)
+
+**Decision: Sloan *is* the supervisor's client face.** One platform template (`slug = supervisor`,
+identity name "Sloan", default service name "Sloan, your account agent"), one fork per client, free by
+the existing billing rule (§1.32 of the plan). Template v2 keeps the supervisor's three watch workflows
+and adds `chat`, started by `thread.message_posted` in an `account` thread. Existing clients get v2 as
+a normal reviewed update (merge), not automatically. // DECISION: one free platform agent per client
+rather than two, so watching and answering share one view of the account and one budget.
+
+- **What it sees:** only what the portal shows its client (invariant 11): agents as services (status,
+  stage, what each is doing now), runs as timelines with their receipts, the Desk and why each item
+  waits (`account.explain_wait`: the facts that made a write need a signature: the step, the matrix,
+  the stage, the person's autonomy, the approver rule), the directory, the knowledge base. Never a
+  bundle, an instruction, a prompt, a cost or the vault; it has no connection bindings, and publishing
+  refuses any connector tool or `external` tool on it.
+- **What it does** (internal tools only, attributed to the person asking; the asking user comes from
+  the thread, never from model input): `account.pause_agent` / `account.resume_agent` (as the client
+  admin's own pause, §11.5; resume only what a client paused); `account.draft_change` (add a signer with
+  limits, edit a person, change a contact) as a Desk item for the client admin to sign, applied by the
+  same code as the portal's routes and refused if it would loosen anything (the approver rules'
+  stricter-only check, invariant 8); `account.pass_to_lead` (a request or a new-agent idea as a
+  `change_request`, linked to the thread); `account.pass_to_agent` (a request to an agent whose message
+  trigger accepts Sloan, §10.8).
+- **Who sees the conversation:** the person who started it, the client admins, and the operators
+  serving the client, the lead first; operators may post as themselves. Sloan's replies are model text
+  in a client thread: the only agent allowed to write one in v0.12, and only through `threads.post`
+  with sources.
+- **Limits:** mode `suggest_only`, memory per client, budget per message (8 steps, $0.30), stage `live`
+  from the start (it writes nothing to a client's tool, §10.9).
+
+### 9.9 Agent KPIs and the client view (v0.12)
+
+A template declares what its client agents show the client, in the bundle (so it is versioned,
+diffed, merged and travels with every fork): `AgentDefinition.clientView?: {kpis: Kpi[], panels:
+Panel[]}`, optional with no default, so older bundles hash the same.
+
+```ts
+Kpi = { id, label: LocalizedText, period: '7d'|'30d'|'month'|'week', format: 'count'|'money'|'percent',
+        measure: Measure }
+Measure = { kind: 'runs', status?: 'succeeded'|'failed'|'any', workflow?: slug }
+        | { kind: 'actions', tool?: toolId, connector?: id, status: 'done' }
+        | { kind: 'sum'|'count', step: stepId, path: 'a.b' /*identifiers only*/, money?: boolean }
+        | { kind: 'ratio', numerator: Measure, denominator: Measure }
+Panel = { id, kind: 'kpis', kpis: kpiId[] } | { id, kind: 'pack_report', pack, report }
+```
+
+KPIs are computed in SQL over the client agent's **live** runs only (`run`, `step_run.output` at the
+path, `external_action`), money as numeric. The portal gets labels and values, never the definition.
+Pack reports keep working as panels. "Items matched on their own" is a ratio of two step-output sums;
+"overcharges caught" a money sum. The Weekly Table and the Table read the same KPIs. In merges,
+`clientView`'s lists are whole values (both sides changing them conflicts).
+
+### 9.10 Test bench and skill tests (v0.12)
+
+**Test cases** are data (`test_case`, §5.5): a name, an input, **fixtures** (the answers each read tool
+gives, by tool and input), the expected output and a **matcher** (`exact`, `subset`, per-field
+tolerances, a money tolerance, or a label field for precision). For a **skill**, a case runs the
+skill's definition at the version under test with a tool port that answers only from the fixtures and
+refuses everything else, writes included: tests "use saved examples only and never touch a client's
+tools". For a **template**, a case is a trigger payload: it runs as a test run of the template's test
+copy in the Sandbox (§10.4), never writing, and compares named step outputs. A **suite run** reports
+pass rate, precision on the case's label field where set (e.g. "same" for matching), and cost per case
+(the operator's; recorded on the suite run, not in a client's usage). **Publishing** a skill with
+`require_tests` is refused unless the latest suite run of that exact version passed every required case
+(422 `tests_failing`); the operator switches the requirement off only with a reason (logged).
+
+**Client data in tests.** A case built from a client's records (the Builder's examples, "add this run
+as a test") carries that client's `tenant_id`: it runs and shows only in that client's scope, never in
+a shared skill's publish gate, and is never copied into a shared case (invariant 1). Shared skills are
+gated on shared cases, written by the operator from synthetic data.
+
+**The agent lab** (back office) lists templates (published, drafts never published, client-only agents),
+each with its clients, versions behind (from "used by"), promote (built, §9.3) and its test bench.
+
 
 ---
 
@@ -1107,6 +1478,32 @@ defaults to the step's, then the agent's, then the client's setting. A `person` 
 checkpoint anywhere else. `client` controls the portal's run timeline: by default
 skill, action, person and notify steps are shown (with `label`, or the step name), and forks, loops and
 waits are hidden.
+
+**v0.12 additions to the workflow schema** (still `schemaVersion: 3`: every addition is optional or a
+new union member, so stored bundles parse and hash the same):
+
+```ts
+'use_automation' { automation: 'slug@version' /*pinned*/, input: Template,
+                   approvals?: { [innerStepId]: Approval } /*client agents only; §10.7*/ }
+'person'  + choices?: [{ value, label: LocalizedText }] /*1–6 quick answers, mode 'ask'*/
+          + assignee may be 'lead' (the client's lead, §4)
+trigger.on adds (§10.8):
+  { type: 'schedule', cron, tz?, skipHolidays?: boolean }
+  { type: 'webhook', hookId, filter?: Rules, dedupeKey?: Template, rateLimit?: { max, per: 'minute'|'hour'|'day' } }
+  { type: 'manual', input: JsonSchema, client?: { canRun: boolean, label?: LocalizedText } }
+  { type: 'message', channels: ('email'|'sms'|'whatsapp'|'command'|'sloan')[], from: PeopleFilter,
+    reply?: { confirm: LocalizedText } }
+  { type: 'handoff', from: { agent: slug, workflow?: slug }, filter?: Rules }
+Workflow + moreTriggers?: Trigger[]    /*other ways to start the same workflow, each with its own id*/
+         + handoff?: { output: Template, sources?: Template }   /*what a successful run passes on*/
+PeopleFilter = { relationships?: string[], tags?: string[], contactIds?: string[],
+                 clientRoles?: ('client_admin'|'client_user')[] }
+```
+
+Each trigger starts one workflow; a workflow may have more than one (Remy's "Charge comes in" starts on
+a new charge and on a texted photo). The run's `trigger` records which one fired (`trigger.id`,
+`trigger.type`); validation types `{{trigger.<path>}}` against every trigger of the workflow: a field
+some triggers lack is typed as optional (it may be empty), never an error.
 
 ### 10.2 Validation (shared by builder and server, in `packages/core`)
 
@@ -1192,7 +1589,116 @@ Clients see a run as a timeline of its client-visible steps: label, status, time
 links to the records and documents it touched (`sources`), approvals and who gave them, and actions taken
 in their systems. No costs, no instructions, no internal steps.
 
+### 10.7 Automations (v0.12)
+
+An **automation** is a reusable, versioned chain of steps, used in a workflow as one step. Rows
+`automation` and `automation_version` (§5.5) follow skills exactly: shared (`tenant_id` null) or written
+for one client, draft → publish → rollback, versions immutable.
+
+```ts
+Automation = { schemaVersion: 1, slug, name, description,
+               input: JsonSchema, output: TemplateObject /*over its own steps*/,
+               steps: Step[] /*any kind except use_automation; no trigger*/,
+               requires: { skills: string[], tools: string[], connectors: string[] } /*computed on save*/ }
+```
+
+- **Decision: a new step kind, `use_automation`**, referencing a **pinned** version (`slug@version`).
+  The use step's `input` is checked against the automation's input schema; its output is the
+  automation's `output`, typed for later steps. Inside, steps read `{{input.<path>}}` and their own
+  earlier steps; nothing outside the use step sees an inner step.
+- **Validation** (core, shared): an automation version validates on its own (as a workflow with
+  `input` in place of `trigger`); a use step validates its input and, at publish, that the agent's
+  bindings cover the automation's connectors. Using an automation brings its skills and tools into the
+  agent's allowed set. No automation inside an automation in v0.12.
+- **Approvals:** inner write steps keep their own setting (on by default, invariant 8). A client
+  agent's use step may set `approvals[innerStepId]`, by the operator only, with the same rule as any
+  step (not required only where the matrix allows `auto` and the mode is `act`).
+- **Executor:** at run load the pinned version's steps are expanded under the use step: node ids
+  `${useStepId}/${innerStepId}` (inside `for_each`, `${stepId}:${index}:${childId}` as today), so names
+  stay unique and durable and a retried run finds them. The use step writes its own `step_run`
+  (`skill_ref = 'automation:<slug>@<version>'`, status from its children); the run view shows it
+  expandable. Idempotency keys use the full node id.
+- **Merges:** the use step is one step with a stable id; `automation`, `input` and `approvals` merge
+  field by field like any step's config; inner steps are not in the bundle, so they never conflict.
+  Moving a client agent to a newer automation version is a field change (a conflict only if both sides
+  changed it).
+- **Usage and health:** "used by" = live versions of templates and client agents that reference it
+  (by scanning bundles, as skills do); the **clean-run rate** = the share of its use steps in live runs
+  of the last 30 days that succeeded with no step retried.
+
+### 10.8 Triggers: six kinds (v0.12)
+
+| Kind | Starts when | Notes |
+|---|---|---|
+| Schedule | A cron in the client's time zone | `skipHolidays`: skips US federal holidays (observed dates, core `holidays/us.ts`) and the client's own dates (`tenant.settings.holidays`). // DECISION: US federal only, owner may add calendars |
+| Event | A platform, connector or pack event (as today) | Filters as rules |
+| Webhook | A delivery to one of the client's inbound hooks (§6.6) | Sugar over `webhook.received` for that hook: rules on the body ("run only if"), `dedupeKey` (a template over the body; the run id is uuid v5 of agent, workflow and the key, so a repeat starts nothing), `rateLimit` (deliveries over it start no run and are counted on the hook) |
+| Manual | A person presses Run | The operator always may; with `client.canRun`, the client admin and signing client users may too, from the portal, with a form generated from `input` (validated with Zod-from-JSON-Schema on the server) |
+| Message | Something is sent to the agent | `email` to the agent's own address; `sms`/`whatsapp` to a number bound as its channel; `command`: `/<agent>` in a client thread (§11.2); `sloan`: a request Sloan passes. Only senders matching `from` (People) start it; anyone else gets a polite fixed reply (to email only when it passes DMARC) and the lead is told. The message is data for step 1: its text through a read tool (`inbound.get`), its attachments as documents; it can't change the agent's rules or access (invariant 9). `reply.confirm` is a fixed template sent within a minute, behind no approval because it goes only to the sender, from the same channel, and says only that it was received |
+| Handoff | Another agent of the same client finishes a live run successfully | The finishing run emits `run.succeeded` with its workflow's `handoff.output` and `sources`; the router starts matching handoff triggers in the same client only, never the same agent, at most 3 handoffs deep (`depth` in the payload) |
+
+**The agent's address** (v0.12): `<agent>.<client label>-<client id in base32>@<EMAIL_FORWARDING_DOMAIN>`
+(`<agent>` is its command name, below), received by the Worker's `email()` like forwarding. The
+prototype's `<agent>@<client>.agents.mezonas.com` needs Email Routing per client subdomain and a
+Cloudflare API token to add them, and sits beside the code service's agent domain; it waits for the
+owner (`docs/plan.md` §7). **The agent's command name**: the first word of its identity name, lower
+case (`/remy`), unique among the client's live agents (else its slug), checked at activation.
+
+**Who may start it** comes from People (`PeopleFilter`), matched on the sender's contact (email, phone,
+WhatsApp) or the posting user's membership. **Last fired** and the guards per trigger are answered from
+`run.trigger` (no new table).
+
+### 10.9 Go-live stages (v0.12, owner 2026-11-06)
+
+A client agent's `stage` (§5.5): **bench** → **trial** → **signoff** → **live**.
+
+| Stage | Runs | Writes | Leaves when |
+|---|---|---|---|
+| bench | Test runs only (`run_status` draft or testing); Sandbox or the client's data, never writing | Never | The activation check passes (bindings, a live version, a passing test run since the last publish) and the operator starts the trial (today's Activate) |
+| trial | Live runs on the client's data | **Every write needs a signature**, whatever the step, matrix or mode say: the gate treats the agent as `suggest_only` | At least `minDays` (default 14) **and** at least `minRuns` (default 25) finished live runs since the trial started (whichever comes later); the operator may change both, logged. Then the hourly pass moves it to signoff |
+| signoff | As trial | As trial | The client admin approves "<agent> going live" on the Desk (a summary: runs, changes made, signed, rejected). A rejection sends it back to trial with the reason, to the lead |
+| live | Live runs | As the step, matrix, grant and mode say | — |
+
+- The stage is read fresh at every write decision (like the matrix), through one core helper
+  `effectiveMode(definition, stage)`, used by the gate, reach out and inbound call answering.
+- **Skips:** the operator may move an agent forward past a stage with a reason (an `agent_change` row
+  `kind: 'stage'` and the audit log); moving back is always allowed. An agent whose live version has
+  no write to a client's tool (Sloan, the supervisor) goes from bench to live with the logged reason
+  "no writes". Agents live before v0.12 are backfilled `live`.
+- A new publish or a merged template update keeps the stage. Billing is unchanged: an agent is billed
+  while `run_status` is active, trial and signoff included (owner may revisit).
+
+### 10.10 Run controls and model calls (v0.12)
+
+- **Retry from the failed step:** a new run (`retry_of`, `resume_from`) of the same version and trigger.
+  Steps before the failed one are not run again: their outputs are copied from the original run
+  (`step_run.status = 'succeeded'`, summary "reused"). For each write step, an action of the original run
+  that was **approved and not done** with the same input (hash) is executed under its **original**
+  idempotency key, its approval carried (`approved_via: retry_of`), if it was signed less than 72 hours
+  ago and the gate still allows it now (matrix, grant, stage, release); otherwise it is proposed again.
+  An action already `done` is never redone. Only failed live runs are retried; the operator retries.
+- **Cancel:** the operator ends a queued, running or waiting run: the Workflow instance is terminated,
+  the run and its open steps become `cancelled`, its open items `expired`, its proposed actions
+  `rejected` ("run cancelled"). An action already `executing` finishes first (the cancel waits for it).
+- **Replay as a test run:** the same version and trigger payload as a **test run in the same client**
+  (never writing). // DECISION: not in the Sandbox: copying a client's payload into another client
+  would move its data across clients (invariant 1). The prototype's "Replay in Sandbox" means this.
+- **Group by error:** failed runs grouped by an error key (`error.key` = tool or step kind + code, written
+  on failure; older runs grouped by `error.code`), with counts, clients and agents.
+- **Saved views:** an operator's named filters for the runs list (`saved_view`).
+- **Model calls:** every model call of a run is a `model_call` row (provider, model, tokens, cost,
+  duration, stop reason) with its request and answer stored in object storage under the client's
+  prefix (card numbers redacted, §16), shown on the back office's run page only, never in the portal.
+- **Run lists** (both surfaces) take one typed filter, `RunFilter` (core): agents, statuses, time range,
+  how it started, who signed, which tool it changed, attempts, cost (operator only), error key, client,
+  template, version. Plain-words questions (§11.6) produce the same filter.
+- **Short ids:** a run is shown as `R-` and the last 6 hex characters of its id, as records are.
+
 ---
+
+> **TODO (resume):** §11.1–§11.7 (Desk, threads and the lead, notifications, the Weekly Table, client
+> controls, search, exports), §13.1 (command center), and the v0.12 updates to §14–§20 are not written
+> yet. Decisions for them are drafted in the design session notes; see `docs/plan.md` "TODO (resume)".
 
 ## 11. Inbox and threads
 
