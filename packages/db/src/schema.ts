@@ -280,6 +280,11 @@ export const skill = pgTable(
     name: text("name").notNull(),
     liveVersionId: uuid("live_version_id").references((): AnyPgColumn => skillVersion.id),
     status: text("status").$type<(typeof SKILL_STATUSES)[number]>().notNull().default("active"),
+    /**
+     * Publishing needs the latest suite run of that version to pass every required case (migration
+     * 0028, ARCHITECTURE §9.10). Switched off only with a reason (logged in `agent_change`).
+     */
+    requireTests: boolean("require_tests").notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
@@ -2600,6 +2605,330 @@ export const receivable = pgTable(
   ],
 );
 
+// ── The connectors catalog (migration 0026, ARCHITECTURE §6.1) ─────────────────────────────────
+
+export const CONNECTOR_STATUSES = ["live", "beta", "in_review", "building"] as const;
+export type ConnectorStatus = (typeof CONNECTOR_STATUSES)[number];
+
+/**
+ * The operator's setting for one registered connector (a connector's manifest `id`): its status in
+ * the catalog, the default access a client's connection starts with when it is first made, and a
+ * note. Operator table like `browser_site` (no client owns a row; RLS on `app.operator`). Updated in
+ * place, never deleted. A connector without a row reads as the platform's defaults.
+ */
+export const connectorSetting = pgTable(
+  "connector_setting",
+  {
+    /** The manifest's `id` (`qbo`, `gmail`…). */
+    connector: text("connector").primaryKey(),
+    status: text("status").$type<ConnectorStatus>().notNull(),
+    /** A matrix with entities (core's `PermissionMatrix`); null: the manifest's, else the platform's. */
+    defaultPermissions: json<PermissionMatrix>("default_permissions"),
+    note: text("note").notNull().default(""),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    check("connector_setting_status_check", oneOf(t.status, CONNECTOR_STATUSES)),
+    check("connector_setting_connector_check", sql`length(${t.connector}) between 1 and 64`),
+  ],
+);
+
+// ── Automations (migration 0027, ARCHITECTURE §10.7) ────────────────────────────────────────────
+// Rows follow skills exactly: shared (tenant_id null, operator only) or written for one client.
+
+/**
+ * A reusable, versioned chain of steps, used in a workflow as one `use_automation` step. `slug` is
+ * unique among the shared automations and within each client (`shared:<slug>` for a shared one
+ * copied into a client).
+ */
+export const automation = pgTable(
+  "automation",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    liveVersionId: uuid("live_version_id").references((): AnyPgColumn => automationVersion.id),
+    status: text("status").$type<(typeof SKILL_STATUSES)[number]>().notNull().default("active"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // Nulls not distinct: shared automations (tenant_id null) are unique among themselves too.
+    unique("automation_tenant_slug_key").on(t.tenantId, t.slug).nullsNotDistinct(),
+    unique("automation_id_tenant_key").on(t.id, t.tenantId),
+    check("automation_status_check", oneOf(t.status, SKILL_STATUSES)),
+  ],
+);
+
+/**
+ * One version of an automation: `definition` is core's `Automation` (input schema, steps, output,
+ * requires). Immutable except `status` (trigger), like `skill_version`.
+ */
+export const automationVersion = pgTable(
+  "automation_version",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    automationId: uuid("automation_id").notNull(),
+    version: integer("version").notNull(),
+    definition: json("definition").notNull(),
+    definitionHash: text("definition_hash").notNull(),
+    status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("draft"),
+    changeNote: text("change_note"),
+    authorId: uuid("author_id").references(() => appUser.id),
+    parentVersionId: uuid("parent_version_id").references((): AnyPgColumn => automationVersion.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("automation_version_automation_version_key").on(t.automationId, t.version),
+    // A version belongs to its automation's tenant (enforced whenever tenant_id is set).
+    foreignKey({
+      name: "automation_version_automation_fk",
+      columns: [t.automationId, t.tenantId],
+      foreignColumns: [automation.id, automation.tenantId],
+    }),
+    foreignKey({
+      name: "automation_version_automation_id_fk",
+      columns: [t.automationId],
+      foreignColumns: [automation.id],
+    }),
+    index("automation_version_tenant_idx").on(t.tenantId),
+    check("automation_version_status_check", oneOf(t.status, VERSION_STATUSES)),
+    check("automation_version_version_check", sql`${t.version} >= 1`),
+  ],
+);
+
+// ── The test bench (migration 0028, ARCHITECTURE §9.10) ─────────────────────────────────────────
+// Shared cases and their runs have tenant_id null (operator only); a case built from a client's
+// records carries that client's id and never runs or shows outside it (CLAUDE.md invariant 1).
+
+export const TEST_TARGET_KINDS = ["skill", "template"] as const;
+export type TestTargetKind = (typeof TEST_TARGET_KINDS)[number];
+export const TEST_CASE_SOURCES = ["manual", "builder", "run"] as const;
+export const TEST_SUITE_RUN_STATUSES = ["running", "done", "failed"] as const;
+export const TEST_CASE_RESULT_STATUSES = ["pass", "fail", "error"] as const;
+
+/**
+ * One saved example for a skill or a template: the input (a trigger payload for a template), the
+ * answers read tools give (`fixtures`), the expected output and how to compare (`matcher`, core's
+ * test bench schemas). Edited in place; archived, never deleted.
+ */
+// DECISION: `target_id` (and a suite run's `version_id`) has no foreign key: it names a skill or a
+// template by `target_kind`, and a client's case may target a shared skill or a template, whose
+// rows have no client. The routes check the target exists in the session's scope.
+export const testCase = pgTable(
+  "test_case",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    targetKind: text("target_kind").$type<TestTargetKind>().notNull(),
+    /** `skill.id` or the template's `agent.id`. */
+    targetId: uuid("target_id").notNull(),
+    name: text("name").notNull(),
+    input: json<unknown>("input").notNull(),
+    fixtures: json<unknown>("fixtures").notNull().default([]),
+    expected: json<unknown>("expected").notNull(),
+    matcher: json("matcher").notNull(),
+    /** A required case must pass for the publish gate. */
+    required: boolean("required").notNull().default(true),
+    source: text("source").$type<(typeof TEST_CASE_SOURCES)[number]>().notNull().default("manual"),
+    /** The run, message or Builder turn the case came from. */
+    sourceRef: text("source_ref"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    archivedAt: ts("archived_at"),
+  },
+  (t) => [
+    unique("test_case_id_tenant_key").on(t.id, t.tenantId),
+    index("test_case_target_idx").on(t.targetKind, t.targetId).where(sql`${t.archivedAt} is null`),
+    index("test_case_tenant_idx").on(t.tenantId),
+    check("test_case_target_kind_check", oneOf(t.targetKind, TEST_TARGET_KINDS)),
+    check("test_case_source_check", oneOf(t.source, TEST_CASE_SOURCES)),
+    check("test_case_name_check", sql`length(trim(${t.name})) between 1 and 200`),
+  ],
+);
+
+/**
+ * One run of a target's cases at one version (`skill_version.id` or the template's
+ * `agent_version.id`): counts, metrics (`{passRate, precision?, costPerCase}`) and cost, the
+ * operator's (never a client's usage). Updated while running; never deleted.
+ */
+export const testSuiteRun = pgTable(
+  "test_suite_run",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    targetKind: text("target_kind").$type<TestTargetKind>().notNull(),
+    targetId: uuid("target_id").notNull(),
+    versionId: uuid("version_id").notNull(),
+    status: text("status")
+      .$type<(typeof TEST_SUITE_RUN_STATUSES)[number]>()
+      .notNull()
+      .default("running"),
+    total: integer("total").notNull().default(0),
+    passed: integer("passed").notNull().default(0),
+    failed: integer("failed").notNull().default(0),
+    metrics: json("metrics").notNull().default({}),
+    costUsd: usd("cost_usd"),
+    startedBy: uuid("started_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    finishedAt: ts("finished_at"),
+  },
+  (t) => [
+    unique("test_suite_run_id_tenant_key").on(t.id, t.tenantId),
+    // The publish gate: the latest suite run of a version.
+    index("test_suite_run_version_idx").on(t.targetKind, t.versionId, t.createdAt),
+    index("test_suite_run_target_idx").on(t.targetKind, t.targetId, t.createdAt),
+    index("test_suite_run_tenant_idx").on(t.tenantId),
+    check("test_suite_run_target_kind_check", oneOf(t.targetKind, TEST_TARGET_KINDS)),
+    check("test_suite_run_status_check", oneOf(t.status, TEST_SUITE_RUN_STATUSES)),
+    check(
+      "test_suite_run_counts_check",
+      sql`${t.total} >= 0 and ${t.passed} >= 0 and ${t.failed} >= 0 and ${t.passed} + ${t.failed} <= ${t.total} and ${t.costUsd} >= 0`,
+    ),
+    check(
+      "test_suite_run_finished_check",
+      sql`(${t.status} = 'running') = (${t.finishedAt} is null)`,
+    ),
+  ],
+);
+
+/** One case's result in a suite run: what it got and the difference. Insert only (trigger). */
+export const testCaseResult = pgTable(
+  "test_case_result",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    suiteRunId: uuid("suite_run_id").notNull(),
+    testCaseId: uuid("test_case_id").notNull(),
+    status: text("status").$type<(typeof TEST_CASE_RESULT_STATUSES)[number]>().notNull(),
+    got: json<unknown>("got"),
+    diff: json<unknown>("diff"),
+    costUsd: usd("cost_usd"),
+    /** A template case's test run. */
+    runId: uuid("run_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("test_case_result_case_key").on(t.suiteRunId, t.testCaseId),
+    // Same client as its suite run and case (enforced whenever tenant_id is set), and existing.
+    foreignKey({
+      name: "test_case_result_suite_run_fk",
+      columns: [t.suiteRunId, t.tenantId],
+      foreignColumns: [testSuiteRun.id, testSuiteRun.tenantId],
+    }),
+    foreignKey({
+      name: "test_case_result_suite_run_id_fk",
+      columns: [t.suiteRunId],
+      foreignColumns: [testSuiteRun.id],
+    }),
+    foreignKey({
+      name: "test_case_result_case_fk",
+      columns: [t.testCaseId, t.tenantId],
+      foreignColumns: [testCase.id, testCase.tenantId],
+    }),
+    foreignKey({
+      name: "test_case_result_case_id_fk",
+      columns: [t.testCaseId],
+      foreignColumns: [testCase.id],
+    }),
+    // DECISION: a client's result points at a run of that client only. A shared case's run is a
+    // test run of the template's copy in the Sandbox client, so a shared result's run_id is not
+    // tied by a foreign key (one to run(id) alone would also block purging the Sandbox).
+    foreignKey({
+      name: "test_case_result_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    index("test_case_result_tenant_idx").on(t.tenantId),
+    index("test_case_result_case_idx").on(t.testCaseId, t.createdAt),
+    check("test_case_result_status_check", oneOf(t.status, TEST_CASE_RESULT_STATUSES)),
+    check("test_case_result_cost_check", sql`${t.costUsd} >= 0`),
+  ],
+);
+
+// ── Run oversight (migration 0029, ARCHITECTURE v0.13 §5.6, §10.11) ────────────────────────────
+
+export const OVERSIGHT_CAUSES = ["failed", "checkpoint"] as const;
+export const OVERSIGHT_ACTIONS = ["continue", "retry", "retry_with", "ask", "stop"] as const;
+export type OversightAction = (typeof OVERSIGHT_ACTIONS)[number];
+
+/**
+ * One decision the run's own agent took about a step that failed or reached a checkpoint: what it
+ * did (`action`), its diagnosis (`note`, operator only), the corrected input for `retry_with`, a
+ * lasting fix it proposes, the records it relied on, and what the review cost. `seq` counts from 1
+ * per step node within the run. Back office only (no portal route returns it). Insert only
+ * (grants and trigger): the inbox item an `ask` or a proposal opens is created first.
+ */
+export const oversightDecision = pgTable(
+  "oversight_decision",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    stepRunId: uuid("step_run_id").notNull(),
+    nodeId: text("node_id").notNull(),
+    seq: integer("seq").notNull(),
+    cause: text("cause").$type<(typeof OVERSIGHT_CAUSES)[number]>().notNull(),
+    action: text("action").$type<OversightAction>().notNull(),
+    /** `retry_with` only: the step's input before and after the correction. */
+    inputBefore: json<unknown>("input_before"),
+    inputAfter: json<unknown>("input_after"),
+    note: text("note").notNull(),
+    /** `{summary, change}`: a lasting fix, proposed to the operator. */
+    proposal: json<{ summary: string; change: unknown }>("proposal"),
+    inboxItemId: uuid("inbox_item_id"),
+    /** Record ids the decision relied on (CLAUDE.md invariant 10). */
+    sources: json<string[]>("sources").notNull().default([]),
+    model: text("model").notNull(),
+    costUsd: usd("cost_usd"),
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    agentVersionId: uuid("agent_version_id")
+      .notNull()
+      .references(() => agentVersion.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("oversight_decision_seq_key").on(t.runId, t.nodeId, t.seq),
+    foreignKey({
+      name: "oversight_decision_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "oversight_decision_step_run_fk",
+      columns: [t.stepRunId, t.tenantId],
+      foreignColumns: [stepRun.id, stepRun.tenantId],
+    }),
+    foreignKey({
+      name: "oversight_decision_inbox_item_fk",
+      columns: [t.inboxItemId, t.tenantId],
+      foreignColumns: [inboxItem.id, inboxItem.tenantId],
+    }),
+    index("oversight_decision_step_run_idx").on(t.stepRunId),
+    index("oversight_decision_tenant_idx").on(t.tenantId, t.createdAt),
+    check("oversight_decision_cause_check", oneOf(t.cause, OVERSIGHT_CAUSES)),
+    check("oversight_decision_action_check", oneOf(t.action, OVERSIGHT_ACTIONS)),
+    check("oversight_decision_seq_check", sql`${t.seq} >= 1`),
+    check(
+      "oversight_decision_input_check",
+      sql`(${t.action} = 'retry_with') = (${t.inputAfter} is not null) and (${t.inputBefore} is null or ${t.action} = 'retry_with')`,
+    ),
+    check("oversight_decision_note_check", sql`length(${t.note}) between 1 and 2000`),
+    check("oversight_decision_sources_check", sql`jsonb_typeof(${t.sources}) = 'array'`),
+    check(
+      "oversight_decision_amounts_check",
+      sql`${t.tokensIn} >= 0 and ${t.tokensOut} >= 0 and ${t.costUsd} >= 0`,
+    ),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -2658,6 +2987,12 @@ export const TENANT_TABLES = [
   "thread_read",
   "model_call",
   "receivable",
+  "automation",
+  "automation_version",
+  "test_case",
+  "test_suite_run",
+  "test_case_result",
+  "oversight_decision",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -2670,7 +3005,17 @@ export const OPERATOR_TABLES = [
   "agent_change",
   "feedback",
   "audit_event",
+  "automation",
+  "automation_version",
+  "test_case",
+  "test_suite_run",
+  "test_case_result",
 ] as const satisfies readonly TenantTable[];
 
 /** Global tables only operator sessions may read or write (row-level security on `app.operator`). */
-export const OPERATOR_ONLY_TABLES = ["browser_site", "browser_site_version", "saved_view"] as const;
+export const OPERATOR_ONLY_TABLES = [
+  "browser_site",
+  "browser_site_version",
+  "saved_view",
+  "connector_setting",
+] as const;

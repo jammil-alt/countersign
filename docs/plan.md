@@ -1167,7 +1167,7 @@ From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a p
 | Audit export | ARCHITECTURE §11.7; streamed CSV, at most 366 days per request. |
 | Files | Owns the `clientView` field in `packages/core/src/schemas/agent.ts`, `packages/core/src/kpi/`, `packages/core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/client-view.ts`, `apps/api/src/billing/credits-out.ts` and one call in `billing/jobs.ts`, `apps/api/src/routes/audit-export.ts`. |
 
-### 1.51 The Builder as a conversation (W3-A, M28; migration 0029)
+### 1.51 The Builder as a conversation (W3-A, M28; migration 0030)
 
 | Topic | Decision |
 |---|---|
@@ -1179,7 +1179,7 @@ From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a p
 | New skill | `draft-skill` beside `draft-agent`: a `SkillDefinition` draft and test cases from attached examples (W2-C's `test_case`; a client's examples carry its id). |
 | Files | Owns `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `packages/core/src/api/builder.ts`, `packages/core/src/bundle/similarity.ts`. |
 
-### 1.52 New connectors (W3-B, M29; migration 0030 spare, likely unused)
+### 1.52 New connectors (W3-B, M29; migration 0031 spare, likely unused)
 
 | Topic | Decision |
 |---|---|
@@ -1219,7 +1219,7 @@ came from the Wave 1 migrations PR.
 | Cost | Nothing new: W1-E's `model_call` rows already carry the model, and step cost already rolls up. |
 | Merge | `model` is a step field; three-way merge handles it like `input`. |
 
-### 1.54 Run oversight (W2-I, M31–M32; migration 0031; ARCHITECTURE v0.13 §10.11, §5.6)
+### 1.54 Run oversight (W2-I, M31–M32; migration 0029; ARCHITECTURE v0.13 §10.11, §5.6)
 
 | Topic | Decision |
 |---|---|
@@ -1235,7 +1235,7 @@ came from the Wave 1 migrations PR.
 | Proposals | Operator inbox item `kind: 'review'`, `subject: 'oversight_proposal'`, `payload.fingerprint` = agent, workflow, node and the proposal's normalised summary, so an open one is not proposed twice (as §1.28's findings). |
 | Client words | Core's `i18n/oversight.ts`, six languages, one line per action ("Tried again", "Corrected {field} and tried again", "Asked {name}", "Stopped"); the portal timeline shows these, never `note`. Contract test: no portal route returns `oversight_decision` fields or model names. |
 | Sloan | `run.failed` gains an optional `diagnosis` (the last decision's note, operator side only). Sloan's triage reading it is a follow-up on W2-D's files, after both merge. |
-| Table | Migration 0031 in its own PR: `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
+| Table | Migration 0029, with Wave 2's other migrations in one PR (`claude/w2-migrations`; §8.3): `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
 
 ---
 
@@ -1788,7 +1788,7 @@ validation.
 
 ### M31: Run oversight on failures (W2-I, §1.54)
 
-Work: migration 0031 (own PR); `oversight` on the definition and `review` on steps; the decision schema;
+Work: migration 0029 (the Wave 2 migrations PR); `oversight` on the definition and `review` on steps; the decision schema;
 `OversightPort` and the executor hook for failures; `oversee.ts`; the log; limits; ask and proposal
 items; client words; the run view's `oversight`; `run.failed`'s `diagnosis`.
 
@@ -1977,9 +1977,16 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0026 | W2-A | `connector_setting` |
 | 0027 | W2-B | `automation`, `automation_version` |
 | 0028 | W2-C | `test_case`, `test_suite_run`, `test_case_result`, `skill.require_tests` |
-| 0029 | W3-A | `builder_session`, `builder_turn` |
-| 0030 | spare (W3-B, if a connector needs one) | |
-| 0031 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
+| 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
+| 0030 | W3-A | `builder_session`, `builder_turn` |
+| 0031 | spare (W3-B, if a connector needs one) | |
+
+Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
+were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
+written as 0029, the next number after 0028: the journal's tags must ascend in the order
+migrations merge (`packages/db/src/migrations.test.ts`), and Wave 2 merges before Wave 3, so a gap
+left for 0029–0030 could never be filled. The Builder's tables move from 0029 to 0030 and the spare
+from 0030 to 0031.
 
 The exports (data export and accountant export, running outside the waves) needed no migration.
 
@@ -2006,10 +2013,10 @@ The exports (data export and accountant export, running outside the waves) neede
 | W2-F | Command center, search, plain-words questions (M26) | none | `apps/api/src/routes/{command-center,search}.ts`, `apps/api/src/{search,runs-ask}/`, `core/src/api/{command-center,search,runs-ask}.ts` | W1-E (`RunFilter`), W1-H |
 | W2-G | KPIs and client view, credits, the client's audit export (M27) | none | `clientView` in `core/src/schemas/agent.ts`, `core/src/kpi/`, `core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/{client-view,audit-export}.ts`, `apps/api/src/billing/credits-out.ts` | W1-A, W1-B, W1-H |
 | W2-H | Task skills and a model per step (M30, v0.13) | none | `core/src/schemas/{workflow,skill}.ts` (its blocks), the step-model check in `validate.ts`, the resolution in `agents/src/runtime/model.ts` and the `task` prompt in `run-agent.ts`, the Skills library's mode and model in `ops-skills.ts` (one block, after W2-C's publish gate), `apps/api/src/routes/ops-models.ts`, `core/src/api/models.ts` | W1-E |
-| W2-I | Run oversight (M31–M32, v0.13) | 0031 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
+| W2-I | Run oversight (M31–M32, v0.13) | 0029 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
 | **Wave 3** | | | | |
-| W3-A | The Builder as a conversation (M28) | 0029 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
-| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0030 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| W3-A | The Builder as a conversation (M28) | 0030 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
+| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0031 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
 
 **Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
 
@@ -2122,15 +2129,15 @@ steps as an override, one resolution function used by `run-agent.ts` and `planne
 skills and steps with known ids passed in, the Skills library's mode and model, `GET /api/ops/models`, and the run view's per-step model. No migration, no UI
 beyond what breaks. Small; start as soon as W1-E merges. Done when M30's check holds.
 
-**W2-I: Run oversight (M31, then M32; §1.54).** ARCHITECTURE §10.11, §5.6. Migration 0031 in its own PR
-first. Then the decision schema, `oversight` and `review`, `OversightPort` with the executor hook (one
+**W2-I: Run oversight (M31, then M32; §1.54).** ARCHITECTURE §10.11, §5.6. Migration 0029 (the Wave 2
+migrations PR) first. Then the decision schema, `oversight` and `review`, `OversightPort` with the executor hook (one
 block, after W1-E; agree the order with W2-B, which touches the executor for expansion), `oversee.ts`
 on the fake model, the write check before any retry, limits, ask and proposal items, client words in
 six languages, the run view and `GET /api/ops/oversight`. M31 (failures) ends green and merges before
 M32 (checkpoints) starts. Extend the API e2e: a failing lookup is corrected and the run finishes.
 Done when M31's and M32's checks hold.
 
-**W3-A: The Builder as a conversation (M28, §1.51).** ARCHITECTURE §9.6. Migration 0029; sessions,
+**W3-A: The Builder as a conversation (M28, §1.51).** ARCHITECTURE §9.6. Migration 0030; sessions,
 turns, per-change undo by merge, `/skill`, `/automation`, `/trigger`, similarity, draft-skill with
 cases, save as automation. Drafts start with `oversight.review: 'failures'` and may set step models
 (v0.13). Done when M28's check holds.

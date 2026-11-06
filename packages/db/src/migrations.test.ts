@@ -177,8 +177,21 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "thread_read",
       "model_call",
       "receivable",
+      // Wave 2 (0026–0029): nothing gets DELETE either.
+      "automation",
+      "automation_version",
+      "test_case",
+      "test_suite_run",
+      "test_case_result",
+      "oversight_decision",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
+    // Insert only (0028, 0029); a version's status changes (0027), like skill_version's.
+    expect(await can("test_case_result", "UPDATE")).toBe(false);
+    expect(await can("oversight_decision", "UPDATE")).toBe(false);
+    for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
     }
     expect(await can("model_call", "UPDATE")).toBe(false);
     for (const table of [
@@ -214,6 +227,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
     expect(await can("saved_view", "UPDATE")).toBe(true);
+    // The connectors catalog (0026): settings change in place, never deleted.
+    expect(await can("connector_setting", "UPDATE")).toBe(true);
+    expect(await can("connector_setting", "DELETE")).toBe(false);
     // A synced transaction's lines mirror the tool's current lines (0015, QuickBooks sync); the
     // versions behind them stay in raw_record.
     expect(await can("transaction_line", "DELETE")).toBe(true);
