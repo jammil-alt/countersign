@@ -40,6 +40,40 @@ describe("parseCommand", () => {
   });
 });
 
+describe("long input (no polynomial backtracking)", () => {
+  const quick = (fn: () => unknown) => {
+    const started = Date.now();
+    fn();
+    return Date.now() - started;
+  };
+
+  it("lowers a 100k-dash name quickly", () => {
+    const dashes = "-".repeat(100_000);
+    expect(quick(() => commandWord(dashes))).toBeLessThan(200);
+    expect(commandWord(dashes)).toBe("");
+    expect(quick(() => commandWord(`a${dashes}b`))).toBeLessThan(200);
+    expect(commandWord(`--Remy--`)).toBe("remy");
+    expect(quick(() => firstName(dashes))).toBeLessThan(200);
+  });
+
+  it("parses a 100k-whitespace message quickly", () => {
+    const spaces = " \t\n".repeat(33_334);
+    for (const text of [
+      spaces,
+      `/remy${spaces}`,
+      `/remy${spaces}x`,
+      `/${spaces}`,
+      `/remy-${"-".repeat(100_000)}`,
+    ]) {
+      expect(quick(() => parseCommand(text))).toBeLessThan(200);
+    }
+    expect(parseCommand(spaces)).toBeNull();
+    expect(parseCommand(`/remy${spaces}`)).toEqual({ name: "remy", args: "" });
+    expect(parseCommand(`/remy${spaces}x`)).toEqual({ name: "remy", args: "x" });
+    expect(quick(() => firstName(spaces))).toBeLessThan(200);
+  });
+});
+
 describe("command names", () => {
   it("lowers a first name to a word", () => {
     expect(commandWord(firstName("Rémy Dupont"))).toBe("remy");

@@ -11,27 +11,38 @@ export interface ParsedCommand {
 // DECISION: a command word is letters, digits, dashes, and the dots, colons and underscores of a
 // skill id (`docs.extract`, `custom:intake`), ending at whitespace or the end of the message.
 // `/path/to`, `/ hello` and `//x` are plain text, so a pasted path never becomes a command.
-const COMMAND = /^\/([A-Za-z0-9][A-Za-z0-9_.:-]{0,99})(?=\s|$)\s*([\s\S]*)$/;
+// Only the word is matched (bounded, anchored); the rest is sliced off and trimmed, so no regex
+// runs over the message's length (no backtracking on long text).
+const COMMAND = /^\/([A-Za-z0-9][A-Za-z0-9_.:-]{0,99})(?=\s|$)/;
 
 /** `/remy hello` → `{name: "remy", args: "hello"}`; anything else → null. */
 export function parseCommand(text: string): ParsedCommand | null {
-  const m = COMMAND.exec(text.trimStart());
+  const start = text.trimStart();
+  const m = COMMAND.exec(start);
   if (!m) return null;
-  return { name: (m[1] as string).toLowerCase(), args: (m[2] ?? "").trim() };
+  return { name: (m[1] as string).toLowerCase(), args: start.slice(m[0].length).trim() };
 }
+
+/** Longest name `commandWord` reads: a first name, never a long text. */
+const COMMAND_WORD_INPUT_MAX = 256;
 
 /**
  * A name lowered to a command word: accents dropped, anything but letters, digits and dashes
  * removed. "Rémy" → "remy"; "Ana-Lú" → "ana-lu". Empty when nothing is left.
  */
 export function commandWord(name: string): string {
-  return name
+  const word = name
+    .slice(0, COMMAND_WORD_INPUT_MAX)
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
+    .replace(/[^a-z0-9-]/g, "");
+  // Leading and trailing dashes trimmed by index: linear, with no `-+$` to backtrack on.
+  let from = 0;
+  let to = word.length;
+  while (from < to && word[from] === "-") from++;
+  while (to > from && word[to - 1] === "-") to--;
+  return word.slice(from, to).slice(0, 64);
 }
 
 /** The first word of a name ("Pia Lopez" → "Pia"); the whole name when it has one word. */
