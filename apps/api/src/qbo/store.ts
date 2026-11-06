@@ -37,6 +37,7 @@ import { attach, DocumentError, storeDocument } from "@countersign/documents";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { deleteReceivable, upsertReceivable } from "./receivables";
+import { cursorKeepingClaim } from "./sync-cursor";
 
 export interface DownloadedFile {
   bytes: Uint8Array;
@@ -185,7 +186,8 @@ export async function storeQboPage(
   }
   await tx
     .update(connection)
-    .set({ syncCursor: input.cursor, lastSyncAt: input.now })
+    // v0.12 W1-H: the sync claim (running, pending) stays beside the cursor.
+    .set({ syncCursor: cursorKeepingClaim(input.cursor, input.now), lastSyncAt: input.now })
     .where(and(eq(connection.id, connectionId), eq(connection.tenantId, tenantId)));
   return out;
 }

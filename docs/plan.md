@@ -1167,7 +1167,7 @@ From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a p
 | Audit export | ARCHITECTURE §11.7; streamed CSV, at most 366 days per request. |
 | Files | Owns the `clientView` field in `packages/core/src/schemas/agent.ts`, `packages/core/src/kpi/`, `packages/core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/client-view.ts`, `apps/api/src/billing/credits-out.ts` and one call in `billing/jobs.ts`, `apps/api/src/routes/audit-export.ts`. |
 
-### 1.51 The Builder as a conversation (W3-A, M28; migration 0029)
+### 1.51 The Builder as a conversation (W3-A, M28; migration 0030)
 
 | Topic | Decision |
 |---|---|
@@ -1179,7 +1179,7 @@ From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a p
 | New skill | `draft-skill` beside `draft-agent`: a `SkillDefinition` draft and test cases from attached examples (W2-C's `test_case`; a client's examples carry its id). |
 | Files | Owns `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `packages/core/src/api/builder.ts`, `packages/core/src/bundle/similarity.ts`. |
 
-### 1.52 New connectors (W3-B, M29; migration 0030 spare, likely unused)
+### 1.52 New connectors (W3-B, M29; migration 0031 spare, likely unused)
 
 | Topic | Decision |
 |---|---|
@@ -1187,6 +1187,20 @@ From the coordinator, 2026-11-06, after #102. The fifth gap (running live on a p
 | Build | Each in `packages/connectors/src/<id>/` with `NOTES.md` (facts to verify), a fake in `testing`, manifest with entities, registration in `apps/api/src/platform.ts` (one line each), portal sign-in through the generic OAuth routes. |
 | Drive | The connection creates its folder (`Mezonas` + the client's chosen name) at sign-in and keeps its id in `config`; `drive.file.upload` takes a document id and a path template; before state: whether a file of that name exists in the target folder. |
 | Outlook | Same input and once-only rules as `gmail.send` (§1.31); Graph `sendMail` takes no idempotency key, so the attempt is recorded first. |
+
+### Platform fixes (W1-H)
+
+The gaps the API end-to-end test (#102) found, built as stream W1-H (ARCHITECTURE v0.12 §6.2, §8, §13, §14; the design's §1.43 and M20). Migration 0018 (#105) adds the reading's cost columns and `usage_platform_daily`; this stream writes no migration.
+
+| Topic | Decision |
+|---|---|
+| Dispatch after commit | Every dispatcher **claims** its events before routing them: `claimUndispatched` in `packages/senses` reads them `for update skip locked` within one client's transaction, and the dispatcher matches replies, writes the run rows and stamps `dispatched_at` in that same transaction; instances start after it commits. So the after-commit dispatch and the cron's sweep never take the same event: the second finds it locked (skips) or stamped. A run whose instance can't start gives its event back (`releaseDispatched`) for the sweep; starting it again is harmless (deterministic run ids). Collected rows are re-read under the claim, so an event from a transaction that rolled back starts nothing. // DECISION: a row lock, not a lease column (no migration; a dispatcher that dies before committing leaves the events as they were). |
+| Who dispatches | `packages/senses` gains a per-transaction collector (`EmittedEvents`, `collectEmitted(tx)`, or `emit(…, { collect })` where the transaction is opened out of reach). Requests already dispatched after commit. Now also: background reading (each document's read, failed and linked events, `extractInBackground`), a sync's connection-attention event (with its page's), each step of a run (`dispatchingRunner`: after each step, and before a wait or sleep), and the end of the cron's tenant pass (the client's events of the last minute, `{ newerThanSeconds: 60 }`, since the pass opens its transactions in many places). The sweep stays: events 30 s and older. |
+| Reading costs | Each extraction writes its tokens (uncached + cache writes + cache reads in, as a step counts them) and cost (4 places, half up; 0 for a model with no price) on its `doc_extraction` row at insert. The rollup (`rollupUsageDaily`, which every caller already uses) also recomputes `usage_platform_daily` from extractions with no agent version; a day with none writes no row. Background reading rolls its day up right after it reads, and the hourly sweep covers it. `GET /api/ops/usage` adds that usage to the total and each client's row and answers it as `background` (absent when narrowed to an agent or a template, which it is no part of). Credits (`dailyTotals` in `apps/api/src/billing/ledger.ts`) add `usage_platform_daily`'s same-named measures day by day, as decimals. // DECISION: a background reading that fails writes no row, so its model call is not counted (rows are immutable; failures are rare). |
+| An agent's documents | `usage_daily.documents` counts the distinct documents an agent's versions extracted plus those its live runs' steps cite in `sources` (a document id, or an extraction's), so the Bill clerk working on an upload read in the background counts it. |
+| Portal records list | `GET /api/records?kind=&q=&offset=&limit=` (client roles): the back office's list (§1.16, `listRecords`) for the client's own records in the portal's one-client transaction, with the same shapes. No `source` filter (the design's query); the rows still name their source. `receivables` joins when W1-F's receivables land. The portal's `/records` page (sidebar: Records) lists transactions, vendors and items with the ops list's table classes, a search and pages, in the portal's six languages (new strings need the fluent speaker's review). Supersedes §1.16's "The portal has no list". |
+| Sync now | One sync of a QuickBooks connection at a time. The claim is `sync_cursor.running` (`{ instanceId, at, reason }`), taken under the connection row's lock; an ask while one runs sets `sync_cursor.pending` and answers `queued` (the operator's route: 202, `{ started: false, queued: true }`); QboSyncWorkflow's last step lets go, or claims and starts one more instance for the pending ask (a retried last step starts the same one). Each stored page keeps the claim and moves its `at`. A "now" sync (operator, new connection, the follow-on) gets a fresh id `qbo-<connection>-now-<uuid v7>`; cron and webhook keep their slot ids, and a slot the engine has seen lets the claim go as before. // DECISION: hyphens, not ARCHITECTURE's `:` (Workflows instance ids take letters, digits, `-` and `_`). // DECISION: a claim with no stored page for 30 minutes is taken as dead (a page step's timeouts and retries fit inside it); a sync that fails still hands on in its last step. |
+| Files outside the stream's own | Small, marked `// v0.12 W1-H` blocks: `apps/api/src/qbo/{instances,store,workflow,sync}.ts` (instance naming, keeping the claim, the last step, the attention event's dispatch), `apps/api/src/runs/execute.ts` (the step runner), `apps/api/src/reach/replies.ts` (`matchRepliesIn` for the claim's transaction), `apps/api/src/routes/usage.ts` and `packages/core/src/api/{usage,qbo}.ts` (the `background` series, `queued`), `packages/agents/src/log/usage.ts` (the rollup lives there, not in `packages/db/src/queries.ts`). |
 
 ### QuickBooks AR and create bill (W1-F)
 
@@ -1222,7 +1236,7 @@ came from the Wave 1 migrations PR.
 | Builder check | The browser's `validateLikeServer` passes no model list, so an unknown id is caught on save (the server passes `knownModelIds()` in the registry's publish and lineage checks and in `POST /api/ops/workflows/validate`). |
 | Built (2026-11-06) | Everything above, on `claude/w2h-step-models`, stacked on the v0.13 design PR, with tests at every layer (schema, validation, merge, resolution, the runtime against Postgres, the route). After W1-E merged: `GET /api/ops/runs/:id` gives each step its `models` (distinct, from its `model_call` rows), and task skills' calls are recorded like any other (same loop, same `onCall`). |
 
-### 1.54 Run oversight (W2-I, M31–M32; migration 0031; ARCHITECTURE v0.13 §10.11, §5.6)
+### 1.54 Run oversight (W2-I, M31–M32; migration 0029; ARCHITECTURE v0.13 §10.11, §5.6)
 
 | Topic | Decision |
 |---|---|
@@ -1238,7 +1252,7 @@ came from the Wave 1 migrations PR.
 | Proposals | Operator inbox item `kind: 'review'`, `subject: 'oversight_proposal'`, `payload.fingerprint` = agent, workflow, node and the proposal's normalised summary, so an open one is not proposed twice (as §1.28's findings). |
 | Client words | Core's `i18n/oversight.ts`, six languages, one line per action ("Tried again", "Corrected {field} and tried again", "Asked {name}", "Stopped"); the portal timeline shows these, never `note`. Contract test: no portal route returns `oversight_decision` fields or model names. |
 | Sloan | `run.failed` gains an optional `diagnosis` (the last decision's note, operator side only). Sloan's triage reading it is a follow-up on W2-D's files, after both merge. |
-| Table | Migration 0031 in its own PR: `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
+| Table | Migration 0029, with Wave 2's other migrations in one PR (`claude/w2-migrations`; §8.3): `oversight_decision` (ARCHITECTURE §5.6), forced RLS, insert and select only for `cs_runtime`, immutability trigger like `audit_event`. |
 
 ---
 
@@ -1527,6 +1541,8 @@ Status (stream M11, 2026-11-04): usage and reports built (§1.15): the rollup (d
 
 Status (e2e, 2026-11-06): the e2e exists at the API level, `apps/api/src/e2e.test.ts`, in the normal `pnpm test` (DB-backed). It walks the managed-service path through the real app against Postgres, with fake QuickBooks, Stripe and model, using the seeded Bill clerk rather than Pia (the Materials pack is built separately): the operator creates the client with its admin invited, offers QuickBooks and upload, installs and forks the template; the client admin connects QuickBooks and the first sync runs; a first invoice arrives while the agent is off; the operator binds, publishes, test-runs on that invoice and activates; the Northline invoice is uploaded, the cron's sweep starts the run, the client admin signs three changes in the portal inbox and each is written once; the portal's runs, timeline, activity report, service page and records, the back office's runs with cost, usage and billing's daily record show it; a template update is merged into the client agent and test-run; a second client sees none of it and no portal response carries prompts, bundles or cost. The Playwright e2e through the UI waits for the owner's redesign.
 
+Status (W1-H platform fixes, 2026-11-06): the four gaps the e2e found are fixed (§1 "Platform fixes (W1-H)"): the upload's run starts without the sweep, background reading shows in usage and credits, the portal lists records (`GET /api/records`, `/records`), and "sync now" right after connecting queues a second sync that runs when the first ends. The e2e checks each.
+
 ### M12: Access (vault, grants, code service, browser connections)
 
 ARCHITECTURE v0.10, §1.26. Phase 1: `tenant_key`, envelope v2 and the hourly re-encryption; `agent_grant`
@@ -1662,6 +1678,8 @@ starts a second sync (or queues it while the first runs).
 **Done when** the API e2e's upload starts its run without the sweep, its reading shows in usage and
 credits, the portal lists records, and "sync now" after connecting syncs again.
 
+Status (W1-H, 2026-11-06): built (§1 "Platform fixes (W1-H)"), PR #106. The API e2e's upload starts its run without the sweep, its reading shows in usage (`background`) and credits, the portal lists records, and "sync now" right after connecting is queued and runs after the first sync. Receivables join the portal list with W1-F.
+
 ### M21: Permissions per record type and the connectors catalog (W2-A, §1.44)
 
 Work: entities in manifests, tools, matrices and grants; the folded decision; tighten-only per entity;
@@ -1791,7 +1809,7 @@ validation.
 
 ### M31: Run oversight on failures (W2-I, §1.54)
 
-Work: migration 0031 (own PR); `oversight` on the definition and `review` on steps; the decision schema;
+Work: migration 0029 (the Wave 2 migrations PR); `oversight` on the definition and `review` on steps; the decision schema;
 `OversightPort` and the executor hook for failures; `oversee.ts`; the log; limits; ask and proposal
 items; client words; the run view's `oversight`; `run.failed`'s `diagnosis`.
 
@@ -1980,9 +1998,16 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0026 | W2-A | `connector_setting` |
 | 0027 | W2-B | `automation`, `automation_version` |
 | 0028 | W2-C | `test_case`, `test_suite_run`, `test_case_result`, `skill.require_tests` |
-| 0029 | W3-A | `builder_session`, `builder_turn` |
-| 0030 | spare (W3-B, if a connector needs one) | |
-| 0031 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
+| 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
+| 0030 | W3-A | `builder_session`, `builder_turn` |
+| 0031 | spare (W3-B, if a connector needs one) | |
+
+Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
+were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
+written as 0029, the next number after 0028: the journal's tags must ascend in the order
+migrations merge (`packages/db/src/migrations.test.ts`), and Wave 2 merges before Wave 3, so a gap
+left for 0029–0030 could never be filled. The Builder's tables move from 0029 to 0030 and the spare
+from 0030 to 0031.
 
 The exports (data export and accountant export, running outside the waves) needed no migration.
 
@@ -2009,10 +2034,10 @@ The exports (data export and accountant export, running outside the waves) neede
 | W2-F | Command center, search, plain-words questions (M26) | none | `apps/api/src/routes/{command-center,search}.ts`, `apps/api/src/{search,runs-ask}/`, `core/src/api/{command-center,search,runs-ask}.ts` | W1-E (`RunFilter`), W1-H |
 | W2-G | KPIs and client view, credits, the client's audit export (M27) | none | `clientView` in `core/src/schemas/agent.ts`, `core/src/kpi/`, `core/src/api/client-view.ts`, `apps/api/src/kpi/`, `apps/api/src/routes/{client-view,audit-export}.ts`, `apps/api/src/billing/credits-out.ts` | W1-A, W1-B, W1-H |
 | W2-H | Task skills and a model per step (M30, v0.13) | none | `core/src/schemas/{workflow,skill}.ts` (its blocks), the step-model check in `validate.ts`, the resolution in `agents/src/runtime/model.ts` and the `task` prompt in `run-agent.ts`, the Skills library's mode and model in `ops-skills.ts` (one block, after W2-C's publish gate), `apps/api/src/routes/ops-models.ts`, `core/src/api/models.ts` | W1-E |
-| W2-I | Run oversight (M31–M32, v0.13) | 0031 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
+| W2-I | Run oversight (M31–M32, v0.13) | 0029 | `core/src/oversight/`, `core/src/i18n/oversight.ts`, `core/src/api/oversight.ts`, `OversightPort` and its hook in `packages/workflows`, `agents/src/runtime/oversee.ts`, `agents/src/log/oversight.ts`, `apps/api/src/oversight/`, `apps/api/src/routes/ops-oversight.ts` | W1-C, W1-D, W1-E; W2-H; coordinate with W2-B on `executor.ts` |
 | **Wave 3** | | | | |
-| W3-A | The Builder as a conversation (M28) | 0029 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
-| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0030 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
+| W3-A | The Builder as a conversation (M28) | 0030 | `packages/agents/src/builder/*`, `apps/api/src/routes/ops-builder.ts`, `core/src/api/builder.ts`, `core/src/bundle/similarity.ts` | W1-C, W2-B, W2-C, W2-E; W2-H, W2-I (drafts set step models and `oversight`) |
+| W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | 0031 spare | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
 
 **Started (2026-11-06, the lead):** W1-M, W1-A, W1-E, W1-F, W1-G and W1-H from the sections written first; W1-B, W1-C and W1-D once ARCHITECTURE §11 landed (commit 2574a44 on this branch).
 
@@ -2125,15 +2150,15 @@ steps as an override, one resolution function used by `run-agent.ts` and `planne
 skills and steps with known ids passed in, the Skills library's mode and model, `GET /api/ops/models`, and the run view's per-step model. No migration, no UI
 beyond what breaks. Small; start as soon as W1-E merges. Done when M30's check holds.
 
-**W2-I: Run oversight (M31, then M32; §1.54).** ARCHITECTURE §10.11, §5.6. Migration 0031 in its own PR
-first. Then the decision schema, `oversight` and `review`, `OversightPort` with the executor hook (one
+**W2-I: Run oversight (M31, then M32; §1.54).** ARCHITECTURE §10.11, §5.6. Migration 0029 (the Wave 2
+migrations PR) first. Then the decision schema, `oversight` and `review`, `OversightPort` with the executor hook (one
 block, after W1-E; agree the order with W2-B, which touches the executor for expansion), `oversee.ts`
 on the fake model, the write check before any retry, limits, ask and proposal items, client words in
 six languages, the run view and `GET /api/ops/oversight`. M31 (failures) ends green and merges before
 M32 (checkpoints) starts. Extend the API e2e: a failing lookup is corrected and the run finishes.
 Done when M31's and M32's checks hold.
 
-**W3-A: The Builder as a conversation (M28, §1.51).** ARCHITECTURE §9.6. Migration 0029; sessions,
+**W3-A: The Builder as a conversation (M28, §1.51).** ARCHITECTURE §9.6. Migration 0030; sessions,
 turns, per-change undo by merge, `/skill`, `/automation`, `/trigger`, similarity, draft-skill with
 cases, save as automation. Drafts start with `oversight.review: 'failures'` and may set step models
 (v0.13). Done when M28's check holds.

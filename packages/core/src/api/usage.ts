@@ -82,6 +82,12 @@ export const UsageReport = z.object({
   clients: z.array(UsageClientRow),
   agents: z.array(UsageAgentRow),
   templates: z.array(UsageTemplateRow),
+  /**
+   * v0.12 W1-H (ARCHITECTURE §13): reading no agent asked for (uploads, forwarded mail), the
+   * clients' own usage from usage_platform_daily. It is in the total and each client's row, never
+   * in an agent's or a template's; absent when the report is narrowed to an agent or a template.
+   */
+  background: z.object(UsageSeries).optional(),
 });
 export type UsageReport = z.infer<typeof UsageReport>;
 

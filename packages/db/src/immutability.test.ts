@@ -14,6 +14,7 @@ import {
 import {
   agentChange,
   agentVersion,
+  automationVersion,
   billingAgentDay,
   billingEvent,
   billingStatement,
@@ -28,8 +29,10 @@ import {
   modelCall,
   notification,
   organizationChange,
+  oversightDecision,
   rawRecord,
   skillVersion,
+  testCaseResult,
 } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
@@ -51,13 +54,15 @@ describe.skipIf(!online)("immutability", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let templateVersionId: string;
+  let shared: Awaited<ReturnType<typeof insertOperatorRows>>;
 
   beforeAll(async () => {
     const created = await createTestDatabase();
     if (!created) throw new Error("database vanished");
     t = created;
     A = await insertClient(t.db, "A");
-    templateVersionId = (await insertOperatorRows(t.db)).agentVersionId;
+    shared = await insertOperatorRows(t.db);
+    templateVersionId = shared.agentVersionId;
   });
   afterAll(async () => {
     await t?.drop();
@@ -362,6 +367,110 @@ describe.skipIf(!online)("immutability", () => {
       .from(notification)
       .where(eq(notification.id, A.notificationId));
     expect(row).toEqual({ status: "sent", providerId: "re_123" });
+  });
+
+  it("automation_version: the definition can't change, the status can, nothing is deleted (0027)", async () => {
+    for (const change of [
+      { definitionHash: "x" },
+      { definition: { changed: true } },
+      { version: 2 },
+      { changeNote: "rewritten" },
+    ]) {
+      expect(
+        await errorCode(
+          t.db
+            .update(automationVersion)
+            .set(change)
+            .where(eq(automationVersion.id, A.automationVersionId)),
+        ),
+        JSON.stringify(change),
+      ).toBe(RESTRICT_VIOLATION);
+    }
+    await withTenant(t.db, A.tenantId, async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(automationVersion)
+        .set({ status: "retired" })
+        .where(eq(automationVersion.id, A.automationVersionId));
+    });
+    // A shared version, as the operator in the Worker's role.
+    await withOperator(t.db, [], async (tx) => {
+      await asWorker(tx);
+      await tx
+        .update(automationVersion)
+        .set({ status: "live" })
+        .where(eq(automationVersion.id, shared.automationVersionId));
+    });
+    expect(
+      await errorCode(
+        withOperator(t.db, [], async (tx) => {
+          await asWorker(tx);
+          await tx
+            .update(automationVersion)
+            .set({ definitionHash: "y" })
+            .where(eq(automationVersion.id, shared.automationVersionId));
+        }),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db.delete(automationVersion).where(eq(automationVersion.id, A.automationVersionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    const [row] = await t.db
+      .select({ status: automationVersion.status })
+      .from(automationVersion)
+      .where(eq(automationVersion.id, A.automationVersionId));
+    expect(row?.status).toBe("retired");
+  });
+
+  it("test_case_result and oversight_decision are insert only, for the owner and the Worker (0028, 0029)", async () => {
+    expect(
+      await errorCode(
+        t.db
+          .update(testCaseResult)
+          .set({ status: "fail" })
+          .where(eq(testCaseResult.id, A.testCaseResultId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(t.db.delete(testCaseResult).where(eq(testCaseResult.id, A.testCaseResultId))),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db
+          .update(testCaseResult)
+          .set({ status: "pass" })
+          .where(eq(testCaseResult.id, shared.testCaseResultId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db
+          .update(oversightDecision)
+          .set({ note: "Rewritten." })
+          .where(eq(oversightDecision.id, A.oversightDecisionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    expect(
+      await errorCode(
+        t.db.delete(oversightDecision).where(eq(oversightDecision.id, A.oversightDecisionId)),
+      ),
+    ).toBe(RESTRICT_VIOLATION);
+    for (const statement of [
+      sql`update test_case_result set status = 'error' where id = ${A.testCaseResultId}`,
+      sql`delete from test_case_result where id = ${A.testCaseResultId}`,
+      sql`update oversight_decision set action = 'stop' where id = ${A.oversightDecisionId}`,
+      sql`delete from oversight_decision where id = ${A.oversightDecisionId}`,
+    ]) {
+      const code = await errorCode(
+        withOperator(t.db, [A.tenantId], async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
   });
 
   it("the Worker's role cannot update an extraction or delete a document", async () => {
