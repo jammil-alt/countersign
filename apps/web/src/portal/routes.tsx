@@ -8,6 +8,7 @@ import { Route } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
 import { Redirect } from "../shell/Redirect";
 import { PortalAccessScreen } from "./screens/Access";
+import { AgentScreen } from "./screens/Agent";
 import { PortalBillingScreen } from "./screens/Billing";
 import { PortalConnectionsScreen } from "./screens/Connections";
 import {
@@ -21,24 +22,23 @@ import { GsheetsPickScreen } from "./screens/GsheetsPick";
 import { PortalInboxScreen } from "./screens/Inbox";
 import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
-import { OverviewScreen } from "./screens/Overview";
 import { PortalRecordsScreen } from "./screens/Records";
 import { PortalReportsScreen } from "./screens/Reports";
 import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
-import { PortalServiceScreen } from "./screens/Service";
 import { PortalSettingsScreen } from "./screens/Settings";
 import { PortalSloanScreen } from "./screens/Sloan";
+import { TableScreen } from "./screens/Table";
 import { PortalWeeklyScreen } from "./screens/Weekly";
 import { WhatsappMetaSignupScreen } from "./screens/WhatsappMetaSignup";
 
 export const portalRoutes = (
   <>
     {/* C1 The Table (UI-1a) */}
-    <Route index element={<OverviewScreen />} />
+    <Route index element={<TableScreen />} />
     {/* C2 Agent (UI-1a) */}
-    <Route path="agents/:id" element={<PortalServiceScreen />} />
+    <Route path="agents/:id" element={<AgentScreen />} />
     {/* C3 Your Desk (UI-1b) */}
     <Route path="desk" element={<PortalInboxScreen />} />
     {/* C4 Accounts and vault (UI-1c) */}
