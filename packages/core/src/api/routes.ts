@@ -52,6 +52,8 @@ import { tableRoutes } from "./table";
 import { testbenchRoutes } from "./testbench";
 // v0.12 W1-C: threads, the lead and `/commands`
 import { PortalLead, threadRoutes } from "./threads";
+// v0.12 W2-E: the triggers list
+import { triggerRoutes } from "./triggers";
 import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -1840,5 +1842,7 @@ export const routes = {
   ...testbenchRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions
   ...commandCenterRoutes,
+  // v0.12 W2-E
+  ...triggerRoutes,
 } as const;
 export type Routes = typeof routes;

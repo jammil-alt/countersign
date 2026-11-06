@@ -182,6 +182,8 @@ async function dispatch(
       findings: deps.ports.findings,
       // v0.12 W1-C
       threads: deps.ports.threads,
+      // v0.12 W2-E
+      inbound: deps.ports.inbound,
       ask: step.ask,
       language: step.language,
       now: deps.now,

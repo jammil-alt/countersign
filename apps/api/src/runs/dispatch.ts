@@ -6,6 +6,7 @@
 // withTenant() transaction: jobs act for exactly one client (ARCHITECTURE §16).
 
 import { AgentsError, createRun, type Emit, rollupUsageDays, utcDay } from "@countersign/agents";
+import { clientHolidays } from "@countersign/core";
 import { agent, agentVersion, type Db, type Tx, tenant, withTenant } from "@countersign/db";
 import {
   claimUndispatched,
@@ -25,6 +26,9 @@ import {
 } from "@countersign/workflows";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
+// v0.12 W2-E
+import { countLimited, overLimit } from "../triggers/limits";
+import { senderLookup } from "../triggers/senders";
 import type { RunInstances } from "./instances";
 import { redeliverResolutions } from "./resume";
 
@@ -131,9 +135,16 @@ export async function dispatchTenant(
       const { runs, problems } = await routeEvent(
         { id: event.id, tenantId, type: event.type, payload: event.payload },
         agents,
+        // v0.12 W2-E: message triggers read the sender from the client's People.
+        { sender: senderLookup(tx, tenantId) },
       );
       for (const p of problems) console.warn("trigger could not be evaluated", p);
       for (const request of runs) {
+        // v0.12 W2-E: a webhook trigger's rate limit, counted from that trigger's runs.
+        if (request.limit && (await overLimit(tx, request))) {
+          await countLimited(tx, tenantId, request.limit);
+          continue;
+        }
         try {
           await createRunRow(tx, request);
         } catch (error) {
@@ -260,8 +271,11 @@ export function usageSweepDays(at: Date): string[] {
 }
 
 /** Every client: the cron has no session, so it walks clients one at a time. */
-async function allClients(db: Db): Promise<{ id: string; timezone: string }[]> {
-  return db.select({ id: tenant.id, timezone: tenant.timezone }).from(tenant);
+async function allClients(db: Db): Promise<{ id: string; timezone: string; settings: unknown }[]> {
+  // v0.12 W2-E: settings, for the client's own holidays.
+  return db
+    .select({ id: tenant.id, timezone: tenant.timezone, settings: tenant.settings })
+    .from(tenant);
 }
 
 /**
@@ -283,6 +297,8 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
         timezones: { [client.id]: client.timezone },
         from,
         to,
+        // v0.12 W2-E: `skipHolidays` skips the client's own dates too.
+        holidays: { [client.id]: clientHolidays(client.settings) },
       });
       for (const p of problems) console.warn("schedule could not be evaluated", p);
       for (const request of runs) await startRun(deps, request);

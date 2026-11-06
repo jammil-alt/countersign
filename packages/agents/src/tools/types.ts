@@ -18,6 +18,8 @@ import type {
 import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
 import type { LlmCallRecord, LlmExchange } from "@countersign/llm";
 import { z } from "zod";
+// v0.12 W2-E
+import type { InboundPort } from "./inbound";
 import type { ThreadsPort } from "./threads";
 
 export type RunMode = "live" | "test";
@@ -48,6 +50,9 @@ export interface ToolInvocation {
   // v0.12 W1-C
   /** The client's threads (`threads.post`, `threads.read`); absent where none is given. */
   threads?: ThreadsPort | undefined;
+  // v0.12 W2-E
+  /** The message that started the run (`inbound.get`); absent where none is given. */
+  inbound?: InboundPort | undefined;
   /**
    * Asks another agent of the same client (`agents.ask`): set by the runtime for a skill's tool
    * calls, absent inside an ask (no asks within asks) and in action steps.
