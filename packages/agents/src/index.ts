@@ -7,6 +7,12 @@
 export * from "./builder/builder";
 export * from "./builder/context";
 export * from "./builder/guards";
+// v0.12 W3-A: the Builder as a conversation
+export * from "./builder/aliases";
+export * from "./builder/changes";
+export * from "./builder/commands";
+export * from "./builder/conversation";
+export * from "./builder/skill-draft";
 export * from "./errors";
 // v0.12 W2-D
 export * from "./log/account-port";

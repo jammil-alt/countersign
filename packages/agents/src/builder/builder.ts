@@ -88,7 +88,7 @@ export class BuilderError extends Error {
 
 // ── Prompt ───────────────────────────────────────────────────────────────────────────────────────
 
-const RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work. The operator describes an agent; you answer with an agent bundle that the operator will review, test and publish.
+export const RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work. The operator describes an agent; you answer with an agent bundle that the operator will review, test and publish.
 
 Rules:
 - Use only the skills and tools in the catalog, by their exact ids. Never invent a skill, tool, connector, event or agent. If the job needs something the catalog doesn't have (a connector, a data source, a skill), leave that part out and say what is missing in "gaps", one plain sentence each (e.g. "There is no card feed connector, so it can't read card charges.").
@@ -96,13 +96,15 @@ Rules:
 - Triggers: "manual" (with an input JSON Schema), "event" (an event type from the catalog), "schedule" (cron), "command".
 - References inside step inputs, titles, messages and rules: {{trigger.<path>}}, {{steps.<step id>.output.<path>}}, {{item}} inside a for_each. Refer only to steps that run before.
 - New agents have permissions.mode "suggest_only". Every step that changes a client's tool keeps approval "required". Never switch an approval off: only the operator does that.
+- New agents review their own failed steps: definition.oversight is {"review": "failures"}.
+- A skill step may set "model" ({"id": one of the catalog's models}) when its job needs a different model from its skill's or the agent's (a long document on a stronger one, a simple read on a fast one); leave it out otherwise, and never on a skill whose mode is "tool".
 - Agent kind is "functional". Give each step, fork path, otherwise branch and trigger a short id, unique in the bundle.
 - Prefer a template that already does the job: name it in "startFromTemplate" (drafts only).
 - Write names, summaries and gaps in plain words, short sentences, sentence case; no hype, no exclamation marks.`;
 
 // The bundle's JSON Schema reaches the model as the answer tool's input schema (callTool).
 
-function catalogBlock(ctx: BuilderContext): string {
+export function catalogBlock(ctx: BuilderContext): string {
   return `<catalog>\n${JSON.stringify(catalogForPrompt(ctx))}\n</catalog>`;
 }
 
@@ -133,7 +135,7 @@ export interface BuilderResult {
 }
 
 /** Errors the model can fix. Missing bindings and a connection's settings are the operator's. */
-const OPERATOR_FIXES = new Set([
+export const OPERATOR_FIXES = new Set([
   "connection_missing",
   "verb_off",
   "approval_required_by_connection",
@@ -148,7 +150,7 @@ function describeErrors(errors: readonly ValidationError[]): string {
     .join("\n");
 }
 
-function totalCost(calls: readonly LlmCallRecord[]): string | null {
+export function totalCost(calls: readonly LlmCallRecord[]): string | null {
   let sum = dec("0");
   for (const c of calls) {
     if (c.costUsd === null) return null;
@@ -157,7 +159,7 @@ function totalCost(calls: readonly LlmCallRecord[]): string | null {
   return sum.toFixed(6);
 }
 
-async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
+export async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
   input: {
     schema: z.ZodType<T>;
     toolName: string;
@@ -166,6 +168,11 @@ async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
     ctx: BuilderContext;
     first: string;
     guard: (answer: T) => { bundle: AgentBundle; gaps: string[]; notes: string[] };
+    // v0.12 W3-A: a conversation's own system prompt, and how a guarded bundle and the errors are
+    // shown back to the model in a repair round (aliases, never the ids it could regenerate).
+    system?: string;
+    present?: (bundle: AgentBundle) => AgentBundle;
+    presentText?: (text: string) => string;
   },
   options: BuilderOptions,
 ): Promise<{
@@ -184,7 +191,7 @@ async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
     try {
       const res = await options.llm.callTool({
         model: options.model ?? DEFAULT_MODELS.builder,
-        system: RULES,
+        system: input.system ?? RULES,
         messages,
         tool: { name: input.toolName, description: input.toolDescription, schema: input.schema },
         maxTokens: 16_000,
@@ -226,10 +233,20 @@ async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
     if (fixable.length > 0 && repairs > 0) {
       repairs -= 1;
       messages.push(
-        { role: "assistant", content: canonicalJson({ ...answer, bundle: guarded.bundle }) },
+        {
+          role: "assistant",
+          content: canonicalJson({
+            ...answer,
+            bundle: input.present ? input.present(guarded.bundle) : guarded.bundle,
+          }),
+        },
         {
           role: "user",
-          content: `That bundle (after the server's rules were applied, so ids may have changed) does not validate:\n${describeErrors(fixable)}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.`,
+          content: `That bundle (after the server's rules were applied, so ids may have changed) does not validate:\n${
+            input.presentText
+              ? input.presentText(describeErrors(fixable))
+              : describeErrors(fixable)
+          }\n\nAnswer again with the whole corrected answer. Keep the ids it has now.`,
         },
       );
       continue;

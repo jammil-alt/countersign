@@ -14,6 +14,8 @@ export * from "./api/account";
 export * from "./api/approver-rules";
 // v0.12 W2-B: automations
 export * from "./api/automations";
+// v0.12 W3-A: the Builder as a conversation
+export * from "./api/builder";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
@@ -78,6 +80,8 @@ export {
 } from "./bundle/flatten";
 export * from "./bundle/merge";
 export * from "./bundle/select";
+// v0.12 W3-A: closest templates
+export * from "./bundle/similarity";
 export * from "./calls/rules";
 export * from "./canonical";
 export * from "./codes/service";
