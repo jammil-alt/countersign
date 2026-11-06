@@ -35,6 +35,8 @@ export * from "./api/run-controls";
 export * from "./api/runs-filter";
 export * from "./api/supervisor";
 export * from "./api/table";
+// v0.12 W2-C: the test bench
+export * from "./api/testbench";
 export * from "./api/usage";
 export * from "./approvals/rules";
 export * from "./billing";
@@ -108,6 +110,10 @@ export * from "./security/session-limits";
 export * from "./supervisor/health";
 export * from "./template/template";
 export * from "./template/typer";
+// v0.12 W2-C: the test bench
+export * from "./testbench/case";
+export * from "./testbench/match";
+export * from "./testbench/suite";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 export * from "./workflow/validate";

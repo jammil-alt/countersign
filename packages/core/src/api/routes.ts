@@ -42,6 +42,8 @@ import {
 } from "./runs-filter";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
+// v0.12 W2-C: the test bench
+import { testbenchRoutes } from "./testbench";
 import { usageRoutes } from "./usage";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
@@ -1815,5 +1817,7 @@ export const routes = {
   ...tableRoutes,
   // v0.12 W1-D: the Desk
   ...deskRoutes,
+  // v0.12 W2-C: the test bench, skill tests and the agent lab
+  ...testbenchRoutes,
 } as const;
 export type Routes = typeof routes;
