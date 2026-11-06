@@ -60,7 +60,17 @@ describe("the portal's routes", () => {
   const all = paths(portalRoutes, "").filter((p) => !ACTS_ON_ARRIVAL(p));
 
   it("has the plan's new homes", () => {
-    for (const p of ["/", "/desk", "/agents/x", "/accounts", "/people", "/settings", "/runs"]) {
+    for (const p of [
+      "/",
+      "/desk",
+      "/agents/x",
+      "/accounts",
+      "/people",
+      "/settings",
+      "/runs",
+      "/weekly",
+      "/sloan",
+    ]) {
       const pattern = p.replace("/x", `/${ID}`);
       expect(all).toContain(pattern);
     }
@@ -77,8 +87,10 @@ describe("the portal's routes", () => {
     [`/services/${ID}`, `/agents/${ID}`],
     ["/inbox?status=open#top", "/desk?status=open#top"],
     ["/connections", "/accounts"],
-    ["/access", "/accounts/access"],
-    ["/directory", "/people/directory"],
+    ["/access", "/accounts#vault"],
+    ["/accounts/access?x=1", "/accounts?x=1#vault"],
+    ["/directory", "/people"],
+    ["/people/directory", "/people"],
     ["/contacts", "/people/contacts"],
     ["/billing", "/settings/billing"],
   ])("%s redirects to %s", async (from, to) => {

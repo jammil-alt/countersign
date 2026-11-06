@@ -82,7 +82,36 @@ function vault(on: boolean) {
   };
 }
 
+/** QuickBooks as the Accounts page lists it: connected, so it has its own card. */
+const QBO_OFFER = {
+  connector: "qbo",
+  name: "QuickBooks",
+  description: "Bills, vendors and items in QuickBooks Online.",
+  icon: null,
+  available: true,
+  credentialForm: false,
+  personal: false,
+  connection: {
+    id: CONN,
+    status: "connected",
+    externalAccountId: null,
+    accountName: null,
+    lastSyncAt: null,
+    permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+    access: [],
+    usedBy: [],
+    connectedByYou: false,
+  },
+};
+
+/** Human release is in the tool's card on the Accounts page, open on request. */
+async function openQuickBooks() {
+  const card = await screen.findByTestId("portal-connection-qbo");
+  await userEvent.click(within(card).getByTestId("portal-connection-permissions-toggle"));
+}
+
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
+  api.on("GET /api/connections", () => ({ connections: [QBO_OFFER] }));
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AppProviders client={api.client}>
@@ -110,6 +139,7 @@ describe("human release on the Access page", () => {
       },
     });
     renderAt("/access", api);
+    await openQuickBooks();
     const section = await screen.findByTestId("release-section");
     expect(within(section).getByTestId("release-summary")).toHaveTextContent(
       "Off: agents use it without asking anyone first.",
@@ -158,6 +188,7 @@ describe("human release on the Access page", () => {
       },
     });
     renderAt("/access", api);
+    await openQuickBooks();
     const live = await screen.findByTestId(`release-live-${LIVE}`);
     expect(live).toHaveTextContent("Intake · released by Ana Ruiz");
     expect(live).toHaveTextContent("For the run under way");
@@ -177,6 +208,7 @@ describe("human release on the Access page", () => {
       "GET /api/access": () => ({ items: [vault(true)], setup: [], canEdit: false, people: [] }),
     });
     renderAt("/access", api);
+    await openQuickBooks();
     const section = await screen.findByTestId("release-section");
     expect(section).toHaveTextContent("Ana Ruiz releases it with a code by text, for one run.");
     expect(within(section).getByTestId(`release-live-${LIVE}`)).toBeInTheDocument();

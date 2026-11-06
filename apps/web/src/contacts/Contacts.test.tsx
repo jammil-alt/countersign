@@ -84,7 +84,8 @@ describe("portal contacts", () => {
     });
     renderAt("/contacts", api);
     expect(await screen.findByText(/No contacts yet/)).toBeInTheDocument();
-    expect(screen.getByTestId("portal-nav-contacts")).toBeInTheDocument();
+    // Consent and messages are a tab of People (C5).
+    expect(screen.getByTestId("portal-people")).toBeInTheDocument();
     const save = screen.getByTestId("contact-add-save");
     await userEvent.type(screen.getByTestId("contact-add-name"), "Pat Lee");
     await userEvent.type(screen.getByTestId("contact-add-phone"), "+1 555 555 0100");

@@ -1,5 +1,6 @@
-// The directory (plan §1.27): the portal's /directory for the client admin (search, filters, add an
-// organization, link it to its vendor record, import a CSV with a preview, accept a suggestion) and
+// The directory (plan §1.27) on the portal's People page (C5): the people table with search, filters
+// and one person's details; the client admin adds an organization and links it to its vendor record
+// (Organizations), imports a CSV with a preview and accepts a suggestion (Import and suggestions);
 // read-only for client users; the same panel on the back office's client page. In Spanish too.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -116,22 +117,25 @@ describe("portal directory", () => {
         return { organization: orgs[0] };
       },
     });
+    // `/directory` was the directory's page: People is its home now.
     renderAt("/directory", api);
-    const card = await screen.findByTestId(`directory-person-${PAT}`);
-    expect(within(card).getByText("Sales rep · Birch & Co")).toBeInTheDocument();
-    expect(within(card).getByText("Vendor")).toBeInTheDocument();
-    // Pat has no language of their own: Birch's is used, and the card says so.
-    expect(screen.getByTestId(`directory-person-${PAT}-language`)).toHaveTextContent(
-      "Uses: Spanish (from Birch & Co)",
-    );
-    expect(screen.getByTestId("portal-nav-directory")).toBeInTheDocument();
+    const row = await screen.findByTestId(`people-row-${PAT}`);
+    expect(row).toHaveTextContent("Birch & Co");
+    expect(within(row).getByText("Vendor")).toBeInTheDocument();
+    expect(row).toHaveTextContent("Sales rep");
+    await userEvent.click(within(row).getByTestId(`people-open-${PAT}`));
+    const detail = await screen.findByTestId(`people-detail-${PAT}`);
+    expect(detail).toHaveTextContent("Sales rep · Birch & Co");
+    // Pat has no language of their own: Birch's is used, and the details say so.
+    expect(detail).toHaveTextContent("Uses: Spanish (from Birch & Co)");
 
-    await userEvent.type(screen.getByTestId("directory-search"), "birch");
+    await userEvent.type(screen.getByTestId("people-search"), "birch");
     await waitFor(() => expect(queries.at(-1)).toContain("q=birch"));
-    await userEvent.selectOptions(screen.getByTestId("directory-filter-relationship"), "vendor");
-    await waitFor(() => expect(queries.at(-1)).toContain("relationship=vendor"));
+    await userEvent.click(await screen.findByTestId("people-filter-vendor"));
+    expect(screen.getByTestId("people-filter-vendor")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId(`people-row-${PAT}`)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByTestId("directory-tab-organizations"));
+    await userEvent.click(screen.getByRole("link", { name: "Organizations" }));
     await userEvent.type(screen.getByTestId("directory-org-new-name"), "Oak Mill");
     await userEvent.click(screen.getByTestId("directory-org-new-kind-vendor"));
     await userEvent.selectOptions(screen.getByTestId("directory-org-new-language"), "fr");
@@ -189,7 +193,7 @@ describe("portal directory", () => {
         };
       },
     });
-    renderAt("/directory", api);
+    renderAt("/people/import", api);
     await userEvent.click(await screen.findByTestId("directory-tab-import"));
     expect(await screen.findByText("Connect Zoho CRM or Podio to import from them.")).toBeVisible();
     const file = new File(["Name,Email\nDana Cruz,dana@oak.example.com\n,\n"], "people.csv", {
@@ -236,7 +240,7 @@ describe("portal directory", () => {
         return { suggestion: { ...suggestion, status: "accepted" } };
       },
     });
-    renderAt("/directory", api);
+    renderAt("/people/import", api);
     await userEvent.click(await screen.findByTestId("directory-tab-suggestions"));
     const card = await screen.findByTestId(`directory-suggestion-${SUGGESTION}`);
     expect(within(card).getByText("Records clerk suggests")).toBeVisible();
@@ -265,15 +269,23 @@ describe("portal directory", () => {
         pendingSuggestions: 0,
       }),
     });
-    renderAt("/directory", api);
-    expect(await screen.findByTestId(`directory-person-${PAT}`)).toBeInTheDocument();
+    renderAt("/people", api);
+    const row = await screen.findByTestId(`people-row-${PAT}`);
+    await userEvent.click(within(row).getByTestId(`people-open-${PAT}`));
+    await screen.findByTestId(`people-detail-${PAT}`);
+    expect(screen.queryByTestId("people-detail-edit")).toBeNull();
+    expect(screen.queryByTestId("people-reach-tighten")).toBeNull();
+    expect(screen.queryByTestId("people-add")).toBeNull();
+    expect(screen.queryByTestId("people-import")).toBeNull();
+    // Their tabs: the people and the organizations, nothing an admin keeps.
+    const tabs = screen.getByRole("navigation", { name: "Sections" });
     expect(
-      screen.getByText("Your admin keeps the directory. You can look people up here."),
-    ).toBeVisible();
-    expect(screen.queryByTestId(`directory-person-${PAT}-edit`)).toBeNull();
-    expect(screen.queryByTestId("directory-person-new")).toBeNull();
-    expect(screen.queryByTestId("directory-tab-import")).toBeNull();
-    expect(screen.queryByTestId("directory-tab-suggestions")).toBeNull();
+      within(tabs)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["People", "Organizations"]);
+    // Who agents reach is the client admin's: not even asked for.
+    expect(api.calls).not.toContain("GET /api/people");
   });
 
   it("speaks the client's language", async () => {
@@ -281,12 +293,13 @@ describe("portal directory", () => {
       ...portalBase({ ...CLIENT_SESSION, language: { effective: "es", user: "es", client: null } }),
       "GET /api/directory": () => ({ people: [pat], organizations: [], pendingSuggestions: 0 }),
     });
-    renderAt("/directory", api);
-    expect(await screen.findByRole("heading", { name: "Directorio" })).toBeVisible();
-    const card = await screen.findByTestId(`directory-person-${PAT}`);
-    expect(screen.getByTestId("directory-tab-organizations")).toHaveTextContent("Organizaciones");
-    expect(within(card).getByText("Proveedor")).toBeVisible();
-    expect(screen.getByTestId(`directory-person-${PAT}-language`)).toHaveTextContent(
+    renderAt("/people", api);
+    expect(await screen.findByRole("heading", { name: "Personas", level: 1 })).toBeVisible();
+    const row = await screen.findByTestId(`people-row-${PAT}`);
+    expect(screen.getByRole("link", { name: "Organizaciones" })).toBeInTheDocument();
+    expect(within(row).getByText("Proveedor")).toBeVisible();
+    await userEvent.click(within(row).getByTestId(`people-open-${PAT}`));
+    expect(await screen.findByTestId(`people-detail-${PAT}`)).toHaveTextContent(
       "Usa: español (de Birch & Co)",
     );
   });
