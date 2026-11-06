@@ -15,6 +15,7 @@ import {
   requestState,
   stripeFor,
 } from "./http";
+import { mcpRoutes } from "./mcp/routes";
 import { reachOutTick } from "./reach/service";
 import { accessRoutes } from "./routes/access";
 import { approverRuleRoutes } from "./routes/approver-rules";
@@ -95,6 +96,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   accessRoutes(app);
   releaseRoutes(app);
   browserRoutes(app);
+  // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
+  mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
   // An error no route handled (routes answer their own through errorResponse): reported to
   // Sentry there, and answered here in the API's error shape.

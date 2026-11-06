@@ -1292,6 +1292,8 @@ export const opsRoutes = {
       status: RunStatusSchema.optional(),
       agent: ApiId.optional(),
       mode: z.enum(["live", "test"]).optional(),
+      /** Runs created at or after this time (ISO 8601). */
+      since: z.iso.datetime({ offset: true }).optional(),
       limit: z.coerce.number().int().min(1).max(200).default(50),
     }),
     response: z.object({ runs: z.array(OpsRun), agents: z.array(OpsAgentRef) }),
