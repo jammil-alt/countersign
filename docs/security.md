@@ -36,6 +36,10 @@ branches.
   - The app also signs out by itself.
   - An idle or expired session also ends WorkOS's session, so signing in again asks for the
     password and the second factor.
+- A sign-in must finish within **30 minutes** of starting, and only with the state cookie
+  (`__Host-`, HttpOnly, Secure, SameSite=Lax) that matches the `state` WorkOS sends back. A
+  failed finish starts sign-in again once by itself, or goes to the app if the person is already
+  signed in; it never creates a session. Each refusal is in the audit log with its reason.
 - WorkOS sessions are capped at the same 12 hours and 30 minutes. That also covers the Ops MCP
   connector, which signs in with 5-minute WorkOS access tokens instead of our cookie.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the

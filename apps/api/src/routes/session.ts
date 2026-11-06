@@ -83,7 +83,8 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       );
     }
     const r = await choice.workos.signIn(
-      { returnTo: c.req.query("return_to") ?? null },
+      // `retry=1`: the callback sent the browser back here once after a failure (below).
+      { returnTo: c.req.query("return_to") ?? null, restart: c.req.query("retry") === "1" },
       new Date(),
     );
     if (!r.ok) return c.redirect(signInFailure(r.code), 302);
@@ -94,18 +95,37 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
   app.get("/api/auth/callback", async (c) => {
     const choice = c.get("req").services().auth();
     if (!choice.ok || !choice.workos) return c.json({ error: { code: "not_found" } }, 404);
-    const r = await choice.workos.callback(c.req.raw, new Date());
+    const now = new Date();
+    const r = await choice.workos.callback(c.req.raw, now);
     sendCookies(c, r.setCookies);
     const db = c.get("req").services().db;
     if (!r.ok) {
+      const failure = r.failure;
+      // DECISION (plan §1.35, "Sign-in callback"): a refused callback of someone already signed
+      // in (a used callback URL after Back or a reload, a second tab's sign-in) goes to the app,
+      // and any other state or code failure starts sign-in again once (`retry=1`, marked in the
+      // new state so the next callback won't). This only recognises a session the request
+      // already carries; a refused callback never creates one.
+      const who = failure ? await choice.workos.identify(c.req.raw, now).catch(() => null) : null;
+      if (who) sendCookies(c, who.setCookies);
+      const signedIn = who?.ok ? who.userId : null;
+      let next: "app" | "restart" | "error_page" | null = null;
+      if (failure) next = signedIn ? "app" : failure.restart ? "restart" : "error_page";
       await auditAlone(db, c, {
         tenantId: null,
-        actorKind: "anonymous",
+        actorKind: signedIn ? "user" : "anonymous",
+        actorUserId: signedIn,
+        actorEmail: signedIn ? ((await authDirectory(db).user(signedIn))?.email ?? null) : null,
         action: "session.sign_in",
         outcome: "refused",
         httpStatus: r.status,
-        target: { reason: r.reason ?? r.code },
+        target: { reason: failure?.reason ?? r.reason ?? r.code, ...(next ? { next } : {}) },
       });
+      if (next === "app") return c.redirect(failure?.returnTo ?? "/", 302);
+      if (next === "restart") {
+        const query = new URLSearchParams({ return_to: failure?.returnTo ?? "/", retry: "1" });
+        return c.redirect(`/api/auth/sign-in?${query}`, 302);
+      }
       return c.redirect(signInFailure(r.reason ?? r.code), 302);
     }
     if (r.signedIn) {
