@@ -14,6 +14,8 @@ export * from "./api/account";
 export * from "./api/approver-rules";
 // v0.12 W2-B: automations
 export * from "./api/automations";
+// v0.12 bankfeed
+export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
@@ -55,6 +57,8 @@ export * from "./api/runs-ask";
 export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
+// v0.14 W4-C: the Slack channel picker
+export * from "./api/slack";
 export * from "./api/supervisor";
 export * from "./api/table";
 // v0.12 W2-C: the test bench

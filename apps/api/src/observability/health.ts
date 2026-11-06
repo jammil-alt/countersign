@@ -1,4 +1,4 @@
-// The platform's own health (docs/plan.md §1.55): what went wrong in clients' work that is not an
+// The platform's own health (docs/plan.md §1.61): what went wrong in clients' work that is not an
 // exception, so Sentry never saw it. Failed live runs and failed writes to clients' tools, grouped
 // by their error key (§1.40), every hour; runs stuck before a step, approvals the run never took
 // and broken connections, once a day. Each group goes to Sentry as one issue per error key, with
