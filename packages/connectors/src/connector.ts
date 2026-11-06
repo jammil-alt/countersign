@@ -5,6 +5,7 @@ import {
   type PermissionMatrix,
   type ToolAmount,
   type ToolDisplay,
+  type ToolRecipient,
   type ToolSpec,
   type Verb,
 } from "@countersign/core";
@@ -189,6 +190,8 @@ export function defineWriteTool<
   amount?: ToolAmount;
   /** How the change reads on its approval card (ToolSpec `display`). */
   display?: ToolDisplay;
+  // v0.12 W1-G: the input field naming the person a send messages (ToolSpec `recipient`).
+  recipient?: ToolRecipient;
   /** The record type it touches (ToolSpec `entity`, v0.12). */
   entity?: string;
   input: I;
@@ -210,6 +213,7 @@ export function defineWriteTool<
       ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
       ...(def.amount === undefined ? {} : { amount: def.amount }),
       ...(def.display === undefined ? {} : { display: def.display }),
+      ...(def.recipient === undefined ? {} : { recipient: def.recipient }),
       ...(def.entity === undefined ? {} : { entity: def.entity }),
     },
     handler: {

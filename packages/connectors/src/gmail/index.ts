@@ -431,6 +431,7 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
           "Email a contact from the connected Gmail account. Only contacts who agreed to email; plain text. Replies come back through the client's forwarding address.",
         verb: "create",
         summary: "Emailed {{contactName}} from Gmail",
+        recipient: { path: "to", channel: "email" },
         input: EmailSendInput,
         output: GmailSendOutput,
         beforeSchema: GmailSendBefore,
