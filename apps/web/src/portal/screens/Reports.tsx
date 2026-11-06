@@ -1,4 +1,4 @@
-// `/reports` (ARCHITECTURE §15): what the client's services did in a period, in the client's own
+// `/reports` (ARCHITECTURE §15; UI-3a restyled the frame, packs own their content): what the client's services did in a period, in the client's own
 // days: runs and how they ended, documents read, changes made to its tools. Never cost, tokens or
 // prompts (invariant 11). Pack reports (Materials: Price watch, Catalog) mount under
 // `/reports/<pack>/<report>` from the pack registry, for packs the client has enabled.
@@ -10,6 +10,8 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { type PackReport, packReportPath, packReportsFor } from "../../packs/registry";
+import { StatTile } from "../../ui/figures";
+import { Columns, Page, Section } from "../../ui/page";
 import {
   Badge,
   Button,
@@ -18,10 +20,9 @@ import {
   ErrorNotice,
   Loading,
   PageHeader,
-  SectionLabel,
+  Tabs,
 } from "../../ui/primitives";
 import { isoDay, monthEnd, monthStart, periodLabel } from "../../usage/format";
-import { Stat, StatRow } from "../../usage/Stat";
 
 const PERIODS = [
   ["month", "reports.period.month"],
@@ -51,23 +52,17 @@ export function reportPeriod(
 function ReportLinks({ packs, current }: { packs: PackReport[]; current: string }) {
   const { t } = useI18n();
   if (packs.length === 0) return null;
+  // UI-3a: the reports as tabs, as on the agent page.
   return (
-    <nav className="mb-6 flex flex-wrap gap-2" aria-label={t("nav.reports")}>
-      {[
-        // Pack reports carry their own titles (a pack's screens, not the platform's words).
-        { to: "/reports", title: t("reports.activity") },
-        ...packs.map((r) => ({ to: packReportPath(r), title: r.title })),
-      ].map((r) => (
-        <Link
-          key={r.to}
-          to={r.to}
-          aria-current={current === r.to ? "page" : undefined}
-          className={`ds-btn ds-btn--sm ${current === r.to ? "ds-btn--primary" : "ds-btn--secondary"}`}
-        >
-          {r.title}
-        </Link>
-      ))}
-    </nav>
+    <div className="overflow-x-auto" data-testid="portal-report-links">
+      <Tabs
+        items={[
+          // Pack reports carry their own titles (a pack's screens, not the platform's words).
+          { to: "/reports", title: t("reports.activity") },
+          ...packs.map((r) => ({ to: packReportPath(r), title: r.title })),
+        ].map((r) => ({ to: r.to, label: r.title, active: current === r.to }))}
+      />
+    </div>
   );
 }
 
@@ -111,7 +106,7 @@ export function ActivityReportScreen() {
   const serviceName = service ? data?.services.find((s) => s.id === service)?.name : undefined;
 
   return (
-    <div>
+    <Page testId="portal-reports-page">
       <PageHeader
         title={t("nav.reports")}
         subtitle={
@@ -121,7 +116,7 @@ export function ActivityReportScreen() {
         }
       />
       <ReportLinks packs={packs} current="/reports" />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <StatusFilter
           value={period}
           onChange={(p) => set({ period: p === "month" ? "" : p })}
@@ -148,20 +143,20 @@ export function ActivityReportScreen() {
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data ? (
         <>
-          <StatRow cols={3}>
-            <Stat
+          <Columns count={3}>
+            <StatTile
               testId="portal-report-runs"
               label={t("reports.runs")}
               value={fmt.number(data.runs.total)}
               note={runsNote(data.runs, i18n) ?? t("reports.runs.none")}
             />
-            <Stat
+            <StatTile
               testId="portal-report-documents"
               label={t("reports.documentsRead")}
               value={fmt.number(data.documents.read)}
               note={t("reports.documentsIn", { count: data.documents.received })}
             />
-            <Stat
+            <StatTile
               testId="portal-report-actions"
               label={t("reports.changes")}
               value={fmt.number(data.actions.total)}
@@ -173,68 +168,69 @@ export function ActivityReportScreen() {
                   : t("reports.changesNone")
               }
             />
-          </StatRow>
-          <section>
-            <SectionLabel>{t("reports.byService")}</SectionLabel>
+          </Columns>
+          <Section title={t("reports.byService")}>
             {data.services.length === 0 ? (
               <EmptyState>{t("reports.noServices")}</EmptyState>
             ) : (
-              <div className="dt dt-ana overflow-x-auto">
-                <table data-testid="portal-report-services">
-                  <thead>
-                    <tr className="dt-cols">
-                      <th>{t("runs.col.service")}</th>
-                      {(
-                        [
-                          "reports.runs",
-                          "reports.col.done",
-                          "reports.col.failed",
-                          "reports.col.waiting",
-                          "reports.documentsRead",
-                          "reports.col.changes",
-                        ] as const
-                      ).map((h) => (
-                        <th key={h} className="n">
-                          {t(h)}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.services.map((s) => (
-                      <tr key={s.id} data-testid={`portal-report-service-${s.id}`}>
-                        <td>
-                          <Link
-                            to={`/agents/${s.id}`}
-                            className="font-medium text-ink hover:underline"
-                          >
-                            {s.name}
-                          </Link>
-                        </td>
-                        <td className="n">{fmt.number(s.runs.total)}</td>
-                        <td className="n">{fmt.number(s.runs.succeeded)}</td>
-                        <td className="n">{fmt.number(s.runs.failed)}</td>
-                        <td className="n">
-                          {s.runs.waiting > 0 ? (
-                            <Badge tone="warning">
-                              {t("reports.runs.waiting", { count: s.runs.waiting })}
-                            </Badge>
-                          ) : (
-                            fmt.number(0)
-                          )}
-                        </td>
-                        <td className="n">{fmt.number(s.documentsRead)}</td>
-                        <td className="n">{fmt.number(s.actions)}</td>
+              <Card>
+                <div className="dt dt-ana overflow-x-auto">
+                  <table data-testid="portal-report-services">
+                    <thead>
+                      <tr className="dt-cols">
+                        <th>{t("runs.col.service")}</th>
+                        {(
+                          [
+                            "reports.runs",
+                            "reports.col.done",
+                            "reports.col.failed",
+                            "reports.col.waiting",
+                            "reports.documentsRead",
+                            "reports.col.changes",
+                          ] as const
+                        ).map((h) => (
+                          <th key={h} className="n">
+                            {t(h)}
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {data.services.map((s) => (
+                        <tr key={s.id} data-testid={`portal-report-service-${s.id}`}>
+                          <td>
+                            <Link
+                              to={`/agents/${s.id}`}
+                              className="font-medium text-ink hover:underline"
+                            >
+                              {s.name}
+                            </Link>
+                          </td>
+                          <td className="n">{fmt.number(s.runs.total)}</td>
+                          <td className="n">{fmt.number(s.runs.succeeded)}</td>
+                          <td className="n">{fmt.number(s.runs.failed)}</td>
+                          <td className="n">
+                            {s.runs.waiting > 0 ? (
+                              <Badge tone="warning">
+                                {t("reports.runs.waiting", { count: s.runs.waiting })}
+                              </Badge>
+                            ) : (
+                              fmt.number(0)
+                            )}
+                          </td>
+                          <td className="n">{fmt.number(s.documentsRead)}</td>
+                          <td className="n">{fmt.number(s.actions)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             )}
-          </section>
+          </Section>
         </>
       ) : null}
-    </div>
+    </Page>
   );
 }
 
@@ -249,23 +245,26 @@ function PackReportScreen() {
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!found) {
     return (
-      <div>
+      <Page>
         <PageHeader title={t("nav.reports")} />
-        <Card className="p-6">
+        <Card pad>
           <p className="text-ink">{t("reports.notAvailable")}</p>
           <Link to="/reports" className="ds-btn ds-btn--link mt-2 text-sm">
             {t("reports.seeActivity")}
           </Link>
         </Card>
-      </div>
+      </Page>
     );
   }
+  // The frame is the platform's; what is inside belongs to the pack.
   const { Component } = found;
   return (
-    <div>
+    <Page testId="portal-pack-report">
       <ReportLinks packs={packs} current={packReportPath(found)} />
-      <Component />
-    </div>
+      <div>
+        <Component />
+      </div>
+    </Page>
   );
 }
 
