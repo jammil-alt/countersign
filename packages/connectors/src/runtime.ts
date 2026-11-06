@@ -15,6 +15,14 @@ type AesGcmParams = {
   tagLength?: number;
 };
 
+/** v0.12 bankfeed: a P-256 public key as a JWK (Plaid's webhook verification keys). */
+export interface EcPublicJwk {
+  kty: "EC";
+  crv: "P-256";
+  x: string;
+  y: string;
+}
+
 interface SubtleCryptoLike {
   digest(algorithm: "SHA-256", data: Uint8Array): Promise<ArrayBuffer>;
   importKey(
@@ -24,11 +32,25 @@ interface SubtleCryptoLike {
     extractable: boolean,
     usages: ("encrypt" | "decrypt" | "sign" | "verify")[],
   ): Promise<CryptoKeyLike>;
+  // v0.12 bankfeed: ES256 (ECDSA P-256 with SHA-256), to verify Plaid's webhook JWTs.
+  importKey(
+    format: "jwk",
+    keyData: EcPublicJwk,
+    algorithm: { name: "ECDSA"; namedCurve: "P-256" },
+    extractable: boolean,
+    usages: "verify"[],
+  ): Promise<CryptoKeyLike>;
   encrypt(algorithm: AesGcmParams, key: CryptoKeyLike, data: Uint8Array): Promise<ArrayBuffer>;
   decrypt(algorithm: AesGcmParams, key: CryptoKeyLike, data: Uint8Array): Promise<ArrayBuffer>;
   sign(algorithm: "HMAC", key: CryptoKeyLike, data: Uint8Array): Promise<ArrayBuffer>;
   verify(
     algorithm: "HMAC",
+    key: CryptoKeyLike,
+    signature: Uint8Array,
+    data: Uint8Array,
+  ): Promise<boolean>;
+  verify(
+    algorithm: { name: "ECDSA"; hash: "SHA-256" },
     key: CryptoKeyLike,
     signature: Uint8Array,
     data: Uint8Array,

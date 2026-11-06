@@ -283,6 +283,20 @@ export function fakePodio(opts: { acceptAccessTokens?: string[]; rateLimitNext?:
   };
 }
 
+// v0.12 bankfeed: Plaid (docs/plan.md §1.52).
+export {
+  FAKE_CARD,
+  FAKE_CHECKING,
+  FAKE_INSTITUTION,
+  FAKE_PLAID,
+  type FakePlaid,
+  type FakePlaidAccount,
+  type FakePlaidItem,
+  type FakePlaidTransaction,
+  fakePlaid,
+  fakePlaidAccounts,
+  fakePlaidTransaction,
+} from "./bankfeed/fake";
 export {
   FAKE_ELEVENLABS,
   type FakeElevenLabs,

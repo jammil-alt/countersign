@@ -298,6 +298,12 @@ export const ptBR: Messages = {
   "callback.subtitle": "Concluindo a entrada na sua ferramenta.",
   "callback.back": "Voltar para Conexões",
   "callback.connecting": "Conectando…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Leia as transações das suas contas bancárias e cartões. Nada aqui pode movimentar dinheiro.",
+  "connections.bankfeed.connect": "Conectar banco ou cartão",
+  "callback.linkLost":
+    "Este acesso ao banco começou em outra aba ou janela. Comece de novo em Conexões.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Acessos",

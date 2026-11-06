@@ -302,6 +302,12 @@ export const de: Messages = {
   "callback.subtitle": "Die Anmeldung bei Ihrem Tool wird abgeschlossen.",
   "callback.back": "Zurück zu den Verbindungen",
   "callback.connecting": "Wird verbunden…",
+  // v0.12 bankfeed (pending review by a fluent speaker).
+  "connections.bankfeed.description":
+    "Lesen Sie die Umsätze Ihrer Bankkonten und Karten. Hier kann kein Geld bewegt werden.",
+  "connections.bankfeed.connect": "Bank oder Karte verbinden",
+  "callback.linkLost":
+    "Diese Bankanmeldung wurde in einem anderen Tab oder Fenster begonnen. Beginnen Sie unter Verbindungen neu.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Zugriff",
