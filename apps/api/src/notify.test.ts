@@ -408,9 +408,13 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       await pass(B, at(6, "09:10"));
       const signoffs = (await rows(B)).filter((r) => r.kind === "signoff");
       expect(signoffs.map((r) => r.dedupeKey)).toEqual([`signoff:${item}:${H.B.admin}`]);
-      expect(emailsTo(admin("b")).at(-1)?.subject).toBe(
-        "An agent waits for your sign-off to go live",
+      // The same pass also tells them an item waits; rows of one pass share their time, so the
+      // two emails may go in either order. The sign-off email goes exactly once.
+      const told = emailsTo(admin("b")).filter(
+        (e) => e.subject === "An agent waits for your sign-off to go live",
       );
+      expect(told).toHaveLength(1);
+      expect(told[0]?.text).toContain(`${ORIGIN}/inbox`);
     });
   });
 
