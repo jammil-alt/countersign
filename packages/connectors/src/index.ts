@@ -3,12 +3,14 @@
 // (uploads, purchase CSVs and email forwarding), `browser` (website logins, signed in by code),
 // `webhook` (in and out, for Zapier/Make/n8n), `gmail` (send only), `qbo` (QuickBooks Online),
 // `zoho_crm`, `podio`, `gdrive` (Google Drive, only the files we make), `outlook` (send only),
-// `bankfeed` (bank and card feeds through Plaid, read only), and
-// `testkit`, the test connector. Also `stripe/`, Mezonas' own billing client (not a connector: no
-// manifest, no agent tools).
+// `slack` (posts to picked channels), `bankfeed` (bank and card feeds through Plaid, read only),
+// and `testkit`, the test connector. Also `stripe/`, Mezonas' own billing client (not a
+// connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
+// v0.14 W4-C
+export * from "./attempts";
 // v0.12 bankfeed: bank and card feeds through Plaid (docs/plan.md §1.52).
 export * from "./bankfeed/index";
 export * from "./browser/index";
@@ -36,6 +38,9 @@ export * from "./records/vendors";
 export * from "./registry";
 export * from "./release-codes";
 export * from "./resend/index";
+// v0.14 W4-C
+export * from "./slack/index";
+export * from "./slack/text";
 export * from "./storage/content";
 export * from "./storage/memory";
 export * from "./storage/object-store";

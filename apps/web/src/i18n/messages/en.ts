@@ -259,6 +259,19 @@ export const en = {
   "connections.gmail.description": "Send email from your Gmail. We can't read your mailbox.",
   "connections.gmail.testSend": "Send a test email",
   "connections.gmail.testSent": "Sent to {address}. Check that mailbox's Sent folder and inbox.",
+  // v0.14 W4-C: Slack (new strings: the fluent speaker's review).
+  "connections.slack.description":
+    "Post messages to the Slack channels you pick. We can't read your messages.",
+  "slack.section": "Slack · channels",
+  "slack.workspace": "Workspace: {name}",
+  "slack.help":
+    "Agents post only to the channels you pick. Add the Mezonas app to a channel in Slack before you pick it.",
+  "slack.noChannels": "No public channels in this workspace.",
+  "slack.notMember": "Add Mezonas to this channel in Slack",
+  "slack.gone": "no longer listed in Slack",
+  "slack.noPicks": "No channels picked: agents can't post to Slack.",
+  "slack.picked": { one: "{count} channel picked", other: "{count} channels picked" },
+  "slack.saved": "Saved.",
   "connection.status.connected": "Connected",
   "connection.status.pending": "Not connected",
   "connection.status.disconnected": "Disconnected",
