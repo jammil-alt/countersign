@@ -30,6 +30,7 @@ import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
 import { hookRoutes } from "./routes/hooks";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
@@ -108,6 +109,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   releaseRoutes(app);
   browserRoutes(app);
   complianceRouteHandlers(app);
+  exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);
   tableRouteHandlers(app);

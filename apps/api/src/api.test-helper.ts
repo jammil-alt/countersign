@@ -27,6 +27,7 @@ import { fileFixtureStore } from "@countersign/llm/node";
 import type { Hono } from "hono";
 import { createApp } from "./app";
 import type { Bindings } from "./env";
+import type { ExportJobs } from "./exports/instances";
 import type { AppEnv } from "./http";
 import type { McpDeps } from "./mcp/routes";
 import { createPlatform, type Platform } from "./platform";
@@ -128,6 +129,8 @@ export interface HarnessOptions {
   skills?: SkillDefinition[];
   /** QuickBooks syncs (in-memory instances); none by default. */
   qboSync?: QboSyncInstances;
+  /** Client data export jobs (in memory); none by default. */
+  exports?: ExportJobs;
   /** The MCP server's authorization server, audit, rate limit and clock (fakes). */
   mcp?: McpDeps;
 }
@@ -169,6 +172,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     extractionTransport: () => extraction.transport,
     stripe: () => options.stripe ?? null,
     qboSync: () => options.qboSync ?? null,
+    exports: () => options.exports ?? null,
     ...(options.mcp ? { mcp: options.mcp } : {}),
   });
   const env = {
