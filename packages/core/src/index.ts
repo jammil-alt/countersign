@@ -9,6 +9,8 @@ export * from "./api/approver-rules";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/calls";
+// v0.12 W2-F: the command center, search and plain-words questions
+export * from "./api/command-center";
 export * from "./api/compliance";
 export * from "./api/contract";
 // v0.12 W1-D: the Desk
@@ -33,7 +35,11 @@ export * from "./api/requests";
 export * from "./api/routes";
 // v0.12 W1-E
 export * from "./api/run-controls";
+// v0.12 W2-F
+export * from "./api/runs-ask";
 export * from "./api/runs-filter";
+// v0.12 W2-F
+export * from "./api/search";
 export * from "./api/supervisor";
 export * from "./api/table";
 export * from "./api/threads";
