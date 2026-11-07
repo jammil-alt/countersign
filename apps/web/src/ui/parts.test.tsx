@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { I18nProvider } from "../i18n/i18n";
-import { fillPath } from "../shell/Redirect";
+import { fillPath, mergeQuery } from "../shell/Redirect";
 import { applyTheme, storedTheme } from "../shell/theme";
 import { ActivityRow, BeforeAfter } from "./activity";
 import { AgentBadge, PersonBadge } from "./badges";
@@ -176,6 +176,11 @@ describe("shell helpers", () => {
     expect(fillPath("/agents/:id", { id: "a b" })).toBe("/agents/a%20b");
     expect(fillPath("/reports/*", { "*": "materials/costs" })).toBe("/reports/materials/costs");
     expect(fillPath("/desk", {})).toBe("/desk");
+    // A new home with a query of its own keeps the old address's too; its own value wins.
+    expect(mergeQuery("view=weekly", "?week=2026-11-02")).toBe("?view=weekly&week=2026-11-02");
+    expect(mergeQuery("mode=change", "?mode=x&status=open")).toBe("?mode=change&status=open");
+    expect(mergeQuery("", "?a=b%20c")).toBe("?a=b%20c");
+    expect(mergeQuery("view=weekly", "")).toBe("?view=weekly");
   });
 
   it("applies a theme to <html> and reads the stored one", () => {

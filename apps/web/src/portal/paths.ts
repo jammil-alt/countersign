@@ -17,15 +17,17 @@ export const PORTAL_PATHS = {
   peopleImport: "/people/import",
   settings: "/settings",
   billing: "/settings/billing",
+  // Not in the sidebar (QA round 1): the agent page links its reports.
   reports: "/reports",
   records: "/records",
-  requests: "/requests",
+  // QA round 1: asking for a change is a mode of Sloan; `/requests` redirects here.
+  requests: "/sloan?mode=change",
   knowledge: "/knowledge",
   conversations: "/conversations",
-  // UI-1d
-  weekly: "/weekly",
+  // QA round 1: the Weekly Table is a view of The Table; `/weekly` redirects here.
+  weekly: "/?view=weekly",
   sloan: "/sloan",
-  // UI-3a
+  // UI-3a. Upload's one entry is Records' "Upload documents" (QA round 1).
   upload: "/upload",
   team: "/settings/team",
   exports: "/settings/exports",

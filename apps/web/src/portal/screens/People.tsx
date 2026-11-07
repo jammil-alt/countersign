@@ -1,7 +1,9 @@
 // `/people`, C5 People (docs/ui-plan.md; plan §1.22, §1.25, §1.27, §1.42): everyone the client's
 // agents may contact, who they are to the client, and how each wants to be reached. One page with
 // tabs: the people (a table, and one person's details beside it), organizations, consent and
-// messages, who each agent reaches, voice samples, and import with agents' suggestions.
+// messages, who each agent reaches, voice samples, and import with agents' suggestions. People and
+// organizations are the tabs; the other four sit behind the page's "More" menu, for the client
+// admin only (QA round 1).
 //
 // Client users read the people and organizations; the client admin also edits them, records
 // consent, and makes a channel stricter for a person (ask first, or never: only we loosen it).
@@ -15,8 +17,8 @@ import {
   type ReachChannel,
   type Relationship,
 } from "@countersign/core";
-import { type ReactNode, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ContactsPanel } from "../../contacts/ContactsPanel";
@@ -33,6 +35,7 @@ import { shortTime } from "../../runs/format";
 import { useSession } from "../../session/session";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Select, TextInput } from "../../ui/forms";
+import { Icon } from "../../ui/icons";
 import { Loaded, Page, PageGrid } from "../../ui/page";
 import {
   Button,
@@ -103,7 +106,9 @@ export function PeopleScreen({ tab }: { tab: PeopleTab }) {
     { id: "voice", to: PORTAL_PATHS.voice, label: t("peoplePage.tab.voice") },
     { id: "import", to: PORTAL_PATHS.peopleImport, label: t("peoplePage.tab.import") },
   ];
-  const shown = admin ? tabs : tabs.filter((x) => !ADMIN_TABS.includes(x.id));
+  // The admin's pages are in "More"; the one open now also shows as a tab, so you see where you are.
+  const shown = tabs.filter((x) => !ADMIN_TABS.includes(x.id) || (admin && x.id === tab));
+  const more = admin ? tabs.filter((x) => ADMIN_TABS.includes(x.id)) : [];
   return (
     <Page testId="portal-people">
       <div className="flex flex-col gap-6">
@@ -112,34 +117,28 @@ export function PeopleScreen({ tab }: { tab: PeopleTab }) {
           subtitle={t("peoplePage.subtitle")}
           actions={
             admin ? (
-              <>
-                <Link
-                  to={PORTAL_PATHS.peopleImport}
-                  className={buttonClass("secondary")}
-                  data-testid="people-import"
-                >
-                  {t("peoplePage.import")}
-                </Link>
-                <Link
-                  to={`${PORTAL_PATHS.people}?add=1`}
-                  className={buttonClass("primary")}
-                  data-testid="people-add"
-                >
-                  {t("peoplePage.add")}
-                </Link>
-              </>
+              <Link
+                to={`${PORTAL_PATHS.people}?add=1`}
+                className={buttonClass("primary")}
+                data-testid="people-add"
+              >
+                {t("peoplePage.add")}
+              </Link>
             ) : null
           }
         />
-        <div className="overflow-x-auto">
-          <Tabs
-            items={shown.map((x) => ({
-              to: x.to,
-              label: x.label,
-              end: true,
-              active: x.id === tab,
-            }))}
-          />
+        <div className="flex items-end gap-4">
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <Tabs
+              items={shown.map((x) => ({
+                to: x.to,
+                label: x.label,
+                end: true,
+                active: x.id === tab,
+              }))}
+            />
+          </div>
+          {more.length > 0 ? <PeopleMore items={more} current={tab} /> : null}
         </div>
       </div>
       {!admin && ADMIN_TABS.includes(tab) ? (
@@ -162,6 +161,45 @@ export function PeopleScreen({ tab }: { tab: PeopleTab }) {
         />
       )}
     </Page>
+  );
+}
+
+/** The admin's other People pages, behind one menu at the end of the tabs. */
+function PeopleMore({
+  items,
+  current,
+}: {
+  items: { id: PeopleTab; to: string; label: string }[];
+  current: PeopleTab;
+}) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDetailsElement>(null);
+  const { pathname } = useLocation();
+  // A page chosen from the menu closes it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closes on each page change.
+  useEffect(() => {
+    if (ref.current) ref.current.open = false;
+  }, [pathname]);
+  return (
+    <details ref={ref} className="relative shrink-0 pb-1.5" data-testid="people-more">
+      <summary className="ds-btn ds-btn--ghost ds-btn--sm list-none [&::-webkit-details-marker]:hidden">
+        {t("nav.more")}
+        <Icon name="chevron-down" size={14} />
+      </summary>
+      <div className="ui-menu flex flex-col gap-0.5 p-2">
+        {items.map((x) => (
+          <Link
+            key={x.id}
+            to={x.to}
+            data-testid={`people-more-${x.id}`}
+            aria-current={x.id === current ? "page" : undefined}
+            className="ds-navitem ui-navitem"
+          >
+            {x.label}
+          </Link>
+        ))}
+      </div>
+    </details>
   );
 }
 

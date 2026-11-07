@@ -120,7 +120,6 @@ export const it: Messages = {
   "nav.contacts": "Contatti",
   // v0.14 capture
   "nav.conversations": "Conversazioni",
-  "nav.billing": "Fatturazione",
   "nav.people": "Persone",
   "nav.access": "Accessi",
   "nav.directory": "Rubrica",
@@ -170,7 +169,7 @@ export const it: Messages = {
   "table.hello.evening": "Buonasera",
   "table.waitLine": { one: "{count} cosa aspetta te.", other: "{count} cose aspettano te." },
   "table.waitNone": "Niente aspetta te.",
-  "table.openWeekly": "Apri il Tavolo della settimana",
+  "table.view.today": "Oggi",
   "table.askSloan": "Chiedi a Sloan",
   "table.workingNow": "Al lavoro ora",
   "table.meta.running": { one: "{count} in corso", other: "{count} in corso" },
@@ -607,7 +606,7 @@ export const it: Messages = {
   "webhook.noOutbound": "Ancora nessun URL in uscita: gli agenti non possono inviare eventi.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Caricamento e inoltro · inclusi",
+  "forwarding.section": "Inoltro",
   "upload.title": "Carica",
   "upload.help":
     "Fatture e ricevute (PDF o immagine), o un CSV di acquisti con data, fornitore e importo.",
@@ -624,6 +623,7 @@ export const it: Messages = {
   "upload.received": "Ricevuto",
   "upload.duplicate": "Già presente: ne teniamo una sola copia.",
   "forwarding.title": "Inoltra le fatture per email",
+  "forwarding.uploadInRecords": "Carica tu stesso i file da Record",
   "forwarding.off": "L'inoltro non è ancora attivo. Il tuo indirizzo privato comparirà qui.",
   "forwarding.help":
     "Crea una regola di inoltro nella tua email (per esempio dalla casella della contabilità fornitori) verso questo indirizzo privato. Teniamo gli allegati, mai il testo del messaggio.",
@@ -695,7 +695,6 @@ export const it: Messages = {
   "document.col.page": "Pagina",
 
   // ── Requests ──
-  "requests.title": "Richieste",
   "requests.subtitle":
     "Chiedici di modificare uno dei tuoi servizi, o qualcosa di nuovo. Ti rispondiamo qui.",
   "requests.which": "Quali richieste",
@@ -752,7 +751,7 @@ export const it: Messages = {
   "signin.error.default": "L'accesso non è stato completato. Ricomincia.",
 
   // ── Feedback ──
-  "feedback.button": "Feedback",
+  "feedback.button": "Segnala un problema con l'app",
   "feedback.tapWhere": "Tocca dove si trova il problema",
   "feedback.noSpot": "Nessun punto preciso",
   "feedback.capturing": "Acquisizione dell'immagine…",
@@ -1500,7 +1499,6 @@ export const it: Messages = {
   "peoplePage.title": "Persone",
   "peoplePage.subtitle":
     "Tutte le persone che i tuoi agenti possono contattare, chi sono per te e come preferiscono essere contattate.",
-  "peoplePage.import": "Importa persone",
   "peoplePage.add": "Aggiungi una persona",
   "peoplePage.adminOnly": "Questa parte di Persone la gestisce il tuo amministratore.",
   "peoplePage.tab.people": "Persone",
@@ -1781,6 +1779,6 @@ export const it: Messages = {
   "knowledge.adminOnly":
     "Solo il tuo admin può vedere e cambiare ciò che gli agenti sanno della tua azienda.",
   "sloan.requests": "Le tue richieste a noi",
+  "sloan.mode.change": "Chiedi una modifica",
   "signin.needAccess": "Ti serve l'accesso? Chiedi al tuo admin o al tuo referente Mezonas.",
-  "nav.upload": "Carica",
 };

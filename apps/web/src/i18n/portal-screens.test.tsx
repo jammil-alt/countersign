@@ -107,18 +107,21 @@ describe("portal settings in Spanish", () => {
         client: { id: DEMO, name: "Demo client", timezone: "UTC" },
         approvals: "client_admin",
         notifications: { itemsWaiting: true, weeklyDigest: false },
-        emailsOn: false,
+        emailsOn: true,
+      }),
+      "GET /api/settings/my-notifications": () => ({
+        email: true,
+        sms: false,
+        canText: false,
+        emailsOn: true,
       }),
     });
     renderAt("/settings", api);
     expect(await screen.findByRole("heading", { name: "Ajustes" })).toBeInTheDocument();
     // UI-3a: the team has its own page; Settings links to it with the count.
     expect(await screen.findByText("1 persona usa su portal.")).toBeInTheDocument();
-    const emails = screen.getByTestId("portal-settings-notifications");
+    const emails = await screen.findByTestId("portal-settings-notifications");
     expect(emails).toHaveTextContent("Resumen semanal");
-    expect(within(emails).getByTestId("portal-notifications-off")).toHaveTextContent(
-      "Los correos llegarán pronto",
-    );
     expect(within(emails).getByTestId("portal-notifications-save")).toHaveTextContent("Guardar");
     expect(screen.getByTestId("portal-settings-approvals")).toHaveTextContent(
       "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
@@ -608,7 +611,7 @@ const WORDS = {
     optedOut: "Dado de baja",
     units: ["minutos", "horas", "días"],
     save: "Guardar personas",
-    nav: ["Conocimiento", "Facturación", "Personas", "Ajustes"],
+    nav: ["Conocimiento", "Registros", "Personas", "Ajustes"],
   },
   de: {
     contacts: "Kontakte",
@@ -655,7 +658,7 @@ const WORDS = {
     optedOut: "Abgemeldet",
     units: ["Minuten", "Stunden", "Tage"],
     save: "Personen speichern",
-    nav: ["Wissen", "Abrechnung", "Personen", "Einstellungen"],
+    nav: ["Wissen", "Einträge", "Personen", "Einstellungen"],
   },
 } as const;
 
@@ -668,7 +671,7 @@ for (const locale of ["es", "de"] as const) {
       expect(await screen.findByRole("heading", { name: w.people, level: 1 })).toBeInTheDocument();
       // The admin's sidebar links, all translated.
       expect(
-        ["knowledge", "billing", "people", "settings"].map(
+        ["knowledge", "records", "people", "settings"].map(
           (l) => screen.getByTestId(`portal-nav-${l}`).textContent,
         ),
       ).toEqual(w.nav);

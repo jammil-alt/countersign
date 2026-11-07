@@ -116,7 +116,7 @@ describe("Your Desk: a QuickBooks change", () => {
 
     const entry = await screen.findByTestId(`desk-entry-${ITEM.id}`);
     expect(entry).toHaveTextContent("Pia");
-    expect(screen.getByTestId("desk-requests")).toHaveAttribute("href", "/requests");
+    expect(screen.getByTestId("desk-requests")).toHaveAttribute("href", "/sloan?mode=change");
     expect(entry).toHaveTextContent("Needs your approval");
     expect(entry).toHaveTextContent("QuickBooks bill 20418 · Northline Panel Supply");
 
@@ -150,7 +150,7 @@ describe("Your Desk: a QuickBooks change", () => {
       expect(text).not.toContain(hidden);
     }
 
-    const count = screen.getByTestId("shell-inbox");
+    const count = screen.getByTestId("portal-nav-desk");
     await waitFor(() => expect(count).toHaveTextContent("1"));
 
     const sign = within(card).getByTestId("desk-sign");
@@ -406,7 +406,7 @@ describe("portal header: the Desk count", () => {
       "GET /api/inbox": inbox(() => ({ open: count > 0 ? [ITEM] : [] })),
     });
     renderAt("/", api);
-    const desk = await screen.findByTestId("shell-inbox");
+    const desk = await screen.findByTestId("portal-nav-desk");
     await waitFor(() => expect(desk).toHaveTextContent("0"));
 
     // The Bill clerk proposes the change while the client has the portal open.

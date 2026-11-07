@@ -69,10 +69,11 @@ describe("the portal's routes", () => {
       "/people",
       "/settings",
       "/runs",
-      "/weekly",
       "/sloan",
+      "/records",
       // UI-3a
       "/upload",
+      "/reports",
       "/settings/team",
       "/settings/exports",
     ]) {
@@ -98,6 +99,11 @@ describe("the portal's routes", () => {
     ["/people/directory", "/people"],
     ["/contacts", "/people/contacts"],
     ["/billing", "/settings/billing"],
+    // QA round 1: one home each.
+    ["/weekly", "/?view=weekly"],
+    ["/weekly?week=2026-11-02#top", "/?view=weekly&week=2026-11-02#top"],
+    ["/requests", "/sloan?mode=change"],
+    ["/requests?status=open", "/sloan?mode=change&status=open"],
   ])("%s redirects to %s", async (from, to) => {
     renderAt(from, false);
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(to));
