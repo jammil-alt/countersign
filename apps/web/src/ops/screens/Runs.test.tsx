@@ -164,10 +164,11 @@ describe("ops runs", () => {
     expect(screen.getByTestId("ops-runs-chip-since")).toBeInTheDocument();
     const group = await screen.findByTestId("ops-runs-error-gmail.send:unauthorized");
     expect(group).toHaveTextContent("5");
+    expect(group).toHaveTextContent("Gmail · Send an email · unauthorized");
     expect(group).toHaveTextContent("Demo client · Cole");
     await userEvent.click(group);
     expect(await screen.findByTestId("ops-runs-chip-errorKey")).toHaveTextContent(
-      "error gmail.send:unauthorized",
+      "error Gmail · Send an email · unauthorized",
     );
     await waitFor(() => expect(queries.at(-1)?.get("errorKey")).toBe("gmail.send:unauthorized"));
     expect(queries.at(-1)?.get("groupBy")).toBe("error");

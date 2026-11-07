@@ -1,4 +1,5 @@
 // Words and times the back office's command center, runs list and run page share (English only).
+
 import {
   type NobodyToAct,
   type OversightDecisionView,
@@ -7,6 +8,7 @@ import {
   type RunWait,
   runState,
 } from "@countersign/core";
+import { qualifiedToolLabel } from "../../runs/labels";
 import { type ChipState, runChipState } from "../../ui/status";
 
 /** "under an hour", "14 h", "3 days": how long since `iso`, at `now`. */
@@ -161,4 +163,29 @@ export function runErrorParts(error: unknown): {
     nodeId: text(e.nodeId),
     key: text(e.key) ?? text(e.code),
   };
+}
+
+const ERROR_WHERE_WORDS: Record<string, string> = {
+  skill: "A skill step",
+  person: "A person step",
+  logic: "A logic step",
+  run: "Before any step",
+  action: "A change to a tool",
+};
+
+/**
+ * A failed-runs group's key in words (`<tool id or step kind>:<code>`): "testkit.record.update:
+ * unauthorized" → "Testkit · Update a record · unauthorized", "person:timeout" → "A person step ·
+ * timeout", "unknown" → "No reason given".
+ */
+export function errorGroupLabel(key: string): string {
+  const at = key.lastIndexOf(":");
+  if (at < 0)
+    return key === "unknown" || key === "failed" ? "No reason given" : key.replace(/_/g, " ");
+  const where = key.slice(0, at);
+  const code = key.slice(at + 1).replace(/_/g, " ");
+  const place = where.includes(".")
+    ? qualifiedToolLabel(where)
+    : (ERROR_WHERE_WORDS[where] ?? where.replace(/[_-]/g, " "));
+  return `${place} · ${code}`;
 }

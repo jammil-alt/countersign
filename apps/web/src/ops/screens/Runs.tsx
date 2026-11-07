@@ -34,6 +34,7 @@ import {
 import { StatusChip } from "../../ui/status";
 import {
   age,
+  errorGroupLabel,
   NOBODY_TO_ACT_WORDS,
   plural,
   RUN_STATUS_WORDS,
@@ -110,6 +111,7 @@ function chipValue(key: string, value: string): string {
       .join(", ");
   }
   if (key === "mode") return value === "test" ? "test runs" : "live runs";
+  if (key === "errorKey") return errorGroupLabel(value);
   return value;
 }
 
@@ -535,7 +537,7 @@ function ErrorGroups({
           data-testid={`ops-runs-error-${g.key}`}
         >
           <StatTile
-            label={g.key}
+            label={errorGroupLabel(g.key)}
             value={g.count}
             alert={i === 0}
             note={[
