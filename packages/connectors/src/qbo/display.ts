@@ -114,6 +114,17 @@ const T = {
   },
 } satisfies Record<string, LocalizedText>;
 
+// P-2 (docs/plan.md §1.64): a line's customer (job) and class, shown with what it is booked to.
+const NEW_LINE_TAGS = [
+  { key: "customerId", names: "customers" },
+  { key: "classId", names: "classes" },
+];
+const LINE_TAGS = [
+  { key: "customer", names: "customers" },
+  { key: "class", names: "classes" },
+  ...NEW_LINE_TAGS,
+];
+
 const date: DisplayField = { label: T.date, kind: "date", now: "before.txnDate" };
 const total: DisplayField = {
   label: T.total,
@@ -173,6 +184,8 @@ export function updateLinesDisplay(entity: "Bill" | "Purchase"): ToolDisplay {
             { key: "itemId", names: "items" },
             { key: "accountId", names: "accounts" },
           ],
+          // P-2: the line's job and class, the record's by name, the new lines' by id.
+          tags: LINE_TAGS,
         },
       },
       total,
@@ -327,6 +340,8 @@ export const billCreateDisplay: ToolDisplay = {
           { key: "itemId", names: "items" },
           { key: "accountId", names: "accounts" },
         ],
+        // P-2
+        tags: NEW_LINE_TAGS,
       },
     },
     {
@@ -337,5 +352,152 @@ export const billCreateDisplay: ToolDisplay = {
       currency: "USD",
     },
     { label: T.memo, kind: "text", after: "input.privateNote" },
+  ],
+};
+
+// ── P-2: QuickBooks ingredients (docs/plan.md §1.64) ───────────────────────────────────────────
+
+const P2 = {
+  vendor: {
+    en: "QuickBooks vendor",
+    es: "Proveedor de QuickBooks",
+    fr: "Fournisseur QuickBooks",
+    "pt-BR": "Fornecedor do QuickBooks",
+    it: "Fornitore QuickBooks",
+    de: "QuickBooks-Lieferant",
+  },
+  purchaseOrder: {
+    en: "QuickBooks purchase order",
+    es: "Orden de compra de QuickBooks",
+    fr: "Bon de commande QuickBooks",
+    "pt-BR": "Pedido de compra do QuickBooks",
+    it: "Ordine d'acquisto QuickBooks",
+    de: "QuickBooks-Bestellung",
+  },
+  companyName: {
+    en: "Company name",
+    es: "Razón social",
+    fr: "Raison sociale",
+    "pt-BR": "Razão social",
+    it: "Ragione sociale",
+    de: "Firmenname",
+  },
+  email: {
+    en: "Email",
+    es: "Correo electrónico",
+    fr: "E-mail",
+    "pt-BR": "E-mail",
+    it: "E-mail",
+    de: "E-Mail",
+  },
+  phone: {
+    en: "Phone",
+    es: "Teléfono",
+    fr: "Téléphone",
+    "pt-BR": "Telefone",
+    it: "Telefono",
+    de: "Telefon",
+  },
+  billingAddress: {
+    en: "Billing address",
+    es: "Dirección de facturación",
+    fr: "Adresse de facturation",
+    "pt-BR": "Endereço de cobrança",
+    it: "Indirizzo di fatturazione",
+    de: "Rechnungsadresse",
+  },
+  terms: {
+    en: "Payment terms",
+    es: "Condiciones de pago",
+    fr: "Conditions de paiement",
+    "pt-BR": "Condições de pagamento",
+    it: "Termini di pagamento",
+    de: "Zahlungsbedingungen",
+  },
+  expected: {
+    en: "Expected",
+    es: "Fecha prevista",
+    fr: "Date prévue",
+    "pt-BR": "Data prevista",
+    it: "Data prevista",
+    de: "Erwartet am",
+  },
+  shipTo: {
+    en: "Ship to",
+    es: "Enviar a",
+    fr: "Livrer à",
+    "pt-BR": "Entregar em",
+    it: "Spedire a",
+    de: "Lieferadresse",
+  },
+} satisfies Record<string, LocalizedText>;
+
+/** A new vendor: its name, how to reach it, its address and terms. Nothing exists "now". */
+// DECISION: the address shows as one line the before state writes from the input (no words in it,
+// so it reads the same in every language), and the terms by the name QuickBooks gives them.
+export const vendorCreateDisplay: ToolDisplay = {
+  name: P2.vendor,
+  description: {
+    en: "Add this vendor to QuickBooks. Nothing else changes.",
+    es: "Añade este proveedor a QuickBooks. Nada más cambia.",
+    fr: "Ajoute ce fournisseur dans QuickBooks. Rien d'autre ne change.",
+    "pt-BR": "Adiciona este fornecedor ao QuickBooks. Nada mais muda.",
+    it: "Aggiunge questo fornitore a QuickBooks. Nient'altro cambia.",
+    de: "Legt diesen Lieferanten in QuickBooks an. Sonst ändert sich nichts.",
+  },
+  subject: "input.displayName",
+  fields: [
+    { label: P2.companyName, kind: "text", after: "input.companyName" },
+    { label: P2.email, kind: "text", after: "input.email" },
+    { label: P2.phone, kind: "text", after: "input.phone" },
+    { label: P2.billingAddress, kind: "text", after: "before.billingAddress" },
+    { label: P2.terms, kind: "ref", after: "before.terms" },
+  ],
+};
+
+/** A new purchase order: vendor and number, dates, lines with names, total, ship to, memo. */
+export const purchaseOrderCreateDisplay: ToolDisplay = {
+  name: P2.purchaseOrder,
+  description: {
+    en: "Create this purchase order in QuickBooks. It stays open, and we don't send it to the vendor.",
+    es: "Crea esta orden de compra en QuickBooks. Queda abierta y no la enviamos al proveedor.",
+    fr: "Crée ce bon de commande dans QuickBooks. Il reste ouvert et nous ne l'envoyons pas au fournisseur.",
+    "pt-BR":
+      "Cria este pedido de compra no QuickBooks. Ele fica em aberto e não o enviamos ao fornecedor.",
+    it: "Crea questo ordine d'acquisto in QuickBooks. Resta aperto e non lo inviamo al fornitore.",
+    de: "Legt diese Bestellung in QuickBooks an. Sie bleibt offen, und wir senden sie nicht an den Lieferanten.",
+  },
+  number: "input.docNumber",
+  subject: "before.vendor",
+  names: "before.names",
+  fields: [
+    { label: T.date, kind: "date", after: "input.txnDate" },
+    { label: P2.expected, kind: "date", after: "input.dueDate" },
+    {
+      label: T.lines,
+      kind: "lines",
+      after: "input.lines",
+      currencyPath: "input.currency",
+      columns: {
+        description: "description",
+        qty: "qty",
+        unitPrice: "unitPrice",
+        amount: "amount",
+        refs: [
+          { key: "itemId", names: "items" },
+          { key: "accountId", names: "accounts" },
+        ],
+        tags: NEW_LINE_TAGS,
+      },
+    },
+    {
+      label: T.total,
+      kind: "money",
+      after: "input.expectedTotal",
+      currencyPath: "input.currency",
+      currency: "USD",
+    },
+    { label: P2.shipTo, kind: "text", after: "before.shipTo" },
+    { label: T.memo, kind: "text", after: "input.memo" },
   ],
 };

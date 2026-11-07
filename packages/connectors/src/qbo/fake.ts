@@ -13,11 +13,14 @@ import faultUnauthorized from "../../../../fixtures/qbo/fault-unauthorized.json"
 import accounts from "../../../../fixtures/qbo/query-account.json";
 import attachables from "../../../../fixtures/qbo/query-attachable.json";
 import bills from "../../../../fixtures/qbo/query-bill.json";
+import classes from "../../../../fixtures/qbo/query-class.json";
 import customers from "../../../../fixtures/qbo/query-customer.json";
 import invoices from "../../../../fixtures/qbo/query-invoice.json";
 import items from "../../../../fixtures/qbo/query-item.json";
 import payments from "../../../../fixtures/qbo/query-payment.json";
 import purchases from "../../../../fixtures/qbo/query-purchase.json";
+import purchaseOrders from "../../../../fixtures/qbo/query-purchaseorder.json";
+import terms from "../../../../fixtures/qbo/query-term.json";
 import vendors from "../../../../fixtures/qbo/query-vendor.json";
 import credits from "../../../../fixtures/qbo/query-vendorcredit.json";
 import agedReceivables from "../../../../fixtures/qbo/report-aged-receivable-detail.json";
@@ -56,6 +59,10 @@ export const QBO_FIXTURES = {
   payments,
   accounts,
   agedReceivables,
+  // P-2
+  classes,
+  purchaseOrders,
+  terms,
   faultStale,
   faultUnauthorized,
   faultThrottle,
@@ -194,6 +201,10 @@ const ENTITY_PATHS: Record<string, string> = {
   customer: "Customer",
   payment: "Payment",
   account: "Account",
+  // P-2
+  class: "Class",
+  purchaseorder: "PurchaseOrder",
+  term: "Term",
 };
 
 export interface FakeQboOptions {
@@ -242,6 +253,12 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   seed("Invoice", invoices.QueryResponse.Invoice);
   seed("Payment", payments.QueryResponse.Payment);
   seed("Account", accounts.QueryResponse.Account);
+  // P-2
+  seed("Class", classes.QueryResponse.Class);
+  seed("PurchaseOrder", purchaseOrders.QueryResponse.PurchaseOrder);
+  seed("Term", terms.QueryResponse.Term);
+  let nextVendorId = 700;
+  let nextPoId = 800;
   files.set("5000000000000401", utf8("%PDF-1.4\n% Cascade Hardwoods invoice 77812\n%%EOF\n"));
 
   const stamp = () => {
@@ -322,6 +339,7 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       next[k] = clone(v);
     }
     if (Array.isArray(body.Line)) {
+      checkLineRefs(body.Line as Record<string, unknown>[]);
       const used = new Set(
         (body.Line as { Id?: string }[]).map((l) => l.Id).filter((x): x is string => Boolean(x)),
       );
@@ -368,6 +386,7 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       });
     }
     const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    checkLineRefs(lines);
     const row: Entity = {
       ...clone(body),
       Id: String(nextBillId++),
@@ -393,6 +412,102 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     row.Balance = row.TotalAmt;
     touch("Bill", row, true);
     return response(200, { Bill: clone(row), time: now().toISOString() });
+  }
+
+  // ── P-2: QuickBooks ingredients (docs/plan.md §1.64) ─────────────────────────────────────────
+
+  const invalidRef = () => new FakeFault(400, "2500", "Invalid Reference Id");
+
+  /** A line's class and customer must be the company's (QuickBooks answers 2500 otherwise). */
+  function checkLineRefs(lines: Record<string, unknown>[]) {
+    for (const l of lines) {
+      const d = (l.AccountBasedExpenseLineDetail ?? l.ItemBasedExpenseLineDetail) as
+        | { ClassRef?: { value?: string }; CustomerRef?: { value?: string } }
+        | undefined;
+      if (d?.ClassRef && !table("Class").has(String(d.ClassRef.value))) throw invalidRef();
+      if (d?.CustomerRef && !table("Customer").has(String(d.CustomerRef.value))) {
+        throw invalidRef();
+      }
+    }
+  }
+
+  /** Display names are unique across vendors, customers and employees (6240 otherwise). */
+  function nameTaken(name: string): boolean {
+    const want = name.trim().toLowerCase();
+    return ["Vendor", "Customer", "Employee"].some((e) =>
+      [...table(e).values()].some(
+        (r) =>
+          String(r.DisplayName ?? "")
+            .trim()
+            .toLowerCase() === want,
+      ),
+    );
+  }
+
+  /** A new vendor (POST /vendor without an Id): a new id, SyncToken 0, active. */
+  function createVendor(body: Entity): HttpResponseLike {
+    if (typeof body.DisplayName !== "string" || body.DisplayName.trim() === "") {
+      throw new FakeFault(400, "2020", "Required param missing, need to supply the required value");
+    }
+    if (nameTaken(body.DisplayName)) {
+      throw new FakeFault(400, "6240", "Duplicate Name Exists Error");
+    }
+    const terms = body.TermRef as { value?: string } | undefined;
+    if (terms && !table("Term").has(String(terms.value))) throw invalidRef();
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextVendorId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      Active: true,
+      Balance: 0,
+    };
+    touch("Vendor", row, true);
+    return response(200, { Vendor: clone(row), time: now().toISOString() });
+  }
+
+  /** A new purchase order (POST /purchaseorder without an Id): open, its total from its lines. */
+  function createPurchaseOrder(body: Entity & { VendorRef?: { value?: string } }) {
+    const vendor = table("Vendor").get(String(body.VendorRef?.value ?? ""));
+    if (!vendor) throw invalidRef();
+    const ap = body.APAccountRef as { value?: string } | undefined;
+    if (ap && !table("Account").has(String(ap.value))) throw invalidRef();
+    const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    checkLineRefs(lines);
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextPoId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      POStatus: "Open",
+      VendorRef: { value: vendor.Id, name: vendor.DisplayName },
+      CurrencyRef: (body.CurrencyRef as object | undefined) ?? { value: "USD" },
+      Line: lines.map((l, i) => {
+        const d = l.ItemBasedExpenseLineDetail as { Qty?: number; UnitPrice?: number } | undefined;
+        if (d && d.Qty !== undefined && d.UnitPrice !== undefined) {
+          const product = dec(String(d.Qty))
+            .times(dec(String(d.UnitPrice)))
+            .toDecimalPlaces(2);
+          if (!product.equals(dec(String(l.Amount)))) {
+            throw new FakeFault(400, "6070", "Amount is not equal to UnitPrice * Qty");
+          }
+        }
+        return { ...l, Id: String(i + 1), LineNum: i + 1 };
+      }),
+    };
+    row.TotalAmt = Number(linesTotal(row));
+    touch("PurchaseOrder", row, true);
+    return response(200, { PurchaseOrder: clone(row), time: now().toISOString() });
+  }
+
+  /** POST /<entity> without an Id: the entities the fake can create. */
+  function create(first: string, body: Entity): HttpResponseLike | null {
+    if (first === "bill") return createBill(body);
+    if (first === "vendor") return createVendor(body);
+    if (first === "purchaseorder") return createPurchaseOrder(body);
+    return null;
   }
 
   // v0.12 W1-F: QuickBooks' AgedReceivableDetail, built from the company's invoices in the shape
@@ -656,9 +771,8 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       } else if (method === "POST" && ENTITY_PATHS[first] && !second) {
         const body = JSON.parse(init.body as string) as Entity;
         res =
-          first === "bill" && body.Id === undefined
-            ? createBill(body)
-            : update(ENTITY_PATHS[first] as string, body);
+          (body.Id === undefined ? create(first, body) : null) ??
+          update(ENTITY_PATHS[first] as string, body);
       } else {
         res = response(404, { Fault: { Error: [{ Message: `no route ${method} ${first}` }] } });
       }

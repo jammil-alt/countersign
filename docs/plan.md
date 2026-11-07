@@ -1663,6 +1663,26 @@ data only, within the brand rules (`apps/web/src/ui/README.md`).
 | Agent colour | Owner (design pass 2): solid blocks as on the v1 screens, from existing tokens (slate, copper, positive, signal-ink, `data-seq-4`) with `surface` initials; picked by id and spread within a client so its first five agents differ. State keeps tinted pills and accent bars, so a solid block reads as identity. // DECISION |
 | Go-live view | `goLive.writes` reads the live version, else the latest (a draft that writes no longer reads "goes straight to live"); `liveVersion` says whether there is one. Stage moves still read the live version alone. // DECISION |
 
+### 1.64 QuickBooks ingredients (P-2, M35; no migration)
+
+Building blocks for agents the owner builds later in the agent lab. Tools only: no agent, template
+or workflow uses them yet. Built against the fake QuickBooks; what is unchecked is in
+`packages/connectors/src/qbo/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Reads | `qbo.account.query {types?, active = true, nameContains?, start, limit}` (entity `account`): id, name, full name, type, subtype, active, currency. `qbo.class.query {ids?, active = true, nameContains?, …}` (entity `class`). `qbo.purchaseorder.query {ids?, docNumber?, vendorId?, status? Open/Closed, from?, to?, …}` (entity `purchase_order`), with lines. Live queries like the other reads, so they also become built-in read skills (§1.9). `active` filters literally: false lists inactive records. // DECISION |
+| Class and customer on lines | `NewLine` gains `classId`, `customerId` and `billable` (only with a customer). They go out as `ClassRef`, `CustomerRef` and `BillableStatus` on both expense line details, for create bill, both `update_lines` tools and create purchase order. What a line names wins over what it inherits; a line with a customer always says `Billable` or `NotBillable` (not billable unless asked). An unknown or inactive class or customer is refused when proposed and again before writing. `qbo.bill.query`, `qbo.purchase.query` and the update tools' before state show each line's `class`, `customer` and `billable`. // DECISION |
+| Names on the card | The before state's `names` gains `classes` and `customers`, only when the new lines name any, so older before states read as they did. `ToolDisplay`'s line columns gain `tags`: refs shown by name under what a line is booked to (its job, its class); a client never reads a bare id, the back office reads `#id`. // DECISION |
+| `qbo.vendor.create` | Verb `create`, entity `vendor` (vendors' verbs become read and create). Input: display name, company name, email, phone, billing address, terms id. Refused when proposed and again before writing if a vendor (active or not) has the same name, compared with case and spacing set aside; every vendor is read (1,000 a page, at most 20 pages), not filtered by name. QuickBooks' own "duplicate name" (a customer or employee with the name) is the same refusal. Unknown or inactive terms are refused. The before state is `{existing: null, billingAddress, terms}`. Right before writing, a vendor with the name, company and email asked for is this action's own lost write: reported done with its id. Output: the new vendor's id for a later step. // DECISION |
+| `qbo.purchaseorder.create` | Verb `create`, entity `purchase_order`, `amount` = `expectedTotal`. The rules of `qbo.bill.create`: lines add up to the total (decimal.js), the total is more than zero, the vendor is the company's, `requestid` from the action's key. Number optional; with one, an order from the same vendor with the same number (letters and digits) is refused when proposed and before writing, read live from the vendor's orders (orders aren't synced). Without one, QuickBooks' `requestid` alone keeps a retry from writing twice. We send the one active A/P account in the order's currency when there is exactly one. The memo is `PrivateNote`; ship-to is `ShipAddr`; the expected date is `DueDate`. The card says we don't send the order to the vendor. Output: id, number, total, status. // DECISION |
+| Zero totals | decimal.js counts zero as positive, so create bill let a zero total through. Both creates now refuse a total that isn't more than zero. // DECISION |
+| Summaries | A stored amount like `1125.0000` read `1125.` in summaries; it now reads `1125.00` (core template). // DECISION |
+| Permissions | Manifest entities gain `account` (read), `class` (read) and `purchase_order` (read, create); `vendor` gains create. The matrix, grants, the catalog and publish-time `entity_off` know them from the manifest. Both writes wait for approval unless the connection's create is `auto`, the step is `not_required` and the agent acts (invariant 8). |
+| Fake | Serves Class, Term and PurchaseOrder from new fixtures, creates vendors (unique names across vendors and customers) and purchase orders (open, total from the lines), and refuses lines whose class or customer the company doesn't have. |
+| Not built | Linking a bill to the purchase order it receives, closing an order, sending it to the vendor, and reading the company's class-tracking setting (NOTES.md). |
+| Files | `packages/connectors/src/qbo/{ingredients,purchase-order}.ts` (new), P-2 blocks in `tool-kit.ts`, `records.ts`, `display.ts`, `fake.ts`, `index.ts`, `tools.ts`, `bill-create.ts`; `packages/core/src/schemas/tool-display.ts` (`tags`), `packages/core/src/template/template.ts` (one line); `apps/web/src/inbox/{change.ts,ChangePanel.tsx}` (tags), `apps/web/src/runs/labels.ts`; fixtures; tests. |
+
 ---
 
 ## 2. Package layering
@@ -2274,6 +2294,28 @@ if it has one.
 **Done when** a WhatsApp photo from a contact whose conversation has attachments on becomes one
 document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
 retried webhook makes nothing twice; the client admin toggles it and the change is logged.
+
+### M35: QuickBooks ingredients (P-2, §1.64)
+
+One PR (`claude/p2-qbo-ingredients`), no migration.
+
+Work: `qbo.account.query`, `qbo.class.query`, `qbo.purchaseorder.query`; class, customer and
+billable on `NewLine` for every tool that takes it, with names in the before state and `tags` on
+the card; `qbo.vendor.create` and `qbo.purchaseorder.create` behind approval; the manifest's
+entities; the fake's classes, terms, purchase orders and creates; tool labels; `NOTES.md`.
+
+Tests (against the fake QuickBooks): each read's filters and paging; class and customer sent,
+named and read back, refused when unknown or inactive, billable only with a customer, inherited
+unless a line names its own; vendor and purchase order inputs validated, duplicates refused when
+proposed and again before writing, a retry writing nothing twice, totals checked, before states;
+the gate per entity (a write waits unless the matrix, the step and the mode allow it; an entity
+off refuses it and leaves the others); through the API, a vendor and an order for it each written
+once after approval, an order on its own with create on `auto`, and refused when purchase orders
+are off.
+
+**Done when** an agent can list the chart of accounts and the classes, add a vendor and order from
+it in one run with each write approved and written once, code a bill line to a class and a
+billable job, and a duplicate vendor or order number is refused before anyone is asked.
 
 ---
 
