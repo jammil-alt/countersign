@@ -9,7 +9,16 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { ApiError } from "../api/client";
-import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../test/fixtures";
+import {
+  CLIENT_SESSION,
+  fakeApi,
+  OPERATOR_SESSION,
+  opsClientSettings,
+  Reply,
+  SANDBOX_DETAIL,
+  tableService,
+  tableView,
+} from "../test/fixtures";
 import { CATALOGS, createTranslator, type PluralForms } from "./catalog";
 import { errorText } from "./errors";
 import { intlLocaleFor } from "./format";
@@ -147,11 +156,30 @@ const OVERVIEW = {
       name: "Record keeping",
       description: "Keeps the records right.",
       status: "active",
+      stage: "live",
+      runsNow: { running: 1, waitingOnYou: 0 },
     },
   ],
   needsYou: { inbox: 3 },
   recentRuns: [],
 };
+
+// The Table: one agent with a run going, and three things waiting.
+const TABLE = tableView({
+  services: [
+    tableService("00000000-0000-4000-8000-00000000b001", "Record keeping", {
+      description: "Keeps the records right.",
+      now: {
+        runId: "00000000-0000-4000-8000-0000000f1001",
+        status: "running",
+        step: { index: 2, total: 4, label: "Read the bill" },
+        since: "2026-11-03T10:00:00.000Z",
+        waitingOnYou: false,
+      },
+    }),
+  ],
+  desk: { open: 3, top: [] },
+});
 
 const RUNS = {
   runs: [
@@ -186,19 +214,32 @@ describe("the portal in the session's language", () => {
     const api = fakeApi({
       "GET /api/session": () => sessionIn("es", null, "es"),
       "GET /api/overview": () => OVERVIEW,
+      "GET /api/table": () => TABLE,
       "GET /api/feedback/status": () => ({ enabled: false }),
     });
     renderAt("/", api);
-    expect(await screen.findByRole("heading", { name: "Resumen" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Trabajando ahora" })).toBeInTheDocument();
     const nav = screen.getByRole("complementary", { name: "Navegación" });
-    for (const label of ["Bandeja", "Ejecuciones", "Conexiones", "Solicitudes", "Ajustes"]) {
+    for (const label of [
+      "Su escritorio",
+      "Ejecuciones",
+      "Cuentas",
+      "Personas",
+      "Ajustes",
+      "Registros",
+    ]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
     }
-    expect(await screen.findByText("elementos en su bandeja")).toBeInTheDocument();
-    expect(screen.getByText("Activo")).toBeInTheDocument();
-    expect(screen.getByText("Le espera a usted")).toBeInTheDocument();
+    expect(screen.getByTestId("table-week-line")).toHaveTextContent("3 cosas le esperan.");
+    // The status reads in Spanish on the page and in the sidebar's agent row.
+    expect(within(screen.getByRole("main")).getByText("Trabajando")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("main")).getByText("Paso 2 de 4 · empezó", { exact: false }),
+    ).toBeInTheDocument();
+    expect(await within(nav).findByText("Trabajando")).toBeInTheDocument();
+    expect(screen.getByTestId("table-desk")).toHaveTextContent("Le espera a usted");
     // Names and what the operator wrote stay as written.
-    expect(screen.getByText("Record keeping")).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByText("Record keeping")).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("es");
   });
 
@@ -212,11 +253,11 @@ describe("the portal in the session's language", () => {
     renderAt("/runs", api);
     expect(await screen.findByRole("heading", { name: "Abläufe" })).toBeInTheDocument();
     const table = await screen.findByTestId("portal-runs");
-    expect(within(table).getByText("Service")).toBeInTheDocument();
+    expect(within(table).getByText("Agent")).toBeInTheDocument();
     expect(within(table).getByText("Dauer")).toBeInTheDocument();
-    expect(within(table).getByText("Wartet")).toBeInTheDocument();
+    expect(within(table).getByText("Wartet auf Sie")).toBeInTheDocument();
     expect(within(table).getByText(/3\. Nov\., \d{2}:00/)).toBeInTheDocument();
-    expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Posteingang");
+    expect(screen.getByTestId("portal-nav-desk")).toHaveTextContent("Ihr Schreibtisch");
   });
 });
 
@@ -227,6 +268,7 @@ describe("the language picker", () => {
     const api = fakeApi({
       "GET /api/session": () => session,
       "GET /api/overview": () => OVERVIEW,
+      "GET /api/table": () => TABLE,
       "GET /api/feedback/status": () => ({ enabled: false }),
       "PUT /api/me/language": ({ init }) => {
         const body = JSON.parse(String(init.body));
@@ -236,7 +278,7 @@ describe("the language picker", () => {
       },
     });
     renderAt("/", api);
-    await screen.findByRole("heading", { name: "Resumen" });
+    await screen.findByRole("heading", { name: "Trabajando ahora" });
     await userEvent.click(screen.getByTestId("shell-avatar"));
     const mine = screen.getByTestId("language-mine") as HTMLSelectElement;
     // No choice of your own yet: your team's language.
@@ -244,7 +286,9 @@ describe("the language picker", () => {
     expect(mine.options[0]?.text).toBe("Idioma del equipo · Español");
     await userEvent.selectOptions(mine, "de");
     expect(bodies).toEqual([{ language: "de" }]);
-    expect(await screen.findByRole("heading", { name: "Übersicht" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Gerade bei der Arbeit" }),
+    ).toBeInTheDocument();
     // The client admin also sets the team's default.
     expect(screen.getByTestId("language-team")).toHaveValue("es");
   });
@@ -254,6 +298,7 @@ describe("the language picker", () => {
     const api = fakeApi({
       "GET /api/session": () => sessionIn("en"),
       "GET /api/overview": () => OVERVIEW,
+      "GET /api/table": () => TABLE,
       "GET /api/feedback/status": () => ({ enabled: false }),
       "PUT /api/client/language": ({ init }) => {
         bodies.push(JSON.parse(String(init.body)));
@@ -261,7 +306,7 @@ describe("the language picker", () => {
       },
     });
     renderAt("/", api);
-    await screen.findByRole("heading", { name: "Overview" });
+    await screen.findByRole("heading", { name: "Working now" });
     await userEvent.click(screen.getByTestId("shell-avatar"));
     await userEvent.selectOptions(screen.getByTestId("language-team"), "it");
     await waitFor(() => expect(bodies).toEqual([{ language: "it" }]));
@@ -293,12 +338,14 @@ describe("before a session and in the back office", () => {
         enabled: false,
         changes: [],
       }),
+      [`GET /api/ops/clients/${SANDBOX_DETAIL.client.id}/settings`]: () =>
+        opsClientSettings(SANDBOX_DETAIL.client.id),
       [`PUT /api/ops/clients/${SANDBOX_DETAIL.client.id}/language`]: ({ init }) => {
         bodies.push(JSON.parse(String(init.body)));
         return { client: "es" };
       },
     });
-    renderAt(`/ops/clients/${SANDBOX_DETAIL.client.id}`, api);
+    renderAt(`/ops/clients/${SANDBOX_DETAIL.client.id}/settings`, api);
     const select = await screen.findByTestId("ops-client-language-select");
     expect(select).toHaveValue("");
     await userEvent.selectOptions(select, "es");
@@ -315,7 +362,7 @@ describe("before a session and in the back office", () => {
     });
     renderAt("/ops/inbox", api);
     const shell = await screen.findByTestId("shell-ops");
-    expect(within(shell).getByTestId("shell-inbox")).toHaveTextContent("Inbox");
+    expect(within(shell).getByTestId("shell-inbox")).toHaveTextContent("Escalations");
     expect(screen.getByRole("complementary", { name: "Navigation" })).toBeInTheDocument();
     // No language picker in the back office.
     await userEvent.click(screen.getByTestId("shell-avatar"));

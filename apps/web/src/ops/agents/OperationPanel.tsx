@@ -1,13 +1,16 @@
 // A client agent's operation (ARCHITECTURE §9.3, §14 "Operation"; plan §1.2 "Client agent
-// activation"): its service name and description in the portal, the connections it is bound to,
-// its approver, and its run status: activate (with every reason it can't yet), pause, retire, and
-// the test run activation needs. None of this is a new version: it is the agent row, logged.
+// activation"). `OperationPanel` (the agent page's Versions): its run status, activate (with every
+// reason it can't yet), pause, retire, the test run activation needs, and the go-live stage.
+// `ServicePanel` (Settings): its service name and description in the portal, its approver, the
+// connections it is bound to and their grants. None of this is a new version: it is the agent
+// row, logged.
 import type { AgentBundle } from "@countersign/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+
 import { isRunGoing } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import {
@@ -19,7 +22,18 @@ import {
   SectionLabel,
   type Tone,
 } from "../../ui/primitives";
+import { GoLivePanel } from "./GoLivePanel";
 import { GrantsPanel } from "./GrantsPanel";
+import {
+  JSON_INPUT_PROPS,
+  type PayloadSource,
+  PayloadSourceSelect,
+  parsePayload,
+  payloadFor,
+  samplePayload,
+  triggerEventType,
+  useRecentEvents,
+} from "./TestPayload";
 import {
   detailMessages,
   errorText,
@@ -49,25 +63,25 @@ const APPROVERS: { value: "" | "client_admin" | "operator"; label: string }[] = 
 
 export function OperationPanel({
   agent,
-  connections,
   live,
   liveBundle,
   onChanged,
 }: {
   agent: AgentSummary;
-  /** The client's connections (GET /api/ops/clients/:id). */
-  connections: readonly Connection[];
   live: VersionSummary | null;
   liveBundle: AgentBundle | null;
   onChanged(): void;
 }) {
   const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
-  const required = activation.data?.requiredConnectors ?? [];
   // DECISION: while the live version's latest test run is going, the activation check polls every
   // 2 s (the run page's rate, plan §1.2 "Live updates"), so it turns ready when the run passes.
   const testRun = activation.data?.testRun ?? null;
-  usePoll(activation.reload, testRun ? isRunGoing(testRun.status) : false, 2_000);
-  const [grantsVersion, setGrantsVersion] = useState(0);
+  usePoll(
+    activation.reload,
+    testRun ? isRunGoing(testRun.status) : false,
+    2_000,
+    activation.loading,
+  );
   return (
     <div className="flex flex-col gap-5">
       <StatusCard
@@ -80,11 +94,39 @@ export function OperationPanel({
           onChanged();
         }}
       />
+      {/* v0.12 W1-A: the go-live stage, its trial and running a past event live. */}
+      <GoLivePanel
+        key={`${agent.id}:${agent.runStatus}`}
+        agent={agent}
+        liveBundle={liveBundle}
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+/**
+ * A client agent's service and connections (the agent page's Settings): its name and description
+ * in the portal, its approver, the connections it is bound to and each one's grant.
+ */
+export function ServicePanel({
+  agent,
+  connections,
+  onChanged,
+}: {
+  agent: AgentSummary;
+  connections: readonly Connection[];
+  onChanged(): void;
+}) {
+  const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
+  const [grantsVersion, setGrantsVersion] = useState(0);
+  return (
+    <div className="flex flex-col gap-5">
       <ServiceForm
         key={agent.id}
         agent={agent}
         connections={connections}
-        required={required}
+        required={activation.data?.requiredConnectors ?? []}
         onSaved={() => {
           activation.reload();
           onChanged();
@@ -92,7 +134,11 @@ export function OperationPanel({
         }}
       />
       {/* Remounted after a binding change, so it lists what the agent is bound to now. */}
-      <GrantsPanel key={`${agent.id}:${grantsVersion}`} agentId={agent.id} />
+      <GrantsPanel
+        key={`${agent.id}:${grantsVersion}`}
+        agentId={agent.id}
+        clientId={agent.tenantId ?? null}
+      />
     </div>
   );
 }
@@ -113,7 +159,14 @@ function StatusCard({
   const action = useAction();
   const [retiring, setRetiring] = useState(false);
   const [done, setDone] = useState<string | null>(null);
-  const status = agent.runStatus ?? "draft";
+  // The agent as activate, pause or retire answered it: the chip shows the new status at once,
+  // not after the agent screen has reloaded the whole agent (versions and bundles) to learn it.
+  const [answered, setAnswered] = useState<AgentSummary | null>(null);
+  // Once the screen's own copy of the agent changes, it is the newer one again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clears on a change to the prop's status.
+  useEffect(() => setAnswered(null), [agent.runStatus]);
+  const status =
+    (answered && answered.id === agent.id ? answered.runStatus : agent.runStatus) ?? "draft";
 
   async function run(kind: "activate" | "pause" | "retire") {
     setRetiring(false);
@@ -125,9 +178,12 @@ function StatusCard({
           : apiRoutes.opsRetire;
     const res = await action.call(route, { params: { id: agent.id } });
     if (res.ok) {
+      setAnswered(res.data.agent);
       setDone(
         kind === "activate"
-          ? "Active: its triggers start runs now."
+          ? status === "paused"
+            ? "Resumed: its triggers start runs again."
+            : "Started: its triggers start runs now. Until it goes live, every change waits for a signature."
           : kind === "pause"
             ? "Paused: no new runs start; running ones finish."
             : "Retired: it never runs again. Its history stays.",
@@ -161,7 +217,10 @@ function StatusCard({
       {activation.error ? (
         <ErrorNotice error={activation.error} onRetry={activation.reload} />
       ) : null}
-      {!activation.data && !activation.error ? <Loading label="Checking activation…" /> : null}
+      {/* The check only matters until the agent is active: once it is, nothing waits on it. */}
+      {!activation.data && !activation.error && status !== "active" && status !== "retired" ? (
+        <Loading label="Checking activation…" />
+      ) : null}
       {testRun && live && status !== "retired" && (testGoing || testRun.status === "failed") ? (
         <p
           className="mb-3 text-ink"
@@ -178,11 +237,11 @@ function StatusCard({
       {activation.data && status !== "active" && status !== "retired" ? (
         problems.length === 0 ? (
           <p className="text-ink" data-testid="agent-activation-ready">
-            Ready to activate: connections bound, live version valid and tested on this client.
+            Ready to start: connections bound, live version valid and tested on this client.
           </p>
         ) : (
           <div data-testid="agent-activation-problems">
-            <p className="mb-1.5 text-ink">Before it can be activated:</p>
+            <p className="mb-1.5 text-ink">Before it can start:</p>
             <ul className="list-disc pl-5 text-ink">
               {problems.map((p) => (
                 <li key={p}>{p}</li>
@@ -226,7 +285,8 @@ function StatusCard({
             disabled={action.busy || !activation.data?.ready || agent.testCopy}
             onClick={() => run("activate")}
           >
-            Activate
+            {/* v0.12 W1-A: Activate starts the trial (or resumes a paused agent). */}
+            {status === "paused" ? "Resume" : "Start trial"}
           </Button>
         ) : null}
         {status !== "retired" ? (
@@ -256,7 +316,7 @@ function StatusCard({
   );
 }
 
-function TestRun({
+export function TestRun({
   agent,
   live,
   liveBundle,
@@ -270,10 +330,24 @@ function TestRun({
 }) {
   const workflows = liveBundle?.workflows ?? [];
   const [workflow, setWorkflow] = useState(workflows[0]?.slug ?? "");
-  const [payload, setPayload] = useState("{}");
+  // Blank means `{}` (the placeholder): a prefilled `{}` left an extra brace when `{…}` was typed.
+  const [payload, setPayload] = useState("");
+  const [source, setSource] = useState<PayloadSource>("manual");
   const [started, setStarted] = useState<string | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
+  const parsed = parsePayload(payload);
   const action = useAction();
+  const catalog = useApi(apiRoutes.opsEventCatalog);
+  const chosen = workflows.find((w) => w.slug === workflow)?.workflow ?? null;
+  const eventType = triggerEventType(chosen);
+  const sample = chosen && catalog.data ? samplePayload(chosen, catalog.data.events) : undefined;
+  // A client agent test-runs on its own client's data: its recent events are that client's.
+  const recent = useRecentEvents(agent.tenantId, eventType);
+
+  function choose(next: PayloadSource) {
+    setSource(next);
+    const filled = payloadFor(next, sample, recent.data?.events ?? []);
+    if (filled !== null) setPayload(filled);
+  }
 
   if (!live || !liveBundle) {
     return (
@@ -290,18 +364,10 @@ function TestRun({
   }
 
   async function start() {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(payload || "{}");
-      setParseError(null);
-    } catch {
-      setParseError("The input must be JSON, e.g. {}.");
-      return;
-    }
-    if (!live) return;
+    if (!live || !parsed.ok) return;
     const res = await action.call(apiRoutes.opsTestRun, {
       params: { id: agent.id, vid: live.id },
-      body: { workflow, payload: parsed },
+      body: { workflow, payload: parsed.value },
     });
     if (res.ok) {
       setStarted(res.data.runId);
@@ -315,12 +381,17 @@ function TestRun({
         Test run of the live version v{live.version} on this client's data. It never changes the
         client's tools: what it would do is recorded as proposed.
       </p>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[220px_1fr] md:items-end">
         <Field label="Workflow">
           <Select
             data-testid="agent-test-run-workflow-select"
             value={workflow}
-            onChange={(e) => setWorkflow(e.target.value)}
+            onChange={(e) => {
+              setWorkflow(e.target.value);
+              // Another workflow's trigger: its own sample and events.
+              setSource("manual");
+              setPayload("");
+            }}
           >
             {workflows.map((w) => (
               <option key={w.slug} value={w.slug}>
@@ -329,17 +400,39 @@ function TestRun({
             ))}
           </Select>
         </Field>
-        <Field label="Input (JSON)" error={parseError ?? undefined}>
-          <TextInput
+        <Field label="Input from">
+          <PayloadSourceSelect
+            testId="agent-test-run-source"
+            value={source}
+            hasSample={sample !== undefined}
+            eventType={eventType}
+            recent={recent}
+            onChange={choose}
+          />
+        </Field>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
+        <Field
+          label="Input (JSON)"
+          error={parsed.ok ? undefined : "The input must be JSON, e.g. {}."}
+        >
+          <TextArea
+            {...JSON_INPUT_PROPS}
             data-testid="agent-test-run-payload-input"
+            invalid={!parsed.ok}
             className="font-mono text-sm"
+            rows={source === "manual" ? 2 : 6}
             value={payload}
-            onChange={(e) => setPayload(e.target.value)}
+            onChange={(e) => {
+              setPayload(e.target.value);
+              // Edited by hand, it is no longer the sample or the event as emitted.
+              setSource("manual");
+            }}
           />
         </Field>
         <Button
           data-testid="agent-test-run-start"
-          disabled={action.busy || !workflow}
+          disabled={action.busy || !workflow || !parsed.ok}
           onClick={start}
         >
           Test-run v{live.version}

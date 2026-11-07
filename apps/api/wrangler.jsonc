@@ -11,12 +11,18 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
-  // The web app is served from the same Worker; /api/* reaches the Worker first (docs/plan.md §1.1).
+  // The web app is served from the same Worker; /api/* reaches the Worker first (docs/plan.md §1.1),
+  // and so do the back office's MCP server and its OAuth metadata (docs/plan.md §1.34).
   "assets": {
     "directory": "../web/dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/mcp", "/.well-known/oauth-*"]
   },
+
+  // MCP calls per operator (src/mcp/limits.ts). Namespace ids are per account: one per environment.
+  "ratelimits": [
+    { "name": "MCP_RATE_LIMIT", "namespace_id": "1100", "simple": { "limit": 120, "period": 60 } }
+  ],
 
   // The senses sweep and schedule check run every minute (docs/plan.md §1.2).
   "triggers": { "crons": ["* * * * *"] },
@@ -31,8 +37,28 @@
 
   // One Workflow class runs any workflow of any client agent; the instance id is the run id
   // (ARCHITECTURE §10.3).
+  // QuickBooks sync runs as its own Workflow, one instance per sync of one connection (plan M9),
+  // and so does each client data export (docs/plan.md §1.36).
   "workflows": [
-    { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+    { "name": "mezonas-local-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+    { "name": "mezonas-local-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
+    {
+      "name": "mezonas-local-export",
+      "binding": "EXPORT_WORKFLOW",
+      "class_name": "ExportWorkflow"
+    },
+    // v0.12 W2-C: one instance per test suite run (docs/plan.md §1.46).
+    {
+      "name": "mezonas-local-test-suite",
+      "binding": "TEST_SUITE_WORKFLOW",
+      "class_name": "TestSuiteWorkflow"
+    },
+    // v0.14 capture: one instance per WhatsApp message whose attachments are fetched (§1.55).
+    {
+      "name": "mezonas-local-capture",
+      "binding": "CAPTURE_WORKFLOW",
+      "class_name": "CaptureWorkflow"
+    }
   ],
 
   // Non-secret configuration. Secrets (WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD, ANTHROPIC_API_KEY,
@@ -44,9 +70,16 @@
     "AUTH_PROVIDER": "dev",
     // Empty: WorkOS sign-in is off.
     "WORKOS_CLIENT_ID": "",
+    // Empty: the back office's MCP server (/mcp) is off (docs/operations.md, "MCP server").
+    "WORKOS_AUTHKIT_DOMAIN": "",
     "APP_ORIGIN": "http://localhost:8787",
     // live | record | replay. The Worker only ever calls the model live; tests use replay or fakes.
-    "LLM_MODE": "live"
+    "LLM_MODE": "live",
+    // Which QuickBooks the qbo connector talks to: the Intuit app's development keys reach sandbox
+    // companies only.
+    "QBO_ENV": "sandbox",
+    // Which Plaid the bank feed talks to (docs/plan.md §1.52): PLAID_SECRET must be this one's.
+    "PLAID_ENV": "sandbox"
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
@@ -64,7 +97,28 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "934bb30230e344539da6ab05c4447ec6" }],
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas-staging" }],
       "workflows": [
-        { "name": "mezonas-staging-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+        { "name": "mezonas-staging-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+        {
+          "name": "mezonas-staging-qbo-sync",
+          "binding": "QBO_SYNC",
+          "class_name": "QboSyncWorkflow"
+        },
+        {
+          "name": "mezonas-staging-export",
+          "binding": "EXPORT_WORKFLOW",
+          "class_name": "ExportWorkflow"
+        },
+        {
+          "name": "mezonas-staging-test-suite",
+          "binding": "TEST_SUITE_WORKFLOW",
+          "class_name": "TestSuiteWorkflow"
+        },
+        // v0.14 capture
+        {
+          "name": "mezonas-staging-capture",
+          "binding": "CAPTURE_WORKFLOW",
+          "class_name": "CaptureWorkflow"
+        }
       ],
       // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
       "services": [
@@ -72,13 +126,28 @@
       ],
       // Browser Run: one browser per website-login tool call.
       "browser": { "binding": "BROWSER" },
+      "ratelimits": [
+        {
+          "name": "MCP_RATE_LIMIT",
+          "namespace_id": "1101",
+          "simple": { "limit": 120, "period": 60 }
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "staging",
         "AUTH_PROVIDER": "workos",
         // WorkOS "Mezonas Staging" app, Staging environment. Client ids are not secrets.
         "WORKOS_CLIENT_ID": "client_01M6HNS5BGAXTK0TK2A1RRGWGP",
+        // The Staging environment's AuthKit domain, with Dynamic Client Registration and Client ID
+        // Metadata Documents on (owner, 2026-11-06; docs/operations.md, "MCP server"). Not a secret.
+        "WORKOS_AUTHKIT_DOMAIN": "https://patient-bedrock-89-staging.authkit.app",
         "APP_ORIGIN": "https://staging.mezonas.com",
-        "LLM_MODE": "live"
+        "LLM_MODE": "live",
+        "QBO_ENV": "sandbox",
+        "PLAID_ENV": "sandbox",
+        // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
+        // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
+        "BAA_PROCESSORS": ""
       }
     },
     "production": {
@@ -89,17 +158,47 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "b4032076210742cb961ccc2fc1bdf282" }],
       "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "mezonas" }],
       "workflows": [
-        { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" }
+        { "name": "mezonas-run", "binding": "RUN_WORKFLOW", "class_name": "RunWorkflow" },
+        { "name": "mezonas-qbo-sync", "binding": "QBO_SYNC", "class_name": "QboSyncWorkflow" },
+        { "name": "mezonas-export", "binding": "EXPORT_WORKFLOW", "class_name": "ExportWorkflow" },
+        {
+          "name": "mezonas-test-suite",
+          "binding": "TEST_SUITE_WORKFLOW",
+          "class_name": "TestSuiteWorkflow"
+        },
+        // v0.14 capture
+        {
+          "name": "mezonas-capture",
+          "binding": "CAPTURE_WORKFLOW",
+          "class_name": "CaptureWorkflow"
+        }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
       "browser": { "binding": "BROWSER" },
+      "ratelimits": [
+        {
+          "name": "MCP_RATE_LIMIT",
+          "namespace_id": "1102",
+          "simple": { "limit": 120, "period": 60 }
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "production",
         "AUTH_PROVIDER": "workos",
         // PLACEHOLDER: the production WorkOS client id, set when WorkOS is provisioned.
         "WORKOS_CLIENT_ID": "",
+        // PLACEHOLDER: the Production environment's AuthKit domain, as for staging.
+        "WORKOS_AUTHKIT_DOMAIN": "",
         "APP_ORIGIN": "https://app.mezonas.com",
-        "LLM_MODE": "live"
+        "LLM_MODE": "live",
+        // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off
+        // in production (no QBO_CLIENT_ID).
+        "QBO_ENV": "production",
+        // Plaid's production needs its review first; until PLAID_SECRET is set, feeds stay off.
+        "PLAID_ENV": "production",
+        // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
+        // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
+        "BAA_PROCESSORS": ""
       }
     }
   }

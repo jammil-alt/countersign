@@ -30,6 +30,9 @@ export const InviteBody = z.strictObject({
   email: z.string().trim().toLowerCase().max(INVITE_EMAIL_MAX).email(),
   name: z.string().trim().max(200).optional(),
   role: InvitableRole,
+  // v0.12 W1-D: "can sign" (default yes). A client user who can't is a viewer; a client admin
+  // always signs (ARCHITECTURE §4).
+  canSign: z.boolean().optional(),
 });
 export type InviteBody = z.infer<typeof InviteBody>;
 
@@ -41,6 +44,8 @@ export const Member = z.object({
   role: Role,
   /** Whether they have signed in yet; null where sign-in can't tell (the dev sign-in). */
   signedIn: z.boolean().nullable(),
+  /** v0.12 W1-D: false for a viewer, who signs nothing (`membership.can_sign`). */
+  canSign: z.boolean().optional(),
 });
 export type Member = z.infer<typeof Member>;
 
@@ -55,7 +60,7 @@ export type InviteEmail = z.infer<typeof InviteEmail>;
 export const InviteResult = z.object({ member: Member, email: InviteEmail });
 export type InviteResult = z.infer<typeof InviteResult>;
 
-/** Stored only: notification emails come with M11 and stay off until then. */
+/** The client's notification switches (each person also picks their own channels: api/notify.ts). */
 export const NotificationSettings = z.object({
   /** Email people when something waits on them in the inbox. */
   itemsWaiting: z.boolean(),
@@ -163,7 +168,7 @@ export const PortalSettings = z.object({
   /** Who approves changes to the client's tools by default (the operator sets it). */
   approvals: ExternalApprover,
   notifications: NotificationSettings,
-  /** False until Mezonas sends notification emails (M11): the settings are stored only. */
+  /** False while Mezonas sends no email here (no sending key set up): rows are skipped. */
   emailsOn: z.boolean(),
 });
 export type PortalSettings = z.infer<typeof PortalSettings>;
@@ -242,7 +247,7 @@ export const onboardingRoutes = {
     path: "/api/settings/notifications",
     auth: "session",
     roles: ADMIN,
-    summary: "Choose which emails we send (stored; emails start later)",
+    summary: "Choose which notifications we send your people",
     body: z.strictObject({
       itemsWaiting: z.boolean().optional(),
       weeklyDigest: z.boolean().optional(),

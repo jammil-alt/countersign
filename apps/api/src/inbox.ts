@@ -5,13 +5,26 @@
 
 import { type Approver, mayResolve, resolveExternalActionTx } from "@countersign/agents";
 import type { ResolveBody } from "@countersign/core";
-import { FORBIDDEN_PORTAL_FIELD, isPlainObject } from "@countersign/core";
-import { inboxItem, run, type Tx } from "@countersign/db";
+import {
+  // v0.12 W2-D
+  ACCOUNT_CHANGE_SUBJECT,
+  choiceProblem,
+  FORBIDDEN_PORTAL_FIELD,
+  isPlainObject,
+  readChoices,
+  undoSecondsOf,
+} from "@countersign/core";
+import { inboxItem, membership, run, type Tx, tenant } from "@countersign/db";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
+import { senseEmitPosted } from "@countersign/threads";
 import { type InboxResolution, inboxEventType } from "@countersign/workflows";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
+import { refuseGenericResolve } from "./access/release";
+import { applySuggestion, isDirectorySuggestion } from "./directory/suggestions";
 import { HttpError, notFound } from "./http";
+// v0.12 W1-A: go-live sign-off
+import { isGoLiveItem, resolveGoLive } from "./lifecycle/stages";
 import { senseEmitter } from "./runs/dispatch";
 
 export type InboxRow = typeof inboxItem.$inferSelect;
@@ -56,11 +69,27 @@ export function toRunResolution(item: Pick<InboxRow, "resolution" | "resolvedBy"
 }
 
 export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<ResolveOutcome> {
+  // v0.12 W1-D: a viewer signs nothing (ARCHITECTURE §4).
+  input = { ...input, by: await withCanSign(tx, input.tenantId, input.by) };
+  if (input.by.canSign === false) {
+    throw new HttpError(
+      403,
+      "cannot_sign",
+      "you can see this, but you don't approve for your team",
+    );
+  }
   const item = await lockItem(tx, input.tenantId, input.itemId);
+  // A request for a code is resolved only by its code (docs/plan.md §1.26), never by a click.
+  refuseGenericResolve(item);
   const { decision, answer, note } = input.body;
   if (item.kind === "change_request") {
     // A client's request is resolved in the requests queue, where its outcome and links are kept.
     throw new HttpError(409, "use_requests", "resolve requests in the requests queue");
+  }
+  // v0.12 W2-D: a change Sloan drafted is signed by the client admin through its own route, which
+  // applies it with the portal's code (POST /api/account-changes/:id/resolve).
+  if (item.subjectType === ACCOUNT_CHANGE_SUBJECT) {
+    throw new HttpError(409, "use_account_change", "approve this change from its own card");
   }
   if (item.status === "expired") {
     throw new HttpError(409, "expired", "this item expired: the run stopped waiting for it");
@@ -79,6 +108,12 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
     testRun = r?.mode === "test";
   }
+  // v0.12 W1-D: a question with quick answers takes one of them (a decline needs none).
+  const choices = readChoices(isPlainObject(item.payload) ? item.payload.choices : undefined);
+  if (choices && item.kind === "request" && decision !== "reject") {
+    const problem = choiceProblem(choices, answer);
+    if (problem) throw new HttpError(422, "invalid_answer", problem);
+  }
   const emitter = senseEmitter(input.registry, { collect: input.collect, testRun });
 
   let resolution: InboxResolution;
@@ -94,7 +129,13 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     });
     resolution = { approved: decision === "approve", answer: null, by: input.by.userId };
   } else {
-    if (!mayResolve(item, input.by)) {
+    const suggestion = isDirectorySuggestion(item);
+    // DECISION: a directory suggestion is the client admin's, and the operator, who edits the
+    // directory fully, may decide it too (docs/plan.md §1.27).
+    const allowed = suggestion
+      ? input.by.role === "client_admin" || input.by.role === "operator"
+      : mayResolve(item, input.by);
+    if (!allowed) {
       throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
     }
     let approved: boolean;
@@ -105,12 +146,30 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
       if (!decision) throw new HttpError(400, "invalid_request", "approve or reject this item");
       approved = decision === "approve";
     }
+    // v0.12 W1-A: the client admin's go-live sign-off moves the agent's stage in this transaction:
+    // approved → live; rejected → back to trial with the reason (ARCHITECTURE §10.9).
+    if (isGoLiveItem(item)) {
+      await resolveGoLive(tx, {
+        tenantId: input.tenantId,
+        item,
+        approved,
+        by: { userId: input.by.userId, role: input.by.role },
+        note,
+        emitPosted: senseEmitPosted({ registry: input.registry, collect: input.collect, testRun }),
+      });
+    }
+    // An accepted suggestion changes the directory in this transaction, or nothing is resolved.
+    const applied =
+      suggestion && approved
+        ? await applySuggestion(tx, input.tenantId, item, input.by.userId)
+        : null;
     const stored = {
       ...(decision === undefined ? {} : { decision }),
       approved,
       answer: answer ?? null,
       by: input.by.userId,
       ...(note === undefined ? {} : { note }),
+      ...(applied ? { applied } : {}),
     };
     await tx
       .update(inboxItem)
@@ -142,13 +201,62 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     resolution = { approved, answer: answer ?? null, by: input.by.userId };
   }
 
+  // v0.12 W1-D: the undo window. An approval reaches the run only once it has passed: the cron
+  // delivers it (runs/resume.ts), so nothing is sent now.
+  const held = await holdForUndo(tx, input.tenantId, item, resolution, testRun);
   const updated = await lockItem(tx, input.tenantId, item.id);
   return {
     item: updated,
-    resume: item.runId
-      ? { runId: item.runId, type: inboxEventType(item.id), payload: resolution }
-      : null,
+    resume:
+      item.runId && !held
+        ? { runId: item.runId, type: inboxEventType(item.id), payload: resolution }
+        : null,
   };
+}
+
+// ── v0.12 W1-D: viewers and the undo window (ARCHITECTURE §4, §11.1) ─────────────────────────────
+
+/** The approver with `canSign` from their membership in this client (client people only). */
+export async function withCanSign(tx: Tx, tenantId: string, by: Approver): Promise<Approver> {
+  if (by.role === "operator" || by.canSign !== undefined) return by;
+  const [m] = await tx
+    .select({ canSign: membership.canSign })
+    .from(membership)
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, by.userId)));
+  return { ...by, canSign: m?.canSign ?? false };
+}
+
+/** Kinds whose approval waits out the undo window. */
+const HELD_KINDS = new Set(["external_action", "approval"]);
+
+/**
+ * Sets `deliver_after` on a just-approved item of a live run when the client has an undo window.
+ * Rejections, answers and test runs are delivered at once.
+ */
+// DECISION: the window holds approvals of changes and of approval steps in live runs, whoever
+// signed (a client person, or the operator on a delegated item or in the Sandbox); test runs write
+// nothing, so they get none. The clock is the database's, as in undo and delivery.
+async function holdForUndo(
+  tx: Tx,
+  tenantId: string,
+  item: InboxRow,
+  resolution: InboxResolution,
+  testRun: boolean,
+): Promise<boolean> {
+  if (!item.runId || testRun || resolution.approved !== true || !HELD_KINDS.has(item.kind)) {
+    return false;
+  }
+  const [t] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const seconds = undoSecondsOf(t?.settings);
+  if (seconds === 0) return false;
+  await tx
+    .update(inboxItem)
+    .set({ deliverAfter: sql`now() + make_interval(secs => ${seconds}::double precision)` })
+    .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, tenantId)));
+  return true;
 }
 
 /** Drops every field a portal response may never carry, at any depth (invariant 11). */

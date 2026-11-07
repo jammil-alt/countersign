@@ -1,3 +1,4 @@
+import { trimTrailingSlashes } from "@countersign/core";
 import { AwsClient } from "aws4fetch";
 
 /** Documents are shown through short-lived signed URLs (ARCHITECTURE §16: 5 minutes). */
@@ -25,7 +26,7 @@ export function s3UrlSigner(config: {
     service: "s3",
     region: config.region ?? "auto",
   });
-  const base = config.endpoint.replace(/\/+$/, "");
+  const base = trimTrailingSlashes(config.endpoint);
   return {
     async signedGetUrl(key, opts = {}) {
       const ttl = opts.expiresInSeconds ?? SIGNED_URL_TTL_SECONDS;

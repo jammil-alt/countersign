@@ -1,0 +1,77 @@
+{
+  "CDCResponse": [
+    {
+      "QueryResponse": [
+        {
+          "Bill": [
+            {
+              "Id": "147",
+              "SyncToken": "0",
+              "domain": "QBO",
+              "sparse": false,
+              "MetaData": {
+                "CreateTime": "2026-11-05T09:41:12-08:00",
+                "LastUpdatedTime": "2026-11-05T09:41:12-08:00"
+              },
+              "DocNumber": "INV-21007",
+              "TxnDate": "2026-11-04",
+              "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+              "VendorRef": { "value": "56", "name": "Northwest Plywood Supply" },
+              "Line": [
+                {
+                  "Id": "1",
+                  "Description": "Northwest Plywood invoice INV-21007",
+                  "Amount": 704.0,
+                  "DetailType": "AccountBasedExpenseLineDetail",
+                  "AccountBasedExpenseLineDetail": {
+                    "AccountRef": { "value": "80", "name": "Job Materials" },
+                    "BillableStatus": "NotBillable"
+                  }
+                }
+              ],
+              "TotalAmt": 704.0,
+              "Balance": 704.0
+            }
+          ],
+          "startPosition": 1,
+          "maxResults": 1
+        },
+        {
+          "Purchase": [
+            {
+              "domain": "QBO",
+              "status": "Deleted",
+              "Id": "202",
+              "MetaData": { "LastUpdatedTime": "2026-11-05T09:50:03-08:00" }
+            }
+          ],
+          "startPosition": 1,
+          "maxResults": 1
+        },
+        {
+          "Attachable": [
+            {
+              "Id": "5000000000000403",
+              "SyncToken": "0",
+              "domain": "QBO",
+              "sparse": false,
+              "MetaData": {
+                "CreateTime": "2026-11-05T09:42:00-08:00",
+                "LastUpdatedTime": "2026-11-05T09:42:00-08:00"
+              },
+              "FileName": "nwp-INV-21007.pdf",
+              "Size": 1204,
+              "ContentType": "application/pdf",
+              "AttachableRef": [
+                { "EntityRef": { "type": "Bill", "value": "147" }, "IncludeOnSend": false }
+              ]
+            }
+          ],
+          "startPosition": 1,
+          "maxResults": 1
+        }
+      ]
+    }
+  ],
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

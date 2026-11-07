@@ -4,6 +4,7 @@
 // `GET /api/files/:token`, which streams the bytes from the binding.
 
 import { SIGNED_URL_TTL_SECONDS, s3UrlSigner, type UrlSigner } from "@countersign/connectors";
+import { trimTrailingSlashes } from "@countersign/core";
 import type { Bindings } from "./env";
 import { isProductionEnv } from "./platform";
 
@@ -71,7 +72,7 @@ export function workerUrlSigner(
       };
       const body = encoder.encode(JSON.stringify(payload));
       const sig = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(env), body));
-      return `${origin.replace(/\/+$/, "")}/api/files/${b64url(body)}.${b64url(sig)}`;
+      return `${trimTrailingSlashes(origin)}/api/files/${b64url(body)}.${b64url(sig)}`;
     },
   };
 }

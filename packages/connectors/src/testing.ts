@@ -83,7 +83,12 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
   );
   let rateLimit = opts.rateLimitNext ?? 0;
   let refreshFails = false;
-  const state = { leadModifiedTime: leadGet.data[0]?.Modified_Time ?? null };
+  const state = {
+    leadModifiedTime: leadGet.data[0]?.Modified_Time ?? null,
+    // v0.14 W4-B: records the sync's list calls answer from, by module; and the watches asked.
+    listed: {} as Record<string, Record<string, unknown>[]>,
+    watches: [] as unknown[],
+  };
 
   const fetch: FetchLike = async (url: string, init: HttpRequestInit = {}) => {
     const method = (init.method ?? "GET").toUpperCase();
@@ -115,6 +120,31 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
     }
     const path = u.pathname;
     if (path === "/crm/v8/org") return jsonResponse(200, org);
+    // v0.14 W4-B: the sync's list calls (If-Modified-Since, oldest first, paged) and the watch.
+    const listedModule = /^\/crm\/v8\/(Leads|Contacts|Accounts|Deals)$/.exec(path)?.[1];
+    if (listedModule && method === "GET") {
+      const since = Date.parse(init.headers?.["if-modified-since"] ?? "1970-01-01T00:00:00Z");
+      const q = formDecode(url.split("?")[1] ?? "");
+      const page = Number(q.page ?? "1");
+      const per = Number(q.per_page ?? "200");
+      const all = (state.listed[listedModule] ?? [])
+        .filter((r) => Date.parse(String(r.Modified_Time)) > since)
+        .sort((a, b) => Date.parse(String(a.Modified_Time)) - Date.parse(String(b.Modified_Time)));
+      const slice = all.slice((page - 1) * per, page * per);
+      if (slice.length === 0) return jsonResponse(304, undefined);
+      return jsonResponse(200, {
+        data: slice,
+        info: { page, per_page: per, count: slice.length, more_records: all.length > page * per },
+      });
+    }
+    if (path === "/crm/v8/actions/watch" && method === "POST") {
+      state.watches.push(JSON.parse(init.body ?? "{}"));
+      return jsonResponse(200, {
+        watch: [
+          { code: "SUCCESS", status: "success", message: "Successfully subscribed", details: {} },
+        ],
+      });
+    }
     if (path === "/crm/v8/Leads/search") {
       return url.includes("nobody") ? jsonResponse(204, undefined) : jsonResponse(200, leadsSearch);
     }
@@ -283,17 +313,103 @@ export function fakePodio(opts: { acceptAccessTokens?: string[]; rateLimitNext?:
   };
 }
 
+// v0.12 bankfeed: Plaid (docs/plan.md §1.52).
+export {
+  FAKE_CARD,
+  FAKE_CHECKING,
+  FAKE_INSTITUTION,
+  FAKE_PLAID,
+  type FakePlaid,
+  type FakePlaidAccount,
+  type FakePlaidItem,
+  type FakePlaidTransaction,
+  fakePlaid,
+  fakePlaidAccounts,
+  fakePlaidTransaction,
+} from "./bankfeed/fake";
 export {
   FAKE_ELEVENLABS,
   type FakeElevenLabs,
   type FakeRegisteredCall,
   fakeElevenLabs,
 } from "./elevenlabs/fake";
+// v0.14 W4-E: Google Chat (docs/plan.md §1.60).
+export {
+  FAKE_GCHAT,
+  type FakeChatMessage,
+  type FakeGoogleChat,
+  fakeGoogleChat,
+} from "./gchat/fake";
+// v0.12 W3-B: Google Drive and Outlook (docs/plan.md §1.52).
+export {
+  FAKE_GOOGLE_DRIVE,
+  type FakeDriveFile,
+  type FakeGoogleDrive,
+  fakeDriveText,
+  fakeGoogleDrive,
+} from "./gdrive/fake";
+export {
+  FAKE_GOOGLE,
+  type FakeGmailMessage,
+  type FakeGoogle,
+  fakeGoogle,
+  readSentEmail,
+} from "./gmail/fake";
+// v0.14 W4-D: Google Sheets.
+export {
+  FAKE_GOOGLE_SHEETS,
+  type FakeGoogleSheets,
+  type FakeSpreadsheet,
+  fakeGoogleSheets,
+} from "./gsheets/fake";
+// v0.12 W3-B: Ramp and HubSpot (docs/plan.md §1.52).
+export {
+  FAKE_HUBSPOT,
+  type FakeHubspot,
+  type FakeHubspotObject,
+  fakeHubspot,
+} from "./hubspot/fake";
+// v0.12 W3-B
+export {
+  FAKE_MICROSOFT,
+  type FakeMicrosoft,
+  type FakeOutlookMessage,
+  fakeMicrosoft,
+  MICROSOFT_CONSUMER_TENANT,
+} from "./outlook/fake";
+export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
+export {
+  FAKE_RAMP,
+  type FakeRamp,
+  type FakeRampReceipt,
+  type FakeRampTransaction,
+  fakeRamp,
+} from "./ramp/fake";
 export {
   FAKE_RESEND_MAIN,
   type FakeResend,
   type FakeResendEmail,
   fakeResend,
 } from "./resend/fake";
+// v0.14 W4-C
+export {
+  FAKE_SLACK,
+  type FakeSlack,
+  type FakeSlackChannel,
+  type FakeSlackPost,
+  fakeSlack,
+} from "./slack/fake";
 export * from "./stripe/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";
+// v0.14 W4-A: WhatsApp through Meta (docs/plan.md §1.57).
+export {
+  DEFAULT_FAKE_ACCOUNTS,
+  FAKE_META,
+  FAKE_META_MEDIA_HOST,
+  type FakeMeta,
+  type FakeMetaAccount,
+  type FakeMetaSend,
+  fakeInboundPayload,
+  fakeMeta,
+  fakeStatusPayload,
+} from "./whatsapp_meta/fake";

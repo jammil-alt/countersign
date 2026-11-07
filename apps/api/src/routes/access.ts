@@ -7,7 +7,7 @@
 // a client's secret.
 
 import { grantOf, grantsOfClient, setGrant } from "@countersign/agents";
-import { BROWSER_CONNECTOR_ID, connectionDefaults } from "@countersign/connectors";
+import { BROWSER_CONNECTOR_ID } from "@countersign/connectors";
 import {
   type AgentAccess,
   BrowserConnectionConfig,
@@ -15,8 +15,10 @@ import {
   type BrowserVaultInfo,
   type ConnectorManifest,
   type CredentialField,
+  connectionLabel,
   effectiveMatrix,
   effectiveTier,
+  entityProblems,
   type GrantLimits,
   grantLoosening,
   grantProblems,
@@ -33,12 +35,14 @@ import { agent, connection, connectionChange, type Tx, tenant } from "@countersi
 import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { releasePeople, releaseView } from "../access/release";
 import { type CatalogueSite, catalogueForClient, offers } from "../browser/sites";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import type { Platform } from "../platform";
 import { connectionCredentials } from "../secrets";
 import { offeredTo } from "./connections";
 import { offeredConnectors } from "./ops-clients";
+import { newConnectionMatrix } from "./ops-connectors";
 import { hasCredentialForm } from "./portal";
 
 type ConnectionRow = typeof connection.$inferSelect;
@@ -182,6 +186,10 @@ export async function vaultItems(
   const browserRows = rows.filter((r) => r.connector === BROWSER_CONNECTOR_ID);
   const sites = browserRows.length > 0 ? await catalogueForClient(tx) : [];
   const now = new Date();
+  const releases = new Map<string, Awaited<ReturnType<typeof releaseView>>>();
+  for (const row of rows) {
+    releases.set(row.id, await releaseView(tx, tenantId, row, { names: options.names, now }));
+  }
   return rows.map((row) => {
     const connector = platform.connectors.get(row.connector);
     const manifest = connector?.manifest;
@@ -202,6 +210,7 @@ export async function vaultItems(
       kind: kindOf(manifest),
       status: row.status,
       externalAccountId: row.externalAccountId,
+      accountName: connectionLabel(row.config, row.externalAccountId),
       secret: {
         set: row.credentialsEncrypted !== null,
         fields: fieldsOf(manifest, row),
@@ -219,11 +228,12 @@ export async function vaultItems(
         ),
       ),
       browser,
+      release: releases.get(row.id) as Awaited<ReturnType<typeof releaseView>>,
     };
   });
 }
 
-async function vaultItem(tx: Tx, tenantId: string, platform: Platform, id: string) {
+export async function vaultItem(tx: Tx, tenantId: string, platform: Platform, id: string) {
   const [item] = await vaultItems(tx, tenantId, platform, { names: "service", only: id });
   if (!item) throw notFound("connection");
   return item;
@@ -305,6 +315,7 @@ async function opsGrant(
     matrix: matrixOf(row),
     tools: toolsOf(manifest),
     access: access(a, row, grant, a.name),
+    release: await releaseView(tx, row.tenantId, row, { names: "agent", now: new Date() }),
   };
 }
 
@@ -336,6 +347,7 @@ export function accessRoutes(app: Hono<AppEnv>): void {
       setup: canEdit ? await vaultSetup(tx, tenantId, services.platform) : [],
       browserSites: canEdit ? await browserSiteOffers(tx, tenantId) : [],
       canEdit,
+      people: canEdit ? await releasePeople(tx, tenantId) : [],
     };
   });
 
@@ -355,18 +367,22 @@ export function accessRoutes(app: Hono<AppEnv>): void {
     if (!a || !Object.values(a.bindings).includes(row.id)) throw notFound("agent's access");
     const before = await grantOf(tx, { tenantId, agentId: a.id, connectionId: row.id });
     // Client roles only tighten or revoke (invariant 8's rule): anything looser is the operator's.
-    const loosened = grantLoosening(before?.limits, body.limits);
-    if (loosened.verbs.length > 0 || loosened.tools) {
-      const what = [...loosened.verbs, ...(loosened.tools ? ["tools"] : [])].join(", ");
+    const manifest = services.platform.connectors.get(row.connector)?.manifest;
+    // v0.12 W2-A: entities too, entity by entity and scope by scope.
+    const loosened = grantLoosening(before?.limits, body.limits, manifest?.permissionEntities);
+    if (loosened.verbs.length > 0 || loosened.tools || loosened.entities.length > 0) {
+      const what = [
+        ...loosened.verbs,
+        ...(loosened.tools ? ["tools"] : []),
+        ...loosened.entities,
+      ].join(", ");
       throw new HttpError(
         403,
         "loosening",
         `only we can give an agent more access (${what}); you can tighten or revoke it`,
       );
     }
-    const toolIds = toolsOf(services.platform.connectors.get(row.connector)?.manifest).map(
-      (t) => t.id,
-    );
+    const toolIds = toolsOf(manifest).map((t) => t.id);
     const unknown = (body.limits.tools ?? []).filter((t) => !toolIds.includes(t));
     if (unknown.length > 0) {
       throw new HttpError(
@@ -374,6 +390,11 @@ export function accessRoutes(app: Hono<AppEnv>): void {
         "invalid_grant",
         `not tools of this connection: ${unknown.join(", ")}`,
       );
+    }
+    // v0.12 W2-A: entities, verbs and scopes the connector declares.
+    const entityIssues = entityProblems(body.limits.entities, manifest?.permissionEntities);
+    if (entityIssues.length > 0) {
+      throw new HttpError(422, "invalid_grant", entityIssues.join("; "));
     }
     await setGrant(tx, {
       tenantId,
@@ -422,7 +443,8 @@ export function accessRoutes(app: Hono<AppEnv>): void {
         tenantId,
         connector: params.connector,
         status: "pending",
-        permissions: connectionDefaults(connector.manifest),
+        // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+        permissions: await newConnectionMatrix(tx, connector.manifest),
       });
     }
     // Encrypted under the client's own key; the read model keeps only what is set.
@@ -491,6 +513,8 @@ export function accessRoutes(app: Hono<AppEnv>): void {
       body.limits,
       row.permissions,
       toolsOf(manifest).map((t) => t.id),
+      // v0.12 W2-A: the connector's entities.
+      manifest?.permissionEntities,
     );
     if (problems.length > 0) {
       throw new HttpError(422, "beyond_matrix", problems.join("; "));

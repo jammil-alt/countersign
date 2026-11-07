@@ -11,12 +11,19 @@
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
+  type AutomationDefinition,
+  // v0.12 W2-D: the account agent's publish guard
+  accountAgentProblems,
+  automationRefs,
   bindingConnector,
   bundleHash,
   type EventTypeSpec,
+  GrantLimits,
   isExternalTool,
+  type PermissionEntity,
   type PermissionMatrix,
   parseSkillRef,
+  REVOKED_GRANT,
   type SkillDefinition,
   skillTools,
   type ValidationError,
@@ -26,14 +33,22 @@ import {
 import {
   agent,
   agentChange,
+  agentGrant,
   agentVersion,
   connection,
   run,
   type Tx,
   tenantPack,
 } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
+// v0.12 W2-B: automations
+import {
+  automationContext,
+  automationPublishErrors,
+  snapshotSharedAutomations,
+} from "./automations";
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
 import { stripForPromotion } from "./lineage";
 import { type SkillCatalog, skillContext, snapshotSharedSkills } from "./skills";
@@ -199,10 +214,56 @@ export async function boundMatrices(
   return out;
 }
 
+// v0.14 W4-B (docs/plan.md §1.44 "Off at publish"): the agent's grants on its bound connections
+// and each bound connector's declared entities, so publish refuses an entity turned off.
+/** A client agent's grants by binding key (null: no grant row, no narrowing). */
+export async function boundGrants(
+  tx: Tx,
+  row: Pick<AgentRow, "tenantId" | "bindings"> & { id?: string },
+): Promise<Record<string, GrantLimits | null>> {
+  const ids = Object.values(row.bindings);
+  if (!row.tenantId || !row.id || ids.length === 0) return {};
+  const rows = await tx
+    .select()
+    .from(agentGrant)
+    .where(
+      and(
+        eq(agentGrant.tenantId, row.tenantId),
+        eq(agentGrant.agentId, row.id),
+        inArray(agentGrant.connectionId, ids),
+      ),
+    );
+  // Built with fromEntries (binding keys are data): no assignment by key.
+  return Object.fromEntries(
+    Object.entries(row.bindings).map(([key, id]): [string, GrantLimits | null] => {
+      const g = rows.find((r) => r.connectionId === id);
+      if (!g) return [key, null];
+      // As grantOf reads a row: one that no longer parses is every verb off and narrows everything.
+      const parsed = GrantLimits.safeParse(g.limits);
+      return [key, parsed.success ? parsed.data : REVOKED_GRANT];
+    }),
+  );
+}
+
+/** The declared entities of each bound connector, from the registered manifests. */
+function boundEntities(
+  bindings: Record<string, string>,
+  tools: ToolRegistry,
+): Record<string, readonly PermissionEntity[] | undefined> {
+  return Object.fromEntries(
+    Object.keys(bindings).map((key) => [
+      key,
+      tools.connectors.get(bindingConnector(key))?.manifest.permissionEntities,
+    ]),
+  );
+}
+
 /** Validates a version's bundle as it would be published (client agents: against their bindings). */
 export async function validateForPublish(
   tx: Tx,
-  row: Pick<AgentRow, "tenantId" | "kind" | "bindings">,
+  // v0.12 W2-D: `slug`, for the account agent's guard (rows without one skip it).
+  // v0.14 W4-B: `id`, for the agent's grants (a row without one, a draft not yet saved, has none).
+  row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string; id?: string },
   bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<ValidationError[]> {
@@ -211,13 +272,57 @@ export async function validateForPublish(
     bundle,
     catalog: ctx.catalog,
   });
-  const result = validateBundle(bundle, {
-    skills,
-    tools: ctx.tools.specs(),
-    ...(ctx.events ? { events: ctx.events } : {}),
-    ...(row.kind === "client" ? { publish: { matrices: await boundMatrices(tx, row) } } : {}),
+  // v0.12 W2-B: the automations its use steps pin, and the skills their steps name.
+  const used = await automationContext(tx, {
+    tenantId: row.tenantId,
+    bundle,
+    catalog: ctx.catalog,
   });
-  const errors = [...result.errors];
+  const result = validateBundle(bundle, {
+    skills: { ...used.skills, ...skills },
+    // v0.14 W4-A: a client agent's shared ids (`whatsapp.send`) are checked against the connector
+    // its bindings name (Twilio or Meta).
+    tools: ctx.tools.specs(row.kind === "client" ? row.bindings : undefined),
+    models: knownModelIds(),
+    ...(ctx.events ? { events: ctx.events } : {}),
+    ...(row.kind === "client"
+      ? {
+          publish: {
+            matrices: await boundMatrices(tx, row),
+            // v0.14 W4-B
+            grants: await boundGrants(tx, row),
+            entities: boundEntities(row.bindings, ctx.tools),
+          },
+        }
+      : {}),
+    // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.
+    ...(row.kind === "client" && row.tenantId
+      ? {
+          packs: (
+            await tx
+              .select({ pack: tenantPack.pack })
+              .from(tenantPack)
+              .where(eq(tenantPack.tenantId, row.tenantId))
+          ).map((p) => p.pack),
+        }
+      : {}),
+    // v0.12 W2-B
+    automations: used.automations,
+    clientAgent: row.kind === "client",
+  });
+  const errors = [...result.errors, ...automationPublishErrors(bundle, used)];
+  // v0.12 W2-D: the account agent (the supervisor and its forks) never reaches a client's tool:
+  // no connector or external tool, no binding (docs/plan.md §1.47 "Guards").
+  errors.push(
+    ...accountAgentProblems({
+      slug: row.slug,
+      bundle,
+      skills: { ...used.skills, ...skills },
+      tools: ctx.tools.specs(),
+      bindings: row.kind === "client" ? row.bindings : undefined,
+      automations: used.automations,
+    }),
+  );
   for (const ref of missing) {
     // Workflow steps are reported by validateBundle; the agent's own skill list is checked here.
     if (!errors.some((e) => e.code === "unknown_skill" && e.message.includes(ref))) {
@@ -255,6 +360,12 @@ export async function publish(
   }
   if (row.kind === "client" && row.tenantId) {
     await snapshotSharedSkills(tx, {
+      tenantId: row.tenantId,
+      bundle: v.bundle,
+      catalog: input.ctx.catalog,
+    });
+    // v0.12 W2-B: and the shared automations its use steps pin (with their skills).
+    await snapshotSharedAutomations(tx, {
       tenantId: row.tenantId,
       bundle: v.bundle,
       catalog: input.ctx.catalog,
@@ -675,8 +786,19 @@ export function requiredConnectors(
   bundle: AgentBundle,
   skills: Record<string, SkillDefinition>,
   tools: ToolRegistry,
+  // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
+  automations: Record<string, AutomationDefinition> = {},
+  // v0.14 W4-A: a client agent's bindings, so a shared id needs the connector it is bound to
+  // (Twilio or Meta for `whatsapp.send`); without them, the first that supplies it.
+  bindings?: Readonly<Record<string, string>>,
 ): string[] {
   const out = new Set<string>();
+  for (const w of bundle.workflows) {
+    if (!w.enabled) continue;
+    for (const ref of automationRefs([w.workflow])) {
+      for (const c of automations[ref]?.requires.connectors ?? []) out.add(c);
+    }
+  }
   const toolIds = new Set(bundle.definition.extraTools);
   const addSkill = (ref: string) => {
     const def = skills[ref] ?? skills[parseSkillRef(ref).id];
@@ -694,7 +816,7 @@ export function requiredConnectors(
   }
   for (const id of toolIds) {
     const t = tools.get(id);
-    if (t?.kind === "connector") out.add(t.connector.manifest.id);
+    if (t?.kind === "connector") out.add(tools.connectorFor(id, bindings));
     else if (t && isExternalTool(t.spec) && t.spec.connector) out.add(t.spec.connector);
   }
   return [...out].sort();
@@ -727,8 +849,22 @@ export async function activationProblems(
     catalog: input.ctx.catalog,
   });
   for (const ref of missing) problems.push(`skill ${ref} is not available to this client`);
+  // v0.12 W2-B: the automations it pins, in this client (its own, or its copies of shared ones).
+  const used = await automationContext(tx, {
+    tenantId: row.tenantId,
+    bundle: live.bundle,
+    catalog: input.ctx.catalog,
+  });
+  for (const ref of used.missing)
+    problems.push(`automation ${ref} is not available to this client`);
 
-  const connectors = requiredConnectors(live.bundle, skills, input.ctx.tools);
+  const connectors = requiredConnectors(
+    live.bundle,
+    skills,
+    input.ctx.tools,
+    used.automations,
+    row.bindings,
+  );
   const bound = Object.values(row.bindings);
   const rows = bound.length
     ? await tx

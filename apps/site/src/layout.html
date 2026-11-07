@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{title}}</title>
+    <meta name="description" content="{{description}}">
+    <meta name="color-scheme" content="light dark">
+    <link rel="canonical" href="{{canonical}}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mezonas">
+    <meta property="og:title" content="{{title}}">
+    <meta property="og:description" content="{{description}}">
+    <meta property="og:url" content="{{canonical}}">
+    <link rel="icon" href="/design-system/logos/mezonas-app-icon.svg" type="image/svg+xml">
+    <link rel="icon" href="/design-system/logos/apple-touch-icon-180.png" sizes="180x180" type="image/png">
+    <link rel="apple-touch-icon" href="/design-system/logos/apple-touch-icon-180.png">
+    <link rel="preload" href="/design-system/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/design-system/tokens.css">
+    <link rel="stylesheet" href="/design-system/components.css">
+    <link rel="stylesheet" href="/site.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap site-header__inner">
+        <a class="site-logo" href="/">
+          <picture>
+            <source srcset="/design-system/logos/mezonas-logo-paper.svg" media="(prefers-color-scheme: dark)">
+            <img src="/design-system/logos/mezonas-logo.svg" alt="Mezonas home" width="173" height="24">
+          </picture>
+        </a>
+        <nav class="site-nav" aria-label="Main">
+          <a href="/#how-it-works">How it works</a>
+          <a href="/#security">Security</a>
+          <a href="/#policies">Policies</a>
+          <a href="/#contact">Contact</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main" tabindex="-1">
+      {{draft}}
+      {{body}}
+    </main>
+    <footer class="site-footer">
+      <div class="wrap site-footer__inner">
+        <div class="site-footer__brand">
+          <p class="site-footer__name">Mezonas, a product of Twelve Thirty-Four Consulting LLC</p>
+          <p class="site-footer__copy">© {{year}} Twelve Thirty-Four Consulting LLC. All rights reserved.</p>
+        </div>
+        <nav class="site-footer__nav" aria-label="Footer">
+          <a href="/terms">Terms of service</a>
+          <a href="/privacy">Privacy policy</a>
+          <a href="/subprocessors">Subprocessors</a>
+          <a href="/sms-terms">Text message terms</a>
+          <a href="/#contact">Contact</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

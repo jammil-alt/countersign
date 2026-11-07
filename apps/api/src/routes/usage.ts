@@ -14,9 +14,7 @@ import {
 } from "@countersign/core";
 import {
   agent,
-  agentVersion,
   connection,
-  docExtraction,
   document,
   externalAction,
   run,
@@ -24,6 +22,7 @@ import {
   tenant,
   tenantPack,
   usageDaily,
+  usagePlatformDaily,
 } from "@countersign/db";
 import {
   and,
@@ -41,6 +40,8 @@ import {
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
+import { noRuns, runCounts } from "../runs/client-status";
+import { clientDescription } from "../weekly/stats";
 import { runSummaries } from "./portal";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
@@ -153,6 +154,35 @@ const byCost = (a: { s: Series; name: string }, b: { s: Series; name: string }) 
 
 const MONTH = sql<string>`to_char(${usageDaily.day}, 'YYYY-MM')`;
 
+const PLATFORM_MONTH = sql<string>`to_char(${usagePlatformDaily.day}, 'YYYY-MM')`;
+
+/** v0.12 W1-H: the clients' own usage (usage_platform_daily) by client and month. */
+function platformRows(
+  tx: Tx,
+  tenantIds: readonly string[],
+  query: { client?: string | undefined; from: string; to: string },
+) {
+  return tx
+    .select({
+      tenantId: usagePlatformDaily.tenantId,
+      month: PLATFORM_MONTH,
+      documents: sql<string>`sum(${usagePlatformDaily.documents})::text`,
+      tokensIn: sql<string>`sum(${usagePlatformDaily.tokensIn})::text`,
+      tokensOut: sql<string>`sum(${usagePlatformDaily.tokensOut})::text`,
+      cost: sql<string>`sum(${usagePlatformDaily.costUsd})::text`,
+    })
+    .from(usagePlatformDaily)
+    .where(
+      and(
+        inArray(usagePlatformDaily.tenantId, [...tenantIds]),
+        gte(usagePlatformDaily.day, query.from),
+        lte(usagePlatformDaily.day, query.to),
+        ...(query.client ? [eq(usagePlatformDaily.tenantId, query.client)] : []),
+      ),
+    )
+    .groupBy(usagePlatformDaily.tenantId, PLATFORM_MONTH);
+}
+
 async function usageReport(
   tx: Tx,
   tenantIds: readonly string[],
@@ -207,7 +237,11 @@ async function usageReport(
     )
     .where(and(...where))
     .groupBy(usageDaily.tenantId, usageDaily.agentId, MONTH);
-  if (rows.length === 0) return empty;
+  // v0.12 W1-H: the clients' own usage (background reading), unless narrowed to an agent or a
+  // template, which it is not part of.
+  const narrowed = Boolean(query.agent || query.template);
+  const platform = narrowed ? [] : await platformRows(tx, tenantIds, query);
+  if (rows.length === 0 && platform.length === 0) return empty;
 
   const agentIds = [...new Set(rows.map((r) => r.agentId))];
   const agents = await tx
@@ -232,7 +266,7 @@ async function usageReport(
           .from(agent)
           .where(and(inArray(agent.id, templateIds), isNull(agent.tenantId)))
       : [];
-  const clientIds = [...new Set(rows.map((r) => r.tenantId))];
+  const clientIds = [...new Set([...rows, ...platform].map((r) => r.tenantId))];
   const clients = await tx
     .select({ id: tenant.id, name: tenant.name })
     .from(tenant)
@@ -276,6 +310,22 @@ async function usageReport(
     }
   }
 
+  const background = new Series();
+  for (const r of platform) {
+    const x: Sum = {
+      ...zero(),
+      documents: Number(r.documents),
+      tokensIn: Number(r.tokensIn),
+      tokensOut: Number(r.tokensOut),
+      cost: new Decimal(r.cost ?? "0"),
+    };
+    all.add(r.month, x);
+    background.add(r.month, x);
+    const c = clientSeries.get(r.tenantId) ?? new Series();
+    c.add(r.month, x);
+    clientSeries.set(r.tenantId, c);
+  }
+
   const clientName = new Map(clients.map((c) => [c.id, c.name]));
   const template = new Map(templates.map((t) => [t.id, t]));
   return {
@@ -283,6 +333,7 @@ async function usageReport(
     to: query.to,
     months,
     ...all.out(months),
+    ...(narrowed ? {} : { background: background.out(months) }),
     clients: [...clientSeries]
       .map(([id, s]) => ({ id, name: clientName.get(id) ?? "", s }))
       .sort(byCost)
@@ -325,23 +376,6 @@ async function usageReport(
 // ── Portal: activity ─────────────────────────────────────────────────────────────────────────────
 
 type Runs = ActivityReport["runs"];
-const noRuns = (): Runs => ({
-  total: 0,
-  succeeded: 0,
-  failed: 0,
-  cancelled: 0,
-  waiting: 0,
-  going: 0,
-});
-
-function countRun(into: Runs, status: string, n: number): void {
-  into.total += n;
-  if (status === "succeeded") into.succeeded += n;
-  else if (status === "failed") into.failed += n;
-  else if (status === "cancelled") into.cancelled += n;
-  else if (status === "waiting") into.waiting += n;
-  else into.going += n;
-}
 
 const serviceName = (a: { serviceName: string | null; name: string }) => a.serviceName ?? a.name;
 
@@ -385,46 +419,44 @@ async function activity(
   const inPeriod = (col: Column) => and(gte(col, lo), lt(col, hi)) as SQL;
   const svc = input.service;
 
-  const runRows = await tx
-    .select({ agentId: run.agentId, status: run.status, n: sql<string>`count(*)::text` })
-    .from(run)
-    .where(
-      and(
-        eq(run.tenantId, t),
-        eq(run.mode, "live"),
-        inPeriod(run.createdAt),
-        ...(svc ? [eq(run.agentId, svc)] : []),
-      ),
-    )
-    .groupBy(run.agentId, run.status);
+  // QA round 1: runs started in the period by the client's states (waiting = on the client).
+  const counts = await runCounts(tx, t, { lo, hi }, svc ? [eq(run.agentId, svc)] : []);
 
   const [received] = await tx
     .select({ n: sql<string>`count(*)::text` })
     .from(document)
     .where(and(eq(document.tenantId, t), inPeriod(document.receivedAt)));
 
-  // Read = extracted; attributed to a service through the agent version that read it.
-  const readJoin = and(
-    eq(agentVersion.id, docExtraction.agentVersionId),
-    eq(agentVersion.tenantId, docExtraction.tenantId),
-  );
-  const readWhere = and(
-    eq(docExtraction.tenantId, t),
-    inPeriod(docExtraction.createdAt),
-    ...(svc ? [eq(agentVersion.agentId, svc)] : []),
-  );
-  const distinctDocs = sql<string>`count(distinct ${docExtraction.documentId})::text`;
-  const [readTotal] = await tx
-    .select({ n: distinctDocs })
-    .from(docExtraction)
-    .leftJoin(agentVersion, readJoin)
-    .where(readWhere);
-  const readRows = await tx
-    .select({ agentId: agentVersion.agentId, n: distinctDocs })
-    .from(docExtraction)
-    .innerJoin(agentVersion, readJoin)
-    .where(readWhere)
-    .groupBy(agentVersion.agentId);
+  // QA round 1: read = extracted (attributed to a service through the agent version that read
+  // it), or worked on by a live run started in the period (the document that started it, e.g. an
+  // invoice read on upload that the Bill clerk then matched). One definition for the total and
+  // each service, so a service's count is never above the total.
+  const readSql = sql`
+    select av.agent_id, de.document_id::text as document_id
+      from doc_extraction de
+      left join agent_version av on av.id = de.agent_version_id and av.tenant_id = de.tenant_id
+     where de.tenant_id = ${t} and de.created_at >= ${lo} and de.created_at < ${hi}
+    union
+    select r.agent_id, r.trigger->'payload'->>'documentId'
+      from run r
+     where r.tenant_id = ${t} and r.mode = 'live' and r.created_at >= ${lo} and r.created_at < ${hi}
+       and jsonb_typeof(r.trigger->'payload'->'documentId') = 'string'
+       and exists (select 1 from document d
+                    where d.tenant_id = r.tenant_id
+                      and d.id::text = r.trigger->'payload'->>'documentId')`;
+  const readList = [
+    ...(await tx.execute<{ agentId: string | null; documentId: string }>(sql`
+      select read.agent_id as "agentId", read.document_id as "documentId" from (${readSql}) read
+       ${svc ? sql`where read.agent_id = ${svc}` : sql``}`)),
+  ];
+  const readTotal = new Set(readList.map((r) => r.documentId)).size;
+  const readByAgent = new Map<string, Set<string>>();
+  for (const r of readList) {
+    if (!r.agentId) continue;
+    const docs = readByAgent.get(r.agentId) ?? new Set<string>();
+    docs.add(r.documentId);
+    readByAgent.set(r.agentId, docs);
+  }
 
   const actionRows = await tx
     .select({
@@ -468,18 +500,15 @@ async function activity(
     .where(eq(tenantPack.tenantId, t))
     .orderBy(tenantPack.pack);
 
-  const runs = noRuns();
+  const runs = counts.all;
   const perService = new Map<string, { runs: Runs; documentsRead: number; actions: number }>();
   const entry = (id: string) => {
     const e = perService.get(id) ?? { runs: noRuns(), documentsRead: 0, actions: 0 };
     perService.set(id, e);
     return e;
   };
-  for (const r of runRows) {
-    countRun(runs, r.status, Number(r.n));
-    countRun(entry(r.agentId).runs, r.status, Number(r.n));
-  }
-  for (const r of readRows) entry(r.agentId).documentsRead = Number(r.n);
+  for (const [agentId, r] of counts.byAgent) entry(agentId).runs = r;
+  for (const [agentId, docs] of readByAgent) entry(agentId).documentsRead = docs.size;
   const byConnector = new Map<string, number>();
   let actions = 0;
   for (const r of actionRows) {
@@ -502,7 +531,7 @@ async function activity(
     to: input.to,
     timezone: input.timezone,
     runs,
-    documents: { received: Number(received?.n ?? "0"), read: Number(readTotal?.n ?? "0") },
+    documents: { received: Number(received?.n ?? "0"), read: readTotal },
     actions: {
       total: actions,
       byConnector: [...byConnector]
@@ -575,7 +604,7 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
       service: {
         id: a.id,
         name: serviceName(a),
-        description: a.serviceDescription,
+        description: clientDescription(a),
         status: a.runStatus ?? "draft",
       },
       thisMonth: {

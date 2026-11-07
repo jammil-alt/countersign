@@ -4,7 +4,13 @@
 // from events delivered while waiting, or time out, as each test chooses.
 
 import { cloneJson, type Duration } from "@countersign/core";
-import { type StepConfig, type StepRunner, type WaitedEvent, WaitTimeoutError } from "./runner";
+import {
+  type StepConfig,
+  type StepRunner,
+  type StepTry,
+  type WaitedEvent,
+  WaitTimeoutError,
+} from "./runner";
 
 export type FakeCall =
   | { kind: "do"; name: string; cached: boolean }
@@ -72,7 +78,11 @@ export class FakeStepRunner implements StepRunner {
     throw e;
   }
 
-  async do<T>(name: string, fn: () => Promise<T>, config?: StepConfig): Promise<T> {
+  async do<T>(
+    name: string,
+    fn: (attempt?: StepTry) => Promise<T>,
+    config?: StepConfig,
+  ): Promise<T> {
     const stored = this.#claim(name);
     this.calls.push({ kind: "do", name, cached: stored !== undefined });
     if (stored) return this.#replayStored<T>(stored);
@@ -81,7 +91,8 @@ export class FakeStepRunner implements StepRunner {
     for (let i = 0; i < attempts; i++) {
       try {
         // Step results cross a serialization boundary in Cloudflare; JSON round-trip here too.
-        const value = cloneJson(await fn());
+        // v0.14 W4-B: each try is told its number, as Cloudflare's step context does.
+        const value = cloneJson(await fn({ attempt: i + 1 }));
         this.#stored.set(name, { ok: true, value });
         return cloneJson(value) as T;
       } catch (error) {

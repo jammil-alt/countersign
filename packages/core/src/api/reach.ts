@@ -37,6 +37,9 @@ export const PersonOption = z.object({
   /** Channels with an address and consent, opt-out aside. */
   reachable: z.array(ReachChannel),
   optedOut: z.boolean(),
+  /** From the directory (docs/plan.md §1.27), so people with the same name can be told apart. */
+  title: z.string().nullable().optional(),
+  organization: z.string().nullable().optional(),
 });
 export type PersonOption = z.infer<typeof PersonOption>;
 

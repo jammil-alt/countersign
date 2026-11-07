@@ -5,7 +5,9 @@
 // 3. platform packages (packages/*) never depend on a pack (packs/*);
 // 4. a pack depends only on the platform packages in PACK_ALLOWED;
 // 5. apps/mfa (the code service, its own Worker) depends on @countersign/core only, and nothing
-//    depends on it: apps/api reaches it only through a service binding (plan §1.26).
+//    depends on it: apps/api reaches it only through a service binding (plan §1.26);
+// 6. apps/site (the public site, mezonas.com) depends on the design system's files only, has no
+//    runtime dependencies, and nothing depends on it (plan §1.29).
 // Pass a directory to check another tree (scripts/check-deps.test.mjs does).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -22,16 +24,24 @@ const PACK_ALLOWED = new Set([
 const IMPORT_RE = /(?:from\s+|import\s*\(\s*|import\s+)['"](@countersign\/[a-z-]+)/g;
 const AGENTS_DB_ALLOWED = ["packages/agents/src/registry/", "packages/agents/src/log/"];
 /** Apps held to a fixed set of workspace dependencies. */
-const APP_ALLOWED = { "apps/mfa": new Set(["@countersign/core"]) };
+const APP_ALLOWED = {
+  "apps/mfa": new Set(["@countersign/core"]),
+  "apps/site": new Set(["@countersign/design-system"]),
+};
 /**
  * Apps whose runtime dependencies are a fixed list: the code service keeps no database, storage or
  * other client, so adding one is a decision made here, in review.
  */
 const APP_RUNTIME_ALLOWED = {
   "apps/mfa": new Set(["@countersign/core", "hono", "postal-mime", "zod"]),
+  // Static files only: nothing of the site's runs in a Worker or a browser but HTML and CSS.
+  "apps/site": new Set(),
 };
-/** Packages no other workspace package may depend on. */
-const NO_DEPENDENTS = new Set(["@countersign/mfa"]);
+/** Packages no other workspace package may depend on, with the reason. */
+const NO_DEPENDENTS = new Map([
+  ["@countersign/mfa", "reached only by service binding"],
+  ["@countersign/site", "a static site, not a library"],
+]);
 
 function* files(dir) {
   if (!existsSync(dir)) return;
@@ -74,7 +84,7 @@ for (const dir of pkgDirs) {
     }
   }
   for (const dep of workspaceDeps.filter((d) => NO_DEPENDENTS.has(d) && d !== pkg.name)) {
-    errors.push(`${dir}/package.json: depends on ${dep}, which is reached only by service binding`);
+    errors.push(`${dir}/package.json: depends on ${dep}, which is ${NO_DEPENDENTS.get(dep)}`);
   }
   if (dir.startsWith("packs")) {
     for (const dep of workspaceDeps.filter((d) => !PACK_ALLOWED.has(d))) {

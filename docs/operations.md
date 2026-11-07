@@ -26,15 +26,18 @@ Mezonas is the product name and the name of every public resource; `countersign`
 | Code service address (Twilio's webhooks only) | `https://codes-staging.mezonas.com` | `https://codes.mezonas.com` |
 | Agent email (code service) | `agents.staging.mezonas.com` | `agents.mezonas.com` |
 | WorkOS | staging environment | production environment |
+| MCP server (Claude connector, operators) | `https://staging.mezonas.com/mcp` | `https://app.mezonas.com/mcp` |
+| Rate limit namespace (`MCP_RATE_LIMIT`) | `1101` | `1102` |
 
 `apps/api/wrangler.jsonc`'s top level is local development only (dev sign-in) and is never deployed:
 `deploy.yml` always passes `--env=staging` or `--env=production`. The custom domains are created by
-`wrangler deploy` (`custom_domain: true`); the apex `mezonas.com` stays free for a marketing site, and
-other records on the zone (e.g. `datum.mezonas.com`) are untouched.
+`wrangler deploy` (`custom_domain: true`); the apex `mezonas.com` and `www.mezonas.com` are the public
+site's (see "The public site" below), and other records on the zone (e.g. `datum.mezonas.com`) are
+untouched.
 App on `app.mezonas.com`, staging on `staging.mezonas.com` (owner, 2026-11-03).
 
-CI's own throwaway Neon branches are named `ci-run<id>-<attempt>`, copied from `main` and deleted
-when the run ends.
+CI never connects to Neon: client data never reaches a CI runner (`docs/plan.md` §1.35). Neon
+holds no `ci-run…` branches any more.
 
 ## 1. What a person must create
 
@@ -97,8 +100,64 @@ After the first run: save the project id from the run summary as the repository 
    "The code service" below.
 5. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
    `https://staging.mezonas.com/api/auth/callback` and `https://app.mezonas.com/api/auth/callback`;
-   Worker secrets `WORKOS_CLIENT_ID`,
-   `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters).
+   on each environment's application, a default **Sign-out URI** (`https://staging.mezonas.com/`,
+   `https://app.mezonas.com/`), which sign-out sends as `return_to`; without it WorkOS shows
+   `app-homepage-url-not-found` after signing out (the old app homepage URL is only a deprecated
+   fallback); Worker secrets `WORKOS_CLIENT_ID`,
+   `WORKOS_API_KEY`, `WORKOS_COOKIE_PASSWORD` (at least 32 random characters). For the Claude
+   connector, each environment's AuthKit domain in `WORKOS_AUTHKIT_DOMAIN` ("MCP server" below).
+   For HIPAA, SOC 2 and PCI (`docs/plan.md` §1.35), on both environments: **multi-factor
+   authentication required** for email and password sign-ins (Authentication → Features →
+   Multi-factor auth), and the AuthKit session no longer than ours (Applications → the app →
+   Sessions → Session lifetime: maximum 12 hours, inactivity 30 minutes; access token duration
+   stays 5 minutes). Our own cookie enforces both limits anyway, and an idle or expired session
+   also ends WorkOS's, so the next sign-in asks for the password and code again.
+
+
+### The public site (mezonas.com)
+
+`apps/site` (`docs/plan.md` §1.29): the landing page, terms, privacy policy and subprocessors, as
+static files on the Worker **`mezonas-site`** (`apps/site/wrangler.jsonc`: assets only, no code).
+There is one site for staging and production: `deploy.yml`'s `site` job builds it and runs
+`wrangler deploy` on every push to `main` (and on a manual run from `main`), never from a `v*` tag.
+It needs only the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token
+already has Workers Scripts edit, Workers Routes edit and DNS edit on `mezonas.com`.
+
+`wrangler deploy` attaches the custom domains `mezonas.com` and `www.mezonas.com` and creates their
+DNS records and certificates itself. It cannot attach a name another DNS record already holds, so
+the first deploy fails until the parking records are gone.
+
+DNS today (owner, 2026-11-05): DNS for `mezonas.com` is in Cloudflare (nameservers
+`coen.ns.cloudflare.com` and `lady.ns.cloudflare.com`); GoDaddy is only the registrar, with no
+forwarding. The parked page comes from two proxied apex `A` records in Cloudflare,
+`15.197.148.33` and `3.33.130.190`, and `www.mezonas.com` is a `CNAME` to `mezonas.com`.
+
+What the owner does, once:
+
+- [ ] **Delete three records.** Cloudflare → `mezonas.com` → DNS → Records: delete
+      `A mezonas.com 15.197.148.33`, `A mezonas.com 3.33.130.190` and `CNAME www → mezonas.com`.
+      Nothing else.
+- [ ] **Keep everything else**, in particular: the apex `TXT google-site-verification=…` (Search
+      Console verification, now verified; removing it unverifies the domain), the `_domainconnect`
+      `CNAME`, `staging.mezonas.com` (Worker `mezonas-staging`), `codes-staging` (the code service),
+      and the Worker routes `chore-admin`, `chore-tracker`, `datum` and `dev.datum`, which belong to
+      other projects and must not be touched. `app.mezonas.com` has no record yet (the production
+      app is not deployed).
+- [ ] **Deploy.** Merge the deploy PR (`claude/site-deploy`), or, if it is already merged, re-run
+      the `site` job of the latest Deploy run on `main` (Actions → Deploy → the run → Re-run failed
+      jobs). The custom domains create their own records; they show in DNS as type "Worker".
+- [ ] **Check** `https://mezonas.com`, `/terms`, `/privacy`, `/subprocessors` and
+      `https://www.mezonas.com`.
+- [ ] **Then submit Google's verification.** The site must be live first: Google checks the
+      homepage and its privacy policy link on the verified domain. Homepage `https://mezonas.com`,
+      privacy policy `https://mezonas.com/privacy`, terms `https://mezonas.com/terms`. Fill in the
+      legal pages' placeholders before submitting (`apps/site/README.md`); while any remain, those
+      pages say "Draft for legal review".
+
+`www` serves the same pages, each with a canonical link to the apex, since a Worker with no code
+can't redirect by host. To make `www` a redirect instead (optional): Cloudflare → `mezonas.com` →
+Rules → Redirect Rules → template "Redirect from WWW to root" (301, keep the path); Redirect Rules
+run before the Worker.
 
 ### The code service (Access phase 2)
 
@@ -174,24 +233,211 @@ in by our code (docs/plan.md §1.26). The code is deployed with apps/api; what a
 
 ### Intuit (QuickBooks Online, from M9)
 
-1. An Intuit developer app with the `com.intuit.quickbooks.accounting` scope, a sandbox company, and
-   redirect URIs `https://<domain>/api/connections/qbo/callback` per environment.
-2. Worker secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`; vars `QBO_ENV`,
-   `QBO_REDIRECT_URI`. Production keys need Intuit's app review.
+Done by the owner (2026-11-05):
 
-### Google (Gmail, from M10)
+- Intuit developer app **"Mezonas"**, development keys (sandbox companies only).
+- Scope `com.intuit.quickbooks.accounting` only.
+- Redirect URIs `https://staging.mezonas.com/api/connections/qbo/callback` and
+  `http://localhost:8787/api/connections/qbo/callback`. That route (the same forwarder Gmail uses)
+  passes Intuit's parameters to the portal page `/connections/qbo/callback`, which finishes the
+  sign-in in the client admin's session.
+- The operator's own sign-in to the Sandbox client (plan §1.5, to connect the sandbox company above)
+  uses the same redirect URIs: the forwarder sends a signed back-office state to
+  `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho, Podio, Ramp or HubSpot.
+- Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
+  Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
+  (every 15 minutes, and on any webhook).
+- Sandbox company: realm `9341458640918607` (QBO Plus, US).
+- GitHub staging secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`.
 
-1. A Google Cloud project for Mezonas with the Gmail API enabled.
-2. An OAuth consent screen (external) and a web OAuth client with redirect URIs
-   `https://<domain>/api/connections/gmail/callback` per environment (and `http://localhost:8787/...` for
-   local development).
-3. Scopes `gmail.readonly`, `gmail.labels`, `gmail.compose`. Gmail read scopes are restricted: a public
-   app needs Google's verification and a security assessment, which can take weeks, so start it early.
-   Until then the app works for a limited set of users with a warning screen, and in "testing" status
-   refresh tokens expire after 7 days (clients would have to reconnect weekly). Check the current rules
-   (plan M10). For clients on Google Workspace, domain-wide delegation granted by their admin is the
-   alternative.
-4. Worker secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; var `GOOGLE_REDIRECT_URI`.
+Still to do:
+
+1. `deploy.yml` copies the three secrets into the Worker when set (#70). QuickBooks also needs
+   `OAUTH_STATE_SECRET` and `ENCRYPTION_KEY`, which staging has. Until the client id and secret are
+   set, the portal shows QuickBooks as "not available yet"; without the verifier the webhook answers
+   503.
+2. `QBO_ENV` is a var in `wrangler.jsonc`: `sandbox` locally and on staging, `production` in
+   production. There is no `QBO_REDIRECT_URI`: the redirect URI is `APP_ORIGIN` +
+   `/api/connections/qbo/callback`.
+3. The sync runs as its own Workflow, `QboSyncWorkflow` (binding `QBO_SYNC`; `mezonas-staging-qbo-sync`
+   on staging). Wrangler creates it on the next deploy; nothing to do by hand.
+4. Offer QuickBooks to the Sandbox client in the back office, sign in from its portal with the
+   sandbox company, and walk the "against the sandbox company" list in
+   `packages/connectors/src/qbo/NOTES.md`.
+5. Production: Intuit's app review for production keys, then the production redirect URI
+   `https://app.mezonas.com/api/connections/qbo/callback` and webhook
+   `https://app.mezonas.com/api/connections/qbo/webhook`, and the production secrets.
+
+### Google (Gmail, send only, M10)
+
+Gmail only sends: an agent emails a contact from a mailbox the client connected, after approval.
+Reading mail is done by forwarding (ARCHITECTURE §6.5); we never ask Google for a read scope. What
+we couldn't check against Google's docs is in `packages/connectors/src/gmail/NOTES.md`, "To verify".
+
+1. The Google Cloud project `mezonas` with the Gmail API enabled (done, 2026-11-05).
+2. The web OAuth client "Mezonas web" with redirect URIs `https://staging.mezonas.com/api/connections/gmail/callback`,
+   `https://app.mezonas.com/api/connections/gmail/callback` and
+   `http://localhost:8787/api/connections/gmail/callback` (done, 2026-11-05). The Worker sends people
+   back to `<APP_ORIGIN>/api/connections/gmail/callback`, which matches these; set the var
+   `GOOGLE_REDIRECT_URI` only to use another one.
+3. The consent screen's scopes: **`gmail.send`** (sensitive) plus **`openid`** and **`email`**
+   (Google's basic sign-in scopes, non-sensitive), which tell us which address connected; Gmail's
+   send scope alone can't. Nothing else. The owner is reducing the list to `gmail.send`; add `openid`
+   and `.../auth/userinfo.email` beside it. We never ask for `gmail.readonly`, `gmail.labels`,
+   `gmail.compose`, `gmail.modify` or any other restricted scope (owner, 2026-11-05: no CASA), and
+   the connector refuses a grant that carries one. Asking for any other Gmail scope needs the privacy
+   policy changed first (`apps/site`).
+4. Worker secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` copied like the other API keys by `deploy.yml`, and
+   `OAUTH_STATE_SECRET`, which Zoho and Podio already use. Until all three are set the portal shows
+   Gmail as "Not available yet".
+5. While the consent screen is in **Testing**: only listed test users can connect, Google shows a
+   warning screen, and refresh tokens expire after 7 days, so a test mailbox must be reconnected
+   weekly (the connection shows "Needs reconnecting" and the supervisor raises it).
+
+What the owner still needs for Google's verification (standard review for a sensitive scope; no
+CASA):
+- **The live site.** `https://mezonas.com` (`apps/site`) live on the verified domain, with the
+  privacy policy (its Google section and the Limited Use statement) linked from the homepage. The
+  site's deploy is its own PR (`claude/site-deploy`, plan §1.29), held until the apex DNS records
+  are cleared.
+- **Domain verification** in Search Console and the domain on the consent screen's authorized
+  domains (done, 2026-11-05).
+- **A demo video** (unlisted, on YouTube): the consent screen in English with the client id visible
+  in the address bar, a person connecting Gmail from the portal's Connections page, an agent's
+  reach-out email waiting for approval in the inbox, approving it, the email arriving from that
+  mailbox, the reply coming back through the forwarding address, and disconnecting (which revokes
+  the grant).
+- **The scope's reason**, for `gmail.send`: "A person at a client business connects their Gmail so
+  that agents can send the emails that person's team has approved (for example asking a vendor for a
+  missing invoice), from their own address. Each message is shown to a person for approval before it
+  is sent. We never read the mailbox; replies reach us only when the client forwards them."
+- Then switch the consent screen to "In production" and submit for verification. Refresh tokens
+  stop expiring after 7 days once it is in production.
+
+### Google Drive and Outlook (W3-B, M29)
+
+Built against fakes only; what we couldn't check is under "To verify" in
+`packages/connectors/src/gdrive/NOTES.md` and `packages/connectors/src/outlook/NOTES.md`. Both are
+registered everywhere and show "Not available yet" until their keys are set.
+
+Google Drive uses the same Google project and OAuth client as Gmail ("Mezonas web"):
+1. Enable the Google Drive API in the project `mezonas`.
+2. Add the scope `https://www.googleapis.com/auth/drive.file` to the consent screen (non-sensitive:
+   only the files Mezonas makes).
+3. Add the redirect URIs `https://staging.mezonas.com/connections/gdrive/callback`,
+   `https://app.mezonas.com/connections/gdrive/callback` and
+   `http://localhost:8787/connections/gdrive/callback` to the client.
+4. Drive's disconnect drops our tokens without revoking at Google, so it can't end a Gmail
+   connection made by the same Google account on the shared client (plan §1.52). To have it revoke,
+   give Drive an OAuth client of its own (two more secrets) and turn the revoke back on.
+
+Google Sheets (W4-D) uses the same project and OAuth client, with `drive.file` only (already on
+the consent screen for Drive): agents open only the sheets the client picks with Google's Picker.
+Built against a fake; what we couldn't check is under "To verify" in
+`packages/connectors/src/gsheets/NOTES.md`.
+1. Enable the **Google Sheets API** and the **Google Picker API** in the project `mezonas`.
+2. Add the redirect URIs `https://staging.mezonas.com/connections/gsheets/callback`,
+   `https://app.mezonas.com/connections/gsheets/callback` and
+   `http://localhost:8787/connections/gsheets/callback` to "Mezonas web".
+3. Add `https://staging.mezonas.com`, `https://app.mezonas.com` and `http://localhost:8787` to the
+   client's **Authorized JavaScript origins**: the picking page gets the Picker's token from Google
+   Identity Services in the browser.
+4. Make a **browser API key** (APIs & Services, Credentials): application restriction "Websites"
+   with `https://staging.mezonas.com/*`, `https://app.mezonas.com/*` and `http://localhost:8787/*`;
+   API restriction: the Google Picker API only. It is `GOOGLE_PICKER_API_KEY`.
+5. The project's **number** (Cloud console, project settings; not the project id) is
+   `GOOGLE_PROJECT_NUMBER`: the Picker's app id, so a picked sheet is granted to our client.
+6. Set both as secrets of the GitHub environment (`staging` first); `deploy.yml` copies them once
+   it is wired. Disconnect drops our tokens without revoking at Google, as Drive.
+
+Outlook needs an Entra app of Mezonas' own:
+1. A multi-tenant app registration "Mezonas" (supported accounts: any organizational directory and
+   personal Microsoft accounts), web platform, redirect URIs
+   `https://staging.mezonas.com/connections/outlook/callback`,
+   `https://app.mezonas.com/connections/outlook/callback` and
+   `http://localhost:8787/connections/outlook/callback`.
+2. Delegated API permissions `Mail.Send`, `openid`, `email`, `offline_access` (remove the default
+   `User.Read` if it can be; the connector accepts it but never uses it). No read permission.
+3. A client secret (note its expiry, 24 months at most) as the Worker secrets
+   `OUTLOOK_CLIENT_ID` (the application id) and `OUTLOOK_CLIENT_SECRET`, copied like the
+   others by `deploy.yml` when set.
+4. Publisher verification (a Microsoft Partner Network id tied to mezonas.com), so work tenants
+   show a verified publisher and allow their users to consent.
+
+### Slack (W4-C)
+
+Built against a fake only; what we couldn't check is under "To verify" in
+`packages/connectors/src/slack/NOTES.md`. Registered everywhere; "Not available yet" until its keys
+are set. Slack needs an app of Mezonas' own:
+1. Make an app "Mezonas" at `api.slack.com/apps` in a Slack workspace of Mezonas' own (from
+   scratch, not a manifest with tokens), with the Mezonas mark as its icon.
+2. OAuth & Permissions: redirect URLs `https://staging.mezonas.com/connections/slack/callback` and
+   `https://app.mezonas.com/connections/slack/callback` (and
+   `http://localhost:8787/connections/slack/callback` if Slack accepts it); Bot Token Scopes
+   `chat:write` and `channels:read` only (the connector refuses a grant with any other); no User
+   Token Scopes; token rotation **off** (the connector refuses expiring tokens).
+3. Manage Distribution: turn on public distribution, so clients can install it into their own
+   workspaces. Marketplace listing is not needed.
+4. Basic Information: the client id and client secret become the Worker secrets `SLACK_CLIENT_ID`
+   and `SLACK_CLIENT_SECRET`, copied like the others by `deploy.yml` when set.
+5. Leave Event Subscriptions, Interactivity and slash commands off.
+
+### Google Chat (W4-E, plan §1.60)
+
+A Google Chat app of Mezonas' own posts to the spaces a client connects. Built against a fake; what
+we couldn't check (Marketplace publishing, each Workspace admin's steps) is in
+`packages/connectors/src/gchat/NOTES.md`. Registered everywhere; "Not available yet" until both
+secrets are set.
+1. In the Google Cloud project (its own, or `mezonas`), enable the **Google Chat API**.
+2. A **service account** (e.g. `mezonas-chat`), no roles needed; create a JSON key. Its whole JSON
+   is the Worker secret `GOOGLE_CHAT_SERVICE_ACCOUNT` (one secret; it is never logged or shown).
+3. The Chat API's **Configuration**: app name "Mezonas", avatar (the design system's mark), a
+   description; functionality "Join spaces and group conversations" (1:1 messages can stay on: the
+   app only answers there); connection settings **HTTP endpoint URL**
+   `https://app.mezonas.com/api/hooks/gchat` (staging: `https://staging.mezonas.com/api/hooks/gchat`,
+   on a project of its own or a second app); **Authentication Audience: Project Number**. The
+   project number (Cloud console, project info) is the Worker secret `GOOGLE_CHAT_PROJECT_NUMBER`.
+   Visibility: Mezonas' own Workspace while testing.
+4. Publish the app on the **Google Workspace Marketplace** (the Marketplace SDK in the same
+   project: the Chat app integration, listing, privacy policy and terms on mezonas.com, and Google's
+   review) so clients' Workspaces can install it.
+5. Each client's **Google Workspace admin** allows the Marketplace app for their users (or installs
+   it for the domain) and lets users use Chat apps. Then the client admin, in the portal's
+   Connections, connects Google Chat, gets a code, adds Mezonas to a space and sends
+   `@Mezonas <code>` there.
+
+### WhatsApp through Meta (W4-A, plan §1.57)
+
+A client connects its own WhatsApp Business number from the portal with Meta's Embedded Signup.
+Built against a fake Graph API; what we couldn't check is under "To verify" in
+`packages/connectors/src/whatsapp_meta/NOTES.md`. Registered everywhere; "Not available yet" until
+the four secrets below and `OAUTH_STATE_SECRET` are set, and `/api/hooks/whatsapp_meta` answers 503
+until `META_APP_SECRET` and `META_WEBHOOK_VERIFY_TOKEN` are.
+1. **Business verification** of Mezonas' Meta business (Business Settings → Security Center): the
+   long pole, start it first.
+2. Register Mezonas as a **Tech Provider** (WhatsApp Business Platform; we don't pay for clients'
+   messages, so not a Solution Partner) and accept the terms.
+3. A Meta **app** of type *Business* with *WhatsApp* and *Facebook Login for Business*. Its App ID is
+   the Worker secret `META_APP_ID` (public, but set like the others); Settings → Basic → App secret
+   is `META_APP_SECRET` (the secret, never an access token: it verifies every webhook).
+4. **App review** for Advanced access to `whatsapp_business_messaging` and
+   `whatsapp_business_management`; until then only the app's testers can finish the sign-up.
+5. Facebook Login for Business → **Configurations**: a *WhatsApp Embedded Signup* configuration
+   with a system-user access token (no expiry) and those two permissions. Its id is
+   `META_CONFIG_ID`. Allowed domains for the JS SDK: `staging.mezonas.com` and `app.mezonas.com`.
+6. WhatsApp → Configuration → **Webhook**: callback URL `https://app.mezonas.com/api/hooks/whatsapp_meta`
+   (staging: `https://staging.mezonas.com/api/hooks/whatsapp_meta`, on a second app or the app's
+   test mode); verify token: a long random string of our own, the Worker secret
+   `META_WEBHOOK_VERIFY_TOKEN`. Then subscribe to the **`messages`** field (subscribing to nothing
+   passes the handshake and delivers nothing).
+7. The app's Graph version set to **v26.0** (the code pins it in every URL).
+8. No Mezonas system user is needed for clients (each client's sign-up gives its own token); one is
+   useful only to test on Mezonas' own test number.
+Then the operator offers "WhatsApp (your own number)" to a client, and its admin clicks **Connect
+WhatsApp (your own number)** in Connections, picks the business, account and number in Meta's
+window, and verifies the number there. Group messages stay off unless the operator turns them on
+for the client (`PUT /api/ops/clients/:id/messaging/whatsapp-groups`), once Meta's groups API is
+verified (NOTES.md).
 
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
@@ -212,7 +458,15 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
   inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
   these, and the code service never has apps/api's.
-- Later: `QBO_*` and `GOOGLE_*` when those connectors are built, the same way.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Gmail, M10; see "Google" above) and `QBO_CLIENT_ID`,
+  `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (QuickBooks Online, M9) are copied like the API keys when
+  set. Staging has the development keys of both apps (2026-11-05).
+- The new connectors (plan §1.52), copied like the API keys when set: `OUTLOOK_CLIENT_ID` and
+  `OUTLOOK_CLIENT_SECRET` (Outlook), `RAMP_CLIENT_ID` and `RAMP_CLIENT_SECRET` (Ramp),
+  `HUBSPOT_CLIENT_ID` and `HUBSPOT_CLIENT_SECRET` (HubSpot), `PLAID_CLIENT_ID` and `PLAID_SECRET`
+  (the Plaid bank and card feed). Google Drive uses `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+  Each connector stays "Not available yet" until its keys and `OAUTH_STATE_SECRET` are set. Add
+  each as a secret of the GitHub environment (`staging` first), then redeploy.
 - Needed by the Zoho CRM connector (stream G, 2026-11-04): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Server-based client in Zoho's API console,
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only
@@ -221,6 +475,50 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
+- Google Drive (W3-B, plan §1.52) needs no new secret: it signs in with `GOOGLE_CLIENT_ID` and
+  `GOOGLE_CLIENT_SECRET` (see "Google Drive and Outlook" above) and `OAUTH_STATE_SECRET`.
+- Google Sheets (W4-D, plan §1.52) signs in with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` too.
+  Its picking page needs two more values, public (Google restricts them to our origins) but set
+  like the others, copied when set: `GOOGLE_PICKER_API_KEY` (a browser API key) and
+  `GOOGLE_PROJECT_NUMBER` (the project's number). Without them Sheets connects, but no sheet can
+  be picked ("Choosing sheets isn't set up here yet").
+- Needed by the Outlook connector (W3-B, plan §1.52), the same way: `OUTLOOK_CLIENT_ID` and
+  `OUTLOOK_CLIENT_SECRET` (the Entra app's application id and a client secret, redirect URI
+  `<APP_ORIGIN>/connections/outlook/callback`). Until both and `OAUTH_STATE_SECRET` are set, Outlook shows "Not available yet" in the portal.
+- Needed by the Ramp connector (W3-B, docs/plan.md §1.52), the same way: `RAMP_CLIENT_ID`,
+  `RAMP_CLIENT_SECRET` (a Ramp developer app, scopes `transactions:read users:read receipts:write
+  business:read`, redirect URI `<APP_ORIGIN>/connections/ramp/callback`). New transactions are read
+  every 15 minutes by the cron; nothing else to set.
+- Needed by the HubSpot connector, the same way: `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (a
+  HubSpot public app in a developer account, scopes `oauth` and `crm.objects.{contacts,companies,deals}.{read,write}`,
+  redirect URI `<APP_ORIGIN>/connections/hubspot/callback`). Until the id, the secret and
+  `OAUTH_STATE_SECRET` are all set, each shows "Not available yet" in the portal. `deploy.yml`
+  copies the four secrets into the Worker (#134).
+- Needed by the bank and card feed (`bankfeed`, Plaid; plan §1.52): `PLAID_CLIENT_ID` and
+  `PLAID_SECRET` (the secret of the environment `PLAID_ENV` names: Plaid's sandbox secret on
+  staging, its production secret in production), copied like the API keys; `PLAID_ENV` is a var in
+  `wrangler.jsonc` (`sandbox` locally and on staging, `production` in production). In Plaid's
+  dashboard: allowed redirect URIs `<APP_ORIGIN>/connections/bankfeed/callback` for each
+  environment (`https://staging.mezonas.com/…`, `https://app.mezonas.com/…`, and
+  `http://localhost:8787/…` for sandbox), the Link customization's name "Mezonas", and OAuth
+  institution registration (the company profile and the questionnaire Plaid asks for before
+  production). No webhook URL is set in the dashboard: each item's Link token names
+  `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
+  `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
+  sandbox first: `packages/connectors/src/bankfeed/NOTES.md`.
+- Needed by the Slack connector (W4-C, plan §1.56), the same way: `SLACK_CLIENT_ID` and
+  `SLACK_CLIENT_SECRET` (our Slack app's client id and secret, redirect URL
+  `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
+- Needed by the Google Chat connector (W4-E, plan §1.60), the same way:
+  `GOOGLE_CHAT_SERVICE_ACCOUNT` (the service account's key JSON, as one secret) and
+  `GOOGLE_CHAT_PROJECT_NUMBER` (the audience of Chat's tokens; see "Google Chat" above).
+  Until both are set, Google Chat shows
+  "Not available yet" in the portal and `/api/hooks/gchat` answers 503.
+- Needed by WhatsApp through Meta (W4-A, plan §1.57), the same way: `META_APP_ID`,
+  `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` and `META_CONFIG_ID` (see "WhatsApp through Meta"
+  above), copied by `deploy.yml` when set. Until all four and `OAUTH_STATE_SECRET` are
+  set, it shows "Not available yet"; without the secret or the verify token,
+  `/api/hooks/whatsapp_meta` answers 503.
 - Needed for texts and WhatsApp (plan §1.22; wiring into `deploy.yml` is the coordinator's):
   `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` of Mezonas' own Twilio account, copied like the API
   keys. They only make each client's subaccount; the subaccounts' tokens are encrypted in the
@@ -235,12 +533,42 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
   ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
   `packages/connectors/src/elevenlabs/NOTES.md`.
-- Needed by billing (stream J, 2026-11-04; wiring them into `deploy.yml` is the coordinator's), copied
-  like the API keys: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a restricted or secret key; test
-  mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the `whsec_…` signing secret of
-  the webhook endpoint `https://<domain>/api/billing/stripe/webhook`). Without the key billing is off;
-  without the webhook secret Stripe's events are refused. Allow `api.stripe.com` in the network if it is
-  restricted. Stripe set-up steps: `packages/connectors/src/stripe/NOTES.md`.
+- Needed by billing (plan §1.32: Mezonas works out each bill, Stripe only bills it), copied like
+  the API keys by `deploy.yml` when set: `STRIPE_SECRET_KEY` (Mezonas' own Stripe account, a secret
+  or restricted key; test mode on staging, live mode on production) and `STRIPE_WEBHOOK_SECRET` (the
+  `whsec_…` signing secret of the webhook endpoint `https://<domain>/api/billing/stripe/webhook`).
+  Without the key, billing is off: no client can be set up and no statement is sent, though the
+  daily record and the statements are still kept for clients already set up. Without the webhook
+  secret, Stripe's events are refused, so paid and failed invoices don't show. Allow `api.stripe.com`
+  in the network if it is restricted. Set-up: "Setting up Stripe" below.
+
+#### Setting up Stripe (billing)
+
+Stripe holds only customers and invoices. There are no products, prices, subscriptions or meters
+to create: prices are set in `/ops/billing` and on each template's and client agent's Settings tab.
+
+1. Make a **separate Stripe account for Mezonas** (Twelve Thirty-Four Consulting LLC), not Plenary
+   Labs' account. Nothing is shared with Plenary Labs (CLAUDE.md). Start in test mode for staging.
+2. Make an API key: Developers → API keys. A restricted key needs write access to **Customers**,
+   **Invoices** and **Invoice items**, and read access to the same. Use the secret key if you don't
+   want a restricted one. Keep test and live keys apart: test mode for staging, live mode for
+   production.
+3. Add a webhook endpoint: Developers → Webhooks → Add endpoint, URL
+   `https://<domain>/api/billing/stripe/webhook` (staging's and production's own domain), with these
+   five events: `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `invoice.voided`,
+   `invoice.marked_uncollectible`. Copy its signing secret (`whsec_…`).
+4. Save the two secrets per environment as GitHub environment secrets (`staging`, `production`):
+   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. `deploy.yml` copies them into the Worker on the
+   next deploy.
+5. In Stripe's settings, set the invoice emails, the company name and the payment methods shown on the
+   hosted invoice page (Settings → Billing → Invoices, and Settings → Payments). Stripe emails each
+   invoice, so set a billing email when you set a client up.
+6. In `/ops/billing`, set the credit price, the default agent price and credits, and the template
+   prices. Leave auto-send off until the first statements have been checked by hand. Then set each
+   client up from its page (this creates the Stripe customer).
+
+What to check against Stripe's docs and a test-mode account before the first real invoice:
+`packages/connectors/src/stripe/NOTES.md` (UNCHECKED items).
 - Needed for email reach-outs (plan §1.25; wiring into `deploy.yml` is the coordinator's):
   `RESEND_API_KEY` (Mezonas' Resend account: it only makes each client's domain and a sending key
   restricted to it, which is encrypted in the client's `resend` connection),
@@ -256,7 +584,7 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
@@ -280,6 +608,47 @@ IPs, model inputs or outputs, database query values or local variables; messages
 and anything shaped like a key or token is removed (`apps/api/src/observability/sentry.ts`,
 `apps/web/src/observability.ts`, with tests).
 
+**What reaches it** (`docs/plan.md` §1.61). Unhandled errors; errors the Worker catches and carries
+on from (`handled: yes`, with a `job` tag for the cron's passes and background work or a `kind`
+tag for the Worker's own plumbing, and `client` with the client's id); answers that break a
+route's contract (`kind: contract`, `route`); and the hourly **platform health** pass: failed live
+runs and failed writes to clients' tools, one issue per error key (`ops_health` tag; the event's
+extras hold up to five run or action ids for the MCP server's `run_get`), and once a day runs,
+approvals and connections that are stuck. The **cron monitor** `mezonas-cron` (Sentry → Crons)
+checks in every minute and opens an issue after three missed or failed ticks in a row. In the
+browser: screen crashes, unreachable API calls (not when the page is being left), 5xx answers
+and answers that break the contract (`kind`). Feedback from the Feedback button stays in
+`/ops/feedback` and the MCP server's `feedback_list`, not Sentry (screenshots can show client data).
+
+**Alerts** (set once in Sentry → Alerts; nothing in the repository sets them):
+
+| Alert | When | To |
+|---|---|---|
+| Production, at once | A new or regressed issue in `environment:production` (both projects), or an `ops_health` issue at level error | Email and phone, the owner |
+| Production volume | An issue seen more than 20 times in an hour in production | Email, the owner |
+| Staging, daily | New issues in `environment:staging` | The daily email digest only |
+| Cron | The `mezonas-cron` monitor fails (production) | Email and phone; it is set on the monitor itself |
+
+Turn on the GitHub integration (Settings → Integrations → GitHub, repository
+`jammil-alt/countersign`) so an issue links to its commit and a fix can resolve it: a commit or
+PR that says `Fixes MEZONAS-API-12` resolves the issue in that release, and Sentry marks it
+**regressed** if it comes back after.
+
+**Triage, once a week (15 minutes)**, or when an alert arrives. Bring the inbox to zero:
+
+1. Sentry, `is:unresolved` in `mezonas-api` and `mezonas-web`, production first, by frequency.
+   Each issue gets one of: a fix (an issue or PR that names it), **resolve** (fixed, or it was
+   one-off), **archive until it escalates** with a note saying why (a known outside cause), or
+   **ignore** for an expected `ops_health` key (an `escalated` run is the agent working as asked).
+   Never leave noise unresolved: an inbox nobody reads hides the issue that matters.
+2. `ops_health` on the MCP server (or the Crons and `ops_health` issues in Sentry): anything stuck
+   gets looked at with `run_get` or `connections_list`.
+3. `/ops/feedback` (or `feedback_list`): resolve with a note or link to the fix.
+4. Anything that needs code becomes a GitHub issue naming the Sentry issue; a Claude Code session
+   with the Sentry connector can read the stack trace, find the cause and open the fix PR.
+
+A fix ships with a test that fails without it (the error's input as a fixture where it can be).
+
 ### The first operator
 
 A fresh environment has no users, and sign-in only admits invited addresses, so the first operator
@@ -288,6 +657,61 @@ WorkOS with), name. It creates an `app_user` row that your first WorkOS sign-in 
 email claims, and an operator membership in every client. On staging it can run the seed first
 (Sandbox and Demo clients, the platform templates); the seed never runs on production. Safe to run
 again, e.g. after new clients exist.
+
+### MCP server (Claude connector for the back office)
+
+The back office as a Claude connector (`docs/plan.md` §1.34): `https://staging.mezonas.com/mcp`
+and `https://app.mezonas.com/mcp`, one code, each with its own WorkOS environment, users and
+data. Operators only; it reads what the back office shows for the clients you serve, and its one
+write (resolving feedback) takes two calls, a preview and a confirm. Off until
+`WORKOS_AUTHKIT_DOMAIN` is set for the environment.
+
+Sign-in is WorkOS AuthKit acting as the OAuth server for MCP clients: Claude registers itself
+with AuthKit, you sign in on AuthKit's page with your usual WorkOS sign-in, and AuthKit issues a
+short-lived token for `<environment>/mcp` that the Worker checks against AuthKit's keys. Nothing
+new to store: no new secret, no table (confirm tokens are sealed with `WORKOS_COOKIE_PASSWORD`).
+
+**In WorkOS, for each environment (Staging first, then Production)** (dashboard names as of
+writing; UNCHECKED, WorkOS renames them now and then):
+
+1. Choose the environment (Staging / Production) at the top of the dashboard.
+2. Applications → Configuration (or Connect → Configuration): turn on **Dynamic Client
+   Registration** (and, if offered, **Client ID Metadata Documents**). This is what lets
+   claude.ai register itself as an OAuth client of AuthKit.
+3. Domains (Authentication → AuthKit): copy the **AuthKit domain**, e.g.
+   `https://<something>.authkit.app` (or your custom auth domain if you set one).
+4. In `apps/api/wrangler.jsonc`, set `WORKOS_AUTHKIT_DOMAIN` under that environment's `vars` (it
+   is not a secret), merge to main (staging) or tag a release (production). Check:
+   `curl https://staging.mezonas.com/.well-known/oauth-protected-resource` answers JSON naming the
+   AuthKit domain.
+5. If AuthKit lets you restrict which redirect URIs dynamic clients may use, allow
+   `https://claude.ai/api/mcp/auth_callback` (claude.ai's connector callback; UNCHECKED).
+
+**In claude.ai** (once per environment): Settings → Connectors → **Add custom connector** → name it
+"Mezonas staging" (or "Mezonas"), URL `https://staging.mezonas.com/mcp` (or
+`https://app.mezonas.com/mcp`) → Add → Connect. Sign in on the AuthKit page with the address you
+use for the back office. Then ask Claude "whoami in Mezonas staging" to see the environment and
+your clients.
+
+If connecting fails:
+
+| You see | Why | What to do |
+|---|---|---|
+| 403 "sign in to the Mezonas back office in a browser once" | Your WorkOS user has never signed in to this environment's back office, so no Mezonas user carries its WorkOS id yet | Sign in at `https://staging.mezonas.com` once, then Connect again |
+| 403 "for operators" | You are signed in as a client user | Use an operator account |
+| 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
+| 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
+| 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
+| 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
+
+To cut a connector off: remove the person's operator memberships (takes effect on the next call),
+or end their sessions in WorkOS (tokens last as long as AuthKit's access-token lifetime, a few
+minutes by default; nothing here refreshes them). Every tool call is a log line
+`{"event":"mcp.tool_call",…}` in Workers Logs, with the operator, the tool, its arguments (never
+a confirm token) and the outcome.
+
+Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
+`apps/api/src/mcp.test.ts` run it against a fake AuthKit.
 
 ## 1.1 Onboarding a client (managed service)
 
@@ -298,19 +722,166 @@ set the Gmail ingestion query → enable packs → fork templates into the clien
 flows, bind the client's connections → test-run on the client's data → publish and activate → choose who
 approves writes (client admin by default, or the operator).
 
+### Adding the supervisor to a client
+
+The supervisor (`docs/plan.md` §1.28) watches one client's runs, connections, website logins, codes
+and waiting items, and tells the client admin in plain steps and us with the details. It changes
+nothing itself.
+
+1. **The template must be installed.** It is the platform template `supervisor`
+   (`packages/db/seed/agents/supervisor.v1.json`). On staging, run the seed again (Actions → **Add
+   operator** with "Run the seed first", or `pnpm --filter @countersign/db run db:seed`); it adds
+   templates that are missing and changes nothing else. The seed never runs on production, so there
+   the template is created by hand until a template-only install exists: back office → Templates →
+   new template `supervisor` with that file's bundle, then publish it.
+2. **Add it.** New clients: "Add the supervisor" is ticked on the new-client form. Existing clients:
+   the client page → Health → **Add the supervisor**. Either way it is forked from the template's
+   live version and published as the client's agent `supervisor` ("Account check"); a client that
+   has one keeps it.
+3. **Test and activate it** like any agent: test-run `daily-check` (a test run reads and writes
+   nothing; its output says what it would have reported), then Activate. It needs no connection.
+4. **What it does then.** On every failed live run and every connection that needs a person it looks
+   into it (the model, with the health tools and, at most, one question to the agent involved) and
+   reports: one item for the client admin, one for us, once per open issue. Every day at 08:00 in the
+   client's timezone it checks the account and writes the summary on the client's overview.
+5. **Settings** (client settings JSON, `supervisor`): `reminderHours` (default 24: an issue still
+   open is reminded after this long) and `waitingHours` (default 48: items waiting on the client
+   longer than this are reported).
+
+To stop it, pause the agent. Its findings stay in the inbox until someone marks them done.
+
+### Adding the Bill clerk to a client
+
+The Bill clerk (`docs/plan.md` §1.30) matches each read vendor invoice to its bill in QuickBooks
+and, after approval, itemizes the bill, attaches the invoice and notes it in the memo.
+
+1. **The template must be installed**: `bill-clerk` (`packages/db/seed/agents/bill-clerk.v1.json`),
+   as for the supervisor above (the seed on staging, by hand on production).
+2. **The client connects QuickBooks** from the portal's Connections page, and the first sync runs.
+3. **Fork it** into the client from the template, bind its QuickBooks connection (Operation), and
+   publish. It can't publish without the binding.
+4. **Test-run** `invoice-read` with a read invoice's `document.extracted` payload (`documentId`,
+   `extractionId`, `lineCount`, `totalsValid: true`): it proposes its changes and writes nothing.
+   Then Activate.
+5. **What it does then.** On every invoice read with totals that add up, it finds the bill (same
+   vendor, total to the cent, ± 7 days, document number). No bill, or several: the client admin is
+   asked, nothing is written. One bill with fewer lines than the invoice and the same total: three
+   approvals in turn (itemize, attach, memo), each written once.
+
+## 1.2 Compliance: HIPAA mode, retiring a client, the audit log (`docs/plan.md` §1.35)
+
+**HIPAA mode.** A client whose records hold health information is put in HIPAA mode on its
+Settings page in the back office (with a reason). It can only be switched on once every vendor that
+would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
+`apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
+is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
+`openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
+HIPAA client. `anthropic` is needed for agents and document reading.
+
+**Retiring a client.** On the client's Settings page, Retire client (a reason, and the client's
+name typed again). Its users lose access at once, its agents are retired and its tools are
+disconnected. Then:
+1. By hand, the same day, close what other vendors keep for it:
+   - its Twilio subaccount (texts, voicemails);
+   - its ElevenLabs agents and call transcripts;
+   - its Resend sending domain;
+   - its Stripe customer, after the last invoice;
+   - its Sentry events, if any name it.
+2. 30 days later, the hourly cron deletes its files (`tenants/<id>/` in R2) and records
+   `client.purge_files` in the audit log.
+3. Then the owner purges its rows, as `cs_owner`:
+   `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
+   It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
+   quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
+   holds the deleted rows until its restore window passes.
+
+**Exporting a client's data.** The terms promise an export on request until 30 days after the
+service ends. Start it with `POST /api/ops/clients/<id>/exports` (a reason is optional) and list it
+with `GET /api/ops/clients/<id>/exports`; once ready, the list carries a link that works for 5
+minutes. Download it and send it to the client yourself: the client can no longer sign in once
+retired. It runs as its own Workflow, `ExportWorkflow` (binding `EXPORT_WORKFLOW`;
+`mezonas-staging-export` on staging), which wrangler creates on the next deploy. The ZIP lives
+under the client's files, so it is deleted with them; start a retired client's export well before
+its 30 days end (the deletion waits for an export being built, up to a day). Client admins download
+their accountant export and their own audit log from `/api/exports/accountant` and
+`/api/exports/audit` (`?from=YYYY-MM-DD&to=YYYY-MM-DD`).
+
+**Test suites.** `POST /api/ops/tests/run` runs a skill's or template's test cases as its own
+Workflow, `TestSuiteWorkflow` (binding `TEST_SUITE_WORKFLOW`; `mezonas-staging-test-suite` on
+staging), which wrangler creates on the next deploy. Skill cases call the model live (they need
+`ANTHROPIC_API_KEY`) and never reach a client's tools; template cases are test runs in the Sandbox
+client.
+
+**The audit log and access review** are at `/ops/audit` (operators only). Review access every
+quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
+date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must
+be disabled, as in `db:purge-client`.
+
+**Settings outside the code** (set by the owner, 2026-11-06; `docs/security.md` has the record):
+- WorkOS, both environments: Multi-factor auth on (Authentication → Features), and Session lifetime
+  of 12 hours with 30 minutes' inactivity (Applications → the app → Sessions). Access token duration
+  stays 5 minutes.
+- Cloudflare, zone `mezonas.com` (Free plan): the rate-limiting rule "API rate limit" (URI path
+  `/api/*` except the webhook paths `/api/twilio/`, `/api/voice/`, `/api/elevenlabs/`,
+  `/api/hooks/`, `/api/billing/stripe/` and `/api/connections/qbo/webhook`; 50 requests per 10
+  seconds per IP, then blocked for 10 seconds). Always Use HTTPS on. Minimum TLS 1.2. The
+  encryption mode stays Full (automatic), and Cloudflare's own HSTS stays off, since the app sends
+  its own. Add a new webhook path to the rule's exclusions when one is added.
+- GitHub: dependency graph, Dependabot alerts and security updates, secret scanning with push
+  protection, CodeQL Default setup off (we run `codeql.yml`), and the ruleset "Protect main": a pull
+  request, the checks `checks / check`, `checks / static` and `analyze`, no force pushes or
+  deletion, admin bypass.
+- Neon, project `mezonas` (Launch): History window 7 days (Settings → Postgres).
+
 ## 2. What CI does
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;
   marking a PR ready runs the check.
 - **`checks.yml`**: install, Biome lint, layering check, typecheck, then tests against a Postgres 16 +
-  pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`). With the Neon settings present,
-  it also copies `main` to a throwaway branch, applies the migrations to it, and deletes it.
+  pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`), which also applies
+  every migration from scratch. It never connects to Neon. It used to copy `main` to a throwaway
+  branch; that would put client data on a runner, and Neon refuses schema-only branches on this
+  project (our SQL-made `cs_runtime` role counts as a "legacy web access role"). A migration that only
+  fails on real rows (a new `not null` on old data) fails on staging first: `deploy.yml` migrates
+  staging in a transaction before its Worker deploys, and production only from a later tag.
+- **`codeql.yml`**: CodeQL's security queries on ready pull requests, pushes to `main` and weekly.
+  Findings are under Security → Code scanning.
+- **Dependabot** (`.github/dependabot.yml`): security updates as GitHub learns of them; npm and
+  Actions version updates monthly, one grouped pull request each, majors included. Turn on Dependabot alerts and security updates, and
+  secret scanning with push protection, in the repository's Settings → Code security.
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
   secrets, builds `apps/web` and runs `wrangler deploy` for apps/api (whose `CODES` binding needs the
-  code service deployed first).
+  code service deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
+  `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
+  (`/api/health` answers, the page and its script load, `/api/session` refuses with a JSON 401),
+  retrying for 2 minutes; a failure marks the deploy failed. Run it by hand against either
+  environment: `scripts/smoke.sh https://staging.mezonas.com`.
+- **The screen sweep** (`checks.yml`'s `sweep` job, `apps/web/e2e/route-sweep.mjs`): beside the
+  tests, on the seeded database, the built app runs on `wrangler dev` with the dev sign-in and real
+  Chromium opens every screen of the back office (as the operator) and the portal (as the Demo
+  client's admin). It starts from each route without parameters and follows the links the screens
+  show, one page per route, so new screens are swept without editing it. A page fails on a crash
+  (an empty `#root`), a page error, a console error, an `/api` answer of 500 or more, or a link to
+  "Not found". It clicks and submits nothing. Routes no seeded link reaches (a run, a document) are
+  listed as a note, not a failure; they are covered once the seed has such rows. It runs in light
+  and dark at desktop width and in dark at phone width (390×844), where a page that scrolls
+  sideways also fails. Then **the walkthroughs** (`apps/web/e2e/walkthroughs.mjs`) click through the
+  prototype's two paths (`#Start`), the client's morning and the back office's, by the links each
+  screen shows (opening the menu on a phone), in dark at desktop width and light at phone width.
+  They are read-only: a request that would change anything fails the step, except in "Sign and
+  undo", which signs the one change the e2e seed puts on the Demo client's Desk (on the in-memory
+  testkit, never executed) and undoes it inside the window, so it waits again. The job seeds with
+  `SEED_E2E=1` for that; staging's seed (Actions → **Add operator**) never sets it, because the
+  seeded run has no Workflow instance and, signed and left past the window, would have the cron
+  retry its approval every minute for 24 hours. Locally: seed with `SEED_E2E=1`
+  (`docs/local-development.md`). A step the seed can't
+  support (no client agent, no run) is skipped with a note. Docs-only pull requests skip both.
+  Locally: `pnpm dev`, then `pnpm --filter @countersign/web sweep`; `SWEEP_LOOKS` picks the looks
+  (`desktop-light`, `desktop-dark`, `phone-light`, `phone-dark`) and `SWEEP_SHOTS=<folder>` saves a
+  screenshot of every page in each (`apps/web/e2e/harness.mjs`).
 
 ## 3. Migrations
 
@@ -323,3 +894,11 @@ approves writes (client admin by default, or the operator).
 
 Neon point-in-time restore covers both branches. To inspect the past without touching production,
 create a branch from a timestamp and connect to it directly.
+
+Test a restore every quarter (SOC 2 A1.3, HIPAA §164.308(a)(7)):
+1. Create a branch from a timestamp an hour back.
+2. Count the rows of a few tables against `main`.
+3. Delete the branch.
+4. Note the date and the result.
+
+Set Neon's history retention to at least 7 days on the production project.

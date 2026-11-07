@@ -163,21 +163,41 @@ export function resolveTemplate(value: unknown, context: unknown): unknown {
 /** What a workflow template resolves against at run time. */
 export interface RunContext {
   trigger: unknown;
+  // v0.12 W2-B
+  /** Inside a use step: its resolved input (`{{input...}}`); there is no trigger there. */
+  input?: unknown;
   steps: Record<string, { output: unknown }>;
   item?: unknown;
   index?: number;
 }
 
+/** Whether a value fills a slot in a sentence: not missing, null or blank. */
+function fills(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  return typeof value !== "string" || value.trim() !== "";
+}
+
 /**
  * A skill's or tool's client timeline line, rendered over its output (docs/plan.md §1.2), in the
- * client's language when the template has a version for it, else in English (§1.18).
+ * client's language when the template has a version for it, else in English (§1.18). Null when a
+ * reference has no value: a summary is never a sentence with an empty slot ("total unchanged at"),
+ * so the caller says it without that part (the step's label).
  */
+// DECISION: a summary with any empty reference is not rendered at all, rather than rendered with a
+// gap: callers fall back to a line without the detail (the executor: "<label>: done").
 export function renderSummary(
   template: LocalizedText,
   output: unknown,
   locale: Locale = DEFAULT_LOCALE,
-): string {
-  return renderTemplate(pickLocalized(template, locale), output);
+): string | null {
+  const parts = parseTemplate(pickLocalized(template, locale));
+  const values = parts.map((p) => (p.type === "text" ? p.text : resolvePath(output, p.path)));
+  if (parts.some((p, i) => p.type === "ref" && !fills(values[i]))) return null;
+  const line = values
+    .map((v, i) => (parts[i]?.type === "text" ? (v as string) : stringify(v)))
+    .join("")
+    .trim();
+  return line === "" ? null : line;
 }
 
 /** Whether a templated value (a string, or strings anywhere in objects and arrays) has a `{{`. */

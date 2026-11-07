@@ -34,6 +34,7 @@ pnpm dev          # builds apps/web, then wrangler dev on :8787: API, app, Workf
 pnpm dev:web      # Vite with /api proxied to :8787, for fast UI work (run beside pnpm dev)
 pnpm check        # lint, layering, typecheck, tests: what CI runs
 pnpm format       # Biome: format and organise imports
+pnpm --filter @countersign/web sweep   # with pnpm dev running: every screen in Chromium (CI's sweep)
 ```
 
 ## What is real and what is not
@@ -49,6 +50,9 @@ pnpm format       # Biome: format and organise imports
 | Webhooks (Zapier) | Real: make a hook in the portal and `curl` its URL; outbound sends need a public https URL | `ENCRYPTION_KEY` |
 | Zoho CRM | Sign-in starts but needs a real Zoho client to finish; tests use a fake Zoho | `ZOHO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Podio | Sign-in starts but needs a real Podio API key to finish; tests use a fake Podio | `PODIO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Google Drive | Sign-in starts but needs the Google client to finish; tests use a fake Drive | `GOOGLE_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Outlook | Sign-in starts but needs an Entra app to finish; tests use a fake Microsoft | `OUTLOOK_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Slack | Sign-in starts but needs our Slack app to finish (Slack may want an https redirect: a tunnel); tests use a fake Slack | `SLACK_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Email (sending) | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
 | Email forwarding (receiving) | Post a `.eml` to `wrangler dev` (below) | `EMAIL_FORWARDING_DOMAIN` (e.g. `in.mezonas.test`) |
 | Document links | The Worker signs its own 5-minute links | `STORAGE_*` (R2 presigned URLs) |
@@ -74,6 +78,28 @@ Or open http://localhost:8787 and pick a user on the sign-in screen. The seed ha
 (`operator@example.com`, serving Sandbox and Demo client), one client admin
 (`admin@demo-client.example.com`) and the platform templates. To start from an empty database, drop
 `countersign` and run `scripts/setup-postgres.sh` again.
+
+### The end-to-end seed (SEED_E2E=1)
+
+The browser walkthroughs sign and undo a change on the Demo client's Desk. That change is seeded
+only when `SEED_E2E=1` is set: the Records clerk (a Demo client agent on a testkit connection), a
+live run waiting on it, and its one proposed change, a price on the testkit's record R-1002.
+Signing it writes nothing: the testkit is in memory, and the seeded run has no Workflow instance to
+execute it. Undo it inside the window and it waits again; seeding again never adds a second one.
+Staging's seed and the default `db:seed` never add it: the run has no instance, so if it were signed
+and left past the undo window, the cron would retry sending it the approval every minute for 24
+hours.
+
+To run the sweep and the walkthroughs locally with it:
+
+```bash
+SEED_E2E=1 DIRECT_DATABASE_URL=postgresql://cs_owner:cs_owner@localhost:5432/countersign \
+  pnpm --filter @countersign/db run db:seed   # or: SEED_E2E=1 scripts/setup-postgres.sh (with the PG* variables above)
+pnpm dev                                      # in another terminal
+pnpm --filter @countersign/web sweep          # the route sweep, then the walkthroughs
+```
+
+Without it, the walkthroughs skip "Approve and undo" with a note.
 
 `wrangler dev` reads the root `.env` (`--env-file ../../.env`), which gives it
 `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`; without it the Worker cannot reach the

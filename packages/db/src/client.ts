@@ -131,6 +131,40 @@ export async function readOperatorCatalogue<T>(tx: Tx, fn: (tx: Tx) => Promise<T
 }
 
 /**
+ * Inside a back-office transaction (withOperator, over the clients served), runs `fn` with
+ * withTenant's scope: this one client, operator off, so RLS shows `fn` only that client's rows and
+ * no templates. The client must already be in the transaction's scope (ScopeError otherwise): this
+ * only narrows. The scope is put back afterwards.
+ */
+// DECISION: a back-office request holds the database's one pooled connection in its transaction,
+// as a portal request does (readOperatorCatalogue), so a route that must see exactly one client
+// narrows the scope inside it instead of opening withTenant beside it.
+export async function narrowToTenant<T>(
+  tx: Tx,
+  tenantId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  const one = checkIds([tenantId]);
+  const rows = await tx.execute<{ ids: string | null; op: string | null }>(sql`select
+    current_setting('app.tenant_ids', true) as ids, current_setting('app.operator', true) as op`);
+  const before = [...rows][0];
+  const current = (before?.ids ?? "").replace(/^\{|\}$/g, "").split(",");
+  if (!current.includes(tenantId)) {
+    throw new ScopeError(`client ${tenantId} is outside this transaction's clients`);
+  }
+  await tx.execute(sql`select set_config('app.tenant_ids', ${one}, true),
+    set_config('app.operator', 'off', true)`);
+  try {
+    return await fn(tx);
+  } finally {
+    await tx
+      .execute(sql`select set_config('app.tenant_ids', ${before?.ids ?? ""}, true),
+        set_config('app.operator', ${before?.op ?? "off"}, true)`)
+      .catch(() => undefined);
+  }
+}
+
+/**
  * Sign-in: no client yet, only this user's own memberships are visible (policy `own_memberships`).
  * For packages/auth, to learn which clients a session may name.
  */

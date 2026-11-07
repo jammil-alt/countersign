@@ -9,6 +9,7 @@ export {
   closeDb,
   createDb,
   type Db,
+  narrowToTenant,
   readOperatorCatalogue,
   type Schema,
   ScopeError,
@@ -18,5 +19,6 @@ export {
   withTenants,
   withUser,
 } from "./client";
+export * from "./directory";
 export { membershipsOfUser, type UserMembership, userMemberships } from "./queries";
 export * from "./schema";

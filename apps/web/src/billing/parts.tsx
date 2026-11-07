@@ -1,14 +1,15 @@
-// Billing pieces shared by the back office and the portal (docs/plan.md §1.24): prices as words,
-// the credit meter, and Stripe's invoices with their hosted page and PDF. Amounts are decimal
-// strings, formatted without floats. The meter and the invoices read in the reader's language
-// (docs/plan.md §1.18); the back office reads English, as outside any provider.
-import type { BillingInvoice, Money } from "@countersign/core";
+// Billing pieces shared by the back office and the portal (docs/plan.md §1.32): prices as words,
+// the credit meter, a statement's lines, and statuses. Amounts are decimal strings, formatted
+// without floats. They read in the reader's language (docs/plan.md §1.18); the back office reads
+// English, as outside any provider.
+import type { Money, StatementLine, StatementStatus } from "@countersign/core";
 import { formatAmount } from "@countersign/core";
+import type { ReactNode } from "react";
 import type { PlainKey } from "../i18n/catalog";
 import { type I18n, useI18n } from "../i18n/i18n";
 import { richText } from "../i18n/rich";
-import { Badge, type Tone } from "../ui/primitives";
-import { count, dayLabel } from "../usage/format";
+import type { Tone } from "../ui/primitives";
+import { count } from "../usage/format";
 
 /** "1,250.00", "0.015": at least two places, up to four when a price has fractions of a cent. */
 export function amountText(amount: string): string {
@@ -20,11 +21,11 @@ export function amountText(amount: string): string {
   return `${sign}${digits}.${places}`;
 }
 
-/** "$250.00", "$0.015", or "250.00 EUR" (the back office's words). */
+/** "$250.00", "$0.015", "-$15.00", or "250.00 EUR" (the back office's words). */
 export function price(m: Money): string {
-  return m.currency === "USD"
-    ? `$${amountText(m.amount)}`
-    : `${amountText(m.amount)} ${m.currency}`;
+  if (m.currency !== "USD") return `${amountText(m.amount)} ${m.currency}`;
+  const text = amountText(m.amount);
+  return text.startsWith("-") ? `-$${text.slice(1)}` : `$${text}`;
 }
 
 /**
@@ -35,14 +36,35 @@ export function localPrice(m: Money, i18n: I18n): string {
   return i18n.fmt.unitPrice(m.amount, m.currency);
 }
 
+/** An amount in whole cents, in the reader's locale: "$1,250.00", "1.250,00 €". */
+export function localAmount(m: Money, i18n: I18n): string {
+  return i18n.fmt.money(m.amount, m.currency);
+}
+
+/** Days in the month starting `start` (YYYY-MM-01), from integers only. */
+export function daysIn(start: string): number {
+  const [y, m] = start.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
 /** "1 credit", "1,234 credits" (the back office's words). */
 export function credits(n: number): string {
   return `${count(n)} ${n === 1 ? "credit" : "credits"}`;
 }
 
+/** A statement's status: its words and tone (signal for "to pay", always with a word). */
+export const STATEMENT_STATUS: Record<StatementStatus, { label: PlainKey; tone: Tone }> = {
+  draft: { label: "billing.status.draft", tone: "neutral" },
+  sent: { label: "billing.status.sent", tone: "warning" },
+  paid: { label: "billing.status.paid", tone: "positive" },
+  payment_failed: { label: "billing.status.payment_failed", tone: "risk" },
+  void: { label: "billing.status.void", tone: "neutral" },
+  nothing_due: { label: "billing.status.nothing_due", tone: "neutral" },
+};
+
 /**
- * Credits used against the allowance: a bar on the data track, filled up to the allowance; what
- * goes past it is said in words, not shown in a colour.
+ * Credits used against what is included: a bar on the data track, filled up to the included
+ * credits; what goes past them is said in words, not shown in a colour.
  */
 export function CreditMeter({
   used,
@@ -95,81 +117,114 @@ export function CreditMeter({
   );
 }
 
-const STATUS: Record<string, { label: PlainKey; tone: Tone }> = {
-  paid: { label: "billing.status.paid", tone: "positive" },
-  open: { label: "billing.status.open", tone: "warning" },
-  draft: { label: "billing.status.draft", tone: "neutral" },
-  void: { label: "billing.status.void", tone: "neutral" },
-  uncollectible: { label: "billing.status.uncollectible", tone: "risk" },
-};
+/** What a month's credits came to, for the extra usage line. */
+export interface CreditsSummary {
+  creditsUsed: number;
+  creditsIncluded: number;
+  extraCredits: number;
+  creditPrice: Money;
+}
 
-/** Stripe's invoices, newest first, with links to the hosted invoice and its PDF. */
-export function InvoiceTable({ invoices, testId }: { invoices: BillingInvoice[]; testId: string }) {
+/** A line's own words: an agent's price and days, the extra credits, or the operator's words. */
+function lineDetail(
+  line: StatementLine,
+  daysInMonth: number,
+  summary: CreditsSummary,
+  i18n: I18n,
+): ReactNode {
+  const { t } = i18n;
+  if (line.kind === "agent") {
+    const prices =
+      line.prices.length === 1 && line.prices[0]
+        ? t("billing.pricePerMonth", { price: localAmount(line.prices[0].monthlyPrice, i18n) })
+        : line.prices
+            .map((p) =>
+              t("billing.priceForDays", {
+                price: localAmount(p.monthlyPrice, i18n),
+                count: p.days,
+              }),
+            )
+            .join(", ");
+    return `${prices} · ${t("billing.daysOf", { days: line.days ?? 0, total: daysInMonth })}`;
+  }
+  if (line.kind === "usage") {
+    return t("billing.extraUsageDetail", {
+      credits: t("billing.credits", { count: summary.extraCredits }),
+      included: count(summary.creditsIncluded, i18n.intl),
+      used: count(summary.creditsUsed, i18n.intl),
+      price: localPrice(summary.creditPrice, i18n),
+    });
+  }
+  return null;
+}
+
+/**
+ * A statement's lines, or the month so far: one row per service with its price and days ("Included"
+ * when free), the extra usage, any adjustments, then the total.
+ */
+export function StatementLines({
+  lines,
+  daysInMonth,
+  summary,
+  total,
+  totalLabel,
+  testId,
+  action,
+}: {
+  lines: readonly StatementLine[];
+  daysInMonth: number;
+  summary: CreditsSummary;
+  total: Money;
+  totalLabel: string;
+  testId: string;
+  /** Something to put at the end of a line (the back office's Remove on an adjustment). */
+  action?: (line: StatementLine) => ReactNode;
+}) {
   const i18n = useI18n();
-  const { t, intl } = i18n;
-  const day = (iso: string | null) => (iso ? dayLabel(iso.slice(0, 10), intl) : "");
+  const { t } = i18n;
   return (
-    <div className="dt overflow-x-auto">
+    <div className="dt dt-ana overflow-x-auto">
       <table data-testid={testId}>
         <thead>
           <tr className="dt-cols">
-            <th>{t("billing.column.date")}</th>
-            <th>{t("billing.column.invoice")}</th>
-            <th>{t("billing.column.period")}</th>
+            <th>{t("billing.column.item")}</th>
             <th className="n">{t("billing.column.amount")}</th>
-            <th>{t("billing.column.status")}</th>
-            <th>
-              <span className="sr-only">{t("billing.column.links")}</span>
-            </th>
+            {action ? (
+              <th>
+                <span className="sr-only">{t("billing.column.links")}</span>
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
-          {invoices.map((i) => {
-            const known = STATUS[i.status ?? ""];
-            // A status Stripe adds later shows as Stripe wrote it.
-            const s: { label: string; tone: Tone } = known
-              ? { label: t(known.label), tone: known.tone }
-              : { label: i.status ?? t("billing.status.unknown"), tone: "neutral" };
+          {lines.map((l, i) => {
+            const free = l.kind === "agent" && /^-?0+(\.0+)?$/.test(l.amount.amount);
+            const detail = lineDetail(l, daysInMonth, summary, i18n);
             return (
-              <tr key={i.id} data-testid={`${testId}-row-${i.id}`}>
-                <td className="text-ink">{day(i.createdAt)}</td>
-                <td>{i.number ?? t("billing.draft")}</td>
-                <td className="muted">
-                  {i.periodStart && i.periodEnd
-                    ? `${day(i.periodStart)} – ${day(i.periodEnd)}`
-                    : ""}
-                </td>
-                <td className="n text-ink">{localPrice(i.total, i18n)}</td>
+              <tr
+                key={l.id ?? `${l.kind}-${l.agentId ?? i}`}
+                data-testid={`${testId}-${l.kind}-${i}`}
+              >
                 <td>
-                  <Badge tone={s.tone}>{s.label}</Badge>
-                </td>
-                <td>
-                  <span className="flex justify-end gap-3">
-                    {i.hostedInvoiceUrl ? (
-                      <a
-                        className="ds-btn ds-btn--link text-sm"
-                        href={i.hostedInvoiceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {s.tone === "warning" ? t("billing.viewAndPay") : t("billing.view")}
-                      </a>
-                    ) : null}
-                    {i.pdfUrl ? (
-                      <a
-                        className="ds-btn ds-btn--link text-sm"
-                        href={i.pdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {t("billing.pdf")}
-                      </a>
-                    ) : null}
+                  <span className="flex flex-col py-1">
+                    <span className="text-ink">
+                      {l.kind === "usage" ? t("billing.extraUsage") : l.description}
+                    </span>
+                    {detail ? <span className="text-sm text-ink-muted">{detail}</span> : null}
                   </span>
                 </td>
+                <td className="n text-ink">
+                  {free ? t("billing.includedPrice") : localAmount(l.amount, i18n)}
+                </td>
+                {action ? <td>{action(l)}</td> : null}
               </tr>
             );
           })}
+          <tr data-testid={`${testId}-total`}>
+            <td className="font-medium text-ink">{totalLabel}</td>
+            <td className="n font-medium text-ink">{localAmount(total, i18n)}</td>
+            {action ? <td /> : null}
+          </tr>
         </tbody>
       </table>
     </div>

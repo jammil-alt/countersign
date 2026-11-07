@@ -32,6 +32,12 @@ export interface RunInfo {
    * written in it, and skills are asked to write client-facing text in it. Absent: English.
    */
   language?: Locale | undefined;
+  // v0.12 W1-E
+  /**
+   * A retry: the failed run it repeats (ARCHITECTURE §10.10). The agent port carries that run's
+   * approved, not-done writes with the same input under their original idempotency keys.
+   */
+  retryOf?: string | undefined;
 }
 
 /** Step-run statuses (packages/db STEP_RUN_STATUSES) the executor writes. */
@@ -49,6 +55,11 @@ export type StepOutcome =
   | {
       kind: "done";
       output: unknown;
+      /**
+       * A test run's write, recorded as proposed and never made (ARCHITECTURE §10.4): the timeline
+       * says what would have been done, not what was. Only honoured in a test run.
+       */
+      notWritten?: boolean;
       costUsd?: string;
       tokensIn?: number;
       tokensOut?: number;
@@ -75,6 +86,8 @@ export interface StepWait {
   timeout: Duration;
   /** Whatever the port needs to look it up again (e.g. the reach-out's id). */
   state?: unknown;
+  /** What it waits for, for the timeline: a reply (default) or a person's release code. */
+  reason?: "reply" | "release";
 }
 
 export interface WaitRequest {
@@ -83,6 +96,8 @@ export interface WaitRequest {
   nodeId: string;
   stepRunId: string;
   wait: StepWait;
+  // v0.13 W2-I: as on the step's request, for a step that runs again once its wait is over.
+  keyNode?: string;
 }
 
 export interface SkillStepRequest {
@@ -95,6 +110,18 @@ export interface SkillStepRequest {
   input: unknown;
   /** The step's approval, or the default (required) when it has none. */
   approval: Approval;
+  // v0.12 W2-B
+  /**
+   * Inside a use step: the automation (`slug@version`). Its skill steps run as the using agent
+   * though the agent doesn't list their skills: using an automation brings them in (§10.7).
+   */
+  automation?: string;
+  // v0.13 W2-I
+  /**
+   * The step part of its external actions' idempotency keys, when not `nodeId`: a retry with a
+   * corrected input (run oversight) uses `${nodeId}:o${seq}`, so the gate decides it afresh.
+   */
+  keyNode?: string;
 }
 
 export interface ActionStepRequest {
@@ -104,6 +131,10 @@ export interface ActionStepRequest {
   stepRunId: string;
   input: unknown;
   approval: Approval;
+  // v0.12 W2-B
+  automation?: string;
+  // v0.13 W2-I
+  keyNode?: string;
 }
 
 export interface ResumeRequest {
@@ -174,7 +205,10 @@ export interface InboxPort {
 }
 
 export interface NotifyPort {
-  /** A notify step (rendered). In a test run the port must not message the client. */
+  /**
+   * A notify step (rendered). Never called for a test run: the executor records the text on the
+   * step and sends nothing (ARCHITECTURE §10.4).
+   */
   send(message: {
     run: RunInfo;
     step: NotifyStep;
@@ -182,6 +216,8 @@ export interface NotifyPort {
     channel: NotifyStep["channel"];
     to: string | null;
     text: string;
+    /** The step's `sources`, resolved: record ids, deduplicated (invariant 10). */
+    sources: string[];
   }): Promise<void>;
   /** A person step timed out with `onTimeout: 'notify_operator'`. */
   notifyOperator(notice: {
@@ -198,6 +234,18 @@ export interface StepRunStart {
   nodeType: StepKind;
   skillRef?: string;
   input?: unknown;
+  // v0.13 W2-I
+  /**
+   * A run oversight retry's attempt (2, 3…): the step keeps its one row, whose `attempts` rises to
+   * this and whose `input` becomes the attempt's (ARCHITECTURE §5.6). Absent: the first attempt.
+   */
+  attempt?: number;
+  // v0.14 W4-B
+  /**
+   * The platform retried the step's work (a durable step's try after the first): the step's row
+   * counts one more attempt. Absent: the first try, or a call that only finds the row.
+   */
+  retried?: boolean;
 }
 
 export interface StepRunUpdate {
@@ -222,4 +270,59 @@ export interface StepLog {
 export interface StepCatalog {
   skills?: Record<string, SkillDefinition>;
   tools?: Record<string, ToolSpec>;
+}
+
+// ── v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54) ─────────────────────────
+
+/** A step for the run's own agent to review. */
+export interface OversightRequest {
+  run: RunInfo;
+  step: SkillStep | ActionStep;
+  /** The step's durable name. */
+  nodeId: string;
+  stepRunId: string;
+  /** 1.. per node: the review's place in the step's interventions. */
+  seq: number;
+  /** A failed step, or (M32) one that succeeded and is reviewed before the run goes on. */
+  cause: "failed" | "checkpoint";
+  /** The input the attempt ran with (resolved, or the corrected one). */
+  input: unknown;
+  /** A failure: the step's error, as it would fail the run. A checkpoint: "". */
+  error: string;
+  /** A failure: `<tool id or step kind>:<code>` (ARCHITECTURE §10.10). A checkpoint: "". */
+  errorKey: string;
+  /** M32: a checkpoint's output, as the steps after it would see it. */
+  output?: unknown;
+  /** Attempts so far, the last one included. */
+  attempts: number;
+  /** Inside a use step: the automation (`slug@version`) the step comes from. */
+  automation?: string;
+}
+
+/**
+ * What the executor does with a review. `none`: no intervention (review off for this run, a limit
+ * reached, an answer that failed validation, a review that failed): the step fails exactly as it
+ * would without oversight. Every other verdict is a recorded decision; `note` is its diagnosis,
+ * operator only (it rides on `run.failed`, never the portal).
+ */
+export type OversightVerdict =
+  | { action: "none"; reason: string }
+  | { action: "retry"; after: Duration; note: string }
+  | { action: "retry_with"; input: unknown; note: string }
+  /** The port created the inbox item; the run waits on it. */
+  | { action: "ask"; inboxItemId: string; note: string }
+  | { action: "stop"; note: string }
+  /** After a checkpoint (M32). */
+  | { action: "continue"; note: string };
+
+/**
+ * The run's own agent, overseeing it (packages/agents' `overseeStep` behind it, one model call). The
+ * port records the decision (`oversight_decision`), creates any ask or proposal item, enforces the
+ * cost limit and the write check (a write that reached the client's tool is never retried). The
+ * executor applies the verdict; it never calls a model. Called inside a durable step, so a
+ * replayed run reuses the verdict; the port also finds a decision already recorded for (run, node,
+ * seq) and returns it without a second model call.
+ */
+export interface OversightPort {
+  review(request: OversightRequest): Promise<OversightVerdict>;
 }

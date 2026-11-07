@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { CALL_LANGUAGES, type CallLanguage, callLanguage } from "../calls/rules";
+import { CALL_LANGUAGES, type CallLanguage } from "../calls/rules";
+import { languageFor } from "../directory/language";
 import { Duration, parseDuration } from "../duration";
 import {
   type ContactConsent,
@@ -8,6 +9,7 @@ import {
   type QuietHours,
 } from "../messaging/rules";
 import { evaluateRules } from "../rules/compile";
+import type { PermissionLevel } from "../schemas/permissions";
 import { Rules } from "../schemas/rules";
 
 // Reach out (docs/plan.md §1.25): an agent contacting the people it works with by email, text,
@@ -117,6 +119,11 @@ export interface ReachContact {
   quietHours: QuietHours | null;
   consent: ContactConsent;
   optedOutAt: string | Date | null;
+  /**
+   * The person's autonomy per channel (`contact.autonomy`, v0.12): `off` takes the channel out of
+   * every plan; `approval` makes the plan wait for a person's sign. Absent: narrows nothing.
+   */
+  autonomy?: Partial<Record<ReachChannel, PermissionLevel>> | undefined;
 }
 
 /** Why one channel can't be used for this contact now. */
@@ -127,6 +134,7 @@ export type ChannelBlock =
   | "not_bound"
   | "not_allowed_by_binding"
   | "not_allowed_for_role"
+  | "autonomy_off"
   | "quiet_hours";
 
 /** The contact's address on a channel (calls and texts go to `phone`). */
@@ -221,6 +229,8 @@ export type ReachPlan =
       channels: ReachChannel[];
       escalateAfter: Duration;
       checks: ChannelCheck[];
+      /** A channel in the plan needs a person's sign for this contact (their autonomy). */
+      needsSignature: boolean;
     }
   | { ok: false; outcome: "not_allowed" | "opted_out"; reason: string; checks: ChannelCheck[] };
 
@@ -231,6 +241,7 @@ const BLOCK_WORDS: Record<ChannelBlock, string> = {
   not_bound: "the agent has no channel",
   not_allowed_by_binding: "not allowed for this person",
   not_allowed_for_role: "not allowed for this role",
+  autonomy_off: "turned off for this person",
   quiet_hours: "quiet hours",
 };
 
@@ -244,9 +255,9 @@ export function describeChecks(checks: readonly ChannelCheck[]): string {
 
 /**
  * Every condition, in order: opt-out, the "only if" rule, one open reach-out per subject, the
- * daily cap, then each channel urgency asks for, filtered by the binding, the role, the agent's
- * bound channels, consent and hours. The channels that pass, in order, are the plan; none passing
- * is `not_allowed` with the reasons.
+ * daily cap, then each channel urgency asks for, filtered by the binding, the role, the person's
+ * autonomy (`off`), the agent's bound channels, consent and hours. The channels that pass, in
+ * order, are the plan; none passing is `not_allowed` with the reasons.
  */
 export function planReachOut(input: PlanInput): ReachPlan {
   const { contact, conditions } = input;
@@ -285,6 +296,8 @@ export function planReachOut(input: PlanInput): ReachPlan {
       block = "not_allowed_by_binding";
     } else if (input.roleChannels && !input.roleChannels.includes(channel)) {
       block = "not_allowed_for_role";
+    } else if (contact.autonomy?.[channel] === "off") {
+      block = "autonomy_off";
     } else if (!input.boundChannels.has(channel)) {
       block = "not_bound";
     } else {
@@ -314,6 +327,9 @@ export function planReachOut(input: PlanInput): ReachPlan {
     channels,
     escalateAfter: conditions.escalateAfter ?? DEFAULT_ESCALATE_AFTER,
     checks,
+    // v0.12 W1-G: a channel the person set to `approval` makes the whole plan wait for a sign,
+    // even when the step runs without one (docs/plan.md §1.42).
+    needsSignature: channels.some((ch) => contact.autonomy?.[ch] === "approval"),
   };
 }
 
@@ -368,7 +384,7 @@ export function reachLanguage(
   contactLanguage: string | null | undefined,
   clientLanguage: string | null | undefined,
 ): ReachLanguage {
-  return callLanguage(contactLanguage, clientLanguage);
+  return languageFor({ person: contactLanguage, client: clientLanguage }).language;
 }
 
 /** One open reach-out per contact and subject: its sources, else its purpose. */
@@ -391,19 +407,24 @@ export function pickMessage(template: MessageTemplate, language: ReachLanguage):
 
 /**
  * Which connector's tool sends on a channel. An agent's channel is bound to one connection; the
- * reach-out sends through that connection's tool for the channel. Gmail (`gmail.send`, an agent's
- * own mailbox or a person's) and Meta's WhatsApp plug in here when they are built.
+ * reach-out sends through that connection's tool for the channel. Email goes through Mezonas'
+ * sending service (`resend`) or a Gmail mailbox the client connected (`gmail`, send only: an
+ * agent's own mailbox or a person's). WhatsApp goes through Twilio's sender or the client's own
+ * number through Meta (`whatsapp_meta`, v0.14 W4-A), with the same `whatsapp.send`.
  */
-// DECISION: email goes through Mezonas' sending service (Resend) until the Gmail connector (M10)
-// exists; Gmail's send is listed so a binding to it is refused today with a plain reason.
+// DECISION: both email tools take the same input (`to`, `subject`, `text`, `replyTag`), so the
+// reach-out service builds one input whichever connection the agent's email channel is bound to.
 export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>> = {
   resend: { email: "email.send" },
+  gmail: { email: "gmail.send" },
+  // v0.12 W3-B: Outlook takes the same input (docs/plan.md §1.52).
+  outlook: { email: "outlook.send" },
   twilio: { sms: "sms.send", whatsapp: "whatsapp.send", voice: "call.place" },
+  // v0.14 W4-A: WhatsApp on the client's own number through Meta (docs/plan.md §1.57).
+  whatsapp_meta: { whatsapp: "whatsapp.send" },
 };
-export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {
-  gmail: ["email"],
-  whatsapp_meta: ["whatsapp"],
-};
+/** Connectors planned to carry a channel, refused with "isn't built yet" until then. */
+export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {};
 
 /** The channels a connector can carry for an agent. */
 export function connectorChannels(connector: string): ReachChannel[] {

@@ -95,3 +95,82 @@ describe("MatrixTable", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("delete stays off");
   });
 });
+
+// v0.12 W2-A: record types under each tool (docs/plan.md §1.44).
+describe("MatrixTable entity rows", () => {
+  const ENTITIES = [
+    { id: "bill", label: "Bills", verbs: ["read", "create", "update"] as const },
+    {
+      id: "invoice",
+      label: "Invoices",
+      verbs: ["read", "update"] as const,
+      scopes: [
+        { id: "notes_only", label: "Notes only", verb: "update" as const, tools: ["x.add_note"] },
+      ],
+    },
+  ].map((e) => ({ ...e, verbs: [...e.verbs] }));
+  const WITH = {
+    ...ROW,
+    permissions: { ...ROW.permissions, update: "approval" as const },
+    entities: ENTITIES,
+  };
+
+  it("shows each entity's level (the stricter of verb and entity) and offers a client only tighter", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MatrixTable
+        editor="client_admin"
+        rows={[
+          { ...WITH, permissions: { ...WITH.permissions, entities: { bill: { create: "off" } } } },
+        ]}
+        onSave={onSave}
+      />,
+    );
+    const bills = screen.getByTestId(`matrix-entity-${ROW.id}-bill`);
+    expect(bills).toHaveTextContent("Bills");
+    expect(within(bills).getByTestId("matrix-entity-bill-create-level")).toHaveTextContent("Off");
+    expect(options(within(bills).getByTestId("matrix-entity-bill-update-select"))).toEqual([
+      "approval",
+      "off",
+    ]);
+    // Invoices have no create.
+    expect(
+      within(screen.getByTestId(`matrix-entity-${ROW.id}-invoice`)).getAllByText("—"),
+    ).toHaveLength(2);
+    await userEvent.selectOptions(
+      within(bills).getByTestId("matrix-entity-bill-update-select"),
+      "off",
+    );
+    await userEvent.selectOptions(
+      screen.getByTestId("matrix-entity-invoice-scope-select"),
+      "notes_only",
+    );
+    await userEvent.click(screen.getByTestId("matrix-changes-save"));
+    expect(onSave).toHaveBeenCalledWith(ROW.id, {
+      entities: {
+        bill: { create: "off", update: "off" },
+        invoice: { scope: { update: "notes_only" } },
+      },
+    });
+  });
+
+  it("doesn't let a client drop a scope set before", () => {
+    render(
+      <MatrixTable
+        editor="client_admin"
+        rows={[
+          {
+            ...WITH,
+            permissions: {
+              ...WITH.permissions,
+              entities: { invoice: { scope: { update: "notes_only" } } },
+            },
+          },
+        ]}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("matrix-entity-invoice-scope-select")).toBeNull();
+    expect(screen.getByTestId("matrix-entity-invoice-scope")).toHaveTextContent("Notes only");
+  });
+});

@@ -140,6 +140,7 @@ const CATALOG: BuilderCatalog = {
     },
   ],
   connectors: [{ id: "testkit", name: "Testkit", icon: null }],
+  automations: [],
 };
 
 const EVENTS = {
@@ -297,11 +298,34 @@ function connection(update: PermissionMatrix["update"]) {
   };
 }
 
+/** A recent `transaction.created` of a client, as GET /api/ops/clients/:id/events answers. */
+const eventId = (n: string) => `00000000-0000-4000-8000-0000000e00${n.slice(1).padStart(2, "0")}`;
+const eventPayload = (n: string) => ({
+  transactionId: `00000000-0000-4000-8000-0000000b00${n.slice(1).padStart(2, "0")}`,
+  source: "upload",
+  vendorId: null,
+  total: { amount: "1250.0000", currency: "USD" },
+  txnDate: "2026-11-02",
+});
+function recentEvent(n: string, vendorName: string) {
+  return {
+    id: eventId(n),
+    type: "transaction.created",
+    createdAt: "2026-11-04T10:00:00.000Z",
+    payload: eventPayload(n),
+    label: "Purchase dated 2026-11-02",
+    vendorName,
+    total: { amount: "1250.0000", currency: "USD" },
+  };
+}
+
 interface Setup {
   agent?: Partial<AgentSummary>;
   bundle?: AgentBundle;
   status?: string;
   update?: PermissionMatrix["update"];
+  // v0.12 W2-B
+  catalog?: BuilderCatalog;
 }
 
 function setup(options: Setup = {}) {
@@ -312,7 +336,7 @@ function setup(options: Setup = {}) {
     return body;
   };
   const api = fakeApi({
-    [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
+    [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
     [`POST /api/ops/agents/${AGENT_ID}/versions`]: ({ init }) => {
       record("save", init);
@@ -439,7 +463,7 @@ describe("WorkflowBuilder", () => {
     setup();
     await ready();
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
-    expect(screen.getByTestId("builder-step-find-number")).toHaveTextContent("2");
+    expect(screen.getByTestId("builder-step-find-number")).toHaveTextContent("1");
     expect(screen.getByTestId("builder-trigger")).toHaveTextContent("When transaction.created");
     expect(listOrder("path:low")).toEqual(["ask"]);
     expect(screen.getByTestId("builder-counts")).toHaveTextContent(
@@ -532,7 +556,7 @@ describe("WorkflowBuilder", () => {
     const user = userEvent.setup();
     await keyboardMove(user, "read", "ArrowUp");
     await waitFor(() => expect(rootOrder()).toEqual(["read", "find", "confidence", "update"]));
-    expect(screen.getByTestId("builder-step-read-number")).toHaveTextContent("2");
+    expect(screen.getByTestId("builder-step-read-number")).toHaveTextContent("1");
     // Moving the reader above the step it reads from breaks its reference: marked invalid.
     expect(screen.getByTestId("builder-step-read-invalid")).toBeInTheDocument();
   });
@@ -553,7 +577,7 @@ describe("WorkflowBuilder", () => {
     await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence", "ask"]));
     expect(listOrder("path:low")).toEqual([]);
     expect(listOrder("path:big")).toEqual(["update"]);
-    expect(screen.getByTestId("builder-step-ask-number")).toHaveTextContent("5");
+    expect(screen.getByTestId("builder-step-ask-number")).toHaveTextContent("4");
 
     // Onto a top-level step from inside a path: it goes in just before that step.
     await keyboardMove(user, "update", "ArrowDown ArrowDown ArrowDown");
@@ -780,6 +804,86 @@ describe("WorkflowBuilder", () => {
     expect(sent[1]?.body).toMatchObject({ clientId: "00000000-0000-4000-8000-00000000c001" });
   });
 
+  it("test-runs with one of the client's recent events of the trigger's type", async () => {
+    const { api, sent } = setup();
+    const asked: string[] = [];
+    api.on(`GET /api/ops/clients/${CLIENT_ID}/events`, ({ url }) => {
+      asked.push(url.searchParams.get("type") ?? "");
+      return { events: [recentEvent("e1", "Oak & Co"), recentEvent("e2", "Maple Mill")] };
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-test-run"));
+    const source = screen.getByTestId("builder-test-source");
+    await within(source).findByText(/Oak & Co/);
+    expect(asked).toEqual(["transaction.created"]);
+    // The sample stays first; the events are labelled with what they are about.
+    const options = within(source)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options[0]).toBe("Sample trigger payload");
+    expect(options[1]).toMatch(/^Purchase dated 2026-11-02 · Oak & Co · \$1,250\.00 · /);
+    expect(options.at(-1)).toBe("Manual input");
+    expect(within(source).getByRole("group")).toHaveAttribute("label", "Use a recent event");
+
+    await user.selectOptions(source, `event:${eventId("e2")}`);
+    expect(
+      JSON.parse(String((screen.getByTestId("builder-test-payload") as HTMLTextAreaElement).value)),
+    ).toEqual(eventPayload("e2"));
+    await user.click(screen.getByTestId("builder-test-run-start"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.body).toEqual({ workflow: "new-bill", payload: eventPayload("e2") });
+  });
+
+  it("lists a template's recent events from the Sandbox, or from the client chosen", async () => {
+    const { api } = setup({ agent: { kind: "template", tenantId: null, bindings: {} } });
+    const MILLWORK = "00000000-0000-4000-8000-00000000c001";
+    const SANDBOX = "00000000-0000-4000-8000-00000000c002";
+    const client = (id: string, name: string, sandbox: boolean) => ({
+      id,
+      name,
+      timezone: "America/Chicago",
+      createdAt: "2026-11-01T00:00:00.000Z",
+      agents: 0,
+      openInbox: 0,
+      sandbox,
+    });
+    api.on("GET /api/ops/clients", () => ({
+      clients: [client(MILLWORK, "Millwork demo", false), client(SANDBOX, "Sandbox", true)],
+    }));
+    api.on(`GET /api/ops/clients/${SANDBOX}/events`, () => ({
+      events: [recentEvent("e1", "Sandbox Supply")],
+    }));
+    api.on(`GET /api/ops/clients/${MILLWORK}/events`, () => ({
+      events: [recentEvent("e3", "Millwork Lumber")],
+    }));
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-test-run"));
+    const source = screen.getByTestId("builder-test-source");
+    await within(source).findByText(/Sandbox Supply/);
+    expect(within(source).queryByText(/Millwork Lumber/)).not.toBeInTheDocument();
+    await user.selectOptions(source, `event:${eventId("e1")}`);
+
+    await user.selectOptions(screen.getByTestId("builder-test-client"), MILLWORK);
+    await within(source).findByText(/Millwork Lumber/);
+    expect(within(source).queryByText(/Sandbox Supply/)).not.toBeInTheDocument();
+    // The Sandbox's event is not the chosen client's: back to the sample.
+    expect(source).toHaveValue("sample");
+    expect(screen.getByTestId("builder-test-payload")).toHaveValue(
+      JSON.stringify({ billId: "b-1", total: 120 }, null, 2),
+    );
+  });
+
+  it("says when the client has no recent events of the trigger's type", async () => {
+    const { api } = setup();
+    api.on(`GET /api/ops/clients/${CLIENT_ID}/events`, () => ({ events: [] }));
+    await ready();
+    await userEvent.setup().click(screen.getByTestId("builder-test-run"));
+    const source = screen.getByTestId("builder-test-source");
+    expect(await within(source).findByText("No transaction.created events yet")).toBeDisabled();
+  });
+
   it("adds a workflow and switches to it, keeping the other's edits", async () => {
     setup();
     await ready();
@@ -839,5 +943,295 @@ describe("WorkflowBuilder", () => {
     await user.click(screen.getByTestId("builder-save"));
     await waitFor(() => expect(screen.queryByTestId("builder-unsaved")).toBeNull());
     expect(screen.queryByTestId("builder-error")).toBeNull();
+  });
+
+  // v0.12 W2-B: the old builder renders a use step as a read-only card with an input form.
+  it("shows a use step as its automation's name and version, with its input as a form", async () => {
+    const user = userEvent.setup();
+    const bundle = AgentBundle.parse({
+      ...BUNDLE_INPUT,
+      workflows: [
+        {
+          slug: "new-bill",
+          name: "New bill",
+          workflow: {
+            schemaVersion: 3,
+            trigger: { id: "t1", on: { type: "event", event: "transaction.created" } },
+            steps: [
+              {
+                id: "follow",
+                kind: "use_automation",
+                name: "Follow up",
+                automation: "polite-follow-up@2",
+                input: { note: "Hello" },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const definition = {
+      schemaVersion: 1 as const,
+      slug: "polite-follow-up",
+      name: "Polite follow-up",
+      description: "Say a word, then correct the record",
+      input: { type: "object", properties: { note: { type: "string" } }, required: ["note"] },
+      output: { said: "{{input.note}}" },
+      steps: [
+        {
+          id: "say",
+          kind: "notify" as const,
+          name: "Say it",
+          channel: "thread" as const,
+          message: "{{input.note}}",
+        },
+      ],
+      requires: { skills: [], tools: [], connectors: [] },
+    };
+    setup({
+      bundle,
+      catalog: {
+        ...CATALOG,
+        automations: [
+          {
+            ref: "polite-follow-up@2",
+            slug: "polite-follow-up",
+            version: 2,
+            name: "Polite follow-up",
+            description: definition.description,
+            source: "shared",
+            status: "live",
+            definition,
+            outputSchema: { type: "object", properties: { said: { type: "string" } } },
+          },
+        ],
+      },
+    });
+    await ready();
+    expect(screen.getByTestId("builder-step-follow")).toHaveTextContent("polite-follow-up@2");
+    await user.click(screen.getByTestId("builder-step-follow-select"));
+    expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
+    expect(screen.queryByTestId("builder-step-follow-invalid")).toBeNull();
+  });
+});
+
+// UI-2c (O6): the Builder beside the canvas, "Save as automation", and a model per step.
+describe("WorkflowBuilder with the Builder", () => {
+  const SESSION = "00000000-0000-4000-8000-0000000c5001";
+  const TURN = "00000000-0000-4000-8000-0000000c5102";
+  const builderTurn = (changes: unknown[]) => ({
+    id: TURN,
+    seq: 2,
+    role: "builder",
+    text: "Removed the update; the fork's paths end the run.",
+    command: null,
+    changes,
+    questions: [],
+    gaps: [],
+    notes: [],
+    errors: [],
+    savedVersionId: null,
+    costUsd: "0.01",
+    undoneAt: null,
+    createdAt: "2026-11-06T10:00:00.000Z",
+  });
+  const detail = (bundle: unknown, turns: unknown[] = []) => ({
+    session: {
+      id: SESSION,
+      kind: "agent",
+      clientId: CLIENT_ID,
+      clientName: "Harbor Millwork",
+      agentId: AGENT_ID,
+      skillId: null,
+      baseVersionId: V1,
+      status: "open",
+      bundle,
+      errors: [],
+      closest: [],
+      createdAt: "2026-11-06T10:00:00.000Z",
+      updatedAt: "2026-11-06T10:00:00.000Z",
+    },
+    turns,
+  });
+  const withoutUpdate = {
+    ...BUNDLE,
+    workflows: BUNDLE.workflows.map((w) => ({
+      ...w,
+      workflow: { ...w.workflow, steps: w.workflow.steps.filter((s) => s.id !== "update") },
+    })),
+  };
+
+  it("starts from the version it opened, puts the Builder's draft on the canvas, and undoes a change", async () => {
+    const { api } = setup();
+    const bodies: Record<string, unknown>[] = [];
+    const change = {
+      id: "step:update",
+      label: "step “Update the record”",
+      before: {},
+      undone: false,
+    };
+    api.on("POST /api/ops/builder/sessions", ({ init }) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return detail(BUNDLE);
+    });
+    api.on(`POST /api/ops/builder/sessions/${SESSION}/turns`, ({ init }) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return { ...detail(withoutUpdate, [builderTurn([change])]), turn: builderTurn([change]) };
+    });
+    api.on(`POST /api/ops/builder/sessions/${SESSION}/undo`, ({ init }) => {
+      bodies.push(JSON.parse(String(init.body)));
+      const undone = builderTurn([{ ...change, undone: true }]);
+      return { ...detail(BUNDLE, [undone]), turn: undone };
+    });
+    await ready();
+    const user = userEvent.setup();
+    expect(screen.getByTestId("builder-chat-empty")).toBeInTheDocument();
+    await user.type(screen.getByTestId("builder-chat-composer-input"), "Drop the update step");
+    await user.click(screen.getByTestId("builder-chat-composer-send"));
+    await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence"]));
+    expect(bodies[0]).toEqual({ kind: "agent", agentId: AGENT_ID, fromVersionId: V1 });
+    expect(bodies[1]).toEqual({ text: "Drop the update step" });
+    expect(screen.getByTestId("builder-unsaved")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("builder-change-undo"));
+    await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]));
+    expect(bodies[2]).toEqual({ turnId: TURN, changeId: "step:update" });
+  });
+
+  it("saves unsaved edits first and starts the conversation from that version", async () => {
+    const { api, sent } = setup();
+    const starts: unknown[] = [];
+    api.on("POST /api/ops/builder/sessions", ({ init }) => {
+      starts.push(JSON.parse(String(init.body)));
+      return detail(BUNDLE);
+    });
+    api.on(`POST /api/ops/builder/sessions/${SESSION}/turns`, () => ({
+      ...detail(BUNDLE, [builderTurn([])]),
+      turn: builderTurn([]),
+    }));
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-step-find-select"));
+    await user.type(screen.getByTestId("builder-inspector-name"), "!");
+    await user.click(screen.getByTestId("builder-rail-builder"));
+    await user.type(screen.getByTestId("builder-chat-composer-input"), "Why is the fork there?");
+    await user.click(screen.getByTestId("builder-chat-composer-send"));
+    await waitFor(() => expect(starts).toHaveLength(1));
+    expect(sent[0]?.path).toBe("save");
+    expect(starts[0]).toEqual({ kind: "agent", agentId: AGENT_ID, fromVersionId: V2 });
+  });
+
+  it("saves selected steps as an automation, used in their place", async () => {
+    const { api } = setup();
+    let body: unknown = null;
+    const used = {
+      ...BUNDLE,
+      workflows: BUNDLE.workflows.map((w) => ({
+        ...w,
+        workflow: {
+          ...w.workflow,
+          steps: [
+            {
+              id: "find-and-read",
+              kind: "use_automation" as const,
+              name: "Find and read",
+              automation: "find-and-read@1",
+              input: {},
+            },
+            ...w.workflow.steps.filter((s) => s.id !== "find" && s.id !== "read"),
+          ],
+        },
+      })),
+    };
+    api.on("POST /api/ops/builder/sessions", () => detail(BUNDLE));
+    api.on(`POST /api/ops/builder/sessions/${SESSION}/automation`, ({ init }) => {
+      body = JSON.parse(String(init.body));
+      return {
+        ...detail(used, [builderTurn([])]),
+        turn: builderTurn([]),
+        automation: { id: SESSION, slug: "find-and-read", ref: "find-and-read@1" },
+        automationVersion: { id: SESSION, version: 1 },
+      };
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-select-steps"));
+    await user.click(screen.getByTestId("builder-step-read-check"));
+    await user.click(screen.getByTestId("builder-step-find-check"));
+    expect(screen.getByTestId("builder-selection")).toHaveTextContent("2 selected");
+    await user.click(screen.getByTestId("builder-save-automation"));
+    await user.type(screen.getByTestId("builder-automation-name"), "Find and read");
+    await user.click(screen.getByTestId("builder-automation-save"));
+    await waitFor(() => expect(rootOrder()).toEqual(["find-and-read", "confidence", "update"]));
+    expect(body).toEqual({
+      stepIds: ["find", "read"],
+      name: "Find and read",
+      slug: "find-and-read",
+    });
+    expect(screen.getByTestId("builder-notice")).toHaveTextContent(/Saved “Find and read”/);
+  });
+
+  it("offers an automation in the palette as one use step", async () => {
+    const definition = {
+      schemaVersion: 1 as const,
+      slug: "polite-follow-up",
+      name: "Polite follow-up",
+      description: "Say a word",
+      input: { type: "object", properties: {} },
+      output: {},
+      steps: [
+        {
+          id: "say",
+          kind: "notify" as const,
+          name: "Say it",
+          channel: "thread" as const,
+          message: "Hello",
+        },
+      ],
+      requires: { skills: [], tools: [], connectors: [] },
+    };
+    setup({
+      catalog: {
+        ...CATALOG,
+        automations: [
+          {
+            ref: "polite-follow-up@2",
+            slug: "polite-follow-up",
+            version: 2,
+            name: "Polite follow-up",
+            description: "Say a word",
+            source: "shared",
+            status: "live",
+            definition,
+            outputSchema: { type: "object" },
+          },
+        ],
+      },
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-palette-item-automation:polite-follow-up@2-add"));
+    expect(rootOrder()).toHaveLength(5);
+    expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
+  });
+
+  it("sets a skill step's model from the models served", async () => {
+    const { api, sent } = setup();
+    api.on("GET /api/ops/models", () => ({
+      models: [
+        { id: "claude-haiku-4-5", label: "Fast", inputPerMtok: "1.00", outputPerMtok: "5.00" },
+      ],
+    }));
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-step-find-select"));
+    const select = await screen.findByTestId("builder-inspector-model");
+    await screen.findByText(/Fast · claude-haiku-4-5/);
+    await user.selectOptions(select, "claude-haiku-4-5");
+    await user.click(screen.getByTestId("builder-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const saved = AgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
+    const find = saved.workflows[0]?.workflow.steps[0];
+    expect(find?.kind === "skill" ? find.model : null).toEqual({ id: "claude-haiku-4-5" });
   });
 });

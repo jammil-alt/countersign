@@ -32,8 +32,9 @@ import { agent, run, skill, skillVersion, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
-import { syncQuantityLater } from "./billing";
 import { agentSummary, versionSummary } from "./mappers";
+// v0.12 W2-B
+import { builderAutomations } from "./ops-automations";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 
@@ -163,8 +164,6 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
     const updated = await retire(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
-    // A retired agent is no longer in the base fee (billing).
-    syncQuantityLater(ctx, updated.tenantId);
     return { agent: agentSummary(updated) };
   });
 
@@ -273,6 +272,14 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         name: c.manifest.name,
         icon: c.manifest.icon || null,
       })),
+      // v0.12 W2-B: automations a use step can pin (ARCHITECTURE §10.7).
+      automations: await builderAutomations(tx, {
+        tenantId: row.tenantId,
+        tenantIds: ctx.tenantIds,
+        bundle: latest?.bundle ?? null,
+        skills: Object.fromEntries([...skills.values()].map((s) => [s.ref, s.definition])),
+        platform,
+      }),
     };
   });
 

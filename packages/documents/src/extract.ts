@@ -6,21 +6,27 @@
 
 import type { ContentStore } from "@countersign/connectors";
 import {
+  Decimal,
   type InvoiceExtraction,
   InvoiceExtraction as InvoiceExtractionSchema,
   isExtractable,
   RECORD_INVOICE_TOOL,
+  redactCardNumbersDeep,
   toNumeric,
 } from "@countersign/core";
 import { type Db, docExtraction, docLine, document, inboxItem, withTenant } from "@countersign/db";
-import {
-  type CallToolResult,
-  DEFAULT_MODELS,
-  type LlmCallRecord,
-  type LlmClient,
-} from "@countersign/llm";
-import { emit } from "@countersign/senses";
+import { DEFAULT_MODELS, type LlmCallRecord, type LlmClient } from "@countersign/llm";
+import { type EmittedEvents, emit } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
+// v0.14 W4-B: long PDFs are read in parts.
+import {
+  mergeExtractions,
+  PDF_MAX_PART_BYTES,
+  PDF_PAGES_PER_CALL,
+  PdfSplitError,
+  partRequest,
+  splitPdf,
+} from "./split";
 import { DocumentError, type DocumentRow } from "./store";
 import { validateTotals } from "./validate";
 
@@ -79,17 +85,20 @@ export function documentBlock(mimeType: string, data: string) {
  * The model call for one document: the same request (and so the same record/replay hash) for the
  * same bytes and model, whoever asks.
  */
-export function extractionCall(mimeType: string, bytes: Uint8Array, model?: string) {
+export function extractionCall(
+  mimeType: string,
+  bytes: Uint8Array,
+  model?: string,
+  // v0.14 W4-B: a part of a long PDF says which pages it is (split.ts); a whole file asks as before.
+  request: string = EXTRACTION_REQUEST,
+) {
   return {
     model: model ?? DEFAULT_MODELS.extraction,
     system: EXTRACTION_SYSTEM,
     messages: [
       {
         role: "user" as const,
-        content: [
-          documentBlock(mimeType, base64(bytes)),
-          { type: "text" as const, text: EXTRACTION_REQUEST },
-        ],
+        content: [documentBlock(mimeType, base64(bytes)), { type: "text" as const, text: request }],
       },
     ],
     tool: {
@@ -110,6 +119,8 @@ export interface ExtractInput {
   testRun?: boolean;
   /** Called with the model call's usage and cost (successes and failures), for the run's step. */
   onCall?: (record: LlmCallRecord) => void | Promise<void>;
+  /** Records the ids of the events it emits, for the caller to dispatch after commit (§8). */
+  collect?: EmittedEvents;
 }
 
 export interface ExtractResult {
@@ -158,9 +169,93 @@ async function markFailed(deps: DocumentsDeps, input: ExtractInput, message: str
         subjectId: input.documentId,
         payload: { documentId: input.documentId, error: message.slice(0, 500) },
       },
-      { testRun: input.testRun === true },
+      {
+        testRun: input.testRun === true,
+        ...(input.collect ? { collect: input.collect } : {}),
+      },
     );
   });
+}
+
+/** Input tokens as a step counts them: uncached, cache writes and cache reads. */
+function readTokensIn(record: LlmCallRecord): number {
+  const u = record.usage;
+  return u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens;
+}
+
+/** The call's cost at the column's 4 places (decimal, never a float); 0 when it has no price. */
+// DECISION: rounded half up to 4 places, as numeric(14,4) would store it; a model without a price
+// reads as 0, as on a step.
+function readCost(record: LlmCallRecord): string {
+  return new Decimal(record.costUsd ?? "0").toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toFixed(4);
+}
+
+// v0.14 W4-B: reading a long PDF in parts (split.ts, docs/plan.md §1.6 "Long PDFs").
+/** What a reading answers: the value and its record; `parts` when it was read in parts. */
+interface Reading {
+  value: InvoiceExtraction;
+  record: LlmCallRecord;
+  parts?: number;
+}
+
+function tooLong(error: unknown): never {
+  if (error instanceof PdfSplitError) throw new DocumentError("too_large", error.message);
+  throw error;
+}
+
+/** One record for several calls: usage, cost and time added up (decimal, never a float). */
+export function sumRecords(records: readonly LlmCallRecord[]): LlmCallRecord {
+  const [first] = records;
+  if (!first) throw new Error("no calls to add up");
+  const add = (f: (r: LlmCallRecord) => number) => records.reduce((n, r) => n + f(r), 0);
+  const priced = records.filter((r) => r.costUsd !== null);
+  return {
+    model: first.model,
+    ok: records.every((r) => r.ok),
+    usage: {
+      inputTokens: add((r) => r.usage.inputTokens),
+      outputTokens: add((r) => r.usage.outputTokens),
+      cacheWriteTokens: add((r) => r.usage.cacheWriteTokens),
+      cacheWrite1hTokens: add((r) => r.usage.cacheWrite1hTokens),
+      cacheReadTokens: add((r) => r.usage.cacheReadTokens),
+    },
+    costUsd:
+      priced.length === 0
+        ? null
+        : priced.reduce((d, r) => d.plus(r.costUsd ?? "0"), new Decimal(0)).toFixed(6),
+    durationMs: add((r) => r.durationMs),
+    stopReason: records[records.length - 1]?.stopReason ?? null,
+    ...(first.label !== undefined ? { label: first.label } : {}),
+  };
+}
+
+/**
+ * Reads each part with its own call, one after another (each call reported to `onCall` as it is
+ * made, so a failure part-way still counts what was spent), and merges the answers.
+ */
+async function readParts(
+  deps: DocumentsDeps,
+  input: ExtractInput,
+  doc: DocumentRow,
+  parts: Awaited<ReturnType<typeof splitPdf>> & object,
+): Promise<Reading> {
+  const pages = parts[parts.length - 1]?.lastPage ?? 0;
+  const answers: { part: (typeof parts)[number]; value: InvoiceExtraction }[] = [];
+  const records: LlmCallRecord[] = [];
+  for (const part of parts) {
+    const r = await deps.llm.callTool({
+      ...extractionCall(doc.mimeType, part.bytes, input.model, partRequest(part, pages)),
+      label: `docs.extract:${doc.id}:${part.firstPage}-${part.lastPage}`,
+    });
+    await input.onCall?.(r.record);
+    records.push(r.record);
+    answers.push({ part, value: r.value });
+  }
+  return {
+    value: mergeExtractions(answers, pages),
+    record: sumRecords(records),
+    parts: parts.length,
+  };
 }
 
 /** Reads a document with the model and records what it read. */
@@ -169,14 +264,24 @@ export async function extractDocument(
   input: ExtractInput,
 ): Promise<ExtractResult> {
   const doc = await loadForExtraction(deps, input);
-  let answer: CallToolResult<InvoiceExtraction>;
+  let answer: Reading;
   try {
     const stored = await deps.content.get(input.tenantId, doc.sha256);
     if (!stored) throw new DocumentError("not_found", "the document's file is missing");
-    answer = await deps.llm.callTool({
-      ...extractionCall(doc.mimeType, stored.bytes, input.model),
-      label: `docs.extract:${doc.id}`,
-    });
+    // v0.14 W4-B: a PDF longer than one call reads (or whose pages the store couldn't count) is
+    // split, read part by part, and merged; every other file goes whole, as before.
+    const long =
+      doc.mimeType === "application/pdf" &&
+      (doc.pageCount === null ||
+        doc.pageCount > PDF_PAGES_PER_CALL ||
+        stored.bytes.length > PDF_MAX_PART_BYTES);
+    const parts = long ? await splitPdf(stored.bytes).catch(tooLong) : null;
+    answer = parts
+      ? await readParts(deps, input, doc, parts)
+      : await deps.llm.callTool({
+          ...extractionCall(doc.mimeType, stored.bytes, input.model),
+          label: `docs.extract:${doc.id}`,
+        });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const record = (error as { result?: { record?: LlmCallRecord } }).result?.record;
@@ -184,8 +289,10 @@ export async function extractDocument(
     await markFailed(deps, input, message);
     throw error;
   }
-  await input.onCall?.(answer.record);
-  const x = answer.value;
+  // v0.14 W4-B: a split reading reported each part's call as it was made.
+  if (answer.parts === undefined) await input.onCall?.(answer.record);
+  // A card number printed on a document is never stored (PCI DSS 3.3, docs/plan.md §1.35).
+  const x = redactCardNumbersDeep(answer.value);
   const check = validateTotals(x);
   const status = check.ok ? "extracted" : "needs_review";
   const model = answer.record.model;
@@ -209,6 +316,12 @@ export async function extractDocument(
         totalsMatch: check.ok,
         problems: check.problems,
         confidence: x.confidence.toFixed(3),
+        // v0.12 W1-H: what the reading cost, written once with the row (ARCHITECTURE §13). A
+        // background reading's (no agent version) is the client's usage (usage_platform_daily);
+        // an agent's is also on its step, and the rollup counts it there only.
+        tokensIn: readTokensIn(answer.record),
+        tokensOut: answer.record.usage.outputTokens,
+        costUsd: readCost(answer.record),
       })
       .returning({ id: docExtraction.id });
     if (!row) throw new Error("extraction insert returned nothing");
@@ -270,7 +383,10 @@ export async function extractDocument(
           totalsValid: check.ok,
         },
       },
-      { testRun: input.testRun === true },
+      {
+        testRun: input.testRun === true,
+        ...(input.collect ? { collect: input.collect } : {}),
+      },
     );
     return {
       documentId: doc.id,

@@ -1,6 +1,7 @@
 // Record pages (docs/plan.md §1.16): what a source id names (invariant 10), for the portal (its own
-// client) and the back office (one served client at a time), plus the back office's view of a
-// client's documents through the documents routes' views and 5-minute links. Every query names
+// client) and the back office (one served client at a time), plus the back office's lists of a
+// client's records (./record-list) and documents, through the documents routes' views and 5-minute
+// links. Every query names
 // the client as well as relying on RLS (invariant 1).
 
 import { routes, VENDOR_RECENT_TRANSACTIONS } from "@countersign/core";
@@ -9,6 +10,7 @@ import {
   document,
   rawRecord,
   type Tx,
+  tenant,
   transaction,
   transactionLine,
   vendor,
@@ -17,6 +19,8 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, iso, mount, notFound } from "../http";
 import { documentDetail, recentDocuments } from "./documents";
+import { isSandbox } from "./ops-clients";
+import { listRecords } from "./record-list";
 
 type TxnRow = typeof transaction.$inferSelect;
 
@@ -184,9 +188,28 @@ export function recordRouteHandlers(app: Hono<AppEnv>): void {
     return { record };
   });
 
+  // v0.12 W1-H: the portal's list of the client's own records (docs/plan.md §1.43): the back
+  // office's list, in the portal's one-client transaction, naming the client in every query.
+  mount(app, routes.portalRecords, async ({ tx, tenantIds, services, query }) =>
+    listRecords(tx, services.platform, tenantIds[0] as string, query),
+  );
+
+  mount(app, routes.opsClientRecords, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return listRecords(ctx.tx, ctx.services.platform, ctx.params.id, ctx.query);
+  });
+
   mount(app, routes.opsClientDocuments, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return { documents: await recentDocuments(ctx.tx, ctx.params.id, ctx.query.limit ?? 50) };
+    const [t] = await ctx.tx
+      .select({ settings: tenant.settings })
+      .from(tenant)
+      .where(eq(tenant.id, ctx.params.id));
+    if (!t) throw notFound("client");
+    return {
+      documents: await recentDocuments(ctx.tx, ctx.params.id, ctx.query.limit ?? 50),
+      sandbox: isSandbox(t.settings),
+    };
   });
 
   mount(app, routes.opsClientDocument, async (ctx) => {

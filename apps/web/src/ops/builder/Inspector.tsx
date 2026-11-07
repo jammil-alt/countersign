@@ -26,6 +26,8 @@ import {
   type Workflow,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { apiRoutes } from "../../api/routes";
+import { useApi } from "../../api/useApi";
 import { Icon } from "../../ui/icons";
 import { Badge, Button, cx } from "../../ui/primitives";
 import { KIND_LABEL } from "../workflow/describe";
@@ -199,12 +201,15 @@ function NodeErrors({ errors, node }: { errors: readonly ValidationError[]; node
 const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
   fork: "Paths are checked top to bottom. A run takes the first path whose rules match, then continues after the fork.",
   for_each: "Runs the steps inside once for each item of a list.",
+  // v0.12 W2-B
+  use_automation:
+    "Runs a saved chain of steps as one step. Its steps are edited in the automation, not here.",
   person: "Waits for a person in the inbox before the run goes on.",
 };
 
 function stepNumber(workflow: Workflow, id: string): string {
   const i = workflow.steps.findIndex((s) => s.id === id);
-  return i === -1 ? "Step" : `Step ${i + 2}`;
+  return i === -1 ? "Step" : `Step ${i + 1}`;
 }
 
 function StepInspector(props: InspectorProps & { step: Step }) {
@@ -235,6 +240,9 @@ function StepInspector(props: InspectorProps & { step: Step }) {
 
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
 
+      {step.kind === "skill" ? (
+        <ModelRow step={step} ctx={props.ctx} fieldErrors={fieldErrors} set={set} />
+      ) : null}
       {step.kind === "skill" || step.kind === "action" ? (
         <ApprovalSection {...props} set={set} />
       ) : null}
@@ -257,6 +265,63 @@ function StepInspector(props: InspectorProps & { step: Step }) {
 }
 
 type SetStep = (key: string, fn: (s: Step) => Step) => void;
+
+// v0.13 W2-H: the model a skill step runs on (ARCHITECTURE §10.11), from GET /api/ops/models,
+// over the skill's own (a task skill) or the agent's (an agent skill). A tool skill runs code and
+// takes no model, so the row isn't offered for one.
+function ModelRow({
+  step,
+  ctx,
+  fieldErrors,
+  set,
+}: {
+  step: Extract<Step, { kind: "skill" }>;
+  ctx: TypingContext;
+  fieldErrors: FieldErrors;
+  set: SetStep;
+}) {
+  const skill = lookupSkill(step.skill, ctx);
+  const models = useApi(apiRoutes.opsModels, skill?.mode === "tool" ? null : {});
+  if (skill?.mode === "tool") return null;
+  const options = models.data?.models ?? [];
+  const current = step.model?.id ?? "";
+  const fallback = skill?.mode === "task" ? "The skill's model" : "The agent's model";
+  return (
+    <Row
+      label="Model"
+      field="model"
+      errors={fieldErrors}
+      hint={
+        models.error
+          ? "Couldn't load the models; the step keeps its own."
+          : "Price per million tokens, in and out."
+      }
+    >
+      <SmallSelect
+        data-field="model"
+        data-testid="builder-inspector-model"
+        value={current}
+        onChange={(e) => {
+          const id = e.target.value;
+          set("model", (s) => {
+            const { model: _m, ...rest } = s as Extract<Step, { kind: "skill" }>;
+            return (id ? { ...rest, model: { id } } : rest) as Step;
+          });
+        }}
+      >
+        <option value="">{fallback}</option>
+        {current && !options.some((m) => m.id === current) ? (
+          <option value={current}>{current}</option>
+        ) : null}
+        {options.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label} · {m.id} · ${m.inputPerMtok} / ${m.outputPerMtok}
+          </option>
+        ))}
+      </SmallSelect>
+    </Row>
+  );
+}
 
 function KindFields(
   props: InspectorProps & {
@@ -356,6 +421,7 @@ function KindFields(
               <PersonPicker
                 field="assignee"
                 testId="builder-person-assignee"
+                allowLead
                 value={step.assignee}
                 members={props.members}
                 onChange={(v) =>
@@ -520,6 +586,49 @@ function KindFields(
           </Row>
         </>
       );
+    // v0.12 W2-B: a read-only card for the automation, and its input as a form from its schema
+    // (docs/plan.md §1.45). The automation's own steps are not in the bundle.
+    case "use_automation": {
+      const automation = props.data.catalog.automations?.find((a) => a.ref === step.automation);
+      return (
+        <>
+          <Row label="Automation" field="automation" errors={fieldErrors}>
+            <p
+              className="reference text-ink"
+              data-field="automation"
+              data-testid="builder-automation"
+              tabIndex={-1}
+            >
+              {automation ? automation.name : step.automation}
+              <span className="font-sans text-ink-muted">
+                {" "}
+                · v{automation ? automation.version : (step.automation.split("@")[1] ?? "?")}
+              </span>
+            </p>
+          </Row>
+          {automation?.description ? (
+            <p className="text-sm text-ink-muted">{automation.description}</p>
+          ) : null}
+          {automation ? (
+            <p className="text-sm text-ink-muted">
+              {automation.definition.steps.length}{" "}
+              {automation.definition.steps.length === 1 ? "step" : "steps"}
+            </p>
+          ) : null}
+          <Section title="Input">
+            <SchemaForm
+              schema={automation?.definition.input}
+              value={step.input}
+              onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+              paths={paths}
+              prefix="input"
+              errors={fieldErrors}
+              testPrefix="builder-input"
+            />
+          </Section>
+        </>
+      );
+    }
     case "stop":
       return (
         <Row label="End the run as" field="status" errors={fieldErrors}>
@@ -551,6 +660,7 @@ function PersonPicker({
   field,
   testId,
   allowDefault,
+  allowLead,
 }: {
   value: string | undefined;
   onChange(value: string | undefined): void;
@@ -558,10 +668,13 @@ function PersonPicker({
   field: string;
   testId: string;
   allowDefault?: string;
+  /** v0.12 W1-C: a person step may be a lead check, for the client's lead. */
+  allowLead?: boolean;
 }) {
   const known =
     value === undefined ||
     ["client_admin", "client_user", "operator"].includes(value) ||
+    (allowLead === true && value === "lead") ||
     members.some((m) => m.userId === value);
   return (
     <SmallSelect
@@ -574,6 +687,7 @@ function PersonPicker({
       <option value="client_admin">Client admin</option>
       <option value="client_user">Client user</option>
       <option value="operator">Operator</option>
+      {allowLead ? <option value="lead">The client's lead</option> : null}
       {members.map((m) => (
         <option key={m.userId} value={m.userId}>
           {m.name ?? m.email}
@@ -1159,7 +1273,9 @@ function triggerPaths(workflow: Workflow, ctx: TypingContext): PathOption[] {
   return pathsAt(probe, "trigger-probe", ctx);
 }
 
-const DEFAULT_ON: Record<TriggerOn["type"], TriggerOn> = {
+// v0.12 W2-E: the builder offers the first four kinds; webhook, message and handoff triggers are
+// written in the bundle for now (backend first, docs/plan.md §1.48).
+const DEFAULT_ON: Record<"event" | "schedule" | "manual" | "command", TriggerOn> = {
   event: { type: "event", event: "document.received" },
   schedule: { type: "schedule", cron: "0 7 * * 1-5" },
   manual: { type: "manual", input: { type: "object", properties: {} } },
@@ -1175,7 +1291,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
   return (
     <div className="flex flex-col gap-4">
       <Heading
-        eyebrow="Step 1 · Trigger"
+        eyebrow="Trigger"
         title="How it starts"
         intro="One trigger starts each run of this workflow."
       />
@@ -1188,7 +1304,10 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           onChange={(e) => {
             const type = e.target.value as TriggerOn["type"];
             const first = events[0]?.type;
-            const next = type === "event" && first ? { type, event: first } : DEFAULT_ON[type];
+            const next =
+              type === "event" && first
+                ? { type, event: first }
+                : DEFAULT_ON[type as keyof typeof DEFAULT_ON];
             onTrigger(next as TriggerOn, "trigger:type");
           }}
         >
@@ -1196,6 +1315,16 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           <option value="schedule">On a schedule</option>
           <option value="manual">By hand</option>
           <option value="command">From a thread command</option>
+          {/* v0.12 W2-E: shown when the bundle has one; set in the bundle for now. */}
+          <option value="webhook" disabled>
+            When a webhook arrives
+          </option>
+          <option value="message" disabled>
+            When someone sends a message
+          </option>
+          <option value="handoff" disabled>
+            When another agent finishes
+          </option>
         </SmallSelect>
       </Row>
       {on.type === "event" ? (

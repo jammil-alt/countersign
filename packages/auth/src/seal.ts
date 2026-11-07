@@ -15,7 +15,8 @@ const decoder = new TextDecoder();
 /** Shorter than this and the password is treated as missing: sign-in is misconfigured. */
 export const MIN_COOKIE_PASSWORD_LENGTH = 32;
 
-export type SealPurpose = "session" | "state";
+/** `mcp-confirm`: the two-step write tokens of the MCP server (apps/api/src/mcp). */
+export type SealPurpose = "session" | "state" | "mcp-confirm";
 
 const FORMAT = "v1";
 

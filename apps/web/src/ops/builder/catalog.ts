@@ -40,6 +40,9 @@ export function typingContext(data: BuilderData): TypingContext {
   const tools: Record<string, ToolSpec> = {};
   for (const t of data.catalog.tools) tools[t.id] = t;
   const events: Record<string, EventTypeSpec> = {};
+  // v0.12 W2-B: the automations use steps pin, as the server validates with them.
+  const automations: NonNullable<TypingContext["automations"]> = {};
+  for (const a of data.catalog.automations ?? []) automations[a.ref] = a.definition;
   for (const e of data.events) {
     events[e.type] = {
       type: e.type,
@@ -49,7 +52,7 @@ export function typingContext(data: BuilderData): TypingContext {
       ...(e.subjectType ? { subjectType: e.subjectType } : {}),
     };
   }
-  return { skills, tools, events };
+  return { skills, tools, events, automations };
 }
 
 /**
@@ -190,10 +193,22 @@ export function paletteSections(bundle: AgentBundle, data: BuilderData): Palette
         : 0,
     );
 
+  // UI-2c: the automations a use step can pin (prototype `#O6-Builder`, "Automations").
+  const automations = (data.catalog.automations ?? []).map(
+    (a): PaletteItem => ({
+      type: "automation",
+      key: `automation:${a.ref}`,
+      title: a.name,
+      detail: `${a.ref}${a.source === "client" ? " · this client's" : ""}`,
+      ref: a.ref,
+    }),
+  );
+
   return [
     { key: "triggers", label: "Triggers", items: triggers },
+    { key: "automations", label: "Automations", items: automations },
     { key: "skills", label: "Skills", items: skills },
-    { key: "actions", label: "Actions · change your tools", items: actions },
+    { key: "actions", label: "Change a tool", items: actions },
     {
       key: "people",
       label: "People",

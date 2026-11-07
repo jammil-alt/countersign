@@ -6,8 +6,12 @@
 // exactly like no cookie. Memberships are not in it; they are read per request, so removing
 // someone from a client takes effect at once.
 //
-// Lifetime:
-//   - `exp`: an absolute limit, 30 days after sign-in.
+// Lifetime (docs/plan.md §1.35):
+//   - `exp`: an absolute limit, 12 hours after sign-in (SESSION_MAX_AGE_SEC in core). A cookie
+//     from before that limit (30 days) ends 12 hours after its own sign-in too.
+//   - `lat` ("last active"): the last request the person made themselves (the app sends
+//     SESSION_ACTIVITY_HEADER). After SESSION_IDLE_SEC without one, the session ends. A cookie
+//     without `lat` counts its last refresh as activity.
 //   - `rat` ("refresh at"): 5 minutes after the last refresh. After it, the refresh token is
 //     exchanged with WorkOS before the request is admitted, so a session ended in WorkOS stops
 //     working here within five minutes.
@@ -17,6 +21,11 @@
 //     cookie; the first request's response already gave the browser the new one.
 //   - WorkOS unreachable (network or 5xx): admitted for up to OUTAGE_GRACE_SEC past `rat`.
 
+import {
+  SESSION_MAX_AGE_SEC as MAX_AGE,
+  SESSION_ACTIVITY_WINDOW_SEC,
+  SESSION_IDLE_SEC,
+} from "@countersign/core";
 import { z } from "zod";
 import { clearCookie, serializeCookie } from "../cookies";
 import { seal, unseal } from "../seal";
@@ -26,11 +35,13 @@ import { type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./cli
 export const SESSION_COOKIE = "__Host-cs_session";
 export const STATE_COOKIE = "__Host-cs_auth_state";
 
-export const SESSION_MAX_AGE_SEC = 30 * 24 * 60 * 60;
+export const SESSION_MAX_AGE_SEC = MAX_AGE;
+export const IDLE_TIMEOUT_SEC = SESSION_IDLE_SEC;
 export const REFRESH_INTERVAL_SEC = 5 * 60;
 export const RACE_GRACE_SEC = 60;
 export const OUTAGE_GRACE_SEC = 15 * 60;
-export const STATE_MAX_AGE_SEC = 10 * 60;
+/** How long a sign-in may take, start to callback: long enough for an emailed code (plan §1.35). */
+export const STATE_MAX_AGE_SEC = 30 * 60;
 
 export const SessionPayload = z.object({
   v: z.literal(1),
@@ -48,6 +59,8 @@ export const SessionPayload = z.object({
   iat: z.int(),
   rat: z.int(),
   exp: z.int(),
+  /** Last activity (seconds); absent on cookies from before the idle limit. */
+  lat: z.int().optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayload>;
 
@@ -84,8 +97,17 @@ export function newSession(input: NewSession, now: number): SessionPayload {
     iat: now,
     rat: now + REFRESH_INTERVAL_SEC,
     exp: now + SESSION_MAX_AGE_SEC,
+    lat: now,
   };
 }
+
+/** When the session ends whatever happens: its own `exp`, or 12 hours after sign-in. */
+export const sessionEnds = (session: SessionPayload): number =>
+  Math.min(session.exp, session.iat + SESSION_MAX_AGE_SEC);
+
+/** The session's last activity; an old cookie without `lat` counts its last refresh. */
+export const lastActive = (session: SessionPayload): number =>
+  session.lat ?? session.rat - REFRESH_INTERVAL_SEC;
 
 export const sealSession = (session: SessionPayload, password: string) =>
   seal(session, password, "session");
@@ -101,6 +123,20 @@ export async function openSession(
 
 export const sealState = (state: StatePayload, password: string) => seal(state, password, "state");
 
+// DECISION: the one automatic restart of a failed callback (plan §1.35, "Sign-in callback") is
+// marked in the `state` WorkOS echoes back, as `2.` before the nonce. The callback reads it from
+// its own URL, so a browser that drops the state cookie still can't loop. A nonce is base64url,
+// so it never holds a dot. The mark is part of the nonce kept in the state cookie, so the CSRF
+// check (state cookie equals `state`, unexpired) is unchanged.
+const RESTART_MARK = "2.";
+
+/** The nonce for a sign-in started again by the callback. */
+export const restartNonce = (nonce: string) => `${RESTART_MARK}${nonce}`;
+
+/** Whether a callback's `state` comes from a sign-in the callback already started again. */
+export const isRestartState = (stateParam: string) =>
+  stateParam.slice(0, RESTART_MARK.length) === RESTART_MARK;
+
 export async function openState(sealed: string, password: string): Promise<StatePayload | null> {
   const parsed = StatePayload.safeParse(await unseal(sealed, password, "state"));
   return parsed.success ? parsed.data : null;
@@ -110,14 +146,29 @@ export type SessionResolution =
   | { readonly status: "valid"; readonly session: SessionPayload; readonly rotated: boolean }
   | { readonly status: "invalid"; readonly reason: string };
 
-/** Decide whether a session admits this request, refreshing it with WorkOS when it is due. */
+/**
+ * Decide whether a session admits this request, refreshing it with WorkOS when it is due.
+ * `active`: the person made this request themselves (SESSION_ACTIVITY_HEADER), so it moves `lat`.
+ */
 export async function resolveSession(
   session: SessionPayload,
   now: number,
   workos: Pick<WorkOSClient, "refresh">,
+  active = false,
 ): Promise<SessionResolution> {
-  if (now >= session.exp) return { status: "invalid", reason: "session expired" };
-  if (now < session.rat) return { status: "valid", session, rotated: false };
+  if (now >= sessionEnds(session)) return { status: "invalid", reason: "session expired" };
+  if (now - lastActive(session) >= IDLE_TIMEOUT_SEC) {
+    return { status: "invalid", reason: "signed out after 30 minutes without activity" };
+  }
+  // DECISION: `lat` is written at most once a minute, so an active person's every click doesn't
+  // re-seal the cookie; the idle limit is 30 minutes, so a minute's slack changes nothing.
+  const touched =
+    active && now - lastActive(session) >= SESSION_ACTIVITY_WINDOW_SEC
+      ? { ...session, lat: now }
+      : session;
+  if (now < session.rat) {
+    return { status: "valid", session: touched, rotated: touched !== session };
+  }
 
   let refreshed: WorkOSAuthentication;
   try {
@@ -126,7 +177,9 @@ export async function resolveSession(
     const unreachable =
       !(error instanceof WorkOSError) || error.status === null || error.status >= 500;
     const grace = unreachable ? OUTAGE_GRACE_SEC : RACE_GRACE_SEC;
-    if (now < session.rat + grace) return { status: "valid", session, rotated: false };
+    if (now < session.rat + grace) {
+      return { status: "valid", session: touched, rotated: touched !== session };
+    }
     return {
       status: "invalid",
       reason: unreachable ? "WorkOS could not refresh the session" : "WorkOS ended the session",
@@ -141,7 +194,7 @@ export async function resolveSession(
     status: "valid",
     rotated: true,
     session: {
-      ...session,
+      ...touched,
       rt: refreshed.refreshToken,
       sid: refreshed.sessionId ?? session.sid,
       rat: now + REFRESH_INTERVAL_SEC,
@@ -150,7 +203,7 @@ export async function resolveSession(
 }
 
 export const sessionCookie = (sealed: string, session: SessionPayload, now: number) =>
-  serializeCookie(SESSION_COOKIE, sealed, { maxAgeSec: session.exp - now });
+  serializeCookie(SESSION_COOKIE, sealed, { maxAgeSec: sessionEnds(session) - now });
 export const clearSessionCookie = () => clearCookie(SESSION_COOKIE);
 export const stateCookie = (sealed: string) =>
   serializeCookie(STATE_COOKIE, sealed, { maxAgeSec: STATE_MAX_AGE_SEC });

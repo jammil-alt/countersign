@@ -15,6 +15,14 @@ type AesGcmParams = {
   tagLength?: number;
 };
 
+/** v0.12 bankfeed: a P-256 public key as a JWK (Plaid's webhook verification keys). */
+export interface EcPublicJwk {
+  kty: "EC";
+  crv: "P-256";
+  x: string;
+  y: string;
+}
+
 interface SubtleCryptoLike {
   digest(algorithm: "SHA-256", data: Uint8Array): Promise<ArrayBuffer>;
   importKey(
@@ -24,11 +32,25 @@ interface SubtleCryptoLike {
     extractable: boolean,
     usages: ("encrypt" | "decrypt" | "sign" | "verify")[],
   ): Promise<CryptoKeyLike>;
+  // v0.12 bankfeed: ES256 (ECDSA P-256 with SHA-256), to verify Plaid's webhook JWTs.
+  importKey(
+    format: "jwk",
+    keyData: EcPublicJwk,
+    algorithm: { name: "ECDSA"; namedCurve: "P-256" },
+    extractable: boolean,
+    usages: "verify"[],
+  ): Promise<CryptoKeyLike>;
   encrypt(algorithm: AesGcmParams, key: CryptoKeyLike, data: Uint8Array): Promise<ArrayBuffer>;
   decrypt(algorithm: AesGcmParams, key: CryptoKeyLike, data: Uint8Array): Promise<ArrayBuffer>;
   sign(algorithm: "HMAC", key: CryptoKeyLike, data: Uint8Array): Promise<ArrayBuffer>;
   verify(
     algorithm: "HMAC",
+    key: CryptoKeyLike,
+    signature: Uint8Array,
+    data: Uint8Array,
+  ): Promise<boolean>;
+  verify(
+    algorithm: { name: "ECDSA"; hash: "SHA-256" },
     key: CryptoKeyLike,
     signature: Uint8Array,
     data: Uint8Array,
@@ -98,9 +120,16 @@ export function toBase64(bytes: Uint8Array): string {
   return out;
 }
 
+/** The text without its trailing `=`s; linear in the length (no regular expression). */
+function trimPadding(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 61) end--;
+  return text.slice(0, end);
+}
+
 /** Accepts standard and URL-safe base64, with or without padding; throws on anything else. */
 export function fromBase64(input: string): Uint8Array {
-  const s = input.trim().replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+  const s = trimPadding(input.trim().replace(/-/g, "+").replace(/_/g, "/"));
   if (s.length % 4 === 1) throw new Error("invalid base64");
   const out = new Uint8Array(Math.floor((s.length * 3) / 4));
   let bits = 0;
@@ -121,7 +150,7 @@ export function fromBase64(input: string): Uint8Array {
 
 /** URL-safe base64 without padding (OAuth state, tokens in URLs). */
 export function toBase64Url(bytes: Uint8Array): string {
-  return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return trimPadding(toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_"));
 }
 
 export function fromBase64Url(input: string): Uint8Array {

@@ -62,6 +62,7 @@ describe.skipIf(!h)("onboarding", () => {
           name: "Cab owner",
           role: "client_admin",
           signedIn: null,
+          canSign: true,
         },
         // The dev sign-in sends nothing: the user is in its list at once.
         email: { status: "not_sent", reason: "dev_sign_in" },
@@ -214,7 +215,8 @@ describe.skipIf(!h)("onboarding", () => {
         404,
       );
       const [a] = await H.t.db.select().from(tenant).where(eq(tenant.id, H.A.tenantId));
-      expect(a?.settings).not.toHaveProperty("approvals");
+      // The shared clients carry only the undo window (v0.12 W1-D); no approver was set.
+      expect(a?.settings.approvals).toEqual({ undoSeconds: 0 });
     });
   });
 

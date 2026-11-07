@@ -1,41 +1,57 @@
 // `/ops/clients/:clientId/documents` and `…/documents/:documentId`: the back office's view of a
 // client's documents (plan §1.16): the ones that arrived (uploaded, forwarded, from its tools),
 // newest first, and each document as the client sees it, with a fresh 5-minute link to the
-// original each time it is opened.
+// original each time it is opened. In the Sandbox client, which has no client people, the operator
+// uploads its documents here with the portal's upload.
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
+import { sandboxUploadPath, uploadFiles } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
 import { documentStatus, money, sourceLabel } from "../../portal/documents";
+import { DropZone } from "../../portal/screens/Upload";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
-import { useSession } from "../../session/session";
-import { Badge, EmptyState, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { Badge, EmptyState, ErrorNotice, Loading } from "../../ui/primitives";
+import { ClientFrame } from "../client/ClientFrame";
 
 export function OpsDocumentsScreen() {
   const { clientId = "" } = useParams();
-  const session = useSession();
-  const clientName = session.tenants.find((t) => t.id === clientId)?.name ?? "This client";
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientDocuments, {
     params: { id: clientId },
     query: { limit: 200 },
   });
   const base = `/ops/clients/${clientId}`;
   return (
-    <div>
-      <PageHeader
-        title="Documents"
-        subtitle={
-          data
-            ? `${clientName} · ${data.documents.length} ${data.documents.length === 1 ? "document" : "documents"}, newest first`
-            : clientName
-        }
-      />
+    <ClientFrame
+      clientId={clientId}
+      intro={
+        data
+          ? `${data.documents.length} ${data.documents.length === 1 ? "document" : "documents"}, newest first`
+          : undefined
+      }
+    >
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+      {data?.sandbox ? (
+        <section className="mb-6 max-w-xl" data-testid="ops-sandbox-upload">
+          <p className="mb-2 text-sm text-ink-muted">
+            Your test client has no client people, so you upload its invoices here. Once read, each
+            one can be picked as a test run's input.
+          </p>
+          <DropZone
+            testId="ops-upload"
+            upload={(files) => uploadFiles(files, undefined, sandboxUploadPath(clientId))}
+            documentHref={(id) => `${base}/documents/${id}`}
+            onUploaded={reload}
+          />
+        </section>
+      ) : null}
       {data && data.documents.length === 0 ? (
         <EmptyState>
-          No documents yet. They arrive when the client uploads or forwards an invoice.
+          {data.sandbox
+            ? "No documents yet. Upload an invoice above."
+            : "No documents yet. They arrive when the client uploads or forwards an invoice."}
         </EmptyState>
       ) : null}
       {data && data.documents.length > 0 ? (
@@ -94,7 +110,7 @@ export function OpsDocumentsScreen() {
           </div>
         </div>
       ) : null}
-    </div>
+    </ClientFrame>
   );
 }
 
@@ -104,7 +120,7 @@ export function OpsDocumentScreen() {
   const params = { id: clientId, documentId };
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientDocument, { params });
   const reading = data?.document.status === "stored" || data?.document.status === "extracting";
-  usePoll(reload, reading, 3_000);
+  usePoll(reload, reading, 3_000, loading);
   const base = `/ops/clients/${clientId}`;
 
   async function openOriginal() {
@@ -132,6 +148,7 @@ export function OpsDocumentScreen() {
           surface="ops"
           onOpenOriginal={() => void openOriginal()}
           transactionHref={(t) => `${base}/records/${t}`}
+          documentHref={(d) => `${base}/documents/${d}`}
         />
       ) : null}
     </div>

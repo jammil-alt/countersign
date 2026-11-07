@@ -32,6 +32,7 @@ import {
 import { and, count, desc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import { mailerFromEnv } from "../notify/mailer";
 
 type TenantRow = typeof tenant.$inferSelect;
 
@@ -92,6 +93,7 @@ async function membersOf(
       name: appUser.name,
       role: membership.role,
       workosUserId: appUser.workosUserId,
+      canSign: membership.canSign,
     })
     .from(membership)
     .innerJoin(appUser, eq(appUser.id, membership.userId))
@@ -108,6 +110,7 @@ async function membersOf(
     name: r.name,
     role: r.role,
     signedIn: options.signIns ? r.workosUserId !== null : null,
+    canSign: r.canSign,
   }));
 }
 
@@ -125,7 +128,12 @@ function emailOf(delivery: InviteDelivery): InviteResult["email"] {
 export async function inviteToClient(
   ctx: Pick<HandlerCtx<RouteSpec>, "tx" | "services" | "afterCommit">,
   tenantId: string,
-  input: { email: string; name?: string | undefined; role: InvitableRole },
+  input: {
+    email: string;
+    name?: string | undefined;
+    role: InvitableRole;
+    canSign?: boolean | undefined;
+  },
   options: { surface: "ops" | "portal" },
 ): Promise<InviteResult> {
   const { tx } = ctx;
@@ -161,7 +169,12 @@ export async function inviteToClient(
   } else if (name && !existing?.name) {
     await tx.update(appUser).set({ name }).where(eq(appUser.id, userId));
   }
-  await tx.insert(membership).values({ tenantId, userId, role: input.role });
+  // v0.12 W1-D: a client admin always signs; a client user may be invited as a viewer.
+  if (input.role === "client_admin" && input.canSign === false) {
+    throw new HttpError(422, "admin_signs", "a client admin always signs");
+  }
+  const canSign = input.role === "client_admin" ? true : input.canSign !== false;
+  await tx.insert(membership).values({ tenantId, userId, role: input.role, canSign });
 
   const signIns = knowsSignIns(ctx);
   const result: InviteResult = {
@@ -171,6 +184,7 @@ export async function inviteToClient(
       name: name ?? existing?.name ?? null,
       role: input.role,
       signedIn: signIns ? !!existing?.workosUserId : null,
+      canSign,
     },
     email: { status: "failed", reason: "not_attempted" },
   };
@@ -484,8 +498,11 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
       client: { id: t.id, name: t.name, timezone: t.timezone },
       approvals: approvalsOf(t.settings),
       notifications: notificationsOf(t.settings),
-      // DECISION: notification emails are M11; until then the settings are stored only.
-      emailsOn: false,
+      // v0.12 W1-B: notification emails are sent (docs/plan.md §1.37) wherever Mezonas' sending
+      // key is set up.
+      // DECISION: `emailsOn` is the mailer's `isConfigured`: true with RESEND_API_KEY and
+      // RESEND_FALLBACK_DOMAIN, false (rows `skipped`, `not_configured`) without them.
+      emailsOn: mailerFromEnv(ctx.services.env).isConfigured,
     };
   });
 

@@ -2,21 +2,34 @@
 // Written through the superuser connection, which bypasses RLS, so the tests can then look at the
 // same rows through cs_worker's eyes.
 
-import type { AgentBundle } from "@countersign/core";
-import { sql } from "drizzle-orm";
+import type { AgentBundle, AutomationDefinition } from "@countersign/core";
+import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
+  accessRelease,
   agent,
   agentChange,
   agentGrant,
   agentVersion,
   appUser,
+  auditEvent,
+  automation,
+  automationVersion,
+  billingAgentDay,
+  billingAgentPrice,
   billingEvent,
+  billingStatement,
+  billingStatementLine,
   billingUsageReport,
+  builderSession,
+  builderTurn,
   connection,
   connectionChange,
+  connectorSetting,
   contact,
   contactChange,
+  conversation,
+  conversationChange,
   docExtraction,
   docLine,
   document,
@@ -30,9 +43,16 @@ import {
   membership,
   memoryNote,
   message,
+  modelCall,
+  notification,
+  organization,
+  organizationChange,
+  oversightDecision,
   rawRecord,
   reachOut,
+  receivable,
   run,
+  savedView,
   skill,
   skillVersion,
   stepRun,
@@ -40,12 +60,18 @@ import {
   tenantChange,
   tenantKey,
   tenantPack,
+  testCase,
+  testCaseResult,
+  testSuiteRun,
   thread,
+  threadRead,
   toolCall,
   transaction,
   transactionLine,
   usageDaily,
+  usagePlatformDaily,
   vendor,
+  weeklyTable,
 } from "./schema";
 
 export const BUNDLE: AgentBundle = {
@@ -88,12 +114,39 @@ export interface ClientFixture {
   connectionId: string;
   agentId: string;
   agentVersionId: string;
+  runId: string;
   skillVersionId: string;
   rawRecordId: string;
   documentId: string;
   extractionId: string;
   docLineId: string;
+  stepRunId: string;
+  threadId: string;
+  notificationId: string;
+  modelCallId: string;
+  receivableId: string;
+  automationId: string;
+  automationVersionId: string;
+  testCaseId: string;
+  suiteRunId: string;
+  testCaseResultId: string;
+  oversightDecisionId: string;
+  builderSessionId: string;
+  builderTurnId: string;
+  conversationId: string;
 }
+
+/** A shared automation's definition, as core's `Automation` (W2-B) will check it. */
+export const AUTOMATION_DEFINITION: AutomationDefinition = {
+  schemaVersion: 1,
+  slug: "lookup",
+  name: "Lookup",
+  description: "Looks a thing up",
+  input: { type: "object" },
+  output: {},
+  steps: [],
+  requires: { skills: [], tools: [], connectors: [] },
+};
 
 let counter = 0;
 
@@ -220,6 +273,47 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .insert(memoryNote)
     .values({ tenantId, agentId: a.id, note: "remember", sourceMessageId: m.id });
   await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
+  await db.insert(usagePlatformDaily).values({
+    tenantId,
+    day: "2026-11-03",
+    documents: 1,
+    tokensIn: 1200,
+    tokensOut: 300,
+    costUsd: "0.0123",
+  });
+  await db.insert(threadRead).values({ tenantId, threadId: th.id, userId: u.id });
+  const [mc] = await db
+    .insert(modelCall)
+    .values({
+      tenantId,
+      runId: r.id,
+      stepRunId: sr.id,
+      agentVersionId: av.id,
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      tokensIn: 100,
+      tokensOut: 20,
+      costUsd: "0.0040",
+      durationMs: 900,
+      stopReason: "end_turn",
+      bodyKey: `tenants/${tenantId}/model-calls/${sr.id}.json`,
+    })
+    .returning();
+  if (!mc) throw new Error("no model call");
+  const [nt] = await db
+    .insert(notification)
+    .values({
+      tenantId,
+      userId: u.id,
+      channel: "email",
+      kind: "items_waiting",
+      dedupeKey: `items_waiting:${u.id}:2026-11-06T09`,
+      link: "/desk",
+      counts: { items: 1 },
+    })
+    .returning();
+  if (!nt) throw new Error("no notification");
+  await db.insert(weeklyTable).values({ tenantId, weekStart: "2026-11-02", stats: { runs: 1 } });
   const [ct] = await db
     .insert(contact)
     .values({ tenantId, name: "Pat Lee", phone: "+15555550100" })
@@ -239,11 +333,53 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     plan: {},
     status: "open",
   });
+  await db.insert(accessRelease).values({
+    tenantId,
+    connectionId: c.id,
+    agentId: a.id,
+    runId: r.id,
+    personId: u.id,
+    channel: "email",
+    codeHash: "0".repeat(64),
+    expiresAt: new Date(Date.now() + 600_000),
+  });
 
   const [v] = await db
     .insert(vendor)
     .values({ tenantId, name: "Acme Lumber", normalizedName: "acme lumber" })
     .returning();
+  const [org] = await db
+    .insert(organization)
+    .values({ tenantId, name: "Acme Lumber", kinds: ["vendor"], vendorId: v?.id ?? null })
+    .returning();
+  if (!org) throw new Error("no organization");
+  const [rv] = await db
+    .insert(receivable)
+    .values({
+      tenantId,
+      connectionId: c.id,
+      connector: "test",
+      externalId: "inv-1",
+      docNumber: "1043",
+      customerExternalId: "cust-1",
+      customerName: "Lakeside Builders",
+      organizationId: org.id,
+      txnDate: "2026-10-01",
+      dueDate: "2026-10-31",
+      total: "500.0000",
+      balance: "500.0000",
+      status: "open",
+      sourceRawRecordId: rr?.id ?? "",
+    })
+    .returning();
+  if (!rv) throw new Error("no receivable");
+  await db
+    .insert(organizationChange)
+    .values({ tenantId, organizationId: org.id, change: { created: true } });
+  await db
+    .update(contact)
+    .set({ organizationId: org.id, relationship: "vendor" })
+    .where(eq(contact.id, ct.id));
   const [tx] = await db
     .insert(transaction)
     .values({
@@ -334,6 +470,47 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     objectId: "in_1",
     summary: { status: "paid" },
   });
+  await db.insert(billingAgentPrice).values({
+    tenantId,
+    agentId: a.id,
+    monthlyPrice: "100.0000",
+    includedCredits: 500,
+    note: "Agreed in the contract",
+  });
+  await db.insert(billingAgentDay).values({
+    tenantId,
+    day: "2026-10-01",
+    agentId: a.id,
+    agentName: "Test agent",
+    monthlyPrice: "100.0000",
+    includedCredits: 500,
+    priceSource: "override",
+  });
+  const [st] = await db
+    .insert(billingStatement)
+    .values({
+      tenantId,
+      period: "2026-10-01",
+      periodEnd: "2026-10-31",
+      daysInMonth: 31,
+      status: "draft",
+      total: "3.2300",
+      creditsUsed: 0,
+      creditsIncluded: 16,
+      extraCredits: 0,
+      creditPrice: "0.0200",
+    })
+    .returning();
+  if (!st) throw new Error("no statement");
+  await db.insert(billingStatementLine).values({
+    tenantId,
+    statementId: st.id,
+    position: 0,
+    kind: "agent",
+    agentId: a.id,
+    description: "Test agent",
+    amount: "3.2300",
+  });
 
   const [ke] = await db
     .insert(knowledgeEntry)
@@ -364,6 +541,151 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     body: "We open at 8am.",
     tsv: sql`to_tsvector('english', 'Opening hours We open at 8am.')`,
   });
+  // Wave 2 (0027–0029): a client's own automation, test bench rows and an oversight decision.
+  const [au] = await db
+    .insert(automation)
+    .values({ tenantId, slug: "lookup", name: "Lookup" })
+    .returning();
+  if (!au) throw new Error("no automation");
+  const [auv] = await db
+    .insert(automationVersion)
+    .values({
+      tenantId,
+      automationId: au.id,
+      version: 1,
+      definition: AUTOMATION_DEFINITION,
+      definitionHash: "h",
+      status: "live",
+    })
+    .returning();
+  if (!auv) throw new Error("no automation version");
+  const [tc] = await db
+    .insert(testCase)
+    .values({
+      tenantId,
+      targetKind: "skill",
+      targetId: s.id,
+      name: "Reads the Acme invoice",
+      input: { documentId: d.id },
+      expected: { total: "100.0000" },
+      matcher: { kind: "exact" },
+      source: "run",
+      sourceRef: r.id,
+      createdBy: u.id,
+    })
+    .returning();
+  if (!tc) throw new Error("no test case");
+  const [ts] = await db
+    .insert(testSuiteRun)
+    .values({
+      tenantId,
+      targetKind: "skill",
+      targetId: s.id,
+      versionId: sv?.id ?? "",
+      status: "done",
+      total: 1,
+      passed: 1,
+      metrics: { passRate: 1, costPerCase: "0.0010" },
+      costUsd: "0.0010",
+      startedBy: u.id,
+      finishedAt: new Date(),
+    })
+    .returning();
+  if (!ts) throw new Error("no suite run");
+  const [tr] = await db
+    .insert(testCaseResult)
+    .values({
+      tenantId,
+      suiteRunId: ts.id,
+      testCaseId: tc.id,
+      status: "pass",
+      got: { total: "100.0000" },
+      diff: [],
+      costUsd: "0.0010",
+      runId: r.id,
+    })
+    .returning();
+  if (!tr) throw new Error("no test case result");
+  const [od] = await db
+    .insert(oversightDecision)
+    .values({
+      tenantId,
+      runId: r.id,
+      stepRunId: sr.id,
+      nodeId: "s1",
+      seq: 1,
+      cause: "failed",
+      action: "retry",
+      note: "The lookup timed out; trying again.",
+      sources: [rr?.id ?? ""],
+      model: "claude-opus-5-5",
+      costUsd: "0.0021",
+      tokensIn: 800,
+      tokensOut: 60,
+      agentVersionId: av.id,
+    })
+    .returning();
+  if (!od) throw new Error("no oversight decision");
+  // Wave 3 (0030): a Builder conversation about the client's agent.
+  const [bs] = await db
+    .insert(builderSession)
+    .values({
+      tenantId,
+      kind: "agent",
+      agentId: a.id,
+      baseVersionId: av.id,
+      bundle: BUNDLE,
+      createdBy: u.id,
+    })
+    .returning();
+  if (!bs) throw new Error("no builder session");
+  const [bt] = await db
+    .insert(builderTurn)
+    .values({
+      tenantId,
+      sessionId: bs.id,
+      seq: 1,
+      role: "builder",
+      text: "Added a check step.",
+      changes: [{ id: "step:s2", label: "+1 step, step 2", after: { id: "s2" } }],
+      bundle: BUNDLE,
+      costUsd: "0.0120",
+    })
+    .returning();
+  if (!bt) throw new Error("no builder turn");
+  // v0.14 capture (0031): the contact's WhatsApp conversation and one change to its capture.
+  const [cv] = await db
+    .insert(conversation)
+    .values({
+      tenantId,
+      connectionId: c.id,
+      channel: "whatsapp",
+      kind: "direct",
+      contactId: ct.id,
+      title: "Pat Lee",
+    })
+    .returning();
+  if (!cv) throw new Error("no conversation");
+  await db.insert(conversationChange).values({
+    tenantId,
+    conversationId: cv.id,
+    actorId: u.id,
+    side: "client",
+    change: {
+      setting: "capture",
+      before: cv.capture,
+      after: { ...cv.capture, attachments: "documents" },
+    },
+  });
+
+  await db.insert(auditEvent).values({
+    tenantId,
+    actorKind: "user",
+    actorUserId: u.id,
+    action: "GET /api/runs",
+    outcome: "ok",
+    httpStatus: 200,
+  });
 
   return {
     tenantId,
@@ -371,24 +693,48 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     connectionId: c.id,
     agentId: a.id,
     agentVersionId: av.id,
+    runId: r.id,
     skillVersionId: sv?.id ?? "",
     rawRecordId: rr?.id ?? "",
     documentId: d.id,
     extractionId: ex.id,
     docLineId: dl?.id ?? "",
+    stepRunId: sr.id,
+    threadId: th.id,
+    notificationId: nt.id,
+    modelCallId: mc.id,
+    receivableId: rv.id,
+    automationId: au.id,
+    automationVersionId: auv.id,
+    testCaseId: tc.id,
+    suiteRunId: ts.id,
+    testCaseResultId: tr.id,
+    oversightDecisionId: od.id,
+    builderSessionId: bs.id,
+    builderTurnId: bt.id,
+    conversationId: cv.id,
   };
 }
 
-/** A template with a version and a change, and a shared skill with a version (all tenant_id null). */
-export async function insertOperatorRows(db: Db): Promise<{ agentVersionId: string }> {
+/**
+ * A template with a version and a change, a shared skill with a version, a shared automation with
+ * a version, a shared test case with a suite run and result and a Builder conversation about the
+ * template (all tenant_id null), and the
+ * operator-only rows (a saved view, a connector setting).
+ */
+export async function insertOperatorRows(db: Db): Promise<{
+  agentVersionId: string;
+  automationVersionId: string;
+  testCaseResultId: string;
+  builderTurnId: string;
+}> {
   const [s] = await db.insert(skill).values({ slug: "shared", name: "Shared" }).returning();
   if (!s) throw new Error("no skill");
-  await db.insert(skillVersion).values({
-    skillId: s.id,
-    version: 1,
-    definition: SKILL_DEFINITION,
-    definitionHash: "h",
-  });
+  const [sv] = await db
+    .insert(skillVersion)
+    .values({ skillId: s.id, version: 1, definition: SKILL_DEFINITION, definitionHash: "h" })
+    .returning();
+  if (!sv) throw new Error("no skill version");
   const [a] = await db
     .insert(agent)
     .values({ kind: "template", slug: "template", name: "Template" })
@@ -411,5 +757,72 @@ export async function insertOperatorRows(db: Db): Promise<{ agentVersionId: stri
     path: "/ops",
     viewport: { width: 1280, height: 800 },
   });
-  return { agentVersionId: av?.id ?? "" };
+  await db
+    .insert(savedView)
+    .values({ userId: op.id, surface: "ops_runs", name: "Failed this week", filters: {} });
+  await db.insert(auditEvent).values({
+    actorKind: "anonymous",
+    action: "session.sign_in",
+    outcome: "refused",
+    httpStatus: 403,
+  });
+  await db
+    .insert(connectorSetting)
+    .values({ connector: "test", status: "beta", note: "Ready for one client", updatedBy: op.id })
+    .onConflictDoNothing();
+  const [au] = await db
+    .insert(automation)
+    .values({ slug: "lookup", name: "Lookup", description: "Looks a thing up" })
+    .returning();
+  if (!au) throw new Error("no automation");
+  const [auv] = await db
+    .insert(automationVersion)
+    .values({
+      automationId: au.id,
+      version: 1,
+      definition: AUTOMATION_DEFINITION,
+      definitionHash: "h",
+      authorId: op.id,
+    })
+    .returning();
+  if (!auv) throw new Error("no automation version");
+  const [tc] = await db
+    .insert(testCase)
+    .values({
+      targetKind: "skill",
+      targetId: s.id,
+      name: "Synthetic invoice",
+      input: { text: "Invoice 1, total 100" },
+      expected: { total: "100.0000" },
+      matcher: { kind: "fields", fields: { total: { money: "0.01" } } },
+      createdBy: op.id,
+    })
+    .returning();
+  if (!tc) throw new Error("no test case");
+  const [ts] = await db
+    .insert(testSuiteRun)
+    .values({ targetKind: "skill", targetId: s.id, versionId: sv.id, startedBy: op.id })
+    .returning();
+  if (!ts) throw new Error("no suite run");
+  const [tr] = await db
+    .insert(testCaseResult)
+    .values({ suiteRunId: ts.id, testCaseId: tc.id, status: "fail", got: {}, diff: [] })
+    .returning();
+  if (!tr) throw new Error("no test case result");
+  const [bs] = await db
+    .insert(builderSession)
+    .values({ kind: "agent", agentId: a.id, bundle: BUNDLE, createdBy: op.id })
+    .returning();
+  if (!bs) throw new Error("no builder session");
+  const [bt] = await db
+    .insert(builderTurn)
+    .values({ sessionId: bs.id, seq: 1, role: "operator", text: "Draft a card receipts agent." })
+    .returning();
+  if (!bt) throw new Error("no builder turn");
+  return {
+    agentVersionId: av?.id ?? "",
+    automationVersionId: auv.id,
+    testCaseResultId: tr.id,
+    builderTurnId: bt.id,
+  };
 }

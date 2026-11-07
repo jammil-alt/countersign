@@ -1,0 +1,199 @@
+/* The client's Runs, run page, Weekly Table, Settings and Sloan (UI-1d): what the shared parts in
+ * ../../ui don't cover. Tokens only: no raw colours, no new radii, fonts or shadows. */
+
+/* ── Ask in plain words (Runs) ── */
+.ui-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+.ui-ask__input {
+  min-width: 12rem;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 400 14px / 20px var(--font-sans);
+  outline: none;
+}
+.ui-ask__input::placeholder {
+  color: var(--ink-muted);
+}
+.ui-ask:focus-within {
+  border-color: var(--slate);
+}
+
+/* ── Runs per day ── */
+.ui-legend {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+/* Each run in its state's colour (brand book): done = positive, running = slate, waiting on you =
+   signal (with its word in the legend), failed = risk, stopped = neutral. */
+.ui-legend--done,
+.ui-daybars__seg--done {
+  background: var(--positive);
+}
+.ui-legend--running,
+.ui-daybars__seg--running {
+  background: var(--slate);
+}
+.ui-legend--waiting,
+.ui-daybars__seg--waiting {
+  background: var(--signal);
+}
+.ui-legend--failed,
+.ui-daybars__seg--failed {
+  background: var(--risk);
+}
+.ui-legend--stopped,
+.ui-daybars__seg--stopped {
+  background: var(--line-strong);
+}
+.ui-daybars {
+  display: flex;
+  height: 72px;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-daybars__day {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--line);
+}
+.ui-daybars__day > i {
+  display: block;
+  width: 100%;
+}
+.ui-daybars__day > i:first-child {
+  border-radius: 2px 2px 0 0;
+}
+
+/* ── Facts (About this run) ── */
+.ui-facts {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+  gap: var(--space-2-5) var(--space-4);
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.ui-facts dt {
+  color: var(--ink-muted);
+}
+.ui-facts dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+/* ── The lead's note (Weekly Table, Sloan): a person's touch, copper ── */
+.ui-leadnote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--copper-tint);
+  border-radius: var(--radius-md);
+  background: var(--copper-tint);
+  color: var(--ink);
+}
+
+/* ── Settings: the section list beside the page ── */
+.ui-settings {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-8);
+}
+.ui-settings__nav {
+  position: sticky;
+  top: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ui-settings__body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+/* ── Sloan: the conversation and the composer ── */
+.ui-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.ui-msg {
+  display: flex;
+  max-width: 44rem;
+  gap: var(--space-3);
+}
+.ui-msg__text {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ui-msg--you {
+  align-self: flex-end;
+}
+.ui-msg--you .ui-msg__text {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+.ui-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ui-composer__row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+@media (max-width: 767.98px) {
+  .ui-settings {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+  .ui-settings__nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+/* ── The sidebar's Sloan card, above the lead ── */
+.ui-sloancard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2-5);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  text-decoration: none;
+}
+.ui-sloancard:hover {
+  border-color: var(--line-strong);
+}
+.ui-sloancard[aria-current="page"] {
+  border-color: var(--slate-tint);
+  background: var(--slate-tint);
+}

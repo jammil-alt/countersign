@@ -4,24 +4,26 @@
 // A2P 10DLC registration, sets quiet hours, and keeps the client's contacts.
 import type { A2pStatus, AvailableNumber, MessagingSetup, QuietHours } from "@countersign/core";
 import { type FormEvent, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ContactsPanel } from "../../contacts/ContactsPanel";
+// v0.14 capture
+import { ConversationsPanel } from "../../conversations/ConversationsPanel";
 import { Field, TextInput } from "../../ui/forms";
 import {
   Badge,
   Button,
-  buttonClass,
   Card,
   ErrorNotice,
   Loading,
-  PageHeader,
   SectionLabel,
   type Tone,
 } from "../../ui/primitives";
+import { ClientFrame } from "../client/ClientFrame";
 import { CallsPanel } from "./Calls";
+import { CaptureDefault } from "./CaptureDefault";
 import { EmailPanel } from "./EmailSetup";
 
 const A2P: Record<A2pStatus, { label: string; tone: Tone }> = {
@@ -37,22 +39,15 @@ function message(error: unknown): string {
 
 export function OpsMessagingScreen() {
   const { clientId = "" } = useParams();
-  const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
   const setup = useApi(apiRoutes.opsMessaging, { params: { id: clientId } });
   const [override, setOverride] = useState<MessagingSetup | null>(null);
   const data = override ?? setup.data?.setup;
 
   return (
-    <div>
-      <PageHeader
-        title="Texts and WhatsApp"
-        subtitle={client.data ? client.data.client.name : undefined}
-        actions={
-          <Link to={`/ops/clients/${clientId}`} className={buttonClass("ghost")}>
-            Back to the client
-          </Link>
-        }
-      />
+    <ClientFrame
+      clientId={clientId}
+      intro="Texts and WhatsApp, calls, email, the client's contacts and the conversations we keep."
+    >
       {setup.loading && !data ? <Loading /> : null}
       {setup.error ? <ErrorNotice error={setup.error} onRetry={setup.reload} /> : null}
       {data ? <TwilioSetup clientId={clientId} setup={data} onChange={setOverride} /> : null}
@@ -65,7 +60,12 @@ export function OpsMessagingScreen() {
       <div className="mt-8">
         <ContactsPanel surface={{ kind: "ops", clientId }} />
       </div>
-    </div>
+      {/* v0.14 capture: WhatsApp conversations and the client's default (docs/plan.md §1.55). */}
+      <div className="mt-8">
+        <CaptureDefault clientId={clientId} />
+        <ConversationsPanel surface={{ kind: "ops", clientId }} />
+      </div>
+    </ClientFrame>
   );
 }
 

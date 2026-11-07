@@ -2,8 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { changeRows, changeTarget, fieldLabel, formatValue } from "./change";
-import { InboxCard, type InboxCardItem } from "./InboxCard";
+import { changeModel, changeTarget } from "./change";
+import { InboxCard, type InboxCardItem, isAccountChangeItem } from "./InboxCard";
 
 const CHANGE: InboxCardItem = {
   id: "00000000-0000-4000-8000-0000000f0001",
@@ -35,28 +35,23 @@ function renderCard(props: Partial<Parameters<typeof InboxCard>[0]> = {}) {
   );
 }
 
-describe("change rows", () => {
+describe("change model without a display", () => {
   it("pairs the record now with the record after the input, hiding id and version tokens", () => {
-    expect(changeRows(CHANGE.payload.before, CHANGE.payload.input)).toEqual([
-      { field: "name", now: "Oak board", after: "Oak board", changed: false },
-      { field: "amount", now: "10.00", after: "12.00", changed: true },
+    const model = changeModel(null, CHANGE.payload.before, CHANGE.payload.input);
+    expect(model.fields.map((f) => [f.key, f.now, f.after, f.changed])).toEqual([
+      ["name", { type: "text", text: "Oak board" }, { type: "text", text: "Oak board" }, false],
+      ["amount", { type: "text", text: "10.00" }, { type: "text", text: "12.00" }, true],
     ]);
     expect(changeTarget(CHANGE.payload.before, CHANGE.payload.input)).toBe("r1 · Oak board");
   });
 
   it("has no 'now' for a record the change creates", () => {
-    expect(changeRows(null, { name: "Walnut", amount: "5.00" })).toEqual([
-      { field: "name", now: undefined, after: "Walnut", changed: true },
-      { field: "amount", now: undefined, after: "5.00", changed: true },
+    const model = changeModel(null, null, { name: "Walnut", amount: "5.00" });
+    expect(model.create).toBe(true);
+    expect(model.fields.map((f) => [f.key, f.now.type, f.changed])).toEqual([
+      ["name", "none", true],
+      ["amount", "none", true],
     ]);
-  });
-
-  it("writes labels and values plainly", () => {
-    expect(fieldLabel("unitPrice")).toBe("Unit price");
-    expect(fieldLabel("vendor_name")).toBe("Vendor name");
-    expect(formatValue(null)).toBe("—");
-    expect(formatValue(["a", 2])).toBe("a, 2");
-    expect(formatValue({ qty: 2 })).toBe('{"qty":2}');
   });
 });
 
@@ -67,38 +62,42 @@ describe("InboxCard: external action", () => {
     expect(within(card).getByRole("heading", { level: 3 })).toHaveTextContent(
       "Testkit · r1 · Oak board",
     );
-    expect(within(card).getByText("testkit.record.update")).toBeInTheDocument();
+    // Tool ids are not for clients; the back office shows them.
+    expect(within(card).queryByText("testkit.record.update")).toBeNull();
+    expect(within(card).getByTestId("inbox-item-description")).toHaveTextContent(
+      "Change a record's name or amount.",
+    );
     expect(within(card).getByTestId("inbox-item-status")).toHaveTextContent("Needs approval");
 
-    const now = screen.getByTestId("change-now");
-    const after = screen.getByTestId("change-after");
-    expect(within(now).getByTestId("change-now-row-amount")).toHaveTextContent("Amount10.00");
-    expect(within(after).getByTestId("change-after-row-amount")).toHaveTextContent("Amount12.00");
-    expect(within(after).getByTestId("change-after-row-amount")).toHaveAttribute(
-      "data-changed",
-      "true",
-    );
-    // An unchanged field reads the same on both sides and is not marked.
-    expect(within(after).getByTestId("change-after-row-name")).toHaveTextContent("Oak board");
-    expect(within(after).getByTestId("change-after-row-name")).not.toHaveAttribute("data-changed");
+    // Only what changes is set out, now and after in one row; the rest is one line.
+    expect(screen.getByTestId("change-row-amount")).toHaveTextContent("Amount10.0012.00");
+    expect(screen.getByTestId("change-row-amount-after")).toHaveAttribute("data-changed", "true");
+    expect(screen.queryByTestId("change-row-name")).toBeNull();
+    expect(screen.getByTestId("change-unchanged-name")).toHaveTextContent("Oak board");
     // Identity and concurrency fields are not part of the change.
     expect(within(card).queryByText("Sync token")).toBeNull();
-    expect(within(now).queryByTestId("change-now-row-id")).toBeNull();
+    expect(screen.queryByTestId("change-row-id")).toBeNull();
+    expect(screen.queryByTestId("change-unchanged-id")).toBeNull();
+  });
+
+  it("names the tool by its id in the back office", () => {
+    renderCard({ showToolId: true });
+    expect(screen.getByText("testkit.record.update")).toBeInTheDocument();
   });
 
   it("says a create has nothing there yet", () => {
     renderCard({
       item: { ...CHANGE, payload: { ...CHANGE.payload, before: null, input: { name: "Walnut" } } },
     });
-    expect(screen.getByTestId("change-now")).toHaveTextContent("Not there yet");
-    expect(screen.getByTestId("change-after-row-name")).toHaveTextContent("Walnut");
+    expect(screen.getByTestId("change-creates")).toHaveTextContent("Not there yet");
+    expect(screen.getByTestId("change-row-name-after")).toHaveTextContent("Walnut");
   });
 
   it("approves or rejects through the resolve callback, and shows its error", async () => {
     const onResolve = vi.fn().mockResolvedValueOnce(undefined);
     renderCard({ onResolve });
     const approve = screen.getByTestId("inbox-item-approve");
-    expect(approve).toHaveTextContent("Sign and update Testkit");
+    expect(approve).toHaveTextContent("Approve and update Testkit");
     await userEvent.click(approve);
     expect(onResolve).toHaveBeenCalledWith({ decision: "approve" });
 
@@ -136,5 +135,30 @@ describe("InboxCard: a person's question", () => {
     expect(onResolve).toHaveBeenCalledWith({ decision: "approve", answer: "Yes, new" });
     await userEvent.click(screen.getByTestId("inbox-item-decline"));
     expect(onResolve).toHaveBeenLastCalledWith({ decision: "reject" });
+  });
+});
+
+// v0.12 W2-D
+describe("InboxCard: a change Sloan drafted", () => {
+  it("shows how it is now and how it would be, in the server's words", () => {
+    renderCard({
+      item: {
+        ...CHANGE,
+        kind: "approval",
+        title: "Add Lisa as an approver",
+        payload: {
+          accountChange: {
+            now: ["Lisa is not on your team."],
+            after: ["Lisa joins your team and approves changes.", "Changes in Testkit → Lisa"],
+          },
+          sources: [],
+        },
+      },
+    });
+    expect(screen.getByText("Now")).toBeInTheDocument();
+    expect(screen.getByText("Lisa is not on your team.")).toBeInTheDocument();
+    expect(screen.getByText("After this change")).toBeInTheDocument();
+    expect(isAccountChangeItem({ payload: { accountChange: {} } })).toBe(true);
+    expect(isAccountChangeItem({ payload: {} })).toBe(false);
   });
 });

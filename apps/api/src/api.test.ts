@@ -2,7 +2,18 @@
 // (clients, templates, versions, fork, publish, rollback, validation), client isolation through the
 // API, and the permission matrix (operators loosen, clients only tighten).
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  newSession,
+  SESSION_COOKIE,
+  STATE_COOKIE,
+  sealSession,
+  type WorkOSAuthentication,
+  type WorkOSClient,
+  WorkOSError,
+} from "@countersign/auth";
+import { auditEvent } from "@countersign/db";
+import { asc, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type ApiHarness,
   admin,
@@ -121,10 +132,13 @@ describe.skipIf(!h)("API", () => {
       const start = await workos("/api/auth/sign-in?return_to=/ops/clients");
       expect(start.status).toBe(302);
       expect(start.headers.get("location")).toMatch(/^https:\/\/api\.workos\.com\//);
-      // A callback that can't be verified goes back to the sign-in page with a code, not JSON.
+      // A callback that can't be verified starts sign-in again once, never as JSON; a second
+      // failure goes to the sign-in page with a code ("WorkOS sign-in callback" below).
       const callback = await workos("/api/auth/callback?code=c&state=s");
       expect(callback.status).toBe(302);
-      expect(callback.headers.get("location")).toBe("/sign-in?error=unauthenticated");
+      expect(callback.headers.get("location")).toBe("/api/auth/sign-in?return_to=%2F&retry=1");
+      const final = await workos(`/api/auth/callback?code=c&state=2.${"s".repeat(43)}`);
+      expect(final.headers.get("location")).toBe("/sign-in?error=unauthenticated");
       const offsite = await workos("/api/auth/sign-in?return_to=https://evil.example");
       expect(offsite.headers.get("location")).toBe("/sign-in?error=forbidden");
 
@@ -292,6 +306,51 @@ describe.skipIf(!h)("API", () => {
         "inbox.resolved",
       );
     });
+
+    // v0.13 W2-H (docs/plan.md §1.53): the models a step may name, checked the way the builder does.
+    it("lists the models a step may run on and refuses one it doesn't know", async () => {
+      const models = await H.call(OPERATOR, "GET", "/api/ops/models");
+      expect(models.status).toBe(200);
+      const ids = j(models.json).models.map((m: { id: string }) => m.id);
+      expect(ids).toContain("claude-haiku-5-5");
+      expect(j(models.json).models[0]).toMatchObject({ label: "Fast (Haiku)" });
+      expect((await H.call(admin("a"), "GET", "/api/ops/models")).status).toBe(403);
+
+      const wf = testBundle().workflows[0]?.workflow;
+      if (!wf) throw new Error("no workflow");
+      // An agent-mode built-in skill step, overridden to another model.
+      const withModel = (skill: string, id: string) => ({
+        ...wf,
+        steps: [
+          {
+            id: "triage",
+            name: "Triage",
+            kind: "skill",
+            skill,
+            input: { event: "run.failed", facts: {} },
+            model: { id },
+          },
+        ],
+      });
+      const validate = async (skill: string, id: string) =>
+        j(
+          (
+            await H.call(OPERATOR, "POST", "/api/ops/workflows/validate", {
+              workflow: withModel(skill, id),
+            })
+          ).json,
+        );
+      expect(await validate("supervisor.triage", "claude-haiku-5-5")).toEqual({
+        valid: true,
+        errors: [],
+      });
+      const codesOf = async (skill: string, id: string) =>
+        (await validate(skill, id)).errors.map((e: { code: string }) => e.code);
+      expect(await codesOf("supervisor.triage", "claude-nonesuch")).toEqual(["unknown_model"]);
+      expect(await codesOf("supervisor.daily-check", "claude-haiku-5-5")).toContain(
+        "model_not_allowed",
+      );
+    });
   });
 
   describe("connections and permissions", () => {
@@ -364,5 +423,183 @@ describe.skipIf(!h)("API", () => {
       const runs = await H.call(OTHER_OPERATOR, "GET", "/api/ops/runs");
       expect(j(runs.json).runs).toEqual([]);
     });
+  });
+});
+
+describe.skipIf(!h)("WorkOS sign-in callback", () => {
+  const PASSWORD = "p".repeat(64);
+  const used = new Set<string>();
+  const signedInAs: WorkOSAuthentication = {
+    user: {
+      id: "wu_operator",
+      email: OPERATOR,
+      firstName: "Op",
+      lastName: null,
+      emailVerified: true,
+    },
+    organizationId: null,
+    refreshToken: "rt_op",
+    sessionId: "sess_op",
+  };
+  const workos: WorkOSClient = {
+    authorizationUrl: ({ state }) => `https://workos.test/authorize?state=${state}`,
+    // A code works once, as WorkOS's do.
+    authenticateWithCode: vi.fn(async (code: string) => {
+      if (used.has(code)) throw new WorkOSError("WorkOS answered 400", 400, "invalid_grant");
+      used.add(code);
+      return signedInAs;
+    }),
+    refresh: vi.fn(async () => signedInAs),
+    logoutUrl: () => "https://workos.test/logout",
+    revokeSession: vi.fn(async () => undefined),
+    organizationName: vi.fn(async () => null),
+    sendInvitation: vi.fn(async () => ({ id: "inv_1", acceptUrl: null })),
+    revokeInvitation: vi.fn(async () => "revoked" as const),
+  };
+  let W: ApiHarness | null = null;
+  let session = "";
+
+  beforeAll(async () => {
+    W = await createApiHarness({
+      env: {
+        ENVIRONMENT: "staging",
+        AUTH_PROVIDER: "workos",
+        WORKOS_CLIENT_ID: "client_test",
+        WORKOS_API_KEY: "sk_test",
+        WORKOS_COOKIE_PASSWORD: PASSWORD,
+        APP_ORIGIN: "https://staging.mezonas.test",
+      },
+      workos,
+    });
+    if (!W) return;
+    const payload = newSession(
+      {
+        userId: W.operator,
+        workosUserId: "wu_operator",
+        email: OPERATOR,
+        workosOrganizationId: null,
+        sessionId: "sess_op",
+        refreshToken: "rt_op",
+      },
+      Math.floor(Date.now() / 1000),
+    );
+    session = `${SESSION_COOKIE}=${await sealSession(payload, PASSWORD)}`;
+  });
+  afterAll(() => W?.close());
+
+  const get = (path: string, cookie = "") =>
+    (W as ApiHarness).app.request(
+      path,
+      { headers: cookie ? { cookie } : {} },
+      (W as ApiHarness).env,
+      { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as never,
+    );
+  const cookieOf = (res: Response, name: string) => {
+    const found = res.headers.getSetCookie().find((c) => c.startsWith(`${name}=`));
+    return found ? (found.split(";")[0] ?? null) : null;
+  };
+  /** Start sign-in as the browser would: the state WorkOS will echo, and the state cookie. */
+  const start = async (path = "/api/auth/sign-in?return_to=/ops/runs") => {
+    const res = await get(path);
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("location") ?? "");
+    return {
+      state: location.searchParams.get("state") ?? "",
+      cookie: cookieOf(res, STATE_COOKIE) ?? "",
+    };
+  };
+  const callback = (code: string, state: string, cookie = "") =>
+    get(`/api/auth/callback?code=${code}&state=${encodeURIComponent(state)}`, cookie);
+  const lastSignInRow = async () =>
+    (
+      await (W as ApiHarness).t.db
+        .select()
+        .from(auditEvent)
+        .where(eq(auditEvent.action, "session.sign_in"))
+        .orderBy(asc(auditEvent.id))
+    ).at(-1);
+
+  it("sends someone already signed in to the app from a used callback", async () => {
+    const s = await start();
+    const first = await callback("code_back", s.state, s.cookie);
+    expect(first.headers.get("location")).toBe("/ops/runs");
+    expect(cookieOf(first, SESSION_COOKIE)).toBeTruthy();
+
+    // Back or reload onto the same callback URL: the state cookie is gone and the code is used.
+    const again = await callback("code_back", s.state, session);
+    expect(again.status).toBe(302);
+    expect(again.headers.get("location")).toBe("/");
+    expect(cookieOf(again, SESSION_COOKIE)).toBeNull();
+    expect(await lastSignInRow()).toMatchObject({
+      actorKind: "user",
+      actorUserId: (W as ApiHarness).operator,
+      outcome: "refused",
+      target: { reason: "state_missing", next: "app" },
+    });
+
+    // The state cookie still there but the code used: the app, where the sign-in meant to land.
+    const t = await start();
+    expect((await callback("code_twice", t.state, t.cookie)).status).toBe(302);
+    const reused = await callback("code_twice", t.state, `${t.cookie}; ${session}`);
+    expect(reused.headers.get("location")).toBe("/ops/runs");
+    expect(await lastSignInRow()).toMatchObject({
+      target: { reason: "code_rejected", next: "app" },
+    });
+  });
+
+  it("starts a failed sign-in again once, then shows the error", async () => {
+    // Two tabs: the second start replaced the first's state cookie.
+    const tab1 = await start();
+    const tab2 = await start("/api/auth/sign-in?return_to=/ops/clients");
+    const mismatch = await callback("code_tab1", tab1.state, tab2.cookie);
+    expect(mismatch.headers.get("location")).toBe(
+      "/api/auth/sign-in?return_to=%2Fops%2Fclients&retry=1",
+    );
+    expect(await lastSignInRow()).toMatchObject({
+      actorKind: "anonymous",
+      target: { reason: "state_mismatch", next: "restart" },
+    });
+
+    // The restart is marked in the state WorkOS echoes; it signs in like any other start.
+    const restarted = await start(mismatch.headers.get("location") ?? "");
+    expect(restarted.state.slice(0, 2)).toBe("2.");
+    const done = await callback("code_restart", restarted.state, restarted.cookie);
+    expect(done.headers.get("location")).toBe("/ops/clients");
+    expect(cookieOf(done, SESSION_COOKIE)).toBeTruthy();
+
+    // A restarted sign-in that fails again goes to the error page, cookie or not.
+    const again = await start("/api/auth/sign-in?return_to=/ops/runs&retry=1");
+    const second = await callback("code_restart", again.state, again.cookie);
+    expect(second.headers.get("location")).toBe("/sign-in?error=unauthenticated");
+    expect(await lastSignInRow()).toMatchObject({
+      target: { reason: "code_rejected", next: "error_page" },
+    });
+    const noCookie = await callback("code_new", again.state);
+    expect(noCookie.headers.get("location")).toBe("/sign-in?error=unauthenticated");
+    expect(await lastSignInRow()).toMatchObject({
+      target: { reason: "state_missing", next: "error_page" },
+    });
+  });
+
+  it("shows the error at once for a callback without a code (WorkOS sent an error)", async () => {
+    const incomplete = await get("/api/auth/callback?error=access_denied&state=abc");
+    expect(incomplete.headers.get("location")).toBe("/sign-in?error=unauthenticated");
+    expect(await lastSignInRow()).toMatchObject({
+      target: { reason: "callback_incomplete", next: "error_page" },
+    });
+  });
+
+  it("never makes a session from a mismatched state", async () => {
+    const calls = vi.mocked(workos.authenticateWithCode).mock.calls.length;
+    const tab1 = await start();
+    const tab2 = await start();
+    const res = await callback("code_forged", tab1.state, tab2.cookie);
+    expect(cookieOf(res, SESSION_COOKIE)).toBeNull();
+    expect(res.headers.get("location")).toBe("/api/auth/sign-in?return_to=%2Fops%2Fruns&retry=1");
+    // Already signed in, it goes to the app on the session it had, and still makes none.
+    const signedIn = await callback("code_forged", tab1.state, `${tab2.cookie}; ${session}`);
+    expect(signedIn.headers.get("location")).toBe("/ops/runs");
+    expect(cookieOf(signedIn, SESSION_COOKIE)).toBeNull();
+    expect(vi.mocked(workos.authenticateWithCode).mock.calls.length).toBe(calls);
   });
 });

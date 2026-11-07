@@ -48,7 +48,7 @@ import {
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
-import { reachOutTick } from "./reach/service";
+import { planWhyApproval, reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -69,6 +69,14 @@ const fetch: FetchLike = (url, init) =>
       : twilio.fetch(url, init);
 const PAT = "+15555550100";
 const PURPOSE = "Confirm Friday's delivery of the oak order";
+/**
+ * The plan approval's reasons for the agent below: the step and Twilio's `create` ask, and on the
+ * bench it only suggests.
+ */
+const WHY_ON_BENCH = {
+  reasons: ["step", "matrix", "mode"],
+  route: { source: "default", ruleId: null },
+};
 
 const h = await createApiHarness({
   connectors: () => [
@@ -517,6 +525,8 @@ describe.skipIf(!h)("reach out through the API", () => {
             message: "Can you confirm Friday's delivery? Reply YES or NO.",
           });
           expect(item.payload.sources).toEqual(["PO-1042"]);
+          // v0.12 W1-D: why it waits, as a tool proposal says it (the agent is on the bench).
+          expect(item.payload.whyApproval).toEqual(WHY_ON_BENCH);
         });
       }
       if (type.startsWith("reachout-")) {
@@ -591,6 +601,60 @@ describe.skipIf(!h)("reach out through the API", () => {
     await executeRun(deps(), params, cloudflareStepRunner(step));
     expect(textsTo(PAT)).toHaveLength(1);
     expect(twilio.placed()).toHaveLength(1);
+  });
+
+  it("writes in the organization's language to a person with none of their own (directory, §1.27)", async () => {
+    // Lou has no language; the client's is English; Lou's organization reads Spanish.
+    const LOU = "+15555550177";
+    const org = await H.call(admin("a"), "POST", "/api/directory/organizations", {
+      name: "Roble Maderas",
+      language: "es",
+    });
+    expect(org.status, JSON.stringify(org.json)).toBe(200);
+    const made = await H.call(admin("a"), "POST", "/api/contacts", {
+      name: "Lou Roble",
+      phone: LOU,
+      roles: ["purchaser"],
+      organizationId: j(org.json).organization.id,
+      consent: { channels: ["sms"], source: "signed the service agreement" },
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const lou = j(made.json).contact;
+    expect(lou.languageUsed).toEqual({
+      language: "es",
+      from: "organization",
+      organization: "Roble Maderas",
+    });
+    const bind = (id: string) =>
+      H.call(admin("a"), "PUT", `/api/people/${agentId}`, {
+        people: { purchaser: { contactIds: [id], conditions: { escalateAfter: "1 hour" } } },
+      });
+    expect((await bind(lou.id)).status).toBe(200);
+    const params = await startRun("PO-2001");
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      if (type.startsWith("inbox-")) {
+        return approveItem(type, (item) => {
+          expect(item.payload.reachOut).toMatchObject({
+            contact: { id: lou.id },
+            language: "es",
+            message: "¿Confirma la entrega del viernes? Responda SÍ o NO.",
+          });
+        });
+      }
+      if (type.startsWith("reachout-")) {
+        expect(textsTo(LOU).map((m) => m.body)).toEqual([
+          "¿Confirma la entrega del viernes? Responda SÍ o NO.",
+        ]);
+        await textIn(LOU, "Sí");
+        return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+      }
+      throw new Error(`unexpected wait ${type}`);
+    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    // Pat is the purchaser again for the tests below.
+    expect((await bind(pat)).status).toBe(200);
   });
 
   it("routes the plan's approval by the client's approver rules", async () => {
@@ -860,5 +924,46 @@ describe.skipIf(!h)("reach out through the API", () => {
     );
     expect(theirs.items).toEqual([]);
     expect(j((await H.call(admin("b"), "GET", "/api/people")).json).items).toEqual([]);
+  });
+});
+
+// v0.12 W1-D: a reach-out plan's approval says why it waits, with a tool proposal's reasons
+// (docs/plan.md §1.39), the person's own setting included (§1.42).
+describe("why a reach-out plan waits", () => {
+  const base = {
+    levels: ["auto", "auto"],
+    stepApproval: "not_required" as const,
+    definitionMode: "act" as const,
+    stage: "live",
+    needsSignature: false,
+    route: { source: "default" as const, ruleId: null },
+  };
+
+  it("names nothing a live agent's automatic plan would wait for", () => {
+    expect(planWhyApproval(base)).toEqual({
+      reasons: [],
+      route: { source: "default", ruleId: null },
+    });
+  });
+
+  it("names the step, a channel that asks, the mode, the stage and the person", () => {
+    expect(planWhyApproval({ ...base, stepApproval: "required" }).reasons).toEqual(["step"]);
+    expect(planWhyApproval({ ...base, levels: ["auto", "approval"] }).reasons).toEqual(["matrix"]);
+    expect(planWhyApproval({ ...base, definitionMode: "suggest_only" }).reasons).toEqual(["mode"]);
+    expect(planWhyApproval({ ...base, stage: "trial" })).toMatchObject({
+      reasons: ["stage"],
+      stage: "trial",
+    });
+    expect(planWhyApproval({ ...base, stage: "signoff" })).toMatchObject({ stage: "signoff" });
+    expect(planWhyApproval({ ...base, stage: "bench" }).reasons).toEqual(["mode"]);
+    expect(planWhyApproval({ ...base, needsSignature: true }).reasons).toEqual(["person"]);
+    expect(
+      planWhyApproval({
+        ...base,
+        route: { source: "rule", ruleId: "r1" },
+        stepApproval: "required",
+        needsSignature: true,
+      }),
+    ).toEqual({ reasons: ["step", "person"], route: { source: "rule", ruleId: "r1" } });
   });
 });

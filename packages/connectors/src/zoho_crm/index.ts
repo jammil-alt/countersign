@@ -1,4 +1,4 @@
-import type { JsonObject } from "@countersign/core";
+import { type JsonObject, trimTrailingSlashes } from "@countersign/core";
 import { z } from "zod";
 import {
   type ConnectionContext,
@@ -15,6 +15,22 @@ import {
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
+// v0.14 W4-B: sync and notifications (./sync.ts).
+import {
+  afterZohoPage,
+  readZohoSyncCursor,
+  startZohoSync,
+  ZOHO_RECORD_CHANGED_EVENT,
+  ZOHO_SYNC_PAGE_SIZE,
+  ZohoRecordChangedPayload,
+  type ZohoSyncPage,
+  zohoPageRequest,
+  zohoRawRecord,
+  zohoSyncFields,
+  zohoWatchBody,
+} from "./sync";
+
+export * from "./sync";
 
 /**
  * "zoho_crm": Zoho CRM over OAuth 2.0 (ARCHITECTURE §6.7, owner 2026-11-04). The client signs in
@@ -37,6 +53,14 @@ export const ZOHO_TOOLS = {
 export const ZohoModule = z.enum(["Leads", "Contacts", "Accounts", "Deals"]);
 export type ZohoModule = z.infer<typeof ZohoModule>;
 
+// v0.12 W2-A: the record tools work on any module; the entity is the one their `module` names.
+// DECISION: Zoho's generic record tools declare `entityInput` rather than one entity each, so a
+// matrix can set leads, contacts, accounts and deals apart (docs/plan.md §1.44).
+export const ZOHO_MODULE_ENTITY = {
+  field: "module",
+  values: { Leads: "lead", Contacts: "contact", Accounts: "account", Deals: "deal" },
+} satisfies { field: string; values: Record<ZohoModule, string> };
+
 // DECISION: read, create and update scopes per module, notes and tasks, plus org read (for the org
 // id on the connection). No delete scope at all, so even a bug can't delete in the client's CRM.
 export const ZOHO_SCOPES: readonly string[] = [
@@ -48,6 +72,10 @@ export const ZOHO_SCOPES: readonly string[] = [
   "ZohoCRM.modules.tasks.READ",
   "ZohoCRM.modules.tasks.CREATE",
   "ZohoCRM.org.READ",
+  // v0.14 W4-B: notifications of changes (the watch). A connection signed in before needs a new
+  // sign-in for them; the cursor poll works without.
+  "ZohoCRM.notifications.READ",
+  "ZohoCRM.notifications.CREATE",
 ];
 
 const API_VERSION = "v8";
@@ -64,11 +92,11 @@ const ACCOUNTS_SERVER = /^https:\/\/accounts\.zoho\.(com|eu|in|com\.au|jp|ca|com
 const API_DOMAIN = /^https:\/\/(www\.)?zohoapis\.(com|eu|in|com\.au|jp|ca|com\.cn|sa|uk)$/;
 
 export function isZohoAccountsServer(url: string): boolean {
-  return ACCOUNTS_SERVER.test(url.replace(/\/+$/, ""));
+  return ACCOUNTS_SERVER.test(trimTrailingSlashes(url));
 }
 
 export function isZohoApiDomain(url: string): boolean {
-  return API_DOMAIN.test(url.replace(/\/+$/, ""));
+  return API_DOMAIN.test(trimTrailingSlashes(url));
 }
 
 /** The encrypted credentials: the shared token fields plus where this client's Zoho lives. */
@@ -209,9 +237,9 @@ export class ZohoNotConfiguredError extends Error {
   }
 }
 
-export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector {
+export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmConnector {
   const doFetch = (): FetchLike => options.fetch ?? globalFetch();
-  const accountsUrl = (options.accountsUrl ?? DEFAULT_ACCOUNTS).replace(/\/+$/, "");
+  const accountsUrl = trimTrailingSlashes(options.accountsUrl ?? DEFAULT_ACCOUNTS);
   const configured = Boolean(options.clientId && options.clientSecret);
 
   function client(accountsServer: string): { id: string; secret: string } {
@@ -230,7 +258,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body: formEncode(fields),
-      redirect: "error",
+      redirect: "manual",
       signal: timeoutSignal(15_000),
     });
     const text = await res.text();
@@ -297,6 +325,8 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
     method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown,
+    // v0.14 W4-B: `If-Modified-Since` for the sync's list calls.
+    extraHeaders: Record<string, string> = {},
   ): Promise<unknown> {
     const stored = ZohoCredentials.safeParse(await ctx.credentials.get());
     if (!stored.success)
@@ -306,21 +336,23 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       async (token) => {
         // The API domain can change on refresh: read it again each try.
         const domain = ZohoCredentials.parse(await ctx.credentials.get()).apiDomain;
-        return doFetch()(`${domain.replace(/\/+$/, "")}/crm/${API_VERSION}${path}`, {
+        return doFetch()(`${trimTrailingSlashes(domain)}/crm/${API_VERSION}${path}`, {
           method,
           headers: {
             authorization: `Zoho-oauthtoken ${token}`,
             accept: "application/json",
+            ...extraHeaders,
             ...(body === undefined ? {} : { "content-type": "application/json" }),
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-          redirect: "error",
+          redirect: "manual",
           signal: timeoutSignal(20_000),
         });
       },
       (r) => r.status === 401,
     );
-    if (res.status === 204) return null;
+    // v0.14 W4-B: 304, nothing modified since (the sync's list calls).
+    if (res.status === 204 || res.status === 304) return null;
     const text = await res.text();
     let json: unknown = null;
     try {
@@ -362,7 +394,64 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
 
   const RecordId = z.string().regex(/^\d{1,30}$/, "a Zoho record id (digits)");
 
-  return defineConnector({
+  // v0.14 W4-B (docs/plan.md §1.9 "Sync (W4-B)"): one page of the cursor poll, and the watch.
+  const ListAnswer = z.object({
+    data: z.array(z.unknown()).max(ZOHO_SYNC_PAGE_SIZE).default([]),
+    info: z.looseObject({ more_records: z.boolean().optional() }).optional(),
+  });
+
+  async function syncPage(ctx: ConnectionContext, stored: unknown): Promise<ZohoSyncPage> {
+    const now = ctx.now();
+    const cursor = readZohoSyncCursor(stored) ?? startZohoSync(now);
+    const req = zohoPageRequest(cursor);
+    const query = formEncode({
+      fields: zohoSyncFields(req.module),
+      sort_by: "Modified_Time",
+      sort_order: "asc",
+      page: String(req.page),
+      per_page: String(ZOHO_SYNC_PAGE_SIZE),
+    });
+    const body = await api(ctx, "GET", `/${req.module}?${query}`, undefined, {
+      // Zoho's format: no milliseconds, with an offset.
+      "if-modified-since": `${req.since.slice(0, 19)}+00:00`,
+    });
+    const answer = ListAnswer.safeParse(body ?? {});
+    if (!answer.success) {
+      throw new ZohoApiError(502, "BAD_LIST", "Zoho's list answer has an unexpected shape", false);
+    }
+    const records = answer.data.data
+      .map((r) => zohoRawRecord(req.module, r))
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    return afterZohoPage(cursor, { records, more: answer.data.info?.more_records === true }, now);
+  }
+
+  async function watch(
+    ctx: ConnectionContext,
+    input: { notifyUrl: string; token: string },
+  ): Promise<void> {
+    const body = zohoWatchBody({
+      connectionId: ctx.connection.id,
+      token: input.token,
+      notifyUrl: input.notifyUrl,
+      now: ctx.now(),
+    });
+    // Zoho answers a watch under `watch`, as a write answers under `data`.
+    // UNCHECKED (NOTES.md): the answer's shape.
+    const answer = z
+      .object({ watch: WriteAnswer.shape.data })
+      .safeParse(await api(ctx, "POST", "/actions/watch", body));
+    const first = answer.success ? answer.data.watch[0] : undefined;
+    if (first?.status !== "success") {
+      throw new ZohoApiError(
+        400,
+        first?.code ?? "UNKNOWN",
+        `Zoho refused the watch: ${first?.message ?? first?.code ?? "no reason given"}`,
+        false,
+      );
+    }
+  }
+
+  const connector = defineConnector({
     id: ZOHO_CRM_CONNECTOR_ID,
     name: "Zoho CRM",
     description:
@@ -370,6 +459,36 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
     icon: "users",
     auth: "oauth2",
     entities: ["Leads", "Contacts", "Accounts", "Deals", "Notes", "Tasks"],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44). The record tools read theirs
+    // from the input's `module` (ZOHO_MODULE_ENTITY).
+    permissionEntities: [
+      { id: "lead", label: "Leads", verbs: ["read", "create", "update"] },
+      { id: "contact", label: "Contacts", verbs: ["read", "create", "update"] },
+      { id: "account", label: "Accounts", verbs: ["read", "create", "update"] },
+      { id: "deal", label: "Deals", verbs: ["read", "create", "update"] },
+      { id: "note", label: "Notes", verbs: ["create"] },
+      { id: "task", label: "Tasks", verbs: ["create"] },
+    ],
+    // v0.14 W4-B: a record changed in a synced module (after the first sync, which is history).
+    events: [
+      {
+        type: ZOHO_RECORD_CHANGED_EVENT,
+        description: "A lead, contact, account or deal was added or changed in your Zoho CRM.",
+        subjectType: "raw_record",
+        payload: z.toJSONSchema(ZohoRecordChangedPayload, { io: "input" }) as Record<
+          string,
+          unknown
+        >,
+        sample: {
+          connectionId: "0192f7a0-0000-7000-8000-000000000001",
+          rawRecordId: "0192f7a0-0000-7000-8000-000000000003",
+          module: "Deals",
+          recordId: "5725767000000411001",
+          change: "updated",
+          modifiedTime: "2026-11-06T09:30:00+00:00",
+        },
+      },
+    ],
     isConfigured: () => configured,
 
     async authorize(req) {
@@ -390,7 +509,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
     async handleCallback(params, req) {
       const code = params.code;
       if (!code) throw new Error("the Zoho callback has no code");
-      const accountsServer = (params["accounts-server"] ?? accountsUrl).replace(/\/+$/, "");
+      const accountsServer = trimTrailingSlashes(params["accounts-server"] ?? accountsUrl);
       if (!isZohoAccountsServer(accountsServer)) {
         throw new Error("the Zoho callback names an accounts server we don't know");
       }
@@ -423,7 +542,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
           authorization: `Zoho-oauthtoken ${answer.access_token}`,
           accept: "application/json",
         },
-        redirect: "error",
+        redirect: "manual",
         signal: timeoutSignal(15_000),
       });
       const org = z
@@ -461,13 +580,14 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       if (!creds.success || !creds.data.refreshToken) return;
       await doFetch()(
         `${creds.data.accountsServer}/oauth/v2/token/revoke?${formEncode({ token: creds.data.refreshToken })}`,
-        { method: "POST", redirect: "error", signal: timeoutSignal(15_000) },
+        { method: "POST", redirect: "manual", signal: timeoutSignal(15_000) },
       );
     },
 
     tools: [
       defineReadTool({
         id: ZOHO_TOOLS.search,
+        entityInput: ZOHO_MODULE_ENTITY,
         description:
           "Search a Zoho CRM module (Leads, Contacts, Accounts, Deals) by criteria, email, phone or a word.",
         summary: "Found {{records.length}} {{module}}",
@@ -514,6 +634,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineReadTool({
         id: ZOHO_TOOLS.get,
+        entityInput: ZOHO_MODULE_ENTITY,
         description: "Get one Zoho CRM record by module and id.",
         summary: "Read {{record.module}} {{record.id}}",
         input: z.object({ module: ZohoModule, id: RecordId }),
@@ -524,6 +645,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.create,
+        entityInput: ZOHO_MODULE_ENTITY,
         description:
           "Create a record in a Zoho CRM module, e.g. a lead with Last_Name and Company.",
         verb: "create",
@@ -547,6 +669,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.update,
+        entityInput: ZOHO_MODULE_ENTITY,
         description:
           "Change fields of a Zoho CRM record. Give the record's Modified_Time as read to refuse the change if it changed since.",
         verb: "update",
@@ -605,6 +728,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.note,
+        entity: "note",
         description: "Add a note to a Zoho CRM record.",
         verb: "create",
         summary: "Added a note to {{module}} {{recordId}}",
@@ -633,6 +757,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
       defineWriteTool({
         id: ZOHO_TOOLS.task,
+        entity: "task",
         description:
           "Create a task in Zoho CRM, optionally linked to a record (a contact as Who, others as What).",
         verb: "create",
@@ -672,4 +797,15 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): Connector 
       }),
     ],
   });
+  // v0.14 W4-B
+  return Object.assign(connector, { syncPage, watch });
+}
+
+// v0.14 W4-B
+/** The Zoho connector with its sync: one page of the cursor poll, and turning notifications on. */
+export interface ZohoCrmConnector extends Connector {
+  /** The next page from the stored `sync_cursor` (or a first sync), and the cursor to store. */
+  syncPage(ctx: ConnectionContext, storedCursor: unknown): Promise<ZohoSyncPage>;
+  /** Asks Zoho to notify `notifyUrl` of changes in the synced modules, with `token`. */
+  watch(ctx: ConnectionContext, input: { notifyUrl: string; token: string }): Promise<void>;
 }

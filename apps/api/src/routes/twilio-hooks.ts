@@ -27,12 +27,27 @@ import {
   twilioCredentialsOf,
   verifyTwilioSignature,
 } from "@countersign/connectors";
-import { routes, TWIML_EMPTY } from "@countersign/core";
+import {
+  type ConversationCapture,
+  captureAllows,
+  redactCardNumbers,
+  routes,
+  TWIML_EMPTY,
+} from "@countersign/core";
 import { connection, message, rawRecord, type Tx, withTenant } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
+import { consumeTextReply, type Wake, wakeRelease } from "../access/release";
+// v0.14 capture: WhatsApp conversations and their attachments
+import {
+  type ConversationRow,
+  ensureDirectConversation,
+  type StoredCapture,
+} from "../conversations/capture";
+import { type CaptureParams, captureAgentOf } from "../conversations/media";
+import { captureDepsFor, captureJobsFor } from "../conversations/start";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import {
   applyKeyword,
@@ -44,8 +59,13 @@ import {
 } from "../messaging/contacts";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
+// v0.12 W2-E: inbound dispatch to agents' message triggers
+import { routeInboundText } from "../triggers/inbound-text";
+import { type InboundReply, replyDepsFromEnv, sendReplies } from "../triggers/replies";
 
 const Params = z.object({ tenantId: z.uuid() });
+/** An inbound text consumed by a human release: kept without its text, once per SID. */
+const RELEASE_REPLY_ENTITY = "ReleaseReply";
 const MAX_BYTES = 64 * 1024;
 
 const refuse = () => new HttpError(403, "forbidden", "unknown client or bad signature");
@@ -115,11 +135,97 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       const services = c.get("req").services();
       const now = new Date();
       const collect: EventRow[] = [];
+      let released: Wake | null = null;
+      // v0.12 W2-E
+      let replies: InboundReply[] = [];
+      // v0.14 capture: the attachments to fetch once this transaction commits.
+      let capture: CaptureParams | null = null;
       await withTenant(services.db, tenantId, async (tx) => {
         const { row, config } = await verified(tx, c, tenantId, form, "messages");
-        const msg = parseInbound(form);
-        if (!msg) throw new HttpError(400, "invalid_body", "not a Twilio message");
+        // A card number in a text is never stored (PCI DSS 3.3, docs/plan.md §1.35).
+        const parsed = parseInbound(form);
+        if (!parsed) throw new HttpError(400, "invalid_body", "not a Twilio message");
+        const msg = { ...parsed, text: redactCardNumbers(parsed.text) };
         if (!config.numbers.some((n) => n.phoneNumber === msg.to)) throw refuse();
+        // A code for a pending human release is consumed before anything is stored: no raw
+        // record of its text, no thread line, no event, so no agent or person reads it there
+        // (docs/plan.md §1.26). A marker without the text keeps Twilio's retries from reading it
+        // as a new message.
+        const [seen] = await tx
+          .select({ id: rawRecord.id })
+          .from(rawRecord)
+          .where(
+            and(
+              eq(rawRecord.tenantId, tenantId),
+              eq(rawRecord.connectionId, row.id),
+              inArray(rawRecord.entityType, [TWILIO_MESSAGE_ENTITY, RELEASE_REPLY_ENTITY]),
+              eq(rawRecord.externalId, msg.sid),
+            ),
+          )
+          .limit(1);
+        if (seen) return;
+        if (msg.channel === "sms") {
+          const reply = await consumeTextReply(
+            tx,
+            { secrets: services.env },
+            {
+              tenantId,
+              from: msg.from,
+              text: msg.text,
+              now,
+            },
+          );
+          if (reply.consumed) {
+            await tx.insert(rawRecord).values({
+              tenantId,
+              connectionId: row.id,
+              connector: TWILIO_CONNECTOR_ID,
+              entityType: RELEASE_REPLY_ENTITY,
+              externalId: msg.sid,
+              externalVersion: null,
+              payload: { direction: "in", channel: msg.channel, from: msg.from, to: msg.to },
+              syncedAt: now,
+            });
+            released = reply.wake;
+            return;
+          }
+        }
+        // v0.14 capture: a WhatsApp message belongs to its contact's conversation, made on the
+        // first message (the contact too, as below), whose setting decides what the record keeps:
+        // the text or not, and which attachments to fetch (docs/plan.md §1.55).
+        let conv: ConversationRow | null = null;
+        let knownBefore: boolean | null = null;
+        if (msg.channel === "whatsapp") {
+          let who = await findContactByNumber(tx, tenantId, "whatsapp", msg.from);
+          knownBefore = who !== null;
+          who ??= await createContact(
+            tx,
+            tenantId,
+            { name: msg.profileName?.trim() || msg.from, whatsapp: msg.from },
+            null,
+            now,
+          );
+          conv = await ensureDirectConversation(tx, {
+            tenantId,
+            connectionId: row.id,
+            channel: "whatsapp",
+            contactId: who.id,
+            title: who.name,
+            knownContact: knownBefore,
+          });
+        }
+        const setting = conv ? (conv.capture as ConversationCapture) : null;
+        const archive = setting?.archive ?? true;
+        const kept: StoredCapture | null =
+          conv && setting
+            ? {
+                conversationId: conv.id,
+                archive,
+                wanted: msg.media
+                  .filter((m) => m.mediaSid && captureAllows(setting, m.contentType))
+                  .map((m) => m.index),
+              }
+            : null;
         const [stored] = await tx
           .insert(rawRecord)
           .values({
@@ -134,10 +240,13 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
               channel: msg.channel,
               from: msg.from,
               to: msg.to,
-              text: msg.text,
+              // v0.14 capture: with archiving off, only the envelope is kept.
+              text: archive ? msg.text : "",
               numMedia: msg.numMedia,
+              // Index, declared type and media SID: never Twilio's link.
               media: msg.media,
               profileName: msg.profileName,
+              ...(kept ? { capture: kept } : {}),
             },
             syncedAt: now,
           })
@@ -145,9 +254,20 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
           .returning({ id: rawRecord.id });
         // Delivered before (Twilio retries, or a replay): acknowledged, nothing more.
         if (!stored) return;
+        if (kept && kept.wanted.length > 0) {
+          capture = {
+            tenantId,
+            connectionId: row.id,
+            rawRecordId: stored.id,
+            messageSid: msg.sid,
+            indexes: kept.wanted,
+            reason: "inbound",
+          };
+        }
 
         let contactRow = await findContactByNumber(tx, tenantId, msg.channel, msg.from);
-        const knownContact = contactRow !== null;
+        // v0.14 capture: a WhatsApp contact made above for this message is still a stranger.
+        const knownContact = knownBefore ?? contactRow !== null;
         if (!contactRow) {
           // DECISION: someone not yet a contact becomes one, with no consent, so their thread and
           // any STOP are kept; consent still has to be given before anyone texts them.
@@ -169,7 +289,8 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
         const body: ThreadMessageBody = {
           direction: "in",
           channel: msg.channel,
-          text: msg.text,
+          // v0.14 capture: not kept when the conversation keeps no text.
+          text: archive ? msg.text : "",
           sid: msg.sid,
           rawRecordId: stored.id,
           status: null,
@@ -207,12 +328,62 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
           { registry: services.platform.events },
         );
         if (ev) collect.push(ev);
+        // v0.12 W2-E: a message to a number bound to an agent's channel starts its message
+        // triggers (`inbound.message`), or gets the polite reply (docs/plan.md §1.48). Keywords
+        // (STOP, START, HELP) are never requests.
+        if (!keyword) {
+          replies = await routeInboundText(tx, {
+            tenantId,
+            connectionId: row.id,
+            channel: msg.channel,
+            sid: msg.sid,
+            contact: contactRow,
+            knownContact,
+            rawRecordId: stored.id,
+            from: msg.from,
+            to: msg.to,
+            now,
+            registry: services.platform.events,
+            collect,
+            // v0.14 capture: the conversation's agent hears of the message after its downloads.
+            skipAgentId: setting && kept ? captureAgentOf(setting, kept.wanted) : null,
+          });
+        }
       });
       if (collect.length > 0) {
         c.get("req").deferred.push(() =>
           dispatchEvents({ db: services.db, instances: services.instances }, collect),
         );
       }
+      // v0.14 capture: the attachments are fetched after the commit, as a durable job.
+      if (capture) {
+        const params: CaptureParams = capture;
+        c.get("req").deferred.push(() =>
+          captureJobsFor(
+            services.env,
+            captureDepsFor({
+              db: services.db,
+              env: services.env,
+              deps: services.deps,
+              platform: services.platform,
+            }),
+          ).start(params),
+        );
+      }
+      // v0.12 W2-E: the fixed replies go after the commit.
+      if (replies.length > 0) {
+        const sendNow = replies;
+        c.get("req").deferred.push(() =>
+          sendReplies(
+            services.db,
+            tenantId,
+            replyDepsFromEnv(services.env, services.deps.fetch?.(services.env)),
+            sendNow,
+          ),
+        );
+      }
+      const wake = released;
+      if (wake) await wakeRelease(services.instances, wake);
       return twiml(c);
     } catch (error) {
       return errorResponse(c, error);

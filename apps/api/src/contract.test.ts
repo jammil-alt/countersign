@@ -1,7 +1,9 @@
 // The route contract (docs/plan.md §1.2 "Role checks"), checked statically and against the running
 // app: every /api/ops route is operator-only and refuses client roles; no portal response schema
-// has bundle, instruction, prompt or cost fields; every contract route is mounted.
+// has bundle, instruction, prompt or cost fields; every contract route is mounted; the operator's
+// own sign-in to a tool works only in the Sandbox client.
 
+import { createOAuthState } from "@countersign/connectors";
 import {
   buildPath,
   checkRouteContract,
@@ -11,7 +13,7 @@ import {
   routes,
 } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, user } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
 
 const ROUTES = Object.entries(routes) as [string, RouteSpec][];
 
@@ -31,7 +33,8 @@ describe("route contract (static)", () => {
   });
 });
 
-const h = await createApiHarness();
+const STATE_SECRET = "contract-state-secret-".repeat(2);
+const h = await createApiHarness({ env: { OAUTH_STATE_SECRET: STATE_SECRET } });
 afterAll(() => h?.close());
 
 describe.skipIf(!h)("route contract (running app)", () => {
@@ -82,5 +85,103 @@ describe.skipIf(!h)("route contract (running app)", () => {
       );
       expect(res.status, name).toBe(403);
     }
+  });
+
+  // docs/plan.md §1.5: the operator connects tools only in the Sandbox client, their own test client.
+  it("refuses the operator's own tool sign-in outside the Sandbox, and to client roles", async () => {
+    const start = buildPath(routes.opsSandboxAuthorize.path, {
+      id: harness.A.tenantId,
+      connector: "testkit",
+    });
+    const finish = buildPath(routes.opsSandboxAuthorizeCallback.path, { connector: "testkit" });
+    const state = (
+      await createOAuthState(
+        {
+          tenantId: harness.A.tenantId,
+          connector: "testkit",
+          userId: harness.operator,
+          origin: "ops",
+        },
+        { secret: STATE_SECRET },
+      )
+    ).state;
+    const body = { params: { code: "c", state } };
+    for (const [res, what] of [
+      [await harness.call(OPERATOR, "POST", start), "authorize"],
+      [await harness.call(OPERATOR, "POST", finish, body), "callback"],
+    ] as const) {
+      expect(res.status, what).toBe(403);
+      expect((res.json as { error: { code: string } }).error.code, what).toBe("not_sandbox");
+    }
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "POST", start)).status, who).toBe(403);
+      expect((await harness.call(who, "POST", finish, body)).status, who).toBe(403);
+    }
+  });
+
+  // docs/plan.md §1.31: the operator disconnects tools in the Sandbox client only.
+  it("refuses the back office's disconnect outside the Sandbox, and to client roles", async () => {
+    const path = buildPath(routes.opsSandboxDisconnect.path, {
+      id: harness.A.tenantId,
+      connectionId: harness.A.connectionId,
+    });
+    const real = await harness.call(OPERATOR, "DELETE", path);
+    expect(real.status).toBe(403);
+    expect((real.json as { error: { code: string } }).error.code).toBe("not_sandbox");
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "DELETE", path)).status, who).toBe(403);
+    }
+    expect((await harness.call(null, "DELETE", path)).status).toBe(401);
+  });
+
+  // docs/plan.md §1.16 "The Sandbox's uploads": the back office uploads to the Sandbox only.
+  it("refuses the back office's upload outside the Sandbox, and to client roles", async () => {
+    const path = buildPath(routes.opsSandboxUploads.path, { id: harness.A.tenantId });
+    const real = await harness.call(OPERATOR, "POST", path);
+    expect(real.status).toBe(403);
+    expect((real.json as { error: { code: string } }).error.code).toBe("not_sandbox");
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "POST", path)).status, who).toBe(403);
+    }
+    expect((await harness.call(null, "POST", path)).status).toBe(401);
+    // The portal's own upload is the client's: the operator acting as client A is refused.
+    const portal = await harness.call(OPERATOR, "POST", routes.portalUploads.path, undefined, {
+      "x-countersign-client": harness.A.tenantId,
+    });
+    expect(portal.status).toBe(403);
+  });
+
+  // The test-run payload picker reads one served client's events, operator-only.
+  it("refuses a client's recent events to client roles and outside the clients served", async () => {
+    const path = `${buildPath(routes.opsClientEvents.path, { id: harness.A.tenantId })}?type=document.extracted`;
+    expect((await harness.call(OPERATOR, "GET", path)).status).toBe(200);
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "GET", path)).status, who).toBe(403);
+    }
+    const other = `${buildPath(routes.opsClientEvents.path, { id: harness.C.tenantId })}?type=document.extracted`;
+    expect((await harness.call(OPERATOR, "GET", other)).status).toBe(404);
+  });
+
+  // docs/plan.md §1.31: the back office's Gmail test email is for the Sandbox client only.
+  it("refuses the back office's Gmail test email outside the Sandbox, and to client roles", async () => {
+    const path = buildPath(routes.opsSandboxGmailTestSend.path, { id: harness.A.tenantId });
+    const real = await harness.call(OPERATOR, "POST", path, {});
+    expect(real.status).toBe(403);
+    expect((real.json as { error: { code: string } }).error.code).toBe("not_sandbox");
+    for (const who of [admin("a"), user("a")]) {
+      expect((await harness.call(who, "POST", path, {})).status, who).toBe(403);
+    }
+    expect((await harness.call(null, "POST", path, {})).status).toBe(401);
+    // The portal's own route is the client's: the operator acting as client A is refused.
+    const portal = await harness.call(
+      OPERATOR,
+      "POST",
+      routes.portalGmailTestSend.path,
+      {},
+      {
+        "x-countersign-client": harness.A.tenantId,
+      },
+    );
+    expect(portal.status).toBe(403);
   });
 });

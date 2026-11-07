@@ -4,7 +4,7 @@
 // a message the provider accepted. apps/api implements it over the client's contacts inside withTenant; the
 // connector never reads the database itself.
 
-import type { MessagingChannel, SendBlock } from "@countersign/core";
+import type { AttachmentView, MessagingChannel, SendBlock } from "@countersign/core";
 
 export interface SendCheckInput {
   channel: MessagingChannel;
@@ -94,6 +94,53 @@ export interface MessagingServices {
   recordedSids(sids: readonly string[]): Promise<string[]>;
   /** Stores the message once (by sid) in the contact's thread and counts it as usage. */
   recordOutbound(message: OutboundMessage): Promise<void>;
+  // v0.14 capture (docs/plan.md §1.55)
+  /** What the platform keeps of these messages: conversation, attachments, whether text is kept. */
+  messageFacts?(sids: readonly string[]): Promise<Map<string, MessageFacts>>;
+  // v0.14 W4-A (docs/plan.md §1.57): Meta keeps no list of messages to read back, so its
+  // `messages.search` and `message.get` read what the platform recorded on the connection, with
+  // the same capture facts (text hidden where it wasn't kept), and a send that lost Meta's answer
+  // is matched by the key we sent with it (`biz_opaque_callback_data`, echoed in status callbacks).
+  /** Messages recorded on this connection, newest first. */
+  storedMessages?(query: StoredMessageQuery): Promise<StoredMessageRecord[]>;
+  /** One message recorded on this connection, or null. */
+  storedMessage?(sid: string): Promise<StoredMessageRecord | null>;
+  /** The message a status callback tied to this send's key, when one arrived and isn't recorded. */
+  statusSidFor?(idempotencyKey: string): Promise<{ sid: string; status: string } | null>;
+}
+
+// v0.14 W4-A
+export interface StoredMessageQuery {
+  /** E.164: messages to or from this number. */
+  contact?: string | undefined;
+  channel?: MessagingChannel | undefined;
+  /** YYYY-MM-DD: on or after this day. */
+  since?: string | undefined;
+  limit: number;
+}
+
+// v0.14 W4-A: as `messages.search` and `message.get` return a message (messaging/spec.ts).
+export interface StoredMessageRecord {
+  sid: string;
+  direction: "in" | "out";
+  channel: MessagingChannel;
+  from: string;
+  to: string;
+  text: string;
+  status: string;
+  sentAt: string | null;
+  numMedia: number;
+  errorCode: string | null;
+  kept?: boolean;
+  conversation?: { id: string; kind: "direct" | "group"; title: string } | null;
+  attachments?: AttachmentView[];
+}
+
+// v0.14 capture
+export interface MessageFacts {
+  kept: boolean;
+  conversation: { id: string; kind: "direct" | "group"; title: string } | null;
+  attachments: AttachmentView[];
 }
 
 export class SendBlockedError extends Error {

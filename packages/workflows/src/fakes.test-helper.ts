@@ -79,7 +79,17 @@ export class Harness {
   log: StepLog = {
     start: async (entry) => {
       const existing = this.row(entry.nodeId);
-      if (existing) return existing.id;
+      if (existing) {
+        // v0.13 W2-I: an oversight retry's attempt raises the count and takes its input.
+        if (entry.attempt !== undefined) {
+          existing.attempt = Math.max((existing.attempt ?? 1) + 1, entry.attempt);
+          existing.input = entry.input;
+        } else if (entry.retried) {
+          // v0.14 W4-B: a platform retry of the step's work.
+          existing.attempt = (existing.attempt ?? 1) + 1;
+        }
+        return existing.id;
+      }
       const id = `sr-${this.rows.size + 1}`;
       this.rows.set(id, { ...entry, id, status: "running", updates: [] });
       return id;

@@ -67,8 +67,9 @@ export function buildPath(path: string, params: Record<string, string | number> 
  * Field names a portal response may never carry (CLAUDE.md invariant 11): agent bundles,
  * instructions, prompts and cost.
  */
+// v0.12 W1-E: model calls (their list, bodies and stop reasons) are the operator's too (§10.10).
 export const FORBIDDEN_PORTAL_FIELD =
-  /^(bundle|definition|instructions|prompts?|systemPrompt|cost|costUsd|cost_usd|modelCost|tokensIn|tokensOut|tokens_in|tokens_out)$/i;
+  /^(bundle|definition|instructions|prompts?|systemPrompt|cost|costUsd|cost_usd|modelCost|tokensIn|tokensOut|tokens_in|tokens_out|modelCalls?|model_calls?|bodyKey|body_key|stopReason|stop_reason|costOver)$/i;
 
 /**
  * Field names no response may carry, on any surface (CLAUDE.md invariant 13: secrets are
@@ -79,7 +80,7 @@ export const FORBIDDEN_PORTAL_FIELD =
 // a stored secret's value in every response; the webhook setup's `signingSecret` (Mezonas' own
 // signing key, shown to the client who pastes it into Zapier) predates it and is left as it is.
 export const FORBIDDEN_SECRET_FIELD =
-  /^(credentials|credentialsEncrypted|credentials_encrypted|wrappedKey|wrapped_key|password|apiKey|api_key|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|otpauthUri|cookies|sessionCookies)$/i;
+  /^(credentials|credentialsEncrypted|credentials_encrypted|wrappedKey|wrapped_key|password|apiKey|api_key|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|otpauthUri|cookies|sessionCookies|codeHash|code_hash|releaseCode)$/i;
 
 /** Property names anywhere in a schema that match `pattern`. */
 function fieldsMatching(schema: z.ZodType, pattern: RegExp): string[] {

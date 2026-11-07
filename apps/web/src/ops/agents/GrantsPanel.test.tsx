@@ -34,6 +34,15 @@ const grant = (limits: Record<string, unknown> = {}) => ({
     revoked: false,
     updatedAt: null,
   },
+  release: {
+    mode: "off",
+    person: null,
+    channel: "email",
+    window: "run",
+    sentTo: null,
+    updatedAt: null,
+    live: [],
+  },
 });
 
 describe("grants panel", () => {
@@ -74,5 +83,61 @@ describe("grants panel", () => {
     expect(puts[0]).toEqual({
       limits: { verbs: { create: "off", update: "off" }, tools: ["acme.price.get"] },
     });
+  });
+
+  it("shows human release read-only with Turn on, and never offers to turn it off", async () => {
+    const CLIENT = "00000000-0000-4000-8000-00000000c111";
+    const ANA = "00000000-0000-4000-8000-0000000b0001";
+    const puts: unknown[] = [];
+    const on = {
+      mode: "code",
+      person: { id: ANA, name: "Ana Ruiz" },
+      channel: "email",
+      window: { hours: 4 },
+      sentTo: null,
+      updatedAt: null,
+      live: [],
+    };
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT}/grants`]: () => ({
+        grants: [puts.length > 0 ? { ...grant(), release: on } : grant()],
+      }),
+      [`GET /api/ops/clients/${CLIENT}/connections/${CONN}/release`]: () => ({
+        release: grant().release,
+        people: [{ id: ANA, name: "Ana Ruiz", email: "a•••@demo.example.com", canText: false }],
+      }),
+      [`PUT /api/ops/clients/${CLIENT}/connections/${CONN}/release`]: ({ init }) => {
+        puts.push(JSON.parse(String(init.body)));
+        return { release: on };
+      },
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <MemoryRouter>
+          <GrantsPanel agentId={AGENT} clientId={CLIENT} />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+    const box = await screen.findByTestId("agent-grant-acme-release");
+    expect(box).toHaveTextContent("Off");
+    await userEvent.click(within(box).getByTestId("agent-grant-acme-release-on"));
+    const person = await within(box).findByTestId("release-person");
+    await waitFor(() => expect(within(person).getAllByRole("option")).toHaveLength(1));
+    // No phone that agreed to texts: text is not offered.
+    const channel = within(box).getByTestId("release-channel");
+    expect(within(channel).getByRole("option", { name: "By text" })).toBeDisabled();
+    await userEvent.selectOptions(within(box).getByTestId("release-window"), "4");
+    await userEvent.click(within(box).getByTestId("release-save"));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]).toEqual({
+      mode: "code",
+      personId: ANA,
+      channel: "email",
+      window: { hours: 4 },
+    });
+    const after = await screen.findByText(/Ana Ruiz releases it with a code by email, for 4 hours/);
+    expect(after).toHaveTextContent("Only the client admin can change it or turn it off.");
+    expect(screen.queryByTestId("agent-grant-acme-release-on")).toBeNull();
+    expect(screen.queryByText("Turn off")).toBeNull();
   });
 });

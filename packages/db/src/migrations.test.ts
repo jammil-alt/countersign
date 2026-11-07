@@ -149,7 +149,6 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "app_user",
       "vendor",
       "transaction",
-      "transaction_line",
       "document",
       "doc_extraction",
       "doc_line",
@@ -162,15 +161,66 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "billing_setting",
       "billing_usage_report",
       "billing_event",
+      "billing_agent_day",
+      "billing_statement",
       "reach_out",
       "tenant_key",
       "agent_grant",
+      "access_release",
+      "organization",
+      "organization_change",
+      "audit_event",
+      // Wave 1 (0018–0025): nothing gets DELETE.
+      "usage_platform_daily",
+      "notification",
+      "weekly_table",
+      "thread_read",
+      "model_call",
+      "receivable",
+      // Wave 2 (0026–0029): nothing gets DELETE either.
+      "automation",
+      "automation_version",
+      "test_case",
+      "test_suite_run",
+      "test_case_result",
+      "oversight_decision",
+      // Wave 3 (0030): a conversation is closed, never deleted.
+      "builder_session",
+      "builder_turn",
+      // v0.14 capture (0031): a WhatsApp conversation and its log stay.
+      "conversation",
+      "conversation_change",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    // A session's draft changes in place; a turn only gains `undone_at` (trigger, 0030).
+    expect(await can("builder_session", "UPDATE")).toBe(true);
+    expect(await can("builder_turn", "UPDATE")).toBe(true);
+    // Insert only (0028, 0029); a version's status changes (0027), like skill_version's.
+    expect(await can("test_case_result", "UPDATE")).toBe(false);
+    expect(await can("oversight_decision", "UPDATE")).toBe(false);
+    // v0.14 capture (0031): a conversation's capture changes in place; its log is insert only.
+    expect(await can("conversation", "UPDATE")).toBe(true);
+    expect(await can("conversation_change", "UPDATE")).toBe(false);
+    for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+    }
+    expect(await can("model_call", "UPDATE")).toBe(false);
+    for (const table of [
+      "usage_platform_daily",
+      "notification",
+      "weekly_table",
+      "thread_read",
+      "receivable",
+    ]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+    }
+    expect(await can("audit_event", "UPDATE")).toBe(false);
     expect(await can("contact_change", "UPDATE")).toBe(false);
+    expect(await can("organization_change", "UPDATE")).toBe(false);
     expect(await can("knowledge_entry_version", "UPDATE")).toBe(false);
     expect(await can("billing_event", "UPDATE")).toBe(false);
+    expect(await can("billing_agent_day", "UPDATE")).toBe(false);
     expect(await can("connection_change", "UPDATE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
@@ -180,11 +230,21 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     for (const table of OPERATOR_ONLY_TABLES) {
       expect(await can(table, "SELECT"), `${table} SELECT`).toBe(true);
       expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
-      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
       expect(await can(table, "TRUNCATE"), `${table} TRUNCATE`).toBe(false);
     }
+    expect(await can("browser_site", "DELETE")).toBe(false);
+    expect(await can("browser_site_version", "DELETE")).toBe(false);
+    // Saved views (0023) aren't history: an operator deletes their own (§14).
+    expect(await can("saved_view", "DELETE")).toBe(true);
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
+    expect(await can("saved_view", "UPDATE")).toBe(true);
+    // The connectors catalog (0026): settings change in place, never deleted.
+    expect(await can("connector_setting", "UPDATE")).toBe(true);
+    expect(await can("connector_setting", "DELETE")).toBe(false);
+    // A synced transaction's lines mirror the tool's current lines (0015, QuickBooks sync); the
+    // versions behind them stay in raw_record.
+    expect(await can("transaction_line", "DELETE")).toBe(true);
   });
 
   it("force RLS on the operator-only tables, with policies on app.operator alone", async () => {
@@ -224,6 +284,32 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       });
     expect(await updated(false)).toBe(0);
     expect(await updated(true)).toBe(1);
+    // §1.32's defaults: placeholders until the owner sets prices; auto-send off.
+    const [defaults] = await t.db.$client<{ p: string; c: string; s: boolean }[]>`
+      select default_agent_price as p, credit_price as c, auto_send as s from billing_setting`;
+    expect({ ...defaults }).toEqual({ p: "250.0000", c: "0.0200", s: false });
+  });
+
+  it("let every session read template prices and only operator sessions write them", async () => {
+    const [template] = await t.db.$client<{ id: string }[]>`
+      insert into agent (kind, slug, name) values ('template', 'priced', 'Priced') returning id`;
+    const write = async (operator: boolean) =>
+      t.db.$client.begin(async (tx) => {
+        await tx`select set_config('app.operator', ${operator ? "on" : "off"}, true)`;
+        await tx`set local role cs_worker`;
+        const inserted = await tx`
+          insert into billing_template_price (template_id, monthly_price, included_credits)
+          values (${template?.id ?? ""}, 100, 1000)
+          on conflict (template_id) do update set monthly_price = 120 returning template_id`;
+        return inserted.length;
+      });
+    await expect(write(false)).rejects.toThrow(/row-level security/);
+    expect(await write(true)).toBe(1);
+    const read = await t.db.$client.begin(async (tx) => {
+      await tx`set local role cs_worker`;
+      return tx`select monthly_price from billing_template_price`;
+    });
+    expect(read.map((r) => r.monthly_price)).toEqual(["100.0000"]);
   });
 
   it("default ids to uuid v7, in creation order", async () => {

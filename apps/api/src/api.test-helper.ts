@@ -14,7 +14,12 @@ import {
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
-import { AgentBundle, type AgentBundleInput, type SkillDefinition } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  FORBIDDEN_PORTAL_FIELD,
+  type SkillDefinition,
+} from "@countersign/core";
 import { appUser, connection, createDb, type Db, membership, tenant } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { type LlmTransport, withRecording } from "@countersign/llm";
@@ -22,10 +27,15 @@ import { fileFixtureStore } from "@countersign/llm/node";
 import type { Hono } from "hono";
 import { createApp } from "./app";
 import type { Bindings } from "./env";
+import type { ExportJobs } from "./exports/instances";
 import type { AppEnv } from "./http";
+import type { McpDeps } from "./mcp/routes";
 import { createPlatform, type Platform } from "./platform";
+import type { QboSyncInstances } from "./qbo/instances";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
+// v0.12 W2-C
+import type { TestSuiteJobs } from "./testbench/instances";
 
 export interface Client {
   tenantId: string;
@@ -84,7 +94,9 @@ async function addClient(
 ): Promise<Client> {
   const [row] = await t.db
     .insert(tenant)
-    .values({ name, settings: { connectors_offered: ["testkit"] } })
+    // The undo window (v0.12 W1-D) is off for the shared clients, so a test's approval reaches its
+    // run at once; src/desk.test.ts turns it on where it is under test.
+    .values({ name, settings: { connectors_offered: ["testkit"], approvals: { undoSeconds: 0 } } })
     .returning();
   if (!row) throw new Error("no tenant");
   const admin = await addUser(t, `admin@${slug}.example.com`, `${name} admin`);
@@ -119,6 +131,15 @@ export interface HarnessOptions {
   stripe?: StripeClient;
   /** Platform skills beside the built-in ones (e.g. an agent-mode skill over a connector's tools). */
   skills?: SkillDefinition[];
+  /** QuickBooks syncs (in-memory instances); none by default. */
+  qboSync?: QboSyncInstances;
+  /** Client data export jobs (in memory); none by default. */
+  exports?: ExportJobs;
+  /** The MCP server's authorization server, audit, rate limit and clock (fakes). */
+  mcp?: McpDeps;
+  // v0.12 W2-C
+  /** Test suite jobs (in memory); none by default. */
+  testSuites?: TestSuiteJobs;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -157,6 +178,11 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     objects: () => objects,
     extractionTransport: () => extraction.transport,
     stripe: () => options.stripe ?? null,
+    qboSync: () => options.qboSync ?? null,
+    exports: () => options.exports ?? null,
+    ...(options.mcp ? { mcp: options.mcp } : {}),
+    // v0.12 W2-C
+    ...(options.testSuites ? { testSuites: () => options.testSuites as TestSuiteJobs } : {}),
   });
   const env = {
     ENVIRONMENT: "development",
@@ -227,6 +253,19 @@ export const OPERATOR = "operator@example.com";
 export const OTHER_OPERATOR = "other-operator@example.com";
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;
 export const user = (c: "a" | "b" | "c") => `user@${c}.example.com`;
+
+/**
+ * Every key in a JSON value that a portal response may never carry (invariant 11): the contract's
+ * forbidden fields, and `also` when a test is stricter (e.g. any key naming cost or tokens).
+ */
+export function forbiddenKeys(value: unknown, also?: RegExp, at = "$"): string[] {
+  if (Array.isArray(value)) return value.flatMap((v, i) => forbiddenKeys(v, also, `${at}[${i}]`));
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([k, v]) => [
+    ...(FORBIDDEN_PORTAL_FIELD.test(k) || also?.test(k) ? [`${at}.${k}`] : []),
+    ...forbiddenKeys(v, also, `${at}.${k}`),
+  ]);
+}
 
 /**
  * A bundle with one manual workflow: a change to the testkit record (approval on), a person's

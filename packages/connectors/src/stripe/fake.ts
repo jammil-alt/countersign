@@ -1,15 +1,12 @@
-// A fake Stripe for tests (`@countersign/connectors/testing`): customers, prices, subscriptions and
-// their items, billing meter events and invoices, in memory, behind the same HTTP shapes the client
-// uses (form bodies, Bearer key, Idempotency-Key replays). Never imported by the Worker.
+// A fake Stripe for tests (`@countersign/connectors/testing`): customers, draft invoices, invoice
+// items, finalizing and sending, in memory, behind the same HTTP shapes the client uses (form
+// bodies, Bearer key, Idempotency-Key replays). Never imported by the Worker.
 
 import type { FetchLike, HttpRequestInit, HttpResponseLike } from "../http";
 import { formDecode, parseUrl } from "../http";
 import { stripeSignatureHeader } from "./webhook";
 
 export const FAKE_STRIPE_KEY = "sk_test_fake";
-export const FAKE_BASE_PRICE = "price_base_monthly";
-export const FAKE_OVERAGE_PRICE = "price_credit_overage";
-export const FAKE_METER = "mtr_fake_credits";
 
 interface Recorded {
   url: string;
@@ -33,7 +30,10 @@ const notFound = (what: string) =>
     error: { type: "invalid_request_error", code: "resource_missing", message: `No such ${what}` },
   });
 
-/** `items[0][price]` → nested objects and arrays, as Stripe reads a form. */
+const invalid = (message: string) =>
+  respond(400, { error: { type: "invalid_request_error", message } });
+
+/** `metadata[tenant_id]` → nested objects, as Stripe reads a form. */
 function unflatten(form: Record<string, string>): Record<string, unknown> {
   const root: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(form)) {
@@ -50,68 +50,61 @@ function unflatten(form: Record<string, string>): Record<string, unknown> {
   return root;
 }
 
-export interface FakeInvoiceInput {
-  id?: string;
-  number?: string;
-  status?: string;
+export interface FakeInvoice {
+  id: string;
+  object: "invoice";
+  customer: string;
+  number: string | null;
+  status: "draft" | "open" | "paid" | "void" | "uncollectible";
+  currency: string;
   total: number;
-  currency?: string;
+  amount_due: number;
+  amount_paid: number;
   created: number;
-  periodStart?: number;
-  periodEnd?: number;
+  due_date: number | null;
+  collection_method: string;
+  days_until_due: number | null;
+  auto_advance: boolean;
+  pending_invoice_items_behavior: string | null;
+  description: string | null;
+  hosted_invoice_url: string | null;
+  invoice_pdf: string | null;
+  metadata: Record<string, string>;
+  /** Fake only: how many times it was sent (emailed). */
+  sent: number;
+  lines: FakeInvoiceItem[];
 }
 
-export function fakeStripe(options: { webhookSecret?: string } = {}) {
+export interface FakeInvoiceItem {
+  id: string;
+  object: "invoiceitem";
+  customer: string;
+  invoice: string | null;
+  amount: number;
+  currency: string;
+  description: string | null;
+  period: { start: number; end: number } | null;
+  metadata: Record<string, string>;
+}
+
+export function fakeStripe(options: { webhookSecret?: string; now?: () => Date } = {}) {
   const requests: Recorded[] = [];
   const idempotent = new Map<string, { status: number; body: unknown }>();
   let seq = 0;
+  let numbers = 0;
+  const now = () => Math.floor((options.now?.() ?? new Date()).getTime() / 1000);
   const next = (prefix: string) => `${prefix}_fake${(++seq).toString().padStart(4, "0")}`;
-  const prices = new Map<string, Record<string, unknown>>([
-    [
-      FAKE_BASE_PRICE,
-      {
-        id: FAKE_BASE_PRICE,
-        object: "price",
-        active: true,
-        currency: "usd",
-        unit_amount: 25000,
-        unit_amount_decimal: "25000",
-        recurring: { interval: "month", usage_type: "licensed", meter: null },
-      },
-    ],
-    [
-      FAKE_OVERAGE_PRICE,
-      {
-        id: FAKE_OVERAGE_PRICE,
-        object: "price",
-        active: true,
-        currency: "usd",
-        unit_amount: null,
-        unit_amount_decimal: "1.5",
-        recurring: { interval: "month", usage_type: "metered", meter: FAKE_METER },
-      },
-    ],
-  ]);
   const customers = new Map<string, Record<string, unknown>>();
-  const subscriptions = new Map<string, Record<string, unknown> & { items: { data: Item[] } }>();
-  type Item = { id: string; object: string; quantity?: number; price: { id: string } };
-  const items = new Map<string, { subscription: string; item: Item }>();
-  const meterEvents: {
-    identifier: string;
-    event_name: string;
-    customer: string;
-    value: number;
-    timestamp: number;
-  }[] = [];
-  const invoices: Record<string, unknown>[] = [];
+  const invoices = new Map<string, FakeInvoice>();
+  const items = new Map<string, FakeInvoiceItem>();
   const failures: { status: number; path?: string }[] = [];
 
-  function handle(
-    method: string,
-    path: string,
-    body: Record<string, unknown>,
-    query: Record<string, string>,
-  ) {
+  const view = (i: FakeInvoice) => {
+    const { sent: _sent, lines, ...rest } = i;
+    return { ...rest, lines: { object: "list", data: lines } };
+  };
+
+  function handle(method: string, path: string, body: Record<string, unknown>) {
     const failure = failures.findIndex((f) => !f.path || path.startsWith(f.path));
     if (failure >= 0) {
       const [f] = failures.splice(failure, 1);
@@ -141,102 +134,87 @@ export function fakeStripe(options: { webhookSecret?: string } = {}) {
       }
       return respond(200, c);
     }
-    if (method === "GET" && seg[1] === "prices" && seg[2]) {
-      const p = prices.get(seg[2]);
-      return p ? respond(200, p) : notFound("price");
-    }
-    if (method === "POST" && path === "/v1/subscriptions") {
+    if (method === "POST" && path === "/v1/invoices") {
       const customer = String(body.customer ?? "");
       if (!customers.has(customer)) return notFound("customer");
-      const id = next("sub");
-      const wanted = Object.values(
-        (body.items ?? {}) as Record<string, { price: string; quantity?: string }>,
-      );
-      const data: Item[] = [];
-      for (const w of wanted) {
-        const price = prices.get(w.price);
-        if (!price) return notFound("price");
-        const metered = (price.recurring as { usage_type?: string }).usage_type === "metered";
-        if (metered && w.quantity !== undefined) {
-          return respond(400, {
-            error: { type: "invalid_request_error", message: "metered prices take no quantity" },
-          });
-        }
-        const item: Item = {
-          id: next("si"),
-          object: "subscription_item",
-          price: { id: w.price },
-          ...(metered ? {} : { quantity: Number(w.quantity ?? "1") }),
-        };
-        items.set(item.id, { subscription: id, item });
-        data.push(item);
+      if (body.collection_method === "send_invoice" && !body.days_until_due) {
+        return invalid("days_until_due is required with send_invoice");
       }
-      const sub = {
+      const id = next("in");
+      const invoice: FakeInvoice = {
         id,
-        object: "subscription",
+        object: "invoice",
         customer,
-        status: "active",
-        collection_method: body.collection_method,
+        number: null,
+        status: "draft",
+        currency: String(body.currency ?? "usd"),
+        total: 0,
+        amount_due: 0,
+        amount_paid: 0,
+        created: now(),
+        due_date: null,
+        collection_method: String(body.collection_method ?? "charge_automatically"),
         days_until_due: body.days_until_due ? Number(body.days_until_due) : null,
-        billing_cycle_anchor: Number(body.billing_cycle_anchor ?? 0),
-        metadata: body.metadata ?? {},
-        items: { object: "list", data },
+        auto_advance: body.auto_advance === "true",
+        pending_invoice_items_behavior: (body.pending_invoice_items_behavior as string) ?? null,
+        description: (body.description as string) ?? null,
+        hosted_invoice_url: null,
+        invoice_pdf: null,
+        metadata: (body.metadata as Record<string, string>) ?? {},
+        sent: 0,
+        lines: [],
       };
-      subscriptions.set(id, sub);
-      return respond(200, sub);
+      invoices.set(id, invoice);
+      return respond(200, view(invoice));
     }
-    if (method === "GET" && seg[1] === "subscriptions" && seg[2]) {
-      const s = subscriptions.get(seg[2]);
-      return s ? respond(200, s) : notFound("subscription");
-    }
-    if (method === "POST" && seg[1] === "subscription_items" && seg[2]) {
-      const found = items.get(seg[2]);
-      if (!found) return notFound("subscription item");
-      found.item.quantity = Number(body.quantity ?? found.item.quantity ?? 0);
-      return respond(200, found.item);
-    }
-    if (method === "POST" && path === "/v1/billing/meter_events") {
-      const payload = (body.payload ?? {}) as Record<string, string>;
-      const identifier = String(body.identifier ?? next("mev"));
-      if (meterEvents.some((e) => e.identifier === identifier)) {
-        return respond(400, {
-          error: {
-            type: "invalid_request_error",
-            code: "resource_already_exists",
-            message: "An event with this identifier already exists",
-          },
-        });
-      }
-      const customer = payload.stripe_customer_id ?? "";
+    if (method === "POST" && path === "/v1/invoiceitems") {
+      const customer = String(body.customer ?? "");
       if (!customers.has(customer)) return notFound("customer");
-      const event = {
-        identifier,
-        event_name: String(body.event_name ?? ""),
+      const invoiceId = body.invoice ? String(body.invoice) : null;
+      const invoice = invoiceId ? invoices.get(invoiceId) : undefined;
+      if (invoiceId && !invoice) return notFound("invoice");
+      if (invoice && invoice.status !== "draft") {
+        return invalid("invoice items can only be added to a draft invoice");
+      }
+      if (!/^-?\d+$/.test(String(body.amount ?? ""))) return invalid("amount must be an integer");
+      const period = body.period as { start?: string; end?: string } | undefined;
+      const item: FakeInvoiceItem = {
+        id: next("ii"),
+        object: "invoiceitem",
         customer,
-        value: Number(payload.value ?? "0"),
-        timestamp: Number(body.timestamp ?? 0),
+        invoice: invoiceId,
+        amount: Number(body.amount),
+        currency: String(body.currency ?? "usd"),
+        description: (body.description as string) ?? null,
+        period: period ? { start: Number(period.start), end: Number(period.end) } : null,
+        metadata: (body.metadata as Record<string, string>) ?? {},
       };
-      meterEvents.push(event);
-      return respond(200, {
-        object: "billing.meter_event",
-        identifier,
-        event_name: event.event_name,
-        payload,
-        timestamp: event.timestamp,
-      });
+      items.set(item.id, item);
+      if (invoice) {
+        invoice.lines.push(item);
+        invoice.total += item.amount;
+        invoice.amount_due = invoice.total;
+      }
+      return respond(200, item);
     }
-    if (method === "GET" && path === "/v1/invoices") {
-      const customer = query.customer;
-      const limit = Number(query.limit ?? "10");
-      const data = invoices
-        .filter((i) => !customer || i.customer === customer)
-        .sort((a, b) => Number(b.created) - Number(a.created))
-        .slice(0, limit);
-      return respond(200, { object: "list", data, has_more: false });
-    }
-    if (method === "GET" && seg[1] === "invoices" && seg[2]) {
-      const i = invoices.find((x) => x.id === seg[2]);
-      return i ? respond(200, i) : notFound("invoice");
+    if (seg[1] === "invoices" && seg[2]) {
+      const invoice = invoices.get(seg[2]);
+      if (!invoice) return notFound("invoice");
+      if (method === "GET" && !seg[3]) return respond(200, view(invoice));
+      if (method === "POST" && seg[3] === "finalize") {
+        if (invoice.status !== "draft") return invalid("this invoice is already finalized");
+        invoice.status = "open";
+        invoice.number = `MZ-${String(++numbers).padStart(4, "0")}`;
+        invoice.due_date = now() + (invoice.days_until_due ?? 30) * 86_400;
+        invoice.hosted_invoice_url = `https://invoice.stripe.com/i/acct_fake/${invoice.id}`;
+        invoice.invoice_pdf = `https://pay.stripe.com/invoice/acct_fake/${invoice.id}/pdf`;
+        return respond(200, view(invoice));
+      }
+      if (method === "POST" && seg[3] === "send") {
+        if (invoice.status !== "open") return invalid("only open invoices can be sent");
+        invoice.sent += 1;
+        return respond(200, view(invoice));
+      }
     }
     return respond(404, {
       error: {
@@ -260,14 +238,14 @@ export function fakeStripe(options: { webhookSecret?: string } = {}) {
         error: { type: "invalid_request_error", message: "Invalid API Key provided" },
       });
     }
+    // Stripe replays the first answer to a key (unless that answer was a server error).
     const key = headers["idempotency-key"];
     if (method === "POST" && key) {
       const seen = idempotent.get(key);
       if (seen) return respond(seen.status, seen.body);
     }
-    const query = formDecode(url.includes("?") ? url.slice(url.indexOf("?") + 1) : "");
     const body = method === "POST" ? unflatten(formDecode(init.body ?? "")) : {};
-    const res = handle(method, u.pathname, body, query);
+    const res = handle(method, u.pathname, body);
     if (method === "POST" && key && res.status < 500) {
       idempotent.set(key, { status: res.status, body: JSON.parse(await res.text()) });
     }
@@ -278,42 +256,33 @@ export function fakeStripe(options: { webhookSecret?: string } = {}) {
     fetch,
     requests,
     customers,
-    subscriptions,
-    meterEvents,
     invoices,
+    items,
     /** Calls to an endpoint (method and path prefix). */
     calls: (method: string, pathPrefix: string) =>
       requests.filter(
         (r) => r.method === method && (parseUrl(r.url)?.pathname ?? "").startsWith(pathPrefix),
       ),
-    /** The next request (or the next one to `path`) answers `status`. */
+    /** The next request (or the next one to a path starting with `path`) answers `status`. */
     failNext(status = 500, path?: string) {
       failures.push({ status, ...(path ? { path } : {}) });
     },
-    addPrice(price: Record<string, unknown> & { id: string }) {
-      prices.set(price.id, price);
+    /** What happens in Stripe's dashboard or on the hosted page: an invoice changes status. */
+    setInvoiceStatus(id: string, status: FakeInvoice["status"]) {
+      const invoice = invoices.get(id);
+      if (!invoice) throw new Error(`no fake invoice ${id}`);
+      invoice.status = status;
+      if (status === "paid") {
+        invoice.amount_paid = invoice.total;
+        invoice.amount_due = 0;
+      }
+      return view(invoice);
     },
-    addInvoice(customer: string, input: FakeInvoiceInput) {
-      const id = input.id ?? next("in");
-      const invoice = {
-        id,
-        object: "invoice",
-        customer,
-        number: input.number ?? `MZ-${id.slice(-4)}`,
-        status: input.status ?? "open",
-        currency: input.currency ?? "usd",
-        total: input.total,
-        amount_due: input.status === "paid" ? 0 : input.total,
-        amount_paid: input.status === "paid" ? input.total : 0,
-        created: input.created,
-        period_start: input.periodStart ?? input.created,
-        period_end: input.periodEnd ?? input.created,
-        due_date: input.created + 30 * 86_400,
-        hosted_invoice_url: `https://invoice.stripe.com/i/acct_fake/${id}`,
-        invoice_pdf: `https://pay.stripe.com/invoice/acct_fake/${id}/pdf`,
-      };
-      invoices.push(invoice);
-      return invoice;
+    /** An invoice as an event's `data.object`. */
+    invoiceObject(id: string): Record<string, unknown> {
+      const invoice = invoices.get(id);
+      if (!invoice) throw new Error(`no fake invoice ${id}`);
+      return view(invoice) as unknown as Record<string, unknown>;
     },
     /** An event as Stripe would POST it, with its Stripe-Signature header. */
     async signedEvent(

@@ -16,7 +16,12 @@ import {
   twilioCredentialsOf,
   twilioVoiceUrls,
 } from "@countersign/connectors";
-import { type CallsSetup, type PermissionMatrix, routes } from "@countersign/core";
+import {
+  type CallsSetup,
+  type PermissionMatrix,
+  routes,
+  trimTrailingSlashes,
+} from "@countersign/core";
 import { connection, connectionChange, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -34,7 +39,7 @@ function fetchFor(services: Services): FetchLike {
 }
 
 function originOf(c: AppContext, env: Bindings): string {
-  return (env.APP_ORIGIN?.trim() || new URL(c.req.url).origin).replace(/\/+$/, "");
+  return trimTrailingSlashes(env.APP_ORIGIN?.trim() || new URL(c.req.url).origin);
 }
 
 async function twilioConnection(tx: Tx, tenantId: string): Promise<ConnectionRow | undefined> {
@@ -62,6 +67,7 @@ async function setupOf(c: AppContext, tx: Tx, services: Services, tenantId: stri
           tenantId,
           connectionId: row.id,
           permissions: row.permissions as Partial<PermissionMatrix>,
+          config: row.config,
           forwardTo: voice.forwardTo,
           voice: voiceDeps,
         })

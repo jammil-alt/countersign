@@ -1,27 +1,85 @@
 import { z } from "zod";
+import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
-import { PermissionLevel } from "../schemas/permissions";
+import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
+import { ToolDisplay } from "../schemas/tool-display";
 import { accessRoutes } from "./access";
+// v0.12 W2-D: Sloan, the account agent
+import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
+// v0.12 W2-B: automations
+import { automationRoutes, BuilderAutomation } from "./automations";
+// v0.12 bankfeed
+import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
+// v0.12 W3-A: the Builder as a conversation
+import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
+// v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+import { clientViewRoutes } from "./client-view";
+// v0.12 W2-F: the command center, search and plain-words questions
+import { commandCenterRoutes } from "./command-center";
+import { complianceRoutes } from "./compliance";
+// v0.12 W2-A: the connectors catalog
+import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
+// v0.14 capture: WhatsApp conversations and their capture
+import { conversationRoutes } from "./conversations";
+import { deskRoutes } from "./desk";
+import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
+import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
+// v0.14 W4-E: Google Chat
+import { gchatRoutes } from "./gchat";
+// v0.14 W4-D: Google Sheets' picking
+import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
+// v0.12 W1-A: go-live stages and client controls
+import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
+import { modelRoutes } from "./models";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+// v0.13 W2-I: run oversight
+import { OversightDecisionView, oversightRoutes } from "./oversight";
+// v0.12 W1-G: people (autonomy).
+import { peopleRoutes, voiceSampleRoutes } from "./people";
+import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
-import { usageRoutes } from "./usage";
+import { runControlRoutes } from "./run-controls";
+import {
+  OpsRunsQuery,
+  PortalRunsQuery,
+  RunErrorGroup,
+  RunStatusSchema,
+  RunsPerDay,
+} from "./runs-filter";
+// v0.14 W4-C: the Slack channel picker
+import { slackRoutes } from "./slack";
+import { PortalHealth, supervisorRoutes } from "./supervisor";
+import { tableRoutes } from "./table";
+// v0.12 W2-C: the test bench
+import { testbenchRoutes } from "./testbench";
+// v0.12 W1-C: threads, the lead and `/commands`
+import { PortalLead, threadRoutes } from "./threads";
+// v0.12 W2-E: the triggers list
+import { triggerRoutes } from "./triggers";
+import { AgentRunsNow, usageRoutes } from "./usage";
+// v0.14 W4-A: WhatsApp through Meta
+import { whatsappMetaRoutes } from "./whatsapp-meta";
+// v0.14 W4-B
+import { zohoRoutes } from "./zoho";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
@@ -40,6 +98,8 @@ export type SessionBase = z.infer<typeof SessionBase>;
 export const SessionResponse = SessionBase.extend({
   /** The language the app reads in, and the choices behind it (docs/plan.md §1.18). */
   language: SessionLanguage,
+  // v0.12 W1-C: the active client's lead, by name ("Message Ana"); null when none is set.
+  lead: PortalLead.nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
@@ -68,6 +128,8 @@ export const MatrixEdit = z.strictObject({
   update: PermissionLevel.optional(),
   delete: PermissionLevel.optional(),
   scope: z.unknown().optional(),
+  // v0.12 W2-A: when sent, the matrix's entities, whole; left out, they are kept (docs/plan.md §1.44).
+  entities: EntityPermissions.optional(),
 });
 
 export const ConnectionMatrix = z.object({
@@ -76,6 +138,8 @@ export const ConnectionMatrix = z.object({
   update: PermissionLevel,
   delete: PermissionLevel,
   scope: z.unknown().optional(),
+  // v0.12 W2-A: levels per entity (absent: every entity takes the verb's level).
+  entities: EntityPermissions.optional(),
 });
 
 export const ValidationErrorSchema = z.object({
@@ -86,14 +150,7 @@ export const ValidationErrorSchema = z.object({
   workflow: z.string().optional(),
 });
 
-export const RunStatusSchema = z.enum([
-  "queued",
-  "running",
-  "waiting",
-  "succeeded",
-  "failed",
-  "cancelled",
-]);
+// v0.12 W1-E: RunStatusSchema lives with RunFilter (./runs-filter.ts).
 export const InboxStatusSchema = z.enum(["open", "resolved", "expired"]);
 export const InboxKindSchema = z.enum([
   "approval",
@@ -209,6 +266,9 @@ export const OpsStep = z.object({
   tokensOut: z.number().int(),
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // v0.13 W2-H: the models the step's calls ran on, from its model calls (ARCHITECTURE §10.11).
+  /** Distinct, in the order first called; absent where the route doesn't read model calls. */
+  models: z.array(z.string()).optional(),
 });
 
 export const OpsToolCall = z.object({
@@ -222,9 +282,28 @@ export const OpsToolCall = z.object({
   externalActionId: z.string().nullable(),
 });
 
+/**
+ * How an external action reads on its card ("now / after this change"): the connector's name as
+ * people know it ("QuickBooks") and the tool's display spec, when it declares one. The server adds
+ * it from the tool registry, so items proposed before a tool declared one read the same.
+ */
+export const ChangeDisplayView = z.object({
+  connectorName: z.string(),
+  tool: ToolDisplay.nullable(),
+  /**
+   * Names for ids the change's before state leaves unnamed (`{ accounts: { "20": "Job
+   * Materials" } }`, keyed like the display's `names` lists), found by the server in the
+   * connection's synced records. Absent when there is nothing to add. The before state's own
+   * names come first.
+   */
+  names: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+});
+export type ChangeDisplayView = z.infer<typeof ChangeDisplayView>;
+
 export const OpsAction = z.object({
   id: z.string(),
   tool: z.string(),
+  display: ChangeDisplayView.nullable().optional(),
   connectionId: z.string(),
   stepRunId: z.string().nullable(),
   status: z.string(),
@@ -236,6 +315,10 @@ export const OpsAction = z.object({
   approvedBy: z.string().nullable(),
   approvedAt: NullableTimestamp,
   executedAt: NullableTimestamp,
+  // v0.12 W1-D: the signer's edit before signing; `input` stays the agent's (both show).
+  editedInput: z.unknown().optional(),
+  editedBy: z.string().nullable().optional(),
+  editedAt: NullableTimestamp.optional(),
 });
 
 export const OpsInboxItem = z.object({
@@ -250,12 +333,22 @@ export const OpsInboxItem = z.object({
   assigneeUserId: z.string().nullable(),
   title: z.string(),
   payload: z.record(z.string(), z.unknown()),
+  /** An external action's card: see ChangeDisplayView. */
+  display: ChangeDisplayView.nullable().optional(),
   status: InboxStatusSchema,
   resolution: z.unknown(),
   resolvedBy: z.string().nullable(),
   dueAt: NullableTimestamp,
   createdAt: Timestamp,
   resolvedAt: NullableTimestamp,
+  /**
+   * Whether the signed-in operator may resolve the item: theirs (assigned or delegated to the
+   * operator, or to them by name), or any item of the Sandbox client (docs/plan.md §1.5). The
+   * server decides; the back office only reads it.
+   */
+  resolvableByOperator: z.boolean(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
 });
 
 /** The client agent a run or inbox item belongs to, for the back office's lists (Track B). */
@@ -275,6 +368,11 @@ export const OpsConnectorInfo = z.object({
   description: z.string(),
   icon: z.string().nullable(),
   auth: z.string(),
+  /**
+   * Whether this deployment can connect it: an OAuth connector needs its client id and the state
+   * secret; one needing no sign-in always can ("Not available yet" otherwise).
+   */
+  available: z.boolean(),
   tools: z.array(
     z.object({
       id: z.string(),
@@ -283,6 +381,17 @@ export const OpsConnectorInfo = z.object({
       sideEffect: z.string(),
     }),
   ),
+});
+
+/** A connector id in a path. */
+const ConnectorId = z.string().regex(/^[a-z0-9][a-z0-9_-]*$/);
+
+/**
+ * A provider's callback parameters as the callback page received them (code, state and the rest),
+ * posted once in the session that started the sign-in: the portal's or the back office's.
+ */
+export const OAuthCallbackBody = z.strictObject({
+  params: z.record(z.string(), z.string().max(4096)),
 });
 
 const AgentBody = z.strictObject({
@@ -299,6 +408,9 @@ export const ServiceSummary = z.object({
   name: z.string(),
   description: z.string().nullable(),
   status: z.string(),
+  // QA round 1: its go-live stage and what it has going now, for its state in the sidebar.
+  stage: z.string().nullable().optional(),
+  runsNow: AgentRunsNow.optional(),
 });
 export type ServiceSummary = z.infer<typeof ServiceSummary>;
 
@@ -308,6 +420,10 @@ export const PortalRunSummary = z.object({
   status: RunStatusSchema,
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // QA round 1: the run waits on someone of the client now (its stored status stays running),
+  // and how long it has waited on the client in all, kept out of its working time.
+  waitingOnYou: z.boolean().optional(),
+  waitedMs: z.number().int().nonnegative().optional(),
 });
 
 export const TimelineStep = z.object({
@@ -319,6 +435,9 @@ export const TimelineStep = z.object({
   sources: z.array(z.string()),
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // v0.13 W2-I: run oversight in the platform's words ("Corrected the vendor name and tried
+  // again"), one line per decision, in the client's language; never the agent's note (§10.11).
+  oversight: z.array(z.string()).optional(),
 });
 
 export const PortalInboxItem = z.object({
@@ -326,12 +445,19 @@ export const PortalInboxItem = z.object({
   kind: InboxKindSchema,
   title: z.string(),
   payload: z.record(z.string(), z.unknown()),
+  /** An external action's card: see ChangeDisplayView. */
+  display: ChangeDisplayView.nullable().optional(),
   status: InboxStatusSchema,
   runId: z.string().nullable(),
   dueAt: NullableTimestamp,
   createdAt: Timestamp,
   resolvedAt: NullableTimestamp,
   resolvedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  // v0.12 W1-D: the Desk's undo window, snooze and batch.
+  ...DESK_ITEM_FIELDS,
+  // UI-1b: the client agent that asks (its service name, as the sidebar shows it); null when no
+  // agent does (a platform item). Never its bundle, instructions or cost (invariant 11).
+  service: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
 });
 
 export const ToolAccessSchema = z.object({
@@ -340,6 +466,8 @@ export const ToolAccessSchema = z.object({
   verb: z.string(),
   level: PermissionLevel,
   access: z.enum(["runs", "asks_first", "steps_may_skip_approval", "not_allowed"]),
+  // v0.12 W2-A: the tool's entity; null when it has none or its input names it.
+  entity: z.string().nullable().optional(),
 });
 
 export const PortalConnection = z.object({
@@ -351,18 +479,35 @@ export const PortalConnection = z.object({
   available: z.boolean(),
   /** An API-key connector the client admin sets up with a form on the Access page. */
   credentialForm: z.boolean(),
+  /**
+   * A person's own account (Gmail): a client user may connect it too, and disconnect it if they
+   * connected it; other tools are the client admin's.
+   */
+  personal: z.boolean().optional(),
+  // v0.12 W2-A: the record types the connector declares, for the entity rows of the matrix.
+  permissionEntities: z.array(PermissionEntity).optional(),
   connection: z
     .object({
       id: z.string(),
       status: z.string(),
       externalAccountId: z.string().nullable(),
+      /**
+       * The account's name in the tool (e.g. the QuickBooks company), or a mail account's address;
+       * null when the tool gives neither (core connectionLabel).
+       */
+      accountName: z.string().nullable(),
       lastSyncAt: NullableTimestamp,
       permissions: ConnectionMatrix,
       access: z.array(ToolAccessSchema),
       usedBy: z.array(z.object({ id: z.string(), name: z.string() })),
+      /** The signed-in person connected it (a client user may then disconnect it). */
+      connectedByYou: z.boolean().optional(),
     })
     .nullable(),
 });
+
+/** The Gmail test email's body: empty. The recipient is never an input. */
+export const GmailTestSendBody = z.strictObject({});
 
 /** A webhook connection as its client admin sees it: hook URLs carry their secret tokens. */
 export const PortalWebhookSetup = z.object({
@@ -409,6 +554,24 @@ export const UploadResult = z.object({
   /** Why a file was refused. */
   error: z.string().nullable(),
 });
+
+/**
+ * One of a client's recent events, offered as a test run's trigger payload (docs/plan.md §1.16
+ * "Test-run payloads"): its payload as emitted, and a plain label for the picker.
+ */
+export const RecentEvent = z.object({
+  id: z.string(),
+  type: z.string(),
+  createdAt: Timestamp,
+  payload: z.record(z.string(), z.unknown()),
+  /** What it is about: a document's file name, a purchase's date, or the payload's plain fields. */
+  label: z.string(),
+  /** A document's extracted vendor, or a purchase's vendor, when the event names one. */
+  vendorName: z.string().nullable(),
+  /** A document's extracted total, or a purchase's total. */
+  total: z.object({ amount: z.string(), currency: z.string() }).nullable(),
+});
+export type RecentEvent = z.infer<typeof RecentEvent>;
 
 export const ForwardingView = z.object({
   /** False until the deployment has a forwarding domain (EMAIL_FORWARDING_DOMAIN). */
@@ -530,6 +693,8 @@ export const BuilderCatalog = z.object({
   ),
   tools: z.array(ToolSpec),
   connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
+  // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
+  automations: z.array(BuilderAutomation).default([]),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
@@ -680,6 +845,8 @@ export const opsRoutes = {
       language: Locale.optional(),
       /** Its client admin, invited in the same step. */
       admin: InviteBody.omit({ role: true }).optional(),
+      /** Add the supervisor (docs/plan.md §1.28) as a draft to test and activate. */
+      supervisor: z.boolean().optional(),
     }),
     response: z.object({ client: ClientSummary, admin: InviteResult.nullable() }),
   }),
@@ -736,8 +903,60 @@ export const opsRoutes = {
     roles: OPS,
     summary:
       "Connect a tool in the Sandbox client (only there: in a real client, the client signs in)",
-    params: z.object({ id: ApiId, connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
+    params: z.object({ id: ApiId, connector: ConnectorId }),
     response: z.object({ connection: OpsConnection }),
+  }),
+  opsSandboxAuthorize: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/connections/:connector/authorize",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Start the operator's own sign-in to an OAuth tool of the Sandbox client: answers where the provider's sign-in starts (403 not_sandbox in any other client)",
+    params: z.object({ id: ApiId, connector: ConnectorId }),
+    response: z.object({ redirectUrl: z.string() }),
+  }),
+  opsSandboxDisconnect: defineRoute({
+    method: "DELETE",
+    path: "/api/ops/clients/:id/connections/:connectionId",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Disconnect a tool in the Sandbox client: the grant is revoked at the provider and the credentials dropped (403 not_sandbox in any other client)",
+    params: z.object({ id: ApiId, connectionId: ApiId }),
+    response: z.object({ connection: OpsConnection }),
+  }),
+  opsSandboxGmailTestSend: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/connections/gmail/test-send",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Send one test email from the Sandbox client's connected Gmail to that same mailbox; at most one a minute (403 not_sandbox in any other client)",
+    params: IdParams,
+    body: GmailTestSendBody,
+    response: z.object({ to: z.string(), sentAt: Timestamp }),
+  }),
+  opsSandboxUploads: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/uploads",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions (403 not_sandbox in any other client)",
+    params: IdParams,
+    response: z.object({ results: z.array(UploadResult) }),
+  }),
+  opsSandboxAuthorizeCallback: defineRoute({
+    method: "POST",
+    path: "/api/ops/connections/:connector/callback",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Finish the operator's sign-in to a Sandbox tool: the provider's parameters, checked against the signed state (its client, user and back-office origin)",
+    params: z.object({ connector: ConnectorId }),
+    body: OAuthCallbackBody,
+    response: z.object({ clientId: z.string(), connection: OpsConnection }),
   }),
   opsOfferConnectors: defineRoute({
     method: "PUT",
@@ -1121,6 +1340,20 @@ export const opsRoutes = {
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
   }),
+  opsClientEvents: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/events",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A client's most recent events of one type, newest first, to use as a test run's trigger payload (never a test run's)",
+    params: IdParams,
+    query: z.object({
+      type: z.string().trim().min(1).max(200),
+      limit: z.coerce.number().int().min(1).max(50).optional(),
+    }),
+    response: z.object({ events: z.array(RecentEvent) }),
+  }),
   opsValidateWorkflow: defineRoute({
     method: "POST",
     path: "/api/ops/workflows/validate",
@@ -1164,14 +1397,14 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary: "Runs across the clients served",
-    query: z.object({
-      client: ApiId.optional(),
-      status: RunStatusSchema.optional(),
-      agent: ApiId.optional(),
-      mode: z.enum(["live", "test"]).optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
+    // v0.12 W1-E: RunFilter as query parameters, `perDay=1`, `groupBy=error` (docs/plan.md §1.40).
+    query: OpsRunsQuery,
+    response: z.object({
+      runs: z.array(OpsRun),
+      agents: z.array(OpsAgentRef),
+      perDay: RunsPerDay.optional(),
+      groups: z.array(RunErrorGroup).optional(),
     }),
-    response: z.object({ runs: z.array(OpsRun), agents: z.array(OpsAgentRef) }),
   }),
   opsRun: defineRoute({
     method: "GET",
@@ -1192,6 +1425,8 @@ export const opsRoutes = {
       workflow: z
         .object({ slug: z.string(), name: z.string(), definition: z.unknown() })
         .nullable(),
+      // v0.13 W2-I: the run's oversight decisions, oldest first (ARCHITECTURE §10.11).
+      oversight: z.array(OversightDecisionView).optional(),
     }),
   }),
   opsInbox: defineRoute({
@@ -1366,6 +1601,8 @@ export const portalRoutes = {
       services: z.array(ServiceSummary),
       needsYou: z.object({ inbox: z.number().int() }),
       recentRuns: z.array(PortalRunSummary),
+      /** The supervisor's latest summary and its open findings for the client admin (§1.28). */
+      health: PortalHealth.default({ summary: null, findings: [] }),
     }),
   }),
   portalInbox: defineRoute({
@@ -1377,6 +1614,8 @@ export const portalRoutes = {
     query: z.object({
       status: InboxStatusSchema.default("open"),
       kind: InboxKindSchema.optional(),
+      // v0.12 W1-D: open items leave "waiting" while snoozed; `snoozed` lists them.
+      view: z.enum(["waiting", "snoozed"]).optional(),
     }),
     response: z.object({ items: z.array(PortalInboxItem) }),
   }),
@@ -1396,12 +1635,9 @@ export const portalRoutes = {
     auth: "session",
     roles: CLIENT,
     summary: "Runs of your services (never test runs)",
-    query: z.object({
-      service: ApiId.optional(),
-      status: RunStatusSchema.optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-    }),
-    response: z.object({ runs: z.array(PortalRunSummary) }),
+    // v0.12 W1-E: RunFilter without the back office's keys (docs/plan.md §1.40).
+    query: PortalRunsQuery,
+    response: z.object({ runs: z.array(PortalRunSummary), perDay: RunsPerDay.optional() }),
   }),
   portalRun: defineRoute({
     method: "GET",
@@ -1428,6 +1664,7 @@ export const portalRoutes = {
           id: z.string(),
           tool: z.string(),
           description: z.string(),
+          display: ChangeDisplayView.nullable().optional(),
           status: z.string(),
           executedAt: NullableTimestamp,
         }),
@@ -1456,21 +1693,26 @@ export const portalRoutes = {
     method: "POST",
     path: "/api/connections/:connector/authorize",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary:
-      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts",
-    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
-    response: z.object({ connection: PortalConnection, redirectUrl: z.string().nullable() }),
+      "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts (a URL, or a link widget to open)",
+    params: z.object({ connector: ConnectorId }),
+    response: z.object({
+      connection: PortalConnection,
+      redirectUrl: z.string().nullable(),
+      // v0.12 bankfeed: Plaid Link, opened in the page, in place of a redirect.
+      link: LinkStartView.nullable().optional(),
+    }),
   }),
   portalAuthorizeCallback: defineRoute({
     method: "POST",
     path: "/api/connections/:connector/callback",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary:
       "Finish signing in to a tool: the provider's callback parameters, checked against the state",
-    params: z.object({ connector: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/) }),
-    body: z.strictObject({ params: z.record(z.string(), z.string().max(4096)) }),
+    params: z.object({ connector: ConnectorId }),
+    body: OAuthCallbackBody,
     response: z.object({ connection: PortalConnection }),
   }),
   portalWebhook: defineRoute({
@@ -1559,10 +1801,22 @@ export const portalRoutes = {
     method: "DELETE",
     path: "/api/connections/:id",
     auth: "session",
-    roles: ["client_admin"],
+    roles: ["client_admin", "client_user"],
     summary: "Disconnect a tool: agents can no longer use it; its permissions are kept",
     params: IdParams,
     response: z.object({ connection: PortalConnection }),
+  }),
+  portalGmailTestSend: defineRoute({
+    method: "POST",
+    path: "/api/connections/gmail/test-send",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "Send one test email from the connected Gmail to that same mailbox (the client admin, or the person who connected it); at most one a minute",
+    // Nothing to choose: the recipient is always the connection's own address. Strict, so a body
+    // that tries to name one (or anything else) is refused.
+    body: GmailTestSendBody,
+    response: z.object({ to: z.string(), sentAt: Timestamp }),
   }),
 } as const;
 
@@ -1616,6 +1870,8 @@ export const routes = {
   ...opsRoutes,
   ...portalRoutes,
   ...feedbackRoutes,
+  ...complianceRoutes,
+  ...exportRoutes,
   ...onboardingRoutes,
   ...requestRoutes,
   ...languageRoutes,
@@ -1629,5 +1885,56 @@ export const routes = {
   ...reachRoutes,
   ...accessRoutes,
   ...browserRoutes,
+  ...directoryRoutes,
+  ...supervisorRoutes,
+  ...qboRoutes,
+  // v0.14 W4-B: Zoho CRM notifications
+  ...zohoRoutes,
+  // v0.12 bankfeed: Plaid's webhook
+  ...bankfeedRoutes,
+  // v0.12 W1-G: people (autonomy).
+  ...peopleRoutes,
+  ...voiceSampleRoutes,
+  // v0.12 W1-E
+  ...runControlRoutes,
+  // v0.12 W1-A: go-live stages and client controls
+  ...lifecycleRoutes,
+  // v0.12 W1-B: notifications, the Table and the Weekly Table
+  ...notifyRoutes,
+  ...tableRoutes,
+  // v0.12 W1-D: the Desk
+  ...deskRoutes,
+  // v0.12 W2-B: automations
+  ...automationRoutes,
+  // v0.12 W1-C
+  ...threadRoutes,
+  // v0.12 W2-D: Sloan, the account agent
+  ...accountRoutes,
+  // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
+  ...clientViewRoutes,
+  // v0.12 W2-C: the test bench, skill tests and the agent lab
+  ...testbenchRoutes,
+  // v0.12 W2-F: the command center, search and plain-words questions
+  ...commandCenterRoutes,
+  // v0.12 W2-A: the connectors catalog
+  ...connectorRoutes,
+  // v0.12 W2-E
+  ...triggerRoutes,
+  // v0.13 W2-H: models for task skills and skill steps.
+  ...modelRoutes,
+  // v0.13 W2-I: run oversight decisions for the agent lab.
+  ...oversightRoutes,
+  // v0.12 W3-A: the Builder as a conversation.
+  ...builderRoutes,
+  // v0.14 W4-E: Google Chat
+  ...gchatRoutes,
+  // v0.14 W4-D: Google Sheets' picking
+  ...gsheetsRoutes,
+  // v0.14 W4-C: the Slack channel picker.
+  ...slackRoutes,
+  // v0.14 capture: WhatsApp conversations and their capture.
+  ...conversationRoutes,
+  // v0.14 W4-A: WhatsApp through Meta (the webhook and the groups setting).
+  ...whatsappMetaRoutes,
 } as const;
 export type Routes = typeof routes;

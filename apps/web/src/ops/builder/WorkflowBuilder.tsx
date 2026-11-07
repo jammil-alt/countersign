@@ -1,10 +1,12 @@
-// The workflow builder (ARCHITECTURE §10.5, docs/design/screens/5-workflow-builder.png), one for
-// templates and client agents: `/ops/templates/:slug/workflows/:workflow` and
+// O6 Workflow builder (prototype `#O6-Builder`; ARCHITECTURE §10.5), one for templates and client
+// agents: `/ops/templates/:slug/workflows/:workflow` and
 // `/ops/clients/:id/agents/:slug/workflows/:workflow`. It edits the agent's latest version as a
 // whole bundle (every workflow, so switching workflows keeps unsaved edits), validates on every
 // change with core's validator (the server's own rules), and saves drafts, test-runs and publishes
-// through the agent routes. Loaded lazily inside the /ops chunk, so its drag-and-drop code is
-// fetched only when an operator opens a workflow.
+// through the agent routes. Left: the steps to add; centre: the workflow's tabs and its steps;
+// right: the Builder conversation (BuilderPanel) or the selected step. Steps picked with "Select
+// steps" can be saved as an automation. Loaded lazily inside the /ops chunk, so its drag-and-drop
+// code is fetched only when an operator opens a workflow.
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
@@ -29,18 +31,20 @@ import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
-import {
-  AgentAvatar,
-  Badge,
-  Button,
-  buttonClass,
-  cx,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-} from "../../ui/primitives";
+import { Badge, Button, buttonClass, cx, ErrorNotice, Loading } from "../../ui/primitives";
 import { slugify } from "../agents/definition-form";
+import {
+  JSON_INPUT_PROPS,
+  type PayloadSource,
+  PayloadSourceSelect,
+  parsePayload,
+  payloadFor,
+  samplePayload,
+  triggerEventType,
+  useRecentEvents,
+} from "../agents/TestPayload";
 import {
   detailMessages,
   errorText,
@@ -52,6 +56,7 @@ import {
   useAction,
 } from "../agents/ui";
 import { KIND_LABEL } from "../workflow/describe";
+import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import { Canvas, collision, DragCard, type DragData, Palette, resolveDrop } from "./Canvas";
 import {
   type BuilderData,
@@ -152,15 +157,47 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
 }
 
 function Frame(props: WorkflowBuilderProps & { children: ReactNode }) {
-  const { agent } = props;
   return (
     <div>
-      <PageHeader
-        leading={<AgentAvatar name={agent.name} seed={agent.slug} size="lg" />}
-        title={agent.serviceName ?? agent.name}
-      />
-      {props.tabs}
+      <BuilderBar agent={props.agent} line={null} />
+      <div className="overflow-x-auto">{props.tabs}</div>
       <div className="pt-6">{props.children}</div>
+    </div>
+  );
+}
+
+/** "Remy · Card receipts": the agent's name, and its service's when that differs. */
+function agentTitle(agent: AgentSummary): string {
+  return agent.serviceName && agent.serviceName !== agent.name
+    ? `${agent.name} · ${agent.serviceName}`
+    : agent.name;
+}
+
+/** The builder's bar (prototype `#O6-Builder`): the agent, its version and counts, its actions. */
+function BuilderBar({
+  agent,
+  badge,
+  line,
+  actions,
+}: {
+  agent: AgentSummary;
+  badge?: ReactNode;
+  line: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 pb-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <AgentBadge name={agent.name} size="md" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="type-subheading text-ink">{agentTitle(agent)}</h1>
+            {badge}
+          </div>
+          {line ? <p className="text-sm text-ink-muted">{line}</p> : null}
+        </div>
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -219,27 +256,6 @@ interface Saved {
   canon: string;
 }
 
-function samplePayload(workflow: Workflow, data: BuilderData): unknown {
-  const on = workflow.trigger.on;
-  switch (on.type) {
-    case "event":
-      return data.events.find((e) => e.type === on.event)?.sample ?? {};
-    case "schedule":
-      return { scheduledAt: new Date().toISOString() };
-    case "command":
-      return { args: "" };
-    case "manual": {
-      const props = (on.input.properties ?? {}) as Record<string, { type?: unknown }>;
-      return Object.fromEntries(
-        Object.entries(props).map(([k, p]) => [
-          k,
-          p.type === "number" || p.type === "integer" ? 0 : p.type === "boolean" ? false : "",
-        ]),
-      );
-    }
-  }
-}
-
 function BuilderBody(
   props: WorkflowBuilderProps & { data: BuilderData; template: AgentBundle | null },
 ) {
@@ -267,6 +283,10 @@ function BuilderBody(
   const [overId, setOverId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState<{ title: string; kind: string } | null>(null);
   const [panel, setPanel] = useState<"test" | "add-workflow" | null>(null);
+  // The right rail: the Builder conversation, or the selected step or trigger.
+  const [rail, setRail] = useState<"builder" | "step">("builder");
+  // Top-level steps picked for "Save as automation"; null while not picking.
+  const [checked, setChecked] = useState<Set<string> | null>(null);
   const [notice, setNotice] = useState<{
     tone: "positive" | "warning" | "neutral";
     body: ReactNode;
@@ -279,6 +299,11 @@ function BuilderBody(
       : null,
   );
   const action = useAction();
+
+  // Selecting a step or the trigger shows it in the rail.
+  useEffect(() => {
+    if (selection) setRail("step");
+  }, [selection]);
 
   const slug = props.workflow;
   const entry = bundle.workflows.find((w) => w.slug === slug);
@@ -472,6 +497,28 @@ function BuilderBody(
     }
   };
 
+  const session = useBuilderSession({
+    agent,
+    bundle,
+    ensureSaved: async () => (dirty ? await save() : saved),
+    onDraft: (next) => apply(() => next),
+  });
+  const saveAutomation = async (name: string, automationSlug: string) => {
+    if (!checked || !workflow) return false;
+    // In the canvas's order, as the steps run.
+    const ids = workflow.steps.map((s) => s.id).filter((id) => checked.has(id));
+    const ok = await session.saveAutomation(ids, name, automationSlug);
+    if (ok) {
+      setChecked(null);
+      setRail("builder");
+      setNotice({
+        tone: "positive",
+        body: `Saved “${name}” as an automation draft and used it in place of ${plural(ids.length, "step")}. Save this draft to keep it.`,
+      });
+    }
+    return ok;
+  };
+
   const invalidReason = result.valid
     ? null
     : `Fix ${plural(result.errors.length, "problem")} first: only a valid workflow can be test-run or published.`;
@@ -497,9 +544,8 @@ function BuilderBody(
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+Z / Ctrl+Shift+Z anywhere in the builder.
     <div data-testid="builder" onKeyDown={onKeyDown}>
-      <PageHeader
-        leading={<AgentAvatar name={agent.name} seed={agent.slug} size="lg" />}
-        title={agent.serviceName ?? agent.name}
+      <BuilderBar
+        agent={agent}
         badge={
           <span className="flex gap-1.5">
             <Badge tone={saved.status === "live" ? "positive" : "neutral"} testId="builder-version">
@@ -513,7 +559,15 @@ function BuilderBody(
             {agent.kind === "template" ? <Badge tone="accent">Template</Badge> : null}
           </span>
         }
-        subtitle={<span data-testid="builder-counts">{subtitle}</span>}
+        line={
+          <>
+            <span data-testid="builder-counts">{subtitle}</span>
+            {" · "}
+            <span className={result.valid ? "text-positive" : "text-risk"}>
+              {result.valid ? "valid" : plural(result.errors.length, "problem")}
+            </span>
+          </>
+        }
         actions={
           <>
             <Button
@@ -544,7 +598,7 @@ function BuilderBody(
           </>
         }
       />
-      {props.tabs}
+      <div className="overflow-x-auto">{props.tabs}</div>
 
       {notice || action.error ? (
         <div className="mt-4 flex flex-col gap-2">
@@ -590,7 +644,8 @@ function BuilderBody(
           agent={agent}
           workflowName={entry.name}
           slug={slug}
-          sample={samplePayload(workflow, data)}
+          sample={samplePayload(workflow, data.events)}
+          eventType={triggerEventType(workflow)}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {
@@ -621,10 +676,10 @@ function BuilderBody(
         onDragEnd={onDragEnd}
         onDragCancel={endDrag}
       >
-        <div className="-mx-10 -mb-8 grid grid-cols-[260px_minmax(0,1fr)_340px]">
+        <div className="-mx-4 -mb-8 mt-4 grid grid-cols-1 border-t border-line md:-mx-10 md:-mb-12 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_360px]">
           <aside
             aria-label="Add a step"
-            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-r border-line bg-surface px-4 py-5"
+            className="max-h-80 overflow-y-auto border-b border-line bg-surface px-4 py-5 lg:sticky lg:top-header lg:h-[calc(100vh-var(--header-h))] lg:max-h-none lg:border-r lg:border-b-0"
           >
             <Palette
               sections={filterSections(paletteSections(bundle, data), search)}
@@ -634,13 +689,7 @@ function BuilderBody(
             />
           </aside>
 
-          <div
-            className="min-w-0 px-6 py-5"
-            style={{
-              backgroundImage: "radial-gradient(var(--line) 1px, transparent 1px)",
-              backgroundSize: "16px 16px",
-            }}
-          >
+          <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
             <WorkflowSwitcher
               bundle={bundle}
               current={slug}
@@ -663,11 +712,29 @@ function BuilderBody(
             ) : null}
 
             <div className="my-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-ink-muted">
-                Drag steps by their handle to reorder or move them between fork paths. Click a step
-                or fork to edit it.
-              </p>
+              {checked ? (
+                <SaveAsAutomation
+                  count={checked.size}
+                  busy={session.busy}
+                  onSave={saveAutomation}
+                  onClear={() => setChecked(null)}
+                />
+              ) : (
+                <p className="text-sm text-ink-muted">
+                  Drag steps by their handle to reorder or move them between fork paths. Click a
+                  step or fork to edit it.
+                </p>
+              )}
               <span className="flex items-center gap-2">
+                {workflow && workflow.steps.length > 0 && !checked ? (
+                  <Button
+                    variant="ghost"
+                    data-testid="builder-select-steps"
+                    onClick={() => setChecked(new Set())}
+                  >
+                    Select steps
+                  </Button>
+                ) : null}
                 {dirty ? (
                   <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
                     {draftAt ? `Draft kept on this device · ${clock(draftAt)}` : "Unsaved changes"}
@@ -703,10 +770,20 @@ function BuilderBody(
                 customized={customized}
                 activeId={activeId}
                 overId={overId}
-                onSelect={(id) =>
-                  setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id })
-                }
+                onSelect={(id) => {
+                  setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id });
+                  setRail("step");
+                }}
                 onDelete={remove}
+                checked={checked ?? undefined}
+                onCheck={(id, on) =>
+                  setChecked((c) => {
+                    const next = new Set(c ?? []);
+                    if (on) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  })
+                }
               />
             ) : bundle.workflows.length > 0 ? (
               <p className="text-ink-muted" data-testid="builder-no-workflow">
@@ -716,25 +793,59 @@ function BuilderBody(
           </div>
 
           <aside
-            aria-label="Inspector"
-            className="sticky top-header h-[calc(100vh-var(--header-h))] overflow-y-auto border-l border-line bg-surface px-5 py-5"
+            aria-label="Builder and step"
+            className="flex flex-col border-t border-line bg-surface px-5 py-4 lg:col-span-2 xl:sticky xl:top-header xl:col-span-1 xl:h-[calc(100vh-var(--header-h))] xl:border-t-0 xl:border-l"
           >
-            {workflow ? (
-              <Inspector
-                workflow={workflow}
-                bundle={bundle}
-                selection={selection}
-                data={data}
-                ctx={ctx}
-                env={env}
-                errors={workflowErrors}
-                template={template ? { bundle: template, workflow: templateWorkflow } : null}
-                members={props.members ?? []}
-                focus={focus}
-                onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
-                onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
-                onDelete={remove}
-              />
+            <div
+              className="mb-4 flex gap-1 border-b border-line"
+              role="tablist"
+              aria-label="Side panel"
+            >
+              {(
+                [
+                  ["builder", "Builder"],
+                  ["step", selection ? "Step" : "Inspector"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={rail === key}
+                  data-testid={`builder-rail-${key}`}
+                  onClick={() => setRail(key)}
+                  className={cx(
+                    "-mb-px border-b-2 px-3 py-2 text-sm",
+                    rail === key
+                      ? "border-slate font-medium text-ink"
+                      : "border-transparent text-ink-muted hover:text-ink",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className={cx("min-h-0 flex-1 overflow-y-auto", rail !== "builder" && "hidden")}>
+              <BuilderPanel session={session} />
+            </div>
+            {workflow && rail === "step" ? (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <Inspector
+                  workflow={workflow}
+                  bundle={bundle}
+                  selection={selection}
+                  data={data}
+                  ctx={ctx}
+                  env={env}
+                  errors={workflowErrors}
+                  template={template ? { bundle: template, workflow: templateWorkflow } : null}
+                  members={props.members ?? []}
+                  focus={focus}
+                  onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
+                  onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
+                  onDelete={remove}
+                />
+              </div>
             ) : null}
           </aside>
         </div>
@@ -827,8 +938,10 @@ function WorkflowSwitcher({
   onAdd(): void;
 }) {
   return (
-    <nav aria-label="Workflows" className="flex flex-wrap items-center gap-2">
-      <span className="eyebrow mr-1 text-ink-muted">Workflows</span>
+    <nav
+      aria-label="Workflows"
+      className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border border-line bg-surface p-1"
+    >
       {bundle.workflows.map((w) => (
         <Link
           key={w.slug}
@@ -836,10 +949,10 @@ function WorkflowSwitcher({
           data-testid={`builder-workflow-${w.slug}-select`}
           aria-current={w.slug === current ? "page" : undefined}
           className={cx(
-            "rounded-sm border px-2.5 py-1 text-sm",
+            "rounded-sm px-3 py-1.5 text-sm",
             w.slug === current
-              ? "border-slate bg-slate-tint font-medium text-slate"
-              : "border-line bg-surface text-ink hover:bg-surface-subtle",
+              ? "bg-slate-tint font-medium text-ink"
+              : "text-ink-muted hover:bg-surface-subtle hover:text-ink",
           )}
         >
           {w.name}
@@ -849,12 +962,13 @@ function WorkflowSwitcher({
       <button
         type="button"
         data-testid="builder-workflow-add"
+        aria-label="Add a workflow"
         aria-expanded={adding}
         onClick={onAdd}
-        className="ds-btn ds-btn--link text-sm"
+        className="ds-btn ds-btn--link px-3 text-sm"
       >
         <Icon name="add" />
-        Add workflow
+        Workflow
       </button>
     </nav>
   );
@@ -907,8 +1021,9 @@ function AddWorkflowForm({
         return { type, cron };
       case "command":
         return { type, command: command.trim().replace(/^\//, "") };
-      case "manual":
-        return { type, input: { type: "object", properties: {} } };
+      // v0.12 W2-E: the new kinds aren't offered here yet; anything else starts by hand.
+      default:
+        return { type: "manual", input: { type: "object", properties: {} } };
     }
   };
 
@@ -1024,6 +1139,7 @@ function TestRunPanel({
   workflowName,
   slug,
   sample,
+  eventType,
   busy,
   run,
   onClose,
@@ -1031,21 +1147,34 @@ function TestRunPanel({
   agent: AgentSummary;
   workflowName: string;
   slug: string;
+  /** The trigger's sample payload; undefined when its event type has none. */
   sample: unknown;
+  /** The trigger's event type, for "Use a recent event"; null for other triggers. */
+  eventType: string | null;
   busy: boolean;
   /** `clientId`: a template's chosen client (none: the Sandbox). */
   run(payload: unknown, clientId: string | null): Promise<string | null>;
   onClose(): void;
 }) {
-  const sampleText = JSON.stringify(sample, null, 2);
+  const hasSample = sample !== undefined;
+  // No sample: a blank box (`{}` is its placeholder), never a prefilled `{}` that typing `{…}`
+  // would leave an extra brace after.
+  const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "";
   const isTemplate = agent.kind === "template";
   // A template can run on the Sandbox's fixture data or on a client the operator serves.
   const clients = useApi(apiRoutes.opsClients, isTemplate ? {} : null);
   const [clientId, setClientId] = useState("");
-  const [source, setSource] = useState<"sample" | "manual">("sample");
+  // Recent events come from the client the run will read: the agent's own, or the template's
+  // chosen client (the Sandbox when none is chosen).
+  const eventsClient = isTemplate
+    ? clientId || (clients.data?.clients.find((c) => c.sandbox)?.id ?? null)
+    : agent.tenantId;
+  const recent = useRecentEvents(eventsClient, eventType);
+  const firstSource: PayloadSource = hasSample ? "sample" : "manual";
+  const [source, setSource] = useState<PayloadSource>(firstSource);
   const [text, setText] = useState(sampleText);
-  const [problem, setProblem] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  const parsed = parsePayload(text);
   return (
     <div
       data-testid="builder-test-panel"
@@ -1071,7 +1200,14 @@ function TestRunPanel({
           data-testid="builder-test-client"
           value={clientId}
           className="max-w-xs"
-          onChange={(e) => setClientId(e.target.value)}
+          onChange={(e) => {
+            setClientId(e.target.value);
+            // Another client's events are not this one's: back to the first source.
+            if (source.startsWith("event:")) {
+              setSource(firstSource);
+              setText(sampleText);
+            }
+          }}
         >
           <option value="">The Sandbox client (fixture data)</option>
           {(clients.data?.clients ?? [])
@@ -1083,30 +1219,39 @@ function TestRunPanel({
             ))}
         </SmallSelect>
       ) : null}
-      <SmallSelect
-        aria-label="Payload"
-        data-testid="builder-test-source"
+      <PayloadSourceSelect
+        testId="builder-test-source"
         value={source}
-        className="max-w-xs"
-        onChange={(e) => {
-          const v = e.target.value as "sample" | "manual";
+        className="h-9 max-w-md text-sm"
+        hasSample={hasSample}
+        eventType={eventType}
+        recent={recent}
+        onChange={(v) => {
           setSource(v);
-          if (v === "sample") setText(sampleText);
+          const filled = payloadFor(v, sample, recent.data?.events ?? []);
+          if (filled !== null) setText(filled);
         }}
-      >
-        <option value="sample">Sample trigger payload</option>
-        <option value="manual">Manual input</option>
-      </SmallSelect>
+      />
       <TextArea
+        {...JSON_INPUT_PROPS}
         aria-label="Trigger payload (JSON)"
         data-testid="builder-test-payload"
         rows={6}
         value={text}
         readOnly={source === "sample"}
+        invalid={!parsed.ok}
         className="font-mono text-xs"
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          // Edited by hand, it is no longer the event's payload as emitted.
+          if (source !== "manual") setSource("manual");
+        }}
       />
-      {problem ? <p className="text-sm text-risk">{problem}</p> : null}
+      {parsed.ok ? null : (
+        <p className="text-sm text-risk" data-testid="builder-test-payload-error">
+          The payload isn't valid JSON.
+        </p>
+      )}
       <div className="flex items-center justify-between gap-3">
         {runId ? (
           <Link
@@ -1122,17 +1267,10 @@ function TestRunPanel({
         <Button
           variant="primary"
           data-testid="builder-test-run-start"
-          disabled={busy}
+          disabled={busy || !parsed.ok}
           onClick={async () => {
-            let payload: unknown;
-            try {
-              payload = text.trim() ? JSON.parse(text) : {};
-            } catch {
-              setProblem("The payload isn't valid JSON.");
-              return;
-            }
-            setProblem(null);
-            const id = await run(payload, clientId || null);
+            if (!parsed.ok) return;
+            const id = await run(parsed.value, clientId || null);
             if (id) setRunId(id);
           }}
         >

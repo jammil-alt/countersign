@@ -195,7 +195,7 @@ function referenceProblems(
   return problems;
 }
 
-async function save(
+export async function save(
   tx: Tx,
   input: {
     tenantId: string;
@@ -215,6 +215,29 @@ async function save(
     const problems = clientTighteningProblems(current.rules, input.body.rules);
     if (problems.length > 0) {
       throw new HttpError(403, "loosening", "you can only make approvals stricter", problems);
+    }
+  }
+  // v0.12 W1-D: a viewer is never an approver (ARCHITECTURE §4).
+  const named = input.body.rules.flatMap((r) =>
+    r.approver.kind === "user" ? [r.approver.userId] : [],
+  );
+  if (named.length > 0) {
+    const viewers = await tx
+      .select({ userId: membership.userId })
+      .from(membership)
+      .where(
+        and(
+          eq(membership.tenantId, input.tenantId),
+          inArray(membership.userId, named),
+          eq(membership.canSign, false),
+        ),
+      );
+    if (viewers.length > 0) {
+      throw new HttpError(
+        422,
+        "not_a_signer",
+        "a rule names someone who doesn't approve (a viewer)",
+      );
     }
   }
   const [who, agents] = await Promise.all([

@@ -21,8 +21,9 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { AgentBadge } from "../../ui/badges";
+import { Page } from "../../ui/page";
 import {
-  AgentAvatar,
   Badge,
   Button,
   buttonClass,
@@ -31,7 +32,6 @@ import {
   ErrorNotice,
   Loading,
   PageHeader,
-  SectionLabel,
 } from "../../ui/primitives";
 import { ChangeList } from "../agents/ChangeList";
 import { describeChange } from "../agents/changes";
@@ -104,7 +104,7 @@ export function MergeScreen() {
   const header = agent.data ? <Header agent={agent.data.agent} mode={mode} /> : null;
   if (failed) {
     return (
-      <div>
+      <Page testId="merge-page">
         {header}
         <ErrorNotice
           error={failed}
@@ -125,15 +125,15 @@ export function MergeScreen() {
             </Link>
           </p>
         ) : null}
-      </div>
+      </Page>
     );
   }
   if (!agent.data || !preview.data || !catalog.data || !events.data) {
     return (
-      <div>
+      <Page testId="merge-page">
         {header}
         <Loading label="Merging…" />
-      </div>
+      </Page>
     );
   }
   const bundles = {
@@ -143,14 +143,14 @@ export function MergeScreen() {
   };
   if (!bundles.base || !bundles.ours || !bundles.theirs) {
     return (
-      <div>
+      <Page testId="merge-page">
         {header}
         <ErrorNotice error={new Error("One of the versions can't be read.")} />
-      </div>
+      </Page>
     );
   }
   return (
-    <div>
+    <Page testId="merge-page">
       {header}
       <MergeBody
         mode={mode}
@@ -161,14 +161,23 @@ export function MergeScreen() {
         theirs={bundles.theirs}
         ctx={typingContext({ catalog: catalog.data, events: events.data.events })}
       />
-    </div>
+    </Page>
   );
 }
 
 function Header({ agent, mode }: { agent: AgentSummary; mode: Mode }) {
   return (
     <PageHeader
-      leading={<AgentAvatar name={agent.name} seed={agent.slug} size="lg" />}
+      eyebrow={
+        <span className="flex gap-1.5">
+          <Link to="/ops/lab" className="hover:underline">
+            Agent lab
+          </Link>
+          <span aria-hidden>/</span>
+          <span>{mode === "update" ? "Update merge" : "Promotion"}</span>
+        </span>
+      }
+      leading={<AgentBadge name={agent.name} size="lg" />}
       title={
         mode === "update"
           ? `Update ${agent.serviceName ?? agent.name}`
@@ -180,7 +189,7 @@ function Header({ agent, mode }: { agent: AgentSummary; mode: Mode }) {
           : "Fold this client's changes into a new template draft. Client-specific values stay with the client."
       }
       actions={
-        <Link to={`${agentBase(agent)}/versions`} className={buttonClass("ghost")}>
+        <Link to={`${agentBase(agent)}/versions`} className={buttonClass("secondary")}>
           Back to versions
         </Link>
       }
@@ -343,7 +352,7 @@ function MergeBody({
       : `client v${preview.theirs.version} into template v${preview.ours.version}`;
 
   return (
-    <div className="flex flex-col gap-5 pt-2" data-testid="merge-view">
+    <div className="flex flex-col gap-5" data-testid="merge-view">
       <div className="flex flex-wrap items-center gap-3" data-testid="merge-summary">
         <span className="text-ink">Merging {from}</span>
         {open > 0 ? (
@@ -388,8 +397,11 @@ function MergeBody({
       ) : null}
 
       {raw.conflicts.length > 0 ? (
-        <Card className="p-5" testId="merge-conflicts">
-          <SectionLabel>Conflicts · {plural(raw.conflicts.length, "conflict")}</SectionLabel>
+        <Card
+          testId="merge-conflicts"
+          title={`Conflicts · ${plural(raw.conflicts.length, "conflict")}`}
+          pad
+        >
           <ul className="flex flex-col divide-y divide-line">
             {raw.conflicts.map((c, i) => (
               <ConflictRow
@@ -449,28 +461,28 @@ function MergeBody({
       ) : null}
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <Card className="p-5" testId="merge-steps">
-          <SectionLabel
-            action={
-              workflows.length > 1 ? (
-                <span className="flex flex-wrap gap-1">
-                  {workflows.map((w) => (
-                    <Button
-                      key={w.slug}
-                      size="sm"
-                      variant={w.slug === shownWorkflow?.slug ? "secondary" : "ghost"}
-                      onClick={() => setSlug(w.slug)}
-                      data-testid={`merge-workflow-${w.slug}`}
-                    >
-                      {w.name}
-                    </Button>
-                  ))}
-                </span>
-              ) : null
-            }
-          >
-            Merged workflow{shownWorkflow ? ` · ${shownWorkflow.name}` : ""}
-          </SectionLabel>
+        <Card
+          testId="merge-steps"
+          pad
+          title={`Merged workflow${shownWorkflow ? ` · ${shownWorkflow.name}` : ""}`}
+          meta={
+            workflows.length > 1 ? (
+              <span className="flex flex-wrap gap-1">
+                {workflows.map((w) => (
+                  <Button
+                    key={w.slug}
+                    size="sm"
+                    variant={w.slug === shownWorkflow?.slug ? "secondary" : "ghost"}
+                    onClick={() => setSlug(w.slug)}
+                    data-testid={`merge-workflow-${w.slug}`}
+                  >
+                    {w.name}
+                  </Button>
+                ))}
+              </span>
+            ) : null
+          }
+        >
           {shownWorkflow ? (
             <StepList workflow={shownWorkflow.workflow} marks={stepMark} />
           ) : (
@@ -493,8 +505,7 @@ function MergeBody({
 
         <div className="flex flex-col gap-5 self-start">
           <Problems errors={validation.errors} bundle={result.bundle} />
-          <Card className="p-5" testId="merge-save">
-            <SectionLabel>Save the merge</SectionLabel>
+          <Card testId="merge-save" title="Save the merge" pad>
             {saved ? (
               <Saved mode={mode} saved={saved} bundle={result.bundle} />
             ) : (
@@ -732,10 +743,11 @@ function PromoteChoices({
 }) {
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-      <Card className="p-5" testId="merge-promote-changes">
-        <SectionLabel>
-          Changes to promote · {groups.length - unselected.size} of {groups.length}
-        </SectionLabel>
+      <Card
+        testId="merge-promote-changes"
+        title={`Changes to promote · ${groups.length - unselected.size} of ${groups.length}`}
+        pad
+      >
         {groups.length === 0 ? (
           <p className="text-sm text-ink-muted">
             This client's agent has no changes to promote beyond its client-specific values.
@@ -776,8 +788,11 @@ function PromoteChoices({
           </ul>
         )}
       </Card>
-      <Card className="p-5" testId="merge-left-out">
-        <SectionLabel>Stays with the client · {plural(leftOut.length, "value")}</SectionLabel>
+      <Card
+        testId="merge-left-out"
+        title={`Stays with the client · ${plural(leftOut.length, "value")}`}
+        pad
+      >
         <p className="mb-2 text-sm text-ink-muted">
           Settings marked client-specific and ids of the client's records are never promoted.
           Bindings, memory, records and connections are not part of an agent's versions.

@@ -9,20 +9,19 @@ name: Checks
 # root package.json, the lockfile, tsconfig, scripts, fixtures, workflows); a change to docs and
 # Markdown alone runs no tests. Pushes to main and deploys always run everything.
 #
-# Two databases, as in Plenary Labs:
-#  - A Postgres 16 + pgvector service container (the same image as docker-compose.yml), set up with
-#    Neon's roles by scripts/setup-postgres.sh, is what the tests run against (fast: no network round
-#    trips). The runner's own Postgres has no pgvector package, so it isn't used.
-#  - A throwaway Neon branch copied from `main` checks that migrations apply to production's real
-#    schema and data. Skipped until the NEON_API_KEY secret and NEON_PROJECT_ID variable exist.
+# The database: a Postgres 16 + pgvector service container (the same image as docker-compose.yml),
+# set up with Neon's roles by scripts/setup-postgres.sh, which also applies every migration from
+# scratch. The runner's own Postgres has no pgvector package, so it isn't used.
+#
+# CI never connects to Neon (docs/plan.md §1.35): a copy of production would put client data (it may
+# hold health or card data) on a runner, and Neon refuses schema-only branches on this project (its
+# SQL-made `cs_runtime` role counts as a "legacy web access role"). Migrations meet real rows on
+# staging first: deploy.yml migrates staging, in a transaction, before its Worker deploys, and
+# production only after that.
 
 on:
   workflow_call:
     inputs:
-      neon-parent:
-        description: Neon branch the throwaway branch is copied from.
-        type: string
-        default: main
       scope:
         description: "`all` runs every package's tests; `affected` (pull requests) runs only the packages the change touches and those that depend on them."
         type: string
@@ -32,16 +31,20 @@ on:
         type: string
         default: main
 
+# The jobs only read the repository; nothing here writes to GitHub.
+permissions:
+  contents: read
+
 jobs:
   static:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -68,20 +71,15 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
-    env:
-      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-      NEON_BRANCH: ci-run${{ github.run_id }}-${{ github.run_attempt }}
-      NEONCTL: neonctl@4
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The whole history, so `affected` can diff against the base branch.
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -110,6 +108,19 @@ jobs:
             echo "tests=affected" >> "$GITHUB_OUTPUT"; echo "Testing the changed packages and their dependents."
           fi
 
+      # The browser connector's tests drive real Chromium through Playwright (docs/plan.md §1.26,
+      # phase 3). Installed with apps/api's own Playwright, so the browser always matches its
+      # version; skipped where apps/api has no Playwright yet.
+      - name: Chromium for the browser tests
+        if: steps.scope.outputs.tests != 'none'
+        run: |
+          set -euo pipefail
+          if [ -d apps/api/node_modules/playwright ]; then
+            pnpm --filter @countersign/api exec playwright install --with-deps chromium
+          else
+            echo "apps/api has no Playwright: nothing to install."
+          fi
+
       - name: A local Postgres with Neon's roles
         if: steps.scope.outputs.tests != 'none'
         env:
@@ -136,23 +147,91 @@ jobs:
         env:
           LLM_MODE: replay
 
-      - name: Create a Neon branch for this run
-        id: neon
-        if: env.NEON_API_KEY != '' && env.NEON_PROJECT_ID != ''
+  # The screens in a real browser (apps/web/e2e/route-sweep.mjs, docs/operations.md §2): the seeded
+  # database, the built app on `wrangler dev` with the dev sign-in, every screen of the back office
+  # and the portal opened and checked for a crash, a page error, a console error or an /api 5xx.
+  # Skipped for docs-only pull requests.
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Docs only?
+        id: scope
+        env:
+          SCOPE: ${{ inputs.scope }}
+          BASE: ${{ inputs.base }}
         run: |
           set -euo pipefail
-          npx --yes "$NEONCTL" branches create --project-id "$NEON_PROJECT_ID" \
-            --name "$NEON_BRANCH" --parent '${{ inputs.neon-parent }}' --output json > /dev/null
-          echo "created=true" >> "$GITHUB_OUTPUT"
-          url=$(npx --yes "$NEONCTL" connection-string "$NEON_BRANCH" \
-            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
-          echo "::add-mask::$url"
-          echo "NEON_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          if [ "$SCOPE" = "affected" ] && \
+            [ -z "$(git diff --name-only "origin/$BASE...HEAD" | grep -vE '^docs/|\.md$' || true)" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"; echo "Docs and Markdown only: no sweep."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Migrations apply to a copy of production
-        if: env.NEON_DATABASE_URL != ''
-        run: DIRECT_DATABASE_URL="$NEON_DATABASE_URL" pnpm --filter @countersign/db run --if-present db:migrate
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
+        if: steps.scope.outputs.run == 'true'
 
-      - name: Delete the Neon branch
-        if: always() && steps.neon.outputs.created == 'true'
-        run: npx --yes "$NEONCTL" branches delete "$NEON_BRANCH" --project-id "$NEON_PROJECT_ID"
+      - uses: actions/setup-node@v7
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - if: steps.scope.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Chromium
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @countersign/web exec playwright install --with-deps chromium
+
+      # The local passwords .env.example expects, so `wrangler dev` reads it as it is. SEED_E2E=1
+      # also seeds the Desk item the walkthroughs sign and undo (never set on staging).
+      - name: A seeded Postgres with Neon's roles
+        if: steps.scope.outputs.run == 'true'
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci
+          CS_OWNER_PASSWORD: cs_owner
+          CS_WORKER_PASSWORD: cs_worker
+          SEED_E2E: "1"
+        run: scripts/setup-postgres.sh > /dev/null
+
+      - name: The app on wrangler dev
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          pnpm --filter @countersign/web build
+          (cd apps/api && nohup pnpm exec wrangler dev --env-file ../../.env --ip 127.0.0.1 \
+            --port 8787 > "$RUNNER_TEMP/wrangler.log" 2>&1 &)
+          for _ in $(seq 1 90); do
+            curl -sf http://127.0.0.1:8787/api/health > /dev/null && exit 0
+            sleep 2
+          done
+          echo "::error::wrangler dev did not answer"; tail -50 "$RUNNER_TEMP/wrangler.log"; exit 1
+
+      - name: Sweep every screen
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @countersign/web sweep
+
+      - name: The Worker's log
+        if: failure() && steps.scope.outputs.run == 'true'
+        run: tail -200 "$RUNNER_TEMP/wrangler.log"

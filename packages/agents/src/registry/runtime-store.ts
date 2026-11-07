@@ -2,11 +2,12 @@
 // client (withTenant), so a run sees its own client's rows and nothing else (invariant 1).
 
 import type { ConnectionRef } from "@countersign/connectors";
-import { readApproverRuleSet } from "@countersign/core";
+import { autonomyFor, readApproverRuleSet, readAutonomy } from "@countersign/core";
 import {
   agent,
   agentVersion,
   connection,
+  contact,
   type Db,
   membership,
   memoryNote,
@@ -65,6 +66,8 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           version: row.v.version,
           bundle: row.v.bundle,
           bindings: row.a.bindings,
+          // v0.14 W4-A
+          channels: row.a.channels,
           approver: row.a.approver,
         };
       });
@@ -115,6 +118,34 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
       );
     },
 
+    // v0.12 W1-G: the recipient's autonomy for the channel (docs/plan.md §1.42).
+    contactAutonomy(tenantId, recipient) {
+      return withTenant(db, tenantId, async (tx) => {
+        const column =
+          recipient.channel === "email"
+            ? contact.email
+            : recipient.channel === "whatsapp"
+              ? contact.whatsapp
+              : contact.phone;
+        const [row] = await tx
+          .select({ autonomy: contact.autonomy })
+          .from(contact)
+          .where(and(eq(contact.tenantId, tenantId), eq(column, recipient.to)));
+        return row ? autonomyFor(readAutonomy(row.autonomy), recipient.channel) : null;
+      });
+    },
+
+    // v0.12 W1-A: go-live stages
+    agentStage(tenantId, agentId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ stage: agent.stage })
+          .from(agent)
+          .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
+        return row?.stage ?? null;
+      });
+    },
+
     approvalRouting(tenantId) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
@@ -130,6 +161,9 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
             and(
               eq(membership.tenantId, tenantId),
               inArray(membership.role, ["client_admin", "client_user"]),
+              // v0.12 W1-D: a viewer is never an approver: a rule naming one routes to the client
+              // admin, like a rule naming someone who left (ARCHITECTURE §4).
+              eq(membership.canSign, true),
             ),
           );
         return {
@@ -137,6 +171,30 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           revision: set.revision,
           clientDefault: clientApproverSetting(settings),
           members: new Set(people.map((p) => p.userId)),
+        };
+      });
+    },
+
+    askTarget(tenantId, agentId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(agent)
+          .where(
+            and(
+              eq(agent.id, agentId),
+              // Only this client's own agents: RLS and this filter both (invariant 1).
+              eq(agent.tenantId, tenantId),
+              eq(agent.kind, "client"),
+              eq(agent.status, "active"),
+              eq(agent.testCopy, false),
+            ),
+          );
+        if (!row?.liveVersionId || row.runStatus === "retired") return null;
+        return {
+          agentId: row.id,
+          agentVersionId: row.liveVersionId,
+          name: row.serviceName ?? row.name,
         };
       });
     },

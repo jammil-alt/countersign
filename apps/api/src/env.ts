@@ -18,6 +18,11 @@ export interface Secrets {
   /** Zoho API console: a Server-based application with multi-DC on (ARCHITECTURE §6.7). */
   ZOHO_CLIENT_ID?: string;
   ZOHO_CLIENT_SECRET?: string;
+  /** The Intuit app "Mezonas" (QuickBooks Online, ARCHITECTURE §6.2): OAuth client and secret. */
+  QBO_CLIENT_ID?: string;
+  QBO_CLIENT_SECRET?: string;
+  /** The Intuit app's webhook verifier token: signs `intuit-signature` (HMAC-SHA256). */
+  QBO_WEBHOOK_VERIFIER?: string;
   /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
@@ -31,9 +36,52 @@ export interface Secrets {
   RESEND_FALLBACK_DOMAIN?: string;
   /** Resend's id for that domain, so fallback keys can send only from it. */
   RESEND_FALLBACK_DOMAIN_ID?: string;
+  /** Google Cloud's OAuth client "Mezonas web": Gmail, send only (ARCHITECTURE §6.4). */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  // v0.12 W3-B: Google Drive signs in with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET above.
+  // v0.14 W4-D: Google Sheets signs in with them too. Its portal page opens Google's Picker, which
+  // needs these two public values (Google restricts the key to our origins); unset, no picking.
+  /** A browser API key of the Google project, restricted to our origins and the Picker API. */
+  GOOGLE_PICKER_API_KEY?: string;
+  /** The Google project's number (the Picker's app id), so picked sheets are granted to our client. */
+  GOOGLE_PROJECT_NUMBER?: string;
+  /** The Entra app registration "Mezonas": Outlook, send only (ARCHITECTURE §6.11). */
+  OUTLOOK_CLIENT_ID?: string;
+  OUTLOOK_CLIENT_SECRET?: string;
+  // v0.14 W4-E: the Google Chat app (docs/plan.md §1.60).
+  /** The Chat app's service account key JSON, as one secret (`chat.bot`); never logged. */
+  GOOGLE_CHAT_SERVICE_ACCOUNT?: string;
+  /** The Google Cloud project number: the audience of Chat's tokens to the app. */
+  GOOGLE_CHAT_PROJECT_NUMBER?: string;
+  // v0.14 W4-C
+  /** Our Slack app "Mezonas": posts to the channels a client picks (ARCHITECTURE §6.11). */
+  SLACK_CLIENT_ID?: string;
+  SLACK_CLIENT_SECRET?: string;
+  // v0.14 W4-A: WhatsApp through Meta (docs/plan.md §1.57): Mezonas' Meta app, a Tech Provider.
+  /** The Meta app's id (public; the portal's Embedded Signup page opens Meta's SDK with it). */
+  META_APP_ID?: string;
+  /** The Meta app's secret: exchanges Embedded Signup's code and signs webhooks. Never logged. */
+  META_APP_SECRET?: string;
+  /** Our own string, typed into Meta's webhook settings: the GET handshake must echo it back. */
+  META_WEBHOOK_VERIFY_TOKEN?: string;
+  /** The Embedded Signup configuration's id (Facebook Login for Business). */
+  META_CONFIG_ID?: string;
   /** Podio API key (ARCHITECTURE §6.8). */
   PODIO_CLIENT_ID?: string;
   PODIO_CLIENT_SECRET?: string;
+  // v0.12 W3-B: Ramp and HubSpot (ARCHITECTURE §6.11, docs/plan.md §1.52).
+  /** Ramp developer app "Mezonas": OAuth client id and secret. */
+  RAMP_CLIENT_ID?: string;
+  RAMP_CLIENT_SECRET?: string;
+  /** HubSpot public app "Mezonas": OAuth client id and secret. */
+  HUBSPOT_CLIENT_ID?: string;
+  HUBSPOT_CLIENT_SECRET?: string;
+  // v0.12 bankfeed: bank and card feeds through Plaid (ARCHITECTURE §6.11, docs/plan.md §1.52).
+  /** Mezonas' Plaid client id (the same in every Plaid environment). */
+  PLAID_CLIENT_ID?: string;
+  /** The secret of the Plaid environment PLAID_ENV names (sandbox and production differ). */
+  PLAID_SECRET?: string;
   /** Mezonas' own Stripe account (billing, docs/plan.md §1.24); unset: billing is off. */
   STRIPE_SECRET_KEY?: string;
   /** The Stripe webhook endpoint's signing secret (`whsec_…`) for /api/billing/stripe/webhook. */
@@ -50,10 +98,31 @@ export interface Vars {
   ENVIRONMENT?: string;
   AUTH_PROVIDER?: string;
   WORKOS_CLIENT_ID?: string;
+  /**
+   * This environment's AuthKit domain (`https://<name>.authkit.app`): the authorization server of
+   * the back office's MCP server at `<APP_ORIGIN>/mcp` (docs/plan.md §1.34). Empty: /mcp is off.
+   */
+  WORKOS_AUTHKIT_DOMAIN?: string;
+  /** What an MCP access token's `aud` must contain; unset, `<APP_ORIGIN>/mcp`. */
+  MCP_AUDIENCE?: string;
   APP_ORIGIN?: string;
   LLM_MODE?: string;
   /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
   EMAIL_FORWARDING_DOMAIN?: string;
+  /** `sandbox` (default) or `production`: which QuickBooks the qbo connector talks to. */
+  QBO_ENV?: string;
+  /** v0.12 bankfeed: `sandbox` (default) or `production`: which Plaid the bank feed talks to. */
+  PLAID_ENV?: string;
+  /**
+   * Where Google sends the person back after Gmail's consent screen; it must match a redirect URI
+   * registered on the OAuth client exactly. Unset: `<APP_ORIGIN>/api/connections/gmail/callback`.
+   */
+  GOOGLE_REDIRECT_URI?: string;
+  /**
+   * The vendors with a signed BAA (docs/plan.md §1.35), e.g. `cloudflare,neon,workos,anthropic`:
+   * what a client in HIPAA mode may send data to. Unset: none, so no client can be in HIPAA mode.
+   */
+  BAA_PROCESSORS?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */
@@ -67,7 +136,24 @@ export interface Vars {
  */
 export interface OptionalBindings {
   CODES?: CodesService;
+  /** QboSyncWorkflow: one instance per QuickBooks sync (cron, webhook, "sync now"). */
+  QBO_SYNC?: Workflow;
+  /** ExportWorkflow: one instance per client data export (docs/plan.md §1.36). */
+  EXPORT_WORKFLOW?: Workflow;
+  // v0.12 W2-C
+  /** TestSuiteWorkflow: one instance per test suite run (docs/plan.md §1.46). */
+  TEST_SUITE_WORKFLOW?: Workflow;
+  // v0.14 capture
+  /** CaptureWorkflow: one instance per WhatsApp message whose attachments are fetched (§1.55). */
+  CAPTURE_WORKFLOW?: Workflow;
   BROWSER?: BrowserWorker;
+  /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
+  MCP_RATE_LIMIT?: RateLimiterBinding;
+}
+
+/** Cloudflare's Rate Limiting binding, as much of it as is used. */
+export interface RateLimiterBinding {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
 export type Bindings = Omit<Env, keyof Vars | keyof OptionalBindings> &

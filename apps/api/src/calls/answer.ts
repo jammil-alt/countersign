@@ -8,6 +8,7 @@
 import { grantOf } from "@countersign/agents";
 import {
   CALL_ANSWER_TOOL,
+  CALL_ENTITY,
   CALL_RECEIVED_EVENT,
   createVoiceAgent,
   ELEVENLABS_AGENT_ENTITY,
@@ -29,15 +30,18 @@ import {
   type AgentBundle,
   type CallLanguage,
   decideToolCall,
+  effectiveMode,
   fixedInputProblem,
   grantAllowsTool,
   type InboundDecision,
   openingLine,
   type PermissionMatrix,
   type Step,
+  trimTrailingSlashes,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
+import { releaseCoversTx } from "../access/release";
 import type { Bindings } from "../env";
 import type { Platform } from "../platform";
 import { findRecord, storeOnce } from "./store";
@@ -58,7 +62,7 @@ export function voiceDepsFromEnv(
   const webhookSecret = env.ELEVENLABS_WEBHOOK_SECRET?.trim();
   return {
     elevenlabs: apiKey && webhookSecret ? { apiKey, webhookSecret } : null,
-    origin: (env.APP_ORIGIN?.trim() || fallbackOrigin).replace(/\/+$/, ""),
+    origin: trimTrailingSlashes(env.APP_ORIGIN?.trim() || fallbackOrigin),
     fetch,
   };
 }
@@ -179,6 +183,8 @@ export interface AnsweringStep {
   agentVersionId: string;
   bundle: AgentBundle;
   step: Step & { kind: "action" };
+  // v0.12 W1-A: the go-live stage, read with the agent in this transaction (§10.9).
+  stage: string | null;
 }
 
 /**
@@ -226,6 +232,7 @@ export async function answeringStep(
           agentVersionId: v.id,
           bundle: v.bundle,
           step,
+          stage: a.stage,
         };
       }
     }
@@ -248,8 +255,11 @@ export async function planInbound(
     tenantId: string;
     connectionId: string;
     permissions: Partial<PermissionMatrix>;
+    /** The connection's config: its human release setting (docs/plan.md §1.26). */
+    config: unknown;
     forwardTo: string | null;
     voice: VoiceDeps;
+    now?: Date;
   },
 ): Promise<InboundPlan> {
   const answering = await answeringStep(tx, input.tenantId, input.connectionId);
@@ -281,13 +291,29 @@ export async function planInbound(
       `${answering.agentName}'s access to the Twilio connection leaves out answering calls`,
     );
   }
+  // Human release: a ringing call can't wait for a person's code, so an agent answers only under a
+  // release already live for it on this connection (an hours release: there is no run yet).
+  const released = await releaseCoversTx(tx, input.tenantId, {
+    connection: { id: input.connectionId, config: input.config },
+    agentId: answering.agentId,
+    runId: null,
+    now: input.now ?? new Date(),
+  });
+  if (!released) {
+    return fallback(
+      `the client's Twilio connection needs a person to release it before ${answering.agentName} answers, and no release is live`,
+    );
+  }
   const decision = decideToolCall({
     sideEffect: "external",
     verb: "create",
     matrix: input.permissions,
     grant: grant?.limits ?? null,
     stepApproval: answering.step.approval?.required,
-    agentMode: answering.bundle.definition.permissions.mode,
+    // v0.12 W1-A: in trial and signoff an agent never answers on its own (§10.9).
+    agentMode: effectiveMode(answering.bundle.definition, answering.stage),
+    // v0.12 W2-A: calls' entity level, on the connection and the grant.
+    entity: { tool: { id: CALL_ANSWER_TOOL, entity: CALL_ENTITY } },
   });
   if (decision === "refused") {
     return fallback(`creating is off for ${answering.agentName} on the client's Twilio connection`);

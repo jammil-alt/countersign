@@ -12,6 +12,7 @@ import {
 import { type Db, tenant, withTenant } from "@countersign/db";
 import { asc } from "drizzle-orm";
 import type { Bindings } from "../env";
+import { reportProblem } from "../observability/report";
 import { cipherFor } from "../secrets";
 
 /** v1 envelopes re-encrypted per hour, across every client. */
@@ -59,7 +60,10 @@ export async function vaultTick(
   if (!env.ENCRYPTION_KEY) return null;
   const result = await vaultUpkeep(db, await cipherFor(env));
   if (result.failed > 0) {
-    console.warn(`vault upkeep: ${result.failed} credential envelopes could not be re-encrypted`);
+    reportProblem("vault upkeep: credential envelopes could not be re-encrypted", {
+      job: "vault",
+      failed: String(result.failed),
+    });
   }
   return result;
 }

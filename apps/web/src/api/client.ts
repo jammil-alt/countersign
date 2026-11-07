@@ -1,6 +1,7 @@
-import { buildPath, type RouteSpec } from "@countersign/core";
+import { buildPath, type RouteSpec, SESSION_ACTIVITY_HEADER } from "@countersign/core";
 import type { z } from "zod";
 import { reportApiFailure } from "../observability";
+import { recentlyActive } from "../session/activity";
 
 /**
  * The typed API client. Paths, methods and shapes come from the route contract (packages/core,
@@ -131,6 +132,8 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
       }
 
       const headers: Record<string, string> = { accept: "application/json" };
+      // Only the person's own requests keep the session alive (docs/plan.md §1.35).
+      if (recentlyActive()) headers[SESSION_ACTIVITY_HEADER] = "1";
       if (body !== undefined) headers["content-type"] = "application/json";
       const init: RequestInit = { method: route.method, headers, credentials: "same-origin" };
       if (body !== undefined) init.body = body;

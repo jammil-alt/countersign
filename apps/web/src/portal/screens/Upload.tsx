@@ -1,6 +1,8 @@
-// Upload and forwarding (ARCHITECTURE §6.3, §6.5), built in on every client's Connections page:
-// drop invoices, receipts or a purchases CSV; see the private forwarding address and who may
-// forward to it (the client admin edits the list); and the documents that arrived.
+// Upload and forwarding (ARCHITECTURE §6.3, §6.5) on `/upload` (UploadPage.tsx, Records' "Upload
+// documents"): drop invoices, receipts or a purchases CSV; see the private forwarding address and
+// who may forward to it (the client admin edits the list); and the documents that arrived. The
+// Accounts page keeps only the forwarding address, with a link to Records (QA round 1: one place
+// to upload).
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -21,31 +23,36 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { documentStatus, dropReason, money, sourceLabel } from "../documents";
+import { PORTAL_PATHS } from "../paths";
 
 type Result = UploadResponse["results"][number];
 type Shown = Result & { key: string };
 
-export function UploadSection({ isAdmin }: { isAdmin: boolean }) {
+/** Accounts' forwarding address, and where to upload files by hand (Records). */
+export function ForwardingSection({ isAdmin }: { isAdmin: boolean }) {
   const { t } = useI18n();
-  const documents = useApi(apiRoutes.portalDocuments, { query: { limit: 20 } });
   return (
-    <section data-testid="portal-upload">
-      <SectionLabel>{t("upload.section")}</SectionLabel>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <DropZone onUploaded={documents.reload} />
-        <Forwarding isAdmin={isAdmin} />
-      </div>
-      <div className="mt-4">
-        <RecentDocuments state={documents} />
-      </div>
+    <section data-testid="portal-forwarding-section" className="flex flex-col gap-3">
+      <SectionLabel>{t("forwarding.section")}</SectionLabel>
+      <Forwarding isAdmin={isAdmin} />
+      <p className="text-sm">
+        <Link
+          className="text-link hover:underline"
+          to={PORTAL_PATHS.records}
+          data-testid="portal-forwarding-records"
+        >
+          {t("forwarding.uploadInRecords")}
+        </Link>
+      </p>
     </section>
   );
 }
 
 function resultLine(
   r: Result,
-  { t, locale }: Pick<I18n, "t" | "locale">,
+  i18n: Pick<I18n, "t" | "locale" | "fmt">,
 ): { text: string; tone: "positive" | "neutral" | "risk" } {
+  const { t, locale } = i18n;
   // The server's reason is English: other languages show their own word for a refusal.
   if (r.kind === "refused") {
     return {
@@ -60,12 +67,31 @@ function resultLine(
     if (p.errors.length > 0) parts.push(t("upload.rowsSkipped", { count: p.errors.length }));
     return { text: parts.join(" · "), tone: p.errors.length > 0 ? "neutral" : "positive" };
   }
-  return r.created
-    ? { text: t("upload.received"), tone: "positive" }
-    : { text: t("upload.duplicate"), tone: "neutral" };
+  if (r.created) return { text: t("upload.received"), tone: "positive" };
+  // The same bytes are one document: the first one comes back, with when it arrived.
+  return {
+    text: r.document
+      ? t("upload.sameFile", { time: shortTime(r.document.receivedAt, undefined, i18n) })
+      : t("upload.duplicate"),
+    tone: "neutral",
+  };
 }
 
-function DropZone({ onUploaded }: { onUploaded: () => void }) {
+/**
+ * Drop or choose files. The portal's by default; the back office's Sandbox documents page passes
+ * its own upload, links and test ids.
+ */
+export function DropZone({
+  onUploaded,
+  upload = uploadFiles,
+  documentHref = (id) => `/documents/${id}`,
+  testId = "portal-upload",
+}: {
+  onUploaded: () => void;
+  upload?: (files: File[]) => Promise<UploadResponse>;
+  documentHref?: (documentId: string) => string;
+  testId?: string;
+}) {
   const i18n = useI18n();
   const { t } = i18n;
   const input = useRef<HTMLInputElement>(null);
@@ -80,7 +106,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await uploadFiles(files);
+      const res = await upload(files);
       setResults(res.results.map((r) => ({ ...r, key: crypto.randomUUID() })));
       onUploaded();
     } catch (e) {
@@ -92,12 +118,11 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
   }
 
   return (
-    <Card className="flex flex-col p-4">
-      <p className="font-medium text-ink">{t("upload.title")}</p>
+    <Card title={t("upload.title")} pad>
       <p className="mt-1 text-sm text-ink-muted">{t("upload.help")}</p>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the drop target; the button inside is the keyboard path. */}
       <div
-        data-testid="portal-upload-drop"
+        data-testid={`${testId}-drop`}
         onDragOver={(e) => {
           e.preventDefault();
           setOver(true);
@@ -115,7 +140,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
       >
         <p className="text-sm text-ink">{t("upload.drop")}</p>
         <Button
-          data-testid="portal-upload-choose"
+          data-testid={`${testId}-choose`}
           disabled={busy}
           onClick={() => input.current?.click()}
         >
@@ -123,7 +148,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
         </Button>
         <input
           ref={input}
-          data-testid="portal-upload-input"
+          data-testid={`${testId}-input`}
           type="file"
           multiple
           accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,application/pdf,image/*,text/csv"
@@ -137,14 +162,14 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
         </div>
       ) : null}
       {results.length > 0 ? (
-        <ul data-testid="portal-upload-results" className="mt-3 flex flex-col gap-1.5 text-sm">
+        <ul data-testid={`${testId}-results`} className="mt-3 flex flex-col gap-1.5 text-sm">
           {results.map((r) => {
             const line = resultLine(r, i18n);
             return (
               <li key={r.key} className="flex items-start justify-between gap-3">
                 <span className="min-w-0 truncate text-ink">
                   {r.document ? (
-                    <Link to={`/documents/${r.document.id}`} className="hover:underline">
+                    <Link to={documentHref(r.document.id)} className="hover:underline">
                       {r.filename}
                     </Link>
                   ) : (
@@ -168,7 +193,7 @@ function DropZone({ onUploaded }: { onUploaded: () => void }) {
   );
 }
 
-function Forwarding({ isAdmin }: { isAdmin: boolean }) {
+export function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   const api = useApiClient();
   const i18n = useI18n();
   const { t } = i18n;
@@ -195,8 +220,7 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   }
 
   return (
-    <Card testId="portal-forwarding" className="flex flex-col p-4">
-      <p className="font-medium text-ink">{t("forwarding.title")}</p>
+    <Card testId="portal-forwarding" title={t("forwarding.title")} pad>
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {f && !f.available ? (
@@ -298,7 +322,7 @@ function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function RecentDocuments({
+export function RecentDocuments({
   state,
 }: {
   state: ReturnType<typeof useApi<typeof apiRoutes.portalDocuments>>;
@@ -307,13 +331,24 @@ function RecentDocuments({
   const i18n = useI18n();
   const { t } = i18n;
   return (
-    <div>
-      <p className="mb-2 text-sm font-medium text-ink">{t("documents.recent")}</p>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && data.documents.length === 0 ? <EmptyState>{t("documents.empty")}</EmptyState> : null}
+    <Card title={t("documents.recent")} testId="portal-recent-documents">
+      {loading && !data ? (
+        <div className="ui-card__body">
+          <Loading />
+        </div>
+      ) : null}
+      {error ? (
+        <div className="ui-card__body">
+          <ErrorNotice error={error} onRetry={reload} />
+        </div>
+      ) : null}
+      {data && data.documents.length === 0 ? (
+        <div className="ui-card__body">
+          <EmptyState>{t("documents.empty")}</EmptyState>
+        </div>
+      ) : null}
       {data && data.documents.length > 0 ? (
-        <div className="dt dt-ana">
+        <div className="dt dt-ana overflow-x-auto">
           <table data-testid="portal-documents">
             <thead>
               <tr className="dt-cols">
@@ -342,6 +377,17 @@ function RecentDocuments({
                       <span className="block text-sm text-ink-muted">
                         {sourceLabel(d.source, i18n)}
                       </span>
+                      {d.sameInvoiceAs ? (
+                        <Link
+                          to={`/documents/${d.sameInvoiceAs.id}`}
+                          data-testid={`portal-document-${d.id}-same`}
+                          className="block text-sm text-link hover:underline"
+                        >
+                          {t("documents.sameInvoice", {
+                            time: shortTime(d.sameInvoiceAs.receivedAt, undefined, i18n),
+                          })}
+                        </Link>
+                      ) : null}
                     </td>
                     <td className="text-ink">{d.vendorName ?? "–"}</td>
                     <td className="n text-ink figures">{money(d.total, "USD", i18n)}</td>
@@ -356,6 +402,6 @@ function RecentDocuments({
           </table>
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 }

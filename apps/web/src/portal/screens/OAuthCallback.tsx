@@ -5,8 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
+import { openPlaidLink, pendingLink } from "../../connections/plaidLink";
 import { useI18n } from "../../i18n/i18n";
-import { buttonClass, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { buttonClass, ErrorNotice, Loading } from "../../ui/primitives";
+import { ConnectFrame } from "./ConnectFrame";
 
 export function OAuthCallbackScreen() {
   const api = useApiClient();
@@ -21,26 +23,48 @@ export function OAuthCallbackScreen() {
   useEffect(() => {
     if (sent.current) return;
     sent.current = true;
+    // v0.12 bankfeed: a bank that signs in by OAuth sends the person back here mid-Link; Link
+    // opens again with the token this tab kept, and its result goes to the callback route.
+    if (connector === "bankfeed" && search.has("oauth_state_id")) {
+      const pending = pendingLink();
+      if (!pending) {
+        setError(new Error(t("callback.linkLost")));
+        return;
+      }
+      openPlaidLink(pending, window.location.href)
+        .then((done) =>
+          done
+            ? api.call(apiRoutes.portalAuthorizeCallback, {
+                params: { connector },
+                body: { params: { public_token: done.publicToken, state: done.state } },
+              })
+            : null,
+        )
+        .then(
+          () => navigate("/accounts", { replace: true }),
+          (e: unknown) => setError(e),
+        );
+      return;
+    }
     const params = Object.fromEntries(search.entries());
     api.call(apiRoutes.portalAuthorizeCallback, { params: { connector }, body: { params } }).then(
-      () => navigate("/connections", { replace: true }),
+      () => navigate("/accounts", { replace: true }),
       (e: unknown) => setError(e),
     );
-  }, [api, connector, search, navigate]);
+  }, [api, connector, search, navigate, t]);
 
   return (
-    <div>
-      <PageHeader title={t("callback.title")} subtitle={t("callback.subtitle")} />
+    <ConnectFrame title={t("callback.title")} subtitle={t("callback.subtitle")}>
       {error ? (
         <div className="flex flex-col gap-3">
           <ErrorNotice error={error} />
-          <Link to="/connections" className={buttonClass("secondary", "self-start")}>
+          <Link to="/accounts" className={buttonClass("secondary", "self-start")}>
             {t("callback.back")}
           </Link>
         </div>
       ) : (
         <Loading label={t("callback.connecting")} />
       )}
-    </div>
+    </ConnectFrame>
   );
 }

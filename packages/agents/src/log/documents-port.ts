@@ -11,6 +11,7 @@ import {
   extractDocument,
   findSupport,
   getDocument,
+  matchBill,
 } from "@countersign/documents";
 import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
 import type { DocumentForTool, DocumentsPort } from "../tools/types";
@@ -83,8 +84,14 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
     },
 
     async extract(tenantId, input) {
+      // v0.12 W1-E: the read's model call, with its request and answer, on the step that asked.
+      const recordCall = input.recordModelCall;
+      const llm = createLlmClient({
+        transport: options.transport,
+        ...(recordCall ? { onCall: (record, exchange) => recordCall(record, exchange) } : {}),
+      });
       const r = await extractDocument(
-        { db, content: options.content, llm: createLlmClient({ transport: options.transport }) },
+        { db, content: options.content, llm },
         {
           tenantId,
           documentId: input.documentId,
@@ -114,6 +121,10 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
       return withTenant(db, tenantId, (tx) =>
         findSupport(tx, tenantId, input.transactionId, { testRun: input.testRun }),
       );
+    },
+
+    matchBill(tenantId, input) {
+      return withTenant(db, tenantId, (tx) => matchBill(tx, tenantId, input));
     },
   };
 }

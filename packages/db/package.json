@@ -7,7 +7,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
-    "./seed": "./src/seed.ts"
+    "./seed": "./src/seed.ts",
+    "./purge": "./src/purge.ts",
+    "./seed/agents/*": "./seed/agents/*"
   },
   "scripts": {
     "typecheck": "tsc -p .",
@@ -15,12 +17,13 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "tsx scripts/seed.ts",
-    "db:add-operator": "tsx scripts/add-operator.ts"
+    "db:add-operator": "tsx scripts/add-operator.ts",
+    "db:purge-client": "tsx scripts/purge-client.ts"
   },
   "dependencies": {
     "@countersign/core": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9",
+    "postgres": "^4.0.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {

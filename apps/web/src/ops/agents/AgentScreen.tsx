@@ -1,7 +1,10 @@
-// One agent page for templates and client agents (design screen 7; ARCHITECTURE §15): header with
-// the live/draft badges, tabs Overview, Workflow, Runs, Versions and Settings. Client agents add
-// their operation (bindings, approver, service, activate/pause/retire) to Settings and lineage to
-// Versions; templates show "Used by". `/revise` asks the Builder for a new draft. `?version=N` shows an older version on the bundle tabs.
+// One agent page for templates and client agents (docs/ui-plan.md "Agent page (back office)", in
+// the style of the prototype's `#O6-Builder` and `#O7-Triggers` agent bar): the agent's bar with
+// its versions, what it is, Test run and Publish, then the tabs Overview, Workflow, Triggers, Runs,
+// Versions, Tests and Settings (open question 3, the plan's default). Versions holds a client
+// agent's run status and go-live stage beside its history; Settings its service, connections and
+// grants, people and channels, price and definition. Workflow and Triggers host UI-2c's screens.
+// `/revise` asks the Builder for a new draft. `?version=N` shows an older version on the bundle tabs.
 import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useState } from "react";
@@ -18,43 +21,59 @@ import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
 import { OpsChannelsSection, OpsPeopleSection } from "../../people/PeoplePanel";
+import { AgentBadge } from "../../ui/badges";
 import {
-  AgentAvatar,
   Badge,
+  Button,
   buttonClass,
   Card,
   EmptyState,
   ErrorNotice,
   Loading,
-  PageHeader,
   SectionLabel,
   Tabs,
 } from "../../ui/primitives";
+import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
+import { TriggersScreen } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
+import { workflowStats } from "../workflow/describe";
 import { StepList } from "../workflow/StepList";
 import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
-import { OperationPanel } from "./OperationPanel";
+import { OperationPanel, ServicePanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
-import { Notice, notifyAgentsChanged } from "./ui";
+import { PricePanel } from "./PricePanel";
+import { TestsTab } from "./TestsTab";
+import { detailMessages, errorText, Notice, notifyAgentsChanged, plural, useAction } from "./ui";
 import { VersionsTab } from "./VersionsTab";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
+type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 // The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
 const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
 
+const RUN_STATUS_WORDS: Record<string, string> = {
+  active: "Running",
+  paused: "Paused",
+  retired: "Retired",
+  draft: "Not started",
+};
+
 export function AgentScreen({
   agentId,
   base,
+  clientName,
   connections = [],
   members = [],
 }: {
   agentId: string;
   /** The page's URL: `/ops/clients/<id>/agents/<slug>` or `/ops/templates/<slug>`. */
   base: string;
+  /** A client agent's client, for its bar. */
+  clientName?: string;
   /** A client agent's client's connections, for its bindings. */
   connections?: readonly Connection[];
   /** A client agent's client's people, for approvers and assignees. */
@@ -110,11 +129,11 @@ export function AgentScreen({
     <ErrorNotice error={new Error(parsed.message)} />
   ) : null;
 
-  const firstWorkflow = bundle?.workflows[0]?.slug;
   // The builder edits the latest version (draft or live), like the definition editor.
   const latestParsed = agent.data.latest ? parseBundle(agent.data.latest) : null;
   const latestBundle = latestParsed?.ok ? latestParsed.bundle : null;
   const builderStart = latestBundle?.workflows[0]?.slug ?? "main";
+  const isClient = view.kind === "client";
   const tabs = (
     <Tabs
       items={[
@@ -124,9 +143,10 @@ export function AgentScreen({
           label: "Workflow",
           active: builder !== null || workflowTab !== null,
         },
+        { to: `${base}/triggers`, label: "Triggers" },
         { to: `${base}/runs${keep}`, label: "Runs" },
-        ...(view.kind === "client" ? [{ to: `${base}/people`, label: "People" }] : []),
         { to: `${base}/versions${keep}`, label: "Versions", count: versions.length },
+        { to: `${base}/tests`, label: "Tests" },
         { to: `${base}/settings${keep}`, label: "Settings" },
       ]}
     />
@@ -137,11 +157,9 @@ export function AgentScreen({
     if (!latest || !latestBundle) {
       return (
         <div>
-          <PageHeader
-            leading={<AgentAvatar name={view.name} seed={view.slug} size="lg" />}
-            title={view.serviceName ?? view.name}
-          />
-          {tabs}
+          <AgentBar view={view} clientName={clientName} bundle={null} live={live} draft={draft}>
+            {tabs}
+          </AgentBar>
           <div className="pt-6">
             {latestParsed && !latestParsed.ok ? (
               <ErrorNotice error={new Error(latestParsed.message)} />
@@ -171,63 +189,30 @@ export function AgentScreen({
   }
 
   return (
-    <div>
-      <PageHeader
-        leading={<AgentAvatar name={view.name} seed={view.slug} size="lg" />}
-        title={view.serviceName ?? view.name}
-        badge={
-          <span className="flex gap-1.5" data-testid="agent-version-badges">
-            {versionBadges(live, draft).map((b) => (
-              <Badge key={b.label} tone={b.tone}>
-                {b.label}
-              </Badge>
-            ))}
-            {view.kind === "template" ? <Badge tone="accent">Template</Badge> : null}
-            {view.testCopy ? <Badge tone="neutral">Test copy</Badge> : null}
-            {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
-          </span>
-        }
-        subtitle={[view.role, bundle?.definition.identity.mission].filter(Boolean).join(" · ")}
+    <div className="flex flex-col gap-6">
+      <AgentBar
+        view={view}
+        clientName={clientName}
+        bundle={latestBundle ?? bundle}
+        live={live}
+        draft={draft}
         actions={
-          <span className="flex flex-wrap items-center justify-end gap-2">
-            {canDiscard(view) ? (
-              <DiscardButton
-                agent={view}
-                onDiscarded={() =>
-                  navigate(
-                    view.kind === "template" ? "/ops/templates" : `/ops/clients/${view.tenantId}`,
-                  )
-                }
-              />
-            ) : null}
-            {latestBundle && !view.testCopy && view.status === "active" ? (
-              <Link
-                to={`${base}/revise`}
-                className={buttonClass("secondary")}
-                data-testid="agent-revise"
-              >
-                Revise with the Builder
-              </Link>
-            ) : null}
-            {firstWorkflow ? (
-              <Link
-                to={`${base}/workflows/${latestBundle?.workflows.some((w) => w.slug === firstWorkflow) ? firstWorkflow : builderStart}`}
-                className={buttonClass("secondary")}
-                data-testid="agent-edit-workflow"
-              >
-                Edit workflow
-              </Link>
-            ) : null}
-          </span>
+          <AgentActions
+            view={view}
+            base={base}
+            detail={agent.data}
+            canRevise={latestBundle !== null}
+            onChanged={reload}
+            onDiscarded={() =>
+              navigate(view.kind === "template" ? "/ops/lab" : `/ops/clients/${view.tenantId}`)
+            }
+          />
         }
-      />
-      {view.status === "disabled" ? (
-        <div className="mb-4">
-          <DiscardedNotice agent={view} onRestored={reload} />
-        </div>
-      ) : null}
-      {tabs}
-      <div className="pt-6">
+      >
+        {tabs}
+      </AgentBar>
+      {view.status === "disabled" ? <DiscardedNotice agent={view} onRestored={reload} /> : null}
+      <div>
         {shown && shown.id !== live?.id ? (
           <p className="mb-4 text-sm text-ink-muted" data-testid="agent-shown-version">
             Showing v{shown.version} ({shown.status}).
@@ -261,6 +246,17 @@ export function AgentScreen({
             }
           />
           <Route
+            path="triggers"
+            element={
+              <TriggersScreen
+                agent={view}
+                latest={agent.data.latest}
+                bundle={latestBundle}
+                onChanged={reload}
+              />
+            }
+          />
+          <Route
             path="revise"
             element={
               <ReviseTab
@@ -274,7 +270,7 @@ export function AgentScreen({
           <Route
             path="runs"
             element={
-              view.kind === "client" ? (
+              isClient ? (
                 <LatestRuns agentId={view.id} limit={50} />
               ) : (
                 <EmptyState>
@@ -284,39 +280,35 @@ export function AgentScreen({
               )
             }
           />
-          <Route
-            path="people"
-            element={
-              view.kind === "client" ? (
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
-                  <div>
-                    <h2 className="mb-1 type-subheading text-ink">People</h2>
-                    <p className="mb-4 text-sm text-ink-muted">
-                      Who this agent reaches for each of its roles, and when. The client's admin can
-                      change these too; consent and opt-outs stay with each contact.
-                    </p>
-                    <OpsPeopleSection agentId={view.id} />
-                  </div>
-                  <OpsChannelsSection agentId={view.id} />
-                </div>
-              ) : (
-                <EmptyState>
-                  Templates declare roles; each client agent binds its own people.
-                </EmptyState>
-              )
-            }
-          />
+          {/* People moved into Settings; the old tab's address still opens it. */}
+          <Route path="people" element={<Navigate to={`${base}/settings`} replace />} />
           <Route
             path="versions"
             element={
-              <VersionsTab
-                agent={view}
-                versions={versions}
-                liveId={live?.id ?? null}
-                base={base}
-                update={agent.data.update}
-                onChanged={reload}
-              />
+              <div className="flex flex-col gap-6">
+                {isClient ? (
+                  <OperationPanel
+                    agent={view}
+                    live={live}
+                    liveBundle={liveBundle}
+                    onChanged={reload}
+                  />
+                ) : null}
+                <VersionsTab
+                  agent={view}
+                  versions={versions}
+                  liveId={live?.id ?? null}
+                  base={base}
+                  update={agent.data.update}
+                  onChanged={reload}
+                />
+              </div>
+            }
+          />
+          <Route
+            path="tests"
+            element={
+              <TestsTab agent={view} detail={agent.data} liveBundle={liveBundle} base={base} />
             }
           />
           <Route
@@ -327,13 +319,172 @@ export function AgentScreen({
                 detail={agent.data}
                 skills={skills}
                 connections={connections}
-                liveBundle={liveBundle}
                 onChanged={reload}
               />
             }
           />
         </Routes>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The agent's bar (prototype `#O6-Builder`): its tile, name and versions, what it is in one line,
+ * its actions on the right and the tabs underneath.
+ */
+function AgentBar({
+  view,
+  clientName,
+  bundle,
+  live,
+  draft,
+  actions,
+  children,
+}: {
+  view: AgentSummary;
+  clientName: string | undefined;
+  bundle: AgentBundle | null;
+  live: { version: number } | null;
+  draft: { version: number } | null;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  const stats = bundle ? workflowStats(bundle) : null;
+  const status = view.runStatus ?? "draft";
+  const line = [
+    clientName,
+    view.kind === "template" ? "Template" : null,
+    view.role,
+    bundle ? plural(bundle.workflows.length, "workflow") : null,
+    stats ? plural(stats.steps, "step") : null,
+    stats && stats.forks > 0 ? plural(stats.forks, "fork") : null,
+    bundle ? plural(bundle.definition.skills.length, "skill") : null,
+  ].filter(Boolean);
+  const title =
+    view.serviceName && view.serviceName !== view.name
+      ? `${view.name} · ${view.serviceName}`
+      : view.name;
+  return (
+    <Card testId="agent-bar">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-6 pt-5 pb-1">
+        <div className="flex min-w-0 items-start gap-4">
+          <AgentBadge name={view.name} size="lg" />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="type-heading text-ink">{title}</h1>
+              <span className="flex flex-wrap gap-1.5" data-testid="agent-version-badges">
+                {versionBadges(live, draft).map((b) => (
+                  <Badge key={b.label} tone={b.tone}>
+                    {b.label}
+                  </Badge>
+                ))}
+                {view.kind === "template" ? <Badge tone="accent">Template</Badge> : null}
+                {view.testCopy ? <Badge tone="neutral">Test copy</Badge> : null}
+                {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
+              </span>
+              {view.kind === "client" && !view.testCopy ? (
+                <StatusChip state={serviceChipState(status)} testId="agent-bar-status">
+                  {RUN_STATUS_WORDS[status] ?? status}
+                </StatusChip>
+              ) : null}
+            </div>
+            {line.length > 0 ? (
+              <p className="mt-1 text-sm text-ink-muted" data-testid="agent-bar-line">
+                {line.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        {actions}
+      </div>
+      <div className="overflow-x-auto px-6 [&>nav]:border-b-0">{children}</div>
+    </Card>
+  );
+}
+
+/** Discard, revise with the Builder, Test run and Publish the newest draft. */
+function AgentActions({
+  view,
+  base,
+  detail,
+  canRevise,
+  onChanged,
+  onDiscarded,
+}: {
+  view: AgentSummary;
+  base: string;
+  detail: AgentDetail;
+  canRevise: boolean;
+  onChanged(): void;
+  onDiscarded(): void;
+}) {
+  const action = useAction();
+  const [published, setPublished] = useState<number | null>(null);
+  const { draft } = liveAndDraft(view, detail.versions);
+
+  async function publish() {
+    if (!draft) return;
+    setPublished(null);
+    const res = await action.call(apiRoutes.opsPublish, {
+      params: { id: view.id, vid: draft.id },
+    });
+    if (res.ok) {
+      setPublished(draft.version);
+      onChanged();
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-2">
+      <span className="flex flex-wrap items-center justify-end gap-2">
+        {canDiscard(view) ? <DiscardButton agent={view} onDiscarded={onDiscarded} /> : null}
+        {canRevise && !view.testCopy && view.status === "active" ? (
+          <Link
+            to={`${base}/revise`}
+            className={buttonClass("ghost", undefined, "sm")}
+            data-testid="agent-revise"
+          >
+            Revise with the Builder
+          </Link>
+        ) : null}
+        <Link
+          to={`${base}/tests`}
+          className={buttonClass("secondary", undefined, "sm")}
+          data-testid="agent-test-run"
+        >
+          Test run
+        </Link>
+        {draft && view.status === "active" ? (
+          <Button
+            variant="primary"
+            size="sm"
+            data-testid="agent-publish"
+            disabled={action.busy}
+            onClick={publish}
+          >
+            {action.busy ? "Publishing…" : `Publish v${draft.version}`}
+          </Button>
+        ) : null}
+      </span>
+      {published !== null ? (
+        <Notice tone="positive" testId="agent-publish-done">
+          v{published} is live.
+          {view.kind === "template" ? " Client agents take it as a reviewed update." : ""}
+        </Notice>
+      ) : null}
+      {action.error ? (
+        <Notice tone="warning" testId="agent-publish-error">
+          {errorText(action.error)}
+          {detailMessages(action.error).length > 0 ? (
+            <ul className="mt-2 list-disc pl-5">
+              {detailMessages(action.error).map((m) => (
+                <li key={m}>{m}</li>
+              ))}
+            </ul>
+          ) : null}
+        </Notice>
+      ) : null}
     </div>
   );
 }
@@ -369,14 +520,12 @@ function SettingsTab({
   detail,
   skills,
   connections,
-  liveBundle,
   onChanged,
 }: {
   agent: AgentSummary;
-  detail: ResponseOf<typeof apiRoutes.opsAgent>;
+  detail: AgentDetail;
   skills: ApiState<ResponseOf<typeof apiRoutes.opsAgentSkills>>;
   connections: readonly Connection[];
-  liveBundle: AgentBundle | null;
   onChanged(): void;
 }) {
   const [result, setResult] = useState<
@@ -384,26 +533,35 @@ function SettingsTab({
   >(null);
   const latest = detail.latest;
   const parsed = latest ? parseBundle(latest) : null;
-  const live = detail.versions.find((v) => v.id === agent.liveVersionId) ?? null;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       {agent.kind === "client" ? (
-        <OperationPanel
-          agent={agent}
-          connections={connections}
-          live={live}
-          liveBundle={liveBundle}
-          onChanged={onChanged}
-        />
+        <ServicePanel agent={agent} connections={connections} onChanged={onChanged} />
       ) : null}
+
+      {agent.kind === "client" ? (
+        <Card title="People and channels" testId="agent-people" pad>
+          <p className="mb-4 text-sm text-ink-muted">
+            Who this agent reaches for each of its roles, and how. The client's admin can change
+            these too; consent and opt-outs stay with each contact.
+          </p>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
+            <OpsPeopleSection agentId={agent.id} />
+            <OpsChannelsSection agentId={agent.id} />
+          </div>
+        </Card>
+      ) : null}
+
+      {!agent.testCopy && agent.status === "active" ? <PricePanel agent={agent} /> : null}
 
       <div>
         <h2 className="mb-1 type-subheading text-ink">Definition</h2>
         <p className="mb-4 text-sm text-ink-muted">
           {agent.kind === "template"
             ? "Editing a template changes no client agent: they take its new versions as reviewed updates."
-            : "Changes to this client's agent only. Its template is not touched."}
+            : "Changes to this client's agent only. Its template is not touched."}{" "}
+          Each step's model is set on the step, in the workflow builder.
         </p>
         {result?.kind === "saved" ? (
           <div className="mb-4">
@@ -426,7 +584,7 @@ function SettingsTab({
                   </ul>
                 </>
               ) : (
-                " Publish it from Versions."
+                " Publish it from the bar above."
               )}
             </Notice>
           </div>

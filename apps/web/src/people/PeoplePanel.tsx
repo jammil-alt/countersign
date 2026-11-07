@@ -16,6 +16,7 @@ import {
   type ReachChannel,
   type ReachConditionsInput,
   RuleOp,
+  rankEntries,
 } from "@countersign/core";
 import { useState } from "react";
 import { isApiError } from "../api/client";
@@ -48,6 +49,9 @@ const CHANNEL_KEY: Record<ReachChannel, PlainKey> = {
   whatsapp: "reach.channel.whatsapp",
   voice: "reach.channel.voice",
 };
+
+/** From this many people on, a role's list gets a search box. */
+const PICK_FILTER_FROM = 8;
 
 function errorText(error: unknown, fallback: string): string {
   return isApiError(error) ? error.message : fallback;
@@ -160,6 +164,27 @@ function RoleEditor({
   const allowed = cond.channels ?? role.channels ?? [...REACH_CHANNELS];
   const rule = cond.onlyIf?.rules[0];
   const testId = `role-${role.role}`;
+  // Picked from the directory: a long list is narrowed by the directory's own search, and
+  // the people already bound always stay in view.
+  const [find, setFind] = useState("");
+  const matched = find.trim()
+    ? new Set(
+        rankEntries(
+          contacts.map((c) => ({
+            id: c.id,
+            name: c.name,
+            title: c.title,
+            organization: c.organization,
+            roles: c.roles,
+          })),
+          find,
+          contacts.length,
+        ).map((r) => r.entry.id),
+      )
+    : null;
+  const shownContacts = matched
+    ? contacts.filter((c) => matched.has(c.id) || ids.includes(c.id))
+    : contacts;
 
   return (
     <Card className="p-4" testId={testId}>
@@ -175,11 +200,22 @@ function RoleEditor({
 
       <div className="mt-3">
         <SectionLabel>{t("reach.who")}</SectionLabel>
+        {contacts.length > PICK_FILTER_FROM ? (
+          <TextInput
+            type="search"
+            className="mb-2"
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            placeholder={t("directory.pickFilter")}
+            aria-label={t("directory.pickFilter")}
+            data-testid={`${testId}-find`}
+          />
+        ) : null}
         {contacts.length === 0 ? (
           <p className="text-sm text-ink-muted">{t("reach.noContacts")}</p>
         ) : (
           <ul className="flex flex-col gap-1">
-            {contacts.map((c) => (
+            {shownContacts.map((c) => (
               <li key={c.id}>
                 <label className="flex items-center gap-2 text-sm text-ink">
                   <input
@@ -196,6 +232,11 @@ function RoleEditor({
                     data-testid={`${testId}-contact-${c.id}`}
                   />
                   {c.name}
+                  {c.title || c.organization ? (
+                    <span className="text-ink-muted">
+                      {[c.title, c.organization].filter(Boolean).join(", ")}
+                    </span>
+                  ) : null}
                   {c.optedOut ? <Badge>{t("reach.optedOut")}</Badge> : null}
                   {c.roles.includes(role.role) ? <Badge tone="accent">{role.role}</Badge> : null}
                   <span className="text-ink-muted">

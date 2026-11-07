@@ -1,41 +1,40 @@
-// Billing (docs/plan.md §1.24) over a throwaway database and a fake Stripe: the settings, setting up
-// a client (customer and subscription), the base quantity following activation and retirement, the
-// daily usage report (credits from usage_daily, the pooled allowance, the increment only, once per
-// day), Stripe's signed webhook stored once per event, the back office's period with our cost, and
-// the portal's plan, credits and invoices without any cost, tokens or prompts.
+// Billing (docs/plan.md §1.32) over a throwaway database and a fake Stripe: Mezonas works out each
+// bill and Stripe only bills it. The settings; prices (template, client agent override with a
+// note, the supervisor free, the default) and their log; setting a client up (a customer only);
+// the daily record of active agents (first price of the day sticks, paused days not billed); the
+// statement (proration, a price change mid-month, the pooled credits and extra usage, rounding,
+// built once); adjustments on drafts; a resumable, idempotent send; auto-send from the cron;
+// Stripe's signed invoice events; isolation between clients and operators; and the portal without
+// any cost, tokens or prompts.
 
 import { createStripeClient } from "@countersign/connectors";
-import {
-  FAKE_BASE_PRICE,
-  FAKE_OVERAGE_PRICE,
-  FAKE_STRIPE_KEY,
-  fakeStripe,
-} from "@countersign/connectors/testing";
+import { FAKE_STRIPE_KEY, fakeStripe } from "@countersign/connectors/testing";
 import { FORBIDDEN_PORTAL_FIELD, readTenantBilling, type TenantBilling } from "@countersign/core";
 import {
   agent,
-  agentVersion,
+  agentChange,
+  billingAgentDay,
   billingEvent,
-  billingUsageReport,
-  run,
+  billingStatement,
+  billingStatementLine,
   tenant,
   usageDaily,
+  usagePlatformDaily,
   withOperator,
   withTenant,
 } from "@countersign/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { date, integer, numeric, pgTable, uuid } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.test-helper";
+import { billingTick, buildMonthStatement } from "./billing/jobs";
 import {
-  admin,
-  createApiHarness,
-  OPERATOR,
-  OTHER_OPERATOR,
-  testBundle,
-  user,
-} from "./api.test-helper";
-import { billingTick, reportUsage, retryUnsent, tenantRunner } from "./billing/jobs";
-import { clientPeriod, loadBillingConfig, type UsageTable, usageMeasures } from "./billing/ledger";
+  creditsBetween,
+  dailyTotals,
+  loadBillingConfig,
+  type UsageTable,
+  usageMeasures,
+} from "./billing/ledger";
 
 const WEBHOOK_SECRET = "whsec_test_billing";
 const fake = fakeStripe({ webhookSecret: WEBHOOK_SECRET });
@@ -57,10 +56,10 @@ function forbiddenKeys(value: unknown, at = "$"): string[] {
 }
 
 const SETTINGS = {
-  allowanceCreditsPerAgent: 100,
-  basePriceId: FAKE_BASE_PRICE,
-  overagePriceId: FAKE_OVERAGE_PRICE,
-  meterEventName: "mezonas_credits",
+  defaultAgentPrice: "200.0000",
+  defaultIncludedCredits: 1000,
+  creditPrice: "0.0200",
+  autoSend: false,
   daysUntilDue: 14,
   unitCosts: [
     { measure: "cost_usd", unitCost: "1.0000", perUnits: 1 },
@@ -68,48 +67,32 @@ const SETTINGS = {
   ],
 };
 
+/** `n` days from `from` (YYYY-MM-DD), as YYYY-MM-DD. */
+function daysFrom(from: string, n: number): string[] {
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(`${from}T00:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
 describe.skipIf(!h)("billing", () => {
   const H = h as NonNullable<typeof h>;
   const call = H.call.bind(H);
   const db = H.t.db;
-  const agents: string[] = [];
+  const ids = {
+    ordersTemplate: "",
+    supervisorTemplate: "",
+    orders: "",
+    clerk: "",
+    supervisor: "",
+    testCopy: "",
+    bAgent: "",
+  };
 
-  /** A client agent with a live version, bound and test-run, ready to activate. */
-  async function readyAgent(tenantId: string, connectionId: string, slug: string) {
-    const [a] = await db
-      .insert(agent)
-      .values({
-        tenantId,
-        kind: "client",
-        slug,
-        name: slug,
-        bindings: { testkit: connectionId },
-        runStatus: "testing",
-      })
-      .returning();
+  async function insertAgent(values: typeof agent.$inferInsert): Promise<string> {
+    const [a] = await db.insert(agent).values(values).returning();
     if (!a) throw new Error("no agent");
-    const [v] = await db
-      .insert(agentVersion)
-      .values({
-        tenantId,
-        agentId: a.id,
-        version: 1,
-        bundle: testBundle(),
-        bundleHash: `hash-${slug}`,
-        status: "live",
-        authorType: "operator",
-      })
-      .returning();
-    if (!v) throw new Error("no version");
-    await db.update(agent).set({ liveVersionId: v.id }).where(eq(agent.id, a.id));
-    await db.insert(run).values({
-      tenantId,
-      agentId: a.id,
-      agentVersionId: v.id,
-      workflowSlug: "fix-record",
-      mode: "test",
-      status: "succeeded",
-    });
     return a.id;
   }
 
@@ -118,11 +101,14 @@ describe.skipIf(!h)("billing", () => {
     return readTenantBilling(t?.settings);
   }
 
-  const baseItem = async (tenantId: string) => {
-    const b = await billingOf(tenantId);
-    const sub = fake.subscriptions.get(b?.subscriptionId ?? "");
-    return sub?.items.data.find((i) => i.price.id === FAKE_BASE_PRICE);
-  };
+  async function setUpAt(tenantId: string, at: string) {
+    await db
+      .update(tenant)
+      .set({
+        settings: sql`jsonb_set(${tenant.settings}, '{billing,setUpAt}', ${JSON.stringify(at)}::jsonb)`,
+      })
+      .where(eq(tenant.id, tenantId));
+  }
 
   async function usage(tenantId: string, agentId: string, day: string, costUsd: string) {
     await db
@@ -134,125 +120,298 @@ describe.skipIf(!h)("billing", () => {
       });
   }
 
+  async function agentDays(
+    tenantId: string,
+    agentId: string,
+    agentName: string,
+    from: string,
+    n: number,
+    monthlyPrice: string,
+    includedCredits: number,
+  ) {
+    await db.insert(billingAgentDay).values(
+      daysFrom(from, n).map((day) => ({
+        tenantId,
+        agentId,
+        agentName,
+        day,
+        monthlyPrice,
+        includedCredits,
+        priceSource: "override" as const,
+      })),
+    );
+  }
+
+  const config = () => withOperator(H.db, [], (tx) => loadBillingConfig(tx));
+  const build = async (tenantId: string, period: string) =>
+    withTenant(H.db, tenantId, async (tx) =>
+      buildMonthStatement(tx, { tenantId, period, config: await config() }),
+    );
+  const statementOf = async (tenantId: string, period: string) => {
+    const [s] = await db
+      .select()
+      .from(billingStatement)
+      .where(and(eq(billingStatement.tenantId, tenantId), eq(billingStatement.period, period)));
+    if (!s) throw new Error(`no statement for ${period}`);
+    return s;
+  };
+
   beforeAll(async () => {
-    agents.push(await readyAgent(H.A.tenantId, H.A.connectionId, "billing-one"));
-    agents.push(await readyAgent(H.A.tenantId, H.A.connectionId, "billing-two"));
+    const A = H.A.tenantId;
+    ids.ordersTemplate = await insertAgent({
+      kind: "template",
+      slug: "orders-desk",
+      name: "Orders desk",
+    });
+    ids.supervisorTemplate = await insertAgent({
+      kind: "template",
+      slug: "supervisor",
+      name: "Supervisor",
+    });
+    ids.orders = await insertAgent({
+      tenantId: A,
+      kind: "client",
+      slug: "orders",
+      name: "Orders agent",
+      serviceName: "Orders desk",
+      templateId: ids.ordersTemplate,
+      runStatus: "active",
+    });
+    ids.clerk = await insertAgent({
+      tenantId: A,
+      kind: "client",
+      slug: "clerk",
+      name: "Invoice clerk",
+      runStatus: "active",
+    });
+    ids.supervisor = await insertAgent({
+      tenantId: A,
+      kind: "client",
+      slug: "supervisor",
+      name: "Supervisor",
+      serviceName: "Account check",
+      templateId: ids.supervisorTemplate,
+      runStatus: "active",
+    });
+    ids.testCopy = await insertAgent({
+      tenantId: A,
+      kind: "client",
+      slug: "orders-test",
+      name: "Orders desk (test)",
+      templateId: ids.ordersTemplate,
+      testCopy: true,
+    });
+    ids.bAgent = await insertAgent({
+      tenantId: H.B.tenantId,
+      kind: "client",
+      slug: "b-agent",
+      name: "Sorting",
+      runStatus: "active",
+    });
   });
 
   describe("settings", () => {
-    it("start from the placeholders and save the prices with their amounts from Stripe", async () => {
+    it("start from the placeholders and save as decimal strings", async () => {
       const before = await call(OPERATOR, "GET", "/api/ops/billing");
       expect(before.status, JSON.stringify(before.json)).toBe(200);
       expect(j(before.json)).toMatchObject({
         stripeConfigured: true,
         webhookConfigured: true,
         settings: {
-          allowanceCreditsPerAgent: 2000,
-          basePriceId: null,
-          overagePriceId: null,
-          baseFee: null,
+          defaultAgentPrice: "250.0000",
+          defaultIncludedCredits: 2000,
+          creditPrice: "0.0200",
+          autoSend: false,
+          daysUntilDue: 30,
         },
       });
-      // Every usage_daily column is a measure. Texts (messages) and calls (call_seconds) are
-      // columns now, so their seeded unit costs count as soon as they're priced.
       const measures = j(before.json).measures as { measure: string; available: boolean }[];
       expect(measures.find((m) => m.measure === "cost_usd")).toEqual({
         measure: "cost_usd",
         available: true,
         priced: true,
       });
-      expect(measures.find((m) => m.measure === "call_seconds")).toMatchObject({
-        available: true,
-        priced: true,
-      });
-      expect(measures.find((m) => m.measure === "messages")).toMatchObject({ available: true });
-
       const saved = await call(OPERATOR, "PUT", "/api/ops/billing/settings", SETTINGS);
       expect(saved.status, JSON.stringify(saved.json)).toBe(200);
       expect(j(saved.json)).toMatchObject({
-        allowanceCreditsPerAgent: 100,
+        defaultAgentPrice: "200.0000",
+        defaultIncludedCredits: 1000,
+        creditPrice: "0.0200",
         daysUntilDue: 14,
-        baseFee: { amount: "250.0000", currency: "USD" },
-        overagePrice: { amount: "0.0150", currency: "USD" },
       });
-      // call_seconds was dropped from the unit costs.
       expect(j(saved.json).unitCosts.map((u: { measure: string }) => u.measure)).toEqual([
         "cost_usd",
         "messages",
       ]);
     });
 
-    it("refuse prices of the wrong kind, unknown prices and a measure twice", async () => {
-      const swapped = await call(OPERATOR, "PUT", "/api/ops/billing/settings", {
+    it("refuse floats, negative prices and a measure twice", async () => {
+      const float = await call(OPERATOR, "PUT", "/api/ops/billing/settings", {
         ...SETTINGS,
-        basePriceId: FAKE_OVERAGE_PRICE,
-        overagePriceId: FAKE_BASE_PRICE,
+        creditPrice: 0.02,
       });
-      expect(swapped.status).toBe(422);
-      expect(j(swapped.json).error.code).toBe("invalid_price");
-      const unknown = await call(OPERATOR, "PUT", "/api/ops/billing/settings", {
+      expect(float.status).toBe(400);
+      const negative = await call(OPERATOR, "PUT", "/api/ops/billing/settings", {
         ...SETTINGS,
-        basePriceId: "price_nope",
+        defaultAgentPrice: "-1.00",
       });
-      expect(j(unknown.json).error.message).toMatch(/no price price_nope/);
+      expect(negative.status).toBe(400);
       const twice = await call(OPERATOR, "PUT", "/api/ops/billing/settings", {
         ...SETTINGS,
         unitCosts: [SETTINGS.unitCosts[0], SETTINGS.unitCosts[0]],
       });
       expect(twice.status).toBe(422);
-      const float = await call(OPERATOR, "PUT", "/api/ops/billing/settings", {
-        ...SETTINGS,
-        unitCosts: [{ measure: "cost_usd", unitCost: 1.5, perUnits: 1 }],
-      });
-      expect(float.status).toBe(400);
     });
 
     it("can only be changed in an operator session, even by the Worker's role", async () => {
       const changed = await withTenant(H.db, H.A.tenantId, (tx) =>
-        tx.execute(sql`update billing_setting set allowance_credits_per_agent = 1`),
+        tx.execute(sql`update billing_setting set credit_price = 9`),
       );
       expect(changed.count).toBe(0);
-      const config = await withOperator(H.db, [], (tx) => loadBillingConfig(tx));
-      expect(config.settings.allowanceCreditsPerAgent).toBe(100);
+      expect((await config()).settings.creditPrice).toBe("0.0200");
+    });
+  });
+
+  describe("prices", () => {
+    const priceOf = (id: string) => call(OPERATOR, "GET", `/api/ops/billing/agents/${id}/price`);
+
+    it("set a template's price on its page, listed on /ops/billing and logged", async () => {
+      const set = await call(
+        OPERATOR,
+        "PUT",
+        `/api/ops/billing/agents/${ids.ordersTemplate}/price`,
+        {
+          price: { monthlyPrice: "300.00", includedCredits: 3000 },
+        },
+      );
+      expect(set.status, JSON.stringify(set.json)).toBe(200);
+      expect(j(set.json)).toMatchObject({
+        kind: "template",
+        price: { monthlyPrice: { amount: "300.0000", currency: "USD" }, source: "template" },
+        own: { includedCredits: 3000 },
+      });
+      const list = await call(OPERATOR, "GET", "/api/ops/billing");
+      const templates = j(list.json).templates as {
+        id: string;
+        price: unknown;
+        effective: unknown;
+      }[];
+      expect(templates.find((t) => t.id === ids.ordersTemplate)?.price).toEqual({
+        monthlyPrice: { amount: "300.0000", currency: "USD" },
+        includedCredits: 3000,
+      });
+      // The supervisor's template, unpriced, is free for its client agents.
+      expect(templates.find((t) => t.id === ids.supervisorTemplate)?.effective).toMatchObject({
+        monthlyPrice: { amount: "0.0000" },
+        includedCredits: 0,
+        source: "platform",
+      });
+      const log = await db
+        .select()
+        .from(agentChange)
+        .where(and(eq(agentChange.agentId, ids.ordersTemplate), isNull(agentChange.tenantId)));
+      expect(log.map((l) => l.change)).toEqual([
+        {
+          billing: {
+            from: null,
+            to: { monthlyPrice: "300.0000", includedCredits: 3000 },
+            note: null,
+          },
+        },
+      ]);
+    });
+
+    it("price a client agent: its template's, else the supervisor's $0, else the default", async () => {
+      expect(j((await priceOf(ids.orders)).json)).toMatchObject({
+        kind: "client",
+        price: { monthlyPrice: { amount: "300.0000" }, includedCredits: 3000, source: "template" },
+        template: { id: ids.ordersTemplate, name: "Orders desk" },
+        own: null,
+      });
+      expect(j((await priceOf(ids.supervisor)).json).price).toMatchObject({
+        monthlyPrice: { amount: "0.0000" },
+        includedCredits: 0,
+        source: "platform",
+      });
+      expect(j((await priceOf(ids.clerk)).json).price).toMatchObject({
+        monthlyPrice: { amount: "200.0000" },
+        includedCredits: 1000,
+        source: "default",
+      });
+    });
+
+    it("override a client agent's price only with a note, and log each change", async () => {
+      const path = `/api/ops/billing/agents/${ids.orders}/price`;
+      const noNote = await call(OPERATOR, "PUT", path, {
+        price: { monthlyPrice: "280", includedCredits: 3000 },
+      });
+      expect(noNote.status).toBe(422);
+      expect(j(noNote.json).error.code).toBe("note_required");
+      const set = await call(OPERATOR, "PUT", path, {
+        price: { monthlyPrice: "280", includedCredits: 3000 },
+        note: "Agreed discount for the first year",
+      });
+      expect(set.status, JSON.stringify(set.json)).toBe(200);
+      expect(j(set.json)).toMatchObject({
+        price: { monthlyPrice: { amount: "280.0000" }, source: "override" },
+        own: { note: "Agreed discount for the first year", setBy: "Operator" },
+      });
+      const cleared = await call(OPERATOR, "PUT", path, {
+        price: null,
+        note: "Back to the list price",
+      });
+      expect(j(cleared.json).price.source).toBe("template");
+      expect(j(cleared.json).history.map((c: { note: string }) => c.note)).toEqual([
+        "Back to the list price",
+        "Agreed discount for the first year",
+      ]);
+      expect(j(cleared.json).history[1]).toMatchObject({
+        from: null,
+        to: { monthlyPrice: { amount: "280.0000" } },
+        by: "Operator",
+      });
+      // Set again for the daily record below.
+      await call(OPERATOR, "PUT", path, {
+        price: { monthlyPrice: "280", includedCredits: 3000 },
+        note: "Agreed discount for the first year",
+      });
+    });
+
+    it("refuse a test copy, another operator's client and a client admin", async () => {
+      const copy = await call(OPERATOR, "PUT", `/api/ops/billing/agents/${ids.testCopy}/price`, {
+        price: { monthlyPrice: "1", includedCredits: 0 },
+        note: "x",
+      });
+      expect(copy.status).toBe(422);
+      expect(
+        (await call(OTHER_OPERATOR, "GET", `/api/ops/billing/agents/${ids.orders}/price`)).status,
+      ).toBe(404);
+      expect(
+        (await call(admin("a"), "GET", `/api/ops/billing/agents/${ids.orders}/price`)).status,
+      ).toBe(403);
     });
   });
 
   describe("setting up a client", () => {
-    it("creates the customer and a subscription for the active agents", async () => {
-      const first = agents[0] as string;
-      const act = await call(OPERATOR, "POST", `/api/ops/agents/${first}/activate`);
-      expect(act.status, JSON.stringify(act.json)).toBe(200);
-      await H.settle();
-
+    it("creates the Stripe customer and nothing else", async () => {
       const res = await call(OPERATOR, "POST", `/api/ops/billing/clients/${H.A.tenantId}/setup`, {
         email: "billing@a.example.com",
       });
       expect(res.status, JSON.stringify(res.json)).toBe(200);
       expect(j(res.json)).toMatchObject({
         setUp: true,
-        billedAgents: 1,
-        activeAgents: 1,
-        base: { amount: "250.0000", currency: "USD" },
-        allowance: 100,
+        email: "billing@a.example.com",
+        activeAgents: 3,
       });
       const b = await billingOf(H.A.tenantId);
       expect(b?.customerId).toMatch(/^cus_/);
-      const customer = fake.customers.get(b?.customerId ?? "");
-      expect(customer).toMatchObject({
+      expect(fake.customers.get(b?.customerId ?? "")).toMatchObject({
         name: "Client A",
         email: "billing@a.example.com",
         metadata: { tenant_id: H.A.tenantId },
       });
-      const sub = fake.subscriptions.get(b?.subscriptionId ?? "");
-      expect(sub).toMatchObject({ collection_method: "send_invoice", days_until_due: 14 });
-      expect((await baseItem(H.A.tenantId))?.quantity).toBe(1);
-      expect(sub?.items.data.find((i) => i.price.id === FAKE_OVERAGE_PRICE)?.quantity).toBe(
-        undefined,
-      );
-      // The anchor is the 1st of next month, midnight UTC.
-      const anchor = new Date(Number(sub?.billing_cycle_anchor) * 1000);
-      expect(anchor.getUTCDate()).toBe(1);
-      expect(anchor.getUTCHours()).toBe(0);
+      // Only the customer: no invoice, item, price or subscription call.
+      expect(fake.requests.map((r) => new URL(r.url).pathname)).toEqual(["/v1/customers"]);
     });
 
     it("refuses a second set-up, and a client the operator doesn't serve", async () => {
@@ -264,7 +423,7 @@ describe.skipIf(!h)("billing", () => {
       );
       expect(again.status).toBe(409);
       expect(j(again.json).error.code).toBe("already_set_up");
-      expect(fake.subscriptions.size).toBe(1);
+      expect(fake.customers.size).toBe(1);
       const other = await call(
         OTHER_OPERATOR,
         "POST",
@@ -272,214 +431,266 @@ describe.skipIf(!h)("billing", () => {
         {},
       );
       expect(other.status).toBe(404);
-      const detail = await call(OTHER_OPERATOR, "GET", `/api/ops/billing/clients/${H.A.tenantId}`);
-      expect(detail.status).toBe(404);
-    });
-  });
-
-  describe("the base quantity", () => {
-    it("follows activation, pausing and retirement", async () => {
-      const [first, second] = agents as [string, string];
-      const act = await call(OPERATOR, "POST", `/api/ops/agents/${second}/activate`);
-      expect(act.status, JSON.stringify(act.json)).toBe(200);
-      await H.settle();
-      expect((await baseItem(H.A.tenantId))?.quantity).toBe(2);
-      expect((await billingOf(H.A.tenantId))?.quantity).toBe(2);
-
-      await call(OPERATOR, "POST", `/api/ops/agents/${second}/pause`);
-      await H.settle();
-      expect((await baseItem(H.A.tenantId))?.quantity).toBe(1);
-
-      await call(OPERATOR, "POST", `/api/ops/agents/${second}/activate`);
-      await H.settle();
-      expect((await baseItem(H.A.tenantId))?.quantity).toBe(2);
-
-      await call(OPERATOR, "POST", `/api/ops/agents/${second}/retire`);
-      await H.settle();
-      expect((await baseItem(H.A.tenantId))?.quantity).toBe(1);
-      expect((await billingOf(H.A.tenantId))?.quantity).toBe(1);
-      expect(first).toBeTruthy();
-    });
-
-    it("is not sent again when it hasn't changed, and the cron catches up a missed change", async () => {
-      const before = fake.calls("POST", "/v1/subscription_items").length;
-      const sync = await call(OPERATOR, "POST", `/api/ops/billing/clients/${H.A.tenantId}/sync`);
-      expect(sync.status, JSON.stringify(sync.json)).toBe(200);
-      expect(j(sync.json).quantity).toEqual({ before: 1, after: 1, changed: false });
-      expect(fake.calls("POST", "/v1/subscription_items").length).toBe(before);
-
-      // A change the request missed (Stripe was down): the hourly pass brings it in line.
-      await db
-        .update(tenant)
-        .set({ settings: sql`jsonb_set(${tenant.settings}, '{billing,quantity}', '3')` })
-        .where(eq(tenant.id, H.A.tenantId));
-      await billingTick({ db: H.db, stripe }, new Date("2026-11-04T10:07:00Z"));
-      expect((await baseItem(H.A.tenantId))?.quantity).toBe(1);
-      expect((await billingOf(H.A.tenantId))?.quantity).toBe(1);
-    });
-  });
-
-  describe("usage reports", () => {
-    // September 2026: a period of its own, away from the days other tests use.
-    const run = () => tenantRunner(H.db, H.A.tenantId);
-    const config = () => withOperator(H.db, [], (tx) => loadBillingConfig(tx));
-    const report = async (day: string) =>
-      reportUsage(run(), stripe, { tenantId: H.A.tenantId, day, config: await config() });
-    const first = () => agents[0] as string;
-    const second = () => agents[1] as string;
-
-    it("sends nothing while the period is within the allowance, up to the boundary", async () => {
-      // One active agent: an allowance of 100 credits. 0.5 + 0.4999 rounds to 50 + 50 = 100.
-      await usage(H.A.tenantId, first(), "2026-09-01", "0.5000");
-      await usage(H.A.tenantId, first(), "2026-09-02", "0.4999");
-      const d1 = await report("2026-09-01");
-      expect(d1?.row).toMatchObject({
-        credits: 50,
-        allowance: 100,
-        overage: 0,
-        quantity: 0,
-        status: "none",
-      });
-      const d2 = await report("2026-09-02");
-      expect(d2?.row).toMatchObject({ credits: 100, overage: 0, quantity: 0, status: "none" });
-      expect(fake.meterEvents).toHaveLength(0);
-    });
-
-    it("reports the credits past the allowance, rounded up per day across agents", async () => {
-      // Two agents' work on one day is priced together, then rounded once: 0.0050 + 0.0051 is
-      // 1.01 cents, two credits (not one each).
-      await usage(H.A.tenantId, first(), "2026-09-03", "0.0050");
-      await usage(H.A.tenantId, second(), "2026-09-03", "0.0051");
-      const d3 = await report("2026-09-03");
-      expect(d3?.repeated).toBe(false);
-      expect(d3?.row).toMatchObject({
-        credits: 102,
-        overage: 2,
-        quantity: 2,
-        status: "sent",
-        costUsd: "1.0100",
-        identifier: `mezonas:${H.A.tenantId}:2026-09-01:2026-09-03`,
-      });
-      const b = await billingOf(H.A.tenantId);
-      expect(fake.meterEvents).toEqual([
-        {
-          identifier: `mezonas:${H.A.tenantId}:2026-09-01:2026-09-03`,
-          event_name: "mezonas_credits",
-          customer: b?.customerId,
-          value: 2,
-          timestamp: Math.floor(new Date("2026-09-03T23:59:59Z").getTime() / 1000),
-        },
-      ]);
-    });
-
-    it("sends nothing new when a day is reported again, even if usage changed since", async () => {
-      await usage(H.A.tenantId, first(), "2026-09-03", "0.2000");
-      const again = await report("2026-09-03");
-      expect(again?.repeated).toBe(true);
-      expect(again?.row.quantity).toBe(2);
-      expect(fake.meterEvents).toHaveLength(1);
-      // The next day reports only the increment, including the change to the earlier day.
-      const d4 = await report("2026-09-04");
-      // 50 + 50 + ceil(20.51) + 0 = 121 credits; 21 over; 2 reported before.
-      expect(d4?.row).toMatchObject({ credits: 121, overage: 21, quantity: 19, status: "sent" });
-      expect(fake.meterEvents.map((e) => e.value)).toEqual([2, 19]);
-      const rows = await withTenant(H.db, H.A.tenantId, (tx) =>
-        tx
-          .select()
-          .from(billingUsageReport)
-          .where(
-            and(
-              eq(billingUsageReport.tenantId, H.A.tenantId),
-              eq(billingUsageReport.period, "2026-09-01"),
-            ),
-          ),
-      );
-      expect(rows).toHaveLength(4);
-    });
-
-    it("keeps a failed send and retries it under the same identifier", async () => {
-      await usage(H.A.tenantId, first(), "2026-09-05", "0.0500");
-      fake.failNext(500, "/v1/billing/meter_events");
-      const d5 = await report("2026-09-05");
-      expect(d5?.row).toMatchObject({ quantity: 5, status: "failed" });
-      expect(d5?.row.error).toMatch(/fail/);
-      expect(fake.meterEvents).toHaveLength(2);
-      const sent = await retryUnsent(run(), stripe, {
-        tenantId: H.A.tenantId,
-        config: await config(),
-        now: new Date(),
-      });
-      expect(sent).toBe(1);
-      expect(fake.meterEvents.map((e) => e.value)).toEqual([2, 19, 5]);
-      // A day already sent is not sent again by a retry.
       expect(
-        await retryUnsent(run(), stripe, {
-          tenantId: H.A.tenantId,
-          config: await config(),
-          now: new Date(),
-        }),
-      ).toBe(0);
+        (await call(OTHER_OPERATOR, "GET", `/api/ops/billing/clients/${H.A.tenantId}`)).status,
+      ).toBe(404);
     });
+  });
 
-    it("reports yesterday on the hourly pass, once a day, for clients set up only", async () => {
-      await usage(H.A.tenantId, first(), "2026-09-06", "0.0300");
-      await billingTick({ db: H.db, stripe }, new Date("2026-09-07T00:07:00Z"));
-      expect(fake.meterEvents.map((e) => e.value)).toEqual([2, 19, 5, 3]);
-      await billingTick({ db: H.db, stripe }, new Date("2026-09-07T01:07:00Z"));
-      expect(fake.meterEvents).toHaveLength(4);
-      // B is not set up: no report row.
-      const b = await withTenant(H.db, H.B.tenantId, (tx) => tx.select().from(billingUsageReport));
-      expect(b).toHaveLength(0);
-    });
+  describe("the daily record", () => {
+    const rowsOn = async (tenantId: string, day: string) =>
+      db
+        .select()
+        .from(billingAgentDay)
+        .where(and(eq(billingAgentDay.tenantId, tenantId), eq(billingAgentDay.day, day)))
+        .orderBy(billingAgentDay.agentName);
 
-    it("counts a new usage_daily measure once it has a unit cost, with no code change", async () => {
-      // A column a later migration adds (like `messages`), on this throwaway database.
-      await H.t.db.execute(
-        sql`alter table usage_daily add column widgets integer not null default 0`,
-      );
-      const usageWithWidgets = pgTable("usage_daily", {
-        tenantId: uuid("tenant_id").notNull(),
-        day: date("day").notNull(),
-        agentId: uuid("agent_id").notNull(),
-        costUsd: numeric("cost_usd", { precision: 14, scale: 4 }).notNull(),
-        widgets: integer("widgets").notNull(),
-      }) as unknown as UsageTable;
-      expect(usageMeasures(usageWithWidgets).map((m) => m.measure)).toEqual([
-        "cost_usd",
-        "widgets",
+    it("records each active agent of a billed client once a day, with its price then", async () => {
+      await billingTick({ db: H.db, stripe }, new Date("2026-10-20T10:07:00Z"));
+      const rows = await rowsOn(H.A.tenantId, "2026-10-20");
+      expect(
+        rows.map((r) => [r.agentName, r.monthlyPrice, r.includedCredits, r.priceSource]),
+      ).toEqual([
+        ["Account check", "0.0000", 0, "platform"],
+        ["Invoice clerk", "200.0000", 1000, "default"],
+        ["Orders desk", "280.0000", 3000, "override"],
       ]);
-      await usage(H.A.tenantId, first(), "2026-08-10", "0.0000");
-      await H.t.db.execute(
-        sql`update usage_daily set widgets = 7 where tenant_id = ${H.A.tenantId} and day = '2026-08-10'`,
+      // B is not set up: nothing recorded. The test copy never is.
+      expect(await rowsOn(H.B.tenantId, "2026-10-20")).toEqual([]);
+      expect(rows.some((r) => r.agentId === ids.testCopy)).toBe(false);
+    });
+
+    it("keeps the first price seen in a day, and skips paused days", async () => {
+      await call(OPERATOR, "PUT", `/api/ops/billing/agents/${ids.clerk}/price`, {
+        price: { monthlyPrice: "260", includedCredits: 1000 },
+        note: "Bigger mailbox",
+      });
+      await billingTick({ db: H.db, stripe }, new Date("2026-10-20T11:07:00Z"));
+      const same = await rowsOn(H.A.tenantId, "2026-10-20");
+      expect(same.find((r) => r.agentId === ids.clerk)?.monthlyPrice).toBe("200.0000");
+      await db.update(agent).set({ runStatus: "paused" }).where(eq(agent.id, ids.supervisor));
+      await billingTick({ db: H.db, stripe }, new Date("2026-10-21T00:07:00Z"));
+      const next = await rowsOn(H.A.tenantId, "2026-10-21");
+      expect(next.map((r) => [r.agentName, r.monthlyPrice])).toEqual([
+        ["Invoice clerk", "260.0000"],
+        ["Orders desk", "280.0000"],
+      ]);
+      await db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, ids.supervisor));
+    });
+  });
+
+  describe("statements", () => {
+    // September 2026 (30 days), from days put in directly.
+    beforeAll(async () => {
+      const A = H.A.tenantId;
+      await setUpAt(A, "2026-08-01T00:00:00.000Z");
+      // Orders desk: 10 of 30 days at $300 with 3,000 credits.
+      await agentDays(A, ids.orders, "Orders desk", "2026-09-01", 10, "300.0000", 3000);
+      // Invoice clerk: 15 days at $200, then 15 at $260, 1,000 credits.
+      await agentDays(A, ids.clerk, "Invoice clerk", "2026-09-01", 15, "200.0000", 1000);
+      await agentDays(A, ids.clerk, "Invoice clerk", "2026-09-16", 15, "260.0000", 1000);
+      // The supervisor all month, free.
+      await agentDays(A, ids.supervisor, "Account check", "2026-09-01", 30, "0.0000", 0);
+      // 2,500 credits of work; the test copy's 500 are not the client's.
+      await usage(A, ids.orders, "2026-09-05", "20.0000");
+      await usage(A, ids.clerk, "2026-09-20", "5.0000");
+      await usage(A, ids.testCopy, "2026-09-06", "5.0000");
+    });
+
+    it("prorate each agent by its days and prices, pool the credits and bill the extra", async () => {
+      const { statement, created } = await build(H.A.tenantId, "2026-09-01");
+      expect(created).toBe(true);
+      // Pool: 3,000 × 10/30 + 1,000 = 2,000; used 2,500; 500 extra × $0.02 = $10.00.
+      expect(statement).toMatchObject({
+        status: "draft",
+        daysInMonth: 30,
+        creditsUsed: 2500,
+        creditsIncluded: 2000,
+        extraCredits: 500,
+        creditPrice: "0.0200",
+        // 0 + 100 + 230 + 10.
+        total: "340.0000",
+      });
+      const lines = await db
+        .select()
+        .from(billingStatementLine)
+        .where(eq(billingStatementLine.statementId, statement.id))
+        .orderBy(billingStatementLine.position);
+      expect(lines.map((l) => [l.kind, l.description, l.amount])).toEqual([
+        ["agent", "Account check", "0.0000"],
+        ["agent", "Invoice clerk", "230.0000"],
+        ["agent", "Orders desk", "100.0000"],
+        ["usage", "Extra usage", "10.0000"],
+      ]);
+      expect(lines[1]?.detail).toMatchObject({
+        days: 30,
+        prices: [
+          { monthlyPrice: "200.0000", days: 15 },
+          { monthlyPrice: "260.0000", days: 15 },
+        ],
+      });
+    });
+
+    it("are built once per client and month", async () => {
+      const first = await statementOf(H.A.tenantId, "2026-09-01");
+      const again = await build(H.A.tenantId, "2026-09-01");
+      expect(again.created).toBe(false);
+      expect(again.statement.id).toBe(first.id);
+      const lines = await db
+        .select()
+        .from(billingStatementLine)
+        .where(eq(billingStatementLine.statementId, first.id));
+      expect(lines).toHaveLength(4);
+    });
+
+    it("take adjustments on a draft, in whole cents, and remove them", async () => {
+      const s = await statementOf(H.A.tenantId, "2026-09-01");
+      const path = `/api/ops/billing/statements/${s.id}/adjustments`;
+      const add = await call(OPERATOR, "POST", path, {
+        description: "Credit for a slow week",
+        amount: "-15.00",
+      });
+      expect(add.status, JSON.stringify(add.json)).toBe(200);
+      expect(j(add.json)).toMatchObject({ total: { amount: "325.0000" }, editable: true });
+      expect((await call(OPERATOR, "POST", path, { description: "x", amount: "0" })).status).toBe(
+        400,
       );
-      const base = await config();
-      const unpriced = await withTenant(H.db, H.A.tenantId, (tx) =>
-        clientPeriod(
-          tx,
-          { tenantId: H.A.tenantId, through: "2026-08-31", config: base },
-          usageWithWidgets,
-        ),
+      expect(
+        (await call(OPERATOR, "POST", path, { description: "x", amount: "1.234" })).status,
+      ).toBe(400);
+      expect((await call(OPERATOR, "POST", path, { description: "x", amount: 5 })).status).toBe(
+        400,
       );
-      expect(unpriced.credits).toBe(0);
-      const priced = await withTenant(H.db, H.A.tenantId, (tx) =>
-        clientPeriod(
-          tx,
-          {
-            tenantId: H.A.tenantId,
-            through: "2026-08-31",
-            config: {
-              ...base,
-              unitCosts: [
-                ...base.unitCosts,
-                { measure: "widgets", unitCost: "0.0300", perUnits: 2 },
-              ],
-            },
-          },
-          usageWithWidgets,
-        ),
-      );
-      // 7 × 0.03 / 2 = 0.105: 11 credits.
-      expect(priced).toMatchObject({ credits: 11, cost: "0.1050" });
+      const extra = await call(OPERATOR, "POST", path, {
+        description: "Set-up help",
+        amount: "40",
+      });
+      const lineId = j(extra.json).lines.at(-1).id;
+      expect(j(extra.json).total.amount).toBe("365.0000");
+      const removed = await call(OPERATOR, "DELETE", `${path}/${lineId}`);
+      expect(j(removed.json).total.amount).toBe("325.0000");
+      // An agent line is not an adjustment.
+      const agentLine = j(removed.json).lines[0].id;
+      expect((await call(OPERATOR, "DELETE", `${path}/${agentLine}`)).status).toBe(404);
+    });
+
+    it("never send a zero total to Stripe, and void a draft that hasn't gone", async () => {
+      // August: no days, no usage → nothing due.
+      const { statement: august } = await build(H.A.tenantId, "2026-08-01");
+      expect(august).toMatchObject({ status: "nothing_due", total: "0.0000" });
+      const send = await call(OPERATOR, "POST", `/api/ops/billing/statements/${august.id}/send`);
+      expect(send.status).toBe(409);
+      // July had a day of the clerk (before set-up, but days are what was recorded).
+      await setUpAt(H.A.tenantId, "2026-07-01T00:00:00.000Z");
+      await agentDays(H.A.tenantId, ids.clerk, "Invoice clerk", "2026-07-01", 1, "310.0000", 0);
+      const { statement: july } = await build(H.A.tenantId, "2026-07-01");
+      expect(july).toMatchObject({ status: "draft", total: "10.0000" });
+      const voided = await call(OPERATOR, "POST", `/api/ops/billing/statements/${july.id}/void`);
+      expect(voided.status, JSON.stringify(voided.json)).toBe(200);
+      expect(j(voided.json)).toMatchObject({ status: "void", editable: false });
+      expect(
+        (await call(OPERATOR, "POST", `/api/ops/billing/statements/${july.id}/void`)).status,
+      ).toBe(409);
+      expect(
+        (await call(OPERATOR, "POST", `/api/ops/billing/statements/${july.id}/send`)).status,
+      ).toBe(409);
+      expect(fake.calls("POST", "/v1/invoices")).toHaveLength(0);
+      await setUpAt(H.A.tenantId, "2026-08-01T00:00:00.000Z");
+    });
+
+    it("send in four steps and resume after a failure, each step once", async () => {
+      const s = await statementOf(H.A.tenantId, "2026-09-01");
+      const path = `/api/ops/billing/statements/${s.id}/send`;
+      // Stripe fails at the finalize, after the invoice and its items.
+      fake.failNext(500, "/v1/invoices/");
+      const first = await call(OPERATOR, "POST", path);
+      expect(first.status, JSON.stringify(first.json)).toBe(200);
+      expect(j(first.json)).toMatchObject({
+        status: "draft",
+        sendStarted: true,
+        editable: false,
+        sendError: expect.stringMatching(/fail/),
+      });
+      const invoiceId = j(first.json).stripeInvoiceId as string;
+      // Every non-zero line is on the invoice, once; the free supervisor's line is not.
+      expect(fake.invoices.get(invoiceId)?.lines.map((l) => [l.description, l.amount])).toEqual([
+        ["Invoice clerk", 23000],
+        ["Orders desk", 10000],
+        ["Extra usage", 1000],
+        ["Credit for a slow week", -1500],
+      ]);
+      // Once Stripe has it, nothing can be adjusted.
+      const late = await call(OPERATOR, "POST", `/api/ops/billing/statements/${s.id}/adjustments`, {
+        description: "Late",
+        amount: "1.00",
+      });
+      expect(late.status).toBe(409);
+
+      const second = await call(OPERATOR, "POST", path);
+      expect(second.status, JSON.stringify(second.json)).toBe(200);
+      expect(j(second.json)).toMatchObject({
+        status: "sent",
+        sendError: null,
+        invoiceNumber: expect.stringMatching(/^MZ-/),
+        hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
+        pdfUrl: expect.stringMatching(/\/pdf$/),
+      });
+      const invoice = fake.invoices.get(invoiceId);
+      expect(invoice).toMatchObject({
+        status: "open",
+        total: 32500,
+        sent: 1,
+        collection_method: "send_invoice",
+        days_until_due: 14,
+        auto_advance: false,
+        pending_invoice_items_behavior: "exclude",
+        metadata: { statement_id: s.id, tenant_id: H.A.tenantId },
+      });
+      expect(invoice?.lines).toHaveLength(4);
+      expect(fake.calls("POST", "/v1/invoices")).toHaveLength(1 + 2 + 1);
+      const keys = fake.requests.map((r) => r.headers["idempotency-key"]).filter(Boolean);
+      expect(keys).toContain(`mezonas:${s.id}:invoice`);
+      expect(keys).toContain(`mezonas:${s.id}:finalize`);
+      expect(keys).toContain(`mezonas:${s.id}:send`);
+      expect(keys.filter((k) => k?.startsWith(`mezonas:${s.id}:item:`))).toHaveLength(4);
+      expect((await call(OPERATOR, "POST", path)).status).toBe(409);
+    });
+
+    it("send from the cron with auto-send on, once", async () => {
+      // B: set up, with a month of days in October.
+      await call(OPERATOR, "POST", `/api/ops/billing/clients/${H.B.tenantId}/setup`, {});
+      await setUpAt(H.B.tenantId, "2026-10-01T00:00:00.000Z");
+      await agentDays(H.B.tenantId, ids.bAgent, "Sorting", "2026-10-01", 31, "155.0000", 0);
+      await call(OPERATOR, "PUT", "/api/ops/billing/settings", { ...SETTINGS, autoSend: true });
+      await billingTick({ db: H.db, stripe }, new Date("2026-11-01T00:07:00Z"));
+      const b = await statementOf(H.B.tenantId, "2026-10-01");
+      expect(b).toMatchObject({ status: "sent", total: "155.0000" });
+      expect(fake.invoices.get(b.stripeInvoiceId ?? "")?.sent).toBe(1);
+      // A's October (two recorded days) went too.
+      expect((await statementOf(H.A.tenantId, "2026-10-01")).status).toBe("sent");
+      const invoices = fake.invoices.size;
+      await billingTick({ db: H.db, stripe }, new Date("2026-11-01T01:07:00Z"));
+      expect(fake.invoices.size).toBe(invoices);
+      await call(OPERATOR, "PUT", "/api/ops/billing/settings", SETTINGS);
+    });
+
+    it("send every draft at once from the back office", async () => {
+      await agentDays(H.A.tenantId, ids.clerk, "Invoice clerk", "2026-06-01", 3, "300.0000", 0);
+      await setUpAt(H.A.tenantId, "2026-06-01T00:00:00.000Z");
+      const { statement: june } = await build(H.A.tenantId, "2026-06-01");
+      await setUpAt(H.A.tenantId, "2026-08-01T00:00:00.000Z");
+      expect(june.status).toBe("draft");
+      const res = await call(OPERATOR, "POST", "/api/ops/billing/statements/send-drafts");
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(j(res.json).results).toEqual([
+        { statementId: june.id, clientId: H.A.tenantId, status: "sent", error: null },
+      ]);
+      // The other operator serves neither client: nothing of theirs is sent, nothing of A's seen.
+      const other = await call(OTHER_OPERATOR, "POST", "/api/ops/billing/statements/send-drafts");
+      expect(j(other.json).results).toEqual([]);
+      expect(
+        (await call(OTHER_OPERATOR, "POST", `/api/ops/billing/statements/${june.id}/void`)).status,
+      ).toBe(404);
     });
   });
 
@@ -499,50 +710,93 @@ describe.skipIf(!h)("billing", () => {
       );
       return { status: res.status, json: await res.json() };
     }
-    const customer = async () => (await billingOf(H.A.tenantId))?.customerId ?? "";
+    const base = Math.floor(Date.now() / 1000) - 3600;
+    let n = 0;
+    async function event(type: string, object: Record<string, unknown>, created: number) {
+      const e = await fake.signedEvent({ id: `evt_${++n}`, type, object, created }, new Date());
+      return { ...e, result: await deliver(e.payload, e.header) };
+    }
+    const september = () => statementOf(H.A.tenantId, "2026-09-01");
 
-    it("applies a paid invoice once, however often it is delivered", async () => {
-      const { payload, header } = await fake.signedEvent(
-        {
-          id: "evt_paid_1",
-          type: "invoice.paid",
-          object: {
-            id: "in_a1",
-            customer: await customer(),
-            currency: "usd",
-            total: 26500,
-            number: "MZ-0001",
-            status: "paid",
-          },
-        },
-        new Date(),
-      );
-      const first = await deliver(payload, header);
-      expect(first).toEqual({
+    it("move a sent statement through failed and paid, once per event, in order", async () => {
+      const s = await september();
+      const invoice = () => fake.invoiceObject(s.stripeInvoiceId ?? "");
+      const failed = await event("invoice.payment_failed", invoice(), base + 10);
+      expect(failed.result).toEqual({
         status: 200,
         json: { received: true, duplicate: false, handled: true },
       });
-      const again = await deliver(payload, header);
-      expect(again.json).toEqual({ received: true, duplicate: true, handled: true });
-      expect((await billingOf(H.A.tenantId))?.lastInvoice).toMatchObject({
-        id: "in_a1",
-        status: "paid",
-        total: "265.0000",
-        currency: "USD",
+      expect((await september()).status).toBe("payment_failed");
+      const portal = await call(admin("a"), "GET", "/api/billing");
+      expect(j(portal.json).paymentProblem).toBe(true);
+      // The same delivery again: stored once, applied once.
+      expect((await deliver(failed.payload, failed.header)).json).toEqual({
+        received: true,
+        duplicate: true,
+        handled: true,
       });
+      fake.setInvoiceStatus(s.stripeInvoiceId ?? "", "paid");
+      await event("invoice.paid", invoice(), base + 20);
+      expect(await september()).toMatchObject({
+        status: "paid",
+        paidAt: new Date((base + 20) * 1000),
+      });
+      // A failure delivered late, or after the payment, never undoes it.
+      await event("invoice.payment_failed", invoice(), base + 15);
+      await event("invoice.payment_failed", invoice(), base + 30);
+      expect((await september()).status).toBe("paid");
       const stored = await withTenant(H.db, H.A.tenantId, (tx) =>
-        tx.select().from(billingEvent).where(eq(billingEvent.stripeEventId, "evt_paid_1")),
+        tx
+          .select()
+          .from(billingEvent)
+          .where(eq(billingEvent.objectId, s.stripeInvoiceId ?? "")),
       );
-      expect(stored).toHaveLength(1);
+      expect(stored).toHaveLength(4);
     });
 
-    it("refuses a bad, missing or expired signature", async () => {
-      const { payload, header } = await fake.signedEvent(
+    it("void and mark uncollectible what Stripe says, and find a statement by its metadata", async () => {
+      const b = await statementOf(H.B.tenantId, "2026-10-01");
+      await event("invoice.voided", fake.invoiceObject(b.stripeInvoiceId ?? ""), base + 40);
+      expect((await statementOf(H.B.tenantId, "2026-10-01")).status).toBe("void");
+      const a = await statementOf(H.A.tenantId, "2026-10-01");
+      await event(
+        "invoice.marked_uncollectible",
+        fake.invoiceObject(a.stripeInvoiceId ?? ""),
+        base + 41,
+      );
+      expect((await statementOf(H.A.tenantId, "2026-10-01")).status).toBe("payment_failed");
+      // A draft whose invoice id never got stored (the Worker stopped): found by statement_id.
+      await agentDays(H.A.tenantId, ids.clerk, "Invoice clerk", "2026-05-01", 1, "310.0000", 0);
+      await setUpAt(H.A.tenantId, "2026-05-01T00:00:00.000Z");
+      const { statement: may } = await build(H.A.tenantId, "2026-05-01");
+      await setUpAt(H.A.tenantId, "2026-08-01T00:00:00.000Z");
+      const customerId = (await billingOf(H.A.tenantId))?.customerId;
+      const lost = await event(
+        "invoice.finalized",
         {
-          id: "evt_x",
-          type: "invoice.paid",
-          object: { id: "in_x", customer: await customer(), currency: "usd", total: 1 },
+          id: "in_lost",
+          customer: customerId,
+          currency: "usd",
+          total: 1000,
+          number: "MZ-9999",
+          hosted_invoice_url: "https://invoice.stripe.com/i/acct_fake/in_lost",
+          invoice_pdf: "https://pay.stripe.com/invoice/acct_fake/in_lost/pdf",
+          metadata: { statement_id: may.id, tenant_id: H.A.tenantId },
         },
+        base + 50,
+      );
+      expect(lost.result.json).toMatchObject({ handled: true });
+      expect(await statementOf(H.A.tenantId, "2026-05-01")).toMatchObject({
+        status: "draft",
+        stripeInvoiceId: "in_lost",
+        stripeInvoiceNumber: "MZ-9999",
+      });
+    });
+
+    it("refuse a bad, missing, expired or forged signature", async () => {
+      const object = { id: "in_x", customer: "cus_x", currency: "usd", total: 1 };
+      const { payload, header } = await fake.signedEvent(
+        { id: "evt_sig", type: "invoice.paid", object },
         new Date(),
       );
       expect(
@@ -551,158 +805,148 @@ describe.skipIf(!h)("billing", () => {
       expect((await deliver(payload, null)).status).toBe(400);
       expect((await deliver(`${payload} `, header)).status).toBe(400);
       const old = await fake.signedEvent(
-        {
-          id: "evt_old",
-          type: "invoice.paid",
-          object: { id: "in_x", customer: await customer(), currency: "usd", total: 1 },
-        },
+        { id: "evt_old", type: "invoice.paid", object },
         new Date(Date.now() - 10 * 60_000),
       );
       const expired = await deliver(old.payload, old.header);
       expect(expired.status).toBe(400);
       expect(j(expired.json).error.message).toMatch(/expired/);
       const forged = await fake.signedEvent(
-        {
-          id: "evt_forged",
-          type: "invoice.paid",
-          object: { id: "in_x", customer: await customer(), currency: "usd", total: 1 },
-        },
+        { id: "evt_forged", type: "invoice.paid", object },
         new Date(),
         "whsec_someone_else",
       );
       expect((await deliver(forged.payload, forged.header)).status).toBe(400);
-      const stored = await withTenant(H.db, H.A.tenantId, (tx) => tx.select().from(billingEvent));
-      expect(stored.map((e) => e.stripeEventId)).toEqual(["evt_paid_1"]);
     });
 
-    it("applies subscription changes in order and ignores what isn't ours", async () => {
-      const b = await billingOf(H.A.tenantId);
-      const sub = (status: string, quantity: number) => ({
-        id: b?.subscriptionId,
-        customer: b?.customerId,
-        status,
-        items: { data: [{ id: b?.baseItemId, quantity, price: { id: FAKE_BASE_PRICE } }] },
-      });
-      const now = Math.floor(Date.now() / 1000);
-      const newer = await fake.signedEvent(
+    it("acknowledge and drop other events, old subscription events and strangers' invoices", async () => {
+      const customer = (await billingOf(H.A.tenantId))?.customerId;
+      const sub = await event(
+        "customer.subscription.updated",
+        { id: "sub_1", customer, status: "active", items: { data: [] } },
+        base + 60,
+      );
+      expect(sub.result.json).toEqual({ received: true, duplicate: false, handled: false });
+      const refund = await event("charge.refunded", { id: "ch_1" }, base + 61);
+      expect(refund.result.json).toMatchObject({ handled: false });
+      const stranger = await event(
+        "invoice.paid",
         {
-          id: "evt_sub_2",
-          type: "customer.subscription.updated",
-          object: sub("past_due", 1),
-          created: now,
+          id: "in_o",
+          customer: "cus_unknown",
+          currency: "usd",
+          total: 1,
+          metadata: { tenant_id: H.A.tenantId },
         },
-        new Date(),
+        base + 62,
       );
-      expect((await deliver(newer.payload, newer.header)).json).toMatchObject({ handled: true });
-      const older = await fake.signedEvent(
-        {
-          id: "evt_sub_1",
-          type: "customer.subscription.updated",
-          object: sub("active", 4),
-          created: now - 60,
-        },
-        new Date(),
+      expect(stranger.result.json).toMatchObject({ handled: false });
+      const notOurs = await event(
+        "invoice.paid",
+        { id: "in_not_ours", customer, currency: "usd", total: 1 },
+        base + 63,
       );
-      expect((await deliver(older.payload, older.header)).json).toMatchObject({ handled: true });
-      expect(await billingOf(H.A.tenantId)).toMatchObject({
-        subscriptionStatus: "past_due",
-        quantity: 1,
-      });
-
-      const stranger = await fake.signedEvent(
-        {
-          id: "evt_other",
-          type: "invoice.paid",
-          object: { id: "in_o", customer: "cus_unknown", currency: "usd", total: 1 },
-        },
-        new Date(),
-      );
-      expect((await deliver(stranger.payload, stranger.header)).json).toEqual({
-        received: true,
-        duplicate: false,
-        handled: false,
-      });
-      const other = await fake.signedEvent(
-        { id: "evt_misc", type: "charge.refunded", object: { id: "ch_1" } },
-        new Date(),
-      );
-      expect((await deliver(other.payload, other.header)).json).toMatchObject({ handled: false });
-    });
-
-    it("marks a failed payment for the back office and the client admin", async () => {
-      const { payload, header } = await fake.signedEvent(
-        {
-          id: "evt_failed_1",
-          type: "invoice.payment_failed",
-          object: {
-            id: "in_a2",
-            customer: await customer(),
-            currency: "usd",
-            total: 25000,
-            status: "open",
-          },
-        },
-        new Date(),
-      );
-      await deliver(payload, header);
-      expect((await billingOf(H.A.tenantId))?.lastInvoice?.status).toBe("payment_failed");
-      const portal = await call(admin("a"), "GET", "/api/billing");
-      expect(j(portal.json).paymentProblem).toBe(true);
+      expect(notOurs.result.json).toMatchObject({ handled: false });
     });
   });
 
   describe("the back office", () => {
-    it("lists the clients this operator serves with their period and our cost", async () => {
+    it("lists the clients this operator serves with their month so far and our cost", async () => {
       const today = new Date().toISOString().slice(0, 10);
-      await usage(H.A.tenantId, agents[0] as string, today, "0.0150");
+      await usage(H.A.tenantId, ids.orders, today, "0.0150");
       const res = await call(OPERATOR, "GET", "/api/ops/billing");
       expect(res.status).toBe(200);
       const clients = j(res.json).clients as { id: string; setUp: boolean; costUsd: string }[];
       expect(clients.map((c) => c.id)).toEqual([H.A.tenantId, H.B.tenantId]);
-      expect(clients[0]).toMatchObject({ setUp: true, creditsUsed: expect.any(Number) });
+      expect(clients[0]).toMatchObject({
+        setUp: true,
+        monthSoFar: { creditsUsed: expect.any(Number), lines: expect.any(Array) },
+      });
       expect(Number(clients[0]?.costUsd)).toBeGreaterThan(0);
+      // To review: drafts and failed payments.
+      const review = j(res.json).toReview as { status: string; clientId: string }[];
+      expect(review.map((s) => s.status).sort()).toEqual(["draft", "payment_failed"]);
       const other = await call(OTHER_OPERATOR, "GET", "/api/ops/billing");
       expect(j(other.json).clients.map((c: { id: string }) => c.id)).toEqual([H.C.tenantId]);
+      expect(j(other.json).toReview).toEqual([]);
     });
 
-    it("shows a client's reports, invoices with links, and Stripe's events", async () => {
-      const b = await billingOf(H.A.tenantId);
-      fake.addInvoice(b?.customerId ?? "", {
-        total: 26500,
-        created: 1793750400,
-        status: "paid",
-        number: "MZ-0001",
-      });
+    it("shows a client's agents with their prices, statements with links, and events", async () => {
       const res = await call(OPERATOR, "GET", `/api/ops/billing/clients/${H.A.tenantId}`);
       expect(res.status, JSON.stringify(res.json)).toBe(200);
-      expect(j(res.json).invoices[0]).toMatchObject({
-        number: "MZ-0001",
-        total: { amount: "265.0000", currency: "USD" },
+      const agents = j(res.json).agents as { agentId: string; price: { source: string } }[];
+      expect(agents.find((a) => a.agentId === ids.orders)?.price.source).toBe("override");
+      expect(agents.some((a) => a.agentId === ids.testCopy)).toBe(false);
+      const sept = j(res.json).statements.find(
+        (s: { period: { start: string } }) => s.period.start === "2026-09-01",
+      );
+      expect(sept).toMatchObject({
+        status: "paid",
         hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
-        pdfUrl: expect.stringMatching(/\/pdf$/),
       });
       expect(j(res.json).events.length).toBeGreaterThan(0);
-      expect(j(res.json).invoicesUnavailable).toBe(false);
+    });
+  });
+
+  describe("isolation", () => {
+    it("keeps each client's prices, days and statements to itself", async () => {
+      for (const table of [
+        "billing_agent_price",
+        "billing_agent_day",
+        "billing_statement",
+        "billing_statement_line",
+      ]) {
+        const rows = await withTenant(H.db, H.B.tenantId, (tx) =>
+          tx.execute<{ tenant_id: string }>(sql`select tenant_id from ${sql.identifier(table)}`),
+        );
+        expect(
+          [...rows].every((r) => r.tenant_id === H.B.tenantId),
+          `${table} shows only B's rows`,
+        ).toBe(true);
+      }
+      const s = await statementOf(H.A.tenantId, "2026-05-01");
+      const inserted = withTenant(H.db, H.B.tenantId, (tx) =>
+        tx.insert(billingStatementLine).values({
+          tenantId: H.A.tenantId,
+          statementId: s.id,
+          position: 9,
+          kind: "adjustment",
+          description: "Sneaky",
+          amount: "-100.0000",
+        }),
+      );
+      await expect(inserted).rejects.toThrow();
     });
   });
 
   describe("the portal", () => {
-    it("shows the client admin the plan, allowance, credits and invoices, never our cost", async () => {
+    it("shows the client admin the month so far, credits and statements, never our cost", async () => {
       const res = await call(admin("a"), "GET", "/api/billing");
       expect(res.status, JSON.stringify(res.json)).toBe(200);
-      expect(j(res.json)).toMatchObject({
+      const body = j(res.json);
+      expect(body).toMatchObject({
         setUp: true,
-        plan: {
-          agents: 1,
-          baseFee: { amount: "250.0000", currency: "USD" },
-          monthly: { amount: "250.0000", currency: "USD" },
+        monthSoFar: {
+          creditPrice: { amount: "0.0200", currency: "USD" },
+          creditsUsed: expect.any(Number),
         },
-        allowance: 100,
-        creditsUsed: expect.any(Number),
-        extraCreditPrice: { amount: "0.0150", currency: "USD" },
       });
-      expect(j(res.json).creditsUsed).toBeGreaterThanOrEqual(2);
-      expect(j(res.json).invoices[0].hostedInvoiceUrl).toMatch(/^https:\/\/invoice\.stripe\.com\//);
+      // Sent statements only: no drafts (May), no void that never went (July).
+      const periods = body.statements.map((s: { period: { start: string } }) => s.period.start);
+      expect(periods).toEqual(["2026-10-01", "2026-09-01", "2026-08-01", "2026-06-01"]);
+      const sept = body.statements[1];
+      expect(sept).toMatchObject({
+        status: "paid",
+        total: { amount: "325.0000", currency: "USD" },
+        pdfUrl: expect.stringMatching(/\/pdf$/),
+      });
+      expect(sept.lines.map((l: { kind: string }) => l.kind)).toEqual([
+        "agent",
+        "agent",
+        "agent",
+        "usage",
+        "adjustment",
+      ]);
       expect(forbiddenKeys(res.json)).toEqual([]);
     });
 
@@ -710,8 +954,86 @@ describe.skipIf(!h)("billing", () => {
       expect((await call(user("a"), "GET", "/api/billing")).status).toBe(403);
       const b = await call(admin("b"), "GET", "/api/billing");
       expect(b.status).toBe(200);
-      expect(j(b.json)).toMatchObject({ setUp: false, plan: null, invoices: [], creditsUsed: 0 });
+      expect(j(b.json).statements.map((s: { status: string }) => s.status)).toEqual(["void"]);
       expect(forbiddenKeys(b.json)).toEqual([]);
+      const c = await call(admin("c"), "GET", "/api/billing");
+      expect(j(c.json)).toEqual({
+        setUp: false,
+        monthSoFar: null,
+        paymentProblem: false,
+        statements: [],
+      });
+    });
+  });
+
+  describe("credits", () => {
+    it("count a new usage_daily measure once it has a unit cost, with no code change", async () => {
+      await H.t.db.execute(
+        sql`alter table usage_daily add column widgets integer not null default 0`,
+      );
+      const usageWithWidgets = pgTable("usage_daily", {
+        tenantId: uuid("tenant_id").notNull(),
+        day: date("day").notNull(),
+        agentId: uuid("agent_id").notNull(),
+        costUsd: numeric("cost_usd", { precision: 14, scale: 4 }).notNull(),
+        widgets: integer("widgets").notNull(),
+      }) as unknown as UsageTable;
+      expect(usageMeasures(usageWithWidgets).map((m) => m.measure)).toEqual([
+        "cost_usd",
+        "widgets",
+      ]);
+      await usage(H.A.tenantId, ids.orders, "2026-04-10", "0.0000");
+      await H.t.db.execute(
+        sql`update usage_daily set widgets = 7 where tenant_id = ${H.A.tenantId} and day = '2026-04-10'`,
+      );
+      const base = await config();
+      const range = { tenantId: H.A.tenantId, from: "2026-04-01", to: "2026-04-30" };
+      const unpriced = await withTenant(H.db, H.A.tenantId, (tx) =>
+        creditsBetween(tx, { ...range, config: base }, usageWithWidgets),
+      );
+      expect(unpriced.credits).toBe(0);
+      const priced = await withTenant(H.db, H.A.tenantId, (tx) =>
+        creditsBetween(
+          tx,
+          {
+            ...range,
+            config: {
+              ...base,
+              unitCosts: [
+                ...base.unitCosts,
+                { measure: "widgets", unitCost: "0.0300", perUnits: 2 },
+              ],
+            },
+          },
+          usageWithWidgets,
+        ),
+      );
+      // 7 × 0.03 / 2 = 0.105: 11 credits.
+      expect(priced).toEqual({ credits: 11, cost: "0.1050" });
+    });
+
+    // v0.12 W1-H (ARCHITECTURE §13): reading no agent asked for is the client's usage, priced
+    // with its agents' work, day by day.
+    it("count the client's own usage (background reading) with its agents'", async () => {
+      const base = await config();
+      const range = { tenantId: H.A.tenantId, from: "2026-05-01", to: "2026-05-31" };
+      const credits = () =>
+        withTenant(H.db, H.A.tenantId, (tx) => creditsBetween(tx, { ...range, config: base }));
+      await usage(H.A.tenantId, ids.orders, "2026-05-04", "0.0420");
+      const agentsOnly = await credits();
+      await db.insert(usagePlatformDaily).values([
+        { tenantId: H.A.tenantId, day: "2026-05-04", documents: 2, costUsd: "0.0130" },
+        { tenantId: H.A.tenantId, day: "2026-05-05", documents: 1, costUsd: "0.0061" },
+        // Another client's reading never counts here.
+        { tenantId: H.B.tenantId, day: "2026-05-04", documents: 9, costUsd: "1.0000" },
+      ]);
+      const both = await credits();
+      expect(Number(both.cost)).toBeCloseTo(Number(agentsOnly.cost) + 0.0191, 4);
+      expect(both.credits).toBeGreaterThan(agentsOnly.credits);
+      const days = await withTenant(H.db, H.A.tenantId, (tx) =>
+        dailyTotals(tx, { ...range, unitCosts: base.unitCosts }),
+      );
+      expect(days.map((d) => d.day)).toEqual(["2026-05-04", "2026-05-05"]);
     });
   });
 });

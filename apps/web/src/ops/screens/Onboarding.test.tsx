@@ -1,4 +1,4 @@
-// The back office's onboarding screens: the overview of what needs attention, a new client with its
+// The back office's onboarding screens: a new client with its
 // admin invited and approvals delegated, and the client's settings (approvals with a reason,
 // invites with what became of the email, refusals in plain words).
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -10,8 +10,6 @@ import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 const NEW = "00000000-0000-4000-8000-00000000a009";
-const RUN = "00000000-0000-4000-8000-00000000f001";
-const AGENT = "00000000-0000-4000-8000-00000000b001";
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
   return render(
@@ -22,17 +20,6 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
     </MemoryRouter>,
   );
 }
-
-const demo = { id: DEMO, name: "Demo client" };
-const emptyOverview = {
-  since: "2026-10-28T00:00:00.000Z",
-  clients: 2,
-  failedRuns: [],
-  inbox: [],
-  connections: [],
-  updates: [],
-  counts: { failedRuns: 0, inbox: 0, connections: 0, updates: 0 },
-};
 
 const member = (email: string, role: string, extra: Record<string, unknown> = {}) => ({
   userId: `u-${email}`,
@@ -64,86 +51,13 @@ const connections = {
       description: "Files you upload or forward",
       icon: null,
       auth: "none",
+      available: true,
       tools: [],
     },
   ],
   usedBy: {},
   sandbox: false,
 };
-
-describe("ops overview", () => {
-  it("leads with how many things need you, and lists each kind with links", async () => {
-    const api = fakeApi({
-      "GET /api/session": () => OPERATOR_SESSION,
-      "GET /api/ops/clients": () => ({ clients: [] }),
-      "GET /api/ops/overview": () => ({
-        ...emptyOverview,
-        failedRuns: [
-          {
-            id: RUN,
-            client: demo,
-            agent: { id: AGENT, slug: "material-costs", name: "Material costs" },
-            workflowSlug: "new-bill",
-            error: "QuickBooks refused the change",
-            finishedAt: "2026-11-04T09:00:00.000Z",
-            createdAt: "2026-11-04T08:59:00.000Z",
-          },
-        ],
-        connections: [
-          {
-            id: "00000000-0000-4000-8000-00000000c001",
-            client: demo,
-            connector: "qbo",
-            connectorName: "QuickBooks Online",
-            status: "error",
-            usedBy: ["Material costs"],
-          },
-        ],
-        updates: [
-          {
-            agent: { id: AGENT, slug: "material-costs", name: "Material costs" },
-            client: demo,
-            template: { id: "t1", name: "Pia" },
-            behind: 2,
-            releaseNote: "Reads freight lines",
-          },
-        ],
-        counts: { failedRuns: 3, inbox: 0, connections: 1, updates: 1 },
-      }),
-    });
-    renderAt("/ops", api);
-    expect(await screen.findByText("5 things need you across 2 clients.")).toBeInTheDocument();
-    const failed = screen.getByTestId("ops-overview-failed");
-    expect(within(failed).getByText("QuickBooks refused the change")).toBeInTheDocument();
-    expect(within(failed).getByText("Showing 1 of 3.")).toBeInTheDocument();
-    expect(
-      within(failed).getByTestId(`ops-overview-run-${RUN}`).querySelector("a"),
-    ).toHaveAttribute("href", `/ops/runs/${RUN}`);
-    const conn = screen.getByTestId("ops-overview-connections");
-    expect(within(conn).getByText("Sign-in failed")).toHaveClass("text-risk-ink");
-    expect(within(conn).getByText("Used by Material costs")).toBeInTheDocument();
-    const updates = screen.getByTestId("ops-overview-updates");
-    expect(within(updates).getByText("2 versions behind")).toBeInTheDocument();
-    expect(within(updates).getByRole("link")).toHaveAttribute(
-      "href",
-      `/ops/clients/${DEMO}/agents/material-costs/versions`,
-    );
-    // Nothing waits in the inbox, so there is no inbox block.
-    expect(screen.queryByTestId("ops-overview-inbox")).toBeNull();
-    expect(screen.getByTestId("ops-new-client")).toHaveAttribute("href", "/ops/clients/new");
-  });
-
-  it("says so when nothing needs you", async () => {
-    const api = fakeApi({
-      "GET /api/session": () => OPERATOR_SESSION,
-      "GET /api/ops/clients": () => ({ clients: [] }),
-      "GET /api/ops/overview": () => emptyOverview,
-    });
-    renderAt("/ops", api);
-    expect(await screen.findByText("Nothing needs you across 2 clients.")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-overview-clear")).toBeInTheDocument();
-  });
-});
 
 describe("new client", () => {
   it("creates the client with its offer, approvals and admin, then shows the invite", async () => {
@@ -231,6 +145,8 @@ describe("new client", () => {
       screen.getByTestId("new-client-admin-email"),
       "owner@cabinets.example.com",
     );
+    // The supervisor is offered, ticked (docs/plan.md §1.28).
+    expect(screen.getByTestId("new-client-supervisor")).toBeChecked();
     await userEvent.click(screen.getByTestId("new-client-create"));
 
     const created = await screen.findByTestId("ops-client-created");
@@ -243,6 +159,7 @@ describe("new client", () => {
         connectorsOffered: ["upload"],
         approvals: "operator",
         language: "es",
+        supervisor: true,
         admin: { email: "owner@cabinets.example.com" },
       },
     ]);

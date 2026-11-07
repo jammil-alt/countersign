@@ -34,6 +34,15 @@ const CODE_KEYS: Record<string, PlainKey> = {
   invalid_grant: "error.invalid_grant",
   adapter_disabled: "error.not_configured",
   misconfigured: "error.not_configured",
+  organization_exists: "error.organization_exists",
+  vendor_linked: "error.vendor_linked",
+  unknown_organization: "error.unknown_organization",
+  invalid_csv: "error.invalid_csv",
+  connector_failed: "error.connector_failed",
+  not_importable: "error.not_importable",
+  contact_exists: "error.contact_exists",
+  rate_limited: "error.rate_limited",
+  no_address: "error.no_address",
 };
 
 /**

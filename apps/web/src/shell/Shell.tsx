@@ -1,85 +1,176 @@
-// The frame both surfaces share (docs/design/screens/1-home.png on the Mezonas AppHeader and
-// Sidebar): a header with the Mezonas logo, a context slot (the operator's client switcher, or the
-// client's name in the portal), the command bar placeholder, the inbox count and the avatar; a
-// sidebar; the page.
+// The frame both surfaces share (docs/design/prototype.html, `.hdr` and `.side`, on the Mezonas
+// AppHeader and Sidebar): a top bar with the logo, a context slot (the client's name in the portal;
+// "Back office" and the client switcher in the back office), the ⌘K search box, Escalations with
+// its count (back office only: the portal's Desk is in its sidebar once), and the avatar menu
+// (theme, language, sign out); a sidebar; the page. At phone width the sidebar folds behind a menu
+// button and the top bar compacts; where the Desk is only in the sidebar, the menu button carries
+// its count.
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { useFeedbackStarter } from "../feedback/Feedback";
+import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { LanguageMenu } from "../i18n/LanguageMenu";
 import { displayName, userInitial, useSession, useSessionState } from "../session/session";
 import { Logo, PRODUCT_NAME } from "../ui/brand";
-import { Icon } from "../ui/icons";
+import { Icon, type IconName } from "../ui/icons";
 import { Count, cx } from "../ui/primitives";
+import { type SearchAsk, SearchBox, type SearchRun } from "./Search";
+import { THEMES, type Theme, useTheme } from "./theme";
 
 /** The product's name wherever a person reads it. */
 export const PLATFORM_NAME = PRODUCT_NAME;
 
+/**
+ * The browser tab's text: what needs you first, then where you are, then Mezonas, so a tab still
+ * says something when it's narrow. "(3) Harbor Millwork · Mezonas", "Back office · Mezonas".
+ */
+export function tabTitle(place: string | null, waiting: number | undefined): string {
+  const text = place ? `${place} · ${PLATFORM_NAME}` : PLATFORM_NAME;
+  return waiting ? `(${waiting}) ${text}` : text;
+}
+
+export interface ShellDesk {
+  /** "/desk" in the portal, "/ops/inbox" (Escalations) in the back office. */
+  to: string;
+  label: string;
+  /** Waiting on you (signal); undefined until it loads. */
+  count?: number | undefined;
+  /**
+   * False where the sidebar already links it (the portal, QA round 1: Your Desk appears once); the
+   * count then rides on the phone's menu button.
+   */
+  inHeader?: boolean;
+  /** Keep the count's slot while it loads, so nothing shifts when it arrives. */
+  reserve?: boolean;
+}
+
 export function AppShell({
   surface,
   home,
+  place,
   context,
-  inboxTo,
-  inboxCount,
+  search,
+  desk,
   sidebar,
+  sidebarFooter,
+  pageBar,
   children,
 }: {
   surface: "ops" | "portal";
   home: string;
+  /** Where this is, for the tab's text: "Back office", or the client's name in the portal. */
+  place: string | null;
   context: ReactNode;
-  inboxTo: string;
-  inboxCount?: number | undefined;
+  search: { placeholder: string; run: SearchRun; ask?: SearchAsk };
+  desk: ShellDesk;
   sidebar: ReactNode;
+  /** Pinned to the sidebar's foot (the portal's Sloan card and lead). */
+  sidebarFooter?: ReactNode;
+  /** A slim bar above the page (the agent switcher on an agent's page). */
+  pageBar?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useI18n();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+  const deskInHeader = desk.inHeader ?? true;
+  const menuCount = !deskInHeader && desk.count ? desk.count : 0;
+  useEffect(() => {
+    document.title = tabTitle(place, desk.count);
+  }, [place, desk.count]);
+  // A page opened from the folded sidebar closes it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closes on each page change.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
   return (
-    <div data-testid={`shell-${surface}`} className="flex min-h-screen flex-col bg-paper">
-      <header className="ds-header sticky top-0 z-20 gap-5">
-        <Link to={home} className="flex shrink-0 items-center rounded-sm" title={PLATFORM_NAME}>
-          <Logo height={20} />
-        </Link>
-        <span aria-hidden className="h-5 w-px bg-line" />
-        <div className="min-w-0 shrink-0">{context}</div>
-        <div className="flex flex-1 justify-center">
-          {/* The command bar arrives later (docs/design/README.md: not yet in v1 scope). */}
-          <span className="relative w-full max-w-[560px]">
-            <Icon
-              name="search"
-              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-muted"
-            />
-            <input
-              data-testid="shell-command-bar"
-              aria-label={t("shell.commandBar")}
-              disabled
-              placeholder={t("shell.commandPlaceholder")}
-              className="ds-input pl-9 disabled:bg-surface-subtle"
-            />
-          </span>
-        </div>
-        <Link
-          to={inboxTo}
-          data-testid="shell-inbox"
-          className="flex shrink-0 items-center gap-2 rounded-sm text-sm font-medium text-ink hover:text-slate"
+    <div data-testid={`shell-${surface}`} className="ui-shell">
+      <header className="ds-header ui-topbar">
+        <button
+          type="button"
+          data-testid="shell-menu"
+          aria-label={
+            menuCount ? `${t("shell.menu")} · ${desk.label} (${menuCount})` : t("shell.menu")
+          }
+          aria-expanded={menuOpen}
+          aria-controls="shell-sidebar"
+          onClick={() => setMenuOpen((o) => !o)}
+          className={cx(
+            "ds-btn ds-btn--ghost ui-topbar__menu",
+            menuCount ? "gap-1.5 px-2" : "ds-btn--icon",
+          )}
         >
-          {t("shell.inbox")}
-          {inboxCount !== undefined ? <Count n={inboxCount} tone="warning" /> : null}
+          <Icon name="sidebar" size={20} />
+          {menuCount ? <Count n={menuCount} tone="warning" /> : null}
+        </button>
+        <Link to={home} className="ui-topbar__logo" title={PLATFORM_NAME}>
+          <Logo height={18} />
         </Link>
+        <span aria-hidden className="ui-topbar__sep" />
+        <div className="ui-topbar__context">{context}</div>
+        <div className="ui-topbar__search">
+          <SearchBox placeholder={search.placeholder} run={search.run} ask={search.ask} />
+        </div>
+        {deskInHeader ? (
+          <NavLink
+            to={desk.to}
+            data-testid="shell-inbox"
+            aria-label={desk.count ? `${desk.label} (${desk.count})` : desk.label}
+            className="ui-topbar__desk"
+          >
+            <Icon name="desk" className="ui-topbar__deskicon" />
+            <span className="ui-topbar__desklabel">{desk.label}</span>
+            {desk.count !== undefined ? (
+              <Count n={desk.count} tone="warning" />
+            ) : desk.reserve ? (
+              <CountSlot />
+            ) : null}
+          </NavLink>
+        ) : null}
         <UserMenu surface={surface} />
       </header>
-      <div className="flex flex-1">
-        <aside aria-label={t("shell.navigation")} className="ds-sidebar shrink-0">
-          {sidebar}
+      <div className="ui-shell__body">
+        {menuOpen ? (
+          <button
+            type="button"
+            aria-label={t("shell.closeMenu")}
+            tabIndex={-1}
+            className="ds-scrim ui-shell__scrim"
+            onClick={() => setMenuOpen(false)}
+          />
+        ) : null}
+        <aside
+          id="shell-sidebar"
+          aria-label={t("shell.navigation")}
+          data-open={menuOpen ? "true" : undefined}
+          className="ds-sidebar ui-sidebar"
+        >
+          <div className="ui-sidebar__nav">{sidebar}</div>
+          {sidebarFooter ? <div className="ui-sidebar__foot">{sidebarFooter}</div> : null}
         </aside>
-        <main className="min-w-0 flex-1 px-10 py-8">{children}</main>
+        <main className="ui-main">
+          {pageBar ? <div className="ui-pagebar">{pageBar}</div> : null}
+          {children}
+        </main>
       </div>
     </div>
   );
 }
 
+const THEME_LABEL = {
+  system: "shell.theme.system",
+  light: "shell.theme.light",
+  dark: "shell.theme.dark",
+} as const satisfies Record<Theme, MessageKey>;
+
 function UserMenu({ surface }: { surface: "ops" | "portal" }) {
   const { t } = useI18n();
   const session = useSession();
   const { signOut } = useSessionState();
+  const [theme, setTheme] = useTheme();
+  const startFeedback = useFeedbackStarter();
   // The operator is Mezonas staff, a person on the client's account: copper, like the lead. A
   // client user is the signed-in self: ink.
   const operator = session.operator;
@@ -91,12 +182,19 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative shrink-0">
       <button
         type="button"
         data-testid="shell-avatar"
@@ -111,11 +209,44 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
         {userInitial(session.user)}
       </button>
       {open ? (
-        <div className="absolute right-0 z-30 mt-2 w-80 rounded-md border border-line bg-surface p-4 elevation-pop">
+        <div className="ui-menu" data-testid="shell-user-menu">
           <p className="font-medium text-ink">{displayName(session.user)}</p>
           <p className="truncate text-sm text-ink-muted">{session.user.email}</p>
+          <div className="mt-3 flex flex-col gap-1.5 border-t border-line pt-3">
+            <span className="text-sm font-medium text-ink" id="shell-theme-label">
+              {t("shell.theme")}
+            </span>
+            {/* biome-ignore lint/a11y/useSemanticElements: the design system's Segmented control. */}
+            <div className="ds-seg self-start" role="group" aria-labelledby="shell-theme-label">
+              {THEMES.map((th) => (
+                <button
+                  key={th}
+                  type="button"
+                  data-testid={`shell-theme-${th}`}
+                  aria-pressed={theme === th}
+                  onClick={() => setTheme(th)}
+                >
+                  {t(THEME_LABEL[th])}
+                </button>
+              ))}
+            </div>
+          </div>
           {/* The back office stays in English (plan §1.18): only the portal offers languages. */}
           {surface === "portal" ? <LanguageMenu /> : null}
+          {startFeedback ? (
+            <button
+              type="button"
+              data-testid="feedback-button"
+              onClick={() => {
+                setOpen(false);
+                startFeedback();
+              }}
+              className="ds-btn ds-btn--link mt-3 flex items-center gap-1.5"
+            >
+              <Icon name="message" size={16} />
+              {t("feedback.button")}
+            </button>
+          ) : null}
           <button
             type="button"
             data-testid="shell-sign-out"
@@ -130,17 +261,26 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
   );
 }
 
+/** A sidebar item: an icon, its words, and a count (signal while something waits). */
 export function SidebarLink({
   to,
   label,
+  icon,
   count,
+  countTone = "warning",
+  reserveCount = false,
   end,
   testId,
   children,
 }: {
   to: string;
   label?: string;
+  icon?: IconName;
   count?: number | undefined;
+  /** `warning` (signal) for waiting-on-you counts; `neutral` for plain totals. */
+  countTone?: "warning" | "neutral";
+  /** Keep the count's slot while it loads (undefined), so the row doesn't shift. */
+  reserveCount?: boolean;
   end?: boolean;
   testId?: string;
   children?: ReactNode;
@@ -151,10 +291,17 @@ export function SidebarLink({
       end={end ?? false}
       data-testid={testId}
       // ds-navitem draws the current page from the aria-current NavLink sets.
-      className="ds-navitem gap-2 leading-tight aria-[current=page]:font-medium"
+      className="ds-navitem ui-navitem"
     >
-      {children ?? <span>{label}</span>}
-      {count !== undefined ? <span className="text-xs text-ink-muted figures">{count}</span> : null}
+      <span className="flex min-w-0 items-center gap-2.5">
+        {icon ? <Icon name={icon} className="ui-navitem__icon" /> : null}
+        {children ?? <span className="truncate">{label}</span>}
+      </span>
+      {count !== undefined ? (
+        <Count n={count} tone={countTone} />
+      ) : reserveCount ? (
+        <CountSlot />
+      ) : null}
     </NavLink>
   );
 }
@@ -163,18 +310,110 @@ export function SidebarSection({
   label,
   action,
   children,
+  testId,
 }: {
   label: string;
   action?: ReactNode;
   children: ReactNode;
+  testId?: string;
 }) {
   return (
-    <section className="mt-5">
+    <section className="mt-5" data-testid={testId}>
       <div className="mb-1.5 flex items-center justify-between px-2.5">
         <h2 className="eyebrow text-ink-muted">{label}</h2>
         {action}
       </div>
       <div className="flex flex-col gap-0.5">{children}</div>
     </section>
+  );
+}
+
+/** A folded group of the pages that aren't in the prototype's sidebar, so none is lost. */
+export function SidebarMore({
+  label,
+  children,
+  testId,
+}: {
+  label: string;
+  children: ReactNode;
+  testId?: string;
+}) {
+  const { pathname } = useLocation();
+  const ref = useRef<HTMLDetailsElement>(null);
+  // Open while one of its pages is the current one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rechecks on each page change.
+  useEffect(() => {
+    const el = ref.current;
+    if (el?.querySelector('[aria-current="page"]')) el.open = true;
+  }, [pathname]);
+  return (
+    <details ref={ref} className="ui-more mt-5" data-testid={testId}>
+      <summary className="ui-more__summary">
+        <span className="eyebrow text-ink-muted">{label}</span>
+        <Icon name="chevron-down" size={14} className="ui-more__chev text-ink-muted" />
+      </summary>
+      <div className="mt-1.5 flex flex-col gap-0.5">{children}</div>
+    </details>
+  );
+}
+
+/** A count's place while it loads: an invisible count of the same size. */
+function CountSlot() {
+  return (
+    <span aria-hidden className="invisible" data-testid="count-slot">
+      <Count n={0} />
+    </span>
+  );
+}
+
+/** Rows that hold the agents' place in the sidebar while they load, the size of real rows. */
+export function SidebarAgentSkeleton({ rows }: { rows: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholder rows.
+          key={i}
+          aria-hidden
+          data-testid="sidebar-agent-skeleton"
+          className="ds-navitem ui-navitem ui-navagent ui-navskel"
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="ui-agentbadge ui-agentbadge--sm ui-navskel__badge" />
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="ui-navskel__bar ui-navskel__bar--name" />
+              <span className="ui-navskel__bar ui-navskel__bar--line" />
+            </span>
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** An agent's row in the sidebar: its badge, its name, and a muted line (role · status). */
+export function SidebarAgent({
+  to,
+  name,
+  line,
+  badge,
+  testId,
+}: {
+  to: string;
+  name: string;
+  line?: ReactNode;
+  badge: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <NavLink to={to} data-testid={testId} className="ds-navitem ui-navitem ui-navagent">
+      <span className="flex min-w-0 items-center gap-2.5">
+        {badge}
+        <span className="min-w-0">
+          <span className="block truncate text-ink">{name}</span>
+          {line ? <span className="block truncate text-xs text-ink-muted">{line}</span> : null}
+        </span>
+      </span>
+    </NavLink>
   );
 }

@@ -49,7 +49,7 @@ jobs:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Ready?
         run: |
           [ -n "$NEON_API_KEY" ] || { echo "::error::NEON_API_KEY secret is missing"; exit 1; }
@@ -58,8 +58,8 @@ jobs:
             echo "::error::The seed never runs on production; run again with 'Run the seed first' unticked."
             exit 1
           fi
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

@@ -1,12 +1,24 @@
-import type { ConnectionGrant, Connector } from "../connector";
+import type {
+  ConnectionContext,
+  ConnectionGrant,
+  Connector,
+  LinkRequest,
+  LinkStart,
+} from "../connector";
 import type { CredentialBinding, CredentialEnvelope, CredentialSealer } from "../credentials";
-import { createOAuthState, type OAuthStateFailure, verifyOAuthState } from "./state";
+import {
+  createOAuthState,
+  type OAuthOrigin,
+  type OAuthStateFailure,
+  verifyOAuthState,
+} from "./state";
 
 /**
  * The platform half of "the client admin signs in to their tool" (plan §1.2 "Connectors in the
  * portal"). apps/api calls `beginAuthorization` from `POST /api/connections/:connector/authorize`
  * and `completeAuthorization` from the provider's callback, both in the client user's session.
- * The operator never reaches either (only client sessions connect tools).
+ * The operator reaches them only for the Sandbox client, their own test client (origin `ops`,
+ * `POST /api/ops/clients/:id/connections/:connector/authorize`); never for a real client.
  */
 export async function beginAuthorization(input: {
   connector: Connector;
@@ -14,6 +26,8 @@ export async function beginAuthorization(input: {
   userId: string;
   redirectUri: string;
   stateSecret: string | Uint8Array;
+  /** Where the sign-in started (default the portal); bound into the state. */
+  origin?: OAuthOrigin;
   now?: Date;
 }): Promise<{ redirectUrl: string; state: string }> {
   const { connector } = input;
@@ -21,7 +35,12 @@ export async function beginAuthorization(input: {
     throw new Error(`connector ${connector.manifest.id} does not sign in with OAuth`);
   }
   const { state } = await createOAuthState(
-    { tenantId: input.tenantId, connector: connector.manifest.id, userId: input.userId },
+    {
+      tenantId: input.tenantId,
+      connector: connector.manifest.id,
+      userId: input.userId,
+      ...(input.origin ? { origin: input.origin } : {}),
+    },
     { secret: input.stateSecret, ...(input.now ? { now: input.now } : {}) },
   );
   const { redirectUrl } = await connector.authorize({
@@ -31,6 +50,49 @@ export async function beginAuthorization(input: {
     redirectUri: input.redirectUri,
   });
   return { redirectUrl, state };
+}
+
+/**
+ * v0.12 bankfeed: the start of a hosted link widget's sign-in (Plaid Link, docs/plan.md §1.52). As
+ * `beginAuthorization`, with a state bound to the client, connector, user and origin; the connector
+ * answers a token the portal opens the widget with instead of a URL to go to. The state comes
+ * back with the widget's result through `completeAuthorization`, unchanged.
+ */
+export async function beginLinkAuthorization(input: {
+  connector: Connector;
+  tenantId: string;
+  userId: string;
+  redirectUri: string;
+  webhookUrl: string;
+  stateSecret: string | Uint8Array;
+  language?: string;
+  /** The connection being signed in again, when it still holds credentials (update mode). */
+  reconnect?: LinkRequest["reconnect"];
+  origin?: OAuthOrigin;
+  now?: Date;
+}): Promise<{ link: LinkStart; state: string }> {
+  const { connector } = input;
+  if (connector.manifest.auth !== "oauth2" || !connector.beginLink) {
+    throw new Error(`connector ${connector.manifest.id} does not sign in with a link widget`);
+  }
+  const { state } = await createOAuthState(
+    {
+      tenantId: input.tenantId,
+      connector: connector.manifest.id,
+      userId: input.userId,
+      ...(input.origin ? { origin: input.origin } : {}),
+    },
+    { secret: input.stateSecret, ...(input.now ? { now: input.now } : {}) },
+  );
+  const link = await connector.beginLink({
+    tenantId: input.tenantId,
+    userId: input.userId,
+    redirectUri: input.redirectUri,
+    webhookUrl: input.webhookUrl,
+    ...(input.language ? { language: input.language } : {}),
+    ...(input.reconnect ? { reconnect: input.reconnect } : {}),
+  });
+  return { link, state };
 }
 
 export class OAuthCallbackError extends Error {
@@ -44,7 +106,7 @@ export class OAuthCallbackError extends Error {
 }
 
 /**
- * Verifies the callback's state against the session (client, connector, user), lets the connector
+ * Verifies the callback's state against the session (client, connector, user, origin), lets the connector
  * exchange the code, and encrypts the credentials for the connection they will be stored on. The
  * caller writes the row (status `connected`, `connected_by` = the user) and a `connection_change`.
  */
@@ -58,7 +120,13 @@ export async function completeAuthorization(input: {
   stateSecret: string | Uint8Array;
   /** Encrypts under the client's own key (envelope v2). */
   cipher: CredentialSealer;
+  /** Where the sign-in must have started (default the portal). */
+  origin?: OAuthOrigin;
   now?: Date;
+  /** v0.12 bankfeed: the connection signed in again, when it still holds credentials. */
+  existing?: ConnectionContext;
+  /** v0.14 W4-A: whether another client has this account connected (CallbackRequest). */
+  accountTaken?: (externalAccountId: string) => Promise<boolean>;
 }): Promise<{ grant: Omit<ConnectionGrant, "credentials">; credentials: CredentialEnvelope }> {
   const { connector, params } = input;
   if (!connector.handleCallback) {
@@ -70,7 +138,11 @@ export async function completeAuthorization(input: {
   if (!params.state) throw new OAuthCallbackError("missing_state", "the callback has no state");
   const verified = await verifyOAuthState(
     params.state,
-    { ...input.session, connector: connector.manifest.id },
+    {
+      ...input.session,
+      connector: connector.manifest.id,
+      ...(input.origin ? { origin: input.origin } : {}),
+    },
     { secret: input.stateSecret, ...(input.now ? { now: input.now } : {}) },
   );
   if (!verified.ok) {
@@ -79,6 +151,8 @@ export async function completeAuthorization(input: {
   const grant = await connector.handleCallback(params, {
     ...input.session,
     redirectUri: input.redirectUri,
+    ...(input.existing ? { existing: input.existing } : {}),
+    ...(input.accountTaken ? { accountTaken: input.accountTaken } : {}),
   });
   const binding: CredentialBinding = {
     tenantId: input.session.tenantId,

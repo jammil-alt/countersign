@@ -1,8 +1,9 @@
-// Billing arithmetic (docs/plan.md §1.17, §1.24). One credit is one cent of what the work cost us:
-// each usage measure (a `usage_daily` column: model cost in USD, messages, call seconds, …) is
-// priced with its unit cost, a client's day is summed and rounded up to whole credits, and the
-// period's credits beyond the allowance are billed as overage. All of it in decimal.js, never JS
-// floats (invariant 6). The settings (unit costs, allowance, prices) are the operator's, never
+// Billing arithmetic (docs/plan.md §1.17, §1.24, §1.32). One credit is one cent of what the work
+// cost us: each usage measure (a `usage_daily` column: model cost in USD, messages, call seconds,
+// …) is priced with its unit cost, and a client's day is summed and rounded up to whole credits.
+// Mezonas works out each bill (§1.32): agents' monthly prices prorated by the days they were
+// active, their credits pooled, and the credits beyond the pool at the credit price. All of it in
+// decimal.js, never JS floats (invariant 6). Prices and settings are the operator's, never
 // constants here.
 
 import { z } from "zod";
@@ -96,23 +97,9 @@ export function periodCredits(
   return { credits, cost: cost.toString(), days: out, unpriced: [...unpriced].sort() };
 }
 
-/** The pooled allowance: every active client agent brings its credits to the client's pool. */
-// DECISION: a client's allowances are pooled across its agents (owner's simplest default).
-export function allowanceFor(activeAgents: number, creditsPerAgent: number): number {
-  return Math.max(0, activeAgents) * Math.max(0, creditsPerAgent);
-}
-
 /** Credits beyond the allowance; none while within it. */
 export function overageCredits(used: number, allowance: number): number {
   return Math.max(0, used - allowance);
-}
-
-/**
- * What to report now: the overage not reported yet. Never negative: usage reported to Stripe is
- * not taken back (a later drop, e.g. a new agent raising the allowance, reports nothing).
- */
-export function usageIncrement(overage: number, alreadyReported: number): number {
-  return Math.max(0, overage - alreadyReported);
 }
 
 /** A cost in USD to money's 4 places, for the database and the back office. */
@@ -125,9 +112,13 @@ export function costAmount(cost: DecimalInput): string {
 const DAY_MS = 86_400_000;
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
+/** `YYYY-MM-DD` of a moment, in UTC. */
+export function utcDayOf(at: Date): string {
+  return isoDay(at);
+}
+
 /** The billing period holding `day`: its calendar month in UTC (both ends inclusive). */
-// DECISION: billing periods are calendar months in UTC, like usage_daily's days; subscriptions are
-// anchored to the 1st of the month so Stripe's periods line up.
+// DECISION: billing periods are calendar months in UTC, like usage_daily's days.
 export function billingPeriod(day: string): { start: string; end: string } {
   const start = new Date(`${day.slice(0, 7)}-01T00:00:00.000Z`);
   const next = new Date(start);
@@ -135,52 +126,246 @@ export function billingPeriod(day: string): { start: string; end: string } {
   return { start: isoDay(start), end: isoDay(new Date(next.getTime() - DAY_MS)) };
 }
 
-/** The UTC day before `at`'s: what the daily report covers. */
-export function reportDay(at: Date): string {
-  return isoDay(new Date(at.getTime() - DAY_MS));
+/** How many days the month holding `day` has (28 to 31). */
+export function daysInMonth(day: string): number {
+  const { end } = billingPeriod(day);
+  return Number(end.slice(8, 10));
 }
 
-/** Midnight UTC on the 1st of the month after `at` (Unix seconds): the subscription's anchor. */
-export function nextPeriodAnchor(at: Date): number {
-  const d = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
-  return Math.floor(d.getTime() / 1000);
+/** The first day of the month before `at`'s (UTC): the month a statement is built for on the 1st. */
+export function previousPeriod(at: Date): string {
+  const d = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() - 1, 1));
+  return isoDay(d);
 }
 
-/** The last second of a UTC day (Unix seconds): the reported usage's timestamp. */
-export function endOfDaySeconds(day: string): number {
-  return Math.floor(new Date(`${day}T23:59:59.000Z`).getTime() / 1000);
+/** A period's first and last moments as Unix seconds (an invoice item's service period). */
+export function periodSeconds(period: string): { start: number; end: number } {
+  const { start, end } = billingPeriod(period);
+  return {
+    start: Math.floor(new Date(`${start}T00:00:00.000Z`).getTime() / 1000),
+    end: Math.floor(new Date(`${end}T23:59:59.000Z`).getTime() / 1000),
+  };
 }
 
-/** The meter event's identifier (and idempotency key) for a client, period and day. */
-export function usageReportIdentifier(tenantId: string, period: string, day: string): string {
-  return `mezonas:${tenantId}:${period}:${day}`;
+// ── Prices (docs/plan.md §1.32) ─────────────────────────────────────────────────────────────────
+
+export const PRICE_SOURCES = ["override", "template", "platform", "default"] as const;
+export type PriceSource = (typeof PRICE_SOURCES)[number];
+
+/** A monthly price (USD, decimal string) and the credits it includes each month. */
+export interface PricePoint {
+  monthlyPrice: string;
+  includedCredits: number;
+}
+
+export interface AgentPrice extends PricePoint {
+  source: PriceSource;
+}
+
+/**
+ * Templates whose client agents are the platform's own (the supervisor, §1.28): free and with no
+ * credits unless the operator prices the template.
+ */
+// DECISION: platform agents are identified by their template's slug (a template has tenant_id
+// null); only the supervisor is one today. The Builder and the coordinator never run as client
+// agents, and the document clerk does a client's work, so it is billed.
+export const PLATFORM_FREE_TEMPLATE_SLUGS: readonly string[] = ["supervisor"];
+
+/**
+ * What a client agent costs a month: its own override, else its template's price, else free for a
+ * platform agent, else the defaults.
+ */
+export function resolveAgentPrice(input: {
+  override: PricePoint | null;
+  template: PricePoint | null;
+  /** The slug of the template it was forked from (null for an agent with no template). */
+  templateSlug: string | null;
+  defaults: PricePoint;
+}): AgentPrice {
+  if (input.override) return { ...pricePoint(input.override), source: "override" };
+  if (input.template) return { ...pricePoint(input.template), source: "template" };
+  if (input.templateSlug && PLATFORM_FREE_TEMPLATE_SLUGS.includes(input.templateSlug)) {
+    return { monthlyPrice: "0.0000", includedCredits: 0, source: "platform" };
+  }
+  return { ...pricePoint(input.defaults), source: "default" };
+}
+
+function pricePoint(p: PricePoint): PricePoint {
+  return { monthlyPrice: toNumeric(p.monthlyPrice), includedCredits: p.includedCredits };
+}
+
+/** An amount rounded half up to whole cents, as `numeric(14,4)` text. */
+export function toCents(value: DecimalInput): string {
+  return dec(value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(4);
+}
+
+// ── Statements (docs/plan.md §1.32) ─────────────────────────────────────────────────────────────
+
+/** One day a client agent was active, with the price it had that day (`billing_agent_day`). */
+export interface BilledDay extends PricePoint {
+  agentId: string;
+  agentName: string;
+  day: string;
+}
+
+export interface AgentLineDetail {
+  /** Days the agent was billed this month. */
+  days: number;
+  daysInMonth: number;
+  /** Each price it had, with its days (one entry unless the price changed). */
+  prices: { monthlyPrice: string; days: number }[];
+  /** The credits it brings to the pool: its credits × days ÷ days in the month, unrounded. */
+  credits: string;
+}
+
+export interface UsageLineDetail {
+  creditsUsed: number;
+  creditsIncluded: number;
+  extraCredits: number;
+  creditPrice: string;
+}
+
+export type BuiltLine =
+  | {
+      kind: "agent";
+      agentId: string;
+      description: string;
+      amount: string;
+      detail: AgentLineDetail;
+    }
+  | {
+      kind: "usage";
+      agentId: null;
+      description: string;
+      amount: string;
+      detail: UsageLineDetail;
+    };
+
+export interface BuiltStatement {
+  period: { start: string; end: string };
+  daysInMonth: number;
+  lines: BuiltLine[];
+  creditsUsed: number;
+  creditsIncluded: number;
+  extraCredits: number;
+  creditPrice: string;
+  /** The lines' sum, `numeric(14,4)` text in whole cents. */
+  total: string;
+}
+
+export const EXTRA_USAGE_DESCRIPTION = "Extra usage";
+
+/**
+ * A month's statement lines from the days its agents were billed and the credits it used:
+ * one line per agent (the sum of its daily prices ÷ days in the month, half up to cents), and one
+ * line for the credits past the pooled allowance at the credit price. Also the month so far, given
+ * the days recorded so far.
+ */
+// DECISION: each agent line is rounded once (not each day), and the pooled allowance is rounded
+// half up to whole credits once, over every agent's days.
+export function buildStatement(input: {
+  period: string;
+  days: readonly BilledDay[];
+  creditsUsed: number;
+  creditPrice: string;
+}): BuiltStatement {
+  const period = billingPeriod(input.period);
+  const dim = daysInMonth(period.start);
+  const byAgent = new Map<string, BilledDay[]>();
+  for (const d of input.days) {
+    if (d.day < period.start || d.day > period.end) continue;
+    const list = byAgent.get(d.agentId) ?? [];
+    list.push(d);
+    byAgent.set(d.agentId, list);
+  }
+  const agentLines: Extract<BuiltLine, { kind: "agent" }>[] = [];
+  let pooled = new Decimal(0);
+  for (const [agentId, days] of byAgent) {
+    days.sort((a, b) => a.day.localeCompare(b.day));
+    let priceDays = new Decimal(0);
+    let creditDays = new Decimal(0);
+    const prices = new Map<string, number>();
+    for (const d of days) {
+      const p = toNumeric(d.monthlyPrice);
+      priceDays = priceDays.plus(dec(p));
+      creditDays = creditDays.plus(new Decimal(d.includedCredits));
+      prices.set(p, (prices.get(p) ?? 0) + 1);
+    }
+    const credits = creditDays.div(dim);
+    pooled = pooled.plus(credits);
+    agentLines.push({
+      kind: "agent",
+      agentId,
+      description: days[days.length - 1]?.agentName ?? "Agent",
+      amount: toCents(priceDays.div(dim)),
+      detail: {
+        days: days.length,
+        daysInMonth: dim,
+        prices: [...prices].map(([monthlyPrice, n]) => ({ monthlyPrice, days: n })),
+        credits: credits.toDecimalPlaces(4).toFixed(4),
+      },
+    });
+  }
+  agentLines.sort(
+    (a, b) => a.description.localeCompare(b.description) || a.agentId.localeCompare(b.agentId),
+  );
+  const creditsIncluded = pooled.toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber();
+  const creditsUsed = Math.max(0, input.creditsUsed);
+  const extraCredits = overageCredits(creditsUsed, creditsIncluded);
+  const creditPrice = toNumeric(input.creditPrice);
+  const usage: Extract<BuiltLine, { kind: "usage" }> = {
+    kind: "usage",
+    agentId: null,
+    description: EXTRA_USAGE_DESCRIPTION,
+    amount: toCents(new Decimal(extraCredits).times(dec(creditPrice))),
+    detail: { creditsUsed, creditsIncluded, extraCredits, creditPrice },
+  };
+  const lines: BuiltLine[] = [...agentLines, usage];
+  return {
+    period,
+    daysInMonth: dim,
+    lines,
+    creditsUsed,
+    creditsIncluded,
+    extraCredits,
+    creditPrice,
+    total: sumAmounts(lines.map((l) => l.amount)),
+  };
+}
+
+/** Line amounts summed, `numeric(14,4)` text. */
+export function sumAmounts(amounts: readonly string[]): string {
+  return toNumeric(amounts.reduce((s, a) => s.plus(dec(a)), new Decimal(0)));
+}
+
+/**
+ * The Idempotency-Key of one step of sending a statement to Stripe:
+ * `mezonas:<statement id>:<step>[:<line id>]`.
+ */
+export function statementStripeKey(
+  statementId: string,
+  step: "invoice" | "item" | "finalize" | "send",
+  lineId?: string,
+): string {
+  return `mezonas:${statementId}:${step}${lineId ? `:${lineId}` : ""}`;
+}
+
+/** An amount in whole cents (an integer), from `numeric(14,4)` text already rounded to cents. */
+export function centsOf(amount: DecimalInput): number {
+  const cents = dec(amount).times(100);
+  if (!cents.isInteger()) throw new RangeError(`not a whole number of cents: ${String(amount)}`);
+  return cents.toNumber();
 }
 
 // ── A client's billing record (tenant.settings.billing) ─────────────────────────────────────────
 
-/** The Stripe ids of a client set up for billing, kept in `tenant.settings.billing`. */
+/**
+ * A client set up for billing: its Stripe customer, kept in `tenant.settings.billing`. Since §1.32
+ * nothing else is set up in Stripe; the subscription fields older rows carry are ignored.
+ */
 export const TenantBilling = z.object({
   customerId: z.string(),
-  subscriptionId: z.string().nullable(),
-  /** The subscription items: the base fee (quantity = active client agents) and the overage. */
-  baseItemId: z.string().nullable(),
-  overageItemId: z.string().nullable(),
-  /** The base quantity Stripe has: active client agents when last synced. */
-  quantity: z.number().int().min(0),
-  subscriptionStatus: z.string().nullable(),
-  /** The `created` time of the last subscription event applied, so older events are ignored. */
-  subscriptionEventAt: z.number().int().nullable().default(null),
-  lastInvoice: z
-    .object({
-      id: z.string(),
-      number: z.string().nullable(),
-      status: z.enum(["paid", "payment_failed"]),
-      total: DecimalString.nullable(),
-      currency: z.string().nullable(),
-      at: z.string(),
-    })
-    .nullable()
-    .default(null),
+  email: z.string().nullable().default(null),
   setUpAt: z.string(),
   setUpBy: z.string().nullable(),
 });

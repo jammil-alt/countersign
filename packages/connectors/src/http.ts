@@ -17,6 +17,20 @@ export interface HttpResponseLike {
   readonly ok: boolean;
   readonly headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /** The body as bytes (a downloaded file); fakes may leave it out where nothing is binary. */
+  arrayBuffer?(): Promise<ArrayBuffer>;
+  // v0.14 capture: a download read in chunks, so a size limit holds without reading it all.
+  /** The body as a stream; fakes may leave it out. */
+  readonly body?: ByteStreamLike | null;
+}
+
+/** The part of a WHATWG ReadableStream of bytes that a bounded read needs. */
+export interface ByteStreamLike {
+  getReader(): {
+    read(): Promise<{ done: boolean; value?: Uint8Array }>;
+    cancel(reason?: unknown): Promise<void>;
+  };
+  cancel?(reason?: unknown): Promise<void>;
 }
 
 export type FetchLike = (url: string, init?: HttpRequestInit) => Promise<HttpResponseLike>;

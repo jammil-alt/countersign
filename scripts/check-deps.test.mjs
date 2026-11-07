@@ -83,3 +83,51 @@ test("nothing may depend on apps/mfa", () => {
   assert.equal(r.ok, false);
   assert.match(r.out, /reached only by service binding/);
 });
+
+const designSystem = {
+  "packages/design-system/package.json": { name: "@countersign/design-system" },
+};
+const site = (devDependencies, extra = {}) => ({
+  "apps/site/package.json": { name: "@countersign/site", devDependencies, ...extra },
+  "apps/site/build.mjs": "// builds the site\n",
+});
+
+test("apps/site may use the design system's files", () => {
+  const r = check({
+    ...designSystem,
+    ...site({ "@countersign/design-system": "workspace:*", vitest: "^5" }),
+  });
+  assert.equal(r.ok, true, r.out);
+});
+
+test("apps/site may not depend on the platform", () => {
+  const r = check({
+    ...core,
+    ...designSystem,
+    ...site({ "@countersign/design-system": "workspace:*", "@countersign/core": "workspace:*" }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /apps\/site\/package.json: may depend only on @countersign\/design-system/);
+});
+
+test("apps/site has no runtime dependencies", () => {
+  const r = check({
+    ...designSystem,
+    ...site({ "@countersign/design-system": "workspace:*" }, { dependencies: { react: "^19" } }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /react is not an allowed runtime dependency/);
+});
+
+test("nothing may depend on apps/site", () => {
+  const r = check({
+    ...designSystem,
+    ...site({ "@countersign/design-system": "workspace:*" }),
+    "apps/web/package.json": {
+      name: "@countersign/web",
+      dependencies: { "@countersign/site": "workspace:*" },
+    },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /a static site, not a library/);
+});

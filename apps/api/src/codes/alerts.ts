@@ -3,8 +3,14 @@
 // the operator and the client admin each get an item. Run by the every-minute cron, one client at a
 // time, inside that client's withTenant() scope.
 
-import type { CodeAlert, CodeAlertKind } from "@countersign/core";
+import {
+  type CodeAlert,
+  type CodeAlertKind,
+  FINGERPRINT_KEY,
+  findingFingerprint,
+} from "@countersign/core";
 import { type Db, inboxItem, withTenant } from "@countersign/db";
+import { emit } from "@countersign/senses";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { CodesClient } from "./client";
 
@@ -77,6 +83,7 @@ export async function raiseCodeAlerts(
     const have = new Set(existing.map((e) => `${e.subjectId}:${e.role}`));
     let made = 0;
     for (const alert of mine) {
+      const fresh = ROLES.every((role) => !have.has(`${alert.id}:${role}`));
       for (const role of ROLES) {
         if (have.has(`${alert.id}:${role}`)) continue;
         await tx.insert(inboxItem).values({
@@ -87,12 +94,29 @@ export async function raiseCodeAlerts(
           assigneeRole: role,
           title: TITLES[alert.kind](alert.identityLabel).slice(0, 200),
           payload: {
+            // The supervisor's fingerprint for this issue (docs/plan.md §1.28).
+            [FINGERPRINT_KEY]: findingFingerprint({ kind: "code_alert", sourceId: alert.id }),
             kind: CODE_ALERT_SUBJECT,
             explanation: EXPLAIN[alert.kind],
             alert: view(alert),
           },
         });
         made++;
+      }
+      // Once per alert, with its first items, in their transaction (the outbox pattern).
+      if (fresh) {
+        await emit(tx, {
+          tenantId,
+          type: "connection.needs_attention",
+          subjectType: "code_alert",
+          payload: {
+            connectionId: null,
+            connector: "codes",
+            reason: "code_alert",
+            detail: TITLES[alert.kind](alert.identityLabel).slice(0, 500),
+            sourceId: alert.id,
+          },
+        });
       }
     }
     return made;

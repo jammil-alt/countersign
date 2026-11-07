@@ -16,25 +16,9 @@ import {
   EmptyState,
   ErrorNotice,
   Loading,
-  PageHeader,
   SectionLabel,
-  Tabs,
 } from "../../ui/primitives";
-
-/** The client page's tabs: its agents, and its knowledge. */
-export function ClientTabs({ clientId }: { clientId: string }) {
-  const base = `/ops/clients/${clientId}`;
-  return (
-    <div className="mb-6">
-      <Tabs
-        items={[
-          { to: base, label: "Agents", end: true },
-          { to: `${base}/knowledge`, label: "Knowledge" },
-        ]}
-      />
-    </div>
-  );
-}
+import { ClientFrame } from "../client/ClientFrame";
 
 type Show = "active" | "all";
 
@@ -51,7 +35,6 @@ const HIT_LABEL: Record<KnowledgeHit["kind"], string> = {
 
 export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
   const api = useApiClient();
-  const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
   const [show, setShow] = useState<Show>("active");
   const { data, error, loading, reload } = useApi(apiRoutes.opsKnowledge, {
     params: { id: clientId },
@@ -71,16 +54,14 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
 
   const indexed = data?.documents.filter((d) => d.indexed).length ?? 0;
   return (
-    <div>
-      <PageHeader
-        title={client.data?.client.name ?? "Client"}
-        subtitle={
-          data
-            ? `${data.entries.length} FAQs and policies · ${indexed} of ${data.documents.length} documents indexed · ${data.memoryNotes.count} memory notes`
-            : undefined
-        }
-      />
-      <ClientTabs clientId={clientId} />
+    <ClientFrame
+      clientId={clientId}
+      intro={
+        data
+          ? `${data.entries.length} FAQs and policies · ${indexed} of ${data.documents.length} documents indexed · ${data.memoryNotes.count} memory notes`
+          : undefined
+      }
+    >
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data ? (
@@ -190,7 +171,7 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
           </div>
         </div>
       ) : null}
-    </div>
+    </ClientFrame>
   );
 }
 

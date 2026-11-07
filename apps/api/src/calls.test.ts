@@ -28,6 +28,7 @@ import {
 } from "@countersign/connectors/testing";
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import {
+  accessRelease,
   agent,
   connection,
   contact,
@@ -249,6 +250,49 @@ describe.skipIf(!h)("calls through the API", () => {
     expect(res.status).toBe(200);
   }
 
+  /** Human release on the Twilio connection (docs/plan.md §1.26): on with a 2-hour window. */
+  async function releaseOn(on: boolean) {
+    const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+    const config = { ...((row?.config ?? {}) as Record<string, unknown>) };
+    if (on) {
+      config.release = {
+        mode: "code",
+        personId: H.A.admin,
+        channel: "email",
+        window: { hours: 2 },
+        phone: null,
+        updatedAt: new Date(Date.now() - 60_000).toISOString(),
+      };
+    } else delete config.release;
+    await H.t.db.update(connection).set({ config }).where(eq(connection.id, connectionId));
+  }
+
+  /** A live 2-hour release for `agentId` on the Twilio connection, as if its person entered it. */
+  async function liveRelease(agentId: string) {
+    const [r] = await H.t.db
+      .select({ id: run.id })
+      .from(run)
+      .where(eq(run.agentId, agentId))
+      .limit(1);
+    if (!r) throw new Error("no run of that agent");
+    const at = new Date();
+    await H.t.db.insert(accessRelease).values({
+      tenantId: A(),
+      connectionId,
+      agentId,
+      runId: r.id,
+      personId: H.A.admin,
+      channel: "email",
+      codeHash: "0".repeat(64),
+      expiresAt: at,
+      status: "released",
+      releasedAt: at,
+      validUntil: new Date(at.getTime() + 2 * 3_600_000),
+    });
+  }
+  const releaseRows = () =>
+    H.t.db.select().from(accessRelease).where(eq(accessRelease.connectionId, connectionId));
+
   async function ringIn(from: string) {
     const c = await twilio.voiceIn({
       account: setup.twilio.subaccountSid,
@@ -349,7 +393,10 @@ describe.skipIf(!h)("calls through the API", () => {
         `/api/ops/agents/${callerAgent}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, callerAgent));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, callerAgent));
     });
 
     it("waits for approval of who, why and what the agent may do, then places one call", async () => {
@@ -468,6 +515,22 @@ describe.skipIf(!h)("calls through the API", () => {
         .from(rawRecord)
         .where(and(eq(rawRecord.tenantId, A()), eq(rawRecord.entityType, "CallToolCall")));
       expect(used.map((u) => (u.payload as { tool: string }).tool)).toEqual([MESSAGES_SEARCH_TOOL]);
+    });
+
+    it("lets the voice agent's tools through only under a live release, never asking for one mid-call", async () => {
+      await releaseOn(true);
+      try {
+        const refused = await tool("messages__search", { contact: PAT });
+        expect(refused.status).toBe(403);
+        expect(j(refused.json).error.message).toContain("can't be asked for on a call");
+        // Nothing was asked for: no request, no code sent.
+        expect(await releaseRows()).toEqual([]);
+        await liveRelease(callerAgent);
+        const read = await tool("messages__search", { contact: PAT });
+        expect(read.status, JSON.stringify(read.json)).toBe(200);
+      } finally {
+        await releaseOn(false);
+      }
     });
 
     it("stores the post-call transcript once, sends follow-ups to the inbox, and counts minutes once", async () => {
@@ -742,7 +805,10 @@ describe.skipIf(!h)("calls through the API", () => {
         `/api/ops/agents/${reception}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, reception));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, reception));
       const preview = await H.call(OPERATOR, "GET", calls());
       expect(j(preview.json).setup.inbound).toMatchObject({
         decision: "agent",
@@ -793,6 +859,40 @@ describe.skipIf(!h)("calls through the API", () => {
       expect(
         await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, heldRun.runId)),
       ).toHaveLength(0);
+    });
+
+    it("answers with an agent only under a live release when the connection needs one", async () => {
+      await H.t.db
+        .update(connection)
+        .set({ permissions: { read: "auto", create: "auto", update: "approval", delete: "off" } })
+        .where(eq(connection.id, connectionId));
+      await releaseOn(true);
+      try {
+        const held = j((await H.call(OPERATOR, "GET", calls())).json).setup.inbound;
+        expect(held).toMatchObject({ decision: "forward", agentName: "Reception" });
+        expect(held.reason).toContain("needs a person to release it");
+        const agentsBefore = el.agents.size;
+        const requestsBefore = (await releaseRows()).length;
+        await startedBy(async () => {
+          const rang = await ringIn(PAT);
+          expect(String(rang.res.json)).toContain(`<Number>${FORWARD}</Number>`);
+        });
+        expect(el.agents.size).toBe(agentsBefore);
+        // A ringing call never asks for a release.
+        expect(await releaseRows()).toHaveLength(requestsBefore);
+        // Under a live hours release, the agent answers.
+        await liveRelease(reception);
+        const answers = j((await H.call(OPERATOR, "GET", calls())).json).setup.inbound;
+        expect(answers).toMatchObject({ decision: "agent", agentName: "Reception" });
+      } finally {
+        await releaseOn(false);
+        await H.t.db
+          .update(connection)
+          .set({
+            permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+          })
+          .where(eq(connection.id, connectionId));
+      }
     });
 
     it("doesn't answer with a voice agent whose purpose or opening comes from a template", async () => {
@@ -893,7 +993,10 @@ describe.skipIf(!h)("calls through the API", () => {
         `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
       );
       expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
+      await H.t.db
+        .update(agent)
+        .set({ runStatus: "active", stage: "live" })
+        .where(eq(agent.id, agentId));
       const [pat] = await H.t.db.select().from(contact).where(eq(contact.phone, PAT));
       patId = pat?.id ?? "";
     });

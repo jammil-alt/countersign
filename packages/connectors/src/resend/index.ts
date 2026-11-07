@@ -6,8 +6,8 @@
 // to the reach-out that asked. Each connection holds a sending-only API key restricted to the domain
 // it sends from; Mezonas' full key (RESEND_API_KEY) only makes domains and those keys.
 //
-// `email.send` is the provider-neutral email channel tool: Gmail's send (an agent's own mailbox or a
-// person's, M10) will supply the same shape. Facts about Resend we couldn't check are in NOTES.md.
+// `email.send` is the provider-neutral email channel tool. Gmail (M10) sends with `gmail.send`, which
+// takes the same input. Facts about Resend we couldn't check are in NOTES.md.
 
 import { z } from "zod";
 import { type Connector, defineConnector, defineWriteTool, type ToolContext } from "../connector";
@@ -17,7 +17,7 @@ import { type FetchLike, globalFetch } from "../http";
 export const RESEND_CONNECTOR_ID = "resend";
 export const RESEND_API = "https://api.resend.com";
 export const EMAIL_SEND_TOOL = "email.send";
-/** Namespaces the email channel's tools share (Gmail's send will supply `email.send` too). */
+/** Namespaces the email channel's tools share. */
 export const EMAIL_NAMESPACES = ["email"] as const;
 
 export const EMAIL_SUBJECT_MAX = 200;
@@ -170,9 +170,31 @@ export interface EmailSendCheck {
   contact?: { id: string; name: string };
   message?: string;
 }
+/**
+ * An email send that was started, recorded before the provider is called. Gmail takes no
+ * idempotency key and `gmail.send` can't read the Sent folder, so a re-run that finds one of these
+ * and no sent record stops for a person instead of sending again (gmail/index.ts).
+ */
+export interface EmailSendAttempt {
+  idempotencyKey: string;
+  connectionId: string;
+  contactId: string;
+  contactName: string;
+  to: string;
+  from: string;
+  subject: string;
+  startedAt: Date;
+}
+
 export interface EmailServices {
   /** The contact with this address, with email consent, not opted out. */
   checkSend(input: { to: string; now: Date }): Promise<EmailSendCheck>;
+  /** Records that a send is starting, before the provider is called; the first per key stands. */
+  startAttempt?(attempt: EmailSendAttempt): Promise<void>;
+  /** The send started under this key, if any. */
+  attemptFor?(idempotencyKey: string): Promise<EmailSendAttempt | null>;
+  /** The client's forwarding address, where replies come back; null when it has none. */
+  replyAddress?(): Promise<string | null>;
   /** The email already sent under this key, if any (a re-run after a crash). */
   sentFor(idempotencyKey: string): Promise<z.infer<typeof EmailSendOutput> | null>;
   /** Stores the sent email once in the contact's thread. */
@@ -234,14 +256,18 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
     icon: "mail",
     auth: "api_key",
     entities: [],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    permissionEntities: [{ id: "message", label: "Messages", verbs: ["create"] }],
     sharedNamespaces: [...EMAIL_NAMESPACES],
     tools: [
       defineWriteTool({
         id: EMAIL_SEND_TOOL,
+        entity: "message",
         description:
           "Email a contact from the client's address. Only contacts who agreed to email; plain text.",
         verb: "create",
         summary: "Emailed {{contactName}}",
+        recipient: { path: "to", channel: "email" },
         input: EmailSendInput,
         output: EmailSendOutput,
         beforeSchema: EmailSendBefore,

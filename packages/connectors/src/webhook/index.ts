@@ -1,4 +1,4 @@
-import { type JsonObject, uuidv7 } from "@countersign/core";
+import { type JsonObject, trimTrailingSlashes, uuidv7 } from "@countersign/core";
 import { z } from "zod";
 import { type Connector, defineConnector, defineWriteTool } from "../connector";
 import {
@@ -186,7 +186,7 @@ export function setOutbound(
 
 /** The URL a client pastes into its Zap: the hook's endpoint with its token. */
 export function hookUrl(origin: string, tenantId: string, hookId: string, token: string): string {
-  return `${origin.replace(/\/+$/, "")}/api/hooks/${tenantId}/${hookId}?token=${encodeURIComponent(token)}`;
+  return `${trimTrailingSlashes(origin)}/api/hooks/${tenantId}/${hookId}?token=${encodeURIComponent(token)}`;
 }
 
 // ── Receiving ────────────────────────────────────────────────────────────────────────────────────
@@ -370,6 +370,8 @@ export function createWebhookConnector(options: WebhookConnectorOptions = {}): C
     icon: "webhook",
     auth: "none",
     entities: [WEBHOOK_DELIVERY_ENTITY],
+    // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
+    permissionEntities: [{ id: "event", label: "Events", verbs: ["create"] }],
     events: [
       {
         type: WEBHOOK_RECEIVED_EVENT,
@@ -391,6 +393,7 @@ export function createWebhookConnector(options: WebhookConnectorOptions = {}): C
     tools: [
       defineWriteTool({
         id: WEBHOOK_SEND_TOOL,
+        entity: "event",
         description:
           "Send an event with data to the client's outbound webhook (e.g. their Zap's catch hook).",
         verb: "create",

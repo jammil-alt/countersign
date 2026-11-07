@@ -238,7 +238,53 @@ describe("skill and action steps", () => {
     expect(result.status).toBe("succeeded");
     expect(runner.names("wait")).toEqual([]);
     expect(h.resumeCalls).toHaveLength(0);
-    expect(h.row("write")).toMatchObject({ status: "succeeded", output: { wouldUpdate: "x" } });
+    expect(h.row("write")).toMatchObject({
+      status: "succeeded",
+      output: { wouldUpdate: "x" },
+      summary: "Would update the record (test run, not written)",
+    });
+  });
+
+  it("says a test run's write would have been made, whatever the tool's summary", async () => {
+    const h = new Harness({ ...RUN, mode: "test" });
+    // As apps/api answers a test run's write: done, recorded as proposed, never made.
+    h.handlers.write = () => ({
+      kind: "done",
+      output: { wouldHaveDone: true, actionId: "ea-1", before: null },
+      notWritten: true,
+    });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
+      wf([action({ client: { visible: true, label: "Updated the record" } })]),
+      { what: "x" },
+    );
+    expect(h.row("write")?.summary).toBe("Would update the record (test run, not written)");
+  });
+
+  it("never reads a live write as not written", async () => {
+    const h = new Harness();
+    h.handlers.write = (req) => ({ kind: "done", output: req.input, notWritten: true });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
+      wf([action()]),
+      { what: "Acme" },
+    );
+    expect(h.row("write")?.summary).toBe("Updated Acme");
+  });
+
+  it("falls back to the label when the summary can't fill a slot", async () => {
+    const h = new Harness();
+    h.handlers.write = () => ({ kind: "done", output: { id: "1" } });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
+      wf([action({ client: { visible: true, label: "Updated the record" } })]),
+      { what: "x" },
+    );
+    // Never "Updated " with nothing after it.
+    expect(h.row("write")?.summary).toBe("Updated the record: done");
   });
 
   it("fails the run on escalation, failure or a thrown error, and records why", async () => {
@@ -264,7 +310,12 @@ describe("skill and action steps", () => {
         ]),
         {},
       );
-      expect(result).toEqual({ status: "failed", reason, nodeId: "s" });
+      expect(result).toEqual({
+        status: "failed",
+        reason,
+        nodeId: "s",
+        errorKey: reason.startsWith("escalated") ? "skill:escalated" : "skill:failed",
+      });
       expect(h.row("s")?.status).toBe("failed");
       expect(h.row("never")).toBeUndefined();
     }
@@ -286,6 +337,21 @@ describe("skill and action steps", () => {
     );
     expect(result.status).toBe("succeeded");
     expect(tries).toBe(3);
+    // v0.14 W4-B: the step's one row counts every try.
+    expect(h.rows.size).toBe(1);
+    expect(h.row("s")?.attempt).toBe(3);
+  });
+
+  it("counts one attempt for a step that works the first time", async () => {
+    const h = new Harness();
+    h.handlers.s = () => ({ kind: "done", output: {} });
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ stepConfig: { retries: { limit: 2, delay: "1 second" } } }),
+      wf([{ id: "s", kind: "skill", name: "S", skill: "x.y" }]),
+      {},
+    );
+    expect(h.row("s")?.attempt ?? 1).toBe(1);
   });
 });
 
@@ -390,7 +456,12 @@ describe("person steps", () => {
         expect(result.status).toBe("succeeded");
         expect(h.sent[0]?.text).toBe("approved=false");
       } else {
-        expect(result).toEqual({ status: "failed", reason: "timeout", nodeId: "ok" });
+        expect(result).toEqual({
+          status: "failed",
+          reason: "timeout",
+          nodeId: "ok",
+          errorKey: "person:timeout",
+        });
         expect(h.sent).toHaveLength(0);
       }
       expect(h.operatorNotices).toHaveLength(onTimeout === "notify_operator" ? 1 : 0);
@@ -596,7 +667,13 @@ describe("for_each", () => {
       ]),
       { lines: [0, 1, 2, 3] },
     );
-    expect(result).toEqual({ status: "failed", reason: "bad line", nodeId: "each:1:line" });
+    expect(result).toEqual({
+      status: "failed",
+      reason: "bad line",
+      nodeId: "each:1:line",
+      // The step that failed names the error, not the loop around it.
+      errorKey: "skill:failed",
+    });
     expect(h.agentCalls).toHaveLength(2);
     expect(h.row("each")?.status).toBe("failed");
   });
@@ -658,7 +735,59 @@ describe("wait, notify and stop", () => {
       to: "ap@example.com",
       text: "Total 12.00",
       run: RUN,
+      sources: [],
     });
+  });
+
+  it("in a test run sends nothing, keeps the text on the step and says it wasn't sent", async () => {
+    const h = new Harness({ ...RUN, mode: "test" });
+    for (const channel of ["thread", "email", "digest"] as const) {
+      await executeWorkflow(
+        new FakeStepRunner(),
+        h.context(),
+        wf([
+          {
+            id: `n-${channel}`,
+            kind: "notify",
+            name: "Say what changed",
+            channel,
+            message: "Bill {{trigger.bill}} now has 6 lines.",
+            sources: ["{{trigger.doc}}"],
+            client: { visible: true, label: "Told you what changed" },
+          },
+        ]),
+        { bill: "20418", doc: "d1" },
+      );
+      expect(h.row(`n-${channel}`)).toMatchObject({
+        status: "succeeded",
+        input: { channel, text: "Bill 20418 now has 6 lines.", sources: ["d1"] },
+        output: { sent: false },
+        summary: "Would say what changed (test run, not sent)",
+      });
+    }
+    // Nothing reached the notify port: no thread message, no email, nothing a client could see.
+    expect(h.sent).toEqual([]);
+  });
+
+  it("cites its sources: ids and lists of ids, flattened, without blanks or repeats", async () => {
+    const h = new Harness();
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      wf([
+        {
+          id: "n",
+          kind: "notify",
+          name: "Tell",
+          channel: "thread",
+          message: "Done",
+          sources: ["{{trigger.doc}}", "{{trigger.more}}", "{{trigger.missing}}", "fixed-id"],
+        },
+      ]),
+      { doc: "d1", more: ["t1", "d1", "", 7, "t2"] },
+    );
+    expect(h.sent[0]?.sources).toEqual(["d1", "t1", "t2", "fixed-id"]);
+    expect(h.row("n")?.input).toMatchObject({ sources: ["d1", "t1", "t2", "fixed-id"] });
   });
 
   it("ends the run with the stop step's status", async () => {

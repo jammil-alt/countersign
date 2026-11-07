@@ -6,6 +6,12 @@
  * from the package's own woff2 files (tokens.css's @font-face), not from Google Fonts. */
 @import "@countersign/design-system/tokens.css" layer(base);
 @import "@countersign/design-system/components.css" layer(components);
+/* The app's frame and its shared page parts, on the same tokens (shell/shell.css, ui/page.css). */
+@import "./shell/shell.css" layer(components);
+@import "./ui/page.css" layer(components);
+/* UI-2a: the command center, runs and run page (ops/ops-runs.css). */
+@import "./ops/ops-runs.css" layer(components);
+@import "./portal/screens/runs-weekly-sloan.css" layer(components);
 
 /* The Mezonas tokens as Tailwind theme names, one-to-one (`bg-surface`, `text-ink-muted`,
  * `border-line`, `bg-signal-tint`). Tailwind's own palette is removed, so a raw colour class such as
@@ -135,7 +141,16 @@
  * component CSS clears outlines and draws its own on buttons, choices and fields; everything else
  * (links, nav items, tabs, cards that open something) gets the ring here. Unlayered, so it wins. */
 :focus-visible:where(
-  :not(.ds-btn, .ds-choice, .mz-receipt, .ds-input, .ds-select, .ds-textarea, .dt-sort)
+  :not(
+    .ds-btn,
+    .ds-choice,
+    .mz-receipt,
+    .ds-input,
+    .ds-select,
+    .ds-textarea,
+    .dt-sort,
+    .ui-search__input
+  )
 ) {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;

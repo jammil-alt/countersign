@@ -8,7 +8,13 @@ import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { ApiProvider } from "../api/useApi";
 import { PortalApproverRules } from "../portal/screens/ApproverRules";
-import { fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../test/fixtures";
+import {
+  fakeApi,
+  OPERATOR_SESSION,
+  opsClientSettings,
+  Reply,
+  SANDBOX_DETAIL,
+} from "../test/fixtures";
 
 const CLIENT = SANDBOX_DETAIL.client.id;
 const ANA = "00000000-0000-4000-8000-00000000b001";
@@ -79,6 +85,8 @@ describe("back office: who approves", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${CLIENT}`]: () => SANDBOX_DETAIL,
+      // The rules sit on the client page's Settings tab.
+      [`GET /api/ops/clients/${CLIENT}/settings`]: () => opsClientSettings(CLIENT),
       [`GET /api/ops/clients/${CLIENT}/feedback`]: () => ({ enabled: false, changes: [] }),
       [`GET /api/ops/clients/${CLIENT}/approver-rules`]: () => view,
       [`PUT /api/ops/clients/${CLIENT}/approver-rules`]: ({ init }) => {
@@ -92,7 +100,7 @@ describe("back office: who approves", () => {
       },
     });
     render(
-      <MemoryRouter initialEntries={[`/ops/clients/${CLIENT}`]}>
+      <MemoryRouter initialEntries={[`/ops/clients/${CLIENT}/settings`]}>
         <AppProviders client={api.client}>
           <AppRoutes />
         </AppProviders>

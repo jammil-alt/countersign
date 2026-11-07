@@ -107,13 +107,57 @@ describe("portal settings in Spanish", () => {
         client: { id: DEMO, name: "Demo client", timezone: "UTC" },
         approvals: "client_admin",
         notifications: { itemsWaiting: true, weeklyDigest: false },
-        emailsOn: false,
+        emailsOn: true,
+      }),
+      "GET /api/settings/my-notifications": () => ({
+        email: true,
+        sms: false,
+        canText: false,
+        emailsOn: true,
       }),
     });
     renderAt("/settings", api);
     expect(await screen.findByRole("heading", { name: "Ajustes" })).toBeInTheDocument();
+    // UI-3a: the team has its own page; Settings links to it with the count.
     expect(await screen.findByText("1 persona usa su portal.")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-users-admin@demo.example.com")).toHaveTextContent(
+    const emails = await screen.findByTestId("portal-settings-notifications");
+    expect(emails).toHaveTextContent("Resumen semanal");
+    expect(within(emails).getByTestId("portal-notifications-save")).toHaveTextContent("Guardar");
+    expect(screen.getByTestId("portal-settings-approvals")).toHaveTextContent(
+      "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
+    );
+  });
+
+  it("lists the team and invites in Spanish", async () => {
+    const users = [
+      {
+        userId: "u-1",
+        email: "admin@demo.example.com",
+        name: null,
+        role: "client_admin",
+        signedIn: null,
+      },
+    ];
+    const api = portalApi("es", {
+      "GET /api/users": () => ({ users }),
+      "GET /api/team": () => ({ members: [], settings: { undoSeconds: 0 } }),
+      "POST /api/users": ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        const added = {
+          userId: "u-2",
+          email: body.email,
+          name: null,
+          role: body.role,
+          signedIn: false,
+        };
+        users.push(added as unknown as (typeof users)[number]);
+        return { member: added, email: { status: "sent", reason: null } };
+      },
+    });
+    renderAt("/settings/team", api);
+    expect(await screen.findByRole("heading", { name: "Equipo" })).toBeInTheDocument();
+    expect(await screen.findByText("1 persona usa su portal.")).toBeInTheDocument();
+    expect(screen.getByTestId("portal-team-admin@demo.example.com")).toHaveTextContent(
       "Administrador",
     );
     const form = screen.getByTestId("portal-invite");
@@ -128,15 +172,6 @@ describe("portal settings in Spanish", () => {
       "Enviamos una invitación a ana@demo.example.com.",
     );
     expect(await screen.findByText("2 personas usan su portal.")).toBeInTheDocument();
-    const emails = screen.getByTestId("portal-settings-notifications");
-    expect(emails).toHaveTextContent("Resumen semanal");
-    expect(within(emails).getByTestId("portal-notifications-off")).toHaveTextContent(
-      "Los correos llegarán pronto",
-    );
-    expect(within(emails).getByTestId("portal-notifications-save")).toHaveTextContent("Guardar");
-    expect(screen.getByTestId("portal-settings-approvals")).toHaveTextContent(
-      "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
-    );
   });
 });
 
@@ -146,11 +181,11 @@ describe("reports and the service page in German", () => {
     renderAt("/reports", api);
     expect(await screen.findByRole("heading", { name: "Berichte" })).toBeInTheDocument();
     expect(
-      await screen.findByText("Was Ihre Services erledigt haben, 1. Nov. – 3. Nov. 2026."),
+      await screen.findByText("Was Ihre Agenten erledigt haben, 1. Nov. – 3. Nov. 2026."),
     ).toBeInTheDocument();
     const stat = screen.getByTestId("portal-report-runs");
     expect(stat).toHaveTextContent("1.204");
-    expect(stat).toHaveTextContent("1.200 erledigt, 1 fehlgeschlagen, 3 warten auf eine Person");
+    expect(stat).toHaveTextContent("1.200 erledigt, 1 fehlgeschlagen, 3 warten auf Sie");
     expect(screen.getByTestId("portal-report-documents")).toHaveTextContent(
       "4 Dokumente eingegangen",
     );
@@ -188,7 +223,8 @@ describe("reports and the service page in German", () => {
     renderAt(`/services/${SVC}`, api);
     expect(await screen.findByRole("heading", { name: "Record keeping" })).toBeInTheDocument();
     expect(screen.getByText("Pausiert")).toBeInTheDocument();
-    expect(screen.getByText("Hier beschreiben wir, was dieser Service tut.")).toBeInTheDocument();
+    // No description: no placeholder either (QA round 1).
+    expect(screen.queryByText(/Hier beschreiben wir/)).toBeNull();
     expect(screen.getByText("1. Nov. – 4. Nov. 2026")).toBeInTheDocument();
     expect(screen.getByTestId("portal-service-runs")).toHaveTextContent("1 erledigt, 1 wartet");
     expect(screen.getByTestId(`portal-service-run-${RUN}`)).toHaveTextContent("Erledigt");
@@ -232,8 +268,10 @@ describe("records and documents", () => {
     expect(page).toHaveTextContent("Noch kein Dokument verknüpft.");
     // The memo is the tool's own words.
     expect(page).toHaveTextContent("Sheet goods");
-    // The way back (the sidebar has the same link).
-    expect(screen.getAllByRole("link", { name: "Abläufe" })).toHaveLength(2);
+    // The way back: the records list (UI-3a).
+    expect(
+      screen.getAllByRole("link", { name: "Einträge" }).map((a) => a.getAttribute("href")),
+    ).toContain("/records");
   });
 
   it("says in Spanish when an id is no record", async () => {
@@ -298,7 +336,10 @@ describe("records and documents", () => {
       `/records/${TXN}`,
     );
     expect(screen.getByTestId("portal-document-original")).toHaveTextContent("Abrir el original");
-    expect(screen.getAllByRole("link", { name: "Conexiones" })).toHaveLength(2);
+    // The way back: the documents on Upload (UI-3a).
+    expect(
+      screen.getAllByRole("link", { name: "Documentos" }).map((a) => a.getAttribute("href")),
+    ).toContain("/upload");
   });
 });
 
@@ -448,29 +489,55 @@ const knowledgeRoutes = {
 const billingRoutes = {
   "GET /api/billing": () => ({
     setUp: true,
-    plan: { agents: 2, baseFee: eur("250.0000"), monthly: eur("500.0000") },
-    period: { start: "2026-11-01", end: "2026-11-30", through: "2026-11-04" },
-    allowance: 4000,
-    creditsUsed: 4312,
-    extraCredits: 312,
-    extraCreditPrice: eur("0.0150"),
+    monthSoFar: {
+      period: { start: "2026-11-01", end: "2026-11-30", through: "2026-11-04" },
+      daysInMonth: 30,
+      lines: [
+        {
+          id: null,
+          kind: "agent",
+          agentId: AGENT,
+          description: "Orders desk",
+          amount: eur("40.0000"),
+          days: 4,
+          prices: [{ monthlyPrice: eur("300.0000"), days: 4 }],
+        },
+        {
+          id: null,
+          kind: "usage",
+          agentId: null,
+          description: "Extra usage",
+          amount: eur("4.6800"),
+          days: null,
+          prices: [],
+        },
+      ],
+      creditsUsed: 4312,
+      creditsIncluded: 4000,
+      extraCredits: 312,
+      creditPrice: eur("0.0150"),
+      total: eur("44.6800"),
+    },
     paymentProblem: true,
-    invoices: [
+    statements: [
       {
-        id: "in_1",
-        number: "MZ-0001",
-        status: "open",
+        id: "s1",
+        period: { start: "2026-10-01", end: "2026-10-31" },
+        status: "sent",
         total: eur("265.0000"),
-        amountDue: eur("265.0000"),
-        createdAt: "2026-11-01T00:00:00.000Z",
-        periodStart: "2026-10-01T00:00:00.000Z",
-        periodEnd: "2026-11-01T00:00:00.000Z",
-        dueAt: null,
+        creditsUsed: 0,
+        creditsIncluded: 4000,
+        extraCredits: 0,
+        creditPrice: eur("0.0150"),
+        lines: [],
+        invoiceNumber: "MZ-0001",
         hostedInvoiceUrl: "https://invoice.stripe.com/i/acct/in_1",
         pdfUrl: "https://pay.stripe.com/invoice/acct/in_1/pdf",
+        dueAt: "2026-12-01T00:00:00.000Z",
+        sentAt: "2026-11-01T00:07:00.000Z",
+        paidAt: null,
       },
     ],
-    invoicesUnavailable: false,
   }),
 };
 
@@ -524,13 +591,19 @@ const WORDS = {
     question: "Pregunta",
     filterAll: "Todas, con las archivadas",
     billing: "Facturación",
-    plan: ["500,00 €", "al mes"],
-    planNote: "2 servicios × 250,00 €",
+    soFar: "44,68 €",
     allowance: ["4000", "créditos"],
     extra: "0,015 € cada uno, en su próxima factura",
     meter: "4312 de 4000 créditos usados · 312 créditos por encima de lo incluido",
     period: "1 nov – 4 nov 2026",
-    invoice: ["1 nov 2026", "265,00 €", "Por pagar", "Ver y pagar"],
+    month: [
+      "300,00 € al mes · 4 de 30 días",
+      "40,00 €",
+      "Uso adicional",
+      "312 créditos por encima de los 4000 incluidos (4312 usados), 0,015 € cada uno",
+      "Total hasta ahora",
+    ],
+    invoice: ["octubre de 2026", "Vence el 1 dic 2026", "265,00 €", "Por pagar", "Ver y pagar"],
     payment: "Su último pago no se completó.",
     people: "Personas",
     required: "Obligatorio: nadie todavía",
@@ -539,7 +612,7 @@ const WORDS = {
     optedOut: "Dado de baja",
     units: ["minutos", "horas", "días"],
     save: "Guardar personas",
-    nav: ["Conocimiento", "Contactos", "Facturación", "Personas", "Ajustes"],
+    nav: ["Conocimiento", "Registros", "Personas", "Ajustes"],
   },
   de: {
     contacts: "Kontakte",
@@ -559,13 +632,25 @@ const WORDS = {
     question: "Frage",
     filterAll: "Alle, mit archivierten",
     billing: "Abrechnung",
-    plan: ["500,00 €", "pro Monat"],
-    planNote: "2 Services × 250,00 €",
+    soFar: "44,68 €",
     allowance: ["4.000", "Credits"],
     extra: "0,015 € pro Stück, auf Ihrer nächsten Rechnung",
     meter: "4.312 von 4.000 Credits verbraucht · 312 Credits über dem Kontingent",
     period: "1. Nov. – 4. Nov. 2026",
-    invoice: ["1. Nov. 2026", "265,00 €", "Zu bezahlen", "Ansehen und bezahlen"],
+    month: [
+      "300,00 € pro Monat · 4 von 30 Tagen",
+      "40,00 €",
+      "Zusätzliche Nutzung",
+      "312 Credits über den 4.000 enthaltenen (4.312 verbraucht), je 0,015 €",
+      "Gesamt bis jetzt",
+    ],
+    invoice: [
+      "Oktober 2026",
+      "Fällig am 1. Dez. 2026",
+      "265,00 €",
+      "Zu bezahlen",
+      "Ansehen und bezahlen",
+    ],
     payment: "Ihre letzte Zahlung ist nicht durchgegangen.",
     people: "Personen",
     required: "Erforderlich: noch niemand",
@@ -574,7 +659,7 @@ const WORDS = {
     optedOut: "Abgemeldet",
     units: ["Minuten", "Stunden", "Tage"],
     save: "Personen speichern",
-    nav: ["Wissen", "Kontakte", "Abrechnung", "Personen", "Einstellungen"],
+    nav: ["Wissen", "Einträge", "Personen", "Einstellungen"],
   },
 } as const;
 
@@ -583,13 +668,11 @@ for (const locale of ["es", "de"] as const) {
 
   describe(`contacts, knowledge, billing and people in ${locale}`, () => {
     it("keeps contacts' consent, calls and messages, with what they wrote as written", async () => {
-      renderAt("/contacts", portalApi(locale, contactsRoutes));
-      expect(
-        await screen.findByRole("heading", { name: w.contacts, level: 1 }),
-      ).toBeInTheDocument();
+      renderAt("/people/contacts", portalApi(locale, contactsRoutes));
+      expect(await screen.findByRole("heading", { name: w.people, level: 1 })).toBeInTheDocument();
       // The admin's sidebar links, all translated.
       expect(
-        ["knowledge", "contacts", "billing", "people", "settings"].map(
+        ["knowledge", "records", "people", "settings"].map(
           (l) => screen.getByTestId(`portal-nav-${l}`).textContent,
         ),
       ).toEqual(w.nav);
@@ -624,22 +707,22 @@ for (const locale of ["es", "de"] as const) {
     it("shows billing with prices and credits through Intl", async () => {
       renderAt("/billing", portalApi(locale, billingRoutes));
       expect(await screen.findByRole("heading", { name: w.billing })).toBeInTheDocument();
-      const plan = await screen.findByTestId("portal-billing-plan");
-      for (const text of w.plan) expect(plan).toHaveTextContent(text);
-      expect(plan).toHaveTextContent(w.planNote);
+      expect(await screen.findByTestId("portal-billing-so-far")).toHaveTextContent(w.soFar);
       for (const text of w.allowance) {
         expect(screen.getByTestId("portal-billing-allowance")).toHaveTextContent(text);
       }
       expect(screen.getByTestId("portal-billing-extra")).toHaveTextContent(w.extra);
       expect(screen.getByTestId("portal-billing-meter")).toHaveTextContent(w.meter);
-      expect(screen.getByText(new RegExp(`^${w.period}\\.`))).toBeInTheDocument();
-      const row = screen.getByTestId("portal-billing-invoices-row-in_1");
-      for (const text of w.invoice) expect(row).toHaveTextContent(text);
+      expect(screen.getAllByText(new RegExp(`^${w.period}\\.`)).length).toBeGreaterThan(0);
+      const month = screen.getByTestId("portal-billing-month");
+      for (const text of w.month) expect(month).toHaveTextContent(text);
+      const card = screen.getByTestId("portal-billing-statement-s1");
+      for (const text of w.invoice) expect(card).toHaveTextContent(text);
       expect(screen.getByTestId("portal-billing-payment-problem")).toHaveTextContent(w.payment);
     });
 
     it("binds people to roles, with role names and contacts as written", async () => {
-      renderAt("/people", portalApi(locale, peopleRoutes));
+      renderAt("/people/reach", portalApi(locale, peopleRoutes));
       expect(await screen.findByRole("heading", { name: w.people })).toBeInTheDocument();
       const role = await screen.findByTestId("role-purchaser");
       expect(role).toHaveTextContent("purchaser");
@@ -696,25 +779,51 @@ describe("the access page in Spanish and German", () => {
         updatedAt: null,
       },
     ],
+    release: {
+      mode: "code",
+      person: { id: AGENT, name: "Ana Ruiz" },
+      channel: "sms",
+      window: { hours: 4 },
+      sentTo: "•••0142",
+      updatedAt: null,
+      live: [],
+    },
   };
 
   it.each([
-    ["es", "Accesos", "Secreto guardado", "Todas las herramientas", "Restringir"],
-    ["de", "Zugriff", "Geheimnis gespeichert", "Alle Werkzeuge", "Verschärfen"],
+    [
+      "es",
+      "Cuentas",
+      "Secreto guardado",
+      "Todas las herramientas",
+      "Restringir",
+      "Ana Ruiz lo libera con un código por SMS, durante 4 horas.",
+    ],
+    [
+      "de",
+      "Konten",
+      "Geheimnis gespeichert",
+      "Alle Tools",
+      "Verschärfen",
+      "Ana Ruiz gibt es mit einem Code per SMS frei, für 4 Stunden.",
+    ],
   ] as const)(
     "in %s: the vault's words, the client's names as written",
-    async (locale, title, secret, all, tighten) => {
+    async (locale, title, secret, all, tighten, release) => {
       const api = portalApi(locale, {
-        "GET /api/access": () => ({ items: [item], setup: [], canEdit: true }),
+        "GET /api/access": () => ({ items: [item], setup: [], canEdit: true, people: [] }),
       });
+      // `/access` lands on the Accounts page's vault; a login's details open on request.
       renderAt("/access", api);
       const card = await screen.findByTestId("vault-item-acme");
+      await userEvent.click(within(card).getByTestId("vault-item-open"));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(title);
       expect(within(card).getByTestId("vault-secret-state")).toHaveTextContent(secret);
       expect(card).toHaveTextContent("Compras");
       expect(card).toHaveTextContent("agent@demo.example.com");
       expect(card).toHaveTextContent(all);
       expect(within(card).getByTestId("vault-agent-tighten")).toHaveTextContent(tighten);
+      expect(within(card).getByTestId("release-summary")).toHaveTextContent(release);
     },
   );
 });

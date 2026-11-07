@@ -36,34 +36,32 @@ export function OverviewTab({
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_340px]">
       <div className="flex flex-col gap-5">
-        <Card className="p-5" testId="agent-how-it-works">
-          <SectionLabel
-            action={
-              bundle.workflows.length > 0 ? (
-                <Link to={`${base}/workflow`} className="text-sm text-link underline">
-                  Open workflow
-                </Link>
-              ) : null
-            }
-          >
-            How it works · {plural(stats.steps, "step")}, {plural(stats.forks, "fork")}
-          </SectionLabel>
+        <Card
+          testId="agent-how-it-works"
+          pad
+          title={`How it works · ${plural(stats.steps, "step")}, ${plural(stats.forks, "fork")}`}
+          meta={
+            bundle.workflows.length > 0 ? (
+              <Link to={`${base}/workflow`} className="text-sm text-link">
+                Open workflow
+              </Link>
+            ) : null
+          }
+        >
           {bundle.workflows.length === 0 ? (
             <p className="text-ink-muted">No workflows: this agent answers asks and commands.</p>
           ) : (
             bundle.workflows.map((w) => <StepChips key={w.slug} workflow={w} />)
           )}
         </Card>
-        <Card className="p-5">
-          <SectionLabel>Mission</SectionLabel>
+        <Card title="Mission" pad>
           <p className="text-lg text-ink">
             {bundle.definition.identity.mission || "No mission written yet."}
           </p>
         </Card>
         {agent.kind === "client" ? <LatestRuns agentId={agent.id} /> : <TemplateRunsNote />}
       </div>
-      <Card className="h-fit p-5">
-        <SectionLabel>Works in</SectionLabel>
+      <Card className="h-fit" title="Works in" pad>
         {agent.kind === "client" ? (
           <Chips
             testId="agent-works-in"
@@ -145,8 +143,7 @@ function Chips({ items, empty, testId }: { items: string[]; empty: string; testI
 export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: number }) {
   const runs = useApi(apiRoutes.opsRuns, { query: { agent: agentId, limit } });
   return (
-    <Card className="p-5" testId="agent-latest-runs">
-      <SectionLabel>{limit > 5 ? "Runs" : "Latest runs"}</SectionLabel>
+    <Card testId="agent-latest-runs" title={limit > 5 ? "Runs" : "Latest runs"} pad>
       {runs.error ? <ErrorNotice error={runs.error} onRetry={runs.reload} /> : null}
       {!runs.data && !runs.error ? <Loading /> : null}
       {runs.data && runs.data.runs.length === 0 ? (
@@ -176,8 +173,7 @@ export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: nu
 
 function TemplateRunsNote() {
   return (
-    <Card className="p-5">
-      <SectionLabel>Runs</SectionLabel>
+    <Card title="Runs" pad>
       <p className="text-sm text-ink-muted">
         A template never runs for a client. Its test runs run as its test copy in the Sandbox
         client; its client agents run in their own clients.

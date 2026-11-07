@@ -31,6 +31,11 @@ const PILL: Record<Tone, string> = {
   person: "border-copper-tint bg-copper-tint text-copper-ink",
 };
 
+/** The StatusPill classes for a tone. */
+export function pillClass(tone: Tone): string {
+  return cx("ds-pill", PILL[tone]);
+}
+
 /** A status pill (StatusPill): "Live · v4", "Draft", "Needs approval", "Failed". */
 export function Badge({
   tone = "neutral",
@@ -121,24 +126,43 @@ export function Button({
   return <button type="button" {...rest} className={buttonClass(variant, className, size)} />;
 }
 
-/** A sheet on the table: `surface` with a `line` hairline, `radius-md`, no shadow. */
+/**
+ * A sheet on the table: `surface` with a `line` hairline, `radius-md`, no shadow. With a `title`
+ * (and a right-side `meta`) it gets the card's head row; a `footer` gets a foot row; `pad` pads the
+ * body (20px 24px) for cards that aren't lists.
+ */
 export function Card({
   children,
   className,
   dashed,
   testId,
+  title,
+  meta,
+  footer,
+  pad,
 }: {
   children: ReactNode;
   className?: string;
   dashed?: boolean;
   testId?: string;
+  title?: ReactNode;
+  meta?: ReactNode;
+  footer?: ReactNode;
+  pad?: boolean;
 }) {
   return (
     <div
       data-testid={testId}
       className={cx("ds-card", dashed && "border-dashed border-line-strong", className)}
     >
-      {children}
+      {title || meta ? (
+        <div className="ui-card__head">
+          {title ? <h3 className="type-subheading text-ink">{title}</h3> : <span />}
+          {meta ? <div className="ui-card__meta">{meta}</div> : null}
+        </div>
+      ) : null}
+      {pad ? <div className="ui-card__body">{children}</div> : children}
+      {footer ? <div className="ui-card__foot">{footer}</div> : null}
     </div>
   );
 }
@@ -159,7 +183,10 @@ export function PageHeader({
   actions,
   leading,
   badge,
+  eyebrow,
 }: {
+  /** "THURSDAY, NOVEMBER 5", "RUNS / R-2287": a kicker above the title. */
+  eyebrow?: ReactNode;
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
@@ -167,10 +194,11 @@ export function PageHeader({
   badge?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex items-start justify-between gap-6">
+    <header className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="flex min-w-0 items-start gap-4">
         {leading}
         <div className="min-w-0">
+          {eyebrow ? <p className="eyebrow mb-2 text-ink-muted">{eyebrow}</p> : null}
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="type-title text-ink">{title}</h1>
             {badge}
@@ -228,8 +256,14 @@ export function Tabs({
   items: { to: string; label: string; count?: number; end?: boolean; active?: boolean }[];
 }) {
   const { t } = useI18n();
+  // On a phone the row scrolls sideways inside itself, not the page. The hairline under it is
+  // drawn as its background, so the active tab's underline covers it without a negative margin
+  // (which would make a scrolling row scroll a pixel down too).
   return (
-    <nav className="flex gap-5 border-b border-line" aria-label={t("common.sections")}>
+    <nav
+      className="flex gap-5 overflow-x-auto bg-[linear-gradient(var(--line),var(--line))] bg-[length:100%_1px] bg-bottom bg-no-repeat"
+      aria-label={t("common.sections")}
+    >
       {items.map((t) => (
         <NavLink
           key={t.to}
@@ -237,7 +271,7 @@ export function Tabs({
           end={t.end ?? false}
           className={({ isActive }) =>
             cx(
-              "-mb-px inline-flex items-center gap-1.5 border-b-2 py-3 text-sm leading-none font-medium",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 py-3 text-sm leading-none font-medium",
               (t.active ?? isActive)
                 ? "border-slate text-ink"
                 : "border-transparent text-ink-muted hover:text-ink",

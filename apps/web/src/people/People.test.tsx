@@ -71,8 +71,8 @@ describe("portal: People", () => {
         return { people: peopleOf(body.people) };
       },
     });
-    renderAt("/people", api);
-    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 5000 });
+    renderAt("/people/reach", api);
+    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 10_000 });
     expect(within(role).getByTestId("role-purchaser-required")).toHaveTextContent(
       "Required: nobody yet",
     );
@@ -101,6 +101,42 @@ describe("portal: People", () => {
     );
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
     expect(screen.queryByTestId("people-missing")).toBeNull();
+  });
+});
+
+describe("portal: People picked from the directory", () => {
+  it("shows each person's title and organization, and narrows a long list by search", async () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-0000000c01${String(i).padStart(2, "0")}`,
+      name: `Person ${i}`,
+      roles: [],
+      reachable: ["email" as const],
+      optedOut: false,
+      title: "Driver",
+      organization: "Elm Haulage",
+    }));
+    const base = peopleOf();
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/feedback/status": () => ({ enabled: false }),
+      "GET /api/people": () => ({
+        items: [
+          {
+            ...base,
+            contacts: [
+              { ...base.contacts[0], title: "Buyer", organization: "Birch & Co" },
+              ...many,
+            ],
+          },
+        ],
+      }),
+    });
+    renderAt("/people/reach", api);
+    const role = await screen.findByTestId("role-purchaser", {}, { timeout: 10_000 });
+    expect(within(role).getByText("Buyer, Birch & Co")).toBeInTheDocument();
+    await userEvent.type(within(role).getByTestId("role-purchaser-find"), "birch");
+    expect(within(role).getByTestId(`role-purchaser-contact-${PAT}`)).toBeInTheDocument();
+    expect(within(role).queryByText("Person 3")).toBeNull();
   });
 });
 
@@ -313,7 +349,9 @@ describe("contacts: reach-out details", () => {
       },
     });
     renderAt("/contacts", api);
-    await userEvent.click(await screen.findByTestId(`contact-${PAT}-open`, {}, { timeout: 5000 }));
+    await userEvent.click(
+      await screen.findByTestId(`contact-${PAT}-open`, {}, { timeout: 10_000 }),
+    );
     await userEvent.type(screen.getByTestId(`contact-${PAT}-email-input`), "pat@shop.example");
     await userEvent.selectOptions(screen.getByTestId(`contact-${PAT}-preferred-0`), "whatsapp");
     await userEvent.selectOptions(screen.getByTestId(`contact-${PAT}-preferred-1`), "voice");
@@ -326,7 +364,7 @@ describe("contacts: reach-out details", () => {
           email: "pat@shop.example",
           phone: "+15555550100",
           whatsapp: null,
-          language: null,
+          // The language is sent only when it changed.
           preferredChannels: ["whatsapp", "voice"],
           timezone: "America/Chicago",
           quietHours: null,

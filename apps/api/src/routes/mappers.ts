@@ -1,6 +1,11 @@
 // Rows → response shapes. Dates become ISO strings; permission matrices are filled with defaults.
 
-import type { AgentRow, AgentVersionRow } from "@countersign/agents";
+import {
+  type AgentRow,
+  type AgentVersionRow,
+  type Approver,
+  mayResolve,
+} from "@countersign/agents";
 import { normalizeMatrix } from "@countersign/connectors";
 import type { PermissionMatrix } from "@countersign/core";
 import type {
@@ -11,7 +16,9 @@ import type {
   stepRun,
   toolCall,
 } from "@countersign/db";
+import { changeDisplay, itemDisplay } from "../change-display";
 import { iso } from "../http";
+import type { Platform } from "../platform";
 
 type ConnectionRow = typeof connection.$inferSelect;
 type RunRow = typeof run.$inferSelect;
@@ -19,6 +26,7 @@ type StepRunRow = typeof stepRun.$inferSelect;
 type ToolCallRow = typeof toolCall.$inferSelect;
 type ActionRow = typeof externalAction.$inferSelect;
 type InboxRow = typeof inboxItem.$inferSelect;
+type Registries = Pick<Platform, "tools" | "connectors">;
 
 export function agentSummary(a: AgentRow) {
   return {
@@ -129,10 +137,11 @@ export function opsToolCall(t: ToolCallRow) {
   };
 }
 
-export function opsAction(a: ActionRow) {
+export function opsAction(a: ActionRow, platform: Registries) {
   return {
     id: a.id,
     tool: a.tool,
+    display: changeDisplay(platform, a.tool),
     connectionId: a.connectionId,
     stepRunId: a.stepRunId,
     status: a.status,
@@ -144,10 +153,15 @@ export function opsAction(a: ActionRow) {
     approvedBy: a.approvedBy,
     approvedAt: iso(a.approvedAt),
     executedAt: iso(a.executedAt),
+    // v0.12 W1-D: the signer's edit before signing; `input` stays the agent's (both show).
+    editedInput: a.editedInput ?? null,
+    editedBy: a.editedBy,
+    editedAt: iso(a.editedAt),
   };
 }
 
-export function opsInboxItem(i: InboxRow) {
+/** An inbox item for the back office; `operator` is the signed-in operator in the item's client. */
+export function opsInboxItem(i: InboxRow, operator: Approver, platform: Registries) {
   return {
     id: i.id,
     tenantId: i.tenantId,
@@ -160,12 +174,18 @@ export function opsInboxItem(i: InboxRow) {
     assigneeUserId: i.assigneeUserId,
     title: i.title,
     payload: i.payload,
+    display: itemDisplay(platform, i),
     status: i.status,
     resolution: i.resolution ?? null,
     resolvedBy: i.resolvedBy,
     dueAt: iso(i.dueAt),
     createdAt: i.createdAt.toISOString(),
     resolvedAt: iso(i.resolvedAt),
+    resolvableByOperator: mayResolve(i, operator),
+    // v0.12 W1-D: the Desk's undo window, snooze and batch.
+    deliverAfter: iso(i.deliverAfter),
+    snoozedUntil: iso(i.snoozedUntil),
+    batchKey: i.batchKey,
   };
 }
 

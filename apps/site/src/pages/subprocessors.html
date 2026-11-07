@@ -1,0 +1,144 @@
+<!--
+title: Subprocessors
+description: The providers Mezonas uses to run the service, what each one does and the data it handles, and the tools clients connect themselves.
+legal: true
+-->
+<div class="wrap">
+  <article class="doc doc--wide">
+    <header class="doc__head">
+      <p class="eyebrow">Legal</p>
+      <h1>Subprocessors</h1>
+      <p class="doc__updated">Last updated <time datetime="2026-11-06">November 6, 2026</time></p>
+    </header>
+    <p class="doc__intro">
+      These are the providers we use to run Mezonas. Each one handles client data only for the
+      task listed, under a contract with us. Our <a href="/privacy">privacy policy</a> explains how
+      we handle data overall.
+    </p>
+
+    <section id="providers" aria-labelledby="providers-title">
+      <h2 id="providers-title">Our providers</h2>
+      <table class="table">
+        <caption class="visually-hidden">Subprocessors, what each does and the data it handles</caption>
+        <thead>
+          <tr>
+            <th scope="col">Provider</th>
+            <th scope="col">What it does for us</th>
+            <th scope="col">Data it handles</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Cloudflare</th>
+            <td data-label="What it does for us">Hosts the service and this website, stores files, receives forwarded email and the email that carries agents' sign-in codes, and runs the browsers agents use to sign in to websites (when website logins are switched on).</td>
+            <td data-label="Data it handles">All service data in transit; documents and other files; forwarded email headers and attachments; screenshots taken during website sessions.</td>
+          </tr>
+          <tr>
+            <th scope="row">Neon</th>
+            <td data-label="What it does for us">Hosts our database, in the United States.</td>
+            <td data-label="Data it handles">Account data, client records and documents' extracted details, directories, messages and transcripts, logs, and the encrypted logins and keys clients store.</td>
+          </tr>
+          <tr>
+            <th scope="row">WorkOS</th>
+            <td data-label="What it does for us">Sign-in and invitations for the portal and back office.</td>
+            <td data-label="Data it handles">Users' names, email addresses and sign-in events.</td>
+          </tr>
+          <tr>
+            <th scope="row">Anthropic</th>
+            <td data-label="What it does for us">AI model processing for agents.</td>
+            <td data-label="Data it handles">The content each agent step needs, such as document text, records and messages.</td>
+          </tr>
+          <tr>
+            <th scope="row">OpenAI</th>
+            <td data-label="What it does for us">AI model processing, for agents set up to use its models.</td>
+            <td data-label="Data it handles">The content each agent step needs, such as document text, records and messages.</td>
+          </tr>
+          <tr>
+            <th scope="row">Twilio</th>
+            <td data-label="What it does for us">Texts, WhatsApp messages and phone calls on clients' numbers; one-time release codes by text; phone numbers that receive agents' sign-in codes.</td>
+            <td data-label="Data it handles">Phone numbers, message content, call details, voicemails and codes.</td>
+          </tr>
+          <tr>
+            <th scope="row">ElevenLabs</th>
+            <td data-label="What it does for us">The voice of agents on live phone calls.</td>
+            <td data-label="Data it handles">Call audio, transcripts and summaries, and what the agent may say on the call.</td>
+          </tr>
+          <tr>
+            <th scope="row">Resend</th>
+            <td data-label="What it does for us">Sends email for agents and one-time release codes, from clients' verified domains or ours.</td>
+            <td data-label="Data it handles">Recipients' email addresses and the content of the messages.</td>
+          </tr>
+          <tr>
+            <th scope="row">Plaid</th>
+            <td data-label="What it does for us">Connects the bank accounts and cards you choose and sends us their transactions, read only. It can't move money for us. You sign in to your bank in Plaid's window; we never see that login.</td>
+            <td data-label="Data it handles">The accounts you connect: names, the last four digits, balances and transactions.</td>
+          </tr>
+          <tr>
+            <th scope="row">Stripe</th>
+            <td data-label="What it does for us">Billing, invoices and payments.</td>
+            <td data-label="Data it handles">Clients' billing contacts, company names, invoices, usage totals and payments.</td>
+          </tr>
+          <tr>
+            <th scope="row">Sentry</th>
+            <td data-label="What it does for us">Error tracking.</td>
+            <td data-label="Data it handles">Error reports, stripped of request bodies, email addresses, IP addresses and the content agents work on.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="services-you-connect" aria-labelledby="services-you-connect-title">
+      <h2 id="services-you-connect-title">Services you connect</h2>
+      <p>
+        These are your own tools. You connect them and sign in to them yourself, and our agents
+        act in them on your instruction, within the permissions you set. They are not our
+        subprocessors: your own agreement with each provider covers the data you keep there.
+      </p>
+      <table class="table">
+        <caption class="visually-hidden">Services clients connect and what agents do in them</caption>
+        <thead>
+          <tr>
+            <th scope="col">Service</th>
+            <th scope="col">What agents do there</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Google Gmail</th>
+            <td data-label="What agents do there">Send email you have approved, from your own Gmail account.</td>
+          </tr>
+          <tr>
+            <th scope="row">Intuit QuickBooks Online</th>
+            <td data-label="What agents do there">Read accounting records and make the changes you approve.</td>
+          </tr>
+          <tr>
+            <th scope="row">Zoho CRM</th>
+            <td data-label="What agents do there">Read and update CRM records, notes and tasks you allow.</td>
+          </tr>
+          <tr>
+            <th scope="row">Podio</th>
+            <td data-label="What agents do there">Read and update items, comments and tasks in the apps you allow.</td>
+          </tr>
+          <tr>
+            <th scope="row">Webhook services, such as Zapier, Make or n8n</th>
+            <td data-label="What agents do there">Receive events you send us and send events you set up.</td>
+          </tr>
+          <tr>
+            <th scope="row">Websites you set up a login for</th>
+            <td data-label="What agents do there">Sign in as an agent account you create, read the pages you allow and download files.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="changes" aria-labelledby="changes-title">
+      <h2 id="changes-title">Changes to this list</h2>
+      <p>
+        When we add or replace a subprocessor, we update this page and its date. We tell each
+        client's admin by email at least 30 days before a new subprocessor starts handling client
+        data, so you can tell us if you object.
+      </p>
+      <p>Questions: jammil@twelvethirty-4.com.</p>
+    </section>
+  </article>
+</div>

@@ -60,6 +60,8 @@ describe("RunWorkflow's StepRunner adapter under the Workflows engine", () => {
       status: "failed",
       reason: "timeout",
       nodeId: "ask",
+      // v0.12 W1-E: what failed runs are grouped by.
+      errorKey: "person:timeout",
     });
   });
 

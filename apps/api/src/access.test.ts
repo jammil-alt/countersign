@@ -286,6 +286,29 @@ describe.skipIf(!h)("access: the vault, write-only secrets and grants", () => {
     expect(logged.some((c) => (c.change as { by?: string }).by === "client")).toBe(true);
   });
 
+  it("names each account as the client knows it, never by its id in the tool", async () => {
+    // QA round 1: a QuickBooks realm id is not a name; the company name the connector set is.
+    const [was] = await H.t.db.select().from(connection).where(eq(connection.id, acmeA));
+    await H.t.db
+      .update(connection)
+      .set({ externalAccountId: "9341455130122716", config: {} })
+      .where(eq(connection.id, acmeA));
+    const named = async () =>
+      routes.portalAccess.response
+        .parse((await call(admin("a"), "GET", routes.portalAccess.path)).json)
+        .items.find((i) => i.connectionId === acmeA);
+    expect((await named())?.accountName).toBeNull();
+    await H.t.db
+      .update(connection)
+      .set({ config: { accountName: "Harbor Millwork" } })
+      .where(eq(connection.id, acmeA));
+    expect((await named())?.accountName).toBe("Harbor Millwork");
+    await H.t.db
+      .update(connection)
+      .set({ externalAccountId: was?.externalAccountId ?? null, config: was?.config ?? {} })
+      .where(eq(connection.id, acmeA));
+  });
+
   it("keeps clients apart: B can't see or change A's vault or grants", async () => {
     const res = await call(admin("b"), "GET", routes.portalAccess.path);
     const view = routes.portalAccess.response.parse(res.json);

@@ -1,0 +1,14 @@
+{
+  "Fault": {
+    "Error": [
+      {
+        "Message": "Stale Object Error",
+        "Detail": "Stale Object Error : You and Ana Ruiz were working on this at the same time. Ana Ruiz finished before you did, so your work was not saved.",
+        "code": "5010",
+        "element": ""
+      }
+    ],
+    "type": "ValidationFault"
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

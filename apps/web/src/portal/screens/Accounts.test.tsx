@@ -1,0 +1,317 @@
+// C4 Accounts and vault (docs/ui-plan.md): the tools with their state and the agents that use
+// them, the numbers on top, each tool's matrix opened on request (a client admin is offered only
+// stricter levels), the vault in the rail with its website logins (never a secret), and the tools
+// still to connect. A client user reads it all and changes nothing.
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { describe, expect, it } from "vitest";
+import { AppProviders, AppRoutes } from "../../App";
+import { CLIENT_SESSION, fakeApi, Reply } from "../../test/fixtures";
+
+const TENANT = CLIENT_SESSION.activeTenantId as string;
+const QBO_CONN = "00000000-0000-4000-8000-0000000c0a01";
+const GMAIL_CONN = "00000000-0000-4000-8000-0000000c0a02";
+const SITE_CONN = "00000000-0000-4000-8000-0000000c0a03";
+const AGENT = "00000000-0000-4000-8000-0000000a0a01";
+
+const MATRIX = { read: "auto", create: "approval", update: "approval", delete: "off" };
+const RELEASE_OFF = {
+  mode: "off",
+  person: null,
+  channel: "email",
+  window: "run",
+  sentTo: null,
+  updatedAt: null,
+  live: [],
+};
+
+const QBO = {
+  connector: "qbo",
+  name: "QuickBooks Online",
+  description: "Bills, vendors and items.",
+  icon: null,
+  available: true,
+  credentialForm: false,
+  personal: false,
+  connection: {
+    id: QBO_CONN,
+    status: "connected",
+    externalAccountId: "9130357766900456",
+    accountName: "Harbor Millwork LLC",
+    lastSyncAt: "2026-11-05T18:00:00.000Z",
+    permissions: MATRIX,
+    access: [
+      {
+        toolId: "qbo.bill.query",
+        description: "Find bills",
+        verb: "read",
+        level: "auto",
+        access: "runs",
+      },
+    ],
+    usedBy: [{ id: AGENT, name: "Pia" }],
+    connectedByYou: true,
+  },
+};
+
+const GMAIL_BROKEN = {
+  connector: "gmail",
+  name: "Gmail",
+  description: "Send email from your Gmail.",
+  icon: null,
+  available: true,
+  credentialForm: false,
+  personal: true,
+  connection: {
+    id: GMAIL_CONN,
+    status: "error",
+    externalAccountId: "ap@harbor.example.com",
+    accountName: null,
+    lastSyncAt: null,
+    permissions: MATRIX,
+    access: [],
+    usedBy: [],
+    connectedByYou: false,
+  },
+};
+
+const ZOHO = {
+  connector: "zoho_crm",
+  name: "Zoho CRM",
+  description: "Leads, contacts, accounts and deals in your Zoho CRM.",
+  icon: null,
+  available: true,
+  credentialForm: false,
+  personal: false,
+  connection: null,
+};
+
+function qboItem() {
+  return {
+    connectionId: QBO_CONN,
+    connector: "qbo",
+    name: "QuickBooks Online",
+    kind: "oauth",
+    status: "connected",
+    externalAccountId: null,
+    secret: { set: true, fields: [], updatedAt: null },
+    credentialForm: false,
+    matrix: MATRIX,
+    tools: [{ id: "qbo.bill.query", description: "Find bills", verb: "read" }],
+    agents: [
+      {
+        agentId: AGENT,
+        name: "Pia",
+        limits: {},
+        effective: MATRIX,
+        tools: null,
+        revoked: false,
+        updatedAt: null,
+      },
+    ],
+    browser: null,
+    release: RELEASE_OFF,
+  };
+}
+
+function siteItem() {
+  return {
+    ...qboItem(),
+    connectionId: SITE_CONN,
+    connector: "browser",
+    name: "Hafele dealer portal",
+    kind: "browser",
+    secret: {
+      set: true,
+      fields: [
+        {
+          name: "username",
+          label: "Agent account username",
+          secret: false,
+          hint: null,
+          set: true,
+          value: "agent@harbor.example.com",
+        },
+        {
+          name: "password",
+          label: "Agent account password",
+          secret: true,
+          hint: null,
+          set: true,
+          value: null,
+        },
+      ],
+      updatedAt: "2026-11-03T10:00:00.000Z",
+    },
+    credentialForm: true,
+    agents: [],
+    browser: {
+      site: { slug: "hafele", name: "Hafele dealer portal", tier: "low" },
+      effectiveTier: "low",
+      siteVersion: 1,
+      identity: { email: "agent-abc@agents.mezonas.com", phone: null },
+      stricter: { noWrites: false, personSignIn: false },
+      signInsPerDay: 10,
+      signInsToday: 0,
+      stopped: { reason: "the password stopped working", at: "2026-11-04T10:00:00.000Z" },
+    },
+  };
+}
+
+function renderAs(
+  role: "client_admin" | "client_user",
+  routes: Record<string, Parameters<typeof fakeApi>[0][string]> = {},
+) {
+  const api = fakeApi({
+    "GET /api/session": () => ({
+      ...CLIENT_SESSION,
+      tenants: [{ id: TENANT, name: "Harbor Millwork", role }],
+    }),
+    "GET /api/overview": () => new Reply(404, {}),
+    "GET /api/feedback/status": () => ({ enabled: false }),
+    "GET /api/connections": () => ({ connections: [QBO, GMAIL_BROKEN, ZOHO] }),
+    "GET /api/access": () => ({
+      items: [qboItem(), siteItem()],
+      setup: [],
+      browserSites: [
+        { slug: "rugby", name: "Rugby Architectural", tier: "low", secondFactor: "email" },
+      ],
+      canEdit: role === "client_admin",
+      people: [],
+    }),
+    "GET /api/connections/upload/forwarding": () => new Reply(404, {}),
+    "GET /api/documents": () => ({ items: [] }),
+    ...routes,
+  });
+  render(
+    <MemoryRouter initialEntries={["/accounts"]}>
+      <AppProviders client={api.client}>
+        <AppRoutes />
+      </AppProviders>
+    </MemoryRouter>,
+  );
+  return api;
+}
+
+describe("C4 Accounts and vault", () => {
+  it("shows the numbers, each tool with its agents, the vault and the tools to add", async () => {
+    renderAs("client_admin");
+    expect(await screen.findByRole("heading", { name: "Accounts", level: 1 })).toBeVisible();
+    const connected = await screen.findByTestId("accounts-stat-connected");
+    expect(connected).toHaveTextContent("1");
+    expect(connected).toHaveTextContent("1 stopped working");
+    await waitFor(() =>
+      expect(screen.getByTestId("accounts-stat-logins")).toHaveTextContent("1 needs a login"),
+    );
+    expect(screen.getByTestId("accounts-stat-waiting")).toHaveTextContent("2");
+
+    const qbo = screen.getByTestId("portal-connection-qbo");
+    expect(qbo).toHaveTextContent("Harbor Millwork LLC");
+    expect(within(qbo).getByTestId("portal-connection-status")).toHaveTextContent("Connected");
+    expect(qbo).toHaveTextContent("Pia");
+    // A broken tool says so in words, and the admin reconnects it from its card.
+    const gmail = screen.getByTestId("portal-connection-gmail");
+    expect(within(gmail).getByTestId("portal-connection-status")).toHaveTextContent(
+      "Needs reconnecting",
+    );
+    expect(within(gmail).getByTestId("portal-connection-connect")).toHaveTextContent("Reconnect");
+
+    // The vault: the website login and why it needs you; never a secret.
+    const site = await screen.findByTestId("vault-item-browser-hafele");
+    expect(within(site).getByTestId("vault-item-state")).toHaveTextContent("Needs you");
+    expect(within(site).getByTestId("vault-browser-stopped")).toHaveTextContent(
+      "the password stopped working",
+    );
+    expect(site).toHaveTextContent("Agent login · agent-abc@agents.mezonas.com");
+    expect(screen.queryByTestId("vault-add-panel")).toBeNull();
+
+    // Sign-off limits are in Settings: a link, not a second copy here.
+    expect(
+      within(screen.getByTestId("accounts-signoff")).getByRole("link", { name: "Settings" }),
+    ).toHaveAttribute("href", "/settings");
+
+    const add = screen.getByTestId("portal-connections-available");
+    expect(within(add).getByTestId("portal-connection-zoho_crm")).toHaveTextContent("Zoho CRM");
+
+    // QA round 1: uploading lives in Records; Accounts keeps the forwarding address and a link.
+    expect(screen.queryByTestId("portal-upload-input")).toBeNull();
+    expect(screen.queryByTestId("portal-recent-documents")).toBeNull();
+    expect(screen.getByTestId("portal-forwarding")).toBeInTheDocument();
+    expect(screen.getByTestId("portal-forwarding-records")).toHaveAttribute("href", "/records");
+  });
+
+  it("opens a tool's matrix and tightens it: only the saved level or stricter", async () => {
+    const patches: unknown[] = [];
+    renderAs("client_admin", {
+      [`PATCH /api/connections/${QBO_CONN}/permissions`]: ({ init }) => {
+        patches.push(JSON.parse(String(init.body)));
+        return { connection: QBO };
+      },
+    });
+    const qbo = await screen.findByTestId("portal-connection-qbo");
+    expect(within(qbo).queryByTestId("matrix")).toBeNull();
+    await userEvent.click(within(qbo).getByTestId("portal-connection-permissions-toggle"));
+    const matrix = within(qbo).getByTestId("matrix");
+    const create = within(matrix).getByTestId("matrix-create-select");
+    expect(
+      within(create)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Approval", "Off"]);
+    await userEvent.selectOptions(create, "off");
+    await userEvent.click(within(qbo).getByTestId("matrix-changes-save"));
+    await waitFor(() => expect(patches).toEqual([{ create: "off" }]));
+    // The agent's grant and its tools are there too.
+    expect(within(qbo).getByTestId(`vault-agent-${AGENT}`)).toHaveTextContent("Pia");
+    expect(within(qbo).getByTestId("portal-connection-tools")).toHaveTextContent("Find bills");
+  });
+
+  it("Add a login to the vault opens the sites a login can be set up on", async () => {
+    renderAs("client_admin");
+    await screen.findByTestId("vault-item-browser-hafele");
+    await userEvent.click(screen.getByTestId("accounts-add-login"));
+    const panel = screen.getByTestId("vault-add-panel");
+    expect(within(panel).getByTestId("vault-browser-offer-rugby")).toHaveTextContent(
+      "Rugby Architectural",
+    );
+    await userEvent.click(screen.getByTestId("vault-add"));
+    expect(screen.queryByTestId("vault-add-panel")).toBeNull();
+  });
+
+  it("lands `/access` on the vault", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => new Reply(404, {}),
+      "GET /api/connections": () => ({ connections: [] }),
+      "GET /api/access": () => ({ items: [], setup: [], canEdit: true, people: [] }),
+    });
+    render(
+      <MemoryRouter initialEntries={["/access"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("vault-card")).toBeInTheDocument();
+    expect(screen.getByTestId("vault-empty")).toHaveTextContent("No logins in your vault yet.");
+  });
+
+  it("a client user reads it all and changes nothing", async () => {
+    renderAs("client_user");
+    const qbo = await screen.findByTestId("portal-connection-qbo");
+    expect(screen.queryByTestId("accounts-add-login")).toBeNull();
+    expect(screen.queryByTestId("accounts-connect")).toBeNull();
+    await userEvent.click(within(qbo).getByTestId("portal-connection-permissions-toggle"));
+    expect(within(qbo).queryByTestId("matrix-create-select")).toBeNull();
+    expect(within(qbo).getByTestId("matrix-create-level")).toHaveTextContent("Approval");
+    expect(within(qbo).queryByTestId("portal-connection-disconnect-start")).toBeNull();
+    const site = await screen.findByTestId("vault-item-browser-hafele");
+    expect(within(site).queryByTestId("vault-replace")).toBeNull();
+    expect(screen.queryByTestId("vault-add")).toBeNull();
+    // The admin connects tools; a client user is told so.
+    expect(screen.getByTestId("portal-connection-zoho_crm")).toHaveTextContent(
+      "Your admin can connect it.",
+    );
+  });
+});

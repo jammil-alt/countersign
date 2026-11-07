@@ -3,16 +3,19 @@
 // state and who uses them, the permission matrix (the operator may loosen as well as tighten) and
 // each connection's configuration. The client signs in from the portal; the operator never
 // connects a tool on a client's behalf and never sees credentials. The one exception is the Sandbox
-// client, the operator's own test client, whose no-sign-in tools the operator connects here.
+// client, the operator's own test client: the operator connects its no-sign-in tools here, and signs
+// in to its offered OAuth tools with their own account (the provider returns to
+// `/ops/connections/:connector/callback`). The Sandbox's connected Gmail also sends a test email
+// to itself from here (plan §1.31).
+import { connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { shortTime } from "../../runs/format";
-import { useSession } from "../../session/session";
 import {
   Badge,
   Button,
@@ -20,36 +23,44 @@ import {
   EmptyState,
   ErrorNotice,
   Loading,
-  PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
+import { ClientFrame } from "../client/ClientFrame";
 
 type Data = ResponseOf<typeof apiRoutes.opsClientConnections>;
 
 export function OpsConnectionsScreen() {
   const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <Connections clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+function Connections({ clientId }: { clientId: string }) {
   const api = useApiClient();
-  const session = useSession();
-  const clientName = session.tenants.find((t) => t.id === clientId)?.name ?? "This client";
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientConnections, {
     params: { id: clientId },
   });
+  // v0.12 W2-A: each connector's record types, for the matrix's entity rows.
+  const catalog = useApi(apiRoutes.opsConnectors);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!data) return null;
 
   const names = Object.fromEntries(data.connectors.map((c) => [c.id, c.name]));
+  const entitiesOf = Object.fromEntries(
+    (catalog.data?.connectors ?? []).map((c) => [c.id, c.permissionEntities]),
+  );
   return (
     <div>
-      <PageHeader
-        title="Connections"
-        subtitle={
-          data.sandbox
-            ? `${clientName}: your own test client, so you connect its tools here. Test runs never write to them.`
-            : `${clientName}: the tools offered, what is connected, and what agents may do in each. The client signs in from their portal; you never connect on their behalf.`
-        }
-      />
+      <p className="mb-6 text-ink-muted" data-testid="ops-connections-intro">
+        {data.sandbox
+          ? "Your own test client, so you connect its tools here. Test runs never write to them."
+          : "The tools offered, what is connected, and what agents may do in each. The client signs in from their portal; you never connect on their behalf."}
+      </p>
       <div className="flex flex-col gap-6">
         <section>
           <SectionLabel>
@@ -72,6 +83,21 @@ export function OpsConnectionsScreen() {
                   connection={c}
                   name={names[c.connector] ?? c.connector}
                   usedBy={data.usedBy[c.id] ?? []}
+                  testEmail={
+                    data.sandbox && c.connector === "gmail" && c.status === "connected"
+                      ? clientId
+                      : null
+                  }
+                  {...(data.sandbox && c.status !== "disconnected"
+                    ? {
+                        onDisconnect: async () => {
+                          await api.call(apiRoutes.opsSandboxDisconnect, {
+                            params: { id: clientId, connectionId: c.id },
+                          });
+                          reload();
+                        },
+                      }
+                    : {})}
                   onSaveConfig={async (config) => {
                     await api.call(apiRoutes.opsUpdateConnection, {
                       params: { id: c.id },
@@ -93,6 +119,7 @@ export function OpsConnectionsScreen() {
               id: c.id,
               name: names[c.connector] ?? c.connector,
               permissions: c.permissions,
+              entities: entitiesOf[c.connector],
             }))}
             onSave={async (id, edit) => {
               await api.call(apiRoutes.opsUpdateConnection, {
@@ -111,6 +138,13 @@ export function OpsConnectionsScreen() {
             await api.call(apiRoutes.opsConnectSandbox, { params: { id: clientId, connector } });
             reload();
           }}
+          onSignIn={async (connector) => {
+            const res = await api.call(apiRoutes.opsSandboxAuthorize, {
+              params: { id: clientId, connector },
+            });
+            // The provider's sign-in, then back to the back office's callback page.
+            window.location.assign(res.redirectUrl);
+          }}
           onSave={async (offered) => {
             await api.call(apiRoutes.opsOfferConnectors, {
               params: { id: clientId },
@@ -124,18 +158,89 @@ export function OpsConnectionsScreen() {
   );
 }
 
+/**
+ * The Sandbox's connected Gmail: one test email from the mailbox to itself (the API picks the
+ * address; nothing here can name another), then where it went, or the plain error.
+ */
+function GmailTestSend({ clientId }: { clientId: string }) {
+  const api = useApiClient();
+  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [problem, setProblem] = useState<unknown>(null);
+
+  async function send() {
+    setBusy(true);
+    setProblem(null);
+    setSentTo(null);
+    try {
+      const res = await api.call(apiRoutes.opsSandboxGmailTestSend, {
+        params: { id: clientId },
+        body: {},
+      });
+      setSentTo(res.to);
+    } catch (e) {
+      setProblem(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button data-testid="ops-gmail-test-send" disabled={busy} onClick={() => void send()}>
+        {busy ? "Sending…" : "Send a test email"}
+      </Button>
+      {sentTo || problem ? (
+        <div className="basis-full">
+          {sentTo ? (
+            <p role="status" data-testid="ops-gmail-test-sent" className="text-sm text-positive">
+              Sent to {sentTo}. Check that mailbox's Sent folder and inbox.
+            </p>
+          ) : null}
+          {problem ? <ErrorNotice error={problem} /> : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function ConnectionCard({
   connection: c,
   name,
   usedBy,
+  testEmail,
+  onDisconnect,
   onSaveConfig,
 }: {
   connection: Data["connections"][number];
   name: string;
   usedBy: { id: string; name: string }[];
+  /** The Sandbox client's id when its connected Gmail may send a test email; else null. */
+  testEmail: string | null;
+  /** The Sandbox only: the operator disconnects what they connected (after a confirm step). */
+  onDisconnect?: () => Promise<void>;
   onSaveConfig: (config: Record<string, unknown>) => Promise<void>;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectProblem, setDisconnectProblem] = useState<unknown>(null);
+
+  async function disconnect() {
+    if (!onDisconnect) return;
+    setDisconnecting(true);
+    setDisconnectProblem(null);
+    try {
+      await onDisconnect();
+      setConfirming(false);
+    } catch (e) {
+      setDisconnectProblem(e);
+    } finally {
+      setDisconnecting(false);
+    }
+  }
   const saved = JSON.stringify(c.config, null, 2);
+  // The company's name, as the portal shows it; the account id (a QuickBooks realm) under it.
+  const accountName = connectionAccountName(c.config);
   const [text, setText] = useState(saved);
   const [editing, setEditing] = useState(false);
   const [problem, setProblem] = useState<unknown>(null);
@@ -168,7 +273,20 @@ function ConnectionCard({
         <ConnectorMark name={name} />
         <div className="min-w-0">
           <p className="font-medium text-ink">{name}</p>
-          <p className="text-sm text-ink-muted">{c.externalAccountId ?? c.connector}</p>
+          {accountName ? (
+            <>
+              <p className="text-sm text-ink" data-testid="ops-connection-account">
+                {accountName}
+              </p>
+              {c.externalAccountId ? (
+                <p className="reference text-xs text-ink-muted">{c.externalAccountId}</p>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm text-ink-muted" data-testid="ops-connection-account">
+              {c.externalAccountId ?? c.connector}
+            </p>
+          )}
         </div>
       </div>
       <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
@@ -219,12 +337,60 @@ function ConnectionCard({
           </div>
         </div>
       ) : (
-        <div className="mt-auto pt-4">
+        <div className="mt-auto flex flex-wrap items-center gap-3 pt-4">
           <Button data-testid="ops-connection-config-edit" onClick={() => setEditing(true)}>
             Configuration
           </Button>
+          {testEmail ? <GmailTestSend clientId={testEmail} /> : null}
+          {c.lastSyncAt ? (
+            <Link
+              to={`/ops/clients/${c.tenantId}/records?source=${c.id}`}
+              data-testid="ops-connection-records"
+              className="ds-btn ds-btn--link text-sm"
+            >
+              See what it synced
+            </Link>
+          ) : null}
+          {onDisconnect && !confirming ? (
+            <Button
+              data-testid="ops-connection-disconnect-start"
+              variant="ghost"
+              onClick={() => setConfirming(true)}
+            >
+              Disconnect
+            </Button>
+          ) : null}
         </div>
       )}
+      {onDisconnect && confirming ? (
+        <div className="ds-banner mt-3 block" data-testid="ops-connection-disconnect-confirm-box">
+          <p>
+            Agents stop using {name} until you connect it again. Its sign-in, if it has one, is
+            revoked at {name} and dropped.
+          </p>
+          {disconnectProblem ? <ErrorNotice error={disconnectProblem} /> : null}
+          <div className="mt-2 flex gap-2">
+            <Button
+              data-testid="ops-connection-disconnect-confirm"
+              variant="primary"
+              disabled={disconnecting}
+              onClick={() => void disconnect()}
+            >
+              {disconnecting ? "Disconnecting…" : "Disconnect"}
+            </Button>
+            <Button
+              data-testid="ops-connection-disconnect-cancel"
+              variant="ghost"
+              onClick={() => {
+                setConfirming(false);
+                setDisconnectProblem(null);
+              }}
+            >
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -234,12 +400,15 @@ function Offering({
   data,
   onSave,
   onConnect,
+  onSignIn,
 }: {
   clientId: string;
   data: Data;
   onSave: (offered: string[]) => Promise<void>;
-  /** The Sandbox only: the operator connects its tools (no-sign-in connectors today). */
+  /** The Sandbox only: the operator connects a connector that needs no sign-in. */
   onConnect: (connector: string) => Promise<void>;
+  /** The Sandbox only: the operator signs in to an offered OAuth connector themselves. */
+  onSignIn: (connector: string) => Promise<void>;
 }) {
   const known = data.offered.filter((id) => data.connectors.some((c) => c.id === id));
   const unknown = data.offered.filter((id) => !known.includes(id));
@@ -285,23 +454,31 @@ function Offering({
                     {c.auth === "none" ? "no sign-in needed" : `signs in with ${c.auth}`}
                   </span>
                 </label>
-                {data.sandbox && c.auth === "none" ? (
+                {data.sandbox &&
+                (c.auth === "none" || (c.auth === "oauth2" && known.includes(c.id))) ? (
                   connected.has(c.id) ? (
                     <Badge tone="positive">Connected</Badge>
-                  ) : (
+                  ) : c.available ? (
                     <Button
                       data-testid={`ops-connections-connect-${c.id}`}
                       disabled={busy}
                       onClick={() => {
                         setBusy(true);
                         setProblem(null);
-                        onConnect(c.id)
+                        (c.auth === "none" ? onConnect(c.id) : onSignIn(c.id))
                           .catch(setProblem)
                           .finally(() => setBusy(false));
                       }}
                     >
                       Connect
                     </Button>
+                  ) : (
+                    <span
+                      data-testid={`ops-connections-unavailable-${c.id}`}
+                      className="shrink-0 text-sm text-ink-muted"
+                    >
+                      Not available yet
+                    </span>
                   )
                 ) : null}
               </li>
