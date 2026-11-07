@@ -233,6 +233,12 @@ describe("C4 Accounts and vault", () => {
 
     const add = screen.getByTestId("portal-connections-available");
     expect(within(add).getByTestId("portal-connection-zoho_crm")).toHaveTextContent("Zoho CRM");
+
+    // QA round 1: uploading lives in Records; Accounts keeps the forwarding address and a link.
+    expect(screen.queryByTestId("portal-upload-input")).toBeNull();
+    expect(screen.queryByTestId("portal-recent-documents")).toBeNull();
+    expect(screen.getByTestId("portal-forwarding")).toBeInTheDocument();
+    expect(screen.getByTestId("portal-forwarding-records")).toHaveAttribute("href", "/records");
   });
 
   it("opens a tool's matrix and tightens it: only the saved level or stricter", async () => {

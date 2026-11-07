@@ -241,10 +241,8 @@ describe("the agent page", () => {
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Working"));
     expect(screen.getByTestId("agent-lead")).toHaveTextContent("Ana Ruiz");
     expect(screen.getByRole("link", { name: "Ask Sloan" })).toHaveAttribute("href", "/sloan");
-    expect(screen.getByRole("link", { name: "Open the Weekly Table" })).toHaveAttribute(
-      "href",
-      "/weekly",
-    );
+    // The Weekly Table lives on The Table now (QA round 1).
+    expect(screen.queryByRole("link", { name: "Open the Weekly Table" })).toBeNull();
 
     // Right now: the run's steps, done, current and still to do.
     const steps = await screen.findByTestId("agent-now-steps");

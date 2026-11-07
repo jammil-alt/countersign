@@ -35,6 +35,28 @@ const person = (email: string, role: string) => ({
 });
 
 describe("portal settings", () => {
+  // QA round 1: no "we don't send these yet" and no Save for nothing; Language stays.
+  it("hides Notifications until we send these emails", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview,
+      "GET /api/users": () => ({ users: [person("admin@demo.example.com", "client_admin")] }),
+      "GET /api/settings/my-notifications": () => ({
+        email: true,
+        sms: false,
+        canText: false,
+        emailsOn: false,
+      }),
+    });
+    renderAt("/settings", api);
+    expect(await screen.findByText("1 person uses your portal.")).toBeInTheDocument();
+    await waitFor(() => expect(api.calls).toContain("GET /api/settings/my-notifications"));
+    expect(screen.queryByTestId("portal-settings-notifications")).toBeNull();
+    expect(screen.queryByTestId("portal-settings-mine")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Notifications" })).toBeNull();
+    expect(screen.getByTestId("portal-settings-language")).toBeInTheDocument();
+  });
+
   it("links the team and exports, saves email choices and says who approves", async () => {
     const users = [person("admin@demo.example.com", "client_admin")];
     const patches: unknown[] = [];
@@ -46,7 +68,13 @@ describe("portal settings", () => {
         client: { id: DEMO, name: "Demo client", timezone: "UTC" },
         approvals: "operator",
         notifications: { itemsWaiting: true, weeklyDigest: true },
-        emailsOn: false,
+        emailsOn: true,
+      }),
+      "GET /api/settings/my-notifications": () => ({
+        email: true,
+        sms: false,
+        canText: false,
+        emailsOn: true,
       }),
       "PATCH /api/settings/notifications": ({ init }) => {
         const body = JSON.parse(String(init.body));
@@ -66,10 +94,8 @@ describe("portal settings", () => {
       "/settings/exports",
     );
 
-    const emails = screen.getByTestId("portal-settings-notifications");
-    expect(within(emails).getByTestId("portal-notifications-off")).toHaveTextContent(
-      "Emails start soon",
-    );
+    const emails = await screen.findByTestId("portal-settings-notifications");
+    expect(within(emails).queryByTestId("portal-notifications-off")).toBeNull();
     const save = within(emails).getByTestId("portal-notifications-save");
     expect(save).toBeDisabled();
     await userEvent.click(within(emails).getByTestId("portal-notifications-weeklyDigest"));

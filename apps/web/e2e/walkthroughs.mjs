@@ -1,6 +1,7 @@
 // The prototype's two walkthroughs (docs/design/prototype.html, `#Start`), clicked through the real
-// UI on the seeded data: the client's morning (The Table, an agent, Your Desk, Runs, Accounts,
-// People, Settings, the Weekly Table, Sloan) and the back office's (Command center, Escalations,
+// UI on the seeded data: the client's morning (The Table and its Weekly Table, an agent, Your Desk,
+// Runs, Accounts, People and its More menu, Settings, Records and Upload documents, Sloan and Ask
+// for a change), following the portal's sidebar as QA round 1 left it; and the back office's (Command center, Escalations,
 // Runs, a client and its tabs, Agent lab, an agent and its tabs, the workflow builder, triggers,
 // Skills, Connectors, Usage and billing). Each step moves by clicking a link the screen shows, as
 // a person would, opening the menu on a phone; every page gets the route sweep's checks
@@ -188,25 +189,42 @@ function stripQuery(href) {
 
 // ── The client's morning (Dana at Harbor Millwork in the prototype; the Demo client here) ─────────
 
+/** Clicks the link in `main` whose address is exactly `href`, query included; `skip` if none. */
+async function clickExact(w, href, skip) {
+  const link = w.page.locator(`main a[href="${href}"]`).first();
+  if ((await link.count()) === 0 || !(await link.isVisible())) throw new Skip(skip);
+  await link.click();
+  await settle(w.page);
+  const at = new URL(w.page.url());
+  if (`${at.pathname}${at.search}` !== href) throw new Error(`went to ${at.pathname}${at.search}`);
+}
+
 async function clientWalk(w) {
   await w.step("The Table", async () => {
     await w.goto("/");
-    await w.expectLink("/weekly", "Open the Weekly Table");
     await w.expectLink("/sloan", "Ask Sloan");
-    await w.expectLink("/desk", "Your Desk");
+    // Your Desk appears once: in the sidebar, not the top bar.
+    if (await w.page.locator('[data-testid="shell-inbox"]').count()) {
+      throw new Error("the top bar still links Your Desk");
+    }
   });
+  // The Weekly Table is a tab of The Table, there only once a week was sent.
+  await w.step("Weekly Table", () =>
+    clickExact(w, "/?view=weekly", "no Weekly Table was sent for the seeded client"),
+  );
+  await w.goto("/");
 
   const agent = (p) => /^\/agents\/[^/]+$/.test(p);
   const hasAgent = await w.step("An agent", async () => {
     await w.follow(agent, { scope: "main", skip: "the seed has no client agent on the Table" });
     await w.expectLink("/sloan", "Ask Sloan");
-    await w.expectLink("/weekly", "Open the Weekly Table");
   });
   if (hasAgent === "skip") await w.goto("/");
 
   await w.step("Your Desk", async () => {
     await w.follow("/desk");
-    await w.expectLink("/requests", "Requests");
+    // Asking us for a change is Sloan's (`/sloan?mode=change`).
+    await w.expectLink("/sloan", "Ask for a change");
   });
   await w.step("Sign and undo", async () => {
     const page = w.page;
@@ -249,16 +267,37 @@ async function clientWalk(w) {
   );
   await w.step("Accounts", () => w.follow("/accounts"));
   await w.step("People", () => w.follow("/people"));
+  // Organizations is a tab; the admin's other pages are under the page's own "More".
+  const peopleMore = w.page.locator('main [data-testid="people-more"]');
+  const openPeopleMore = async () => {
+    if ((await peopleMore.count()) && !(await peopleMore.evaluate((el) => el.open))) {
+      await peopleMore.locator("summary").click();
+    }
+  };
+  await openPeopleMore();
   for (const tab of await w.links((p) => /^\/people\/[a-z-]+$/.test(p))) {
-    await w.step(`People, ${tab.split("/").pop()}`, () => w.follow(tab, { scope: "main" }));
+    await w.step(`People, ${tab.split("/").pop()}`, async () => {
+      await openPeopleMore();
+      await w.follow(tab, { scope: "main" });
+    });
   }
   await w.step("Settings", () => w.follow("/settings"));
-  await w.step("Weekly Table", () => w.follow("/weekly"));
+  await w.step("Billing", () => w.follow("/settings/billing", { scope: "main" }));
+  // Records is under the sidebar's More; uploading starts from it.
+  await w.step("Records", () => w.follow("/records"));
+  await w.step("Upload documents", () => w.follow("/upload", { scope: "main" }));
   await w.step("Sloan", async () => {
     await w.follow("/sloan");
     // Ask nothing: a question would run the account agent.
     if ((await w.page.locator("main textarea, main input[type='text']").count()) === 0) {
       throw new Error("no box to ask Sloan in");
+    }
+  });
+  await w.step("Ask for a change", async () => {
+    await clickExact(w, "/sloan?mode=change", "no Ask for a change tab");
+    // Send nothing: the form is there to fill.
+    if ((await w.page.locator('main [data-testid="portal-request-text"]').count()) === 0) {
+      throw new Error("no box to ask for a change in");
     }
   });
 }

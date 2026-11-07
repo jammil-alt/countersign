@@ -27,7 +27,7 @@ import { PORTAL_PATHS } from "../paths";
 import { agentChip, type RunFields, runChip, runOpen } from "../status";
 import { runsNote } from "./Reports";
 import { RunTimes } from "./runsParts";
-import { WeeklyAndSloan } from "./Table";
+import { AskSloan } from "./Table";
 
 const RUN_POLL_MS = 5_000;
 
@@ -98,7 +98,7 @@ function AgentPage({ id, detail, reload }: { id: string; detail: Detail; reload:
           {...(service.description ? { subtitle: service.description } : {})}
           actions={
             <>
-              <WeeklyAndSloan quiet />
+              <AskSloan quiet />
               {isAdmin && control ? (
                 <PauseControl control={control} name={name} onChange={refresh} />
               ) : null}

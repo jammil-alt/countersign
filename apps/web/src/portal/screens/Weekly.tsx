@@ -1,20 +1,21 @@
-// `/weekly` (C8, docs/ui-plan.md): the Weekly Table, as the lead sent it (ARCHITECTURE §11.4;
-// docs/plan.md §1.37). The latest sent week, or `?week=`; the lead's note, the week's figures (each
-// counted from records), decisions the client answers in the lead thread, setup still to do, what
-// each agent did, and next week. Never cost. Download as PDF; earlier weeks from the list.
-import type { WeeklyDecision, WeeklyTableView } from "@countersign/core";
+// The Weekly Table (C8, docs/ui-plan.md), a view of The Table at `/?view=weekly` (QA round 1: one
+// home; `/weekly` redirects there): as the lead sent it (ARCHITECTURE §11.4; docs/plan.md §1.37).
+// The latest sent week, or `?week=`; the lead's note, the week's figures (each counted from
+// records), decisions the client answers in the lead thread, setup still to do, what each agent
+// did, and next week. Never cost. Download as PDF; earlier weeks from the list.
+import type { PortalWeekly, WeeklyDecision, WeeklyTableView } from "@countersign/core";
 import { type FormEvent, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
+import { type ApiState, useApiClient } from "../../api/useApi";
 import { useI18n } from "../../i18n/i18n";
 import { SourceLinks } from "../../records/SourceLinks";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { StatTile } from "../../ui/figures";
 import { Select, TextArea } from "../../ui/forms";
-import { Columns, Loaded, Page, Section } from "../../ui/page";
+import { Columns, Loaded, Section } from "../../ui/page";
 import {
   Button,
   buttonClass,
@@ -28,32 +29,36 @@ import {
 import { StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
 
-export function PortalWeeklyScreen() {
+/** The Weekly Table's view of The Table; `state` is The Table's read of `/api/weekly`. */
+export function WeeklyView({ state }: { state: ApiState<PortalWeekly> }) {
   const { t } = useI18n();
   const [params, setParams] = useSearchParams();
-  const week = params.get("week");
-  const state = useApi(apiRoutes.portalWeekly, { query: week ? { week } : {} });
+  // Another week keeps the rest of the address (`view=weekly`).
+  const onWeek = (w: string | null) => {
+    const next = new URLSearchParams(params);
+    if (w) next.set("week", w);
+    else next.delete("week");
+    setParams(next);
+  };
 
   return (
-    <Page width="narrow" testId="portal-weekly">
-      <Loaded state={state}>
-        {(data) =>
-          data.table ? (
-            <WeeklyTable
-              table={data.table}
-              weeks={data.weeks}
-              onWeek={(w) => setParams(w ? { week: w } : {})}
-              reload={state.reload}
-            />
-          ) : (
-            <>
-              <PageHeader title={t("weekly.title")} subtitle={t("weekly.subtitle")} />
-              <EmptyState>{t("weekly.none")}</EmptyState>
-            </>
-          )
-        }
-      </Loaded>
-    </Page>
+    <Loaded state={state}>
+      {(data) =>
+        data.table ? (
+          <WeeklyTable
+            table={data.table}
+            weeks={data.weeks}
+            onWeek={onWeek}
+            reload={state.reload}
+          />
+        ) : (
+          <>
+            <PageHeader title={t("weekly.title")} subtitle={t("weekly.subtitle")} />
+            <EmptyState>{t("weekly.none")}</EmptyState>
+          </>
+        )
+      }
+    </Loaded>
   );
 }
 

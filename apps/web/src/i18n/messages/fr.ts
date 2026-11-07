@@ -120,7 +120,6 @@ export const fr: Messages = {
   "nav.contacts": "Contacts",
   // v0.14 capture
   "nav.conversations": "Conversations",
-  "nav.billing": "Facturation",
   "nav.people": "Personnes",
   "nav.access": "Accès",
   "nav.directory": "Annuaire",
@@ -172,7 +171,7 @@ export const fr: Messages = {
   "table.hello.evening": "Bonsoir",
   "table.waitLine": { one: "{count} chose vous attend.", other: "{count} choses vous attendent." },
   "table.waitNone": "Rien ne vous attend.",
-  "table.openWeekly": "Ouvrir la Table de la semaine",
+  "table.view.today": "Aujourd'hui",
   "table.askSloan": "Demander à Sloan",
   "table.workingNow": "Au travail",
   "table.meta.running": { one: "{count} en cours", other: "{count} en cours" },
@@ -615,7 +614,7 @@ export const fr: Messages = {
     "Pas encore d'URL de sortie : les agents ne peuvent pas envoyer d'événements.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Envoi et transfert · intégrés",
+  "forwarding.section": "Transfert",
   "upload.title": "Envoyer",
   "upload.help":
     "Factures et reçus (PDF ou image), ou un CSV d'achats avec date, fournisseur et montant.",
@@ -630,6 +629,7 @@ export const fr: Messages = {
   "upload.duplicate": "Déjà présent : nous gardons une seule copie.",
   "upload.sameFile": "Le même fichier que celui reçu ({time}). Nous gardons une seule copie.",
   "forwarding.title": "Transférer les factures par e-mail",
+  "forwarding.uploadInRecords": "Envoyez vous-même des fichiers depuis Enregistrements",
   "forwarding.off": "Le transfert n'est pas encore activé. Votre adresse privée apparaîtra ici.",
   "forwarding.help":
     "Ajoutez une règle de transfert dans votre messagerie (par exemple depuis la boîte de la comptabilité fournisseurs) vers cette adresse privée. Nous gardons les pièces jointes, jamais le texte du message.",
@@ -701,7 +701,6 @@ export const fr: Messages = {
   "document.col.page": "Page",
 
   // ── Requests ──
-  "requests.title": "Demandes",
   "requests.subtitle":
     "Demandez-nous de modifier un de vos services, ou quelque chose de nouveau. Nous répondons ici.",
   "requests.which": "Quelles demandes",
@@ -759,7 +758,7 @@ export const fr: Messages = {
   "signin.error.default": "La connexion n'a pas abouti. Recommencez.",
 
   // ── Feedback ──
-  "feedback.button": "Retour",
+  "feedback.button": "Signaler un problème dans l'app",
   "feedback.tapWhere": "Touchez l'endroit du problème",
   "feedback.noSpot": "Pas d'endroit précis",
   "feedback.capturing": "Capture de l'image…",
@@ -1519,7 +1518,6 @@ export const fr: Messages = {
   "peoplePage.title": "Personnes",
   "peoplePage.subtitle":
     "Toutes les personnes que vos agents peuvent contacter, ce qu'elles sont pour vous et comment elles préfèrent être jointes.",
-  "peoplePage.import": "Importer des personnes",
   "peoplePage.add": "Ajouter une personne",
   "peoplePage.adminOnly": "Votre administrateur gère cette partie de Personnes.",
   "peoplePage.tab.people": "Personnes",
@@ -1806,7 +1804,7 @@ export const fr: Messages = {
   "knowledge.adminOnly":
     "Seul votre administrateur peut voir et modifier ce que les agents savent de votre entreprise.",
   "sloan.requests": "Vos demandes",
+  "sloan.mode.change": "Demander un changement",
   "signin.needAccess":
     "Besoin d'un accès ? Demandez à votre administrateur ou à votre interlocuteur Mezonas.",
-  "nav.upload": "Envoyer",
 };
