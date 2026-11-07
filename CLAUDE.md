@@ -20,6 +20,12 @@ matching, prices, alerts, Pia) is in v1.
   v0.12 (the owner's prototype) and v0.13 (run oversight and a model per step) are built API first in
   streams: `docs/plan.md` §8. Before adding a table for a use case, read §12.0: most need none, and
   shared data belongs to a business area (a pack), never to one agent.
+- **Ingredients in code, agents in the lab** (ARCHITECTURE §12.0). This repository builds the platform,
+  UI, connectors, tools, fixed-logic skills, business areas and reports. Agents, their workflows,
+  operator skills (instructions plus existing tools) and automations of existing steps are built and
+  run in the Agent lab, as data. Never write an agent in code; a pack ships no agent templates. When a
+  lab-built skill or automation needs something new, build that piece here as a tool or a fixed-logic
+  skill.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
@@ -53,7 +59,7 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | `packages/threads` | Threads, messages, `/command` parsing. |
 | `packages/agents` | Tool, skill and agent registries; bundle versions, fork, update and promote; runtime; permission gate; external actions; Builder. |
 | `packages/workflows` | Workflow (step list) executor against a `StepRunner` interface, trigger router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
-| `packs/materials` | Materials pack: catalog, matching, pricing, alerts; its tools, skills, tables, routes; the Pia template and her two workflows. |
+| `packs/materials` | Materials pack (the Purchasing area): catalog, matching, pricing, alerts; its tools, fixed-logic skills, events, tables, routes and reports. No agent templates: Pia is built in the Agent lab. |
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |

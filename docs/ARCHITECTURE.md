@@ -9,8 +9,10 @@
 > receivables), each a pack with its own tables and tools, used by every agent given those tools.
 > The platform's own tables stay fixed and the client's tools stay the system of record. The
 > **Purchasing area** joins v1: the Materials pack (a master list of what the company buys, each
-> vendor's names for it, cross-vendor matching, prices and alerts, Pia and her reports) is ported
-> from its M8 branches onto the platform as it is now. The **Sales area** (CRM-fed), **area grants**
+> vendor's names for it, cross-vendor matching, prices and alerts, and its reports) is ported
+> from its M8 branches onto the platform as it is now, as **ingredients only**: code builds the
+> platform, connectors, tools, fixed-logic skills, business areas and screens; agents (Pia, the
+> invoice agent) are assembled and run in the Agent lab, never written in code. The **Sales area** (CRM-fed), **area grants**
 > and **client extras** are written down as designed for, not built. Changed: §1, §12 (12.0 new),
 > §18 (M34), §20; CLAUDE.md (Materials no longer built separately); `docs/plan.md` §1.63, M34, §8.
 
@@ -303,8 +305,9 @@ In:
 - **The Purchasing area** (v0.15, §12.0): the Materials pack, ported from its M8 branches: the master
   list of what the company buys (`catalog_item`), each vendor's names for it (`item_alias`), every
   invoice line matched to it (`item_match`, deterministic first, model second, person last),
-  prices in a standard unit (`price_observation`), alerts, the Pia template, and the Price watch and
-  Catalog reports. Enabled per client. Millwork categories as built; embeddings off (§20)
+  prices in a standard unit (`price_observation`), alerts, and the Price watch and Catalog reports,
+  as tools and fixed-logic skills the Agent lab uses. Enabled per client. Agents on it (the invoice
+  agent, Pia) are built in the Agent lab, not in code (§12.0 "Ingredients and the lab"). Millwork categories as built; embeddings off (§20)
 - **Texts and calls** (v0.9): **Twilio** (SMS, voice, phone numbers and WhatsApp first), then
   **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
   agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
@@ -2239,6 +2242,17 @@ Weekly Table or the page to act on.
 
 ### 12.0 Business areas (v0.15, owner 2026-11-07)
 
+**Ingredients and the lab.** Code (built in this repository, with Claude Code) makes the
+**ingredients**: the platform, connectors, tools (anything that reads, writes or calls an API),
+business areas (their tables), fixed-logic skills (exact rules, matching, units, money), automations'
+building blocks and every screen and report. The **Agent lab** assembles and runs **agents** from
+them, as data (invariant 4): identity and instructions, workflows and triggers, the model per step,
+approvals, operator-written skills (instructions plus existing tools), automations made of existing
+steps, test cases and go-live. A skill or automation that needs only instructions and existing tools
+or steps is made in the lab; one that needs new code gets that code as a tool or a fixed-logic skill,
+which the lab then uses. No agent is written in code: a pack ships no agent templates, and the
+platform's own agents (`packages/db/seed/`) are seeded data, edited in the lab like any other.
+
 Agents are many; the data they share is organised by **business area**, not by agent. A business
 area is a domain whose data must outlast a run and be read by several agents: purchasing, sales,
 receivables. Each area is a **pack** (§12.1): its tables, the tools that read and write them, its
@@ -2361,6 +2375,9 @@ Events: `materials.line.matched`, `materials.line.needs_review`, `materials.matc
 Reports (portal): Price watch (`/reports/materials/prices`), Catalog (`/reports/materials/catalog`),
 with CSV export. Match review in the Inbox (`review` kind). Back office: the same views for any client,
 plus catalog merge.
+
+(v0.15: the design below is how the Pia agent is meant to work. She is built in the Agent lab
+from the pack's tools and skills, not shipped as a template in code; §12.0 "Ingredients and the lab".)
 
 Template **Pia** (`purchasing`, functional; default portal service name "Material cost monitoring"): skills `docs.find-support`, `docs.extract`,
 `materials.match-lines`, `materials.record-prices`, `materials.price-check`, `materials.vendor-compare`,
