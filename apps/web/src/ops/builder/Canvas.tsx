@@ -39,7 +39,7 @@ import {
   triggerDetail,
   triggerTitle,
 } from "../workflow/describe";
-import { forkGridColumns, forkMinWidth, listMinWidth, stepMinWidth } from "../workflow/layout";
+import { forkGridColumns, forkMinWidth, stepMinWidth } from "../workflow/layout";
 import type { PaletteSection } from "./catalog";
 import {
   type ApprovalEnv,
@@ -144,26 +144,21 @@ function errorCount(step: Step, errors: readonly ValidationError[]): number {
 export function Canvas(props: CanvasProps) {
   const { workflow } = props;
   const triggerErrors = props.errors.filter((e) => e.stepId === workflow.trigger.id).length;
-  // Wide forks scroll sideways inside the canvas's own box, never the page; each path keeps a
-  // readable width (workflow/layout.ts).
+  // The trigger and the top-level steps always fit the canvas; a fork wider than it scrolls
+  // sideways in its own box (each path keeping a readable width, workflow/layout.ts), never the
+  // page.
   return (
-    <div className="overflow-x-auto pb-2" data-testid="builder-canvas-scroll">
-      <div
-        data-testid="builder-canvas"
-        className="flex flex-col items-center"
-        style={{ minWidth: listMinWidth(workflow.steps) }}
-      >
-        <TriggerCard {...props} invalid={triggerErrors} />
-        <List {...props} id={ROOT} steps={workflow.steps} numbered />
-        <span aria-hidden className="h-4 border-l border-line-strong" />
-        <DropZone
-          id={ROOT}
-          label="Drop a step here, or"
-          className="w-full max-w-[640px]"
-          onAdd={props.onAddAt}
-          active={props.addTarget === ROOT}
-        />
-      </div>
+    <div data-testid="builder-canvas" className="flex min-w-0 flex-col items-center">
+      <TriggerCard {...props} invalid={triggerErrors} />
+      <List {...props} id={ROOT} steps={workflow.steps} numbered />
+      <span aria-hidden className="h-4 border-l border-line-strong" />
+      <DropZone
+        id={ROOT}
+        label="Drop a step here, or"
+        className="w-full max-w-[640px]"
+        onAdd={props.onAddAt}
+        active={props.addTarget === ROOT}
+      />
     </div>
   );
 }
@@ -244,11 +239,27 @@ function StepNode(
   },
 ) {
   const { step } = props;
+  const inner =
+    step.kind === "fork" ? (
+      <Fork {...props} step={step} />
+    ) : step.kind === "for_each" ? (
+      <Loop {...props} step={step} />
+    ) : null;
   return (
     <>
       <StepCard {...props} />
-      {step.kind === "fork" ? <Fork {...props} step={step} /> : null}
-      {step.kind === "for_each" ? <Loop {...props} step={step} /> : null}
+      {inner && props.container === ROOT ? (
+        // A top-level fork or loop wider than the canvas scrolls sideways in its own box; what
+        // is nested in it scrolls with it.
+        <div
+          data-testid={`builder-${step.kind === "fork" ? "fork" : "loop"}-${step.id}-scroll`}
+          className="flex w-full justify-center-safe overflow-x-auto pb-1"
+        >
+          {inner}
+        </div>
+      ) : (
+        inner
+      )}
     </>
   );
 }
@@ -551,7 +562,7 @@ export function Palette({
 }) {
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (focusKey) searchRef.current?.focus();
+    if (focusKey) searchRef.current?.focus({ preventScroll: true });
   }, [focusKey]);
   const searching = search.trim().length > 0;
   return (
@@ -682,9 +693,9 @@ function PaletteCard({
           <span className="block text-sm font-medium [overflow-wrap:anywhere] text-ink">
             {item.title}
           </span>
-          <span className="block text-xs text-ink-muted">
+          <span className="line-clamp-2 text-xs text-ink-muted" title={item.detail}>
+            {own ? "This agent's · " : ""}
             {item.detail}
-            {own ? " · this agent's" : ""}
           </span>
         </span>
       </div>

@@ -507,8 +507,9 @@ describe("WorkflowBuilder", () => {
     expect((fork.querySelector(".grid") as HTMLElement).style.gridTemplateColumns).toBe(
       "minmax(226px, 1fr) minmax(226px, 1fr) minmax(226px, 1fr)",
     );
-    expect(screen.getByTestId("builder-canvas-scroll")).toHaveClass("overflow-x-auto");
-    expect(screen.getByTestId("builder-canvas").style.minWidth).toBe("728px");
+    // The fork scrolls sideways in its own box; the top-level steps keep to the canvas.
+    expect(screen.getByTestId("builder-fork-confidence-scroll")).toHaveClass("overflow-x-auto");
+    expect(screen.getByTestId("builder-canvas").style.minWidth).toBe("");
   });
 
   it("shows the selected step on the canvas and opens it in the side panel", async () => {

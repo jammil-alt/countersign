@@ -340,7 +340,9 @@ function BuilderBody(
     window.requestAnimationFrame(() => {
       el.scrollIntoView?.({ block: "start", behavior: "smooth" });
       if (next === "step")
-        el.querySelector<HTMLElement>("[data-testid='builder-inspector']")?.focus();
+        el.querySelector<HTMLElement>("[data-testid='builder-inspector']")?.focus({
+          preventScroll: true,
+        });
     });
   };
   const openPalette = (container: ContainerId) => {

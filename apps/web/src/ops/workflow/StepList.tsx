@@ -14,7 +14,7 @@ import {
   triggerDetail,
   triggerTitle,
 } from "./describe";
-import { forkGridColumns, forkMinWidth, listMinWidth, stepMinWidth } from "./layout";
+import { forkGridColumns, forkMinWidth, stepMinWidth } from "./layout";
 
 /** The workflow's step names, for fork rules that cite an earlier step's output. */
 const Names = createContext<StepNames | undefined>(undefined);
@@ -57,14 +57,10 @@ function MarkBadges({ id }: { id: string }) {
 }
 
 function StepListItems({ workflow }: { workflow: Workflow }) {
-  // Wide forks scroll sideways inside the list's own box, never the page.
+  // A fork wider than the list scrolls sideways in its own box, never the page.
   return (
-    <div className="overflow-x-auto">
-      <ol
-        data-testid="step-list"
-        className="flex flex-col items-center"
-        style={{ minWidth: listMinWidth(workflow.steps) }}
-      >
+    <div className="min-w-0">
+      <ol data-testid="step-list" className="flex flex-col items-center">
         <Item>
           <StepCard
             testId={`step-${workflow.trigger.id}`}
@@ -105,23 +101,24 @@ function StepNode({ step, number }: { step: Step; number?: number }) {
       detail={stepDetail(step)}
     />
   );
-  if (step.kind === "fork") {
-    return (
-      <>
-        {card}
-        <Fork step={step} />
-      </>
-    );
-  }
-  if (step.kind === "for_each") {
-    return (
-      <>
-        {card}
-        <Loop step={step} />
-      </>
-    );
-  }
-  return card;
+  const inner =
+    step.kind === "fork" ? (
+      <Fork step={step} />
+    ) : step.kind === "for_each" ? (
+      <Loop step={step} />
+    ) : null;
+  if (!inner) return card;
+  return (
+    <>
+      {card}
+      <div
+        data-testid={`step-${step.id}-scroll`}
+        className="flex w-full justify-center-safe overflow-x-auto pb-1"
+      >
+        {inner}
+      </div>
+    </>
+  );
 }
 
 function StepCard({

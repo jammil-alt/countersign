@@ -390,6 +390,15 @@ function UsageReportView({
         Show all{showAll ? "" : ` (${plural(hidden, "empty row")} hidden)`}
       </label>
     ) : null;
+  // Nothing at all in the period: one line, not a page of zeros.
+  if (isEmptyFigures(data.total) && !data.byVendor?.length) {
+    return (
+      <EmptyState>
+        No usage in {periodLabel(data.from, data.to)}. Runs and their cost show here once agents
+        run.
+      </EmptyState>
+    );
+  }
   return (
     <>
       <Columns count={4}>
@@ -594,7 +603,9 @@ function UsageSplits({ data }: { data: UsageReport }) {
                 <tr key={`${m.provider}:${m.model}`} data-testid={`ops-usage-model-${m.model}`}>
                   <td>
                     <span className="flex flex-col py-1">
-                      <span className="text-ink">{label(m.model) ?? m.model}</span>
+                      <span className="text-ink">
+                        {label(m.model) ?? m.model.replace(/^openai:/, "")}
+                      </span>
                       <span className="text-sm text-ink-muted">
                         {m.provider === "openai" ? "OpenAI" : "Anthropic"}
                       </span>
