@@ -312,6 +312,16 @@ describe.skipIf(!h)("API", () => {
       expect(j(events.json).events.map((e: { type: string }) => e.type)).toContain(
         "inbox.resolved",
       );
+      // UI cleanup: each says which connector emits it, so the builder offers only connected ones.
+      const byType = new Map(
+        j(events.json).events.map((e: { type: string; connector: string | null }) => [
+          e.type,
+          e.connector,
+        ]),
+      );
+      // The harness registers no connector with events: every event is the platform's.
+      expect(byType.get("inbox.resolved")).toBeNull();
+      expect([...byType.values()].every((c) => c === null)).toBe(true);
     });
 
     // v0.13 W2-H (docs/plan.md §1.53): the models a step may name, checked the way the builder does.

@@ -7,6 +7,7 @@ import { isPlainObject, type PathOption } from "@countersign/core";
 import { type ReactNode, useId, useState } from "react";
 import { cx } from "../../ui/primitives";
 import { Select, TextArea, TextInput } from "../agents/ui";
+import { eventKind, TRIGGER_KINDS, whenEvent } from "../workflow/labels";
 
 type Schema = Record<string, unknown>;
 
@@ -435,4 +436,24 @@ export function SmallInput(props: Parameters<typeof TextInput>[0]) {
 
 export function SmallSelect(props: Parameters<typeof Select>[0]) {
   return <Select {...props} className={cx("h-9 text-sm", props.className)} />;
+}
+
+/** Event types as options by plain name ("When a document has been read"), grouped by kind. */
+export function EventOptions({ events }: { events: readonly string[] }) {
+  return (
+    <>
+      {TRIGGER_KINDS.map(({ kind, label }) => {
+        const mine = events.filter((e) => eventKind(e) === kind);
+        return mine.length ? (
+          <optgroup key={kind} label={label}>
+            {mine.map((e) => (
+              <option key={e} value={e}>
+                {whenEvent(e)}
+              </option>
+            ))}
+          </optgroup>
+        ) : null;
+      })}
+    </>
+  );
 }

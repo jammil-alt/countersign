@@ -132,6 +132,11 @@ async function bindTestCopy(
 }
 
 /** requestRun's refusals are plain errors: they are the caller's to fix. */
+/** `connector:zoho_crm` → `zoho_crm`; the platform's and packs' events have none. */
+function connectorOfEvent(registered: string | undefined): string | null {
+  return registered?.startsWith("connector:") ? registered.slice("connector:".length) : null;
+}
+
 function request(make: () => RunRequest): RunRequest {
   try {
     return make();
@@ -479,6 +484,8 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       subjectType: e.subjectType ?? null,
       payload: e.payload,
       sample: e.sample,
+      // UI cleanup: which connector emits it, so the builder hides events of tools not connected.
+      connector: connectorOfEvent(services.platform.events.sourceOf(e.type)),
     })),
   }));
 }

@@ -11,6 +11,7 @@ import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
   canonicalJson,
+  parseSkillRef,
   Slug,
   type TriggerOn,
   type ValidationError,
@@ -26,7 +27,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
@@ -55,7 +56,7 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
-import { KIND_LABEL } from "../workflow/describe";
+import { KIND_LABEL, type StepLabels } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import { Canvas, collision, DragCard, type DragData, Palette, resolveDrop } from "./Canvas";
 import {
@@ -63,21 +64,26 @@ import {
   boundMatrices,
   connectorName,
   filterSections,
+  paletteConnectors,
   paletteSections,
+  TESTKIT,
+  toolConnector,
   typingContext,
   validateLikeServer,
 } from "./catalog";
-import { SmallInput, SmallSelect } from "./fields";
+import { EventOptions, SmallInput, SmallSelect } from "./fields";
 import { type FocusRequest, Inspector, type Member, type Selection } from "./Inspector";
 import {
   type ApprovalEnv,
   addWorkflow,
   allowStep,
+  type ContainerId,
   commit,
   createStep,
   customizedSteps,
   editWorkflow,
   forkOfBranch,
+  getContainer,
   type History,
   insertStep,
   locate,
@@ -94,6 +100,9 @@ import {
 } from "./model";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
+
+/** The side panel's tabs: the steps to add, the Builder conversation, the selected step. */
+type Rail = "add" | "builder" | "step";
 
 export interface WorkflowBuilderProps {
   agent: AgentSummary;
@@ -286,8 +295,16 @@ function BuilderBody(
   const [overId, setOverId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState<{ title: string; kind: string } | null>(null);
   const [panel, setPanel] = useState<"test" | "add-workflow" | null>(null);
-  // The right rail: the Builder conversation, or the selected step or trigger.
-  const [rail, setRail] = useState<"builder" | "step">("builder");
+  // The side panel: the steps to add, the Builder conversation, or the selected step or trigger.
+  const [rail, setRail] = useState<Rail>("builder");
+  // What the panel showed before the palette opened, for Escape and Close.
+  const [beforeAdd, setBeforeAdd] = useState<Exclude<Rail, "add">>("builder");
+  // The list the palette adds to: the end of the workflow, or a fork path or loop.
+  const [addTarget, setAddTarget] = useState<ContainerId>(ROOT);
+  const [paletteFocus, setPaletteFocus] = useState(0);
+  // A template's connectors the operator chose to build with in this session.
+  const [extraConnectors, setExtraConnectors] = useState<string[]>([]);
+  const railRef = useRef<HTMLElement>(null);
   // Top-level steps picked for "Save as automation"; null while not picking.
   const [checked, setChecked] = useState<Set<string> | null>(null);
   const [notice, setNotice] = useState<{
@@ -312,6 +329,89 @@ function BuilderBody(
   const entry = bundle.workflows.find((w) => w.slug === slug);
   const workflow = entry?.workflow;
 
+  // ── The side panel ──
+  /**
+   * Shows a tab of the side panel. Where the panel sits below the canvas (narrow screens), it is
+   * scrolled into view and focused, so a click on a step or "add a step" visibly lands somewhere.
+   */
+  const showRail = (next: Rail) => {
+    setRail(next);
+    const el = railRef.current;
+    if (!el?.parentElement) return;
+    const beside = el.getBoundingClientRect().left - el.parentElement.getBoundingClientRect().left;
+    if (beside > 10) return;
+    window.requestAnimationFrame(() => {
+      el.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      if (next === "step")
+        el.querySelector<HTMLElement>("[data-testid='builder-inspector']")?.focus({
+          preventScroll: true,
+        });
+    });
+  };
+  const openPalette = (container: ContainerId) => {
+    if (rail !== "add") setBeforeAdd(rail);
+    setAddTarget(container);
+    setPaletteFocus((n) => n + 1);
+    showRail("add");
+  };
+  const closePalette = () => {
+    setRail(beforeAdd);
+    setAddTarget(ROOT);
+  };
+  const targetText = useMemo(() => {
+    if (!workflow || addTarget === ROOT) return "at the end";
+    if (addTarget.startsWith("otherwise:")) {
+      const fork = forkOfBranch(workflow, addTarget.slice("otherwise:".length));
+      return fork ? `to “Otherwise” in ${fork.name || "the fork"}` : "at the end";
+    }
+    if (addTarget.startsWith("path:")) {
+      const id = addTarget.slice("path:".length);
+      const fork = forkOfBranch(workflow, id);
+      const path = fork?.kind === "fork" ? fork.paths.find((p) => p.id === id) : undefined;
+      return path ? `to “${path.name}”` : "at the end";
+    }
+    const loop = locate(workflow, addTarget.slice("loop:".length))?.step;
+    return loop ? `inside “${loop.name || "For each"}”` : "at the end";
+  }, [workflow, addTarget]);
+
+  // ── Whose tools the palette offers ──
+  const clients = useApi(
+    apiRoutes.opsClients,
+    agent.kind === "client" && !agent.testCopy ? {} : null,
+  );
+  const sandbox = clients.data?.clients.find((c) => c.id === agent.tenantId)?.sandbox === true;
+  const connectors = useMemo(
+    () =>
+      paletteConnectors({
+        agent,
+        bundle,
+        data,
+        connections: props.connections ?? [],
+        sandbox,
+        extra: extraConnectors,
+      }),
+    [agent, bundle, data, props.connections, sandbox, extraConnectors],
+  );
+  // Names for the steps' second lines: skills and automations by name, tools by their connector,
+  // people by their name.
+  const labels = useMemo<StepLabels>(
+    () => ({
+      skill: (ref) =>
+        data.catalog.skills.find((s) => s.ref === ref || parseSkillRef(s.ref).id === ref)
+          ?.definition.name,
+      automation: (ref) => data.catalog.automations?.find((a) => a.ref === ref)?.name,
+      connector: (toolId) => {
+        const c = toolConnector(toolId, data);
+        return c ? connectorName(data, c) : undefined;
+      },
+      person: (id) => {
+        const m = props.members?.find((x) => x.userId === id);
+        return m ? (m.name ?? m.email) : undefined;
+      },
+    }),
+    [data, props.members],
+  );
+
   // ── Edits ──
   const apply = useCallback(
     (fn: (b: AgentBundle) => AgentBundle, key: string | null = null) =>
@@ -329,10 +429,17 @@ function BuilderBody(
     if (item.type === "trigger") {
       edit((w) => setTrigger(w, item.on));
       setSelection({ type: "trigger" });
+      setRail("step");
       return;
     }
     const step = createStep(item, ctx);
-    const at = target ?? { container: ROOT, index: workflow.steps.length };
+    // + adds at the end of the list the palette was opened for (the workflow's, by default).
+    const container = rail === "add" ? addTarget : ROOT;
+    const at = target ?? {
+      container,
+      index: getContainer(workflow, container)?.length ?? workflow.steps.length,
+    };
+    setAddTarget(ROOT);
     apply((b) =>
       allowStep(
         editWorkflow(b, slug, (w) => insertStep(w, at.container, at.index, step)),
@@ -341,6 +448,8 @@ function BuilderBody(
       ),
     );
     setSelection({ type: "step", id: step.id });
+    // Picking closes the palette: the new step opens in the inspector.
+    setRail("step");
   };
   const remove = (id: string) => {
     edit((w) => removeStep(w, id));
@@ -536,8 +645,8 @@ function BuilderBody(
       ? [
           plural(counts.steps, "step"),
           plural(counts.forks, "fork"),
-          `${counts.writes} change your tools`,
-          `${counts.needApproval} need approval`,
+          `${counts.writes} ${counts.writes === 1 ? "changes a tool" : "change tools"}`,
+          `${counts.needApproval} ${counts.needApproval === 1 ? "needs" : "need"} approval`,
         ].join(" · ")
       : null,
   ]
@@ -683,178 +792,225 @@ function BuilderBody(
         onDragEnd={onDragEnd}
         onDragCancel={endDrag}
       >
-        <div className="-mx-4 -mb-8 mt-4 grid grid-cols-1 border-t border-line md:-mx-10 md:-mb-12 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_360px]">
-          <aside
-            aria-label="Add a step"
-            className="max-h-80 overflow-y-auto border-b border-line bg-surface px-4 py-5 lg:sticky lg:top-header lg:h-[calc(100vh-var(--header-h))] lg:max-h-none lg:border-r lg:border-b-0"
-          >
-            <Palette
-              sections={filterSections(paletteSections(bundle, data), search)}
-              search={search}
-              onSearch={setSearch}
-              onAdd={(item) => addItem(item)}
-            />
-          </aside>
-
-          <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
-            <WorkflowSwitcher
-              bundle={bundle}
-              current={slug}
-              base={base}
-              adding={panel === "add-workflow"}
-              onAdd={() => setPanel(panel === "add-workflow" ? null : "add-workflow")}
-            />
-            {panel === "add-workflow" || bundle.workflows.length === 0 ? (
-              <AddWorkflowForm
+        {/* UI cleanup: two columns, the canvas and a side panel beside it once the builder has
+            room (a container query, so a browser side panel narrowing the page counts), the panel
+            below the canvas on narrow screens. The palette is the panel's "Add a step" tab, so it
+            never covers the Builder or the step. */}
+        <div className="@container -mx-4 -mb-8 mt-4 border-t border-line md:-mx-10 md:-mb-12">
+          <div className="grid grid-cols-1 @3xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
+              <WorkflowSwitcher
                 bundle={bundle}
-                events={data.events.map((e) => e.type)}
-                onCancel={() => setPanel(null)}
-                onCreate={(input) => {
-                  apply((b) => addWorkflow(b, input));
-                  setPanel(null);
-                  setSelection(null);
-                  navigate(`${base}/workflows/${input.slug}`);
-                }}
+                current={slug}
+                base={base}
+                adding={panel === "add-workflow"}
+                onAdd={() => setPanel(panel === "add-workflow" ? null : "add-workflow")}
               />
-            ) : null}
-
-            <div className="my-4 flex flex-wrap items-center justify-between gap-3">
-              {checked ? (
-                <SaveAsAutomation
-                  count={checked.size}
-                  busy={session.busy}
-                  onSave={saveAutomation}
-                  onClear={() => setChecked(null)}
+              {panel === "add-workflow" || bundle.workflows.length === 0 ? (
+                <AddWorkflowForm
+                  bundle={bundle}
+                  events={data.events
+                    .filter((e) => !e.connector || connectors.has(e.connector))
+                    .map((e) => e.type)}
+                  onCancel={() => setPanel(null)}
+                  onCreate={(input) => {
+                    apply((b) => addWorkflow(b, input));
+                    setPanel(null);
+                    setSelection(null);
+                    navigate(`${base}/workflows/${input.slug}`);
+                  }}
                 />
-              ) : (
-                <p className="text-sm text-ink-muted">
-                  Drag steps by their handle to reorder or move them between fork paths. Click a
-                  step or fork to edit it.
-                </p>
-              )}
-              <span className="flex items-center gap-2">
-                {workflow && workflow.steps.length > 0 && !checked ? (
+              ) : null}
+
+              <div className="my-4 flex flex-wrap items-center justify-between gap-3">
+                {checked ? (
+                  <SaveAsAutomation
+                    count={checked.size}
+                    busy={session.busy}
+                    onSave={saveAutomation}
+                    onClear={() => setChecked(null)}
+                  />
+                ) : (
+                  <span className="flex flex-wrap items-center gap-3">
+                    <Button
+                      variant="primary"
+                      data-testid="builder-add-step"
+                      aria-expanded={rail === "add"}
+                      onClick={() => openPalette(ROOT)}
+                    >
+                      <Icon name="add" />
+                      Add a step
+                    </Button>
+                    <span className="text-sm text-ink-muted">
+                      Click a step to edit it. Drag it by its handle to move it.
+                    </span>
+                  </span>
+                )}
+                <span className="flex flex-wrap items-center gap-2">
+                  {workflow && workflow.steps.length > 0 && !checked ? (
+                    <Button
+                      variant="ghost"
+                      data-testid="builder-select-steps"
+                      onClick={() => setChecked(new Set())}
+                    >
+                      Select steps
+                    </Button>
+                  ) : null}
+                  {dirty ? (
+                    <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
+                      {draftAt
+                        ? `Draft kept on this device · ${clock(draftAt)}`
+                        : "Unsaved changes"}
+                    </span>
+                  ) : null}
                   <Button
                     variant="ghost"
-                    data-testid="builder-select-steps"
-                    onClick={() => setChecked(new Set())}
+                    data-testid="builder-undo"
+                    disabled={history.past.length === 0}
+                    onClick={() => setHistory(undo)}
                   >
-                    Select steps
+                    Undo
                   </Button>
-                ) : null}
-                {dirty ? (
-                  <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
-                    {draftAt ? `Draft kept on this device · ${clock(draftAt)}` : "Unsaved changes"}
-                  </span>
-                ) : null}
-                <Button
-                  variant="ghost"
-                  data-testid="builder-undo"
-                  disabled={history.past.length === 0}
-                  onClick={() => setHistory(undo)}
-                >
-                  Undo
-                </Button>
-                <Button
-                  variant="ghost"
-                  data-testid="builder-redo"
-                  disabled={history.future.length === 0}
-                  onClick={() => setHistory(redo)}
-                >
-                  Redo
-                </Button>
-              </span>
-            </div>
+                  <Button
+                    variant="ghost"
+                    data-testid="builder-redo"
+                    disabled={history.future.length === 0}
+                    onClick={() => setHistory(redo)}
+                  >
+                    Redo
+                  </Button>
+                </span>
+              </div>
 
-            <Problems errors={result.errors} bundle={bundle} slug={slug} onShow={showError} />
+              <Problems errors={result.errors} bundle={bundle} slug={slug} onShow={showError} />
 
-            {workflow ? (
-              <Canvas
-                workflow={workflow}
-                selectedId={selection?.type === "trigger" ? "trigger" : (selection?.id ?? null)}
-                env={env}
-                errors={workflowErrors}
-                customized={customized}
-                activeId={activeId}
-                overId={overId}
-                onSelect={(id) => {
-                  setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id });
-                  setRail("step");
-                }}
-                onDelete={remove}
-                checked={checked ?? undefined}
-                onCheck={(id, on) =>
-                  setChecked((c) => {
-                    const next = new Set(c ?? []);
-                    if (on) next.add(id);
-                    else next.delete(id);
-                    return next;
-                  })
-                }
-              />
-            ) : bundle.workflows.length > 0 ? (
-              <p className="text-ink-muted" data-testid="builder-no-workflow">
-                This agent has no workflow “{slug}”. Pick one above.
-              </p>
-            ) : null}
-          </div>
-
-          <aside
-            aria-label="Builder and step"
-            className="flex flex-col border-t border-line bg-surface px-5 py-4 lg:col-span-2 xl:sticky xl:top-header xl:col-span-1 xl:h-[calc(100vh-var(--header-h))] xl:border-t-0 xl:border-l"
-          >
-            <div
-              className="mb-4 flex gap-1 border-b border-line"
-              role="tablist"
-              aria-label="Side panel"
-            >
-              {(
-                [
-                  ["builder", "Builder"],
-                  ["step", selection ? "Step" : "Inspector"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={rail === key}
-                  data-testid={`builder-rail-${key}`}
-                  onClick={() => setRail(key)}
-                  className={cx(
-                    "-mb-px border-b-2 px-3 py-2 text-sm",
-                    rail === key
-                      ? "border-slate font-medium text-ink"
-                      : "border-transparent text-ink-muted hover:text-ink",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className={cx("min-h-0 flex-1 overflow-y-auto", rail !== "builder" && "hidden")}>
-              <BuilderPanel session={session} />
-            </div>
-            {workflow && rail === "step" ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <Inspector
+              {workflow ? (
+                <Canvas
                   workflow={workflow}
-                  bundle={bundle}
-                  selection={selection}
-                  data={data}
-                  ctx={ctx}
+                  selectedId={selection?.type === "trigger" ? "trigger" : (selection?.id ?? null)}
                   env={env}
                   errors={workflowErrors}
-                  template={template ? { bundle: template, workflow: templateWorkflow } : null}
-                  members={props.members ?? []}
-                  focus={focus}
-                  onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
-                  onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
+                  customized={customized}
+                  activeId={activeId}
+                  overId={overId}
+                  onSelect={(id) => {
+                    setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id });
+                    showRail("step");
+                  }}
                   onDelete={remove}
+                  labels={labels}
+                  onAddAt={openPalette}
+                  addTarget={rail === "add" ? addTarget : null}
+                  checked={checked ?? undefined}
+                  onCheck={(id, on) =>
+                    setChecked((c) => {
+                      const next = new Set(c ?? []);
+                      if (on) next.add(id);
+                      else next.delete(id);
+                      return next;
+                    })
+                  }
                 />
+              ) : bundle.workflows.length > 0 ? (
+                <p className="text-ink-muted" data-testid="builder-no-workflow">
+                  This agent has no workflow “{slug}”. Pick one above.
+                </p>
+              ) : null}
+            </div>
+
+            <aside
+              ref={railRef}
+              aria-label="Add a step, the Builder and the step"
+              className="flex scroll-mt-[var(--header-h)] flex-col border-t border-line bg-surface px-5 py-4 @3xl:sticky @3xl:top-header @3xl:h-[calc(100vh-var(--header-h))] @3xl:border-t-0 @3xl:border-l"
+            >
+              <div
+                className="mb-4 flex gap-1 border-b border-line"
+                role="tablist"
+                aria-label="Side panel"
+              >
+                {(
+                  [
+                    ["add", "Add a step"],
+                    ["builder", "Builder"],
+                    ["step", selection ? "Step" : "Inspector"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={rail === key}
+                    data-testid={`builder-rail-${key}`}
+                    onClick={() => (key === "add" ? openPalette(addTarget) : setRail(key))}
+                    className={cx(
+                      "-mb-px border-b-2 px-3 py-2 text-sm",
+                      rail === key
+                        ? "border-slate font-medium text-ink"
+                        : "border-transparent text-ink-muted hover:text-ink",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-            ) : null}
-          </aside>
+              {rail === "add" ? (
+                <div
+                  className="min-h-0 flex-1 overflow-y-auto"
+                  data-testid="builder-rail-add-panel"
+                >
+                  <Palette
+                    sections={filterSections(paletteSections(bundle, data, connectors), search)}
+                    search={search}
+                    onSearch={setSearch}
+                    onAdd={(item) => addItem(item)}
+                    target={targetText}
+                    onClose={closePalette}
+                    focusKey={paletteFocus}
+                    footer={
+                      agent.kind === "template" ? (
+                        <MoreConnectors
+                          data={data}
+                          shown={connectors}
+                          onAdd={(id) => setExtraConnectors((x) => [...x, id])}
+                        />
+                      ) : (
+                        <p
+                          className="text-xs text-ink-muted"
+                          data-testid="builder-palette-connected"
+                        >
+                          Only the tools this client has connected show here. Connect more on the
+                          client's Setup page.
+                        </p>
+                      )
+                    }
+                  />
+                </div>
+              ) : null}
+              <div className={cx("min-h-0 flex-1 overflow-y-auto", rail !== "builder" && "hidden")}>
+                <BuilderPanel session={session} />
+              </div>
+              {workflow && rail === "step" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <Inspector
+                    workflow={workflow}
+                    bundle={bundle}
+                    selection={selection}
+                    data={data}
+                    ctx={ctx}
+                    env={env}
+                    errors={workflowErrors}
+                    template={template ? { bundle: template, workflow: templateWorkflow } : null}
+                    members={props.members ?? []}
+                    focus={focus}
+                    connectors={connectors}
+                    onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
+                    onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
+                    onDelete={remove}
+                  />
+                </div>
+              ) : null}
+            </aside>
+          </div>
         </div>
         <DragOverlay dropAnimation={null}>
           {activeId && activeLabel ? (
@@ -925,6 +1081,51 @@ function Problems({
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+// ── A template's connectors ──────────────────────────────────────────────────────────────────────
+
+/**
+ * A template's palette offers the connectors it already uses; this adds another one's steps for
+ * this session (the Testkit is never offered here: it is for the Sandbox).
+ */
+function MoreConnectors({
+  data,
+  shown,
+  onAdd,
+}: {
+  data: BuilderData;
+  shown: ReadonlySet<string>;
+  onAdd(id: string): void;
+}) {
+  const others = data.catalog.connectors
+    .filter((c) => !shown.has(c.id) && c.id !== TESTKIT)
+    // Only connectors with something to build with: a tool, or an event that starts a run.
+    .filter((c) => data.catalog.tools.some((t) => (t.connector ?? t.source) === c.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (others.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-line pt-4">
+      <p className="text-xs text-ink-muted">
+        This template's own tools show above. Build with another one:
+      </p>
+      <SmallSelect
+        aria-label="Build with another connector"
+        data-testid="builder-palette-more"
+        value=""
+        onChange={(e) => {
+          if (e.target.value) onAdd(e.target.value);
+        }}
+      >
+        <option value="">Choose a connector…</option>
+        {others.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </SmallSelect>
     </div>
   );
 }
@@ -1087,11 +1288,7 @@ function AddWorkflowForm({
             value={event}
             onChange={(e) => setEvent(e.target.value)}
           >
-            {events.map((e) => (
-              <option key={e} value={e}>
-                {e}
-              </option>
-            ))}
+            <EventOptions events={events} />
           </SmallSelect>
         </Field>
       ) : null}

@@ -24,7 +24,7 @@ describe("StepList", () => {
       within(screen.getByTestId("step-t1")).getByText("When bill created"),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("step-update")).getByText("qbo.bill.update_lines · needs approval"),
+      within(screen.getByTestId("step-update")).getByText("Itemize a bill · needs approval"),
     ).toBeInTheDocument();
   });
 
@@ -38,7 +38,7 @@ describe("StepList", () => {
       "Otherwise",
     ]);
     expect((fork.querySelector(".grid") as HTMLElement).style.gridTemplateColumns).toBe(
-      "repeat(3, minmax(0, 1fr))",
+      "minmax(226px, 1fr) minmax(226px, 1fr) minmax(226px, 1fr)",
     );
 
     // Rules read as the builder writes them; template braces are dropped.
