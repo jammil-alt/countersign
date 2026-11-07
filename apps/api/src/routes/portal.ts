@@ -466,56 +466,52 @@ function by(session: Session, role: Role) {
 }
 
 export function portalRouteHandlers(app: Hono<AppEnv>): void {
-  mount(
-    app,
-    routes.portalOverview,
-    async ({ tx, tenantIds, role, session, services: ctxServices }) => {
-      const tenantId = tenantIds[0] as string;
-      const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
-      if (!t) throw notFound("client");
-      const services = await tx
-        .select()
-        .from(agent)
-        .where(
-          and(
-            eq(agent.tenantId, tenantId),
-            eq(agent.kind, "client"),
-            inArray(agent.runStatus, ["active", "paused"]),
-          ),
-        )
-        .orderBy(agent.slug);
-      const going = await openRunsByAgent(tx, tenantId);
-      const open = await tx
-        .select({ id: inboxItem.id })
-        .from(inboxItem)
-        .where(
-          and(
-            eq(inboxItem.tenantId, tenantId),
-            eq(inboxItem.status, "open"),
-            portalInboxFilter(role, session.user.id),
-            snoozedNow(false),
-          ),
-        );
-      return {
-        client: { id: t.id, name: t.name },
-        services: services.map((a) => ({
-          id: a.id,
-          name: serviceName(a),
-          description: a.serviceDescription,
-          status: a.runStatus ?? "draft",
-          // QA round 1: for its state in the sidebar (Working, Waiting on you, Ready, …).
-          stage: a.stage,
-          runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
-        })),
-        needsYou: { inbox: open.length },
-        recentRuns: await runSummaries(tx, tenantId, [], 5, ctxServices.platform),
-        health: {
-          summary: await latestHealthSummary(tx, tenantId),
-          findings: await portalFindings(tx, tenantId, role, session.user.id),
-        },
-      };
-    },
-  );
+  mount(app, routes.portalOverview, async ({ tx, tenantIds, role, session }) => {
+    const tenantId = tenantIds[0] as string;
+    const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
+    if (!t) throw notFound("client");
+    const services = await tx
+      .select()
+      .from(agent)
+      .where(
+        and(
+          eq(agent.tenantId, tenantId),
+          eq(agent.kind, "client"),
+          inArray(agent.runStatus, ["active", "paused"]),
+        ),
+      )
+      .orderBy(agent.slug);
+    const going = await openRunsByAgent(tx, tenantId);
+    const open = await tx
+      .select({ id: inboxItem.id })
+      .from(inboxItem)
+      .where(
+        and(
+          eq(inboxItem.tenantId, tenantId),
+          eq(inboxItem.status, "open"),
+          portalInboxFilter(role, session.user.id),
+          snoozedNow(false),
+        ),
+      );
+    return {
+      client: { id: t.id, name: t.name },
+      services: services.map((a) => ({
+        id: a.id,
+        name: serviceName(a),
+        description: a.serviceDescription,
+        status: a.runStatus ?? "draft",
+        // QA round 1: for its state in the sidebar (Working, Waiting on you, Ready, …).
+        stage: a.stage,
+        runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
+      })),
+      needsYou: { inbox: open.length },
+      recentRuns: await runSummaries(tx, tenantId, [], 5),
+      health: {
+        summary: await latestHealthSummary(tx, tenantId),
+        findings: await portalFindings(tx, tenantId, role, session.user.id),
+      },
+    };
+  });
 
   mount(app, routes.portalInbox, async ({ tx, tenantIds, role, session, query, services }) => {
     const tenantId = tenantIds[0] as string;
