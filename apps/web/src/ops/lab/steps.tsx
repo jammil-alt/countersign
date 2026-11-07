@@ -1,10 +1,12 @@
 // A workflow as the lab and the agent page read it (docs/design/prototype.html `#O2-Lab`,
 // "Workflow"): the trigger, then each top-level step with its kind. Person steps in copper;
-// a step that changes the client's tools and needs a signature says so in signal, with words.
+// a step that changes the client's tools and needs approval says so in signal, with words. Skill
+// and tool ids never show: a step reads by its name, an action by its tool in words.
 import type { Workflow } from "@countersign/core";
 import type { ReactNode } from "react";
 import { Tag } from "../../ui/primitives";
 import type { StepItem } from "../../ui/steps";
+import { toolTitle } from "../builder/model";
 import { KIND_LABEL, stepDetail, triggerDetail, triggerTitle } from "../workflow/describe";
 
 function title(name: ReactNode, kind: string): ReactNode {
@@ -26,13 +28,15 @@ export function workflowStepItems(workflow: Workflow): StepItem[] {
     },
   ];
   for (const step of workflow.steps) {
-    const signs = step.kind === "action" && step.approval.required === "required";
+    const approves = step.kind === "action" && step.approval.required === "required";
     items.push({
       key: step.id,
       title: title(step.name, step.kind),
-      detail: signs ? (
-        <span className="text-signal-ink">Needs a signature · {step.tool}</span>
-      ) : (
+      detail: approves ? (
+        <span className="text-signal-ink">Needs approval · {toolTitle({ id: step.tool })}</span>
+      ) : step.kind === "action" ? (
+        `${toolTitle({ id: step.tool })} · on its own`
+      ) : step.kind === "skill" ? undefined : (
         (stepDetail(step) ?? undefined)
       ),
       state: step.kind === "person" ? "person" : "todo",
