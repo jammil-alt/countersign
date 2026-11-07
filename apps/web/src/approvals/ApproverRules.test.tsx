@@ -129,7 +129,7 @@ describe("back office: who approves", () => {
     );
   });
 
-  it("adds, reorders, edits and removes rules, then saves them with a reason", async () => {
+  it("adds, reorders, edits and removes rules, then saves them", async () => {
     const { sent } = setup();
     await screen.findByTestId("approver-rules-list");
     // Add: testkit record changes over 500 USD go to Bo, first.
@@ -189,16 +189,13 @@ describe("back office: who approves", () => {
       "Testkit",
     ]);
 
-    // A reason is needed.
-    await userEvent.click(screen.getByTestId("approver-rules-save"));
-    expect(screen.getByTestId("approver-rules-reason-error")).toBeInTheDocument();
-    expect(sent).toEqual([]);
-    await userEvent.type(screen.getByTestId("approver-rules-reason"), "Bo signs off big edits");
+    // No reason is asked (UI cleanup, decision 8).
+    expect(screen.queryByTestId("approver-rules-reason")).toBeNull();
     await userEvent.click(screen.getByTestId("approver-rules-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({
       revision: 3,
-      reason: "Bo signs off big edits",
+      reason: "",
       rules: [
         {
           match: {
@@ -299,7 +296,6 @@ describe("portal: who approves", () => {
     expect(screen.getAllByTestId("approver-rule-match")[0]).toHaveTextContent("Creates");
     expect(screen.getByTestId("approver-rule-0")).toHaveTextContent("Added by you");
 
-    await userEvent.type(screen.getByTestId("approver-rules-reason"), "We sign our own changes");
     await userEvent.click(screen.getByTestId("approver-rules-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]?.rules.map((r) => r.approver)).toEqual([

@@ -187,7 +187,6 @@ export const ptBR: Messages = {
   "table.thisWeek": "Esta semana",
   "table.stat.runs": "Execuções feitas",
   "table.stat.changes": "Atualizações nas suas ferramentas",
-  "table.stat.changesNote": "{automatic} automáticas, {signed} assinadas por você",
   "table.stat.onYourDesk": "Na sua mesa",
   "table.latest": "Novidades dos seus agentes",
   "table.seeAllRuns": "Ver todas as execuções",
@@ -958,8 +957,6 @@ export const ptBR: Messages = {
   "approvers.addRule": "Adicionar regra",
   "approvers.updateRule": "Atualizar regra",
   "approvers.remove": "Remover",
-  "approvers.why": "Por que esta mudança?",
-  "approvers.reasonNeeded": "Diga o motivo, para o histórico de mudanças fazer sentido depois.",
   "approvers.save": "Salvar regras",
   "approvers.tightenNote":
     "Você pode deixar as aprovações mais rígidas. Só nós podemos flexibilizá-las de novo.",
@@ -1670,7 +1667,6 @@ export const ptBR: Messages = {
     "Como falamos com você, o idioma em que você lê e quem aprova o quê.", // fluent review
   "settingsPage.billing": "Cobrança",
   "settingsPage.team": "Equipe",
-  "settingsPage.signoff": "Assinaturas",
   "settingsPage.notifications": "Notificações",
   "settingsPage.language": "Idioma",
   "settingsPage.languageBody": "Cada escolha é salva na hora.",
@@ -1770,10 +1766,8 @@ export const ptBR: Messages = {
   "exports.problem.order": "O primeiro dia deve vir antes do último.",
   "exports.problem.long": "Um período tem no máximo {days} dias.",
   "settingsPage.teamLink": "Equipe",
-  "settingsPage.teamLinkHelp": "Quem usa seu portal, o que cada pessoa assina, e convites.",
   "settingsPage.exportsLink": "Exportações",
   "settingsPage.exportsLinkHelp": "A exportação para o contador e seu registro de auditoria.",
-  "settingsPage.seeTeam": "Ver quem assina o quê na sua equipe",
   "knowledge.adminOnly":
     "Só o seu administrador pode ver e mudar o que os agentes sabem da sua empresa.",
   "sloan.requests": "Seus pedidos para nós",

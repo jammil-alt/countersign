@@ -88,7 +88,8 @@ export const SaveApproverRules = z.strictObject({
   /** The revision the editor started from: a save over someone else's is refused (409 stale). */
   revision: z.number().int().min(0),
   rules: z.array(ApproverRuleInput).max(APPROVER_RULES_MAX),
-  reason: z.string().trim().min(1).max(APPROVER_REASON_MAX),
+  // DECISION (UI cleanup, decision 8): the reason is optional; the change log names the change.
+  reason: z.string().trim().max(APPROVER_REASON_MAX).default(""),
 });
 export type SaveApproverRules = z.infer<typeof SaveApproverRules>;
 

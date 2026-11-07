@@ -194,7 +194,6 @@ export const de: Messages = {
   "table.thisWeek": "Diese Woche",
   "table.stat.runs": "Erledigte Abläufe",
   "table.stat.changes": "Änderungen in Ihren Tools",
-  "table.stat.changesNote": "{automatic} automatisch, {signed} von Ihnen unterschrieben",
   "table.stat.onYourDesk": "Auf Ihrem Schreibtisch",
   "table.latest": "Neues von Ihren Agenten",
   "table.seeAllRuns": "Alle Abläufe",
@@ -986,9 +985,6 @@ export const de: Messages = {
   "approvers.addRule": "Hinzufügen",
   "approvers.updateRule": "Regel aktualisieren",
   "approvers.remove": "Entfernen",
-  "approvers.why": "Warum diese Änderung?",
-  "approvers.reasonNeeded":
-    "Nennen Sie den Grund, damit das Änderungsprotokoll später verständlich bleibt.",
   "approvers.save": "Regeln speichern",
   "approvers.tightenNote":
     "Sie können Freigaben selbst strenger machen. Nur wir können sie wieder lockern.",
@@ -1709,7 +1705,6 @@ export const de: Messages = {
     "Wie wir Sie erreichen, in welcher Sprache Sie lesen und wer was freigibt.", // fluent review
   "settingsPage.billing": "Abrechnung",
   "settingsPage.team": "Team",
-  "settingsPage.signoff": "Unterschriften",
   "settingsPage.notifications": "Benachrichtigungen",
   "settingsPage.language": "Sprache",
   "settingsPage.languageBody": "Jede Auswahl wird sofort gespeichert.",
@@ -1811,11 +1806,8 @@ export const de: Messages = {
   "exports.problem.order": "Der erste Tag muss vor dem letzten liegen.",
   "exports.problem.long": "Ein Zeitraum umfasst höchstens {days} Tage.",
   "settingsPage.teamLink": "Team",
-  "settingsPage.teamLinkHelp":
-    "Wer Ihr Portal nutzt, was jede Person unterschreibt, und Einladungen.",
   "settingsPage.exportsLink": "Exporte",
   "settingsPage.exportsLinkHelp": "Der Export für die Buchhaltung und Ihr Prüfprotokoll.",
-  "settingsPage.seeTeam": "Sehen, wer in Ihrem Team was unterschreibt",
   "knowledge.adminOnly":
     "Nur Ihr Admin kann sehen und ändern, was die Agenten über Ihr Unternehmen wissen.",
   "sloan.requests": "Ihre Anfragen an uns",

@@ -189,7 +189,6 @@ export const fr: Messages = {
   "table.thisWeek": "Cette semaine",
   "table.stat.runs": "Exécutions faites",
   "table.stat.changes": "Mises à jour de vos outils",
-  "table.stat.changesNote": "{automatic} automatiques, {signed} signées par vous",
   "table.stat.onYourDesk": "Sur votre bureau",
   "table.latest": "Les dernières nouvelles de vos agents",
   "table.seeAllRuns": "Voir toutes les exécutions",
@@ -973,9 +972,6 @@ export const fr: Messages = {
   "approvers.addRule": "Ajouter la règle",
   "approvers.updateRule": "Mettre à jour la règle",
   "approvers.remove": "Retirer",
-  "approvers.why": "Pourquoi ce changement ?",
-  "approvers.reasonNeeded":
-    "Indiquez pourquoi, pour que l'historique des changements reste compréhensible.",
   "approvers.save": "Enregistrer les règles",
   "approvers.tightenNote":
     "Vous pouvez rendre les approbations plus strictes vous-même. Nous seuls pouvons les assouplir à nouveau.",
@@ -1702,7 +1698,6 @@ export const fr: Messages = {
     "Comment nous vous joignons, la langue dans laquelle vous lisez et qui approuve quoi.", // fluent review
   "settingsPage.billing": "Facturation",
   "settingsPage.team": "Équipe",
-  "settingsPage.signoff": "Signatures",
   "settingsPage.notifications": "Notifications",
   "settingsPage.language": "Langue",
   "settingsPage.languageBody": "Chaque choix est enregistré aussitôt.",
@@ -1805,11 +1800,8 @@ export const fr: Messages = {
   "exports.problem.order": "Le premier jour doit précéder le dernier.",
   "exports.problem.long": "Une période compte au plus {days} jours.",
   "settingsPage.teamLink": "Équipe",
-  "settingsPage.teamLinkHelp":
-    "Qui utilise votre portail, ce que chacun signe, et les invitations.",
   "settingsPage.exportsLink": "Exports",
   "settingsPage.exportsLinkHelp": "L'export pour votre comptable et votre journal d'audit.",
-  "settingsPage.seeTeam": "Voir qui signe quoi dans votre équipe",
   "knowledge.adminOnly":
     "Seul votre administrateur peut voir et modifier ce que les agents savent de votre entreprise.",
   "sloan.requests": "Vos demandes",

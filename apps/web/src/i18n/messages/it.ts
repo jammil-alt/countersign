@@ -187,7 +187,6 @@ export const it: Messages = {
   "table.thisWeek": "Questa settimana",
   "table.stat.runs": "Esecuzioni fatte",
   "table.stat.changes": "Aggiornamenti ai tuoi strumenti",
-  "table.stat.changesNote": "{automatic} automatici, {signed} firmati da te",
   "table.stat.onYourDesk": "Sulla tua scrivania",
   "table.latest": "Le ultime dai tuoi agenti",
   "table.seeAllRuns": "Vedi tutte le esecuzioni",
@@ -961,8 +960,6 @@ export const it: Messages = {
   "approvers.addRule": "Aggiungi regola",
   "approvers.updateRule": "Aggiorna regola",
   "approvers.remove": "Rimuovi",
-  "approvers.why": "Perché questa modifica?",
-  "approvers.reasonNeeded": "Scrivi il motivo, così lo storico delle modifiche resta chiaro.",
   "approvers.save": "Salva le regole",
   "approvers.tightenNote":
     "Puoi rendere le approvazioni più rigide da solo. Solo noi possiamo allentarle di nuovo.",
@@ -1678,7 +1675,6 @@ export const it: Messages = {
   "settingsPage.subtitleMember": "Come ti raggiungiamo, la lingua in cui leggi e chi approva cosa.", // fluent review
   "settingsPage.billing": "Fatturazione",
   "settingsPage.team": "Team",
-  "settingsPage.signoff": "Firme",
   "settingsPage.notifications": "Notifiche",
   "settingsPage.language": "Lingua",
   "settingsPage.languageBody": "Ogni scelta si salva subito.",
@@ -1779,11 +1775,9 @@ export const it: Messages = {
   "exports.problem.order": "Il primo giorno deve venire prima dell'ultimo.",
   "exports.problem.long": "Un periodo è al massimo di {days} giorni.",
   "settingsPage.teamLink": "Team",
-  "settingsPage.teamLinkHelp": "Chi usa il tuo portale, cosa firma ogni persona, e gli inviti.",
   "settingsPage.exportsLink": "Esportazioni",
   "settingsPage.exportsLinkHelp":
     "L'esportazione per il commercialista e il tuo registro di audit.",
-  "settingsPage.seeTeam": "Vedi chi firma cosa nel tuo team",
   "knowledge.adminOnly":
     "Solo il tuo admin può vedere e cambiare ciò che gli agenti sanno della tua azienda.",
   "sloan.requests": "Le tue richieste a noi",

@@ -184,7 +184,6 @@ export const es: Messages = {
   "table.thisWeek": "Esta semana",
   "table.stat.runs": "Ejecuciones hechas",
   "table.stat.changes": "Cambios en sus herramientas",
-  "table.stat.changesNote": "{automatic} automáticos, {signed} firmados por usted",
   "table.stat.onYourDesk": "En su escritorio",
   "table.latest": "Lo último de sus agentes",
   "table.seeAllRuns": "Ver todas las ejecuciones",
@@ -958,9 +957,6 @@ export const es: Messages = {
   "approvers.addRule": "Agregar regla",
   "approvers.updateRule": "Actualizar regla",
   "approvers.remove": "Quitar",
-  "approvers.why": "¿Por qué este cambio?",
-  "approvers.reasonNeeded":
-    "Indique el motivo, para que el registro de cambios se entienda después.",
   "approvers.save": "Guardar reglas",
   "approvers.tightenNote":
     "Usted puede hacer las aprobaciones más estrictas. Solo nosotros podemos volver a flexibilizarlas.",
@@ -1675,7 +1671,6 @@ export const es: Messages = {
   "settingsPage.subtitleMember": "Cómo le contactamos, el idioma en que lee y quién aprueba qué.", // fluent review
   "settingsPage.billing": "Facturación",
   "settingsPage.team": "Equipo",
-  "settingsPage.signoff": "Firmas",
   "settingsPage.notifications": "Avisos",
   "settingsPage.language": "Idioma",
   "settingsPage.languageBody": "Cada elección se guarda al momento.",
@@ -1775,10 +1770,8 @@ export const es: Messages = {
   "exports.problem.order": "El primer día debe ser anterior al último.",
   "exports.problem.long": "Un periodo tiene como máximo {days} días.",
   "settingsPage.teamLink": "Equipo",
-  "settingsPage.teamLinkHelp": "Quién usa su portal, qué firma cada persona, e invitaciones.",
   "settingsPage.exportsLink": "Exportaciones",
   "settingsPage.exportsLinkHelp": "La exportación para su contador y su registro de auditoría.",
-  "settingsPage.seeTeam": "Ver quién firma qué en su equipo",
   "knowledge.adminOnly":
     "Solo su administrador puede ver y cambiar lo que los agentes saben de su empresa.",
   "sloan.requests": "Sus solicitudes a nosotros",
