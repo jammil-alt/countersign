@@ -11,12 +11,15 @@ customized (data, settings, drag-and-drop step workflows) and versioned per clie
 updates can be merged in and client improvements promoted back. Agents do the work and update the
 client's tools (QuickBooks Online and Gmail) within each connection's permissions. Each client gets a
 **portal** for reports, runs, approvals, requests and connections (clients sign in to their own tools); clients never edit agents. Use cases
-such as Pia (material cost management for a millwork shop, the Materials pack) are built separately
-from this plan, only from platform parts (ARCHITECTURE v0.9).
+are built only from platform parts. The data they share is organised by **business area** (purchasing,
+sales, receivables), each a pack used by many agents through its tools; agents never map to tables
+(ARCHITECTURE §12.0, v0.15). The **Purchasing area** (the Materials pack: master list, cross-vendor
+matching, prices, alerts, Pia) is in v1.
 
-- What to build: `docs/ARCHITECTURE.md` (v0.13). Do not add features outside its §1 v1 scope.
+- What to build: `docs/ARCHITECTURE.md` (v0.15). Do not add features outside its §1 v1 scope.
   v0.12 (the owner's prototype) and v0.13 (run oversight and a model per step) are built API first in
-  streams: `docs/plan.md` §8.
+  streams: `docs/plan.md` §8. Before adding a table for a use case, read §12.0: most need none, and
+  shared data belongs to a business area (a pack), never to one agent.
 - How and in what order: `docs/plan.md`. Follow its milestones in order. Each one ends green.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.

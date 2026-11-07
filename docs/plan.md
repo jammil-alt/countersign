@@ -300,7 +300,7 @@ ARCHITECTURE §13–§15: usage and cost for the back office, the portal's activ
 |---|---|
 | Approver rules | Per client. The operator sets them; the client admin can only make them stricter (a stricter approver, never a looser one). A rule matches on any of: connector or tool, verb (`create`, `update`, …), an amount over a threshold, the client agent; it names the approver: the client admin, a named client user, a client role, or the operator on the client's behalf. Rules are ordered: the first match wins; with no match, the client admin approves. They decide *who* approves; whether a step needs approval at all stays per step and per matrix (invariant 8). A run snapshots the approver it used. |
 | Billing | Stripe. Each client is a Stripe customer. A monthly **base fee per active client agent** (not per user), which includes an allowance of **credits**; usage beyond the allowance is billed per credit (Stripe metered prices with the allowance as the free tier), counted from `usage_daily`. Keys are network secrets, never in the repo. **One credit is one cent of what the work cost us** (owner, 2026-11-04): model cost plus provider costs (SMS and WhatsApp messages, call minutes), converted from `usage_daily` with unit costs kept as operator settings, so every new tool is billable without a new rule; the markup is in the overage price. The allowance and the prices are open (§7). |
-| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. |
+| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. **Superseded (v0.15, 2026-11-07):** the Materials pack is ported onto main as the Purchasing area (§1.63, M34). |
 
 
 ### 1.18 Languages (owner, 2026-11-04; stream I)
@@ -1663,6 +1663,22 @@ data only, within the brand rules (`apps/web/src/ui/README.md`).
 | Agent colour | Owner (design pass 2): solid blocks as on the v1 screens, from existing tokens (slate, copper, positive, signal-ink, `data-seq-4`) with `surface` initials; picked by id and spread within a client so its first five agents differ. State keeps tinted pills and accent bars, so a solid block reads as identity. // DECISION |
 | Go-live view | `goLive.writes` reads the live version, else the latest (a draft that writes no longer reads "goes straight to live"); `liveVersion` says whether there is one. Stage moves still read the live version alone. // DECISION |
 
+### 1.63 The Purchasing area: the Materials pack ported (P-1, M34; migration 0033; ARCHITECTURE v0.15 §12.0, §12.2–§12.4)
+
+The Materials pack was built on 2026-11-04 in streams M8a and M8b (§1.12, §1.13 on those branches)
+and kept off main (§3 "Millwork and Pia"). v0.15 brings it in as the first **business area**.
+
+| Topic | Decision |
+|---|---|
+| Source | `claude/m8b-pia` (12 commits, both halves) is the source. It is 375 commits behind main, so it is re-applied file by file onto today's platform, not merged. The branches stay as they are for reference. The branch's §1.12 and §1.13 decisions carry over unless this section says otherwise. |
+| Three PRs | (1) The docs (`claude/p1-business-areas-docs`): ARCHITECTURE v0.15, this section, M34, CLAUDE.md. (2) Migration 0033 alone (`claude/p1-materials-migration`). (3) The pack, its registration and screens (`claude/p1-materials`). Merge commits, in that order. |
+| Migration 0033 | One migration for what the branch did in 0006 and 0007: `catalog_item`, `item_alias`, `item_match`, `price_observation` and the shared `alert` (§5.2). Forced RLS, grants as §1.12 decided (no DELETE anywhere; `item_match` insert-only), journal and snapshot, fixtures in the RLS, purge and migration test loops. `tenant_pack` is already on main. The `embedding vector(1024)` column stays, nullable (pgvector is enabled since 0000). Additive only: the previous Worker never reads these tables. |
+| Platform changes since the branch | Fit, don't redesign: skill modes (`tool`, `task`, `agent`; Materials' model-backed skills become `task` where they need no agent memory, recorded fixtures re-recorded where the request changes), per-entity permissions (Materials' internal tools declare their entity), automations, the test bench (the golden matching set also runs as skill cases), oversight (on Pia's template as `failures`), go-live stages, the run controls. |
+| Registration | `apps/api` registers the pack (tools, skills, events, routes); the platform never imports it (invariant 2); `pnpm lint:deps` holds. Enabling for a client inserts `tenant_pack`; Pia's template is installed once, as v1, like the seed's platform templates. |
+| Screens | Price watch, Catalog and the match review card, fitted to the cleaned-up portal (Reports) and back office. The UI session owns the portal's screens and nav: P-1 tells it before changing them. |
+| Categories and embeddings | Millwork categories as built (sheet goods, hardwood, mouldings, hardware, finishes, other). Embeddings off: the column stays empty and candidates come from key attributes and `pg_trgm`. Both are open for the owner (ARCHITECTURE §20). |
+| With the invoice agent | Iris (invoice intake) may add `materials.match-lines` and `materials.record-prices` after a bill is created, so every intake feeds the master list. Pia's `purchase-intake` stays as designed. |
+
 ---
 
 ## 2. Package layering
@@ -2275,6 +2291,28 @@ if it has one.
 document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
 retried webhook makes nothing twice; the client admin toggles it and the change is logged.
 
+### M34: The Purchasing area (P-1, §1.63)
+
+Three PRs in order: the docs (`claude/p1-business-areas-docs`); migration 0033 alone
+(`claude/p1-materials-migration`); then the pack (`claude/p1-materials`).
+
+Work: the pack's schema, catalog (normalise, category parsers, key attributes), matching (alias,
+candidates, the model's choice, the hard-rule veto), pricing (observations, standard units, the six
+alert rules), its tools, skills and events registered by `apps/api`; enabling for a client; the Pia
+template installed once; the packs routes; Price watch, Catalog, the match review card and the
+back office's catalog merge, fitted to today's screens; `docs/operations.md` "Adding the Materials
+pack to a client".
+
+Tests: the golden matching set (`fixtures/matching`, ≥ 95% precision on "same" at the auto
+threshold); a key attribute that differs is never matched; prices are never compared across units
+without a conversion; aliases learned from a person's decision; one client's catalog never seen by
+another (RLS and the routes); no portal answer carries a bundle, prompt or cost; the migration
+loops; the branch's done-when test (every invoice line settled by the rules, all six priced).
+
+**Done when**, on staging, the pack is enabled for the Sandbox; three invoices from different vendors
+for the same sheet good are matched to one catalog item (the second and third by alias or rules, not
+the model); Price watch shows that item's price per vendor and date; and the golden set passes.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -2438,6 +2476,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
 | 0030 | W3-A | `builder_session`, `builder_turn` |
 | 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
+| 0033 | P-1 (M34, §1.63) | `catalog_item`, `item_alias`, `item_match`, `price_observation`, `alert` (ARCHITECTURE §12.2, §5.2) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -2481,6 +2520,7 @@ The exports (data export and accountant export, running outside the waves) neede
 | W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | none | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
 | **v0.14** | | | | |
 | v0.14 capture | WhatsApp passive capture (M33, §1.55): design, migration, build as three PRs | 0031 | `packages/connectors/src/twilio/` inbound media pieces, `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `core/src/api/conversations.ts`, `core/src/schemas/conversation.ts`; blocks marked `// v0.14 capture` in the hot spots | W2-E (inbound routing), W1-H (background reading) |
+| P-1 | The Purchasing area: the Materials pack ported (M34, §1.63): docs, migration, pack as three PRs | 0033 | `packs/materials/*`, `fixtures/matching/*`, the pack's registration in `apps/api/src/platform.ts` and `apps/api/src/routes/packs.ts`, `core/src/api/packs.ts`, `apps/web/src/packs/materials/*` (portal reports agreed with the UI session) | Wave 4 merged |
 | **Wave 4** (owner, 2026-11-06; after Wave 3) | | | | |
 | W4-A | WhatsApp through Meta (`whatsapp_meta`, §1.19) | none expected | `packages/connectors/src/whatsapp_meta/`, its webhook route, one line in `apps/api/src/platform.ts` | M33 (WhatsApp passive capture: `conversation`, media download) |
 | W4-B | Follow-ups from Waves 1–3 | none expected (0032 spare) | each item's own files, small marked blocks elsewhere | — |
