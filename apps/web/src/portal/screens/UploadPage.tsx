@@ -1,7 +1,8 @@
 // `/upload` (UI-3a, drafted in the prototype's style; ARCHITECTURE §6.3, §6.5): how invoices
 // arrive. Drop files or choose them, see the latest documents and open each one; the private
 // forwarding address and who may forward to it sit in the rail (the client admin edits the list).
-// The same parts are built into the Accounts page.
+// Reached from Records ("Upload documents"), its one entry. A file already here, or a second copy
+// of an invoice already here, is said so in the upload result and the recent list (QA round 1).
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
