@@ -654,14 +654,14 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       total: 3,
       byConnector: [{ connector: "qbo", name: "QuickBooks Online", count: 3 }],
     });
-    // A service's documentsRead counts its own extractions: the clerk worked from the invoice
-    // read on upload, so it shows 0 (listed as a gap in the e2e's PR).
+    // QA round 1: a service's documentsRead counts its own extractions and the document that
+    // started its run: the clerk worked from the invoice read on upload, so it counts 1.
     expect(activity.services).toEqual([
       expect.objectContaining({
         id: ids.clerk,
         name: "Bills",
         runs: expect.objectContaining({ total: 1, succeeded: 1 }),
-        documentsRead: 0,
+        documentsRead: 1,
         actions: 3,
       }),
     ]);

@@ -205,6 +205,46 @@ describe("back office layout", () => {
 });
 
 describe("portal layout", () => {
+  // QA round 1: nothing pops in late. The agents' rows and the Desk's count keep their place.
+  it("holds the agents' rows and the Desk count's place while they load", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const later = new Promise((resolve) => {
+      answer = resolve;
+    });
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => later,
+      "GET /api/table": () => tableView(),
+    });
+    renderAt("/runs", api);
+    const nav = await screen.findByRole("complementary", { name: "Navigation" });
+    expect(within(nav).getAllByTestId("sidebar-agent-skeleton").length).toBeGreaterThan(0);
+    expect(
+      within(within(nav).getByTestId("portal-nav-desk")).getByTestId("count-slot"),
+    ).toBeTruthy();
+    // No Desk link in the top bar (QA round 1): the sidebar's is the only one.
+    expect(screen.queryByTestId("shell-inbox")).toBeNull();
+
+    answer({
+      ...overview([{ ...service(SERVICE, "Material costs"), stage: "live" }], 1),
+      services: [
+        {
+          ...service(SERVICE, "Material costs"),
+          stage: "live",
+          runsNow: { running: 0, waitingOnYou: 1 },
+        },
+      ],
+    });
+    const row = await within(nav).findByTestId(`portal-nav-agent-${SERVICE}`);
+    // The sidebar uses the status model: a run waits on you, so the agent does.
+    expect(row).toHaveTextContent("Waiting on you");
+    expect(within(nav).queryByTestId("sidebar-agent-skeleton")).toBeNull();
+    expect(
+      within(within(nav).getByTestId("portal-nav-desk")).queryByTestId("count-slot"),
+    ).toBeNull();
+    expect(within(nav).getByTestId("portal-nav-desk")).toHaveTextContent("1");
+  });
+
   it("shows the client's name, the Desk count once, no switcher, and the short sidebar", async () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
@@ -269,7 +309,8 @@ describe("portal layout", () => {
     const agent = await within(nav).findByTestId(`portal-nav-agent-${SERVICE}`);
     expect(agent).toHaveAttribute("href", `/agents/${SERVICE}`);
     expect(agent).toHaveTextContent("Material costs");
-    expect(agent).toHaveTextContent("Active");
+    // Its state in the status model: live and idle is Ready (never "Active").
+    expect(agent).toHaveTextContent("Ready");
     // No lead set: no lead row.
     expect(screen.queryByTestId("portal-lead")).toBeNull();
 

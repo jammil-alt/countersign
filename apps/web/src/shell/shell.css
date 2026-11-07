@@ -181,6 +181,32 @@
   color: var(--slate);
 }
 
+/* QA round 1: an agent row's place while the list loads (no layout shift). */
+.ui-navskel,
+.ui-navskel:hover {
+  background: transparent;
+  cursor: default;
+}
+.ui-navskel__badge {
+  background: var(--surface-subtle);
+  border-color: transparent;
+}
+.ui-navskel__bar {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.ui-navskel__bar--name {
+  width: 96px;
+  height: 14px;
+  margin: 3px 0;
+}
+.ui-navskel__bar--line {
+  width: 64px;
+  height: 10px;
+  margin: 3px 0;
+}
+
 /* "More": a folded nav group. */
 .ui-more__summary {
   display: flex;

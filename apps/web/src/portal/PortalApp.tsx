@@ -7,26 +7,48 @@ import { NavLink, Route, Routes, useLocation, useMatch } from "react-router-dom"
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
-import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { usePoll } from "../runs/usePoll";
 import { useSession } from "../session/session";
 import { AgentSwitcher } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
-import { AppShell, SidebarAgent, SidebarLink, SidebarMore, SidebarSection } from "../shell/Shell";
+import {
+  AppShell,
+  SidebarAgent,
+  SidebarAgentSkeleton,
+  SidebarLink,
+  SidebarMore,
+  SidebarSection,
+} from "../shell/Shell";
 import { portalSearchGroups } from "../shell/searchGroups";
 import { AgentBadge, PersonBadge } from "../ui/badges";
 import { Placeholder } from "../ui/primitives";
 import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { PORTAL_PATHS } from "./paths";
 import { portalRoutes } from "./routes";
+import { agentChip } from "./status";
 
-const SERVICE_STATUS = {
-  active: "service.status.active",
-  paused: "service.status.paused",
-  draft: "service.status.draft",
-  retired: "service.status.retired",
-} as const satisfies Record<string, MessageKey>;
+/** Sidebar skeleton rows while the agents load: as many as last time (this browser), else one. */
+// DECISION: the count of agents last shown is kept per client in this browser only, so the
+// sidebar keeps its height on a full load; it is a convenience, never read for anything else.
+function agentRowsKey(clientId: string | undefined): string {
+  return `mz.portal.agentRows.${clientId ?? ""}`;
+}
+function rememberedAgentRows(clientId: string | undefined): number {
+  try {
+    const n = Number(window.localStorage.getItem(agentRowsKey(clientId)));
+    return Number.isInteger(n) && n > 0 ? Math.min(n, 8) : 1;
+  } catch {
+    return 1;
+  }
+}
+function rememberAgentRows(clientId: string | undefined, n: number): void {
+  try {
+    window.localStorage.setItem(agentRowsKey(clientId), String(n));
+  } catch {
+    // Private windows and blocked storage: the skeleton shows one row.
+  }
+}
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const { t } = useI18n();
@@ -58,12 +80,10 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       portalSearchGroups(await api.call(apiRoutes.portalSearch, { query: { q }, signal }), t),
     [api, t],
   );
-  const status = (s: string) => {
-    const key = Object.hasOwn(SERVICE_STATUS, s)
-      ? SERVICE_STATUS[s as keyof typeof SERVICE_STATUS]
-      : null;
-    return key ? t(key) : s;
-  };
+  const loaded = overview.data !== undefined;
+  useEffect(() => {
+    if (loaded) rememberAgentRows(client?.id, services.length);
+  }, [loaded, client?.id, services.length]);
 
   return (
     <>
@@ -86,7 +106,8 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           to: PORTAL_PATHS.desk,
           label: t("shell.desk"),
           count: overview.data?.needsYou.inbox,
-          // QA round 1: Your Desk appears once, in the sidebar.
+          // QA round 1: Your Desk appears once, in the sidebar (whose count keeps its slot while
+          // it loads); the phone's menu button carries the count.
           inHeader: false,
         }}
         pageBar={
@@ -116,6 +137,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                 icon="desk"
                 label={t("nav.desk")}
                 count={overview.data?.needsYou.inbox}
+                reserveCount
                 testId="portal-nav-desk"
               />
               <SidebarLink
@@ -129,14 +151,16 @@ export function PortalLayout({ children }: { children: ReactNode }) {
               {overview.data && services.length === 0 ? (
                 <p className="px-2.5 text-sm text-ink-muted">{t("nav.noAgents")}</p>
               ) : null}
-              {/* Each agent's role and what it is doing now aren't served on this route yet: its
-                  status stands in (docs/ui-plan.md, Not served yet). */}
+              {/* QA round 1: skeleton rows hold the list's place while it loads (no shift). */}
+              {loaded ? null : <SidebarAgentSkeleton rows={rememberedAgentRows(client?.id)} />}
+              {/* Each agent's role isn't served on this route yet; its state (the status model,
+                  ./status.ts) is its line (docs/ui-plan.md, Not served yet). */}
               {services.map((s) => (
                 <SidebarAgent
                   key={s.id}
                   to={PORTAL_PATHS.agent(s.id)}
                   name={s.name}
-                  line={status(s.status)}
+                  line={agentChip(s, t).label}
                   badge={<AgentBadge name={s.name} size="sm" />}
                   testId={`portal-nav-agent-${s.id}`}
                 />

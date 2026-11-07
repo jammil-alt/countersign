@@ -1,28 +1,6 @@
-// What an agent is doing, in one chip, for the Table's cards and the agent page's header (C1, C2):
-// paused first, then waiting on you, then running, then setting up (bench), else ready. The words
-// are the reader's; the colour comes from the shared StatusChip mapping.
-import type { TableView } from "@countersign/core";
+// Small helpers for the Table and an agent's page (C1, C2): the go-live stage's word, the part of
+// the day and the client's day. An agent's and a run's state live in ./status.ts.
 import type { Translate } from "../i18n/catalog";
-import type { ChipState } from "../ui/status";
-
-type Service = Pick<TableView["services"][number], "status" | "stage" | "now">;
-
-const GOING = new Set(["queued", "running", "waiting"]);
-
-export function agentChip(s: Service, t: Translate): { state: ChipState; label: string } {
-  if (s.status === "paused") return { state: "paused", label: t("service.status.paused") };
-  if (s.now?.waitingOnYou) return { state: "waiting", label: t("common.waitingOnYou") };
-  if (s.now && GOING.has(s.now.status)) return { state: "running", label: t("agent.running") };
-  if (s.stage === "bench" || s.status === "draft" || s.status === "testing") {
-    return { state: "setup", label: t("agent.settingUp") };
-  }
-  return { state: "idle", label: t("agent.ready") };
-}
-
-/** Whether the latest run is still going (it has a current step to show). */
-export function isGoing(now: Service["now"]): boolean {
-  return now !== null && GOING.has(now.status);
-}
 
 /** Before go-live (trial, the client's sign-off): a word beside the chip. Null when live. */
 export function stageWord(stage: string | null, t: Translate): string | null {

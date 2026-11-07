@@ -74,6 +74,22 @@ const TABLE = tableView({
       sources: [],
       at: "2026-11-06T09:09:00.000Z",
     },
+    {
+      runId: OLD_RUN,
+      service: { id: SVC, name: "Pia" },
+      label: "Looked for the bill",
+      summary: "Looked for the bill in QuickBooks",
+      sources: [],
+      at: "2026-11-03T10:01:00.000Z",
+    },
+    {
+      runId: OLD_RUN,
+      service: { id: SVC, name: "Pia" },
+      label: "Checked the bill",
+      summary: "Checked the bill against the invoice",
+      sources: [],
+      at: "2026-11-03T10:02:00.000Z",
+    },
   ],
 });
 
@@ -220,7 +236,7 @@ describe("the agent page", () => {
     const { container } = renderAt(`/agents/${SVC}`, api);
     expect(await screen.findByRole("heading", { name: "Pia" })).toBeInTheDocument();
     expect(screen.getByText(DETAIL.service.description)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Running"));
+    await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Working"));
     expect(screen.getByTestId("agent-lead")).toHaveTextContent("Ana Ruiz");
     expect(screen.getByRole("link", { name: "Ask Sloan" })).toHaveAttribute("href", "/sloan");
     // The Weekly Table lives on The Table now (QA round 1).
@@ -235,13 +251,20 @@ describe("the agent page", () => {
     expect(
       within(screen.getByTestId("agent-now")).getByRole("link", { name: "Open the run" }),
     ).toHaveAttribute("href", `/runs/${RUN}`);
-    expect(screen.getByTestId("agent-latest")).toHaveTextContent("Read 14 line items");
+    // Latest work: finished runs only (the live run is above), newest first.
+    const latest = screen.getByTestId("agent-latest");
+    expect(latest).not.toHaveTextContent("Read 14 line items");
+    expect(latest.textContent?.indexOf("Checked the bill")).toBeLessThan(
+      latest.textContent?.indexOf("Looked for the bill") ?? -1,
+    );
 
     // This month: its KPIs, then runs, documents and changes.
     expect(await screen.findByTestId("agent-kpi-k1")).toHaveTextContent(
       "$3,940.00Overcharges caught",
     );
-    expect(screen.getByTestId("portal-service-runs")).toHaveTextContent("2Runs1 done, 1 waiting");
+    expect(screen.getByTestId("portal-service-runs")).toHaveTextContent(
+      "2Runs1 done, 1 waiting on you",
+    );
     expect(screen.getByTestId("portal-service-documents")).toHaveTextContent("3");
 
     // What it can reach, verb by verb; changes are made on the vault page.
@@ -266,6 +289,68 @@ describe("the agent page", () => {
     ).toHaveAttribute("href", `/reports?service=${SVC}`);
     // Never the bundle, the instructions or the cost.
     expect(container.textContent).not.toMatch(/0\.4000|never shown/);
+  });
+
+  // QA round 1: the header, Right now and History agree on a run waiting on your approval.
+  it("shows a run waiting on your approval as waiting on you everywhere, with its wait apart", async () => {
+    const waiting = {
+      id: RUN,
+      service: { id: SVC, name: "Pia" },
+      status: "running",
+      startedAt: "2026-11-05T23:44:00.000Z",
+      finishedAt: null,
+      waitingOnYou: true,
+      waitedMs: 21 * 3_600_000,
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/table": () =>
+        tableView({
+          services: [
+            tableService(SVC, "Pia", {
+              now: {
+                runId: RUN,
+                status: "running",
+                step: { index: 3, total: 4, label: "Itemize the bill" },
+                since: "2026-11-06T00:44:00.000Z",
+                waitingOnYou: true,
+              },
+              runsNow: { running: 0, waitingOnYou: 1 },
+            }),
+          ],
+        }),
+      [`GET /api/services/${SVC}`]: () => ({
+        ...DETAIL,
+        recentRuns: [
+          waiting,
+          {
+            ...DETAIL.recentRuns[0],
+            startedAt: "2026-11-03T10:00:00.000Z",
+            finishedAt: "2026-11-04T08:00:00.000Z",
+            waitingOnYou: false,
+            waitedMs: 21 * 3_600_000,
+          },
+        ],
+      }),
+      [`GET /api/runs/${RUN}`]: () => ({ ...RUN_VIEW, run: waiting }),
+      "GET /api/access": () => ACCESS,
+      "GET /api/controls": () => control(),
+    });
+    renderAt(`/agents/${SVC}`, api);
+    await waitFor(() =>
+      expect(screen.getByTestId("agent-state")).toHaveTextContent("Waiting on you"),
+    );
+    expect(await screen.findByTestId("agent-now-state")).toHaveTextContent("Waiting on you");
+    const row = screen.getByTestId(`portal-service-run-${RUN}`);
+    expect(within(row).getByTestId(`portal-service-run-${RUN}-state`)).toHaveAttribute(
+      "data-state",
+      "waiting",
+    );
+    expect(row).not.toHaveTextContent("Running");
+    // Took is the working time: 22 h in all, 21 of them waiting on you.
+    const old = screen.getByTestId(`portal-service-run-${OLD_RUN}`);
+    expect(old).toHaveTextContent("Took 1 h");
+    expect(old).toHaveTextContent("Waited 21 h on you");
   });
 
   it("still shows the agent when only its own route answers", async () => {
@@ -415,7 +500,7 @@ describe("the agent page", () => {
       "GET /api/access": () => ACCESS,
     });
     renderAt(`/agents/${SVC}`, api);
-    await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Läuft"));
+    await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Arbeitet"));
     expect(await screen.findByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
       "Ändern: mit Ihrer Unterschrift",
     );

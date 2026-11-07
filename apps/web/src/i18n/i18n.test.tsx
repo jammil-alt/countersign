@@ -156,6 +156,8 @@ const OVERVIEW = {
       name: "Record keeping",
       description: "Keeps the records right.",
       status: "active",
+      stage: "live",
+      runsNow: { running: 1, waitingOnYou: 0 },
     },
   ],
   needsYou: { inbox: 3 },
@@ -230,11 +232,11 @@ describe("the portal in the session's language", () => {
     }
     expect(screen.getByTestId("table-week-line")).toHaveTextContent("3 cosas le esperan.");
     // The status reads in Spanish on the page and in the sidebar's agent row.
-    expect(within(screen.getByRole("main")).getByText("En curso")).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByText("Trabajando")).toBeInTheDocument();
     expect(
       within(screen.getByRole("main")).getByText("Paso 2 de 4 · empezó", { exact: false }),
     ).toBeInTheDocument();
-    expect(await within(nav).findByText("Activo")).toBeInTheDocument();
+    expect(await within(nav).findByText("Trabajando")).toBeInTheDocument();
     expect(screen.getByTestId("table-desk")).toHaveTextContent("Le espera a usted");
     // Names and what the operator wrote stay as written.
     expect(within(screen.getByRole("main")).getByText("Record keeping")).toBeInTheDocument();

@@ -56,6 +56,7 @@ const TABLE = tableView({
         waitingOnYou: false,
       },
       runsDone: 9,
+      runs: { total: 10, succeeded: 9, failed: 0, cancelled: 0, waiting: 0, going: 1 },
     }),
     tableService(COLE, "Cole", {
       now: {
@@ -72,7 +73,11 @@ const TABLE = tableView({
       status: "draft",
     }),
   ],
-  figures: { runsDone: 38, changes: { automatic: 52, signed: 12 } },
+  figures: {
+    runsDone: 38,
+    runs: { total: 41, succeeded: 38, failed: 0, cancelled: 0, waiting: 1, going: 2 },
+    changes: { automatic: 52, signed: 12 },
+  },
   recent: [
     {
       runId: RUN,
@@ -188,7 +193,7 @@ describe("The Table", () => {
       await screen.findByRole("heading", { name: /^Good (morning|afternoon|evening), Dana$/ }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("table-week-line")).toHaveTextContent(
-      "Your agents finished 38 runs this week. 5 things wait on you.",
+      "Runs started this week: 38 finished · 1 waiting on you · 2 running. 5 things wait on you.",
     );
     // No week sent yet: no Weekly Table tab (QA round 1).
     expect(screen.queryByTestId("table-views")).toBeNull();
@@ -198,11 +203,11 @@ describe("The Table", () => {
     expect(working).toHaveTextContent("1 running · 1 waiting on you · 1 setting up");
     const pia = within(working).getByTestId(`portal-service-${PIA}`);
     expect(pia).toHaveAttribute("href", `/agents/${PIA}`);
-    expect(within(pia).getByTestId(`table-agent-state-${PIA}`)).toHaveTextContent("Running");
+    expect(within(pia).getByTestId(`table-agent-state-${PIA}`)).toHaveTextContent("Working");
     expect(pia).toHaveTextContent("Match items to your catalog");
     expect(pia).toHaveTextContent("Step 3 of 6 · started");
     expect(within(pia).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "3");
-    expect(pia).toHaveTextContent("9 runs done this week");
+    expect(pia).toHaveTextContent("9 finished · 1 running");
     // Its tools are the connections it is granted.
     expect(await within(pia).findByText("QuickBooks Online")).toBeInTheDocument();
 
@@ -217,6 +222,7 @@ describe("The Table", () => {
     expect(within(working).getByText("Setting up")).toBeInTheDocument();
 
     expect(screen.getByTestId("table-stat-runs")).toHaveTextContent("38");
+    expect(screen.getByTestId("table-stat-runs")).toHaveTextContent("1 waiting on you · 2 running");
     expect(screen.getByTestId("table-stat-changes")).toHaveTextContent(
       "6452 automatic, 12 signed by you",
     );
@@ -249,6 +255,49 @@ describe("The Table", () => {
     );
     expect(screen.queryByText(/bundle|instructions|prompt|cost/i)).toBeNull();
     expect(container.textContent).not.toMatch(/costUsd/);
+  });
+
+  // QA round 1: a run waiting on an approval keeps status "running"; it is never shown as Running.
+  it("shows a run waiting on your approval as waiting on you, never as running", async () => {
+    const BILL = "00000000-0000-4000-8000-00000000b004";
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () =>
+        tableView({
+          services: [
+            tableService(BILL, "Bill clerk", {
+              now: {
+                runId: RUN,
+                status: "running",
+                step: null,
+                since: "2026-11-05T23:44:00.000Z",
+                waitingOnYou: true,
+              },
+              runs: { total: 1, succeeded: 0, failed: 0, cancelled: 0, waiting: 1, going: 0 },
+              runsNow: { running: 0, waitingOnYou: 1 },
+            }),
+          ],
+          figures: {
+            runsDone: 0,
+            runs: { total: 1, succeeded: 0, failed: 0, cancelled: 0, waiting: 1, going: 0 },
+            changes: { automatic: 0, signed: 0 },
+          },
+        }),
+      "GET /api/access": () => ({ ...ACCESS, items: [] }),
+    });
+    renderAt("/", api);
+    const card = await screen.findByTestId(`portal-service-${BILL}`);
+    expect(within(card).getByTestId(`table-agent-state-${BILL}`)).toHaveTextContent(
+      "Waiting on you",
+    );
+    expect(within(card).getByTestId(`table-agent-now-${BILL}`)).toHaveTextContent("Waiting on you");
+    expect(card).not.toHaveTextContent(/Running|Working/);
+    expect(card).toHaveTextContent("0 finished · 1 waiting on you");
+    // It says what it counts: a run started this week that waits on you isn't "0 runs done".
+    expect(screen.getByTestId("table-week-line")).toHaveTextContent(
+      "Runs started this week: 0 finished · 1 waiting on you.",
+    );
   });
 
   it("puts an item off until tomorrow morning with Not now", async () => {

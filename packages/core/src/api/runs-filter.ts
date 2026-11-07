@@ -345,7 +345,16 @@ export function startedByEventTypes(kind: RunStartedBy): string[] {
 
 /** `perDay=1`: runs per day (UTC) matching the filter, oldest first; days with none left out. */
 export const RunsPerDay = z.array(
-  z.object({ day: z.string(), runs: z.number().int(), failed: z.number().int() }),
+  z.object({
+    day: z.string(),
+    runs: z.number().int(),
+    failed: z.number().int(),
+    // QA round 1 (portal): the day's runs by how they stand, bucketed by the client's start day.
+    done: z.number().int().optional(),
+    waiting: z.number().int().optional(),
+    going: z.number().int().optional(),
+    stopped: z.number().int().optional(),
+  }),
 );
 export type RunsPerDay = z.infer<typeof RunsPerDay>;
 

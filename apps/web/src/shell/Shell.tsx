@@ -40,6 +40,8 @@ export interface ShellDesk {
    * count then rides on the phone's menu button.
    */
   inHeader?: boolean;
+  /** Keep the count's slot while it loads, so nothing shifts when it arrives. */
+  reserve?: boolean;
 }
 
 export function AppShell({
@@ -119,7 +121,11 @@ export function AppShell({
           >
             <Icon name="desk" className="ui-topbar__deskicon" />
             <span className="ui-topbar__desklabel">{desk.label}</span>
-            {desk.count !== undefined ? <Count n={desk.count} tone="warning" /> : null}
+            {desk.count !== undefined ? (
+              <Count n={desk.count} tone="warning" />
+            ) : desk.reserve ? (
+              <CountSlot />
+            ) : null}
           </NavLink>
         ) : null}
         <UserMenu surface={surface} />
@@ -246,6 +252,7 @@ export function SidebarLink({
   icon,
   count,
   countTone = "warning",
+  reserveCount = false,
   end,
   testId,
   children,
@@ -256,6 +263,8 @@ export function SidebarLink({
   count?: number | undefined;
   /** `warning` (signal) for waiting-on-you counts; `neutral` for plain totals. */
   countTone?: "warning" | "neutral";
+  /** Keep the count's slot while it loads (undefined), so the row doesn't shift. */
+  reserveCount?: boolean;
   end?: boolean;
   testId?: string;
   children?: ReactNode;
@@ -272,7 +281,11 @@ export function SidebarLink({
         {icon ? <Icon name={icon} className="ui-navitem__icon" /> : null}
         {children ?? <span className="truncate">{label}</span>}
       </span>
-      {count !== undefined ? <Count n={count} tone={countTone} /> : null}
+      {count !== undefined ? (
+        <Count n={count} tone={countTone} />
+      ) : reserveCount ? (
+        <CountSlot />
+      ) : null}
     </NavLink>
   );
 }
@@ -325,6 +338,40 @@ export function SidebarMore({
       </summary>
       <div className="mt-1.5 flex flex-col gap-0.5">{children}</div>
     </details>
+  );
+}
+
+/** A count's place while it loads: an invisible count of the same size. */
+function CountSlot() {
+  return (
+    <span aria-hidden className="invisible" data-testid="count-slot">
+      <Count n={0} />
+    </span>
+  );
+}
+
+/** Rows that hold the agents' place in the sidebar while they load, the size of real rows. */
+export function SidebarAgentSkeleton({ rows }: { rows: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, i) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholder rows.
+          key={i}
+          aria-hidden
+          data-testid="sidebar-agent-skeleton"
+          className="ds-navitem ui-navitem ui-navagent ui-navskel"
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="ui-agentbadge ui-agentbadge--sm ui-navskel__badge" />
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="ui-navskel__bar ui-navskel__bar--name" />
+              <span className="ui-navskel__bar ui-navskel__bar--line" />
+            </span>
+          </span>
+        </div>
+      ))}
+    </>
   );
 }
 
