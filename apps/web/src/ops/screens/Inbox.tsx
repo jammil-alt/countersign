@@ -6,6 +6,7 @@
 // window (`/api/ops/inbox/:id/undo`).
 import type { OpsAgentRef } from "@countersign/core";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -42,9 +43,13 @@ function undoable(item: Pick<Item, "deliverAfter">): boolean {
 export function OpsInboxScreen() {
   const api = useApiClient();
   const session = useSession();
-  const [assigned, setAssigned] = useState<"operator" | "all">("operator");
+  // A run page's "See it in Escalations" opens on its client, everything waiting there.
+  const [params] = useSearchParams();
+  const [assigned, setAssigned] = useState<"operator" | "all">(
+    params.get("assigned") === "all" ? "all" : "operator",
+  );
   const [status, setStatus] = useState<"open" | "resolved">("open");
-  const [client, setClient] = useState("");
+  const [client, setClient] = useState(params.get("client") ?? "");
   // What we just resolved, kept on screen with Undo while its window lasts.
   const [recent, setRecent] = useState<Item[]>([]);
   const state = useApi(apiRoutes.opsInbox, {

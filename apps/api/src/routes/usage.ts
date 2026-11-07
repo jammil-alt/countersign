@@ -613,7 +613,7 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
         documentsRead: mine?.documentsRead ?? 0,
         actions: mine?.actions ?? 0,
       },
-      recentRuns: await runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10),
+      recentRuns: await runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10, services.platform),
       packs: report.packs,
     };
   });

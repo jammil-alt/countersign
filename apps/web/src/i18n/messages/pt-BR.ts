@@ -1599,7 +1599,7 @@ export const ptBR: Messages = {
   "runsPage.perDay": "Execuções por dia",
   "runDetail.run": "execução {id}",
   "runDetail.copyLink": "Copiar link",
-  "runDetail.review": "Revisar e assinar",
+  "runDetail.review": "Revisar e aprovar",
   "runDetail.about": "Sobre esta execução",
   "runDetail.changes": "Alterações",
   "runDetail.changesLine": "{made} feitas de {count}",
@@ -1609,7 +1609,7 @@ export const ptBR: Messages = {
   "runDetail.otherRuns": "Outras execuções de {name}",
   "runDetail.allRuns": "Todas",
   "runDetail.noOther": "Ainda não há outras execuções.",
-  "runDetail.waitingChanges": "Alterações esperando sua assinatura",
+  "runDetail.waitingChanges": "Alterações esperando sua aprovação",
   "runDetail.askSloan.prompt": "Algo parece errado nesta execução?",
   "runDetail.askSloan": "Perguntar ao Sloan",
   "runDetail.askSloan.text": "Sobre a execução {id}: ",
@@ -1618,10 +1618,10 @@ export const ptBR: Messages = {
   "runDetail.audit.empty": "Ninguém abriu esta execução ainda.",
   "runDetail.audit.times": { one: "uma vez", other: "{count} vezes" },
   "runDetail.audit.opened_run": "abriu esta execução",
-  "runDetail.audit.item_edit": "editou uma alteração antes de assinar",
+  "runDetail.audit.item_edit": "editou uma alteração antes de aprovar",
   "runDetail.audit.item_snooze": "deixou um item para depois",
-  "runDetail.audit.item_undo": "desfez uma assinatura",
-  "runDetail.audit.signed": "assinou",
+  "runDetail.audit.item_undo": "desfez uma aprovação",
+  "runDetail.audit.signed": "aprovou",
   "runDetail.audit.declined": "recusou",
   "runDetail.audit.answered": "respondeu uma pergunta",
   "weekly.title": "A Mesa da semana",
@@ -1771,4 +1771,17 @@ export const ptBR: Messages = {
   "signin.needAccess":
     "Precisa de acesso? Peça ao seu administrador ou ao seu responsável na Mezonas.",
   "nav.upload": "Enviar",
+  // UI cleanup (run pages and changes): new strings, and the runDetail approval words above
+  // (approve, not sign). Needs a fluent speaker's review.
+  "run.subject.invoice": "Fatura {number}",
+  "runDetail.waitingSince": "Esperando você desde {time}",
+  "runDetail.waitingItems": {
+    one: "{count} item espera sua aprovação.",
+    other: "{count} itens esperam sua aprovação.",
+  },
+  "change.unchanged": { one: "{count} campo sem alteração", other: "{count} campos sem alteração" },
+  "change.linesUnchanged": {
+    one: "{count} linha sem alteração",
+    other: "{count} linhas sem alteração",
+  },
 };

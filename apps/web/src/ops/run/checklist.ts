@@ -58,6 +58,11 @@ function waitingText(step: Step | undefined, nodeType: string): string {
   return "Waiting for approval";
 }
 
+/** A write step that waits for approval (the default; only the operator turns it off). */
+function needsApproval(step: Step): boolean {
+  return step.kind === "action" && (step.approval?.required ?? "required") !== "not_required";
+}
+
 export function checklistRows(input: {
   workflow: Workflow | null;
   steps: readonly StepRunLike[];
@@ -94,7 +99,9 @@ export function checklistRows(input: {
       key: s.id,
       kind: KIND_LABEL[kind] ?? s.nodeType,
       title: `${step?.name ?? stepId}${index === null ? "" : ` · item ${index + 1}`}`,
-      detail: s.summary ?? (s.status === "waiting" ? waitingText(step, s.nodeType) : null),
+      // A waiting step says what it waits for, not its stored line: lines written before steps
+      // read by their state carried the done label ("Itemized the bill: waiting for approval").
+      detail: s.status === "waiting" ? waitingText(step, s.nodeType) : s.summary,
       status: s.status,
       at: s.finishedAt ?? s.startedAt,
       costUsd: s.costUsd,
@@ -109,7 +116,8 @@ export function checklistRows(input: {
         key: `pending:${step.id}`,
         kind: KIND_LABEL[step.kind],
         title: step.name,
-        detail: null,
+        // A write that will wait for a person says so before it runs.
+        detail: needsApproval(step) ? "Needs approval" : null,
         status: "pending",
         at: null,
         costUsd: null,

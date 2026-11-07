@@ -58,6 +58,7 @@ import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { runControlRoutes } from "./run-controls";
+import { RunSubject } from "./run-subject";
 import {
   OpsRunsQuery,
   PortalRunsQuery,
@@ -250,6 +251,8 @@ export const OpsRun = z.object({
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
   createdAt: Timestamp,
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
 
 export const OpsStep = z.object({
@@ -417,7 +420,12 @@ export const PortalRunSummary = z.object({
   // and how long it has waited on the client in all, kept out of its working time.
   waitingOnYou: z.boolean().optional(),
   waitedMs: z.number().int().nonnegative().optional(),
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
+
+/** Record names by id, for the receipts a run's steps cite (never "Record ·3f9a1c"). */
+export const SourceNames = z.record(z.string(), z.string());
 
 export const TimelineStep = z.object({
   id: z.string(),
@@ -1422,6 +1430,8 @@ export const opsRoutes = {
         .nullable(),
       // v0.13 W2-I: the run's oversight decisions, oldest first (ARCHITECTURE §10.11).
       oversight: z.array(OversightDecisionView).optional(),
+      /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
+      sourceNames: SourceNames.optional(),
     }),
   }),
   opsInbox: defineRoute({
@@ -1644,6 +1654,8 @@ export const portalRoutes = {
     response: z.object({
       run: PortalRunSummary,
       steps: z.array(TimelineStep),
+      /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
+      sourceNames: SourceNames.optional(),
       approvals: z.array(
         z.object({
           id: z.string(),

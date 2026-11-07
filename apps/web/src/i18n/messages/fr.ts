@@ -1627,7 +1627,7 @@ export const fr: Messages = {
   "runsPage.perDay": "Exécutions par jour",
   "runDetail.run": "exécution {id}",
   "runDetail.copyLink": "Copier le lien",
-  "runDetail.review": "Vérifier et signer",
+  "runDetail.review": "Vérifier et approuver",
   "runDetail.about": "À propos de cette exécution",
   "runDetail.changes": "Modifications",
   "runDetail.changesLine": "{made} faites sur {count}",
@@ -1637,7 +1637,7 @@ export const fr: Messages = {
   "runDetail.otherRuns": "Autres exécutions de {name}",
   "runDetail.allRuns": "Toutes",
   "runDetail.noOther": "Pas encore d'autres exécutions.",
-  "runDetail.waitingChanges": "Modifications en attente de votre signature",
+  "runDetail.waitingChanges": "Modifications en attente de votre approbation",
   "runDetail.askSloan.prompt": "Quelque chose cloche dans cette exécution ?",
   "runDetail.askSloan": "Demander à Sloan",
   "runDetail.askSloan.text": "À propos de l'exécution {id} : ",
@@ -1646,10 +1646,10 @@ export const fr: Messages = {
   "runDetail.audit.empty": "Personne n'a encore ouvert cette exécution.",
   "runDetail.audit.times": { one: "une fois", other: "{count} fois" },
   "runDetail.audit.opened_run": "a ouvert cette exécution",
-  "runDetail.audit.item_edit": "a modifié un changement avant de signer",
+  "runDetail.audit.item_edit": "a modifié un changement avant de l'approuver",
   "runDetail.audit.item_snooze": "a remis un élément à plus tard",
-  "runDetail.audit.item_undo": "a retiré une signature",
-  "runDetail.audit.signed": "a signé",
+  "runDetail.audit.item_undo": "a retiré une approbation",
+  "runDetail.audit.signed": "a approuvé",
   "runDetail.audit.declined": "a refusé",
   "runDetail.audit.answered": "a répondu à une question",
   "weekly.title": "La Table de la semaine",
@@ -1803,4 +1803,14 @@ export const fr: Messages = {
   "signin.needAccess":
     "Besoin d'un accès ? Demandez à votre administrateur ou à votre interlocuteur Mezonas.",
   "nav.upload": "Envoyer",
+  // UI cleanup (run pages and changes): new strings, and the runDetail approval words above
+  // (approve, not sign). Needs a fluent speaker's review.
+  "run.subject.invoice": "Facture {number}",
+  "runDetail.waitingSince": "Vous attend depuis {time}",
+  "runDetail.waitingItems": {
+    one: "{count} élément attend votre approbation.",
+    other: "{count} éléments attendent votre approbation.",
+  },
+  "change.unchanged": { one: "{count} champ inchangé", other: "{count} champs inchangés" },
+  "change.linesUnchanged": { one: "{count} ligne inchangée", other: "{count} lignes inchangées" },
 };

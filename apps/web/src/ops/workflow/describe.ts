@@ -9,6 +9,7 @@ import {
   type Trigger,
   type Workflow,
 } from "@countersign/core";
+import { eventLabel } from "../../runs/labels";
 
 export const KIND_LABEL: Record<StepKind | "trigger", string> = {
   trigger: "Trigger",
@@ -48,7 +49,8 @@ export function triggerTitle(trigger: Trigger): string {
   const on = trigger.on;
   switch (on.type) {
     case "event":
-      return `When ${readableEvent(on.event).toLowerCase()}`;
+      // The event in plain words ("When an invoice has been read"), never its id.
+      return `When ${eventLabel(on.event)}`;
     case "schedule":
       return "On a schedule";
     case "manual":

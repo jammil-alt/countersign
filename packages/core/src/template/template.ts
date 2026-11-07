@@ -193,11 +193,65 @@ export function renderSummary(
   const parts = parseTemplate(pickLocalized(template, locale));
   const values = parts.map((p) => (p.type === "text" ? p.text : resolvePath(output, p.path)));
   if (parts.some((p, i) => p.type === "ref" && !fills(values[i]))) return null;
+  const english = typeof template === "string" || locale === "en" || template[locale] === undefined;
   const line = values
-    .map((v, i) => (parts[i]?.type === "text" ? (v as string) : stringify(v)))
+    .map((v, i) => {
+      if (parts[i]?.type !== "text") return summaryValue(v);
+      const text = v as string;
+      return english && isOne(values[i - 1]) && parts[i - 1]?.type === "ref"
+        ? singularAfterOne(text)
+        : text;
+    })
     .join("")
     .trim();
   return line === "" ? null : line;
+}
+
+/** A stored amount ("9742.3500") reads with two places when the rest are zeros ("9742.35"). */
+function summaryValue(v: unknown): string {
+  if (typeof v === "string" && /^-?\d+\.\d{2}0+$/.test(v)) return v.replace(/0+$/, "");
+  return stringify(v);
+}
+
+function isOne(v: unknown): boolean {
+  return v === 1 || v === "1";
+}
+
+const IRREGULAR: Record<string, string> = { people: "person", children: "child" };
+/** Words ending in "s" that are not plurals. */
+const NOT_PLURAL = new Set(["was", "has", "does", "its", "this", "yes", "as", "plus", "across"]);
+
+/**
+ * The text after a count of one, with its noun singular: " bills" → " bill", " open invoices,"
+ * → " open invoice,", " people" → " person". Only the first of the next two words that reads as
+ * a plural changes; "row(s)" and words ending in "ss" or "us" are left alone.
+ */
+// DECISION: English summaries are written for many ("Found {{bills.length}} bills"); rather than a
+// plural syntax in every template, a count of exactly one makes its noun singular here, so no
+// summary says "Found 1 bills". Other languages write their own templates and are left as written.
+export function singularAfterOne(text: string): string {
+  const m = /^(\s+)(\S+)(?:(\s+)(\S+))?/.exec(text);
+  if (!m) return text;
+  const words = [m[2] as string, m[4]];
+  for (let w = 0; w < words.length; w++) {
+    const raw = words[w];
+    if (raw === undefined) break;
+    const word = /^[A-Za-z]+/.exec(raw)?.[0] ?? "";
+    const one = singular(word);
+    if (one === null) continue;
+    const head = w === 0 ? (m[1] as string) : `${m[1]}${m[2]}${m[3]}`;
+    return `${head}${one}${text.slice(head.length + word.length)}`;
+  }
+  return text;
+}
+
+function singular(word: string): string | null {
+  const lower = word.toLowerCase();
+  if (IRREGULAR[lower]) return IRREGULAR[lower] as string;
+  if (NOT_PLURAL.has(lower)) return null;
+  if (lower.length < 3 || !lower.endsWith("s") || /(ss|us|is)$/.test(lower)) return null;
+  if (lower.endsWith("ies")) return `${word.slice(0, -3)}y`;
+  return word.slice(0, -1);
 }
 
 /** Whether a templated value (a string, or strings anywhere in objects and arrays) has a `{{`. */

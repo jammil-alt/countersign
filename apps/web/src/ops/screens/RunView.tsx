@@ -1,11 +1,13 @@
 // `/ops/runs/:id`, O10 Run detail (docs/design/prototype.html `#O10-RunDetail`; ARCHITECTURE §10.5,
-// §10.10, §10.11): the full view of one run. Timeline (each step with its time, cost, tokens and
-// models, a failed step with its tool calls), Changes (now / after this change for each action,
-// approve or reject where one waits on us), Model calls (with request and answer), Oversight (the
-// run oversight's decisions) and Raw (trigger, inputs, outputs, tool calls). Beside it: about this
-// run and the same error elsewhere. Retry, cancel and replay. Polls every 2 s while the run is going.
+// §10.10, §10.11): the full view of one run, titled by what it is about (its invoice or its first
+// change). When it waits, a block at the top says on whom and since when, with Approve and Reject
+// where the server lets us resolve the item, else who must approve and where. Tabs: Timeline (each
+// step with its time, cost, tokens and models, a failed step with its tool calls), Changes (now /
+// after this change for each action) and Details (model calls with request and answer, the run
+// oversight's decisions, and the raw trigger, inputs, outputs and tool calls). Beside it: about
+// this run and the same error elsewhere. Retry, cancel and replay. Polls every 2 s while it goes.
 import { errorGroupKey, runErrorCode, runStartedBy, shortRunId, Workflow } from "@countersign/core";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -15,11 +17,13 @@ import { changeHeading } from "../../inbox/change";
 import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
 import { SourceLinks, sourcesOf } from "../../records/SourceLinks";
 import { duration, isRunGoing, shortTime, stepStatusLabel, usd } from "../../runs/format";
+import { toolLabel } from "../../runs/labels";
+import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { BeforeAfter } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
-import { Loaded, Page, PageGrid } from "../../ui/page";
+import { Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
   Badge,
   Button,
@@ -36,6 +40,7 @@ import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { usePageClient } from "../pickedClient";
 import { checklistRows, type RunStepRow } from "../run/checklist";
 import { ModelCalls, RunControls } from "../run/RunControls";
+import { type RunWait, runWaiting, waitingOn, waitingWhat } from "../run/waiting";
 import {
   OVERSIGHT_ACTION_WORDS,
   OVERSIGHT_CAUSE_WORDS,
@@ -45,15 +50,17 @@ import {
   runErrorParts,
 } from "../run/words";
 import { type StepNames, stepNames } from "../workflow/describe";
-import { operatorMayResolve } from "./Inbox";
 
 type RunDetail = ResponseOf<typeof apiRoutes.opsRun>;
 type Action = RunDetail["actions"][number];
 type Item = RunDetail["inbox"][number];
 type Decision = NonNullable<RunDetail["oversight"]>[number];
+type Wait = RunWait<Item>;
 
-const TABS = ["timeline", "changes", "calls", "oversight", "raw"] as const;
+const TABS = ["timeline", "changes", "details"] as const;
 type TabId = (typeof TABS)[number];
+/** The tabs Details took in: their old addresses open it. */
+const FOLDED_TABS = ["calls", "oversight", "raw"];
 
 const STARTED_BY_WORDS: Record<string, string> = {
   schedule: "by schedule",
@@ -100,7 +107,7 @@ export function OpsRunScreen() {
     runCreatedAt: run.createdAt,
     going,
   });
-  const waitingOnYou = data.inbox.filter((i) => i.status === "open" && operatorMayResolve(i));
+  const wait = going ? runWaiting(data.inbox) : null;
   const clientName = session.tenants.find((t) => t.id === run.tenantId)?.name ?? "Client";
   const name = agent?.name ?? "Agent";
   const short = shortRunId(run.id);
@@ -110,23 +117,24 @@ export function OpsRunScreen() {
       ? rows.find((r) => data.steps.find((s) => s.id === r.stepRunId)?.nodeId === error.nodeId)
       : undefined;
   const failedIndex = failedRow ? rows.indexOf(failedRow) : -1;
-  const chip = runChip(run.status);
+  const chip = wait ? { state: "waiting" as const, words: wait.line } : runChip(run.status);
   const startedBy = runStartedBy(run.trigger);
   const oversight = data.oversight ?? [];
   const stepNameById = new Map(rows.filter((r) => r.stepRunId).map((r) => [r.stepRunId, r.title]));
+  const workflowName = data.workflow?.name ?? run.workflowSlug;
 
-  const asked = params.get("tab");
-  const tab: TabId = (TABS as readonly string[]).includes(asked ?? "")
+  const asked = params.get("tab") ?? "";
+  const tab: TabId = (TABS as readonly string[]).includes(asked)
     ? (asked as TabId)
-    : waitingOnYou.length > 0
-      ? "changes"
-      : "timeline";
+    : FOLDED_TABS.includes(asked)
+      ? "details"
+      : wait?.mine
+        ? "changes"
+        : "timeline";
   const tabs: [TabId, string, number | null][] = [
     ["timeline", "Timeline", null],
     ["changes", "Changes", data.actions.length],
-    ["calls", "Model calls", calls.data?.modelCalls.length ?? null],
-    ["oversight", "Oversight", oversight.length],
-    ["raw", "Raw", null],
+    ["details", "Details", null],
   ];
 
   return (
@@ -145,7 +153,7 @@ export function OpsRunScreen() {
       <div>
         <PageHeader
           leading={<AgentBadge name={name} size="lg" />}
-          title={data.workflow?.name ?? run.workflowSlug}
+          title={opsRunTitle(run.subject, workflowName)}
           badge={
             <span className="flex flex-wrap items-center gap-1.5">
               <StatusChip state={chip.state} testId="ops-run-status">
@@ -153,16 +161,15 @@ export function OpsRunScreen() {
                 {failedRow ? ` at step ${failedIndex}` : ""}
               </StatusChip>
               {run.mode === "test" ? <Badge>Test run</Badge> : null}
-              {waitingOnYou.length > 0 ? (
-                <StatusChip state="waiting" testId="ops-run-waiting">
-                  Waiting on you · {waitingOnYou.length}
-                </StatusChip>
-              ) : null}
             </span>
           }
           subtitle={
             <>
-              {[clientName, agent ? `${name}${data.version ? ` v${data.version}` : ""}` : null]
+              {[
+                clientName,
+                agent ? `${name}${data.version ? ` v${data.version}` : ""}` : null,
+                workflowName,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
               {" · "}
@@ -181,6 +188,14 @@ export function OpsRunScreen() {
             />
           }
         />
+        {wait ? (
+          <WaitingBlock
+            wait={wait}
+            data={data}
+            onResolve={resolve}
+            onAnswer={() => setParams({ tab: "changes" }, { replace: true })}
+          />
+        ) : null}
         <div className="ds-tabs" role="tablist" aria-label="Run">
           {tabs.map(([t, label, count]) => (
             <button
@@ -216,18 +231,128 @@ export function OpsRunScreen() {
           <ErrorNotice error={new Error(failureText(run.error, names) ?? error.reason)} />
         ) : null}
         {tab === "timeline" ? (
-          <Timeline data={data} rows={rows} failedNode={error.nodeId} oversight={oversight} />
+          <Timeline
+            data={data}
+            rows={rows}
+            failedNode={error.nodeId}
+            oversight={oversight}
+            wait={wait}
+          />
         ) : null}
         {tab === "changes" ? <Changes data={data} onResolve={resolve} /> : null}
-        {tab === "calls" ? (
-          <Loaded state={calls}>
-            {(c) => <ModelCalls calls={c.modelCalls} names={stepNameById as Map<string, string>} />}
-          </Loaded>
+        {tab === "details" ? (
+          <div className="flex flex-col gap-8" data-testid="ops-run-details">
+            <Section
+              title="Model calls"
+              meta={calls.data ? plural(calls.data.modelCalls.length, "call", "calls") : null}
+            >
+              <Loaded state={calls}>
+                {(c) => (
+                  <ModelCalls calls={c.modelCalls} names={stepNameById as Map<string, string>} />
+                )}
+              </Loaded>
+            </Section>
+            <Section
+              title="Oversight"
+              meta="What the run's supervisor decided when a step failed or reached a checkpoint"
+            >
+              <OversightList decisions={oversight} names={stepNameById} />
+            </Section>
+            <Section title="Raw data" meta="The trigger, each step's input and output, tool calls">
+              <RunLog data={data} names={names} />
+            </Section>
+          </div>
         ) : null}
-        {tab === "oversight" ? <OversightList decisions={oversight} names={stepNameById} /> : null}
-        {tab === "raw" ? <RunLog data={data} names={names} /> : null}
       </PageGrid>
     </Page>
+  );
+}
+
+// ── Waiting ──
+
+/**
+ * The run's wait, at the top: on whom and since when; Approve and Reject when the server lets us
+ * resolve the item (the Sandbox, items delegated to us), else who must and where to see it.
+ */
+function WaitingBlock({
+  wait,
+  data,
+  onResolve,
+  onAnswer,
+}: {
+  wait: Wait;
+  data: RunDetail;
+  onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
+  onAnswer: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const item = wait.item;
+  const action = data.actions.find((a) => a.inboxItemId === item.id);
+  const connector = action
+    ? changeHeading(action.display, action.tool, action.before, action.input).connector
+    : null;
+  const approves = item.kind === "external_action" || item.kind === "approval";
+  const act = async (decision: "approve" | "reject") => {
+    setBusy(true);
+    try {
+      await onResolve(item.id, { decision });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const more = wait.items.length > 1 ? ` · ${plural(wait.items.length, "item", "items")}` : "";
+  return (
+    <Card pad testId="ops-run-waiting" className="mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2 font-medium text-ink">
+            <StatusChip state="waiting">{wait.what}</StatusChip>
+            <span data-testid="ops-run-waiting-line">
+              {wait.who} · since {shortTime(wait.since)} ({wait.waited}){more}
+            </span>
+          </p>
+          <p className="mt-1 text-sm text-ink-muted">
+            {wait.mine
+              ? approves
+                ? `Nothing changes${connector ? ` in ${connector}` : ""} until it is approved.`
+                : "The run goes on once it is answered."
+              : `Only the ${wait.who} can ${approves ? "approve" : "answer"} this. We can't do it for them.`}
+          </p>
+        </div>
+        {wait.mine && approves ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              data-testid="ops-run-waiting-reject"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void act("reject")}
+            >
+              Reject
+            </Button>
+            <Button
+              data-testid="ops-run-waiting-approve"
+              variant="primary"
+              disabled={busy}
+              onClick={() => void act("approve")}
+            >
+              {connector ? `Approve and update ${connector}` : "Approve"}
+            </Button>
+          </div>
+        ) : wait.mine ? (
+          <Button data-testid="ops-run-waiting-answer" variant="primary" onClick={onAnswer}>
+            Answer it
+          </Button>
+        ) : (
+          <Link
+            to={`/ops/inbox?assigned=all&client=${data.run.tenantId}`}
+            className="text-sm text-link underline"
+            data-testid="ops-run-waiting-where"
+          >
+            See it in Escalations
+          </Link>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -262,11 +387,13 @@ function Timeline({
   rows,
   failedNode,
   oversight,
+  wait,
 }: {
   data: RunDetail;
   rows: RunStepRow[];
   failedNode: string | null;
   oversight: Decision[];
+  wait: Wait | null;
 }) {
   const { run } = data;
   const steps = new Map(data.steps.map((s) => [s.id, s]));
@@ -281,7 +408,8 @@ function Timeline({
         : null,
     ].filter(Boolean);
     const detail = [
-      r.detail,
+      // A waiting step says what the top of the page says: "Waiting for approval · client admin".
+      r.status === "waiting" && wait ? wait.line : r.detail,
       s?.models?.length ? `model ${s.models.join(", ")}` : null,
       r.status === "pending" || r.status === "waiting" || r.status === "succeeded"
         ? null
@@ -315,6 +443,7 @@ function Timeline({
               ids={sourcesOf(s?.output)}
               href={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
               testId={`ops-run-step-sources-${r.key}`}
+              names={data.sourceNames}
             />
           ) : null}
           {decisions.map((d) => (
@@ -357,7 +486,7 @@ function ToolCallsBlock({ calls }: { calls: RunDetail["toolCalls"] }) {
       {calls
         .map((c) =>
           [
-            `tool_call  ${c.tool}   status: ${c.status}${c.durationMs === null ? "" : `   ${c.durationMs} ms`}`,
+            `${toolLabel(c.tool)}   status: ${c.status}${c.durationMs === null ? "" : `   ${c.durationMs} ms`}`,
             `input      ${compact(c.input)}`,
             `output     ${compact(c.output)}`,
             c.externalActionId ? `external_action  ${c.externalActionId}` : null,
@@ -404,12 +533,7 @@ function AboutRun({
     ...(agent?.serviceName
       ? ([["Client calls it", agent.serviceName]] as [string, ReactNode][])
       : []),
-    [
-      "Workflow",
-      <span key="workflow" className="reference">
-        {run.workflowSlug}
-      </span>,
-    ],
+    ["Workflow", data.workflow?.name ?? run.workflowSlug],
     ["Mode", run.mode === "test" ? "Test run, never writes" : "Live"],
     [
       "Started",
@@ -457,6 +581,12 @@ function NextStep({ run }: { run: RunDetail["run"] }) {
   );
 }
 
+/** "testkit.record.update:unauthorized" → "Testkit: record update · unauthorized". */
+function errorKeyWords(key: string): string {
+  const [tool = key, code] = key.split(":");
+  return code ? `${toolLabel(tool)} · ${code.replace(/_/g, " ")}` : toolLabel(tool);
+}
+
 function SameError({ run }: { run: RunDetail["run"] }) {
   const key = errorGroupKey(run.error);
   const state = useApi(
@@ -468,11 +598,7 @@ function SameError({ run }: { run: RunDetail["run"] }) {
   const others = (state.data?.runs ?? []).filter((r) => r.id !== run.id).slice(0, 5);
   if (others.length === 0) return null;
   return (
-    <Card
-      title="Same error elsewhere"
-      meta={<span className="reference">{key}</span>}
-      testId="ops-run-same-error"
-    >
+    <Card title="Same error elsewhere" meta={errorKeyWords(key)} testId="ops-run-same-error">
       {others.map((r) => (
         <Link
           key={r.id}
@@ -521,10 +647,11 @@ function Changes({
           key={i.id}
           item={i}
           testId={`ops-run-item-${i.id}`}
-          showToolId
           recordHref={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
-          onResolve={operatorMayResolve(i) ? (body) => onResolve(i.id, body) : null}
-          waitingOn="Waiting on the client. Only they can answer it."
+          onResolve={i.resolvableByOperator ? (body) => onResolve(i.id, body) : null}
+          waitingOn={`${waitingWhat(i.kind)} · ${waitingOn(i)}. Only they can ${
+            i.kind === "approval" ? "approve" : "answer"
+          } it.`}
         />
       ))}
       <p className="text-sm text-ink-muted">
@@ -573,12 +700,14 @@ function ActionPanel({
   const badge = actionBadge(action, testRun);
   const heading = changeHeading(action.display, action.tool, action.before, action.input);
   const waiting = action.status === "proposed" && item?.status === "open";
-  const mine = item ? operatorMayResolve(item) : false;
+  const mine = item ? item.resolvableByOperator : false;
   const failure = action.error as { message?: unknown } | null;
   let text: string;
   if (testRun) text = "Test run: recorded as it would have been made, never written.";
-  else if (waiting && !mine) text = "Waiting on the client admin to approve.";
-  else if (waiting) text = "Nothing changes in the tool until you sign.";
+  // The same words as the top of the page and the Timeline: "Waiting for approval · client admin".
+  else if (waiting && item && !mine)
+    text = `${waitingWhat(item.kind)} · ${waitingOn(item)}. Nothing changes in ${heading.connector} until then.`;
+  else if (waiting) text = `Nothing changes in ${heading.connector} until you approve.`;
   else if (action.status === "failed")
     text = `The change failed: ${String(failure?.message ?? "unknown error")}`;
   else if (action.approvedAt)
@@ -588,10 +717,7 @@ function ActionPanel({
     <Card testId={`ops-run-action-${action.id}`}>
       <div className="ui-card__head">
         <div className="min-w-0">
-          <h3 className="font-medium text-ink">
-            {heading.title}
-            <span className="ml-2 reference font-normal text-ink-muted">{action.tool}</span>
-          </h3>
+          <h3 className="font-medium text-ink">{heading.title}</h3>
           {heading.description ? (
             <p className="text-sm text-ink-muted" data-testid="ops-run-action-description">
               {heading.description}
@@ -621,7 +747,7 @@ function ActionPanel({
               variant="primary"
               onClick={() => void onResolve(item.id, { decision: "approve" })}
             >
-              Sign and update {heading.connector}
+              Approve and update {heading.connector}
             </Button>
           </div>
         ) : null}
@@ -742,8 +868,7 @@ function RunLog({ data, names }: { data: RunDetail; names: StepNames }) {
               <span className="text-ink">{nodeName(names, s.nodeId) ?? s.nodeId}</span>
               <span className="ml-2 text-sm text-ink-muted">
                 {[
-                  s.nodeType,
-                  s.skillRef,
+                  s.skillRef ? toolLabel(s.skillRef) : null,
                   stepStatusLabel(s.status),
                   duration(s.startedAt, s.finishedAt),
                   usd(s.costUsd),
@@ -770,7 +895,7 @@ function RunLog({ data, names }: { data: RunDetail; names: StepNames }) {
                   {calls.map((c) => (
                     <li key={c.id} className="rounded-sm border border-line p-3">
                       <p className="text-sm">
-                        <span className="reference text-ink">{c.tool}</span>
+                        <span className="text-ink">{toolLabel(c.tool)}</span>
                         <span className="ml-2 text-ink-muted">
                           {[c.status, c.durationMs === null ? null : `${c.durationMs} ms`]
                             .filter(Boolean)

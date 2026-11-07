@@ -464,7 +464,7 @@ describe("WorkflowBuilder", () => {
     await ready();
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
     expect(screen.getByTestId("builder-step-find-number")).toHaveTextContent("1");
-    expect(screen.getByTestId("builder-trigger")).toHaveTextContent("When transaction created");
+    expect(screen.getByTestId("builder-trigger")).toHaveTextContent("When a transaction is added");
     expect(listOrder("path:low")).toEqual(["ask"]);
     expect(screen.getByTestId("builder-counts")).toHaveTextContent(
       "Purchasing · 5 steps · 1 fork · 1 change your tools · 1 need approval",

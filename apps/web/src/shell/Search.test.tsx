@@ -182,7 +182,7 @@ describe("search groups", () => {
       [`/ops/clients/${SANDBOX}`, ""],
       ["/ops/agents/a1", "Sandbox · active"],
       ["/ops/agents/t1", "Template"],
-      [`/ops/clients/${SANDBOX}/records/${TXN}`, "Sandbox · 48211 · 2026-11-04 · 1284.00 · USD"],
+      [`/ops/clients/${SANDBOX}/records/${TXN}`, "Sandbox · 48211 · 2026-11-04 · $1,284.00"],
     ]);
   });
 

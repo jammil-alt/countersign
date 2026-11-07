@@ -60,6 +60,7 @@ export * from "./api/requests";
 export * from "./api/routes";
 // v0.12 W1-E
 export * from "./api/run-controls";
+export * from "./api/run-subject";
 // v0.12 W2-F
 export * from "./api/runs-ask";
 export * from "./api/runs-filter";
