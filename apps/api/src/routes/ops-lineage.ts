@@ -12,7 +12,7 @@ import {
   CUSTOM_PREFIX,
   getAgent,
   getVersion,
-  listVersions,
+  latestVersion,
   requiredConnectors,
   retire,
   SHARED_COPY_PREFIX,
@@ -50,7 +50,7 @@ export async function agentInScope(ctx: Scope, id: string): Promise<AgentRow> {
 /** The live version, else the newest one (a draft that was never published). */
 async function currentVersion(ctx: Scope, row: AgentRow): Promise<AgentVersionRow | null> {
   if (row.liveVersionId) return getVersion(ctx.tx, row.liveVersionId);
-  const [latest] = await listVersions(ctx.tx, row.id);
+  const latest = await latestVersion(ctx.tx, row.id);
   return latest ?? null;
 }
 
@@ -299,7 +299,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     // DECISION: the builder validates with the skills the server would: a reference the latest
     // version already makes (a pinned `@version`, a client's snapshot of a shared skill) resolves
     // as validateForPublish resolves it, and is offered under that reference.
-    const [latest] = await listVersions(tx, row.id);
+    const latest = await latestVersion(tx, row.id);
     if (latest) {
       const resolved = await skillContext(tx, {
         tenantId: row.tenantId,

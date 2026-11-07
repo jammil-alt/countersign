@@ -222,6 +222,13 @@ describe.skipIf(!h)("API", () => {
       });
       expect(again.status).toBe(409);
       const vid = j(v2.json).version.id;
+      // The page reads the live and latest bundles only; the list of versions carries none.
+      const page = j((await H.call(OPERATOR, "GET", `/api/ops/agents/${templateId}`)).json);
+      expect(page.versions.map((v: object) => "bundle" in v)).toEqual([false, false]);
+      expect(page.latest).toMatchObject({ id: vid, version: 2 });
+      expect(page.latest.bundle.definition.identity.name).toBe("Records clerk v2");
+      expect(page.live).toMatchObject({ id: templateV1, version: 1 });
+      expect(page.live.bundle.definition.identity.name).toBe("Records clerk");
       const pub = await H.call(
         OPERATOR,
         "POST",

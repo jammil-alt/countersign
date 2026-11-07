@@ -50,7 +50,7 @@ export function agentSummary(a: AgentRow) {
   };
 }
 
-export function versionSummary(v: AgentVersionRow) {
+export function versionSummary(v: Omit<AgentVersionRow, "bundle">) {
   return {
     id: v.id,
     agentId: v.agentId,
