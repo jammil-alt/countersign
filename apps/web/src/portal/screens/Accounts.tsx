@@ -79,6 +79,16 @@ function descriptionOf(item: Offered, { t }: Pick<I18n, "t">): string {
   return key ? t(key) : item.description;
 }
 
+/**
+ * The provider's id for the account, where a person knows it by that (a mailbox's address); null
+ * for a company or realm id, which never shows (Review 2, decision 3).
+ */
+// DECISION: an id that is an email address is the account as people know it; any other id is the
+// provider's own and stays out of sight.
+export function accountAddress(id: string | null | undefined): string | null {
+  return id && /^[^\s@]+@[^\s@]+$/.test(id) ? id : null;
+}
+
 function isBroken(status: string | undefined): boolean {
   return status === "error" || status === "disconnected";
 }
@@ -359,8 +369,8 @@ function ConnectionRow({
   if (!conn) return null;
   const vaultItem = vault?.items.find((i) => i.connectionId === conn.id);
   const connected = conn.status === "connected";
-  // The account's name, never the provider's id for it (Review 2: raw ids never show).
-  const account = conn.accountName ?? descriptionOf(item, i18n);
+  const account =
+    conn.accountName ?? accountAddress(conn.externalAccountId) ?? descriptionOf(item, i18n);
   const synced = connected
     ? conn.lastSyncAt
       ? t("connections.synced", { time: shortTime(conn.lastSyncAt, undefined, i18n) })

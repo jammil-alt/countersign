@@ -17,9 +17,9 @@ function bundle(workflows: { on: Record<string, unknown>; enabled?: boolean }[])
 
 describe("readsDocuments", () => {
   it("is true for an enabled workflow started by a document event", () => {
-    expect(
-      readsDocuments(bundle([{ on: { type: "event", event: "document.extracted" } }])),
-    ).toBe(true);
+    expect(readsDocuments(bundle([{ on: { type: "event", event: "document.extracted" } }]))).toBe(
+      true,
+    );
     expect(
       readsDocuments(
         bundle([

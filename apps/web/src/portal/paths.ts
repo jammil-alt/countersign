@@ -6,7 +6,8 @@ export const PORTAL_PATHS = {
   inbox: "/inbox",
   runs: "/runs",
   // DECISION: the portal addresses an agent by its service id (`/agents/:id`), not a slug: every
-  // portal route takes the service id and none returns a slug, so no lookup is needed.
+  // portal route takes the service id, so no lookup is needed (the service route names the
+  // template's slug only to pick the agent's own view).
   agent: (serviceId: string) => `/agents/${serviceId}`,
   agentRuns: (serviceId: string) => `/agents/${serviceId}/runs`,
   agentAccess: (serviceId: string) => `/agents/${serviceId}/access`,

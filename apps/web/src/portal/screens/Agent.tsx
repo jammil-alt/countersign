@@ -41,6 +41,7 @@ import { periodLabel } from "../../usage/format";
 import { stageWord } from "../agentState";
 import { PORTAL_PATHS } from "../paths";
 import { agentChip, type RunFields, runChip, runOpen } from "../status";
+import { accountAddress } from "./Accounts";
 import { runsNote } from "./Reports";
 import { RunTimes } from "./runsParts";
 import { DropZone, Forwarding, RecentDocuments } from "./Upload";
@@ -627,7 +628,15 @@ function Reach({ id, name }: { id: string; name: string }) {
               className="flex flex-col gap-2 px-6 py-4"
               data-testid={`agent-reach-${item.connectionId}`}
             >
-              <span className="font-medium text-ink">{item.name}</span>
+              <span className="font-medium text-ink">
+                {item.name}
+                {accountAddress(item.externalAccountId) ? (
+                  <span className="font-normal text-ink-muted">
+                    {" "}
+                    · {accountAddress(item.externalAccountId)}
+                  </span>
+                ) : null}
+              </span>
               {grant.revoked ? (
                 <Badge>{t("agent.revoked")}</Badge>
               ) : (
