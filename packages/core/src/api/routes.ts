@@ -51,6 +51,7 @@ import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 // v0.13 W2-I: run oversight
 import { OversightDecisionView, oversightRoutes } from "./oversight";
+import { packRoutes } from "./packs";
 // v0.12 W1-G: people (autonomy).
 import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { qboRoutes } from "./qbo";
@@ -2002,5 +2003,7 @@ export const routes = {
   ...conversationRoutes,
   // v0.14 W4-A: WhatsApp through Meta (the webhook and the groups setting).
   ...whatsappMetaRoutes,
+  // P-1: packs (the Purchasing area's Materials pack), docs/plan.md §1.63.
+  ...packRoutes,
 } as const;
 export type Routes = typeof routes;

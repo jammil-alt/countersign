@@ -225,6 +225,8 @@ export function voiceHookRoutes(app: Hono<AppEnv>): void {
           ? { credentials: credentialsFor(services.db, credentialKeysFromEnv(services.env)) }
           : {}),
         services: connectorServicesFor(services.db, { voice, platform: services.platform }),
+        // P-1: a pack's read tools on a call (no model: transport null).
+        packServices: { db: services.db, transport: null },
       };
       const pinned = await ports.store.loadAgentVersion(tenantId, scope.agentVersionId);
       // The call's tools are the agent's own tools too: a step can't give the voice agent more
