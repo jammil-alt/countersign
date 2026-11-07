@@ -2,9 +2,10 @@
 // Pure, so the links each hit opens are tested on their own.
 import type { OpsSearchResult, PortalSearchResult } from "@countersign/core";
 import type { Translate } from "../i18n/catalog";
-import type { Formatters } from "../i18n/format";
-import { EN } from "../i18n/i18n";
+import { EN, type I18n } from "../i18n/i18n";
 import { runChip } from "../ops/run/words";
+import { money } from "../runs/format";
+import { opsRunTitle, subjectTitle } from "../runs/subject";
 import type { SearchGroup } from "./Search";
 
 const dot = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(" · ");
@@ -24,11 +25,6 @@ function runStatus(t: Translate, status: string): string {
     : status;
 }
 
-/** A record's amount with its currency ("$9,742.35"), never the stored "9742.3500 USD". */
-function money(fmt: Pick<Formatters, "money">, amount: string | null, currency: string | null) {
-  return amount ? fmt.money(amount, currency ?? undefined) : null;
-}
-
 const GOING = new Set(["queued", "running", "waiting"]);
 
 /** An agent's status in words (the back office). */
@@ -44,8 +40,11 @@ const AGENT_STATUS_WORDS: Record<string, string> = {
 export function portalSearchGroups(
   r: PortalSearchResult,
   t: Translate,
-  fmt: Pick<Formatters, "money"> = EN.fmt,
+  /** The reader's formats and language, for amounts and run titles. */
+  i18n: Pick<I18n, "fmt" | "locale"> = EN,
 ): SearchGroup[] {
+  const amount = (x: { amount: string | null; currency: string | null }) =>
+    x.amount ? money(x.amount, x.currency ?? "USD", i18n) : null;
   return [
     {
       label: t("search.group.agents"),
@@ -56,7 +55,8 @@ export function portalSearchGroups(
       hits: r.runs.map((x) => ({
         key: `r:${x.id}`,
         href: `/runs/${x.id}`,
-        title: dot(x.shortId, x.service.name),
+        // Titled by what the run is about ("Northline Panel Supply · Invoice 20418").
+        title: dot(subjectTitle(x.subject, { t, locale: i18n.locale }), x.shortId, x.service.name),
         // A run waiting on the client reads as it does on Runs (UI cleanup, stream A).
         meta:
           x.waitingOnYou && GOING.has(x.status) ? t("common.waitingOnYou") : runStatus(t, x.status),
@@ -68,7 +68,7 @@ export function portalSearchGroups(
         key: `rec:${x.id}`,
         href: x.kind === "receivable" ? "/records?kind=receivables" : `/records/${x.id}`,
         title: x.label,
-        meta: dot(x.number, x.date, money(fmt, x.amount, x.currency)),
+        meta: dot(x.number, x.date, amount(x)),
       })),
     },
     {
@@ -137,7 +137,7 @@ export function opsSearchGroups(
       hits: r.runs.map((x) => ({
         key: `r:${x.id}`,
         href: `/ops/runs/${x.id}`,
-        title: dot(x.shortId, x.service.name),
+        title: dot(x.subject ? opsRunTitle(x.subject) : null, x.shortId, x.service.name),
         // "Waiting for approval · client admin", never "running" (UI cleanup, stream A).
         meta: dot(
           x.client.name,
@@ -156,7 +156,12 @@ export function opsSearchGroups(
             ? `${base(x.client)}/records?kind=receivables`
             : `${base(x.client)}/records/${x.id}`,
         title: x.label,
-        meta: dot(x.client.name, x.number, x.date, money(EN.fmt, x.amount, x.currency)),
+        meta: dot(
+          x.client.name,
+          x.number,
+          x.date,
+          x.amount && money(x.amount, x.currency ?? "USD"),
+        ),
       })),
     },
     {

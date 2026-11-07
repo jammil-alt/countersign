@@ -361,7 +361,9 @@ export function feedbackRouteHandlers(app: Hono<AppEnv>): void {
       tenantId: t.id,
       actorId: session.user.id,
       change: { setting: "feedback", from: setting.enabled, to: body.enabled },
-      reason: body.reason,
+      reason:
+        body.reason ||
+        (body.enabled ? "Feedback button switched on" : "Feedback button switched off"),
     });
     return (await clientSetting(tx, t.id)).setting;
   });

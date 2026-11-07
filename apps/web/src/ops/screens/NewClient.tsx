@@ -156,7 +156,8 @@ export function NewClientScreen() {
         },
       });
       const state: CreatedState = { created: { name: created.client.name, admin: created.admin } };
-      navigate(`/ops/clients/${created.client.id}/settings`, { state });
+      // The new client's People: the admin just invited, and invites for anyone else.
+      navigate(`/ops/clients/${created.client.id}/settings/people`, { state });
       // The switcher lists the clients the session serves: reload it so the new one is there.
       void refresh();
     } catch (error) {

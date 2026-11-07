@@ -60,6 +60,7 @@ import { requestRoutes } from "./requests";
 import { runControlRoutes } from "./run-controls";
 // UI cleanup (stream A)
 import { RunWait } from "./run-state";
+import { RunSubject } from "./run-subject";
 import {
   OpsRunsQuery,
   PortalRunsQuery,
@@ -266,6 +267,8 @@ export const OpsRun = z.object({
   workflowName: z.string().nullable().optional(),
   /** A failed run: the name of the step it failed at, from the run's version. */
   errorStep: z.string().nullable().optional(),
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
 
 export const OpsStep = z.object({
@@ -433,7 +436,12 @@ export const PortalRunSummary = z.object({
   // and how long it has waited on the client in all, kept out of its working time.
   waitingOnYou: z.boolean().optional(),
   waitedMs: z.number().int().nonnegative().optional(),
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
+
+/** Record names by id, for the receipts a run's steps cite (never "Record ·3f9a1c"). */
+export const SourceNames = z.record(z.string(), z.string());
 
 export const TimelineStep = z.object({
   id: z.string(),
@@ -727,8 +735,13 @@ export const SkillListItem = z.object({
   outputs: z.array(z.string()),
   tools: z.array(z.string()),
   connectors: z.array(z.string()),
-  /** Agents (templates and client agents) whose live, else latest, version uses it. */
+  /**
+   * Client agents whose live, else latest, version uses it: a template and its test copies are
+   * not uses (the owner's review: "used by 2 agents" when one exists).
+   */
   usedBy: z.number().int(),
+  /** Those client agents, "Bill clerk · Demo client", for the library's hover and list. */
+  usedByNames: z.array(z.string()).optional(),
 });
 export type SkillListItem = z.infer<typeof SkillListItem>;
 
@@ -1433,6 +1446,8 @@ export const opsRoutes = {
         .nullable(),
       // v0.13 W2-I: the run's oversight decisions, oldest first (ARCHITECTURE §10.11).
       oversight: z.array(OversightDecisionView).optional(),
+      /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
+      sourceNames: SourceNames.optional(),
     }),
   }),
   opsInbox: defineRoute({
@@ -1655,6 +1670,8 @@ export const portalRoutes = {
     response: z.object({
       run: PortalRunSummary,
       steps: z.array(TimelineStep),
+      /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
+      sourceNames: SourceNames.optional(),
       approvals: z.array(
         z.object({
           id: z.string(),

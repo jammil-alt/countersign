@@ -101,7 +101,7 @@ export function OpsRecordsScreen() {
   return (
     <ClientFrame
       clientId={clientId}
-      intro="What its connections brought in. Attachments are on the Documents tab."
+      intro="What its connections brought in. Attachments are under Documents."
     >
       {data ? (
         <p className="mb-4 text-ink figures" data-testid="ops-records-counts">
@@ -161,13 +161,27 @@ export function OpsRecordsScreen() {
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && data.page.rows.length === 0 ? (
-        <EmptyState>
-          {q
-            ? `Nothing matches "${q}".`
-            : source
-              ? `No ${data.page.kind} from this source yet.`
-              : EMPTY[data.page.kind]}
-        </EmptyState>
+        <EmptyState
+          testId="ops-records-empty"
+          line={
+            q
+              ? `Nothing matches "${q}".`
+              : source
+                ? `No ${data.page.kind} from this source yet.`
+                : EMPTY[data.page.kind]
+          }
+          action={
+            q || source
+              ? {
+                  label: "Clear the search",
+                  onClick: () => {
+                    setText("");
+                    set({ q: "", source: "", page: "" });
+                  },
+                }
+              : { label: "See connections", to: `${base}/connections` }
+          }
+        />
       ) : null}
       {data && data.page.rows.length > 0 ? (
         <>

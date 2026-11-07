@@ -8,6 +8,7 @@ import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
 import { shortRunIdTail } from "./run-controls";
 import { RunWait } from "./run-state";
+import { RunSubject } from "./run-subject";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
@@ -110,6 +111,8 @@ export const SearchRunHit = z.object({
   createdAt: z.string(),
   /** The portal: the run waits on someone of the client now (UI cleanup, stream A). */
   waitingOnYou: z.boolean().optional(),
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
 
 export const RECORD_HIT_KINDS = ["transaction", "vendor", "receivable"] as const;

@@ -65,8 +65,11 @@ export function waitingOnLine(
 export function OpsInboxScreen() {
   const api = useApiClient();
   const session = useSession();
+  // `?view=clients`, or a run page's "See it in Escalations" (`?assigned=all&client=`), opens on
+  // what waits in the clients' inboxes; `?client=` narrows to one client.
   const [params, setParams] = useSearchParams();
-  const view: View = params.get("view") === "clients" ? "clients" : "us";
+  const view: View =
+    params.get("view") === "clients" || params.get("assigned") === "all" ? "clients" : "us";
   const client = params.get("client") ?? "";
   const [status, setStatus] = useState<"open" | "resolved">("open");
   // What we just resolved, kept on screen with Undo while its window lasts.
@@ -180,7 +183,13 @@ export function OpsInboxScreen() {
       <div className="flex flex-wrap items-center gap-3">
         <StatusFilter
           value={view}
-          onChange={(v) => setParam("view", v === "clients" ? "clients" : null)}
+          onChange={(v) => {
+            const next = new URLSearchParams(params);
+            next.delete("assigned");
+            if (v === "clients") next.set("view", "clients");
+            else next.delete("view");
+            setParams(next, { replace: true });
+          }}
           area="ops-inbox-view"
           label="Whose items"
           options={[

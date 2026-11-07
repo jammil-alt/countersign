@@ -81,7 +81,7 @@ describe("OpsOAuthCallbackScreen", () => {
       "/ops/connections/qbo/callback?code=abc&state=s1&realmId=9341458640918607",
       () => CONNECTED,
     );
-    expect(await screen.findByTestId("ops-connections-list")).toHaveTextContent("9341458640918607");
+    expect(await screen.findByTestId("ops-connections-list")).toHaveTextContent("Connected");
     // StrictMode runs effects twice in development: the code must still go only once.
     expect(sent).toEqual([
       {

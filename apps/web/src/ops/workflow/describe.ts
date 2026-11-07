@@ -9,6 +9,7 @@ import {
   type Trigger,
   type Workflow,
 } from "@countersign/core";
+import { eventLabel } from "../../runs/labels";
 
 export const KIND_LABEL: Record<StepKind | "trigger", string> = {
   trigger: "Trigger",
@@ -35,11 +36,21 @@ export const TRIGGER_KIND_LABEL: Record<Trigger["on"]["type"], string> = {
   handoff: "Another agent",
 };
 
+/**
+ * An event type made readable when no catalog label is at hand: `document.extracted` →
+ * "Document extracted" (raw ids never show to people).
+ */
+export function readableEvent(type: string): string {
+  const words = type.replace(/[._-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function triggerTitle(trigger: Trigger): string {
   const on = trigger.on;
   switch (on.type) {
     case "event":
-      return `When ${on.event}`;
+      // The event in plain words ("When an invoice has been read"), never its id.
+      return `When ${eventLabel(on.event)}`;
     case "schedule":
       return "On a schedule";
     case "manual":

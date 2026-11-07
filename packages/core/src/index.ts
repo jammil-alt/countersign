@@ -62,6 +62,7 @@ export * from "./api/routes";
 export * from "./api/run-controls";
 // UI cleanup (stream A)
 export * from "./api/run-state";
+export * from "./api/run-subject";
 // v0.12 W2-F
 export * from "./api/runs-ask";
 export * from "./api/runs-filter";

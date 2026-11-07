@@ -4,7 +4,7 @@
 // `ServicePanel` (Settings): its service name and description in the portal, its approver, the
 // connections it is bound to and their grants. None of this is a new version: it is the agent
 // row, logged.
-import type { AgentBundle } from "@countersign/core";
+import { type AgentBundle, connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -119,6 +119,7 @@ export function ServicePanel({
   onChanged(): void;
 }) {
   const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
+  const names = useConnectorNames(agent.id);
   const [grantsVersion, setGrantsVersion] = useState(0);
   return (
     <div className="flex flex-col gap-5">
@@ -126,6 +127,7 @@ export function ServicePanel({
         key={agent.id}
         agent={agent}
         connections={connections}
+        names={names}
         required={activation.data?.requiredConnectors ?? []}
         onSaved={() => {
           activation.reload();
@@ -183,7 +185,7 @@ function StatusCard({
         kind === "activate"
           ? status === "paused"
             ? "Resumed: its triggers start runs again."
-            : "Started: its triggers start runs now. Until it goes live, every change waits for a signature."
+            : "Started: its triggers start runs now. Until it goes live, every change waits for approval."
           : kind === "pause"
             ? "Paused: no new runs start; running ones finish."
             : "Retired: it never runs again. Its history stays.",
@@ -456,14 +458,39 @@ export function TestRun({
   );
 }
 
+/**
+ * Connector names by id ("qbo" → "QuickBooks Online"), from the agent's builder catalog: what the
+ * operator reads instead of connector ids.
+ */
+export function useConnectorNames(agentId: string): (id: string) => string {
+  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: agentId } });
+  return (id: string) => {
+    const [connector, site] = id.split(":");
+    const name =
+      catalog.data?.connectors.find((c) => c.id === connector)?.name ??
+      (connector ? connector.charAt(0).toUpperCase() + connector.slice(1) : id);
+    return site ? `${name} · ${site}` : name;
+  };
+}
+
+const CONNECTION_STATUS: Record<string, string> = {
+  connected: "connected",
+  active: "connected",
+  error: "needs attention",
+  disconnected: "disconnected",
+  pending: "not finished",
+};
+
 function ServiceForm({
   agent,
   connections,
+  names,
   required,
   onSaved,
 }: {
   agent: AgentSummary;
   connections: readonly Connection[];
+  names(id: string): string;
   required: readonly string[];
   onSaved(): void;
 }) {
@@ -509,10 +536,7 @@ function ServiceForm({
 
   return (
     <Card className="p-5" testId="agent-operation">
-      <SectionLabel>Operation</SectionLabel>
-      <p className="mb-4 text-sm text-ink-muted">
-        These apply at once and are not a new version. Every change is logged.
-      </p>
+      <SectionLabel>Service and connections</SectionLabel>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Service name" hint="What the client sees in the portal.">
           <TextInput
@@ -562,7 +586,7 @@ function ServiceForm({
                   className="grid grid-cols-1 items-center gap-2 md:grid-cols-[220px_1fr]"
                 >
                   <span className="flex items-center gap-2 text-base text-ink">
-                    {c}
+                    {names(c)}
                     {required.includes(c.split(":")[0] ?? c) ? (
                       <Badge tone="neutral">Needed</Badge>
                     ) : null}
@@ -577,7 +601,8 @@ function ServiceForm({
                     </option>
                     {options.map((o) => (
                       <option key={o.id} value={o.id}>
-                        {o.externalAccountId ?? c} · {o.status}
+                        {connectionAccountName(o.config) ?? names(c)} ·{" "}
+                        {CONNECTION_STATUS[o.status] ?? o.status}
                       </option>
                     ))}
                   </Select>
@@ -609,7 +634,7 @@ function ServiceForm({
           disabled={action.busy}
           onClick={save}
         >
-          {action.busy ? "Saving…" : "Save operation"}
+          {action.busy ? "Saving…" : "Save"}
         </Button>
       </div>
     </Card>

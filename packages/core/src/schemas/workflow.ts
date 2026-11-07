@@ -363,3 +363,16 @@ export function isClientVisible(step: Step): boolean {
 export function clientLabel(step: Step): string {
   return step.client?.label ?? step.name;
 }
+
+/**
+ * A step's name for people that follows its state. The client label says what was done
+ * ("Itemized the bill"), so it is used once the step has run; until then (waiting for approval,
+ * turned down, failed) the step's own name says what it does ("Itemize the bill"). A person step
+ * asks someone, so it keeps its label in every state.
+ */
+// DECISION: the step's operator-written name stands for "not done yet" rather than a generated
+// tense: names are imperative by convention ("Find the bill"), and test runs already show it
+// ("Would itemize the bill").
+export function stepStateLabel(step: Step, ran: boolean): string {
+  return ran || step.kind === "person" ? clientLabel(step) : step.name;
+}

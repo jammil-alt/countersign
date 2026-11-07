@@ -1,7 +1,7 @@
-// The client page's Overview tab (`/ops/clients/:clientId`): the client at a glance in the
-// prototype's back-office style. Figures first (agents live, waiting on us, connections, open
-// findings), then each agent's go-live stage, the client's health with its supervisor and its
-// billing, and on the rail its Mezonas lead (set here) and its threads with what is unread for you.
+// The client page's Overview tab (`/ops/clients/:clientId`): the client at a glance, short. What
+// waits on us (only when something does), each agent with its go-live stage and a link to the
+// client's runs, the client's health (its supervisor and what it found), and on the rail its
+// Mezonas lead (set here) and its threads with what is unread for you. Billing is in Settings.
 import type { AgentStage, GoLive } from "@countersign/core";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -10,16 +10,15 @@ import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { type ApiState, useApi, useApiClient } from "../../api/useApi";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
-import { ProgressBar, StatTile } from "../../ui/figures";
+import { ProgressBar } from "../../ui/figures";
 import { Select } from "../../ui/forms";
-import { Columns, PageGrid, Section } from "../../ui/page";
+import { PageGrid, Section } from "../../ui/page";
 import { Button, Card, EmptyState, ErrorNotice, Loading } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { STAGE_LABEL } from "../agents/GoLivePanel";
 import { OPS_PATHS } from "../paths";
-import { ClientBillingSection } from "../screens/ClientBilling";
 import { ClientHealthSection } from "../screens/ClientHealth";
-import { ClientFrame, type OpsClient, useClientPage } from "./ClientFrame";
+import { ClientFrame, clientPagePath, type OpsClient, useClientPage } from "./ClientFrame";
 
 const STAGES: AgentStage[] = ["bench", "trial", "signoff", "live"];
 
@@ -40,94 +39,73 @@ function Overview({ clientId }: { clientId: string }) {
   const inbox = useApi(apiRoutes.opsInbox, {
     query: { client: clientId, status: "open", assigned: "operator" },
   });
-  const health = useApi(apiRoutes.opsClientHealth, {
-    params: { id: clientId },
-    query: { status: "open" },
-  });
   const data = client.data;
   if (!data) return client.error ? null : <Loading />;
 
   const agents = data.agents.filter((a) => !a.testCopy);
-  const live = agents.filter((a) => a.liveVersionId !== null).length;
-  const connected = data.connections.filter((c) => c.status === "connected").length;
-  const needPerson = data.connections.length - connected;
   const waiting = inbox.data?.items ?? [];
-  const findings = health.data?.findings.length;
 
   return (
-    <>
-      <Columns count={4}>
-        <StatTile
-          testId="ops-client-stat-live"
-          label="Agents live"
-          value={live}
-          note={`of ${agents.length} ${agents.length === 1 ? "agent" : "agents"}`}
-        />
-        <StatTile
-          testId="ops-client-stat-waiting"
-          label="Waiting on us"
-          value={inbox.data ? waiting.length : "–"}
-          note={waiting.length > 0 ? "Open escalations" : "Nothing open"}
-          {...(waiting.length > 0 ? { noteTone: "signal" as const } : {})}
-        />
-        <StatTile
-          testId="ops-client-stat-connections"
-          label="Connections"
-          value={connected}
-          note={
-            data.connections.length === 0
-              ? "None yet"
-              : needPerson > 0
-                ? `${needPerson} not connected`
-                : "All connected"
+    <PageGrid rail={<Rail clientId={clientId} data={data} />}>
+      {waiting.length > 0 ? (
+        <Section
+          title="Waiting on us"
+          meta={`${waiting.length} open`}
+          action={
+            <Link to={OPS_PATHS.escalations} className="ds-btn ds-btn--link text-sm">
+              Escalations
+            </Link>
           }
-          {...(needPerson > 0 ? { noteTone: "risk" as const } : {})}
-        />
-        <StatTile
-          testId="ops-client-stat-findings"
-          label="Open findings"
-          value={findings ?? "–"}
-          note={health.data?.supervisor ? "From the supervisor" : "No supervisor yet"}
-          alert={(findings ?? 0) > 0}
-        />
-      </Columns>
+          testId="ops-client-waiting"
+        >
+          <Card>
+            {waiting.slice(0, 5).map((item) => (
+              <ActivityRow
+                key={item.id}
+                time={shortDate(item.createdAt)}
+                to={OPS_PATHS.escalations}
+                end={<StatusChip state="waiting">Waiting on us</StatusChip>}
+              >
+                {item.title}
+              </ActivityRow>
+            ))}
+          </Card>
+        </Section>
+      ) : null}
 
-      <PageGrid rail={<Rail clientId={clientId} data={data} />}>
-        {waiting.length > 0 ? (
-          <Section
-            title="Waiting on us"
-            meta={`${waiting.length} open`}
-            testId="ops-client-waiting"
-          >
-            <Card>
-              {waiting.slice(0, 5).map((item) => (
-                <ActivityRow
-                  key={item.id}
-                  time={shortDate(item.createdAt)}
-                  to={OPS_PATHS.escalations}
-                  end={<StatusChip state="waiting">Waiting on us</StatusChip>}
-                >
-                  {item.title}
-                </ActivityRow>
-              ))}
-            </Card>
-          </Section>
-        ) : null}
-
-        <GoLiveStages clientId={clientId} agents={agents} />
-        <ClientHealthSection clientId={clientId} onChanged={client.reload} />
-        <ClientBillingSection clientId={clientId} />
-      </PageGrid>
-    </>
+      <AgentStages clientId={clientId} agents={agents} />
+      <ClientHealthSection clientId={clientId} onChanged={client.reload} />
+    </PageGrid>
   );
 }
 
-/** Each client agent on its way live: bench, trial, sign-off, live. */
-function GoLiveStages({ clientId, agents }: { clientId: string; agents: AgentSummary[] }) {
+/** Each client agent on its way live (bench, trial, sign-off, live), and the client's runs. */
+function AgentStages({ clientId, agents }: { clientId: string; agents: AgentSummary[] }) {
+  const live = agents.filter((a) => a.liveVersionId !== null).length;
   return (
-    <Section title="Go-live stages" meta="Bench, trial, sign-off, live" testId="ops-client-go-live">
+    <Section
+      title="Agents"
+      meta={agents.length > 0 ? `${live} of ${agents.length} live` : undefined}
+      action={
+        <Link
+          to={clientPagePath(clientId, "runs")}
+          className="ds-btn ds-btn--link text-sm"
+          data-testid="ops-client-runs"
+        >
+          See runs
+        </Link>
+      }
+      testId="ops-client-go-live"
+    >
       {agents.length === 0 ? (
-        <EmptyState>No agents yet. Start one on the Agents tab.</EmptyState>
+        <EmptyState
+          line="No agents yet. Fork a template into this client, or build one for it."
+          action={{
+            label: "New agent",
+            to: OPS_PATHS.newAgent(clientId),
+            testId: "ops-client-empty-new-agent",
+          }}
+        />
       ) : (
         <Card>
           {agents.map((a) => (

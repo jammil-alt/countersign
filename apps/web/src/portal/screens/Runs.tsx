@@ -12,12 +12,13 @@ import type { PlainKey, Translate } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { shortTime } from "../../runs/format";
+import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { AgentBadge } from "../../ui/badges";
 import { Select } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
-import { Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
+import { Button, Card, cx, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, runStateWords } from "../status";
@@ -276,13 +277,22 @@ export function PortalRunsScreen() {
                       {data.runs.map((r) => (
                         <tr key={r.id} data-testid={`portal-run-row-${r.id}`}>
                           <td>
+                            {/* Titled by what the run is about: its invoice or its change. */}
                             <Link
                               to={`${PORTAL_PATHS.runs}/${r.id}`}
                               data-testid={`portal-run-${r.id}-open`}
-                              className="font-mono text-sm text-link hover:underline"
+                              className={cx(
+                                "text-link hover:underline",
+                                !subjectTitle(r.subject, i18n) && "font-mono text-sm",
+                              )}
                             >
-                              {shortRunId(r.id)}
+                              {subjectTitle(r.subject, i18n) ?? shortRunId(r.id)}
                             </Link>
+                            {subjectTitle(r.subject, i18n) ? (
+                              <span className="block font-mono text-xs text-ink-muted">
+                                {shortRunId(r.id)}
+                              </span>
+                            ) : null}
                           </td>
                           <td>
                             <span className="flex items-center gap-2.5 text-ink">

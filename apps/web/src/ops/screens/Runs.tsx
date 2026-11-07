@@ -16,6 +16,7 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { duration, isRunGoing, shortTime, usd } from "../../runs/format";
+import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { StatTile } from "../../ui/figures";
@@ -448,13 +449,17 @@ function RunsTable({
                   />
                 </td>
                 <td>
+                  {/* Titled by what the run is about: its invoice or its first change. */}
                   <Link
                     to={`/ops/runs/${r.id}`}
                     data-testid={`ops-run-${r.id}-open`}
-                    className="reference text-link hover:underline"
+                    className="text-link hover:underline"
                   >
-                    {short}
+                    {opsRunTitle(r.subject, short)}
                   </Link>
+                  {r.subject ? (
+                    <span className="block reference text-xs text-ink-muted">{short}</span>
+                  ) : null}
                 </td>
                 <td className="text-sm">{clients.get(r.tenantId) ?? "Client"}</td>
                 <td className="text-sm">

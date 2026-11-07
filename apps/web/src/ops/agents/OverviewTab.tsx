@@ -1,5 +1,6 @@
 // The agent Overview tab (design screen 7, without pack KPIs): how it works as step chips from the
 // version shown, its mission, the tools it works in, the skills it uses, and its latest runs.
+// Connections, tools and skills read by their names, never their ids; empty parts are left out.
 import type { AgentBundle, SkillOption } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
@@ -8,9 +9,11 @@ import { shortTime } from "../../runs/format";
 import { Icon } from "../../ui/icons";
 import { Card, ErrorNotice, Loading, SectionLabel, StepKindTag, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
+import { toolTitle } from "../builder/model";
 import { runChip } from "../run/words";
 import { KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
+import { useConnectorNames } from "./OperationPanel";
 import { plural } from "./ui";
 
 export function OverviewTab({
@@ -26,7 +29,17 @@ export function OverviewTab({
   skills: readonly SkillOption[];
 }) {
   const stats = workflowStats(bundle);
-  const extraTools = bundle.definition.extraTools;
+  const names = useConnectorNames(agent.id);
+  // An extra tool by what it does and where: "Update lines bill · QuickBooks Online".
+  const extraTools = bundle.definition.extraTools.map(
+    (id) => `${toolTitle({ id })} · ${names(id.split(".")[0] ?? id)}`,
+  );
+  const worksIn = agent.kind === "client" ? Object.keys(agent.bindings).map(names) : [];
+  const skillNames = bundle.definition.skills.map(
+    (s) => optionFor(s.skill, skills)?.name ?? "A skill this agent can't use",
+  );
+  const workflowNames = new Map(bundle.workflows.map((w) => [w.slug, w.name] as const));
+  const mission = bundle.definition.identity.mission.trim();
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_340px]">
       <div className="flex flex-col gap-5">
@@ -48,38 +61,38 @@ export function OverviewTab({
             bundle.workflows.map((w) => <StepChips key={w.slug} workflow={w} />)
           )}
         </Card>
-        <Card title="Mission" pad>
-          <p className="text-lg text-ink">
-            {bundle.definition.identity.mission || "No mission written yet."}
-          </p>
-        </Card>
-        {agent.kind === "client" ? <LatestRuns agentId={agent.id} /> : <TemplateRunsNote />}
+        {mission ? (
+          <Card title="Mission" pad>
+            <p className="text-lg text-ink">{mission}</p>
+          </Card>
+        ) : null}
+        {agent.kind === "client" ? (
+          <LatestRuns agentId={agent.id} workflowNames={workflowNames} />
+        ) : (
+          <TemplateRunsNote />
+        )}
       </div>
       <Card className="h-fit" title="Works in" pad>
-        {agent.kind === "client" ? (
-          <Chips
-            testId="agent-works-in"
-            items={Object.keys(agent.bindings)}
-            empty="No connections bound yet."
-          />
-        ) : (
-          <p className="text-sm text-ink-muted">
-            Each client agent forked from it is bound to that client's own connections.
-          </p>
-        )}
-        {extraTools.length > 0 ? (
-          <div className="mt-4">
-            <SectionLabel>Extra tools</SectionLabel>
-            <Chips items={extraTools} empty="" />
-          </div>
-        ) : null}
-        <div className="mt-4">
-          <SectionLabel>Skills it uses</SectionLabel>
-          <Chips
-            testId="agent-skills"
-            items={bundle.definition.skills.map((s) => optionFor(s.skill, skills)?.name ?? s.skill)}
-            empty="No skills."
-          />
+        <div className="flex flex-col gap-4">
+          {agent.kind === "client" ? (
+            <Chips testId="agent-works-in" items={worksIn} empty="No connections bound yet." />
+          ) : (
+            <p className="text-sm text-ink-muted">
+              Each client's copy is bound to that client's own connections.
+            </p>
+          )}
+          {extraTools.length > 0 ? (
+            <div>
+              <SectionLabel>Extra tools</SectionLabel>
+              <Chips testId="agent-extra-tools" items={extraTools} empty="" />
+            </div>
+          ) : null}
+          {skillNames.length > 0 ? (
+            <div>
+              <SectionLabel>Skills it uses</SectionLabel>
+              <Chips testId="agent-skills" items={skillNames} empty="" />
+            </div>
+          ) : null}
         </div>
       </Card>
     </div>
@@ -126,7 +139,7 @@ function Chips({ items, empty, testId }: { items: string[]; empty: string; testI
   }
   return (
     <div className="flex flex-wrap gap-1.5" data-testid={testId}>
-      {items.map((i) => (
+      {[...new Set(items)].map((i) => (
         <Tag key={i}>{i}</Tag>
       ))}
     </div>
@@ -137,7 +150,16 @@ function Chips({ items, empty, testId }: { items: string[]; empty: string; testI
  * The agent's runs, newest first (live and test), each with its state as the runs list shows it: a
  * run waiting on a person is "Waiting for approval" and says on whom (UI cleanup, stream A).
  */
-export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: number }) {
+export function LatestRuns({
+  agentId,
+  limit = 5,
+  workflowNames,
+}: {
+  agentId: string;
+  limit?: number;
+  /** Workflow names by slug: a run reads by its workflow's name, not its slug. */
+  workflowNames?: ReadonlyMap<string, string>;
+}) {
   const runs = useApi(apiRoutes.opsRuns, { query: { agent: agentId, limit } });
   return (
     <Card testId="agent-latest-runs" title={limit > 5 ? "Runs" : "Latest runs"} pad>
@@ -155,7 +177,9 @@ export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: nu
                   {shortTime(r.startedAt ?? r.createdAt)}
                 </span>
                 <Link to={`/ops/runs/${r.id}`} className="truncate text-ink hover:underline">
-                  {r.workflowName ?? "Run"}
+                  {r.workflowName ??
+                    workflowNames?.get(r.workflowSlug) ??
+                    r.workflowSlug.replace(/[-_]+/g, " ")}
                 </Link>
                 {r.mode === "test" ? <Tag>Test</Tag> : null}
               </span>
@@ -175,7 +199,7 @@ function TemplateRunsNote() {
     <Card title="Runs" pad>
       <p className="text-sm text-ink-muted">
         A template never runs for a client. Its test runs run as its test copy in the Sandbox
-        client; its client agents run in their own clients.
+        client; each client's copy runs in its own client.
       </p>
     </Card>
   );

@@ -191,7 +191,12 @@ describe("back-office run view", () => {
     expect(rows[1]).toHaveTextContent("$0.04");
     expect(rows[3]).toHaveTextContent("hidden from client");
     expect(within(checklist).getByText("1 of 4 steps · $0.09")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-run-waiting")).toHaveTextContent("Waiting on you · 1");
+    // The wait, at the top and on the step, in the same words; the status is never "Running".
+    expect(screen.getByTestId("ops-run-waiting")).toHaveTextContent("Waiting for approval");
+    expect(screen.getByTestId("ops-run-waiting-line")).toHaveTextContent("you · since");
+    expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Waiting for approval · you");
+    expect(rows[1]).toHaveTextContent("Waiting for approval · you");
+    // Without a document or a subject from the API, the run is titled by its workflow.
     expect(screen.getByText("Fix a record", { selector: "h1" })).toBeInTheDocument();
     expect(screen.getByTestId("ops-run-about")).toHaveTextContent("Records clerk v3");
 
@@ -203,6 +208,75 @@ describe("back-office run view", () => {
     await userEvent.click(within(panel).getByTestId("ops-run-action-approve"));
     expect(resolved).toEqual([{ decision: "approve" }]);
     expect(await within(panel).findByTestId("ops-run-action-status")).toHaveTextContent("Approved");
+  });
+
+  it("approves from the top of the page, through the same resolve route", async () => {
+    const resolved: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => detail("open"),
+      [`POST /api/ops/inbox/${ITEM_ID}/resolve`]: ({ init }) => {
+        resolved.push(JSON.parse(String(init.body)));
+        return { item: { ...detail("resolved").inbox[0] } };
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const block = await screen.findByTestId("ops-run-waiting");
+    expect(within(block).getByTestId("ops-run-waiting-approve")).toHaveTextContent(
+      "Approve and update Testkit",
+    );
+    await userEvent.click(within(block).getByTestId("ops-run-waiting-reject"));
+    expect(resolved).toEqual([{ decision: "reject" }]);
+  });
+
+  it("titles the run by what it is about, and names the records its steps cite", async () => {
+    const base = detail("resolved");
+    const VENDOR = "00000000-0000-4000-8000-00000000d001";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => ({
+        ...base,
+        run: {
+          ...base.run,
+          subject: {
+            kind: "document",
+            vendor: "Northline Panel Supply",
+            number: "20418",
+            filename: "northline-20418.pdf",
+          },
+        },
+        steps: [
+          {
+            ...base.steps[0],
+            status: "succeeded",
+            output: { sources: [VENDOR] },
+            summary: "Found 1 bill",
+          },
+        ],
+        sourceNames: { [VENDOR]: "Northline Panel Supply" },
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByText("Northline Panel Supply · Invoice 20418", { selector: "h1" }),
+    ).toBeInTheDocument();
+    const step = screen.getByTestId("ops-run-step-00000000-0000-4000-8000-0000000f2001");
+    expect(within(step).getByTestId(`source-${VENDOR}`)).toHaveTextContent(
+      "Northline Panel Supply",
+    );
+    expect(step.textContent).not.toContain("Record ·");
   });
 
   it("reads a QuickBooks change through the tool's display: lines, totals, names", async () => {
@@ -234,19 +308,20 @@ describe("back-office run view", () => {
     expect(within(panel).getByRole("heading", { level: 3 })).toHaveTextContent(
       "QuickBooks bill 20418 · Northline Panel Supply",
     );
-    // The operator also sees which tool it is.
-    expect(within(panel).getByText("qbo.bill.update_lines")).toBeInTheDocument();
+    // No tool id: the heading names the tool as people know it.
+    expect(panel.textContent).not.toContain("qbo.bill.update_lines");
     expect(within(panel).getByTestId("ops-run-action-description")).toHaveTextContent(
       "The total stays the same.",
     );
-    expect(within(panel).getByTestId("change-now-row-total")).toHaveTextContent("$9,742.35");
+    // The total doesn't change: it folds under "fields unchanged".
+    expect(within(panel).getByTestId("change-same-now-row-total")).toHaveTextContent("$9,742.35");
     expect(within(panel).getByTestId("change-lines-after-item-0")).toHaveTextContent(
       "60 × $142.50",
     );
     expect(within(panel).getByTestId("change-lines-after-total")).toHaveTextContent("$9,742.35");
     expect(panel.textContent).not.toContain("Replace line ids");
     expect(within(panel).getByTestId("ops-run-action-approve")).toHaveTextContent(
-      "Sign and update QuickBooks Online",
+      "Approve and update QuickBooks Online",
     );
   });
 
@@ -266,7 +341,7 @@ describe("back-office run view", () => {
     );
     const panel = await screen.findByTestId("ops-run-action-00000000-0000-4000-8000-0000000f4001");
     expect(within(panel).getByTestId("ops-run-action-approve")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-run-waiting")).toHaveTextContent("Waiting on you · 1");
+    expect(screen.getByTestId("ops-run-waiting-line")).toHaveTextContent("you · since");
     unmount();
 
     // A real client: the same item is the client admin's, and the operator only watches.
@@ -287,7 +362,22 @@ describe("back-office run view", () => {
       "ops-run-action-00000000-0000-4000-8000-0000000f4001",
     );
     expect(within(watched).queryByTestId("ops-run-action-approve")).toBeNull();
-    expect(screen.queryByTestId("ops-run-waiting")).toBeNull();
+    // Every place says the same: waiting for the client admin's approval, and where to see it.
+    expect(screen.getByTestId("ops-run-status")).toHaveTextContent(
+      "Waiting for approval · client admin",
+    );
+    expect(watched).toHaveTextContent("Waiting for approval · client admin.");
+    const block = screen.getByTestId("ops-run-waiting");
+    expect(block).toHaveTextContent("Only the client admin can approve this.");
+    expect(within(block).queryByTestId("ops-run-waiting-approve")).toBeNull();
+    expect(within(block).getByTestId("ops-run-waiting-where")).toHaveAttribute(
+      "href",
+      `/ops/inbox?assigned=all&client=${TENANT}`,
+    );
+    await userEvent.click(screen.getByTestId("ops-run-tab-timeline"));
+    expect(
+      await screen.findByTestId("ops-run-step-00000000-0000-4000-8000-0000000f2001"),
+    ).toHaveTextContent("Waiting for approval · client admin");
   });
 
   it("shows Done when the run is done, even when each answer takes longer than the poll", async () => {
@@ -385,7 +475,8 @@ describe("run controls", () => {
     // The failed step is named, and the retry says where it starts.
     expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Failed at step 1");
     expect(screen.getByTestId("ops-run-retry")).toHaveTextContent("Retry from step 1");
-    await userEvent.click(screen.getByTestId("ops-run-tab-calls"));
+    // Model calls, oversight and the raw data are one Details tab.
+    await userEvent.click(screen.getByTestId("ops-run-tab-details"));
     const calls = await screen.findByTestId("ops-run-model-calls");
     await waitFor(() => expect(calls).toHaveTextContent("anthropic · claude-opus-5-5"));
     expect(calls).toHaveTextContent("end_turn");
@@ -500,7 +591,11 @@ describe("run oversight and the same error elsewhere", () => {
     expect(within(same).getAllByRole("link")).toHaveLength(1);
     expect(within(same).getByRole("link")).toHaveAttribute("href", `/ops/runs/${OTHER}`);
 
-    await userEvent.click(screen.getByTestId("ops-run-tab-calls"));
+    // The old `?tab=oversight` address opens Details, which holds the model calls too.
+    expect(screen.getByTestId("ops-run-tab-details")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("ops-run-same-error")).toHaveTextContent(
+      "Testkit: record update · unauthorized",
+    );
     await userEvent.click(await screen.findByTestId(`ops-run-model-call-${CALL}-open`));
     expect(await screen.findByTestId(`ops-model-body-${CALL}`)).toHaveTextContent(
       "Read the record",

@@ -276,10 +276,12 @@ async function opsWalk(w) {
     }),
   );
 
+  // The sidebar's Clients is one link; each client opens from the list (or the top bar's picker).
+  await w.step("Clients", () => w.follow("/ops/clients"));
   const clientPage = (p) => /^\/ops\/clients\/[0-9a-f-]{36}$/.test(p);
   let client = null;
   await w.step("A client", async () => {
-    client = await w.follow(clientPage);
+    client = await w.follow(clientPage, { scope: "main" });
   });
   if (client) {
     const tabs = await w.links((p) => p.startsWith(`${client}/`) && !p.includes("/agents/"));
@@ -308,12 +310,10 @@ async function opsWalk(w) {
         await w.follow(tab, { scope: "main" });
       });
     }
-    await w.step("Workflow builder", async () => {
+    // The agent's triggers are the first part of its Workflow tab (the owner's review).
+    await w.step("Workflow builder and triggers", async () => {
       await w.goto(agent);
       await w.follow((p) => p.startsWith(`${agent}/workflow`), { scope: "main" });
-    });
-    await w.step("Triggers", async () => {
-      await w.follow(`${agent}/triggers`, { scope: "main" });
     });
   }
 

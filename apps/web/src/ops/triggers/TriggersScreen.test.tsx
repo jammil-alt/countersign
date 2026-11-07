@@ -1,5 +1,7 @@
-// O7 Triggers: the latest version's triggers with when each last fired, the webhook and message
-// settings, adding a trigger (saved as a new draft with a new id) and removing an added one.
+// O7 Triggers, the first part of the agent's Workflow tab: the latest version's triggers with when
+// each last fired and their guards, the webhook and message settings on demand, adding a trigger
+// from the dialog that explains the six kinds (saved as a new draft with a new id) and removing an
+// added one.
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,7 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../../api/useApi";
 import { AGENT_DETAIL, AGENT_SUMMARY, FORK_BUNDLE_INPUT, fakeApi } from "../../test/fixtures";
-import { TriggersScreen } from "./TriggersScreen";
+import { TriggersPanel } from "./TriggersScreen";
 
 const ID = AGENT_SUMMARY.id;
 const HOOK = "00000000-0000-4000-8000-0000000a7001";
@@ -93,7 +95,7 @@ function setup(kind: "client" | "template" = "client") {
   render(
     <MemoryRouter>
       <ApiProvider client={api.client}>
-        <TriggersScreen
+        <TriggersPanel
           agent={agent}
           latest={LATEST}
           bundle={BUNDLE}
@@ -109,35 +111,50 @@ function setup(kind: "client" | "template" = "client") {
 
 describe("Triggers", () => {
   it("lists every trigger with its guards and last fired, and the message and webhook settings", async () => {
-    setup();
-    expect(screen.getByText("How Material costs starts")).toBeInTheDocument();
+    const { user } = setup();
+    expect(screen.getByTestId("triggers-table")).toHaveTextContent("Starts when · 3 triggers");
     const event = screen.getByTestId("trigger-row-t1");
     expect(await within(event).findByText(/Test ·/)).toBeInTheDocument();
-    expect(event).toHaveTextContent("When bill.created");
+    // Event ids never show: the catalog's words, else the id made readable.
+    expect(event).toHaveTextContent("When bill created");
+    expect(event).not.toHaveTextContent("bill.created");
     const message = screen.getByTestId("trigger-row-t-msg");
     expect(message).toHaveTextContent("Message");
-    expect(message).toHaveTextContent("from contacts tagged cardholder, the client's admins");
-    expect(message).toHaveTextContent("Never");
+    expect(message).toHaveTextContent(
+      "Guards (limits on when it starts): from contacts tagged cardholder, the client's admins",
+    );
+    expect(message).toHaveTextContent("Never fired");
     expect(screen.getByTestId("trigger-row-t-hook")).toHaveTextContent(
-      "once per {{trigger.data.id}} · at most 60 a hour",
+      "once per {{trigger.data.id}} · at most 60 an hour",
     );
     // The first trigger of a workflow stays; added ones can be removed.
     expect(screen.queryByTestId("trigger-remove-t1")).toBeNull();
     expect(screen.getByTestId("trigger-remove-t-msg")).toBeInTheDocument();
 
-    const settings = await screen.findByTestId("trigger-message-t-msg");
+    // Settings open on demand; the six kinds are explained in the Add a trigger dialog only.
+    expect(screen.queryByTestId("trigger-message-t-msg")).toBeNull();
+    expect(screen.queryByTestId("trigger-kind-schedule")).toBeNull();
+    await user.click(screen.getByTestId("trigger-details-t-msg"));
+    const settings = screen.getByTestId("trigger-message-t-msg");
     expect(settings).toHaveTextContent("Email · costs@sandbox.agents.example.com");
     expect(settings).toHaveTextContent("/costs in a thread");
     expect(settings).toHaveTextContent('Confirms: "Got it."');
+    await user.click(screen.getByTestId("trigger-details-t-hook"));
     expect(screen.getByTestId("trigger-webhook-t-hook")).toHaveTextContent("60 runs per hour");
+    expect(screen.getByTestId("trigger-webhook-t-hook")).not.toHaveTextContent(HOOK);
+
+    await user.click(screen.getByTestId("triggers-add"));
+    const dialog = screen.getByRole("dialog", { name: "Add a trigger" });
+    expect(dialog).toHaveTextContent("Six ways an agent can start");
     for (const k of ["schedule", "event", "webhook", "manual", "message", "handoff"]) {
-      expect(screen.getByTestId(`trigger-kind-${k}`)).toBeInTheDocument();
+      expect(within(dialog).getByTestId(`trigger-kind-${k}`)).toBeInTheDocument();
     }
   });
 
   it("adds a schedule trigger as a new draft, with a new id", async () => {
     const { saved, changed, user } = setup();
-    await user.click(screen.getByTestId("trigger-kind-schedule-add"));
+    await user.click(screen.getByTestId("triggers-add"));
+    expect(screen.getByTestId("trigger-kind-schedule")).toHaveAttribute("aria-pressed", "true");
     await user.clear(screen.getByTestId("trigger-form-cron"));
     await user.click(screen.getByTestId("trigger-form-save"));
     expect(screen.getByTestId("trigger-form-error")).toHaveTextContent(/cron/);
@@ -147,6 +164,7 @@ describe("Triggers", () => {
     await user.click(screen.getByTestId("trigger-form-holidays"));
     await user.click(screen.getByTestId("trigger-form-save"));
     expect(await screen.findByTestId("triggers-saved")).toHaveTextContent("saved v3 as a draft");
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(changed()).toBe(1);
     const body = saved[0] as {
       parentVersionId: string;
@@ -162,7 +180,7 @@ describe("Triggers", () => {
   it("won't add a message trigger nobody may start", async () => {
     const { saved, user } = setup();
     await user.click(screen.getByTestId("triggers-add"));
-    await user.selectOptions(screen.getByTestId("trigger-form-kind"), "message");
+    await user.click(screen.getByTestId("trigger-kind-message"));
     await user.click(screen.getByTestId("trigger-form-save"));
     expect(screen.getByTestId("trigger-form-error")).toHaveTextContent(/who may start it/);
     await user.click(screen.getByTestId("trigger-form-admins"));
@@ -192,7 +210,7 @@ describe("Triggers", () => {
 
   it("shows a template's triggers without asking when they fired", () => {
     const { api } = setup("template");
-    expect(screen.getByTestId("trigger-row-t1")).not.toHaveTextContent("Never");
+    expect(screen.getByTestId("trigger-row-t1")).not.toHaveTextContent("Never fired");
     expect(api.calls).not.toContain(`GET /api/ops/agents/${ID}/triggers`);
   });
 });

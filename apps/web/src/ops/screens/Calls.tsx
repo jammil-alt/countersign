@@ -108,9 +108,9 @@ export function CallsPanel({ clientId }: { clientId: string }) {
         </div>
       ) : null}
       {!setup.available ? (
-        <p className="mb-3 text-ink-muted">
-          Voice agents aren't set up on this deployment yet (ELEVENLABS_API_KEY and
-          ELEVENLABS_WEBHOOK_SECRET). Incoming calls can still go to voicemail or be forwarded.
+        <p className="mb-3 text-ink-muted" data-testid="ops-calls-unavailable">
+          Voice agents aren't set up for Mezonas yet. An engineer adds our ElevenLabs key. Incoming
+          calls can still go to voicemail or be forwarded.
         </p>
       ) : null}
       {!setup.twilio ? (

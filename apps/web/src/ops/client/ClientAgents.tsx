@@ -2,7 +2,9 @@
 // in the prototype's style (badge, name, what it does, its status in words, its version and the
 // tools it is bound to), drafts dashed, and New agent. Each card opens the agent's page.
 import { Link, useParams } from "react-router-dom";
-import type { AgentSummary } from "../../api/routes";
+import { type AgentSummary, apiRoutes } from "../../api/routes";
+import { useApi } from "../../api/useApi";
+import { connectorName } from "../../inbox/change";
 import { AgentBadge } from "../../ui/badges";
 import { Columns, Section } from "../../ui/page";
 import { Badge, buttonClass, Card, EmptyState, Loading, Tag } from "../../ui/primitives";
@@ -40,7 +42,12 @@ export function ClientAgentsScreen() {
 
 function Agents({ clientId }: { clientId: string }) {
   const { data, error } = useClientPage();
+  // Connector names for the cards' tool tags (never the raw ids).
+  const catalog = useApi(apiRoutes.connectors);
   if (!data) return error ? null : <Loading />;
+  const names = Object.fromEntries(
+    (catalog.data?.connectors ?? []).map((c) => [c.id, c.name] as const),
+  );
   const live = data.agents.filter((a) => a.liveVersionId !== null).length;
   return (
     <Section
@@ -49,14 +56,19 @@ function Agents({ clientId }: { clientId: string }) {
       testId="ops-client-agents-section"
     >
       {data.agents.length === 0 ? (
-        <EmptyState>
-          No agents yet. Fork a template into this client, or start a new one.
-        </EmptyState>
+        <EmptyState
+          line="No agents yet. Fork a template into this client from Agent lab, or build one for it."
+          action={{
+            label: "New agent",
+            to: OPS_PATHS.newAgent(clientId),
+            testId: "ops-client-empty-new-agent",
+          }}
+        />
       ) : (
         <div data-testid="ops-client-agents">
           <Columns count={2}>
             {data.agents.map((a) => (
-              <AgentCard key={a.id} clientId={clientId} agent={a} />
+              <AgentCard key={a.id} clientId={clientId} agent={a} names={names} />
             ))}
           </Columns>
         </div>
@@ -65,7 +77,15 @@ function Agents({ clientId }: { clientId: string }) {
   );
 }
 
-function AgentCard({ clientId, agent }: { clientId: string; agent: AgentSummary }) {
+function AgentCard({
+  clientId,
+  agent,
+  names,
+}: {
+  clientId: string;
+  agent: AgentSummary;
+  names: Record<string, string>;
+}) {
   const badge = summaryBadge(agent);
   const connectors = Object.keys(agent.bindings);
   const origin = agent.testCopy
@@ -99,7 +119,7 @@ function AgentCard({ clientId, agent }: { clientId: string; agent: AgentSummary 
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={badge.tone}>{badge.label}</Badge>
           {connectors.map((c) => (
-            <Tag key={c}>{c}</Tag>
+            <Tag key={c}>{names[c] ?? connectorName(c)}</Tag>
           ))}
         </div>
       </div>

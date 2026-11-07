@@ -36,9 +36,18 @@ function setup() {
     "GET /api/runs": ({ url }) => {
       queries.push(url.searchParams);
       const statuses = url.searchParams.get("statuses");
-      const runs = [run(RUN_A, "waiting"), run(RUN_B, "succeeded")].filter(
-        (r) => !statuses || statuses.split(",").includes(r.status),
-      );
+      const runs = [
+        {
+          ...run(RUN_A, "waiting"),
+          subject: {
+            kind: "change",
+            name: { en: "QuickBooks bill", es: "Factura de QuickBooks" },
+            number: "20418",
+            with: "Northline Panel Supply",
+          },
+        },
+        run(RUN_B, "succeeded"),
+      ].filter((r) => !statuses || statuses.split(",").includes(r.status));
       return {
         runs,
         perDay: [
@@ -75,6 +84,11 @@ describe("portal runs", () => {
     const table = await screen.findByTestId("portal-runs");
     const rowA = within(table).getByTestId(`portal-run-row-${RUN_A}`);
     expect(rowA).toHaveTextContent("R-1a2b3c");
+    // Titled by what it is about; a run with nothing to name keeps its short id as its title.
+    expect(within(table).getByTestId(`portal-run-${RUN_A}-open`)).toHaveTextContent(
+      "QuickBooks bill 20418 · Northline Panel Supply",
+    );
+    expect(within(table).getByTestId(`portal-run-${RUN_B}-open`)).toHaveTextContent("R-4d5e6f");
     expect(rowA).toHaveTextContent("Pia");
     expect(rowA).toHaveTextContent("Waiting on you");
     expect(within(table).getByTestId(`portal-run-${RUN_A}-open`)).toHaveAttribute(

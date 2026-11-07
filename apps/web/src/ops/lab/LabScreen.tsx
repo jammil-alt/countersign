@@ -10,7 +10,7 @@ import {
   type LabTemplate,
   pickLocalized,
 } from "@countersign/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
@@ -33,6 +33,7 @@ import { StatusChip } from "../../ui/status";
 import { StepList } from "../../ui/steps";
 import { SuiteSummary } from "../agents/TestsTab";
 import { errorText, Notice, notifyAgentsChanged, plural, Select, useAction } from "../agents/ui";
+import type { AgentLinkState } from "../screens/AgentPage";
 import { parseBundle } from "../versions";
 import { workflowStats } from "../workflow/describe";
 import { workflowStepItems } from "./steps";
@@ -44,6 +45,28 @@ const TABS: readonly Tab[] = ["templates", "drafts", "client"];
 
 function templatePath(slug: string): string {
   return `/ops/templates/${slug}`;
+}
+
+/** The template's id travels with links to its page, so the page needn't look it up by slug. */
+function handOver(id: string): AgentLinkState {
+  return { agentId: id };
+}
+
+// DECISION: a panel still loading after 8 s says so and offers Try again, rather than "Loading…"
+// for ever (the owner's review: "Where it runs" never finished). A request that never answers
+// (a dropped connection, a Worker past its limit) is the one case useApi can't turn into an error.
+const SLOW_MS = 8_000;
+
+/** True once `loading` has lasted `ms`; false again when it stops. */
+export function useSlow(loading: boolean, ms = SLOW_MS): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (!loading) return;
+    const timer = setTimeout(() => setSlow(true), ms);
+    return () => clearTimeout(timer);
+  }, [loading, ms]);
+  return slow;
 }
 
 export function LabScreen() {
@@ -222,7 +245,11 @@ function DiscardedList({ agents }: { agents: AgentSummary[] }) {
       <ul className="flex flex-col divide-y divide-line">
         {agents.map((a) => (
           <li key={a.id} className="px-6 py-2.5">
-            <Link to={templatePath(a.slug)} className="text-sm text-link hover:underline">
+            <Link
+              to={templatePath(a.slug)}
+              state={handOver(a.id)}
+              className="text-sm text-link hover:underline"
+            >
               {a.name}
             </Link>
           </li>
@@ -311,6 +338,7 @@ function TemplateDetail({
           <div className="flex flex-wrap gap-2">
             <Link
               to={`${base}/workflow`}
+              state={handOver(a.id)}
               className={buttonClass("secondary", undefined, "sm")}
               data-testid="lab-edit"
             >
@@ -340,19 +368,28 @@ function TemplateDetail({
           aria-label="Template"
           className="flex flex-wrap gap-x-5 gap-y-2 border-t border-line px-6 py-3 text-sm"
         >
-          <Link to={base} className="text-link hover:underline">
+          <Link to={base} state={handOver(a.id)} className="text-link hover:underline">
             Overview
           </Link>
-          <Link to={`${base}/workflow`} className="text-link hover:underline">
+          <Link
+            to={`${base}/workflow`}
+            state={handOver(a.id)}
+            className="text-link hover:underline"
+          >
             Workflow
           </Link>
-          <Link to={`${base}/tests`} className="text-link hover:underline">
-            Test bench
+          <Link
+            to={`${base}/versions`}
+            state={handOver(a.id)}
+            className="text-link hover:underline"
+          >
+            Versions and tests
           </Link>
-          <Link to={`${base}/versions`} className="text-link hover:underline">
-            Versions
-          </Link>
-          <Link to={`${base}/settings`} className="text-link hover:underline">
+          <Link
+            to={`${base}/settings`}
+            state={handOver(a.id)}
+            className="text-link hover:underline"
+          >
             Settings
           </Link>
         </nav>
@@ -364,7 +401,7 @@ function TemplateDetail({
           title="Workflow"
           testId="lab-workflow"
           meta={
-            <Link to={`${base}/workflow`} className="text-sm text-link">
+            <Link to={`${base}/workflow`} state={handOver(a.id)} className="text-sm text-link">
               Open builder
             </Link>
           }
@@ -430,6 +467,7 @@ function usedByChip(u: UsedBy) {
 
 function WhereItRuns({ templateId }: { templateId: string }) {
   const res = useApi(apiRoutes.opsUsedBy, { params: { id: templateId } });
+  const slow = useSlow(res.loading && !res.data);
   return (
     <Card
       title="Where it runs"
@@ -442,14 +480,27 @@ function WhereItRuns({ templateId }: { templateId: string }) {
         </div>
       ) : null}
       {!res.data && !res.error ? (
-        <div className="px-6">
-          <Loading />
-        </div>
+        slow ? (
+          <div
+            className="flex flex-wrap items-center gap-3 px-6 py-4"
+            data-testid="lab-used-by-slow"
+          >
+            <p className="text-sm text-ink-muted">
+              This is taking longer than it should. Your clients' copies are still on their way.
+            </p>
+            <Button size="sm" variant="ghost" onClick={res.reload}>
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <div className="px-6">
+            <Loading />
+          </div>
+        )
       ) : null}
       {res.data && res.data.agents.length === 0 ? (
         <p className="px-6 py-5 text-sm text-ink-muted">
-          Not assigned to a client yet. Assign it to fork it into a client as that client's own
-          agent.
+          No client has a copy yet. Assign it to a client to fork it in as that client's own agent.
         </p>
       ) : null}
       {res.data && res.data.agents.length > 0 ? (
@@ -466,7 +517,7 @@ function WhereItRuns({ templateId }: { templateId: string }) {
                   to={`/ops/clients/${u.client.id}/agents/${u.agent.slug}`}
                   className="font-medium text-ink hover:underline"
                 >
-                  {u.client.name} · {u.agent.serviceName ?? u.agent.name}
+                  {u.client.name}'s copy · {u.agent.serviceName ?? u.agent.name}
                 </Link>
                 <span className="text-sm text-ink-muted">
                   {u.baseVersion ? `From v${u.baseVersion}` : "Forked"}
@@ -482,7 +533,7 @@ function WhereItRuns({ templateId }: { templateId: string }) {
                     className="text-sm text-link hover:underline"
                     data-testid={`lab-used-by-${u.agent.id}-merge`}
                   >
-                    Review the v{res.data.templateLiveVersion} merge
+                    Update it from template v{res.data.templateLiveVersion}
                   </Link>
                 ) : null}
                 {u.customizations > 0 && u.agent.liveVersionId ? (
@@ -611,7 +662,9 @@ function AssignForm({
     });
     if (res.ok) {
       notifyAgentsChanged();
-      navigate(`/ops/clients/${chosen}/agents/${res.data.agent.slug}`);
+      navigate(`/ops/clients/${chosen}/agents/${res.data.agent.slug}`, {
+        state: handOver(res.data.agent.id),
+      });
     }
   }
 

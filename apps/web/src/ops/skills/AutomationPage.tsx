@@ -12,6 +12,7 @@ import { Badge, Button, Card, PageHeader, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { agentPath } from "../agents/BuilderParts";
 import { errorText, Notice, plural, useAction } from "../agents/ui";
+import { toolTitle } from "../builder/model";
 import { Chain, percent, SchemaCard, stepChain } from "./parts";
 import { SKILLS_PATH } from "./SkillsLibrary";
 
@@ -129,7 +130,7 @@ export function AutomationPage() {
                   {(
                     [
                       ["Skills", a.requires.skills],
-                      ["Tools", a.requires.tools],
+                      ["Tools", a.requires.tools.map((id) => toolTitle({ id }))],
                       ["Connectors", a.requires.connectors],
                     ] as const
                   ).map(([label, list]) => (
@@ -206,8 +207,10 @@ export function AutomationPage() {
                           {u.name}
                         </Link>{" "}
                         <span className="text-ink-muted">
-                          {u.kind === "template" ? "template" : u.clientName} · v{u.version} · pins{" "}
-                          {u.ref}
+                          {u.kind === "template" ? "template" : u.clientName} · v{u.version}
+                          {u.ref.includes("@")
+                            ? ` · pins v${u.ref.slice(u.ref.indexOf("@") + 1)}`
+                            : ""}
                         </span>
                       </li>
                     ))}

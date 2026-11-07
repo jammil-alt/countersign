@@ -1606,7 +1606,7 @@ export const es: Messages = {
   "runsPage.perDay": "Ejecuciones por día",
   "runDetail.run": "ejecución {id}",
   "runDetail.copyLink": "Copiar enlace",
-  "runDetail.review": "Revisar y firmar",
+  "runDetail.review": "Revisar y aprobar",
   "runDetail.about": "Sobre esta ejecución",
   "runDetail.changes": "Cambios",
   "runDetail.changesLine": "{made} hechos de {count}",
@@ -1616,7 +1616,7 @@ export const es: Messages = {
   "runDetail.otherRuns": "Otras ejecuciones de {name}",
   "runDetail.allRuns": "Todas",
   "runDetail.noOther": "Todavía no hay otras ejecuciones.",
-  "runDetail.waitingChanges": "Cambios que esperan su firma",
+  "runDetail.waitingChanges": "Cambios que esperan su aprobación",
   "runDetail.askSloan.prompt": "¿Algo no cuadra en esta ejecución?",
   "runDetail.askSloan": "Preguntar a Sloan",
   "runDetail.askSloan.text": "Sobre la ejecución {id}: ",
@@ -1625,10 +1625,10 @@ export const es: Messages = {
   "runDetail.audit.empty": "Nadie ha abierto esta ejecución todavía.",
   "runDetail.audit.times": { one: "una vez", other: "{count} veces" },
   "runDetail.audit.opened_run": "abrió esta ejecución",
-  "runDetail.audit.item_edit": "editó un cambio antes de firmar",
+  "runDetail.audit.item_edit": "editó un cambio antes de aprobarlo",
   "runDetail.audit.item_snooze": "dejó un elemento para más tarde",
-  "runDetail.audit.item_undo": "retiró una firma",
-  "runDetail.audit.signed": "firmó",
+  "runDetail.audit.item_undo": "retiró una aprobación",
+  "runDetail.audit.signed": "aprobó",
   "runDetail.audit.declined": "rechazó",
   "runDetail.audit.answered": "respondió una pregunta",
   "weekly.title": "La Mesa semanal",
@@ -1777,4 +1777,17 @@ export const es: Messages = {
   "signin.needAccess":
     "¿Necesita acceso? Pregunte a su administrador o a su responsable en Mezonas.",
   "nav.upload": "Subir",
+  // UI cleanup (run pages and changes): new strings, and the runDetail approval words above
+  // (approve, not sign). Needs a fluent speaker's review.
+  "run.subject.invoice": "Factura {number}",
+  "runDetail.waitingSince": "Le espera desde {time}",
+  "runDetail.waitingItems": {
+    one: "{count} elemento espera su aprobación.",
+    other: "{count} elementos esperan su aprobación.",
+  },
+  "change.unchanged": { one: "{count} campo sin cambios", other: "{count} campos sin cambios" },
+  "change.linesUnchanged": {
+    one: "{count} línea sin cambios",
+    other: "{count} líneas sin cambios",
+  },
 };

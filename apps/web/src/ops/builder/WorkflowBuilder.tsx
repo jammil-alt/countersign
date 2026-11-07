@@ -105,6 +105,8 @@ export interface WorkflowBuilderProps {
   /** The agent page's URL. */
   base: string;
   tabs: ReactNode;
+  /** What the agent page shows between its tabs and the canvas: which agent this is, its triggers. */
+  above?: ReactNode;
   connections?: readonly Connection[];
   members?: readonly Member[];
   /** After a save or publish, so the agent page and sidebar follow. */
@@ -161,6 +163,7 @@ function Frame(props: WorkflowBuilderProps & { children: ReactNode }) {
     <div>
       <BuilderBar agent={props.agent} line={null} />
       <div className="overflow-x-auto">{props.tabs}</div>
+      {props.above ? <div className="pt-4">{props.above}</div> : null}
       <div className="pt-6">{props.children}</div>
     </div>
   );
@@ -586,19 +589,23 @@ function BuilderBody(
             >
               Test run
             </Button>
-            <Button
-              variant="primary"
-              data-testid="builder-publish"
-              disabled={publishBlocked !== null || action.busy}
-              title={publishBlocked ?? undefined}
-              onClick={onPublish}
-            >
-              {dirty ? "Save and publish" : `Publish v${saved.version}`}
-            </Button>
+            {/* A live version with nothing new offers no publish: its badge says Live. */}
+            {!dirty && saved.status === "live" ? null : (
+              <Button
+                variant="primary"
+                data-testid="builder-publish"
+                disabled={publishBlocked !== null || action.busy}
+                title={publishBlocked ?? undefined}
+                onClick={onPublish}
+              >
+                {dirty ? "Save and publish" : `Publish v${saved.version}`}
+              </Button>
+            )}
           </>
         }
       />
       <div className="overflow-x-auto">{props.tabs}</div>
+      {props.above ? <div className="pt-4">{props.above}</div> : null}
 
       {notice || action.error ? (
         <div className="mt-4 flex flex-col gap-2">

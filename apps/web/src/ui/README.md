@@ -41,7 +41,8 @@ the state from core's `runState` (`packages/core/src/api/run-state.ts`).
 - `PageGrid` — the main column and a 340px right rail (`rail`); the rail drops below on narrow screens.
 - `Columns` — `count` 2, 3 or 4 even columns; one column at phone width.
 - `Loaded` — `state` (from `useApi`) and `children(data)`: Loading, the error with Try again, or the data.
-  Empty lists use `EmptyState` (`primitives.tsx`).
+  Empty lists use `EmptyState` (`primitives.tsx`): an optional `title`, the line (`line` or
+  `children`) and an optional `action` (`{ label, to }` for a link, `{ label, onClick }` for a button).
 
 ## Cards and figures
 
@@ -69,7 +70,8 @@ the state from core's `runState` (`packages/core/src/api/run-state.ts`).
 
 ## Also in `primitives.tsx`
 
-`Badge`, `Tag`, `Count`, `Button`/`buttonClass`, `Tabs`, `SectionLabel`, `AgentAvatar`, `Loading`,
+`Badge`, `Tag`, `Count`, `Button`/`buttonClass`, `Tabs`, `SubTabs` (a tab's own pages as the Segmented,
+each a route: the client page's Data and Setup), `SectionLabel`, `AgentAvatar`, `Loading`,
 `ErrorNotice`, `EmptyState`, `Placeholder`. Forms are in `forms.tsx`, icons in `icons.tsx`.
 
 ## The frame (`../shell`)

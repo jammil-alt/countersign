@@ -223,4 +223,30 @@ describe("escalations", () => {
     expect(queries.at(-1)?.get("client")).toBe(DEMO);
     expect(screen.getByTestId("ops-inbox-client")).toBeInTheDocument();
   });
+
+  it("opens a run page's link (assigned=all) on what waits on clients", async () => {
+    const queries: URLSearchParams[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": ({ url }) => {
+        queries.push(url.searchParams);
+        return { items: [item(DEMO_ITEM, DEMO, false)], agents: [] };
+      },
+      "GET /api/ops/needs-us": () => NONE_NEED_US,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/inbox?assigned=all&client=${DEMO}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId(`inbox-item-${DEMO_ITEM}`)).toBeInTheDocument();
+    expect(screen.getByTestId("ops-inbox-view-filter-clients")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(queries.at(-1)?.get("assigned")).toBe("all");
+    expect(queries.at(-1)?.get("client")).toBe(DEMO);
+  });
 });

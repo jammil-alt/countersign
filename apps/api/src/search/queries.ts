@@ -105,6 +105,8 @@ export async function searchRuns(tx: Tx, scope: SearchScope, q: SearchText) {
       status: run.status,
       mode: run.mode,
       createdAt: run.createdAt,
+      // For the run's subject (its title): the document or change it is about.
+      trigger: run.trigger,
       agentId: agent.id,
       agentName: agent.name,
       serviceName: agent.serviceName,

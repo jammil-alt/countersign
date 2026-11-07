@@ -36,6 +36,7 @@ import {
   type SkillStep,
   type Step,
   type StopStep,
+  stepStateLabel,
   TIMELINE_WORDS,
   type TimelineWords,
   type UseAutomationStep,
@@ -345,7 +346,7 @@ class Executor {
         await this.ctx.log.update(id, {
           status: "failed",
           error,
-          summary: `${clientLabel(step)}: ${this.words.failed}`,
+          summary: `${stepStateLabel(step, false)}: ${this.words.failed}`,
         });
         return null;
       });
@@ -367,7 +368,7 @@ class Executor {
     rejected: boolean,
     notWritten = false,
   ): string {
-    if (rejected) return `${clientLabel(step)}: ${this.words.notApproved}`;
+    if (rejected) return `${stepStateLabel(step, false)}: ${this.words.notApproved}`;
     if (notWritten) return this.words.wouldWrite(step.name);
     const catalog = this.ctx.catalog ?? {};
     const template =
@@ -419,27 +420,28 @@ class Executor {
       case "approval":
         update = {
           status: "waiting",
-          summary: `${clientLabel(step)}: ${this.words.waitingForApproval}`,
+          // Not done yet: "Itemize the bill", never the done label "Itemized the bill".
+          summary: `${stepStateLabel(step, false)}: ${this.words.waitingForApproval}`,
         };
         break;
       case "waiting":
         update = {
           status: "waiting",
-          summary: `${clientLabel(step)}: ${done.wait.reason === "release" ? this.words.waitingForRelease : "waiting for a reply"}`,
+          summary: `${stepStateLabel(step, false)}: ${done.wait.reason === "release" ? this.words.waitingForRelease : "waiting for a reply"}`,
         };
         break;
       case "escalated":
         update = {
           status: "failed",
           error: `escalated: ${done.reason}`,
-          summary: `${clientLabel(step)}: ${this.words.needsOperator}`,
+          summary: `${stepStateLabel(step, false)}: ${this.words.needsOperator}`,
         };
         break;
       case "failed":
         update = {
           status: "failed",
           error: done.error,
-          summary: `${clientLabel(step)}: ${this.words.failed}`,
+          summary: `${stepStateLabel(step, false)}: ${this.words.failed}`,
         };
         break;
     }
@@ -1143,7 +1145,7 @@ class Executor {
                 : failed.stepRunId;
             await log.update(stepRunId, {
               status: "skipped",
-              summary: `${clientLabel(step)}: ${this.words.notApproved}`,
+              summary: `${stepStateLabel(step, false)}: ${this.words.notApproved}`,
             });
             return null;
           });

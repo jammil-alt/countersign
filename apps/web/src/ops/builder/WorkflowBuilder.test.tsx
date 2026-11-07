@@ -464,7 +464,7 @@ describe("WorkflowBuilder", () => {
     await ready();
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
     expect(screen.getByTestId("builder-step-find-number")).toHaveTextContent("1");
-    expect(screen.getByTestId("builder-trigger")).toHaveTextContent("When transaction.created");
+    expect(screen.getByTestId("builder-trigger")).toHaveTextContent("When a transaction is added");
     expect(listOrder("path:low")).toEqual(["ask"]);
     expect(screen.getByTestId("builder-counts")).toHaveTextContent(
       "Purchasing · 5 steps · 1 fork · 1 change your tools · 1 need approval",
@@ -739,7 +739,9 @@ describe("WorkflowBuilder", () => {
     await user.click(screen.getByTestId("builder-publish"));
     await waitFor(() => expect(sent.map((s) => s.path)).toEqual([`publish ${V1}`]));
     expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Published v1.");
-    expect(screen.getByTestId("builder-publish")).toBeDisabled();
+    // Live with nothing new: the bar says Live and offers no publish.
+    expect(screen.queryByTestId("builder-publish")).toBeNull();
+    expect(screen.getByTestId("builder-version")).toHaveTextContent("Live · v1");
 
     await user.click(screen.getByTestId("builder-step-update-delete"));
     await user.click(screen.getByTestId("builder-publish"));
