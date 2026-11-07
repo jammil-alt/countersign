@@ -51,7 +51,8 @@ function rememberAgentRows(clientId: string | undefined, n: number): void {
 }
 
 export function PortalLayout({ children }: { children: ReactNode }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const session = useSession();
   const api = useApiClient();
   const client =
@@ -77,8 +78,8 @@ export function PortalLayout({ children }: { children: ReactNode }) {
 
   const search: SearchRun = useCallback(
     async (q, signal) =>
-      portalSearchGroups(await api.call(apiRoutes.portalSearch, { query: { q }, signal }), t),
-    [api, t],
+      portalSearchGroups(await api.call(apiRoutes.portalSearch, { query: { q }, signal }), t, i18n),
+    [api, t, i18n],
   );
   const loaded = overview.data !== undefined;
   useEffect(() => {

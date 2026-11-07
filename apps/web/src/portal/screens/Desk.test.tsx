@@ -127,7 +127,7 @@ describe("Your Desk: a QuickBooks change", () => {
     expect(within(card).getByTestId("desk-description")).toHaveTextContent(
       "Replace the bill's lines with the items on the vendor's invoice. The total stays the same.",
     );
-    expect(within(card).getByTestId("change-now-row-total")).toHaveTextContent("$9,742.35");
+    expect(within(card).getByTestId("change-same-now-row-total")).toHaveTextContent("$9,742.35");
     const after = within(card).getByTestId("change-lines-after");
     expect(within(after).getByTestId("change-lines-after-item-0")).toHaveTextContent(
       "Baltic birch 3/4 4x8",
@@ -179,7 +179,7 @@ describe("Your Desk: a QuickBooks change", () => {
     expect(within(card).getByRole("heading", { level: 2 })).toHaveTextContent(
       "Factura de QuickBooks 20418 · Northline Panel Supply",
     );
-    expect(within(card).getByTestId("change-now-row-total")).toHaveTextContent("9742,35");
+    expect(within(card).getByTestId("change-same-now-row-total")).toHaveTextContent("9742,35");
     expect(within(card).getByTestId("desk-sign")).toHaveTextContent(
       "Firmar y actualizar QuickBooks Online",
     );

@@ -77,9 +77,11 @@ describe("InboxCard: external action", () => {
       "data-changed",
       "true",
     );
-    // An unchanged field reads the same on both sides and is not marked.
-    expect(within(after).getByTestId("change-after-row-name")).toHaveTextContent("Oak board");
-    expect(within(after).getByTestId("change-after-row-name")).not.toHaveAttribute("data-changed");
+    // An unchanged field folds under "1 field unchanged", the same on both sides, not marked.
+    expect(within(after).queryByTestId("change-after-row-name")).toBeNull();
+    expect(screen.getByTestId("change-unchanged")).toHaveTextContent("1 field unchanged");
+    expect(screen.getByTestId("change-same-after-row-name")).toHaveTextContent("Oak board");
+    expect(screen.getByTestId("change-same-after-row-name")).not.toHaveAttribute("data-changed");
     // Identity and concurrency fields are not part of the change.
     expect(within(card).queryByText("Sync token")).toBeNull();
     expect(within(now).queryByTestId("change-now-row-id")).toBeNull();

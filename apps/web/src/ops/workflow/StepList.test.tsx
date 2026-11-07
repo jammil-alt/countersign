@@ -21,7 +21,7 @@ describe("StepList", () => {
       ["step-update-number", "5"],
     ]);
     expect(
-      within(screen.getByTestId("step-t1")).getByText("When bill.created"),
+      within(screen.getByTestId("step-t1")).getByText("When bill created"),
     ).toBeInTheDocument();
     expect(
       within(screen.getByTestId("step-update")).getByText("qbo.bill.update_lines · needs approval"),

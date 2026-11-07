@@ -71,7 +71,7 @@ describe("the change model, through a tool's display", () => {
     expect(model.fields[0]?.now).toEqual({ type: "date", value: "2026-10-28" });
   });
 
-  it("keeps the lines a change does not replace, and names unknown ids by id", () => {
+  it("keeps the lines a change does not replace, and never shows an id it can't name", () => {
     const before = {
       ...BILL_BEFORE,
       names: undefined,
@@ -86,8 +86,9 @@ describe("the change model, through a tool's display", () => {
       after?.type === "lines" && after.items.map((l) => [l.description, l.ref, l.marked]),
     ).toEqual([
       ["Freight", "Job Materials", false],
-      ["Baltic birch 3/4 4x8 B/BB", "#31", true],
-      ["Edgebanding oak 7/8 x 500'", "#32", true],
+      // No "#31": an item the tool couldn't name reads by its description alone.
+      ["Baltic birch 3/4 4x8 B/BB", null, true],
+      ["Edgebanding oak 7/8 x 500'", null, true],
     ]);
   });
 
@@ -194,12 +195,52 @@ describe("the change tables", () => {
     );
   });
 
-  it("show the record now in full: the total and the date, formatted, on both sides", () => {
+  it("show only what differs; the fields the change leaves fold under a toggle", () => {
     renderTables({ before: BILL_BEFORE, input: BILL_INPUT, display: BILL_LINES_DISPLAY });
+    // Date and Total don't change: no rows for them in the change itself.
+    expect(screen.queryByTestId("change-now")).toBeNull();
+    const folded = screen.getByTestId("change-unchanged");
+    expect(folded.tagName).toBe("DETAILS");
+    expect(folded).not.toHaveAttribute("open");
+    expect(within(folded).getByText("2 fields unchanged")).toBeInTheDocument();
+    // Folded, they still read formatted.
+    expect(within(folded).getByTestId("change-same-now-row-total")).toHaveTextContent(
+      "Total$9,742.35",
+    );
+    expect(within(folded).getByTestId("change-same-now-row-txnDate")).toHaveTextContent(
+      "Oct 28, 2026",
+    );
+  });
+
+  it("show only the lines that differ, the lines the change keeps folded", () => {
+    const before = {
+      ...BILL_BEFORE,
+      lines: [
+        ...BILL_BEFORE.lines,
+        { ...BILL_BEFORE.lines[0], id: "2", description: "Freight", amount: "120.00" },
+      ],
+    };
+    renderTables({ before, input: BILL_INPUT, display: BILL_LINES_DISPLAY });
+    const now = screen.getByTestId("change-lines-now");
+    const after = screen.getByTestId("change-lines-after");
+    expect(now).not.toHaveTextContent("Freight");
+    expect(after).not.toHaveTextContent("Freight");
+    expect(within(after).getAllByRole("row").length).toBeGreaterThan(2);
+    const kept = screen.getByTestId("change-lines-unchanged");
+    expect(within(kept).getByText("1 line unchanged")).toBeInTheDocument();
+    expect(kept).toHaveTextContent("Freight");
+  });
+
+  it("show every field when asked", () => {
+    renderTables({
+      before: BILL_BEFORE,
+      input: BILL_INPUT,
+      display: BILL_LINES_DISPLAY,
+      showUnchanged: true,
+    });
     expect(screen.getByTestId("change-now-row-total")).toHaveTextContent("Total$9,742.35");
-    expect(screen.getByTestId("change-after-row-total")).toHaveTextContent("Total$9,742.35");
     expect(screen.getByTestId("change-after-row-total")).not.toHaveAttribute("data-changed");
-    expect(screen.getByTestId("change-now-row-txnDate")).toHaveTextContent("Oct 28, 2026");
+    expect(screen.queryByTestId("change-unchanged")).toBeNull();
   });
 
   it("hide ids, sync tokens and the write's guards", () => {
@@ -227,7 +268,7 @@ describe("the change tables", () => {
     renderTables({ before: BILL_BEFORE, input: BILL_INPUT, display: BILL_LINES_DISPLAY }, "es");
     expect(screen.getByTestId("change-lines")).toHaveAccessibleName("Líneas");
     // Spanish groups thousands with a dot and decimals with a comma.
-    expect(screen.getByTestId("change-now-row-total")).toHaveTextContent("9742,35");
+    expect(screen.getByTestId("change-same-now-row-total")).toHaveTextContent("9742,35");
     expect(screen.getByTestId("change-lines-after-item-0")).toHaveTextContent("8550,00");
   });
 
@@ -250,8 +291,11 @@ describe("the change tables", () => {
     });
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/[{}[\]"]/);
-    expect(screen.getByTestId("change-now-row-vendor")).toHaveTextContent("Northline Panel Supply");
-    expect(screen.getByTestId("change-now-row-address")).toHaveTextContent(
+    // Unchanged fields fold, still in plain words.
+    expect(screen.getByTestId("change-same-now-row-vendor")).toHaveTextContent(
+      "Northline Panel Supply",
+    );
+    expect(screen.getByTestId("change-same-now-row-address")).toHaveTextContent(
       "City: Tacoma, State: WA",
     );
     expect(screen.getByTestId("change-after-row-status")).toHaveAttribute("data-changed", "true");
@@ -277,6 +321,22 @@ describe("plain values", () => {
     expect(formatValue([{ id: "1", name: "A" }, { name: "B" }])).toBe("A; B");
     // A field that only ends in "id" is not an id.
     expect(formatValue({ paid: true })).toBe("Paid: true");
+    // Money reads with its currency, never "9742.3500 USD".
+    expect(formatValue({ amount: "9742.3500", currency: "USD" })).toBe("$9,742.35");
+    expect(formatValue({ total: { amount: "12.5", currency: "EUR" } })).toBe("Total: €12.50");
+  });
+
+  it("read a record's amounts beside its currency as money", () => {
+    const model = changeModel(
+      null,
+      { total: "9742.3500", currency: "USD", memo: "a" },
+      { memo: "b" },
+    );
+    expect(model.fields.find((f) => f.key === "total")?.now).toEqual({
+      type: "money",
+      amount: "9742.3500",
+      currency: "USD",
+    });
   });
 });
 
@@ -297,7 +357,7 @@ describe("InboxCard: a declared change, for a client", () => {
     expect(card.textContent).not.toContain("qbo.bill.update_lines");
     expect(card.textContent).not.toContain("Qbo");
     expect(within(card).getByTestId("inbox-item-approve")).toHaveTextContent(
-      "Sign and update QuickBooks Online",
+      "update QuickBooks Online",
     );
   });
 });

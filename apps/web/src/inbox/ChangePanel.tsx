@@ -14,30 +14,74 @@ export function ChangeTables({
   before,
   input,
   display,
+  showUnchanged = false,
 }: {
   before: unknown;
   input: unknown;
   /** The tool's display spec, when it declares one. */
   display?: ToolDisplay | null | undefined;
+  /**
+   * Show the fields and lines the change leaves as they are beside the rest. By default only what
+   * differs shows, and the rest folds under "N fields unchanged".
+   */
+  showUnchanged?: boolean;
 }) {
   const { t, locale } = useI18n();
   const model = changeModel(display, before, input, locale);
-  const scalars = model.fields.filter((f) => !f.list);
-  const lists = model.fields.filter((f) => f.list);
+  // A new record has nothing "now": every field is part of the change.
+  const all = showUnchanged || model.create;
+  const changed = model.fields.filter((f) => all || f.changed);
+  const unchanged = model.fields.filter((f) => !all && !f.changed);
+  // Nothing differs (a write that leaves the record as it is): show it whole, as before.
+  const shown = changed.length > 0 ? changed : model.fields;
+  const folded = changed.length > 0 ? unchanged : [];
+  return (
+    <div className="flex flex-col gap-3">
+      <Fields fields={shown} create={model.create} foldLines={!all} />
+      {folded.length > 0 ? (
+        <details data-testid="change-unchanged" className="text-sm">
+          <summary className="cursor-pointer text-ink-muted">
+            {t("change.unchanged", { count: folded.length })}
+          </summary>
+          <div className="mt-3">
+            <Fields fields={folded} create={model.create} foldLines={false} prefix="change-same" />
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+/** Fields as the two-sided grid (plain values) and their own tables (lists). */
+function Fields({
+  fields,
+  create,
+  foldLines,
+  prefix = "change",
+}: {
+  fields: ChangeField[];
+  create: boolean;
+  foldLines: boolean;
+  /** Test ids: `change-now-row-<key>`, or `change-same-…` for the folded fields. */
+  prefix?: string;
+}) {
+  const { t } = useI18n();
+  const scalars = fields.filter((f) => !f.list);
+  const lists = fields.filter((f) => f.list);
   return (
     <div className="flex flex-col gap-3">
       {scalars.length > 0 || lists.length === 0 ? (
         <div className="mz-sign__change">
           <Side
-            testId="change-now"
+            testId={`${prefix}-now`}
             title={t("change.now")}
             fields={scalars}
             pick="now"
-            empty={model.create ? t("change.createsIt") : t("change.nothingRecorded")}
-            hideAll={model.create}
+            empty={create ? t("change.createsIt") : t("change.nothingRecorded")}
+            hideAll={create}
           />
           <Side
-            testId="change-after"
+            testId={`${prefix}-after`}
             title={t("change.after")}
             fields={scalars}
             pick="after"
@@ -46,10 +90,18 @@ export function ChangeTables({
         </div>
       ) : null}
       {lists.map((f) => (
-        <ListField key={f.key} field={f} create={model.create} />
+        <ListField key={f.key} field={f} create={create} fold={foldLines && f.changed} />
       ))}
     </div>
   );
+}
+
+/** A list side with only the given items; the lines' total stays the whole list's unless dropped. */
+function only(value: ChangeValue, keep: (item: ItemView) => boolean, total = true): ChangeValue {
+  if (value.type === "lines") {
+    return { ...value, items: value.items.filter(keep), total: total ? value.total : null };
+  }
+  return value.type === "files" ? { ...value, items: value.items.filter(keep) } : value;
 }
 
 /** A date-only value ("2026-10-28") read at local noon, so no time zone moves it a day. */
@@ -141,9 +193,24 @@ function Side({
   );
 }
 
-/** A list field (lines, files, records): its own now and after tables, stacked. */
-function ListField({ field, create }: { field: ChangeField; create: boolean }) {
+/**
+ * A list field (lines, files, records): its own now and after tables, stacked. With `fold`, only
+ * the lines the change removes (now) and adds (after) show; the lines it keeps fold beneath.
+ */
+function ListField({
+  field,
+  create,
+  fold,
+}: {
+  field: ChangeField;
+  create: boolean;
+  fold: boolean;
+}) {
   const { t } = useI18n();
+  const marked = (i: ItemView) => i.marked;
+  const kept = fold ? only(field.after, (i) => !i.marked, false) : null;
+  const keptCount =
+    kept && (kept.type === "lines" || kept.type === "files") ? kept.items.length : 0;
   return (
     <section
       data-testid={`change-${field.key}`}
@@ -154,17 +221,33 @@ function ListField({ field, create }: { field: ChangeField; create: boolean }) {
       <ListSide
         testId={`change-${field.key}-now`}
         title={t("change.now")}
-        value={create ? { type: "none" } : field.now}
+        value={create ? { type: "none" } : fold ? only(field.now, marked) : field.now}
         side="now"
         empty={create ? t("change.createsIt") : t("change.noneYet")}
       />
       <ListSide
         testId={`change-${field.key}-after`}
         title={t("change.after")}
-        value={field.after}
+        value={fold ? only(field.after, marked) : field.after}
         side="after"
         empty={t("change.noneYet")}
       />
+      {kept && keptCount > 0 ? (
+        <details data-testid={`change-${field.key}-unchanged`} className="text-sm">
+          <summary className="cursor-pointer text-ink-muted">
+            {t("change.linesUnchanged", { count: keptCount })}
+          </summary>
+          <div className="mt-2">
+            <ListSide
+              testId={`change-${field.key}-kept`}
+              title={field.label}
+              value={kept}
+              side="after"
+              empty={t("change.noneYet")}
+            />
+          </div>
+        </details>
+      ) : null}
     </section>
   );
 }
