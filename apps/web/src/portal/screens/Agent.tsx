@@ -11,7 +11,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { useI18n } from "../../i18n/i18n";
 import { packReportPath, packReportsFor } from "../../packs/registry";
-import { duration, isRunGoing, runStatusLabel, shortTime } from "../../runs/format";
+import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
@@ -19,12 +19,14 @@ import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Loaded, Page, PageGrid } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
-import { runChipState, StatusChip } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { periodLabel } from "../../usage/format";
-import { agentChip, isGoing, stageWord } from "../agentState";
+import { stageWord } from "../agentState";
 import { PORTAL_PATHS } from "../paths";
+import { agentChip, type RunFields, runChip, runOpen } from "../status";
 import { runsNote } from "./Reports";
+import { RunTimes } from "./runsParts";
 import { WeeklyAndSloan } from "./Table";
 
 const RUN_POLL_MS = 5_000;
@@ -58,7 +60,12 @@ function AgentPage({ id, detail, reload }: { id: string; detail: Detail; reload:
   const live = table.data?.services.find((s) => s.id === id) ?? null;
   const control = controls.data?.services.find((s) => s.id === id) ?? null;
   const chip = agentChip(
-    { status: service.status, stage: live?.stage ?? null, now: live?.now ?? null },
+    {
+      status: service.status,
+      stage: live?.stage ?? null,
+      now: live?.now ?? null,
+      runsNow: live?.runsNow,
+    },
     t,
   );
   const stage = stageWord(live?.stage ?? null, t);
@@ -115,10 +122,13 @@ function AgentPage({ id, detail, reload }: { id: string; detail: Detail; reload:
           </>
         }
       >
-        <RightNow runId={live?.now?.runId ?? null} going={isGoing(live?.now ?? null)} />
+        <RightNow runId={live?.now?.runId ?? null} going={live?.now ? runOpen(live.now) : false} />
         <LatestWork
           name={name}
-          recent={(table.data?.recent ?? []).filter((r) => r.service.id === id)}
+          recent={finishedWork(
+            (table.data?.recent ?? []).filter((r) => r.service.id === id),
+            [...detail.recentRuns, ...(live?.now ? [{ id: live.now.runId, ...live.now }] : [])],
+          )}
         />
         <History detail={detail} />
       </PageGrid>
@@ -240,7 +250,7 @@ function PauseNotice({ control }: { control: ServiceControl }) {
   return (
     <div className="ds-card flex flex-col gap-1 p-5" data-testid="agent-paused">
       <span className="flex flex-wrap items-center gap-2">
-        <StatusChip state="paused">{t("service.status.paused")}</StatusChip>
+        <StatusChip state="paused">{t("state.agent.paused")}</StatusChip>
         <span className="text-ink">{who}</span>
       </span>
       <span className="text-sm text-ink-muted">
@@ -300,9 +310,7 @@ function RightNow({ runId, going }: { runId: string | null; going: boolean }) {
       testId="agent-now"
       title={
         <span className="flex flex-col">
-          <span>
-            {data && isRunGoing(data.run.status) ? t("agent.rightNow") : t("table.lastRun")}
-          </span>
+          <span>{data && runOpen(data.run) ? t("agent.rightNow") : t("table.lastRun")}</span>
           {data?.run.startedAt ? (
             <span className="text-sm font-normal text-ink-muted">
               {t("table.started", { time: shortTime(data.run.startedAt, undefined, i18n) })}
@@ -312,15 +320,12 @@ function RightNow({ runId, going }: { runId: string | null; going: boolean }) {
       }
       meta={
         data ? (
-          isRunGoing(data.run.status) && steps.length > 0 ? (
-            <StatusChip state={runChipState(data.run.status)}>
-              {t("table.stepOf", { index: Math.min(done + 1, steps.length), total: steps.length })}
-            </StatusChip>
-          ) : (
-            <StatusChip state={runChipState(data.run.status)}>
-              {runStatusLabel(data.run.status, i18n)}
-            </StatusChip>
-          )
+          <StatusChip state={runChip(data.run, t).state} testId="agent-now-state">
+            {runChip(data.run, t).label}
+            {runOpen(data.run) && steps.length > 0
+              ? ` · ${t("table.stepOf", { index: Math.min(done + 1, steps.length), total: steps.length })}`
+              : ""}
+          </StatusChip>
         ) : null
       }
       footer={
@@ -332,7 +337,7 @@ function RightNow({ runId, going }: { runId: string | null; going: boolean }) {
       <div className="ui-card__body">
         {run.error ? <ErrorNotice error={run.error} onRetry={run.reload} /> : null}
         {data && steps.length === 0 ? (
-          <p className="text-ink-muted">{runStatusLabel(data.run.status, i18n)}</p>
+          <p className="text-ink-muted">{runChip(data.run, t).label}</p>
         ) : null}
         {steps.length > 0 ? <StepList steps={steps} testId="agent-now-steps" /> : null}
       </div>
@@ -342,13 +347,7 @@ function RightNow({ runId, going }: { runId: string | null; going: boolean }) {
 
 // ── Its latest work and its history ──────────────────────────────────────────────────────────────
 
-function LatestWork({
-  name,
-  recent,
-}: {
-  name: string;
-  recent: { runId: string; label: string; summary: string | null; at: string | null }[];
-}) {
+function LatestWork({ name, recent }: { name: string; recent: Recent[] }) {
   const i18n = useI18n();
   const { t } = i18n;
   if (recent.length === 0) return null;
@@ -365,6 +364,18 @@ function LatestWork({
       ))}
     </Card>
   );
+}
+
+type Recent = { runId: string; label: string; summary: string | null; at: string | null };
+
+/**
+ * An agent's latest work: steps of its finished runs only (the run going now is in "Right now"
+ * above), newest first by the time each shows.
+ */
+export function finishedWork(recent: Recent[], runs: (RunFields & { id: string })[]): Recent[] {
+  const open = new Set(runs.filter((r) => runOpen(r)).map((r) => r.id));
+  const time = (r: Recent) => (r.at ? new Date(r.at).getTime() : 0);
+  return recent.filter((r) => !open.has(r.runId)).sort((a, b) => time(b) - time(a));
 }
 
 function History({ detail }: { detail: Detail }) {
@@ -392,18 +403,12 @@ function History({ detail }: { detail: Detail }) {
             time={r.startedAt ? shortTime(r.startedAt, undefined, i18n) : ""}
             to={`/runs/${r.id}`}
             end={
-              <StatusChip state={runChipState(r.status)}>
-                {runStatusLabel(r.status, i18n)}
+              <StatusChip state={runChip(r, t).state} testId={`portal-service-run-${r.id}-state`}>
+                {runChip(r, t).label}
               </StatusChip>
             }
           >
-            {r.startedAt
-              ? r.finishedAt
-                ? t("agent.took", {
-                    duration: duration(r.startedAt, r.finishedAt, undefined, i18n),
-                  })
-                : t("table.started", { time: shortTime(r.startedAt, undefined, i18n) })
-              : t("run.notStarted")}
+            {r.startedAt ? <RunTimes run={r} /> : t("run.notStarted")}
           </ActivityRow>
         ))
       )}
@@ -456,9 +461,7 @@ function ThisMonth({ id, detail }: { id: string; detail: Detail }) {
           value={fmt.number(thisMonth.runs.total)}
           label={t("reports.runs")}
           note={
-            thisMonth.runs.total === 0
-              ? t("service.nothingRan")
-              : runsNote(thisMonth.runs, i18n, "reports.runs.waiting")
+            thisMonth.runs.total === 0 ? t("service.nothingRan") : runsNote(thisMonth.runs, i18n)
           }
         />
         <Figure

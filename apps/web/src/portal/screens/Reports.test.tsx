@@ -74,7 +74,7 @@ describe("portal reports", () => {
     });
     const { container } = renderAt("/reports", api);
     expect(await screen.findByTestId("portal-report-runs")).toHaveTextContent(
-      "31 done, 1 failed, 1 waiting for a person",
+      "31 done, 1 failed, 1 waiting on you",
     );
     expect(screen.getByText("What your services did, Nov 1 – Nov 3, 2026.")).toBeInTheDocument();
     expect(screen.getByTestId("portal-report-documents")).toHaveTextContent("34 documents came in");
@@ -84,7 +84,7 @@ describe("portal reports", () => {
       "href",
       `/agents/${SVC}`,
     );
-    expect(row).toHaveTextContent("1 waiting");
+    expect(row).toHaveTextContent("1 waiting on you");
     // Nothing of cost, tokens or prompts reaches the page.
     expect(container.textContent).not.toMatch(/\$|0\.91|0\.8000|5000|records clerk/);
     // This month leaves the days to the API (the client's time zone).

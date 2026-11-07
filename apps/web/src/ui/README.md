@@ -18,7 +18,13 @@ where a part doesn't fit, add a prop here rather than a one-off in a screen.
 Agents' work stays ink. Borders, not shadows. No raw colours.
 
 `StatusChip`'s mapping is fixed in `CHIP_TONE` (`status.tsx`); `runChipState` and `serviceChipState`
-turn API statuses into chip states. The chip's words are always the caller's, in the reader's language.
+turn API statuses into chip states (the back office). The chip's words are always the caller's, in the
+reader's language.
+
+In the client portal every run and agent goes through the one status model in
+`../portal/status.ts`: `runChip` (Running, Waiting on you, Done, Failed, Stopped; a run that waits on
+the client is never Running, whatever its stored status) and `agentChip` (Working, Waiting on you,
+Ready, Paused, Setting up). `workedMs` is a run's "Took": its time less the time it waited on you.
 
 ## Layout (`page.tsx`)
 

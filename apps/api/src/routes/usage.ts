@@ -14,9 +14,7 @@ import {
 } from "@countersign/core";
 import {
   agent,
-  agentVersion,
   connection,
-  docExtraction,
   document,
   externalAction,
   run,
@@ -42,6 +40,7 @@ import {
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
+import { noRuns, runCounts } from "../runs/client-status";
 import { runSummaries } from "./portal";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
@@ -376,23 +375,6 @@ async function usageReport(
 // ── Portal: activity ─────────────────────────────────────────────────────────────────────────────
 
 type Runs = ActivityReport["runs"];
-const noRuns = (): Runs => ({
-  total: 0,
-  succeeded: 0,
-  failed: 0,
-  cancelled: 0,
-  waiting: 0,
-  going: 0,
-});
-
-function countRun(into: Runs, status: string, n: number): void {
-  into.total += n;
-  if (status === "succeeded") into.succeeded += n;
-  else if (status === "failed") into.failed += n;
-  else if (status === "cancelled") into.cancelled += n;
-  else if (status === "waiting") into.waiting += n;
-  else into.going += n;
-}
 
 const serviceName = (a: { serviceName: string | null; name: string }) => a.serviceName ?? a.name;
 
@@ -436,46 +418,44 @@ async function activity(
   const inPeriod = (col: Column) => and(gte(col, lo), lt(col, hi)) as SQL;
   const svc = input.service;
 
-  const runRows = await tx
-    .select({ agentId: run.agentId, status: run.status, n: sql<string>`count(*)::text` })
-    .from(run)
-    .where(
-      and(
-        eq(run.tenantId, t),
-        eq(run.mode, "live"),
-        inPeriod(run.createdAt),
-        ...(svc ? [eq(run.agentId, svc)] : []),
-      ),
-    )
-    .groupBy(run.agentId, run.status);
+  // QA round 1: runs started in the period by the client's states (waiting = on the client).
+  const counts = await runCounts(tx, t, { lo, hi }, svc ? [eq(run.agentId, svc)] : []);
 
   const [received] = await tx
     .select({ n: sql<string>`count(*)::text` })
     .from(document)
     .where(and(eq(document.tenantId, t), inPeriod(document.receivedAt)));
 
-  // Read = extracted; attributed to a service through the agent version that read it.
-  const readJoin = and(
-    eq(agentVersion.id, docExtraction.agentVersionId),
-    eq(agentVersion.tenantId, docExtraction.tenantId),
-  );
-  const readWhere = and(
-    eq(docExtraction.tenantId, t),
-    inPeriod(docExtraction.createdAt),
-    ...(svc ? [eq(agentVersion.agentId, svc)] : []),
-  );
-  const distinctDocs = sql<string>`count(distinct ${docExtraction.documentId})::text`;
-  const [readTotal] = await tx
-    .select({ n: distinctDocs })
-    .from(docExtraction)
-    .leftJoin(agentVersion, readJoin)
-    .where(readWhere);
-  const readRows = await tx
-    .select({ agentId: agentVersion.agentId, n: distinctDocs })
-    .from(docExtraction)
-    .innerJoin(agentVersion, readJoin)
-    .where(readWhere)
-    .groupBy(agentVersion.agentId);
+  // QA round 1: read = extracted (attributed to a service through the agent version that read
+  // it), or worked on by a live run started in the period (the document that started it, e.g. an
+  // invoice read on upload that the Bill clerk then matched). One definition for the total and
+  // each service, so a service's count is never above the total.
+  const readSql = sql`
+    select av.agent_id, de.document_id::text as document_id
+      from doc_extraction de
+      left join agent_version av on av.id = de.agent_version_id and av.tenant_id = de.tenant_id
+     where de.tenant_id = ${t} and de.created_at >= ${lo} and de.created_at < ${hi}
+    union
+    select r.agent_id, r.trigger->'payload'->>'documentId'
+      from run r
+     where r.tenant_id = ${t} and r.mode = 'live' and r.created_at >= ${lo} and r.created_at < ${hi}
+       and jsonb_typeof(r.trigger->'payload'->'documentId') = 'string'
+       and exists (select 1 from document d
+                    where d.tenant_id = r.tenant_id
+                      and d.id::text = r.trigger->'payload'->>'documentId')`;
+  const readList = [
+    ...(await tx.execute<{ agentId: string | null; documentId: string }>(sql`
+      select read.agent_id as "agentId", read.document_id as "documentId" from (${readSql}) read
+       ${svc ? sql`where read.agent_id = ${svc}` : sql``}`)),
+  ];
+  const readTotal = new Set(readList.map((r) => r.documentId)).size;
+  const readByAgent = new Map<string, Set<string>>();
+  for (const r of readList) {
+    if (!r.agentId) continue;
+    const docs = readByAgent.get(r.agentId) ?? new Set<string>();
+    docs.add(r.documentId);
+    readByAgent.set(r.agentId, docs);
+  }
 
   const actionRows = await tx
     .select({
@@ -519,18 +499,15 @@ async function activity(
     .where(eq(tenantPack.tenantId, t))
     .orderBy(tenantPack.pack);
 
-  const runs = noRuns();
+  const runs = counts.all;
   const perService = new Map<string, { runs: Runs; documentsRead: number; actions: number }>();
   const entry = (id: string) => {
     const e = perService.get(id) ?? { runs: noRuns(), documentsRead: 0, actions: 0 };
     perService.set(id, e);
     return e;
   };
-  for (const r of runRows) {
-    countRun(runs, r.status, Number(r.n));
-    countRun(entry(r.agentId).runs, r.status, Number(r.n));
-  }
-  for (const r of readRows) entry(r.agentId).documentsRead = Number(r.n);
+  for (const [agentId, r] of counts.byAgent) entry(agentId).runs = r;
+  for (const [agentId, docs] of readByAgent) entry(agentId).documentsRead = docs.size;
   const byConnector = new Map<string, number>();
   let actions = 0;
   for (const r of actionRows) {
@@ -553,7 +530,7 @@ async function activity(
     to: input.to,
     timezone: input.timezone,
     runs,
-    documents: { received: Number(received?.n ?? "0"), read: Number(readTotal?.n ?? "0") },
+    documents: { received: Number(received?.n ?? "0"), read: readTotal },
     actions: {
       total: actions,
       byConnector: [...byConnector]
