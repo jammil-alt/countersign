@@ -1,12 +1,12 @@
 // O2 Agent lab: templates, drafts and client-only agents; the chosen template's lineage (merges
 // to review, changes to promote), workflow, client view and test bench; assigning it to a client.
-import { render, screen, within } from "@testing-library/react";
+import { act, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "../../api/useApi";
 import { AGENT_DETAIL, AGENT_SUMMARY, fakeApi, versionId } from "../../test/fixtures";
-import { LabScreen } from "./LabScreen";
+import { LabScreen, useSlow } from "./LabScreen";
 
 const TEMPLATE_ID = "00000000-0000-4000-8000-00000000f001";
 const DRAFT_ID = "00000000-0000-4000-8000-00000000f002";
@@ -162,6 +162,25 @@ function setup(path = "/ops/lab") {
   return { api, forks, user: userEvent.setup() };
 }
 
+describe("useSlow", () => {
+  // "Where it runs" never finished on staging: a panel still loading after 8 s says so, with Retry.
+  it("turns true once loading lasts 8 s, and false when it stops", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, rerender } = renderHook(({ loading }) => useSlow(loading), {
+        initialProps: { loading: true },
+      });
+      expect(result.current).toBe(false);
+      act(() => vi.advanceTimersByTime(8_000));
+      expect(result.current).toBe(true);
+      rerender({ loading: false });
+      expect(result.current).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("LabScreen", () => {
   it("lists the templates and shows the first one's lineage, workflow, client view and tests", async () => {
     setup();
@@ -179,7 +198,7 @@ describe("LabScreen", () => {
     expect(within(detail).getByTestId("lab-edit")).toHaveTextContent("Edit draft v2");
 
     const row = await screen.findByTestId(`lab-used-by-${FORK_ID}`);
-    expect(row).toHaveTextContent("Ionic Order · Purchasing");
+    expect(row).toHaveTextContent("Ionic Order's copy · Purchasing");
     expect(row).toHaveTextContent("2 client changes");
     expect(row).toHaveTextContent("1 behind");
     expect(within(row).getByTestId(`lab-used-by-${FORK_ID}-merge`)).toHaveAttribute(

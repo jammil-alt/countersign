@@ -61,7 +61,10 @@ function skillConnectors(def: SkillDefinition, platform: Platform): string[] {
   return [...out].sort();
 }
 
-/** What each agent in scope uses: its live, else latest, version's skill references. */
+/**
+ * What each agent in scope uses: its live, else latest, version's skill references. Test copies
+ * and discarded drafts use nothing.
+ */
 async function agentUses(ctx: Scope) {
   const agents = await ctx.tx
     .select()
@@ -69,6 +72,7 @@ async function agentUses(ctx: Scope) {
     .where(
       and(
         eq(agent.testCopy, false),
+        eq(agent.status, "active"),
         ctx.tenantIds.length > 0
           ? or(isNull(agent.tenantId), inArray(agent.tenantId, [...ctx.tenantIds]))
           : isNull(agent.tenantId),
@@ -118,6 +122,19 @@ async function clientNames(ctx: Scope): Promise<Map<string, string>> {
 type Uses = Awaited<ReturnType<typeof agentUses>>;
 
 /**
+ * The library's count: the client agents among a skill's uses, each once, with their names. A
+ * template is where a skill is written into, not a use of it.
+ */
+export function clientUses(uses: readonly SkillUse[]): { usedBy: number; usedByNames: string[] } {
+  const seen = new Map<string, string>();
+  for (const u of uses) {
+    if (u.kind !== "client" || seen.has(u.agentId)) continue;
+    seen.set(u.agentId, u.clientName ? `${u.name} · ${u.clientName}` : u.name);
+  }
+  return { usedBy: seen.size, usedByNames: [...seen.values()] };
+}
+
+/**
  * The agents a skill is used by. A built-in by its id; a shared skill by `custom:<slug>`
  * everywhere except in clients that have their own skill of that slug (it shadows the shared
  * one); a client's skill only by that client's agents.
@@ -161,7 +178,7 @@ function listItem(
     status: string;
     live: SkillVersionRow | null;
     latest: SkillVersionRow | null;
-    usedBy: number;
+    uses: readonly SkillUse[];
   },
   platform: Platform,
 ): SkillListItem {
@@ -183,7 +200,7 @@ function listItem(
     outputs: schemaFields(def.output),
     tools: skillTools(def),
     connectors: skillConnectors(def, platform),
-    usedBy: input.usedBy,
+    ...clientUses(input.uses),
   };
 }
 
@@ -252,7 +269,7 @@ async function itemFor(ctx: Scope & { platform: Platform }, row: SkillRow) {
         status: row.status,
         live: entry.live,
         latest: entry.latest,
-        usedBy: usedBy.length,
+        uses: usedBy,
       },
       ctx.platform,
     ),
@@ -294,7 +311,7 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
             status: "active",
             live: null,
             latest: null,
-            usedBy: usesOf({ ref: def.id, tenantId: null, builtin: true }, uses, new Set()).length,
+            uses: usesOf({ ref: def.id, tenantId: null, builtin: true }, uses, new Set()),
           },
           platform,
         ),
@@ -314,11 +331,11 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
             status: e.row.status,
             live: e.live,
             latest: e.latest,
-            usedBy: usesOf(
+            uses: usesOf(
               { ref: shown.definition.id, tenantId: e.row.tenantId, builtin: false },
               uses,
               shadowed.get(e.row.slug) ?? new Set(),
-            ).length,
+            ),
           },
           platform,
         ),

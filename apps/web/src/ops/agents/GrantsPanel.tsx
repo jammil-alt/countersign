@@ -3,21 +3,33 @@
 // limits here only narrow it: a ceiling per verb, up to the connection's matrix, and optionally a
 // subset of the connector's tools. We may loosen what we set; the client admin can only tighten or
 // revoke from the portal. Secrets are never shown here, only whether one is stored.
+// The owner's review: each connection shows its main row (read, create, update, delete) at once,
+// in the approval words, and its limits and per-tool choices open on demand, so nothing scrolls
+// sideways.
 import type { GrantLimits, PermissionLevel, ReleaseWindow } from "@countersign/core";
 import { useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { isLooser, LEVELS, levelTone, VERBS } from "../../connections/matrix";
+import { Icon } from "../../ui/icons";
 import { Badge, Button, Card, ErrorNotice, Loading, SectionLabel } from "../../ui/primitives";
-import { errorText, Notice, Select, useAction } from "./ui";
+import { errorText, Notice, plural, Select, useAction } from "./ui";
 
 type Grant = ResponseOf<typeof apiRoutes.opsAgentGrants>["grants"][number];
 
-const LEVEL_TEXT: Record<PermissionLevel, string> = {
-  auto: "Auto",
-  approval: "Approval",
+// The one approval vocabulary on both sides (the owner's decision 2).
+export const LEVEL_TEXT: Record<PermissionLevel, string> = {
+  auto: "On its own",
+  approval: "Needs approval",
   off: "Off",
+};
+
+const VERB_TEXT: Record<(typeof VERBS)[number], string> = {
+  read: "Read",
+  create: "Create",
+  update: "Update",
+  delete: "Delete",
 };
 
 const KIND_TEXT: Record<Grant["kind"], string> = {
@@ -38,11 +50,10 @@ export function GrantsPanel({
   const grants = useApi(apiRoutes.opsAgentGrants, { params: { id: agentId } });
   return (
     <Card className="p-5" testId="agent-grants">
-      <SectionLabel>Access</SectionLabel>
+      <SectionLabel>What it may do</SectionLabel>
       <p className="mb-4 text-sm text-ink-muted">
-        What this agent may do in each connection it is bound to. Limits only narrow the
-        connection's permissions. The client sees this on its Access page and can tighten or revoke
-        it; only we loosen. Every change is logged.
+        In each connection it is bound to. Limits only narrow the connection's own permissions; the
+        client can tighten or revoke them, only we loosen.
       </p>
       {grants.error ? <ErrorNotice error={grants.error} onRetry={grants.reload} /> : null}
       {grants.loading && !grants.data ? <Loading /> : null}
@@ -82,6 +93,7 @@ function GrantRow({
   const [limitTools, setLimitTools] = useState(access.tools !== null);
   const [tools, setTools] = useState<string[]>(access.tools ?? grant.tools.map((t) => t.id));
   const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
   const action = useAction();
 
   const limits: GrantLimits = {
@@ -109,12 +121,7 @@ function GrantRow({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="font-medium text-ink">
-            {grant.connectorName}
-            {grant.externalAccountId ? (
-              <span className="text-ink-muted"> · {grant.externalAccountId}</span>
-            ) : null}
-          </p>
+          <p className="font-medium text-ink">{grant.connectorName}</p>
           <p className="text-sm text-ink-muted">
             {KIND_TEXT[grant.kind]} · {grant.status}
           </p>
@@ -129,75 +136,125 @@ function GrantRow({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {VERBS.map((v) => {
-          const ceiling = grant.matrix[v];
-          // Up to the connection's matrix; "" = no limit (the matrix decides).
-          const options = LEVELS.filter((l) => !isLooser(l, ceiling) || l === verbs[v]);
-          return (
-            <div key={v} className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-ink">
-                {v} <span className="text-ink-muted">· matrix {LEVEL_TEXT[ceiling]}</span>
-              </span>
-              <Select
-                data-testid={`agent-grant-${grant.connector}-${v}`}
-                value={verbs[v] ?? ""}
-                onChange={(e) =>
-                  setVerbs((s) => {
-                    const next = { ...s };
-                    if (e.target.value) next[v] = e.target.value as PermissionLevel;
-                    else delete next[v];
-                    return next;
-                  })
-                }
-              >
-                <option value="">As the connection allows</option>
-                {options.map((l) => (
-                  <option key={l} value={l}>
-                    {LEVEL_TEXT[l]}
-                  </option>
-                ))}
-              </Select>
-              <Badge tone={levelTone(access.effective[v])}>
-                Now: {LEVEL_TEXT[access.effective[v]]}
-              </Badge>
-            </div>
-          );
-        })}
-      </div>
+      {/* The main row: what it may do now, per verb. */}
+      <dl
+        className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4"
+        data-testid={`agent-grant-${grant.connector}-summary`}
+      >
+        {VERBS.map((v) => (
+          <div key={v} className="flex flex-col gap-1">
+            <dt className="text-sm text-ink-muted">{VERB_TEXT[v]}</dt>
+            <dd>
+              <Badge tone={levelTone(access.effective[v])}>{LEVEL_TEXT[access.effective[v]]}</Badge>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {access.tools !== null ? (
+        <p className="mt-2 text-sm text-ink-muted">
+          Only {access.tools.length} of its {plural(grant.tools.length, "tool")}.
+        </p>
+      ) : null}
 
-      {grant.tools.length > 0 ? (
-        <div className="mt-3">
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              className="size-4 accent-slate"
-              data-testid={`agent-grant-${grant.connector}-limit-tools`}
-              checked={limitTools}
-              onChange={(e) => setLimitTools(e.target.checked)}
-            />
-            Only some of its tools
-          </label>
-          {limitTools ? (
-            <div className="mt-2 flex flex-col gap-1.5 pl-6">
-              {grant.tools.map((t) => (
-                <label key={t.id} className="flex items-center gap-2 text-sm text-ink">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-slate"
-                    data-testid={`agent-grant-tool-${t.id}`}
-                    checked={tools.includes(t.id)}
+      <button
+        type="button"
+        className="ds-btn ds-btn--link mt-2 inline-flex items-center gap-1 text-sm"
+        aria-expanded={editing}
+        data-testid={`agent-grant-${grant.connector}-edit`}
+        onClick={() => setEditing((x) => !x)}
+      >
+        {editing ? "Hide limits" : "Change limits"}
+        <Icon name={editing ? "chevron-down" : "chevron-right"} size={16} />
+      </button>
+
+      {editing ? (
+        <div className="mt-3 flex flex-col gap-3 rounded-md bg-surface-subtle p-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {VERBS.map((v) => {
+              const ceiling = grant.matrix[v];
+              // Up to the connection's matrix; "" = no limit (the matrix decides).
+              const options = LEVELS.filter((l) => !isLooser(l, ceiling) || l === verbs[v]);
+              return (
+                <div key={v} className="flex min-w-0 flex-col gap-1">
+                  <span className="text-sm font-medium text-ink">
+                    {VERB_TEXT[v]}{" "}
+                    <span className="font-normal text-ink-muted">
+                      · connection: {LEVEL_TEXT[ceiling].toLowerCase()}
+                    </span>
+                  </span>
+                  <Select
+                    aria-label={VERB_TEXT[v]}
+                    data-testid={`agent-grant-${grant.connector}-${v}`}
+                    value={verbs[v] ?? ""}
                     onChange={(e) =>
-                      setTools((ts) =>
-                        e.target.checked ? [...ts, t.id] : ts.filter((id) => id !== t.id),
-                      )
+                      setVerbs((s) => {
+                        const next = { ...s };
+                        if (e.target.value) next[v] = e.target.value as PermissionLevel;
+                        else delete next[v];
+                        return next;
+                      })
                     }
-                  />
-                  {t.description} <span className="text-ink-muted">({t.verb})</span>
-                </label>
-              ))}
+                  >
+                    <option value="">As the connection allows</option>
+                    {options.map((l) => (
+                      <option key={l} value={l}>
+                        {LEVEL_TEXT[l]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              );
+            })}
+          </div>
+
+          {grant.tools.length > 0 ? (
+            <div>
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-slate"
+                  data-testid={`agent-grant-${grant.connector}-limit-tools`}
+                  checked={limitTools}
+                  onChange={(e) => setLimitTools(e.target.checked)}
+                />
+                Only some of its tools
+              </label>
+              {limitTools ? (
+                <div className="mt-2 flex flex-col gap-1.5 pl-6">
+                  {grant.tools.map((t) => (
+                    <label key={t.id} className="flex items-start gap-2 text-sm text-ink">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-4 shrink-0 accent-slate"
+                        data-testid={`agent-grant-tool-${t.id}`}
+                        checked={tools.includes(t.id)}
+                        onChange={(e) =>
+                          setTools((ts) =>
+                            e.target.checked ? [...ts, t.id] : ts.filter((id) => id !== t.id),
+                          )
+                        }
+                      />
+                      <span>
+                        {t.description}{" "}
+                        <span className="text-ink-muted">({VERB_TEXT[t.verb].toLowerCase()})</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
+
+          <div className="flex justify-end">
+            <Button
+              data-testid={`agent-grant-${grant.connector}-save`}
+              variant="primary"
+              disabled={!dirty || action.busy}
+              onClick={() => void save(limits)}
+            >
+              {action.busy ? "Saving…" : "Save limits"}
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -217,16 +274,6 @@ function GrantRow({
           </Notice>
         </div>
       ) : null}
-      <div className="mt-3 flex justify-end gap-2">
-        <Button
-          data-testid={`agent-grant-${grant.connector}-save`}
-          variant="primary"
-          disabled={!dirty || action.busy}
-          onClick={() => void save(limits)}
-        >
-          {action.busy ? "Saving…" : "Save access"}
-        </Button>
-      </div>
     </div>
   );
 }

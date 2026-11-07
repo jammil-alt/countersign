@@ -19,11 +19,12 @@ import {
   ErrorNotice,
   Loading,
   PageHeader,
+  SectionLabel,
   Tabs,
   Tag,
 } from "../../ui/primitives";
 import { agentPath } from "../agents/BuilderParts";
-import { errorText, Field, Notice, Select, TextInput, useAction } from "../agents/ui";
+import { errorText, Field, Notice, plural, Select, TextInput, useAction } from "../agents/ui";
 import { parseBundle } from "../versions";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
@@ -230,7 +231,8 @@ function SkillPageBody({
             {
               to: `${base}?tab=used-by`,
               label: "Used by",
-              count: usedBy.length,
+              // Client agents only, as the library counts them (templates are listed apart).
+              count: usedBy.filter((u) => u.kind === "client").length,
               active: tab === "used-by",
             },
           ]}
@@ -285,24 +287,39 @@ function SkillPageBody({
               {usedBy.length === 0 ? (
                 <p className="text-sm text-ink-muted">No agent uses it yet.</p>
               ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {usedBy.map((u) => (
-                    <li key={u.agentId} className="text-sm">
-                      <Link
-                        className="text-ink hover:underline"
-                        to={agentPath({ ...u, tenantId: u.clientId })}
-                      >
-                        {u.name}
-                      </Link>{" "}
-                      <span className="text-ink-muted">
-                        {u.kind === "template" ? "template" : u.clientName} · v{u.version}
-                        {u.ref.includes("@")
-                          ? ` · pinned ${u.ref.slice(u.ref.indexOf("@") + 1)}`
-                          : ""}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="flex flex-col gap-4">
+                  {(["client", "template"] as const).map((kind) => {
+                    const list = usedBy.filter((u) => u.kind === kind);
+                    if (list.length === 0) return null;
+                    return (
+                      <div key={kind} data-testid={`skill-used-by-${kind}`}>
+                        <SectionLabel>
+                          {kind === "client"
+                            ? plural(list.length, "client agent")
+                            : `${plural(list.length, "template")} · not counted as uses`}
+                        </SectionLabel>
+                        <ul className="flex flex-col gap-1.5">
+                          {list.map((u) => (
+                            <li key={u.agentId} className="text-sm">
+                              <Link
+                                className="text-ink hover:underline"
+                                to={agentPath({ ...u, tenantId: u.clientId })}
+                              >
+                                {u.name}
+                              </Link>{" "}
+                              <span className="text-ink-muted">
+                                {u.kind === "template" ? "template" : u.clientName} · v{u.version}
+                                {u.ref.includes("@")
+                                  ? ` · pinned ${u.ref.slice(u.ref.indexOf("@") + 1)}`
+                                  : ""}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </Card>
             <AssignCard skill={skill} onAssigned={onChanged} />

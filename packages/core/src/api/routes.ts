@@ -711,8 +711,13 @@ export const SkillListItem = z.object({
   outputs: z.array(z.string()),
   tools: z.array(z.string()),
   connectors: z.array(z.string()),
-  /** Agents (templates and client agents) whose live, else latest, version uses it. */
+  /**
+   * Client agents whose live, else latest, version uses it: a template and its test copies are
+   * not uses (the owner's review: "used by 2 agents" when one exists).
+   */
   usedBy: z.number().int(),
+  /** Those client agents, "Bill clerk · Demo client", for the library's hover and list. */
+  usedByNames: z.array(z.string()).optional(),
 });
 export type SkillListItem = z.infer<typeof SkillListItem>;
 

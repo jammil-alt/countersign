@@ -322,7 +322,7 @@ describe("VersionsTab", () => {
       within(row)
         .getAllByRole("cell")
         .map((c) => c.textContent),
-    ).toEqual(["CostsMillwork · active", "v1", "1 behind", "4", "2 conflicts"]);
+    ).toEqual(["CostsMillwork · running", "v1", "1 behind", "4", "2 conflicts"]);
     expect(screen.getByTestId("template-used-by")).toHaveTextContent("Used by · 1 client agent");
     expect(screen.queryByTestId("agent-customizations")).not.toBeInTheDocument();
   });

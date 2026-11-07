@@ -422,10 +422,8 @@ function SkillsCard({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-medium text-ink">
-                    {option?.name ?? entry.skill}
-                    <span className="ml-2 reference text-ink-muted">{entry.skill}</span>
-                  </p>
+                  {/* By its name; the reference only when there is no skill to name it. */}
+                  <p className="font-medium text-ink">{option?.name ?? entry.skill}</p>
                   {option ? (
                     <p className="text-sm text-ink-muted">{option.description}</p>
                   ) : (
