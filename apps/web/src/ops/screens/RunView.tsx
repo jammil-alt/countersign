@@ -33,6 +33,7 @@ import {
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
+import { usePageClient } from "../pickedClient";
 import { checklistRows, type RunStepRow } from "../run/checklist";
 import { ModelCalls, RunControls } from "../run/RunControls";
 import {
@@ -70,6 +71,8 @@ export function OpsRunScreen() {
   const session = useSession();
   const state = useApi(apiRoutes.opsRun, { params: { id } });
   const { data, loading, reload } = state;
+  // The top bar's client picker shows the run's client.
+  usePageClient(data?.run.tenantId);
   const going = data ? isRunGoing(data.run.status) : false;
   usePoll(reload, going, 2_000, loading);
   const calls = useApi(apiRoutes.opsRunModelCalls, { params: { id } });

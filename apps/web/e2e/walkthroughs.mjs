@@ -276,10 +276,12 @@ async function opsWalk(w) {
     }),
   );
 
+  // The sidebar's Clients is one link; each client opens from the list (or the top bar's picker).
+  await w.step("Clients", () => w.follow("/ops/clients"));
   const clientPage = (p) => /^\/ops\/clients\/[0-9a-f-]{36}$/.test(p);
   let client = null;
   await w.step("A client", async () => {
-    client = await w.follow(clientPage);
+    client = await w.follow(clientPage, { scope: "main" });
   });
   if (client) {
     const tabs = await w.links((p) => p.startsWith(`${client}/`) && !p.includes("/agents/"));

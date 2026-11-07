@@ -75,6 +75,7 @@ const clientRow = (id: string, name: string) => ({
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("back office layout", () => {
@@ -117,41 +118,67 @@ describe("back office layout", () => {
       "Demo client",
     ]);
 
+    // Places only: Home, Escalations, Runs, Clients, Build, Business, and More folded.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     expect(within(nav).getByTestId("ops-nav-home")).toHaveAttribute("href", "/ops");
-    for (const label of [
-      "Command center",
+    expect(within(nav).getByTestId("ops-nav-home")).toHaveTextContent("Home");
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((l) => l.textContent?.replace(/\d+$/, "")),
+    ).toEqual([
+      "Home",
       "Escalations",
       "Runs",
+      "Clients",
       "Agent lab",
-      "Skills and automations",
+      "Skills",
       "Connectors",
       "Usage and billing",
+      // Under More.
       "Feedback",
-      // Kept reachable under More.
-      "Requests",
-      "Billing",
-      "Website logins",
       "Audit log",
-    ]) {
-      expect(within(nav).getByText(label)).toBeInTheDocument();
-    }
-    // Each client with what needs us; the selected one is the current page.
-    expect(within(nav).getByTestId(`ops-nav-client-${DEMO}`)).toHaveTextContent("Demo client2");
-    expect(within(nav).getByTestId(`ops-nav-client-${SANDBOX}`)).toHaveTextContent("Sandbox0");
-    expect(within(nav).getByTestId(`ops-nav-client-${SANDBOX}`)).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(within(nav).getByTestId("ops-nav-clients")).toHaveTextContent("All 2 clients");
-    // The selected client's own pages and agents.
-    expect(within(nav).getByTestId("ops-nav-connections")).toHaveAttribute(
-      "href",
-      `/ops/clients/${SANDBOX}/connections`,
-    );
-    const agent = await within(nav).findByTestId("ops-nav-agent-material-costs");
-    expect(agent).toHaveAttribute("href", `/ops/clients/${SANDBOX}/agents/material-costs`);
-    expect(within(agent).getByText("Purchasing")).toBeInTheDocument();
+      "Requests",
+      "Website logins",
+    ]);
+    // Billing is under Usage and billing, not More.
+    expect(within(nav).queryByText("Billing")).toBeNull();
+    // Clients is one link, current on a client's page; no client or agent rows.
+    expect(within(nav).getByTestId("ops-nav-clients")).toHaveAttribute("href", "/ops/clients");
+    expect(within(nav).getByTestId("ops-nav-clients")).toHaveAttribute("aria-current", "page");
+    expect(within(nav).queryByTestId(`ops-nav-client-${SANDBOX}`)).toBeNull();
+    expect(within(nav).queryByTestId("ops-nav-connections")).toBeNull();
+    expect(within(nav).queryByTestId("ops-nav-agent-material-costs")).toBeNull();
+  });
+
+  it("keeps the picked client on a page of its own, and on pages with no client", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/clients": () => ({
+        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client")],
+      }),
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        ...SANDBOX_DETAIL,
+        client: { ...SANDBOX_DETAIL.client, id: DEMO, name: "Demo client" },
+        agents: [],
+      }),
+    });
+    const { unmount } = renderAt("/ops/lab", api);
+    const switcher = (await screen.findByTestId("ops-client-switcher")) as HTMLSelectElement;
+    await waitFor(() => expect(switcher.options.length).toBe(3));
+    expect(switcher.value).toBe("");
+    await userEvent.selectOptions(switcher, DEMO);
+    await screen.findByRole("heading", { level: 1, name: "Demo client" });
+    unmount();
+
+    // A page with no client of its own (Agent lab) shows the last pick, in this tab's session.
+    renderAt("/ops/lab", api);
+    const again = (await screen.findByTestId("ops-client-switcher")) as HTMLSelectElement;
+    await waitFor(() => expect(again.value).toBe(DEMO));
+    // "All clients" forgets it.
+    await userEvent.selectOptions(again, "");
+    await waitFor(() => expect(again.value).toBe(""));
+    expect(sessionStorage.getItem("mezonas.ops.client")).toBeNull();
   });
 
   it("opens a client from the switcher", async () => {
@@ -169,7 +196,8 @@ describe("back office layout", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "Demo client" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("No agents yet.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^No agents yet\./).length).toBeGreaterThan(0);
+    expect(switcher).toHaveValue(DEMO);
   });
 
   it("switches between a client's agents from an agent's page", async () => {
