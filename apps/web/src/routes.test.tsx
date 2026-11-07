@@ -77,7 +77,6 @@ describe("the portal's routes", () => {
       "/settings/conversations",
       "/settings/voice",
       "/runs",
-      "/weekly",
       "/sloan",
       "/upload",
     ]) {
@@ -109,6 +108,9 @@ describe("the portal's routes", () => {
     ["/people/voice", "/settings/voice"],
     ["/conversations", "/settings/conversations"],
     ["/billing", "/settings/billing"],
+    // Asking us for a change is a mode of Sloan.
+    ["/requests", "/sloan?mode=change"],
+    ["/requests?status=open", "/sloan?mode=change&status=open"],
   ])("%s redirects to %s", async (from, to) => {
     renderAt(from, false);
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(to));

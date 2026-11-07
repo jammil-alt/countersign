@@ -300,7 +300,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
         .where(eq(connection.id, H.C.connectionId));
       await pass(C, at(3, "10:00"));
       expect(emailsTo(admin("c")).map((e) => e.subject)).toEqual([
-        "A connection needs you to sign in again",
+        "An account needs you to sign in again",
       ]);
       expect(emailsTo(admin("c"))[0]?.text).toContain(`${ORIGIN}/connections`);
       await pass(C, at(3, "10:05"));
@@ -424,7 +424,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       // The same pass also tells them an item waits; rows of one pass share their time, so the
       // two emails may go in either order. The sign-off email goes exactly once.
       const told = emailsTo(admin("b")).filter(
-        (e) => e.subject === "An agent waits for your sign-off to go live",
+        (e) => e.subject === "An agent waits for your approval to go live",
       );
       expect(told).toHaveLength(1);
       expect(told[0]?.text).toContain(`${ORIGIN}/inbox`);
@@ -701,8 +701,8 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       const text = pdfText(bytes);
       expect(text).toContain("Weekly summary");
       expect(text).toContain("Runs done: 2 (+1 on last week)");
-      expect(text).toContain("Changes to your tools: 2 (1 automatic, 1 signed)");
-      expect(text).toContain("Signatures given: 1");
+      expect(text).toContain("Changes to your tools: 2 (1 automatic, 1 approved)");
+      expect(text).toContain("Approvals given: 1");
       expect(text).toContain("Documents read: 1");
       expect(text).toContain(NOTE);
       expect(text).toContain("Switch supplier now?");
@@ -747,6 +747,25 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
         agentId,
         assigneeRole: "client_admin",
       });
+      // QA round 1: a change waiting on the client never reads as the tool's description, which is
+      // written for the agent (items proposed before the tool's display still carry it). This
+      // harness registers no QuickBooks tool, so it reads as its step's client-facing words
+      // (change-display.test.ts covers a tool's line for people).
+      const DEV_SPEAK =
+        "Itemize a QuickBooks bill: replace lines (usually its one account line) with the invoice's item lines. (qbo.bill.update_lines)";
+      const [change] = await H.t.db
+        .insert(inboxItem)
+        .values({
+          tenantId: B(),
+          kind: "external_action",
+          title: DEV_SPEAK,
+          payload: { tool: "qbo.bill.update_lines", stepId: "confirm" },
+          runId: waiting,
+          agentId,
+          assigneeRole: "client_admin",
+          dueAt: new Date(Date.now() + 3_600_000),
+        })
+        .returning();
       const res = await H.call(admin("b"), "GET", "/api/table");
       expect(res.status, JSON.stringify(res.json)).toBe(200);
       const table = j(res.json);
@@ -763,6 +782,15 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
         },
       });
       expect(table.desk.top.length).toBeLessThanOrEqual(3);
+      const titleOf = (list: { id: string; title: string }[], id?: string) =>
+        list.find((i) => i.id === id)?.title;
+      expect(titleOf(table.desk.top, change?.id)).toBe("Confirm");
+      expect(JSON.stringify(table)).not.toContain("usually its one account line");
+      // The Desk reads the same words.
+      const desk = j((await H.call(admin("b"), "GET", "/api/inbox")).json);
+      expect(titleOf(desk.items, change?.id)).toBe("Confirm");
+      // No description of its own: the template's role line, never a placeholder.
+      expect(clerk.description).toBe("keeps records");
       expect(table.desk.open).toBeGreaterThan(0);
       expect(table.lead).toMatchObject({ id: H.operator, name: "Operator" });
       expect(table.lead.message.text).toContain("price went up");

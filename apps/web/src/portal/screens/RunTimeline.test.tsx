@@ -212,8 +212,8 @@ describe("portal run timeline", () => {
     expect(audit).toHaveTextContent("Demo admin approved");
     const waiting = await screen.findByTestId("portal-run-waiting");
     expect(waiting).toHaveTextContent("Changes waiting for your approval");
-    expect(within(waiting).getByTestId("change-now")).toHaveTextContent("Oak board");
-    expect(within(waiting).getByTestId("change-after")).toHaveTextContent("Oak board, 3/4 in");
+    expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board");
+    expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board, 3/4 in");
     // At the top: what waits on the reader, and the way to the item in the Inbox.
     const approve = screen.getByTestId("portal-run-approve");
     expect(approve).toHaveTextContent("Waiting on you since");

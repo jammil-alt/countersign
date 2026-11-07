@@ -38,7 +38,13 @@ describe("portal settings", () => {
         client: { id: DEMO, name: "Demo client", timezone: "UTC" },
         approvals: "operator",
         notifications: { itemsWaiting: true, weeklyDigest: true },
-        emailsOn: false,
+        emailsOn: true,
+      }),
+      "GET /api/settings/my-notifications": () => ({
+        email: true,
+        sms: false,
+        canText: false,
+        emailsOn: true,
       }),
       "PATCH /api/settings/notifications": ({ init }) => {
         const body = JSON.parse(String(init.body));
@@ -89,9 +95,6 @@ describe("portal settings", () => {
     );
 
     const emails = await screen.findByTestId("portal-settings-notifications");
-    expect(within(emails).getByTestId("portal-notifications-off")).toHaveTextContent(
-      "Emails start soon",
-    );
     const save = within(emails).getByTestId("portal-notifications-save");
     expect(save).toBeDisabled();
     await userEvent.click(within(emails).getByTestId("portal-notifications-weeklyDigest"));
@@ -142,6 +145,10 @@ describe("portal settings", () => {
     await userEvent.click(within(mine).getByTestId("portal-mine-email"));
     await waitFor(() => expect(puts).toEqual([{ email: false, sms: false }]));
     expect(screen.getByTestId("portal-settings-language")).toBeInTheDocument();
+    await userEvent.click(within(nav).getByRole("link", { name: "Approvals" }));
+    expect(await screen.findByTestId("portal-settings-approvals-member")).toHaveTextContent(
+      "To change who approves, ask your admin.",
+    );
     expect(api.calls).not.toContain("GET /api/users");
     expect(api.calls).not.toContain("GET /api/settings");
     expect(api.calls).not.toContain("GET /api/billing");
@@ -188,7 +195,9 @@ describe("portal settings", () => {
       "aria-checked",
       "true",
     );
-    expect(out).toHaveTextContent("another 2,500 credits");
+    // The block counts extra credits, past the included ones.
+    expect(out).toHaveTextContent("Credits past the included ones go on your next invoice.");
+    expect(out).toHaveTextContent("another 2,500 extra credits");
     await userEvent.click(within(out).getByTestId("portal-credits-out-pause"));
     expect(puts).toEqual([{ onCreditsOut: "pause" }]);
     await waitFor(() =>

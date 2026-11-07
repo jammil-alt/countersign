@@ -1,8 +1,9 @@
-// `/requests` (ARCHITECTURE §15; UI-3a, drafted in the prototype's style): ask us for a change to
-// one of your agents, or for something new, and follow what happened to each ask. Its own page
-// (docs/ui-plan.md open question 1, the plan's default), linked from Sloan and the Desk. Client
-// users see the requests they raised; the client admin sees everyone's. Open requests wait on us,
-// not on the client, so they show as a plain chip; done is positive, with what changed and our note.
+// Ask for a change (ARCHITECTURE §15; UI-3a, drafted in the prototype's style): ask us for a change
+// to one of your agents, or for something new, and follow what happened to each ask. Since QA round
+// 1 it is a mode of Sloan (`/sloan?mode=change`; `/requests` redirects there), so Sloan is the one
+// place to ask anything. Client users see the requests they raised; the client admin sees
+// everyone's. Open requests wait on us, not on the client, so they show as a plain chip; done is
+// positive, with what changed and our note.
 import {
   type PortalRequest,
   REQUEST_SUBJECT_MAX,
@@ -18,8 +19,8 @@ import { StatusFilter } from "../../inbox/StatusFilter";
 import { useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
-import { Loaded, Page, PageGrid, Section } from "../../ui/page";
-import { Button, Card, EmptyState, PageHeader } from "../../ui/primitives";
+import { Loaded, PageGrid, Section } from "../../ui/page";
+import { Button, Card, EmptyState } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 
 type Filter = "all" | "open" | "resolved";
@@ -35,7 +36,8 @@ export function when(iso: string, { fmt }: Pick<I18n, "fmt"> = EN): string {
   return fmt.date(iso);
 }
 
-export function PortalRequestsScreen() {
+/** Sloan's "Ask for a change": the requests on the left, a new one on the right. */
+export function ChangeRequests() {
   const { t } = useI18n();
   const session = useSession();
   const client = session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0];
@@ -44,8 +46,8 @@ export function PortalRequestsScreen() {
   const state = useApi(apiRoutes.portalRequests, { query: { status: filter } });
 
   return (
-    <Page testId="portal-requests-page">
-      <PageHeader title={t("requests.title")} subtitle={t("requests.subtitle")} />
+    <div data-testid="portal-requests-page" className="flex flex-col gap-6">
+      <p className="text-ink-muted">{t("requests.subtitle")}</p>
       <PageGrid rail={<RaiseRequest onRaised={state.reload} />}>
         <Section
           title={isAdmin ? t("requests.team") : t("requests.yours")}
@@ -80,7 +82,7 @@ export function PortalRequestsScreen() {
           </Loaded>
         </Section>
       </PageGrid>
-    </Page>
+    </div>
   );
 }
 

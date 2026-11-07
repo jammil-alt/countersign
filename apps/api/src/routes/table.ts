@@ -33,7 +33,7 @@ import type { EventRow } from "@countersign/senses";
 import { senseEmitPosted } from "@countersign/threads";
 import { and, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { plainTitle } from "../change-display";
+import { clientTitles } from "../change-display";
 import { type AppEnv, ensureClient, mount, notFound } from "../http";
 // v0.12 W2-G
 import { readerLocale, weekKpis } from "../kpi/view";
@@ -51,7 +51,7 @@ import {
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 import { paperFor, weeklyPdf } from "../weekly/pdf";
-import { serviceName, services, toolChanges } from "../weekly/stats";
+import { clientDescription, serviceName, services, toolChanges } from "../weekly/stats";
 import { editWeek, replyToDecision, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
 import { portalInboxFilter, sourcesOf } from "./portal";
 import { activity, todayIn } from "./usage";
@@ -196,7 +196,7 @@ async function buildTable(
     out.push({
       id: a.id,
       name: serviceName(a),
-      description: a.serviceDescription,
+      description: clientDescription(a),
       status: a.runStatus ?? "draft",
       stage: a.stage,
       now: now_,
@@ -251,6 +251,8 @@ async function buildTable(
     });
   }
 
+  const top = desk.slice(0, 3);
+  const titles = await clientTitles(tx, top, platform, readerLocale(t, viewer.userId));
   return {
     client: { id: t.id, name: t.name, timezone: t.timezone },
     week: { weekStart, from: bounds.from.toISOString(), to: bounds.to.toISOString() },
@@ -270,10 +272,10 @@ async function buildTable(
     recent,
     desk: {
       open: desk.length,
-      top: desk.slice(0, 3).map((i) => ({
+      top: top.map((i) => ({
         id: i.id,
         kind: i.kind,
-        title: plainTitle(i),
+        title: titles.get(i.id) ?? i.title,
         runId: i.runId,
         dueAt: iso(i.dueAt),
         createdAt: i.createdAt.toISOString(),

@@ -1,10 +1,13 @@
 // The frame both surfaces share (docs/design/prototype.html, `.hdr` and `.side`, on the Mezonas
 // AppHeader and Sidebar): a top bar with the logo, a context slot (the client's name in the portal;
-// "Back office" and the client switcher in the back office), the ⌘K search box, the Desk or
-// Escalations with its count, and the avatar menu (theme, language, sign out); a sidebar; the page.
-// At phone width the sidebar folds behind a menu button and the top bar compacts.
+// "Back office" and the client switcher in the back office), the ⌘K search box, the portal's Ask
+// Sloan button, the Inbox or Escalations with its count, and the avatar menu (theme, language,
+// Feedback, sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
+// and the top bar compacts; where a surface keeps its inbox out of the top bar (`inHeader: false`),
+// the menu button carries its count.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
+import { useFeedbackStarter } from "../feedback/Feedback";
 import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { LanguageMenu } from "../i18n/LanguageMenu";
@@ -34,6 +37,11 @@ export interface ShellDesk {
   label: string;
   /** Waiting on you (signal); undefined until it loads. */
   count?: number | undefined;
+  /**
+   * False where the sidebar already links it (the portal, QA round 1: Your Desk appears once); the
+   * count then rides on the phone's menu button.
+   */
+  inHeader?: boolean;
   /** Keep the count's slot while it loads, so nothing shifts when it arrives. */
   reserve?: boolean;
 }
@@ -73,6 +81,8 @@ export function AppShell({
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const { pathname } = useLocation();
+  const deskInHeader = desk.inHeader ?? true;
+  const menuCount = !deskInHeader && desk.count ? desk.count : 0;
   useEffect(() => {
     document.title = tabTitle(place, desk.count);
   }, [place, desk.count]);
@@ -88,13 +98,19 @@ export function AppShell({
         <button
           type="button"
           data-testid="shell-menu"
-          aria-label={t("shell.menu")}
+          aria-label={
+            menuCount ? `${t("shell.menu")} · ${desk.label} (${menuCount})` : t("shell.menu")
+          }
           aria-expanded={menuOpen}
           aria-controls="shell-sidebar"
           onClick={() => setMenuOpen((o) => !o)}
-          className="ds-btn ds-btn--ghost ds-btn--icon ui-topbar__menu"
+          className={cx(
+            "ds-btn ds-btn--ghost ui-topbar__menu",
+            menuCount ? "gap-1.5 px-2" : "ds-btn--icon",
+          )}
         >
           <Icon name="sidebar" size={20} />
+          {menuCount ? <Count n={menuCount} tone="warning" /> : null}
         </button>
         <Link to={home} className="ui-topbar__logo" title={PLATFORM_NAME}>
           <span className="ui-topbar__lockup">
@@ -110,20 +126,22 @@ export function AppShell({
           <SearchBox placeholder={search.placeholder} run={search.run} ask={search.ask} />
         </div>
         {topAction}
-        <NavLink
-          to={desk.to}
-          data-testid="shell-inbox"
-          aria-label={desk.count ? `${desk.label} (${desk.count})` : desk.label}
-          className="ui-topbar__desk"
-        >
-          <Icon name="desk" className="ui-topbar__deskicon" />
-          <span className="ui-topbar__desklabel">{desk.label}</span>
-          {desk.count !== undefined ? (
-            <Count n={desk.count} tone="warning" />
-          ) : desk.reserve ? (
-            <CountSlot />
-          ) : null}
-        </NavLink>
+        {deskInHeader ? (
+          <NavLink
+            to={desk.to}
+            data-testid="shell-inbox"
+            aria-label={desk.count ? `${desk.label} (${desk.count})` : desk.label}
+            className="ui-topbar__desk"
+          >
+            <Icon name="desk" className="ui-topbar__deskicon" />
+            <span className="ui-topbar__desklabel">{desk.label}</span>
+            {desk.count !== undefined ? (
+              <Count n={desk.count} tone="warning" />
+            ) : desk.reserve ? (
+              <CountSlot />
+            ) : null}
+          </NavLink>
+        ) : null}
         <UserMenu surface={surface} extra={menu} />
       </header>
       <div className="ui-shell__body">
@@ -164,6 +182,7 @@ function UserMenu({ surface, extra }: { surface: "ops" | "portal"; extra?: React
   const session = useSession();
   const { signOut } = useSessionState();
   const [theme, setTheme] = useTheme();
+  const startFeedback = useFeedbackStarter();
   // The operator is Mezonas staff, a person on the client's account: copper, like the lead. A
   // client user is the signed-in self: ink.
   const operator = session.operator;
@@ -235,6 +254,20 @@ function UserMenu({ surface, extra }: { surface: "ops" | "portal"; extra?: React
           </div>
           {/* The back office stays in English (plan §1.18): only the portal offers languages. */}
           {surface === "portal" ? <LanguageMenu /> : null}
+          {startFeedback ? (
+            <button
+              type="button"
+              data-testid="feedback-button"
+              onClick={() => {
+                setOpen(false);
+                startFeedback();
+              }}
+              className="ds-btn ds-btn--link mt-3 flex items-center gap-1.5"
+            >
+              <Icon name="message" size={16} />
+              {t("feedback.button")}
+            </button>
+          ) : null}
           <button
             type="button"
             data-testid="shell-sign-out"

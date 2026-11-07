@@ -1,22 +1,34 @@
-// Who signs what, under the Desk's list (`GET /api/team`): each person, whether they sign, and what
-// the approver rules send them, in the API's words; and the undo window, which the client admin
-// sets (`PUT /api/desk/settings`, 0 to 300 seconds; 0 switches it off).
+// Who approves what, in Settings, Approvals (`GET /api/team`; on the Desk until QA round 1): each
+// person, whether they approve, and what the approver rules send them, in the API's words; and the
+// undo window, which the client admin sets (`PUT /api/desk/settings`, 0 to 300 seconds; 0 switches
+// it off). Everyone else reads it.
 import { UNDO_SECONDS_MAX } from "@countersign/core";
 import { useState } from "react";
 import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
-import { useApiClient } from "../api/useApi";
+import { useApi, useApiClient } from "../api/useApi";
 import { useI18n } from "../i18n/i18n";
 import { PersonBadge } from "../ui/badges";
 import { Field, Select } from "../ui/forms";
+import { Loaded } from "../ui/page";
 import { Card, ErrorNotice } from "../ui/primitives";
 
 type Team = ResponseOf<typeof apiRoutes.portalTeam>;
 
+/** The card with its own read of the team. */
+export function PortalTeamApprovals({ isAdmin }: { isAdmin: boolean }) {
+  const team = useApi(apiRoutes.portalTeam);
+  return (
+    <Loaded state={team}>
+      {(data) => <TeamApprovals team={data} isAdmin={isAdmin} onSaved={team.reload} />}
+    </Loaded>
+  );
+}
+
 /** The undo windows offered, in seconds (the API takes any whole number up to 300). */
 const WINDOWS = [0, 30, 60, 120, UNDO_SECONDS_MAX] as const;
 
-export function DeskTeam({
+export function TeamApprovals({
   team,
   isAdmin,
   onSaved,

@@ -1,97 +1,124 @@
-// The design's "Changes to your tools" panel body (screen 6), as the SignCard's before and after
-// (mz-sign__change): NOW on the left, AFTER THIS CHANGE on the right, field by field, with the
-// changed values marked. Lists (a bill's lines, a record's files) read as small tables, now above
-// after, with their totals. Generic: every tool renders through its declared display (core
-// ToolDisplay), or the record's own fields when it declares none.
+// The design's "Changes to your tools" panel body (screen 6): what the change does to the record,
+// field by field. Only what changes is set out: the plain fields in one table (field, now, after
+// this change), each list (a bill's lines, a record's files) as its own tables, now above after,
+// with their totals. What stays the same is one line below ("Unchanged: Date Oct 28, 2026 · Total
+// $9,742.35"). Generic: every tool renders through its declared display (core ToolDisplay), or
+// the record's own fields when it declares none. Stacked, so it reads in a narrow pane and on a
+// phone (QA round 1).
 import type { ToolDisplay } from "@countersign/core";
 import type { ReactNode } from "react";
 import type { Formatters } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import { cx } from "../ui/primitives";
-import { type ChangeField, type ChangeValue, changeModel, type ItemView } from "./change";
+import {
+  type ChangeField,
+  type ChangeOptions,
+  type ChangeValue,
+  changeModel,
+  type ItemView,
+} from "./change";
 
 export function ChangeTables({
   before,
   input,
   display,
-  showUnchanged = false,
+  names,
+  showIds,
 }: {
   before: unknown;
   input: unknown;
   /** The tool's display spec, when it declares one. */
   display?: ToolDisplay | null | undefined;
-  /**
-   * Show the fields and lines the change leaves as they are beside the rest. By default only what
-   * differs shows, and the rest folds under "N fields unchanged".
-   */
-  showUnchanged?: boolean;
+  /** Names the server found for ids the before state leaves unnamed (ChangeDisplayView `names`). */
+  names?: ChangeOptions["names"];
+  /** The back office: an id nobody names shows as "#20". A client's card never shows one. */
+  showIds?: boolean;
 }) {
-  const { t, locale } = useI18n();
-  const model = changeModel(display, before, input, locale);
-  // A new record has nothing "now": every field is part of the change.
-  const all = showUnchanged || model.create;
-  const changed = model.fields.filter((f) => all || f.changed);
-  const unchanged = model.fields.filter((f) => !all && !f.changed);
-  // Nothing differs (a write that leaves the record as it is): show it whole, as before.
-  const shown = changed.length > 0 ? changed : model.fields;
-  const folded = changed.length > 0 ? unchanged : [];
+  const { t, fmt, locale } = useI18n();
+  const model = changeModel(display, before, input, locale, {
+    names,
+    ...(showIds ? { showIds } : {}),
+  });
+  // A new record: everything it will have is new. An update: only what it changes.
+  const changed = model.fields.filter((f) => model.create || f.changed);
+  const unchanged = model.create ? [] : model.fields.filter((f) => !f.changed);
+  const scalars = changed.filter((f) => !f.list);
+  const lists = changed.filter((f) => f.list);
   return (
-    <div className="flex flex-col gap-3">
-      <Fields fields={shown} create={model.create} foldLines={!all} />
-      {folded.length > 0 ? (
-        <details data-testid="change-unchanged" className="text-sm">
-          <summary className="cursor-pointer text-ink-muted">
-            {t("change.unchanged", { count: folded.length })}
-          </summary>
-          <div className="mt-3">
-            <Fields fields={folded} create={model.create} foldLines={false} prefix="change-same" />
-          </div>
-        </details>
+    <div className="flex min-w-0 flex-col gap-4" data-testid="change">
+      {model.create ? (
+        <p className="text-sm text-ink-muted" data-testid="change-creates">
+          {t("change.createsIt")}
+        </p>
+      ) : null}
+      {scalars.length > 0 ? (
+        <FieldsTable fields={scalars} create={model.create} />
+      ) : changed.length === 0 ? (
+        <p className="text-sm text-ink-muted" data-testid="change-nothing">
+          {model.fields.length === 0 ? t("change.nothingRecorded") : t("change.noChange")}
+        </p>
+      ) : null}
+      {lists.map((f) => (
+        <ListField key={f.key} field={f} create={model.create} fold={!model.create && f.changed} />
+      ))}
+      {unchanged.length > 0 ? (
+        <p className="text-sm text-ink-muted" data-testid="change-unchanged">
+          <span className="font-medium text-ink">{t("change.unchanged")}</span>{" "}
+          {unchanged.map((f, i) => (
+            <span key={f.key} data-testid={`change-unchanged-${f.key}`}>
+              {i > 0 ? " · " : null}
+              {f.label}
+              {f.list ? null : <span className="text-ink figures"> {valueText(f.now, fmt)}</span>}
+            </span>
+          ))}
+        </p>
       ) : null}
     </div>
   );
 }
 
-/** Fields as the two-sided grid (plain values) and their own tables (lists). */
-function Fields({
-  fields,
-  create,
-  foldLines,
-  prefix = "change",
-}: {
-  fields: ChangeField[];
-  create: boolean;
-  foldLines: boolean;
-  /** Test ids: `change-now-row-<key>`, or `change-same-…` for the folded fields. */
-  prefix?: string;
-}) {
-  const { t } = useI18n();
-  const scalars = fields.filter((f) => !f.list);
-  const lists = fields.filter((f) => f.list);
+/** The plain fields the change sets: field, now, after this change (only after for a new record). */
+function FieldsTable({ fields, create }: { fields: ChangeField[]; create: boolean }) {
+  const { t, fmt } = useI18n();
   return (
-    <div className="flex flex-col gap-3">
-      {scalars.length > 0 || lists.length === 0 ? (
-        <div className="mz-sign__change">
-          <Side
-            testId={`${prefix}-now`}
-            title={t("change.now")}
-            fields={scalars}
-            pick="now"
-            empty={create ? t("change.createsIt") : t("change.nothingRecorded")}
-            hideAll={create}
-          />
-          <Side
-            testId={`${prefix}-after`}
-            title={t("change.after")}
-            fields={scalars}
-            pick="after"
-            empty={t("change.noFields")}
-          />
-        </div>
-      ) : null}
-      {lists.map((f) => (
-        <ListField key={f.key} field={f} create={create} fold={foldLines && f.changed} />
-      ))}
+    <div className="mz-sign__side overflow-x-auto" data-testid="change-fields">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-line">
+            <Th>{t("change.field")}</Th>
+            {create ? null : <Th>{t("change.now")}</Th>}
+            <Th>{create ? t("change.value") : t("change.after")}</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {fields.map((f) => (
+            <tr
+              key={f.key}
+              data-testid={`change-row-${f.key}`}
+              className="border-b border-line last:border-b-0"
+            >
+              <td className="px-1 py-2 align-top text-ink-muted">{f.label}</td>
+              {create ? null : (
+                <td
+                  data-testid={`change-row-${f.key}-now`}
+                  className="px-1 py-2 align-top break-words text-ink-muted figures"
+                >
+                  {valueText(f.now, fmt)}
+                </td>
+              )}
+              <td
+                data-testid={`change-row-${f.key}-after`}
+                data-changed="true"
+                className="px-1 py-2 align-top break-words font-medium text-ink figures"
+              >
+                <span className="rounded-sm bg-slate-tint px-1.5 py-0.5">
+                  {valueText(f.after, fmt)}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -128,69 +155,6 @@ export function valueText(v: ChangeValue, fmt: Formatters): string {
     case "table":
       return "";
   }
-}
-
-function Side({
-  testId,
-  title,
-  fields,
-  pick,
-  empty,
-  hideAll,
-}: {
-  testId: string;
-  title: string;
-  fields: ChangeField[];
-  pick: "now" | "after";
-  empty: string;
-  hideAll?: boolean;
-}) {
-  const { t, fmt } = useI18n();
-  const shown = hideAll ? [] : fields;
-  return (
-    <section data-testid={testId} aria-label={title} className="mz-sign__side">
-      <h4 className="eyebrow mb-1.5 text-ink-muted">{title}</h4>
-      {shown.length === 0 ? (
-        <p className="text-sm text-ink-muted">{empty}</p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-line">
-              <th className="px-1 py-1.5 text-left text-xs font-medium text-ink-muted">
-                {t("change.field")}
-              </th>
-              <th className="px-1 py-1.5 text-right text-xs font-medium text-ink-muted">
-                {t("change.value")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((f) => {
-              const marked = pick === "after" && f.changed;
-              return (
-                <tr
-                  key={f.key}
-                  data-testid={`${testId}-row-${f.key}`}
-                  data-changed={marked ? "true" : undefined}
-                  className="border-b border-line last:border-b-0"
-                >
-                  <td className="px-1 py-2 align-top text-ink">{f.label}</td>
-                  <td
-                    className={cx(
-                      "px-1 py-2 text-right align-top break-words text-ink figures",
-                      marked && "bg-slate-tint px-2 font-medium",
-                    )}
-                  >
-                    {valueText(f[pick], fmt)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </section>
-  );
 }
 
 /**

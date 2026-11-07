@@ -152,6 +152,7 @@ describe("C5 Contacts", () => {
     );
   });
 
+  // QA round 1: two tabs; the admin's four other pages behind one "More".
   it("makes a channel stricter for a person: never looser, the rest kept", async () => {
     const puts: unknown[] = [];
     renderAt(`/contacts?person=${MARCO}`, "client_admin", {

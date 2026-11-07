@@ -90,6 +90,11 @@ export function PortalBillingScreen({ embedded = false }: { embedded?: boolean }
                 allowance={month.creditsIncluded}
                 testId="portal-billing-meter"
               />
+              {/* creditsIncluded is the month so far: each agent's credits × days billed ÷ days
+                  in the month (core buildStatement), so it grows through the month. */}
+              <p className="text-sm text-ink-muted" data-testid="portal-billing-credits-help">
+                {t("settingsPage.creditsIncludedHelp")}
+              </p>
               <StatementLines
                 lines={month.lines}
                 daysInMonth={month.daysInMonth}

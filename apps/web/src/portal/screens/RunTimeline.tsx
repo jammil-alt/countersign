@@ -473,6 +473,7 @@ function WaitingChanges({ items }: { items: InboxItem[] }) {
               before={item.payload.before}
               input={item.payload.input}
               display={item.display?.tool ?? null}
+              names={item.display?.names}
             />
           </div>
         );

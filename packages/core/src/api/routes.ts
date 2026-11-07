@@ -333,6 +333,13 @@ export const OpsToolCall = z.object({
 export const ChangeDisplayView = z.object({
   connectorName: z.string(),
   tool: ToolDisplay.nullable(),
+  /**
+   * Names for ids the change's before state leaves unnamed (`{ accounts: { "20": "Job
+   * Materials" } }`, keyed like the display's `names` lists), found by the server in the
+   * connection's synced records. Absent when there is nothing to add. The before state's own
+   * names come first.
+   */
+  names: z.record(z.string(), z.record(z.string(), z.string())).optional(),
 });
 export type ChangeDisplayView = z.infer<typeof ChangeDisplayView>;
 
@@ -532,7 +539,10 @@ export const PortalConnection = z.object({
       id: z.string(),
       status: z.string(),
       externalAccountId: z.string().nullable(),
-      /** The account's name in the tool (e.g. the QuickBooks company), when the connector gives one. */
+      /**
+       * The account's name in the tool (e.g. the QuickBooks company), or a mail account's address;
+       * null when the tool gives neither (core connectionLabel).
+       */
       accountName: z.string().nullable(),
       lastSyncAt: NullableTimestamp,
       /** The last sync, or for upload and forwarding the last document that came through. */

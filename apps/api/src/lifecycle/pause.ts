@@ -98,7 +98,7 @@ export async function pauseAgent(
     return row;
   }
   if (row.runStatus !== "active") {
-    throw new HttpError(409, "not_running", "only a running service can be paused");
+    throw new HttpError(409, "not_running", "only a running agent can be paused");
   }
   const pause: AgentPause = {
     side: input.side,
@@ -138,7 +138,7 @@ export async function resumeAgent(
   if (row.runStatus !== "paused") return row;
   const pause = readPause(row.pause);
   if (input.side === "client" && !mayResume(pause, "client")) {
-    throw new HttpError(403, "not_your_pause", "we paused this service: ask us to resume it");
+    throw new HttpError(403, "not_your_pause", "we paused this agent: ask us to resume it");
   }
   const [updated] = await tx
     .update(agent)

@@ -120,23 +120,22 @@ export const es: Messages = {
   "nav.contacts": "Contactos",
   // v0.14 capture
   "nav.conversations": "Conversaciones",
-  "nav.billing": "Facturación",
   "nav.people": "Personas",
   "nav.access": "Accesos",
   "nav.directory": "Directorio",
   "nav.records": "Registros",
-  "page.service": "Servicio",
+  "page.service": "Agente",
 
   // ── Overview ──
   "overview.title": "Resumen",
-  "overview.subtitleWithClient": "{client}: sus servicios, lo que hicieron y lo que le espera.",
-  "overview.subtitle": "Sus servicios, lo que hicieron y lo que le espera.",
-  "overview.services": "Sus servicios",
-  "overview.noServices": "Aún no hay agentes. Los configuramos con usted y aparecen aquí.", // fluent review
+  "overview.subtitleWithClient": "{client}: sus agentes, lo que hicieron y lo que le espera.",
+  "overview.subtitle": "Sus agentes, lo que hicieron y lo que le espera.",
+  "overview.services": "Sus agentes",
+  "overview.noServices": "Aún no hay agentes. Los configuramos con usted y aparecen aquí.",
   "overview.openInbox": "Abrir la bandeja",
   "overview.needsYou": "Le necesita",
   "overview.inboxItems": { one: "elemento en su bandeja", other: "elementos en su bandeja" },
-  "overview.changesWait": "Los cambios en sus herramientas esperan su aprobación", // fluent review
+  "overview.changesWait": "Los cambios en sus herramientas esperan su aprobación",
   "overview.questionsWait": "Las preguntas esperan su respuesta",
   "overview.health": "Revisión de la cuenta",
   "overview.healthGood": "Todo bien",
@@ -148,8 +147,8 @@ export const es: Messages = {
   },
   "overview.healthFailed": { one: "{count} no terminó", other: "{count} no terminaron" },
   "overview.healthConnections": {
-    one: "{count} conexión le necesita",
-    other: "{count} conexiones le necesitan",
+    one: "{count} cuenta le necesita",
+    other: "{count} cuentas le necesitan",
   },
   "overview.healthWaiting": {
     one: "{count} elemento le espera",
@@ -166,7 +165,7 @@ export const es: Messages = {
   "table.hello.evening": "Buenas noches",
   "table.waitLine": { one: "{count} cosa le espera.", other: "{count} cosas le esperan." },
   "table.waitNone": "Nada le espera.",
-  "table.openWeekly": "Abrir la Mesa semanal",
+  "table.view.today": "Hoy",
   "table.askSloan": "Preguntar a Sloan",
   "table.workingNow": "Trabajando ahora",
   "table.meta.running": { one: "{count} en curso", other: "{count} en curso" },
@@ -194,7 +193,7 @@ export const es: Messages = {
   "table.openDesk": "Abrir su escritorio",
   "table.dueToday": "Vence hoy",
   "table.due": "Vence {time}",
-  "table.reviewSign": "Revisar y aprobar", // fluent review
+  "table.reviewSign": "Revisar y aprobar",
   "table.openItem": "Abrir",
   "table.notNow": "Ahora no",
   "table.lead.yourReply": "Su respuesta",
@@ -214,7 +213,7 @@ export const es: Messages = {
   "table.weekRuns": "Ejecuciones iniciadas esta semana: {counts}.",
   "runsPage.perDay.day": "{day}: {parts}",
   "agent.stage.trial": "En prueba",
-  "agent.stage.signoff": "Espera su visto bueno",
+  "agent.stage.signoff": "Espera su aprobación para empezar",
   "agent.pause": "Pausar",
   "agent.resume": "Reanudar",
   "agent.pauseReason": "¿Por qué pausa a {name}?",
@@ -235,7 +234,7 @@ export const es: Messages = {
   "agent.reachNone": "{name} aún no accede a ninguna de sus cuentas.",
   "agent.revoked": "Sin acceso",
   "agent.level.auto": "{verb}: por su cuenta", // fluent review
-  "agent.level.approval": "{verb}: necesita aprobación", // fluent review
+  "agent.level.approval": "{verb}: necesita su aprobación",
   "agent.level.off": "{verb}: desactivado",
   "agent.verb.read": "Leer",
   "agent.verb.create": "Crear",
@@ -273,18 +272,18 @@ export const es: Messages = {
   "inbox.status.needsAnswer": "Necesita una respuesta",
   "inbox.yourAnswer": "Su respuesta",
   "inbox.viewRun": "Ver la ejecución",
-  "inbox.nothingChangesUntilSign": "Nada cambia en la herramienta hasta que usted apruebe.", // fluent review
+  "inbox.nothingChangesUntilSign": "Nada cambia en la herramienta hasta que usted lo apruebe.",
   "inbox.waitsUntil": "Espera hasta {time}.",
   "inbox.openRequestsQueue": "Abrir la cola de solicitudes",
   "inbox.decline": "Declinar",
   "inbox.sendAnswer": "Enviar respuesta",
   "inbox.undo": "Deshacer",
-  "inbox.undoWindow": "Aprobado. Hacemos el cambio en un minuto; todavía puede deshacerlo.", // fluent review
+  "inbox.undoWindow": "Aprobado. Hacemos el cambio en un minuto; todavía puede deshacerlo.",
   "inbox.reject": "Rechazar",
-  "inbox.sign": "Aprobar", // fluent review
+  "inbox.sign": "Aprobar",
   "inbox.findingSteps": "Qué hacer",
   "inbox.findingDone": "Hecho",
-  "inbox.signAndUpdate": "Aprobar y actualizar {tool}", // fluent review
+  "inbox.signAndUpdate": "Aprobar y actualizar {tool}",
   // ── Your Desk (UI-1b) ──
   "desk.title": "Bandeja", // fluent review
   "desk.subtitle": "Lo que sus agentes necesitan de usted y lo que han hecho.", // fluent review
@@ -302,7 +301,7 @@ export const es: Messages = {
   "desk.day.yesterday": "Ayer",
   "desk.day.doneThisWeek": "Hecho esta semana",
   "desk.pick": "Elija un elemento a la izquierda para verlo aquí.",
-  "desk.chip.sign": "Aprobar", // fluent review
+  "desk.chip.sign": "Necesita su aprobación",
   "desk.chip.code": "Introducir código",
   "desk.chip.todo": "Por hacer",
   "desk.chip.answer": "Responder",
@@ -314,32 +313,33 @@ export const es: Messages = {
   "desk.batch.lead": {
     one: "Un paso preparó este cambio. Desmarque lo que no quiera aprobar.",
     other: "Un paso preparó estos {count} cambios. Desmarque los que no quiera aprobar.",
-  }, // fluent review
-  "desk.batch.include": "Aprobar {what}", // fluent review
+  },
+  "desk.batch.include": "Aprobar {what}",
   "desk.batch.rejectAll": "Rechazar todos",
   "desk.batch.rejectSome": { one: "Rechazar {count}", other: "Rechazar {count}" },
-  "desk.batch.signAll": { one: "Aprobar {count}", other: "Aprobar los {count}" }, // fluent review
-  "desk.batch.signSome": { one: "Aprobar {count} de {total}", other: "Aprobar {count} de {total}" }, // fluent review
+  "desk.batch.signAll": { one: "Aprobar {count}", other: "Aprobar los {count}" },
+  "desk.batch.signSome": { one: "Aprobar {count} de {total}", other: "Aprobar {count} de {total}" },
   "desk.band.answer": "Espera su respuesta",
   "desk.band.drafted": "{agent} lo preparó a las {time}",
   "desk.band.came": "Llegó a las {time}",
   "desk.band.due": "vence {time}",
   "desk.band.later": "Apartado para más tarde",
   "desk.band.resolvedAt": "Hecho a las {time}",
-  "desk.viewer": "Puede verlo, pero no aprueba por su equipo.", // fluent review
+  "desk.viewer": "Puede verlo, pero no aprueba por su equipo.",
   "desk.snoozedUntil": "Apartado hasta {time}. Entonces vuelve a «En espera».", // fluent review
   "desk.notNow": "Ahora no",
   "desk.openRequests": "Abrir solicitudes",
   "desk.edit": "Editar",
-  "desk.edited": "Usted editó este cambio. Lo que aprueba es su versión.", // fluent review
-  "desk.afterYouSign": "Después de aprobar", // fluent review
-  "desk.editHint": "Cambie lo que necesite y guarde. Lo comprobamos de nuevo antes de que apruebe.", // fluent review
+  "desk.edited": "Usted editó este cambio. Usamos su versión.",
+  "desk.afterYouSign": "Después de aprobar",
+  "desk.editHint":
+    "Cambie lo que necesite y guarde. Lo comprobamos de nuevo antes de que lo apruebe.",
   "desk.editSave": "Guardar cambios",
   "desk.snooze.until": "Que vuelva",
   "desk.snooze.later": "Más tarde hoy",
   "desk.snooze.tomorrow": "Mañana a las 8:00",
   "desk.snooze.monday": "El lunes a las 8:00",
-  "desk.outcome.signed": "Aprobado por usted", // fluent review
+  "desk.outcome.signed": "Aprobado por usted",
   "desk.outcome.rejected": "Rechazado por usted",
   "desk.outcome.answered": "Respondido por usted",
   "desk.outcome.declined": "Declinado por usted",
@@ -354,14 +354,14 @@ export const es: Messages = {
   },
   "desk.worksheet.title": "Hoja de trabajo",
   "desk.worksheet.how": "Cómo llegó {agent} hasta aquí",
-  "desk.worksheet.yourSign": "Su aprobación", // fluent review
-  "desk.team.title": "Quién aprueba qué", // fluent review
+  "desk.worksheet.yourSign": "Su aprobación",
+  "desk.team.title": "Quién aprueba qué",
   "desk.team.undo": "Margen para deshacer",
   "desk.team.undoOff": "Desactivado",
   "desk.team.undoSeconds": { one: "{count} segundo", other: "{count} segundos" },
-  "desk.team.undoHint":
-    "Cuánto tiempo después de aprobar puede quien aprobó retirar la aprobación.", // fluent review
+  "desk.team.undoHint": "Cuánto tiempo después de aprobar puede quien aprobó retirarlo.",
   "desk.team.undoIs": "Margen para deshacer: {window}.",
+  "desk.approvalSettings": "Ajustes de aprobación",
   "change.now": "Ahora",
   "change.after": "Después del cambio",
   "change.createsIt": "Aún no existe: este cambio lo crea.",
@@ -370,6 +370,8 @@ export const es: Messages = {
   "change.field": "Campo",
   "change.value": "Valor",
   "change.noneYet": "Ninguno.",
+  "change.unchanged": "Sin cambios:",
+  "change.noChange": "Este cambio deja todos los campos como están.",
   "change.lines.description": "Descripción",
   "change.lines.bookedTo": "Cuenta o producto",
   "change.lines.qtyPrice": "Cant. × precio",
@@ -382,9 +384,9 @@ export const es: Messages = {
 
   // ── Runs ──
   "runs.title": "Ejecuciones",
-  "runs.subtitle": "Cada vez que uno de sus servicios hizo su trabajo.",
+  "runs.subtitle": "Cada vez que uno de sus agentes hizo su trabajo.",
   "runs.empty": "Aún no hay ejecuciones.",
-  "runs.col.service": "Servicio",
+  "runs.col.service": "Agente",
   "runs.col.status": "Estado",
   "runs.col.started": "Inicio",
   "runs.col.took": "Duración",
@@ -424,9 +426,9 @@ export const es: Messages = {
   "action.status.failed": "Falló",
 
   // ── Connections ──
-  "connections.title": "Conexiones",
+  "connections.title": "Cuentas",
   "connections.subtitle":
-    "Conecte cada herramienta una vez. Sus agentes usan estas conexiones, dentro de los permisos que ve aquí.",
+    "Conecte cada herramienta una vez. Sus agentes usan estas cuentas, dentro de los permisos que ve aquí.",
   "connections.connected": "Conectadas · {count}",
   "connections.noneConnected": "Aún no hay herramientas conectadas.",
   "connections.connectBelow": "Conecte una abajo.",
@@ -437,8 +439,8 @@ export const es: Messages = {
   "connections.synced": "sincronizado {time}",
   "connections.live": "en vivo",
   "connections.usedByServices": {
-    one: "La usa {count} servicio",
-    other: "La usan {count} servicios",
+    one: "La usa {count} agente",
+    other: "La usan {count} agentes",
   },
   "connections.actions": { one: "{count} acción", other: "{count} acciones" },
   "connections.usedByNames": "La usan: {names}",
@@ -481,7 +483,7 @@ export const es: Messages = {
   "matrix.tool": "Herramienta",
   "matrix.scope": "Alcance",
   "matrix.scopeFor": "Alcance de {name}",
-  "matrix.everything": "Todo lo que alcanza la conexión",
+  "matrix.everything": "Todo lo que alcanza la cuenta",
   "matrix.verb.read": "leer",
   "matrix.verb.create": "crear",
   "matrix.verb.update": "actualizar",
@@ -495,14 +497,14 @@ export const es: Messages = {
   "matrix.save": "Guardar permisos",
   "callback.title": "Conectando",
   "callback.subtitle": "Terminando el inicio de sesión en su herramienta.",
-  "callback.back": "Volver a Conexiones",
+  "callback.back": "Volver a Cuentas",
   "callback.connecting": "Conectando…",
   // v0.12 bankfeed (pending review by a fluent speaker).
   "connections.bankfeed.description":
     "Lea los movimientos de sus cuentas bancarias y tarjetas. Nada aquí puede mover dinero.",
   "connections.bankfeed.connect": "Conectar banco o tarjeta",
   "callback.linkLost":
-    "Este inicio de sesión bancario empezó en otra pestaña o ventana. Vuelva a empezar desde Conexiones.",
+    "Este inicio de sesión bancario empezó en otra pestaña o ventana. Vuelva a empezar desde Cuentas.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Accesos",
@@ -582,7 +584,7 @@ export const es: Messages = {
   "webhook.section": "Webhooks · configuración",
   "webhook.inTitle": "Hacia Mezonas",
   "webhook.inHelp":
-    'Cree un hook y pegue su URL en la acción "Webhooks by Zapier · POST" de su Zap. Cada hook pone en marcha los servicios que lo escuchan. Mantenga la URL en privado: lleva el secreto del hook.',
+    'Cree un hook y pegue su URL en la acción "Webhooks by Zapier · POST" de su Zap. Cada hook pone en marcha los agentes que lo escuchan. Mantenga la URL en privado: lleva el secreto del hook.',
   "webhook.noHooks": "Aún no hay hooks.",
   "webhook.made": "creado {time}",
   "webhook.urlOf": "URL de {name}",
@@ -602,7 +604,7 @@ export const es: Messages = {
   "webhook.noOutbound": "Aún no hay URL de salida: los agentes no pueden enviar eventos.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Subida y reenvío · incluido",
+  "forwarding.section": "Reenvío",
   "upload.title": "Subir",
   "upload.help":
     "Facturas y recibos (PDF o imagen), o un CSV de compras con fecha, proveedor e importe.",
@@ -620,7 +622,9 @@ export const es: Messages = {
   "upload.duplicate": "Ya estaba: guardamos una sola copia.",
   // UI cleanup (duplicates and matches): needs a fluent speaker's review.
   "upload.duplicateOf": "Es la misma factura que {filename}: no la procesaremos de nuevo.",
+  "upload.sameFile": "El mismo archivo que el recibido ({time}). Guardamos una sola copia.",
   "forwarding.title": "Reenviar facturas por correo",
+  "forwarding.uploadInRecords": "Suba archivos usted mismo en Registros",
   "forwarding.off": "El reenvío aún no está activado. Su dirección privada aparecerá aquí.",
   "forwarding.help":
     "Cree una regla de reenvío en su correo (por ejemplo, desde la bandeja de cuentas por pagar) hacia esta dirección privada. Guardamos los adjuntos, nunca el texto del mensaje.",
@@ -651,6 +655,7 @@ export const es: Messages = {
   // UI cleanup (duplicates and matches): needs a fluent speaker's review.
   "documents.duplicate": "Duplicado",
   "documents.invoiceNumber": "Factura {number}",
+  "documents.sameInvoice": "La misma factura que la recibida ({time})",
   "document.status.stored": "Recibido",
   "document.status.extracting": "Leyendo",
   "document.status.extracted": "Leído",
@@ -697,9 +702,8 @@ export const es: Messages = {
   "document.col.page": "Página",
 
   // ── Requests ──
-  "requests.title": "Solicitudes",
   "requests.subtitle":
-    "Pídanos un cambio en uno de sus agentes, o algo nuevo. Le respondemos aquí.", // fluent review
+    "Pídanos un cambio en uno de sus agentes, o algo nuevo. Le respondemos aquí.",
   "requests.which": "Qué solicitudes",
   "requests.filter.all": "Todas",
   "requests.filter.open": "Con nosotros",
@@ -753,7 +757,7 @@ export const es: Messages = {
   "signin.error.default": "El inicio de sesión no terminó. Empiece de nuevo.",
 
   // ── Feedback ──
-  "feedback.button": "Comentarios",
+  "feedback.button": "Informar de un problema con la app",
   "feedback.tapWhere": "Toque donde está el problema",
   "feedback.noSpot": "Ningún sitio en concreto",
   "feedback.capturing": "Tomando la imagen…",
@@ -782,13 +786,15 @@ export const es: Messages = {
     "Nosotros aprobamos los cambios en sus herramientas en su nombre. Usted sigue viendo cada cambio en sus ejecuciones.",
   "settings.approvals.byYou": "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
   "settings.approvals.howToChange":
-    "Para cambiar quién aprueba, pídanoslo. También puede limitar lo que pueden hacer los agentes en Conexiones.",
+    "Añada una regla abajo para elegir quién aprueba. Puede hacer las aprobaciones más estrictas; solo nosotros las relajamos. Para limitar lo que los agentes pueden hacer en una herramienta, vaya a",
+  "settings.approvals.accountsLink": "Cuentas.",
+  "settings.approvals.askAdmin": "Para cambiar quién aprueba, pregunte a su administrador.",
   "settings.emails": "Correos",
   "settings.emailsSoon": "Los correos llegarán pronto",
   "settings.email.itemsWaiting": "Algo le espera",
   "settings.email.itemsWaitingHelp": "Un correo cuando una aprobación o una pregunta es suya.",
   "settings.email.weeklyDigest": "Resumen semanal",
-  "settings.email.weeklyDigestHelp": "Lo que hicieron sus agentes cada semana.", // fluent review
+  "settings.email.weeklyDigestHelp": "Lo que hicieron sus agentes cada semana.",
   "settings.emailsNotYet":
     "Aún no enviamos estos correos. Guardamos sus preferencias y las usaremos cuando empecemos.",
   "settings.saved": "Guardado.",
@@ -822,16 +828,16 @@ export const es: Messages = {
   "people.problem.failed": "No pudimos enviar esa invitación. Inténtelo de nuevo.",
 
   // ── Reports ──
-  "reports.subtitle": "Lo que hicieron sus agentes.", // fluent review
-  "reports.subtitlePeriod": "Lo que hicieron sus agentes, {period}.", // fluent review
+  "reports.subtitle": "Lo que hicieron sus agentes.",
+  "reports.subtitlePeriod": "Lo que hicieron sus agentes, {period}.",
   "reports.activity": "Actividad",
   "reports.period": "Periodo",
   "reports.period.month": "Este mes",
   "reports.period.last": "El mes pasado",
   "reports.period.quarter": "Últimos 3 meses",
-  "reports.forService": "Servicio:",
-  "reports.thisService": "este agente", // fluent review
-  "reports.allServices": "Todos los agentes", // fluent review
+  "reports.forService": "Agente:",
+  "reports.thisService": "este agente",
+  "reports.allServices": "Todos los agentes",
   "reports.runs": "Ejecuciones",
   "reports.runs.done": { one: "{count} completada", other: "{count} completadas" },
   "reports.runs.failed": { one: "{count} fallida", other: "{count} fallidas" },
@@ -845,8 +851,8 @@ export const es: Messages = {
   },
   "reports.changes": "Cambios en sus herramientas",
   "reports.changesNone": "Ninguno en este periodo",
-  "reports.byService": "Por agente", // fluent review
-  "reports.noServices": "Aún no hay agentes. Los configuramos con usted y su trabajo aparece aquí.", // fluent review
+  "reports.byService": "Por agente",
+  "reports.noServices": "Aún no hay agentes. Los configuramos con usted y su trabajo aparece aquí.",
   "reports.col.done": "Completadas",
   "reports.col.failed": "Fallidas",
   "reports.col.waiting": "En espera",
@@ -855,12 +861,11 @@ export const es: Messages = {
   "reports.seeActivity": "Ver su actividad",
 
   // ── Service page ──
-  "service.noDescription": "Aquí describiremos lo que hace este servicio.",
   "service.thisMonth": "Este mes",
   "service.nothingRan": "Aún no se ejecutó nada este mes",
   "service.allRuns": "Todas las ejecuciones",
   "service.recentRuns": "Ejecuciones recientes",
-  "service.noRuns": "Aún no hay ejecuciones. Cada ejecución de este agente aparece aquí.", // fluent review
+  "service.noRuns": "Aún no hay ejecuciones. Cada ejecución de este agente aparece aquí.",
   "service.activityHelp": {
     one: "{count} ejecución este mes, según cómo terminó, con los documentos leídos y los cambios hechos.",
     other:
@@ -933,7 +938,7 @@ export const es: Messages = {
   // ── Who approves ──
   "approvers.title": "Quién aprueba",
   "approvers.intro":
-    "Decide la primera regla que corresponde a un cambio. Si ninguna corresponde, aprueba su administrador, salvo que el agente indique a otra persona.", // fluent review
+    "Decide la primera regla que corresponde a un cambio. Si ninguna corresponde, aprueba su administrador, salvo que el agente indique a otra persona.",
   "approvers.empty": "Aún no hay reglas. Su administrador aprueba cada cambio.",
   "approvers.who.admin": "Su administrador",
   "approvers.who.team": "Cualquiera de su equipo",
@@ -947,8 +952,8 @@ export const es: Messages = {
   "approvers.over": "Más de {amount} {currency}",
   "approvers.anyChange": "Cualquier cambio",
   "approvers.anyTool": "Cualquier herramienta",
-  "approvers.anyService": "Cualquier agente", // fluent review
-  "approvers.serviceLeft": "Un agente que ya no está", // fluent review
+  "approvers.anyService": "Cualquier agente",
+  "approvers.serviceLeft": "Un agente que ya no está",
   "approvers.addedByYou": "Agregada por usted",
   "approvers.setByUs": "Definida por nosotros",
   "approvers.notSaved": "sin guardar",
@@ -968,7 +973,7 @@ export const es: Messages = {
   "approvers.field.amount": "Importe mayor que",
   "approvers.field.amountHelp": "Déjelo vacío para cualquier importe. Solo cuenta la misma moneda.",
   "approvers.field.currency": "Moneda",
-  "approvers.field.service": "Agente", // fluent review
+  "approvers.field.service": "Agente",
   "approvers.field.note": "Nota (opcional)",
   "approvers.field.where": "Dónde",
   "approvers.where.top": "Primero, antes de las demás reglas",
@@ -1132,9 +1137,9 @@ export const es: Messages = {
   // ── People: who each service reaches (plan §1.25) ──
   "reach.title": "Personas",
   "reach.subtitle":
-    "A quién contacta cada uno de sus servicios, y cuándo. Solo contactamos a personas que aceptaron, en los canales que aceptaron.",
-  "reach.adminOnly": "Su administrador elige a quién contactan sus servicios.",
-  "reach.none": "Ningún agente contacta a nadie todavía.", // fluent review
+    "A quién contacta cada uno de sus agentes, y cuándo. Solo contactamos a personas que aceptaron, en los canales que aceptaron.",
+  "reach.adminOnly": "Su administrador elige a quién contactan sus agentes.",
+  "reach.none": "Ninguno de sus agentes contacta a personas todavía.",
   "reach.noRoles": "No contacta a nadie: no tiene roles.",
   "reach.channel.email": "Correo",
   "reach.channel.sms": "SMS",
@@ -1166,17 +1171,17 @@ export const es: Messages = {
 
   // ── Billing (plan §1.32) ──
   "billing.title": "Facturación",
-  "billing.subtitle": "Lo que lleva este mes, los créditos que usaron sus agentes y sus facturas.", // fluent review
+  "billing.subtitle": "Lo que lleva este mes, los créditos que usaron sus agentes y sus facturas.",
   "billing.notSetUp":
     "La facturación aún no está configurada. Le avisaremos antes de su primera factura.",
   "billing.paymentProblem": "Su último pago no se completó. Abra la factura de abajo para pagarla.",
   "billing.included": "Incluidos hasta ahora",
   "billing.creditUnit": { one: "crédito", other: "créditos" },
-  "billing.shared": "Compartidos por todos sus agentes", // fluent review
+  "billing.shared": "Compartidos por todos sus agentes",
   "billing.extra": "Créditos adicionales",
   "billing.extraEach": "{price} cada uno, en su próxima factura",
   "billing.periodBody":
-    "{period}. Los créditos miden el trabajo que hacen sus agentes: leer documentos, mensajes, llamadas. Se incluyen {credits}.", // fluent review
+    "{period}. Los créditos miden el trabajo que hacen sus agentes: leer documentos, mensajes, llamadas. Se incluyen {credits}.",
   "billing.credits": { one: "{count} crédito", other: "{count} créditos" },
   "billing.meter.label": "Créditos usados en este periodo",
   "billing.meter.valueText": "{used} de {allowance}",
@@ -1193,7 +1198,7 @@ export const es: Messages = {
   "billing.pdf": "PDF",
   "billing.soFar": "Este mes hasta ahora",
   "billing.soFarNote": "{period}. El importe final llega a principios del mes que viene.",
-  "billing.byService": "Por agente", // fluent review
+  "billing.byService": "Por agente",
   "billing.statements": "Facturas",
   "billing.noStatements": "Aún no hay facturas. La primera llega a principios del mes que viene.",
   "billing.column.item": "Concepto",
@@ -1498,8 +1503,8 @@ export const es: Messages = {
   "peoplePage.title": "Personas",
   "peoplePage.subtitle":
     "Todas las personas a las que sus agentes pueden contactar, quiénes son para usted y cómo prefieren que les contacten.",
-  "peoplePage.import": "Importar personas",
   "peoplePage.add": "Añadir una persona",
+  "peoplePage.import": "Importar personas",
   "peoplePage.adminOnly": "Su administrador gestiona esta parte de Personas.",
   "peoplePage.tab.people": "Personas",
   "peoplePage.tab.organizations": "Organizaciones",
@@ -1560,7 +1565,7 @@ export const es: Messages = {
   "peoplePage.voice.text": "Sus palabras",
   "peoplePage.voice.textHint":
     "Pegue un correo o mensaje que haya escrito. Las respuestas citadas se quitan.",
-  "accounts.signoff": "Quién aprueba cada cambio, y hasta qué importe, está en", // fluent review
+  "accounts.signoff": "Quién aprueba cada cambio, y hasta qué importe, está en",
   "accounts.signoffLink": "Configuración, en Aprobaciones", // fluent review
   // UI-1d: Runs, a run's page, the Weekly Table, Settings and Sloan (docs/ui-plan.md C6–C10).
   "nav.weekly": "Mesa semanal",
@@ -1568,7 +1573,7 @@ export const es: Messages = {
   "nav.sloanLine": "Su agente de cuenta. Pregúntele lo que quiera.",
   "shell.askSloan": "Preguntar a Sloan, su agente de cuenta: {q}", // fluent review
   "runsPage.subtitle":
-    "Cada vez que un agente trabajó para usted: cuándo empezó, cada paso, qué cambió y quién firmó.",
+    "Cada vez que un agente trabajó para usted: cuándo empezó, cada paso, qué cambió y quién aprobó.",
   "runsPage.tab.all": "Todas",
   "runsPage.tab.going": "En curso",
   "runsPage.tab.waiting": "Le necesitan",
@@ -1648,8 +1653,8 @@ export const es: Messages = {
   "weekly.stat.up": "{n} más que la semana pasada",
   "weekly.stat.down": "{n} menos que la semana pasada",
   "weekly.stat.changes": "Cambios en sus herramientas",
-  "weekly.stat.changesNote": "{signed} aprobados por usted, {automatic} por sí solos", // fluent review
-  "weekly.stat.signatures": "Aprobaciones", // fluent review
+  "weekly.stat.changesNote": "{signed} aprobados por usted, {automatic} por sí solos",
+  "weekly.stat.signatures": "Aprobaciones",
   "weekly.stat.documents": "Documentos leídos",
   "weekly.decisions": "Decisiones para usted",
   "weekly.reply": "Responder",
@@ -1666,7 +1671,7 @@ export const es: Messages = {
   },
   "weekly.details": "Detalles",
   "weekly.nextWeek": "La semana que viene",
-  "settingsPage.subtitle": "Su empresa, quién aprueba, cómo paga y cómo le contactamos.", // fluent review
+  "settingsPage.subtitle": "Su empresa, quién aprueba, cómo paga y cómo le contactamos.",
   "settingsPage.subtitleMember": "Cómo le contactamos, el idioma en que lee y quién aprueba qué.", // fluent review
   "settingsPage.billing": "Facturación",
   "settingsPage.team": "Equipo",
@@ -1676,11 +1681,13 @@ export const es: Messages = {
   "settingsPage.plan": "Este mes",
   "settingsPage.statements": "Extractos y uso",
   "settingsPage.creditsThisMonth": "Créditos este mes",
-  "settingsPage.creditsUsed": "{used} de {included} usados",
+  "settingsPage.creditsUsed": "{used} usados de {included} incluidos hasta hoy",
+  "settingsPage.creditsIncludedHelp":
+    "Cada agente suma sus créditos incluidos día a día, así que la cifra de incluidos crece a lo largo del mes.",
   "settingsPage.creditsOut": "Si se acaban los créditos",
   "settingsPage.creditsOut.continue": "Seguir trabajando y añadir créditos",
   "settingsPage.creditsOut.continueHelp":
-    "Le avisamos cada vez que se usen otros {block} créditos.",
+    "Los créditos que pasen de los incluidos van en su próxima factura. Le escribimos cada vez que se usen otros {block} créditos extra.",
   "settingsPage.creditsOut.pause": "Pausar los agentes hasta el mes que viene",
   "settingsPage.creditsOut.pauseHelp":
     "Los agentes paran cuando se usan los créditos del mes. Sloan sigue activo.",
@@ -1700,18 +1707,18 @@ export const es: Messages = {
   "sloan.pastItem": "Iniciada el {date}",
   "sloan.new": "Nueva",
   "sloan.empty":
-    "Pregunte por qué algo espera, pause un agente, añada un aprobador o pase una idea a su responsable.", // fluent review
+    "Pregunte por qué algo espera, pause un agente, añada un aprobador o pase una idea a su responsable.",
   "sloan.answering": "Sloan está respondiendo…",
   "sloan.compose": "Pregunte a Sloan o dígale qué cambiar",
   "sloan.commandHint": "Empiece con / y el nombre de un agente para preguntarle a él, como /pia.",
   "sloan.you": "Usted",
   "sloan.mezonas": "Mezonas",
   "sloan.changes": "Esperando por usted: cambios en su cuenta",
-  "sloan.adminSigns": "Su administrador aprueba los cambios en su cuenta.", // fluent review
+  "sloan.adminSigns": "Su administrador aprueba los cambios en su cuenta.",
   "sloan.canTitle": "Sloan puede",
   "sloan.can.see": "Ver el trabajo, las ejecuciones y los comprobantes de cada agente",
   "sloan.can.pause": "Pausar o reanudar un agente al momento",
-  "sloan.can.draft": "Preparar cambios en personas y aprobadores para que usted los apruebe", // fluent review
+  "sloan.can.draft": "Preparar cambios en personas y aprobadores para que usted los apruebe",
   "sloan.can.pass": "Pasar solicitudes e ideas de nuevos agentes a su responsable",
   "sloan.can.never": "Nunca afloja una regla ni ve su caja fuerte",
   "sloan.team": "Su equipo ahora",
@@ -1722,7 +1729,7 @@ export const es: Messages = {
 
   // ── UI-3a: registros, subir, equipo, exportaciones ──
   "records.lastSync": "Última sincronización {time}.",
-  "records.upload": "Subir documentos",
+  "records.fromAccount": "De {account}",
   "records.found": { one: "{count} registro", other: "{count} registros" },
   "records.kind.receivables": "Cuentas por cobrar",
   "records.col.customer": "Cliente",
@@ -1741,18 +1748,18 @@ export const es: Messages = {
   "uploadPage.documents": "Documentos",
   "teamPage.title": "Equipo",
   "teamPage.subtitle":
-    "Quién usa su portal y qué aprueba cada persona. Invite aquí a personas de su empresa.", // fluent review
-  "teamPage.subtitleMember": "Quién usa su portal y qué aprueba cada persona.", // fluent review
+    "Quién usa su portal y qué aprueba cada persona. Invite aquí a personas de su empresa.",
+  "teamPage.subtitleMember": "Quién usa su portal y qué aprueba cada persona.",
   "teamPage.people": "Personas",
   "teamPage.invite": "Invitar a alguien",
-  "teamPage.viewer": "No aprueba. Puede leer todo.", // fluent review
+  "teamPage.viewer": "No aprueba. Puede leer todo.",
   "exports.title": "Exportaciones",
   "exports.subtitle":
     "Archivos para su contador y sus propios registros. Cada uno cubre días completos, hasta un año.",
   "exports.adminOnly": "Solo su administrador puede descargar exportaciones.",
   "exports.accountant": "Para su contador",
   "exports.accountantHelp":
-    "Cada cambio que sus agentes hicieron en sus herramientas en el periodo: quién lo aprobó, su ejecución y sus documentos.", // fluent review
+    "Cada cambio que sus agentes hicieron en sus herramientas en el periodo: quién lo aprobó, su ejecución y sus documentos.",
   "exports.from": "Desde",
   "exports.to": "Hasta",
   "exports.format": "Formato",
@@ -1763,7 +1770,7 @@ export const es: Messages = {
   "exports.download": "Descargar",
   "exports.audit": "Registro de auditoría",
   "exports.auditHelp":
-    "Quién abrió, aprobó o cambió qué, y cuándo. Su gente por nombre; la nuestra como Mezonas, salvo su responsable.", // fluent review
+    "Quién abrió, aprobó o cambió qué, y cuándo. Su gente por nombre; la nuestra como Mezonas, salvo su responsable.",
   "exports.downloadCsv": "Descargar CSV",
   "exports.problem.missing": "Elija ambos días.",
   "exports.problem.order": "El primer día debe ser anterior al último.",
@@ -1774,6 +1781,7 @@ export const es: Messages = {
   "knowledge.adminOnly":
     "Solo su administrador puede ver y cambiar lo que los agentes saben de su empresa.",
   "sloan.requests": "Sus solicitudes a nosotros",
+  "sloan.mode.change": "Pedir un cambio",
   "signin.needAccess":
     "¿Necesita acceso? Pregunte a su administrador o a su responsable en Mezonas.",
   "nav.upload": "Subir",
@@ -1785,7 +1793,6 @@ export const es: Messages = {
     one: "{count} elemento espera su aprobación.",
     other: "{count} elementos esperan su aprobación.",
   },
-  "change.unchanged": { one: "{count} campo sin cambios", other: "{count} campos sin cambios" },
   "change.linesUnchanged": {
     one: "{count} línea sin cambios",
     other: "{count} líneas sin cambios",

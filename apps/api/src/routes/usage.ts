@@ -49,6 +49,7 @@ import { type AppEnv, HttpError, mount, notFound } from "../http";
 import { liveBundleOf, readsDocuments } from "../lifecycle/runs";
 import type { Platform } from "../platform";
 import { noRuns, runCounts } from "../runs/client-status";
+import { clientDescription } from "../weekly/stats";
 import { runSummaries } from "./portal";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
@@ -868,7 +869,7 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
       service: {
         id: a.id,
         name: serviceName(a),
-        description: a.serviceDescription,
+        description: clientDescription(a),
         status: a.runStatus ?? "draft",
       },
       thisMonth: {

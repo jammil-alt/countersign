@@ -100,7 +100,7 @@ pnpm dev                                      # in another terminal
 pnpm --filter @countersign/web sweep          # the route sweep, then the walkthroughs
 ```
 
-Without it, the walkthroughs skip "Sign and undo" with a note.
+Without it, the walkthroughs skip "Approve and undo" with a note.
 
 ### The demo seed (SEED_DEMO=1)
 

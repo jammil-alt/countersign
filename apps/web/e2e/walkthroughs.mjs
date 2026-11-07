@@ -65,7 +65,7 @@ function matches(href, target) {
 async function walk(browser, email, lookName, name, script, results) {
   const { context, page, problems, look } = await openPage(browser, email, lookName);
   // Nothing in a walkthrough writes: stop and report any request that would. The one exception is
-  // the seeded Desk item's sign and undo, while the step that does them allows it.
+  // the seeded Desk item's approve and undo, while the step that does them allows it.
   await page.route("**/api/**", (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
@@ -191,6 +191,16 @@ function stripQuery(href) {
 
 // ── The client's morning (Dana at Harbor Millwork in the prototype; the Demo client here) ─────────
 
+/** Clicks the link in `main` whose address is exactly `href`, query included; `skip` if none. */
+async function clickExact(w, href, skip) {
+  const link = w.page.locator(`main a[href="${href}"]`).first();
+  if ((await link.count()) === 0 || !(await link.isVisible())) throw new Skip(skip);
+  await link.click();
+  await settle(w.page);
+  const at = new URL(w.page.url());
+  if (`${at.pathname}${at.search}` !== href) throw new Error(`went to ${at.pathname}${at.search}`);
+}
+
 async function clientWalk(w) {
   await w.step("Home", async () => {
     await w.goto("/");
@@ -294,6 +304,13 @@ async function clientWalk(w) {
     // Ask nothing: a question would run the account agent.
     if ((await page.locator("main textarea, main input[type='text']").count()) === 0) {
       throw new Error("no box to ask Sloan in");
+    }
+  });
+  await w.step("Ask for a change", async () => {
+    await clickExact(w, "/sloan?mode=change", "no Ask for a change tab");
+    // Send nothing: the form is there to fill.
+    if ((await w.page.locator('main [data-testid="portal-request-text"]').count()) === 0) {
+      throw new Error("no box to ask for a change in");
     }
   });
 }

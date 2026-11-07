@@ -12,8 +12,8 @@ import type { MyNotifications, NotificationSettings, OnCreditsOut } from "@count
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
-import { DeskTeam } from "../../desk/DeskTeam";
+import { type ApiState, useApi, useApiClient } from "../../api/useApi";
+import { PortalTeamApprovals } from "../../approvals/TeamApprovals";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { LanguageMenu } from "../../i18n/LanguageMenu";
@@ -122,8 +122,7 @@ function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean
     case "general":
       return (
         <Part title={title}>
-          <MyNotificationsCard />
-          {isAdmin ? <TeamNotifications /> : null}
+          <NotificationsPart isAdmin={isAdmin} />
           <Card pad testId="portal-settings-language" title={t("settingsPage.language")}>
             <p className="text-sm text-ink-muted">{t("settingsPage.languageBody")}</p>
             <LanguageMenu />
@@ -134,8 +133,14 @@ function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean
     case "approvals":
       return (
         <Part title={title}>
-          {isAdmin ? <WhoApproves /> : null}
-          <WhoApprovesWhat isAdmin={isAdmin} />
+          {isAdmin ? (
+            <WhoApproves />
+          ) : (
+            <Card pad testId="portal-settings-approvals-member">
+              <p className="text-sm text-ink-muted">{t("settings.approvals.askAdmin")}</p>
+            </Card>
+          )}
+          <PortalTeamApprovals isAdmin={isAdmin} />
           <PortalApproverRules />
         </Part>
       );
@@ -209,16 +214,6 @@ function SloanCard() {
         </div>
       </div>
     </Card>
-  );
-}
-
-/** Who approves what on your team, and the undo window (the admin sets it). */
-function WhoApprovesWhat({ isAdmin }: { isAdmin: boolean }) {
-  const team = useApi(apiRoutes.portalTeam);
-  return (
-    <Loaded state={team}>
-      {(data) => <DeskTeam team={data} isAdmin={isAdmin} onSaved={team.reload} />}
-    </Loaded>
   );
 }
 
@@ -316,16 +311,36 @@ function WhoApproves() {
           ? t("settings.approvals.byUs")
           : t("settings.approvals.byYou")}
       </p>
-      <p className="mt-1 text-sm text-ink-muted">{t("settings.approvals.howToChange")}</p>
+      <p className="mt-1 text-sm text-ink-muted">
+        {t("settings.approvals.howToChange")}{" "}
+        <Link to={PORTAL_PATHS.accounts} className="text-link hover:underline">
+          {t("settings.approvals.accountsLink")}
+        </Link>
+      </p>
     </Card>
   );
 }
 
+/**
+ * Your notifications and, for the admin, the team's emails.
+ */
+// DECISION (QA round 1): hidden until we send these emails (`emailsOn`), so no "we don't send these
+// yet" and no Save for nothing.
+function NotificationsPart({ isAdmin }: { isAdmin: boolean }) {
+  const mine = useApi(apiRoutes.portalMyNotifications);
+  if (mine.data?.emailsOn !== true) return null;
+  return (
+    <>
+      <MyNotificationsCard state={mine} />
+      {isAdmin ? <TeamNotifications /> : null}
+    </>
+  );
+}
+
 /** Your own emails and texts from Mezonas. */
-function MyNotificationsCard() {
+function MyNotificationsCard({ state }: { state: ApiState<MyNotifications> }) {
   const { t } = useI18n();
   const api = useApiClient();
-  const state = useApi(apiRoutes.portalMyNotifications);
   const [saved, setSaved] = useState<MyNotifications | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);

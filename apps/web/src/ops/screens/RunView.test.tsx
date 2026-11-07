@@ -203,8 +203,8 @@ describe("back-office run view", () => {
     await userEvent.click(screen.getByTestId("ops-run-tab-changes"));
     const panel = screen.getByTestId("ops-run-action-00000000-0000-4000-8000-0000000f4001");
     expect(panel).toHaveTextContent("Testkit · r1 · Oak board");
-    expect(within(panel).getByTestId("change-now-row-amount")).toHaveTextContent("10.00");
-    expect(within(panel).getByTestId("change-after-row-amount")).toHaveTextContent("12.00");
+    expect(within(panel).getByTestId("change-row-amount-now")).toHaveTextContent("10.00");
+    expect(within(panel).getByTestId("change-row-amount-after")).toHaveTextContent("12.00");
     await userEvent.click(within(panel).getByTestId("ops-run-action-approve"));
     expect(resolved).toEqual([{ decision: "approve" }]);
     expect(await within(panel).findByTestId("ops-run-action-status")).toHaveTextContent("Approved");
@@ -313,8 +313,7 @@ describe("back-office run view", () => {
     expect(within(panel).getByTestId("ops-run-action-description")).toHaveTextContent(
       "The total stays the same.",
     );
-    // The total doesn't change: it folds under "fields unchanged".
-    expect(within(panel).getByTestId("change-same-now-row-total")).toHaveTextContent("$9,742.35");
+    expect(within(panel).getByTestId("change-unchanged-total")).toHaveTextContent("$9,742.35");
     expect(within(panel).getByTestId("change-lines-after-item-0")).toHaveTextContent(
       "60 × $142.50",
     );

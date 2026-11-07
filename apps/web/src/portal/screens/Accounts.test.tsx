@@ -235,6 +235,12 @@ describe("C4 Accounts and vault", () => {
 
     const add = screen.getByTestId("portal-connections-available");
     expect(within(add).getByTestId("portal-connection-zoho_crm")).toHaveTextContent("Zoho CRM");
+
+    // Accounts holds the tools and the vault only: upload and forwarding are on the agents that
+    // read documents (and `/upload`).
+    expect(screen.queryByTestId("portal-upload-input")).toBeNull();
+    expect(screen.queryByTestId("portal-recent-documents")).toBeNull();
+    expect(screen.queryByTestId("portal-forwarding")).toBeNull();
   });
 
   it("opens a tool's matrix and tightens it: only the saved level or stricter", async () => {

@@ -16,6 +16,9 @@
 //   SWEEP_LOOKS=phone-light SWEEP_SHOTS=/tmp/shots node e2e/route-sweep.mjs
 //
 // Exit 1 with the failures listed; patterns never reached are listed as a note.
+//
+// Some screens are a view of another one's route, chosen by the query (`/sloan?mode=change`, Ask
+// for a change): each area's `views` are opened too.
 
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -50,6 +53,7 @@ const AREAS = [
     email: CLIENT_ADMIN,
     prefix: "",
     files: ["../src/portal/routes.tsx", "../src/portal/PortalApp.tsx"],
+    views: ["/sloan?mode=change"],
   },
 ];
 
@@ -141,6 +145,19 @@ async function sweepArea(browser, area, lookName, failures, unreached) {
       const p = patternOf(patterns, next);
       if (p && !seen.has(p)) queue.push(next);
     }
+  }
+  for (const path of area.views ?? []) {
+    problems.length = 0;
+    try {
+      await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await settle(page);
+    } catch (e) {
+      problems.push(`did not load: ${e.message.split("\n")[0]}`);
+    }
+    problems.push(...(await checkPage(page, look)));
+    for (const p of problems) failures.push(`${lookName} ${area.name} ${path}: ${p}`);
+    console.log(`${problems.length ? "FAIL" : "ok  "} ${lookName} ${area.name} ${path}`);
+    await shoot(page, lookName, `${area.name} ${path}`);
   }
   for (const p of patterns) if (!seen.has(p)) unreached.add(`${area.name} ${p}`);
   await context.close();

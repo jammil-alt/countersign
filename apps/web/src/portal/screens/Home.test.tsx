@@ -22,7 +22,7 @@ const FINDING = {
   id: "00000000-0000-4000-8000-0000000fd001",
   kind: "connection_signin",
   title: "Zoho CRM needs you to sign in again",
-  steps: ["Go to Connections.", "Find Zoho CRM.", "Choose Reconnect and follow the steps."],
+  steps: ["Go to Accounts.", "Find Zoho CRM.", "Choose Reconnect and follow the steps."],
   createdAt: "2026-11-05T08:00:00.000Z",
   remindedAt: "2026-11-06T08:00:00.000Z",
 };

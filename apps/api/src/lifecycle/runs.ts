@@ -188,7 +188,11 @@ export async function runNow(
   // `cannot_sign`, as on the Desk; the membership is read here, not in the session.
   const who = await withCanSign(tx, input.tenantId, { userId: input.userId, role: input.role });
   if (who.canSign === false) {
-    throw new HttpError(403, "cannot_sign", "you can see this, but you don't sign for your team");
+    throw new HttpError(
+      403,
+      "cannot_sign",
+      "you can see this, but you don't approve for your team",
+    );
   }
   const row = await clientAgent(tx, input.tenantId, input.agentId);
   ensureRunsLive(row);

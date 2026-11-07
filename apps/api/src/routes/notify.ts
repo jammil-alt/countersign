@@ -62,7 +62,7 @@ export function notifyRouteHandlers(app: Hono<AppEnv>): void {
     if (!c) throw notFound("connection");
     // DECISION: a connection that works needs no reconnecting: 409 `connected`.
     if (c.status === "connected") {
-      throw new HttpError(409, "connected", "this connection works: nothing to reconnect");
+      throw new HttpError(409, "connected", "this account works: nothing to reconnect");
     }
     // v0.14 W4-B (docs/plan.md §1.14 "Remind"): without Mezonas' mail (Resend) the reminder does
     // nothing: no rows, no log line, and the day's one reminder is still there to send.

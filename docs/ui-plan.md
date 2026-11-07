@@ -68,7 +68,7 @@ Sidebar:
   consent and reach preferences are in a person's detail, import is an action (`?import=1`). Who an
   agent reaches is on its Access tab; voice samples are in Settings.
 - **Off the nav, address kept:** `/weekly`, `/sloan`, `/records`, `/reports/*`, `/upload`,
-  `/requests` (from Sloan), `/knowledge` (the back office's now; nothing in the portal links to it).
+  `/requests` (now Sloan's "Ask for a change"), `/knowledge` (the back office's now; nothing in the portal links to it).
   Old addresses redirect: `/desk` → `/inbox`, `/people/*` → `/contacts` (organizations and import
   to their filters, voice to Settings, reach to Home), `/conversations` → `/settings/conversations`.
 
@@ -109,7 +109,7 @@ These exist today, or the API serves them, but they aren't in the prototype. We 
 | Records and record detail (with receivables) | `/records`, `/records/:id` | already live; receivables have an API but no screen |
 | Documents: detail and upload | `/documents/:id`, `/upload` | linked from runs and records; upload is how invoices arrive |
 | Reports (pack reports, e.g. Materials) | `/reports/*` | pack screens; reachable from the agent page |
-| Requests | `/requests` | the client asks us for a change; could live inside Sloan or the Desk (owner's call) |
+| Requests | `/sloan?mode=change` (`/requests` redirects) | the client asks us for a change: Sloan's "Ask for a change" |
 | Knowledge | `/knowledge` | what agents know about the business |
 | Conversations (WhatsApp capture) | `/conversations` | keep and download switches per conversation (M33) |
 | Team | `/settings/team` | invite members, roles (the Desk's team API) |
@@ -175,7 +175,7 @@ UI-0 to UI-3 are merged to `main` (staging). No migrations; one small contract c
 
 ### Decisions taken (owner to adjust)
 
-- Open question 1: Requests is its own page (`/requests`), linked from Sloan.
+- Open question 1: Requests is Sloan's "Ask for a change" (`/sloan?mode=change`); `/requests` redirects there.
 - Open question 2: each connection's permission matrix sits on Accounts, folded, one per tool; approver rules, who approves what and the undo window live in Settings, under Approvals.
 - Open question 3: the back-office agent page is one page with tabs (Overview, Workflow, Runs, Versions, Settings). Triggers sit at the top of Workflow, tests inside Versions, and Settings is split into Access (applies at once) and Definition (a new draft).
 - Portal agent addresses are `/agents/:id` (service id); the service route names the template's slug only to pick the agent's own view.
@@ -185,6 +185,21 @@ UI-0 to UI-3 are merged to `main` (staging). No migrations; one small contract c
 - New agent and new skill start as a Builder conversation; the by-hand skill form stays while model keys are missing.
 - Usage and Billing share the "Usage and billing" heading with tabs.
 - Offering a connector to a client lives on Connectors (owner: also on the client's Connections page?).
+
+### QA round 1: navigation and fewer places (2026-11-07, `claude/qa-nav-simplify`)
+
+The owner's first click-through as a client asked for one home per thing. Every old address still lands (a redirect keeps its query and hash, and merges it with the new home's own: `/weekly?week=…` → `/?view=weekly&week=…`).
+
+- **Sidebar:** The Table, Your Desk, Runs; Your agents; Accounts, People, Settings; a folded More with Records (and Knowledge and Conversations for the admin); the Sloan card and the lead.
+- **Your Desk once:** the portal's top bar has no Desk link; on a phone the menu button carries the waiting count. The back office keeps Escalations in its top bar.
+- **Weekly Table:** a tab of The Table (`/?view=weekly`), shown only once a week was sent; the tab is its one button (the header and agent-page buttons are gone). `/weekly` redirects.
+- **Reports:** no sidebar item; the agent page links its activity and pack reports; `/reports/*` works as before.
+- **Billing:** only under Settings (`/settings/billing`); `/billing` redirects.
+- **Upload:** one entry, Records' "Upload documents" (`/upload`). Accounts keeps the forwarding address with a link to Records.
+- **Contact:** Sloan is the one place to ask: "Ask Sloan" and "Ask for a change" are its two tabs. The Feedback button reads "Report a problem with the app".
+- **People:** People and Organizations are the tabs; consent and messages, who agents reach, voice samples and import sit behind the page's More menu, for the admin only.
+- **Settings:** Notifications is hidden until we send these emails (`emailsOn`); Language saves as it is chosen.
+- The route sweep also opens views chosen by a query (`/?view=weekly`, `/sloan?mode=change`); the client walkthrough follows this sidebar (Weekly Table tab, People's More, Billing in Settings, Records then Upload documents, Ask for a change).
 
 ### Not served yet (the prototype shows it; no route serves it, so the page leaves it out)
 

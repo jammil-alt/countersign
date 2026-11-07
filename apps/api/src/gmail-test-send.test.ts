@@ -153,7 +153,7 @@ describe.skipIf(!h)("Send a test email from the connected Gmail", () => {
     expect(email.to).toEqual([MAILBOX]);
     expect(email.subject).toBe("Mezonas test email");
     expect(email.text?.trim()).toBe(
-      "This is a test from Mezonas. Your Gmail connection works: agents can send email from this address, and each email waits for your approval before it is sent. You can disconnect Gmail at any time from Connections.",
+      "This is a test from Mezonas. Your Gmail account works: agents can send email from this address, and each email waits for your approval before it is sent. You can disconnect Gmail at any time from Accounts.",
     );
     expect((await testsOf(aConn)).at(-1)?.actorId).toBe(H.A.admin);
   });

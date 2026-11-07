@@ -228,8 +228,8 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(j(calls[0]?.output)).toMatchObject({
       item: { id: itemId, title: "Update Oak board" },
       reasons: [
-        { code: "step", words: "This step asks for a signature." },
-        { code: "stage", words: "The agent is in its trial: every change is signed." },
+        { code: "step", words: "This step needs your approval." },
+        { code: "stage", words: "The agent is in its trial: every change needs approval." },
       ],
       stage: "trial",
       sources: [itemId],
@@ -334,10 +334,10 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(drafted).toMatchObject({
       status: "drafted",
       loosens: false,
-      title: "Add Lisa as a signer",
+      title: "Add Lisa as an approver",
     });
     expect(drafted.now).toEqual(["Lisa is not on your team."]);
-    expect(drafted.after[0]).toBe("Lisa joins your team and signs.");
+    expect(drafted.after[0]).toBe("Lisa joins your team and approves changes.");
     expect(drafted.after.slice(1, 3)).toEqual([
       expect.stringMatching(/over USD 2000 → your admins$/),
       expect.stringMatching(/→ Lisa$/),

@@ -72,7 +72,11 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   // v0.12 W1-D: a viewer signs nothing (ARCHITECTURE §4).
   input = { ...input, by: await withCanSign(tx, input.tenantId, input.by) };
   if (input.by.canSign === false) {
-    throw new HttpError(403, "cannot_sign", "you can see this, but you don't sign for your team");
+    throw new HttpError(
+      403,
+      "cannot_sign",
+      "you can see this, but you don't approve for your team",
+    );
   }
   const item = await lockItem(tx, input.tenantId, input.itemId);
   // A request for a code is resolved only by its code (docs/plan.md §1.26), never by a click.
@@ -85,7 +89,7 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   // v0.12 W2-D: a change Sloan drafted is signed by the client admin through its own route, which
   // applies it with the portal's code (POST /api/account-changes/:id/resolve).
   if (item.subjectType === ACCOUNT_CHANGE_SUBJECT) {
-    throw new HttpError(409, "use_account_change", "sign this change from its own card");
+    throw new HttpError(409, "use_account_change", "approve this change from its own card");
   }
   if (item.status === "expired") {
     throw new HttpError(409, "expired", "this item expired: the run stopped waiting for it");

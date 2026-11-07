@@ -674,10 +674,11 @@ function Reach({ id, name }: { id: string; name: string }) {
             >
               <span className="font-medium text-ink">
                 {item.name}
-                {accountAddress(item.externalAccountId) ? (
+                {/* The account by its name in the tool, never its id there (a QuickBooks realm id). */}
+                {(item.accountName ?? accountAddress(item.externalAccountId)) ? (
                   <span className="font-normal text-ink-muted">
                     {" "}
-                    · {accountAddress(item.externalAccountId)}
+                    · {item.accountName ?? accountAddress(item.externalAccountId)}
                   </span>
                 ) : null}
               </span>

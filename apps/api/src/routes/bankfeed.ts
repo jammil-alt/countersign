@@ -125,7 +125,7 @@ export function bankfeedRoutes(app: Hono<AppEnv>): void {
       }
 
       if (!services.env.ENCRYPTION_KEY) {
-        throw new HttpError(503, "not_configured", "connection credentials can't be read here");
+        throw new HttpError(503, "not_configured", "account logins can't be read here");
       }
       const at = new Date();
       const itemId = action.itemId;

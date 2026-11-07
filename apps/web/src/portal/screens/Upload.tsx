@@ -32,8 +32,9 @@ const READ_POLL_TRIES = 40;
 
 function resultLine(
   r: Result,
-  { t, locale }: Pick<I18n, "t" | "locale">,
+  i18n: Pick<I18n, "t" | "locale" | "fmt">,
 ): { text: string; tone: "positive" | "neutral" | "risk" | "warning" } {
+  const { t, locale } = i18n;
   // The server's reason is English: other languages show their own word for a refusal.
   if (r.kind === "refused") {
     return {
@@ -55,9 +56,14 @@ function resultLine(
       tone: "warning",
     };
   }
-  return r.created
-    ? { text: t("upload.received"), tone: "positive" }
-    : { text: t("upload.duplicate"), tone: "neutral" };
+  if (r.created) return { text: t("upload.received"), tone: "positive" };
+  // The same bytes are one document: the first one comes back, with when it arrived.
+  return {
+    text: r.document
+      ? t("upload.sameFile", { time: shortTime(r.document.receivedAt, undefined, i18n) })
+      : t("upload.duplicate"),
+    tone: "neutral",
+  };
 }
 
 /**

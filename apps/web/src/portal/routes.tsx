@@ -18,7 +18,6 @@ import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { PortalRecordsScreen } from "./screens/Records";
 import { PortalReportsScreen } from "./screens/Reports";
-import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
 import { PortalSettingsScreen } from "./screens/Settings";
@@ -64,8 +63,6 @@ export const portalRoutes = (
     <Route path="records/:id" element={<PortalRecordScreen />} />
     <Route path="documents/:id" element={<PortalDocumentScreen />} />
     <Route path="upload" element={<PortalUploadScreen />} />
-    {/* Requests are asked through Sloan ("Ask us"); the list of them is linked from Sloan. */}
-    <Route path="requests" element={<PortalRequestsScreen />} />
     {/* DECISION: knowledge belongs to the back office (the client page's Knowledge tab); the
         page keeps its address for old links, and nothing in the portal links to it. */}
     <Route path="knowledge" element={<PortalKnowledgeScreen />} />
@@ -93,5 +90,7 @@ export const portalRoutes = (
     <Route path="access/*" element={<VaultRedirect />} />
     <Route path="directory" element={<Redirect to="/contacts" />} />
     <Route path="billing" element={<Redirect to="/settings/billing" />} />
+    {/* Asking us for a change is a mode of Sloan ("Ask us"). */}
+    <Route path="requests" element={<Redirect to="/sloan?mode=change" />} />
   </>
 );

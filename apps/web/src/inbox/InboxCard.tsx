@@ -363,6 +363,7 @@ export function InboxCard({
           before={item.payload.before}
           input={item.payload.input}
           display={item.display?.tool}
+          names={item.display?.names}
         />
       ) : facts.length > 0 ? (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
@@ -556,7 +557,7 @@ function Actions({
         disabled={busy}
         onClick={() => onResolve({ decision: "approve" })}
       >
-        {/* Approving an action is always "Sign" (brand book). */}
+        {/* Approving an action is always "Approve" (QA round 1 words). */}
         {kind === "external_action" && toolName
           ? t("inbox.signAndUpdate", { tool: toolName })
           : t("inbox.sign")}

@@ -116,18 +116,17 @@ export const en = {
   "nav.contacts": "Contacts",
   // v0.14 capture
   "nav.conversations": "Conversations",
-  "nav.billing": "Billing",
   "nav.people": "People",
   "nav.access": "Access",
   "nav.directory": "Directory",
   "nav.records": "Records",
-  "page.service": "Service",
+  "page.service": "Agent",
 
   // ── Overview ──
   "overview.title": "Overview",
-  "overview.subtitleWithClient": "{client}: your services, what they did, and what needs you.",
-  "overview.subtitle": "Your services, what they did, and what needs you.",
-  "overview.services": "Your services",
+  "overview.subtitleWithClient": "{client}: your agents, what they did, and what needs you.",
+  "overview.subtitle": "Your agents, what they did, and what needs you.",
+  "overview.services": "Your agents",
   "overview.noServices": "No agents yet. We set them up with you, and they show here.",
   "overview.openInbox": "Open inbox",
   "overview.needsYou": "Needs you",
@@ -144,8 +143,8 @@ export const en = {
   },
   "overview.healthFailed": { one: "{count} did not finish", other: "{count} did not finish" },
   "overview.healthConnections": {
-    one: "{count} connection needs you",
-    other: "{count} connections need you",
+    one: "{count} account needs you",
+    other: "{count} accounts need you",
   },
   "overview.healthWaiting": {
     one: "{count} item waits for you",
@@ -162,7 +161,7 @@ export const en = {
   "table.hello.evening": "Good evening",
   "table.waitLine": { one: "{count} thing waits on you.", other: "{count} things wait on you." },
   "table.waitNone": "Nothing waits on you.",
-  "table.openWeekly": "Open the Weekly Table",
+  "table.view.today": "Today",
   "table.askSloan": "Ask Sloan",
   "table.workingNow": "Working now",
   "table.meta.running": { one: "{count} running", other: "{count} running" },
@@ -207,7 +206,7 @@ export const en = {
   "table.weekRuns": "Runs started this week: {counts}.",
   "runsPage.perDay.day": "{day}: {parts}",
   "agent.stage.trial": "On trial",
-  "agent.stage.signoff": "Waiting for your go-ahead",
+  "agent.stage.signoff": "Waiting for your approval to go live",
   "agent.pause": "Pause",
   "agent.resume": "Resume",
   "agent.pauseReason": "Why are you pausing {name}?",
@@ -228,7 +227,7 @@ export const en = {
   "agent.reachNone": "{name} can't reach any of your accounts yet.",
   "agent.revoked": "No access",
   "agent.level.auto": "{verb}: on its own",
-  "agent.level.approval": "{verb}: needs approval",
+  "agent.level.approval": "{verb}: needs your approval",
   "agent.level.off": "{verb}: off",
   "agent.verb.read": "Read",
   "agent.verb.create": "Create",
@@ -295,7 +294,7 @@ export const en = {
   "desk.day.yesterday": "Yesterday",
   "desk.day.doneThisWeek": "Done this week",
   "desk.pick": "Pick an item on the left to see it here.",
-  "desk.chip.sign": "Approve",
+  "desk.chip.sign": "Needs your approval",
   "desk.chip.code": "Enter code",
   "desk.chip.todo": "To do",
   "desk.chip.answer": "Answer",
@@ -324,7 +323,7 @@ export const en = {
   "desk.notNow": "Not now",
   "desk.openRequests": "Open requests",
   "desk.edit": "Edit",
-  "desk.edited": "You edited this change. Your version is the one you approve.",
+  "desk.edited": "You edited this change. We use your version.",
   "desk.afterYouSign": "After you approve",
   "desk.editHint": "Change what you need, then save. We check it again before you approve.",
   "desk.editSave": "Save changes",
@@ -352,6 +351,7 @@ export const en = {
   "desk.team.undoHint":
     "How long after an approval the person who approved can still take it back.",
   "desk.team.undoIs": "Undo window: {window}.",
+  "desk.approvalSettings": "Approval settings",
   "change.now": "Now",
   "change.after": "After this change",
   "change.createsIt": "Not there yet: this change creates it.",
@@ -360,6 +360,8 @@ export const en = {
   "change.field": "Field",
   "change.value": "Value",
   "change.noneYet": "None.",
+  "change.unchanged": "Unchanged:",
+  "change.noChange": "This change leaves every field as it is.",
   "change.lines.description": "Description",
   "change.lines.bookedTo": "Account or item",
   "change.lines.qtyPrice": "Qty × price",
@@ -372,9 +374,9 @@ export const en = {
 
   // ── Runs ──
   "runs.title": "Runs",
-  "runs.subtitle": "Each time one of your services did its work.",
+  "runs.subtitle": "Each time one of your agents did its work.",
   "runs.empty": "No runs yet.",
-  "runs.col.service": "Service",
+  "runs.col.service": "Agent",
   "runs.col.status": "Status",
   "runs.col.started": "Started",
   "runs.col.took": "Took",
@@ -414,9 +416,9 @@ export const en = {
   "action.status.failed": "Failed",
 
   // ── Connections ──
-  "connections.title": "Connections",
+  "connections.title": "Accounts",
   "connections.subtitle":
-    "Connect each tool once. Your agents use these connections, within the permissions shown here.",
+    "Connect each tool once. Your agents use these accounts, within the permissions shown here.",
   "connections.connected": "Connected · {count}",
   "connections.noneConnected": "No tools connected yet.",
   "connections.connectBelow": "Connect one below.",
@@ -426,8 +428,8 @@ export const en = {
   "connections.synced": "synced {time}",
   "connections.live": "live",
   "connections.usedByServices": {
-    one: "Used by {count} service",
-    other: "Used by {count} services",
+    one: "Used by {count} agent",
+    other: "Used by {count} agents",
   },
   "connections.actions": { one: "{count} action", other: "{count} actions" },
   "connections.usedByNames": "Used by {names}",
@@ -468,7 +470,7 @@ export const en = {
   "matrix.tool": "Tool",
   "matrix.scope": "Scope",
   "matrix.scopeFor": "Scope for {name}",
-  "matrix.everything": "Everything the connection reaches",
+  "matrix.everything": "Everything the account reaches",
   "matrix.verb.read": "read",
   "matrix.verb.create": "create",
   "matrix.verb.update": "update",
@@ -482,14 +484,14 @@ export const en = {
   "matrix.save": "Save permissions",
   "callback.title": "Connecting",
   "callback.subtitle": "Finishing the sign-in to your tool.",
-  "callback.back": "Back to Connections",
+  "callback.back": "Back to Accounts",
   "callback.connecting": "Connecting…",
   // v0.12 bankfeed: bank and card feeds through Plaid.
   "connections.bankfeed.description":
     "Read the transactions of your bank accounts and cards. Nothing here can move money.",
   "connections.bankfeed.connect": "Connect bank or card",
   "callback.linkLost":
-    "This bank sign-in started in another tab or window. Start again from Connections.",
+    "This bank sign-in started in another tab or window. Start again from Accounts.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Access",
@@ -564,7 +566,7 @@ export const en = {
   "webhook.section": "Webhooks · set up",
   "webhook.inTitle": "Into Mezonas",
   "webhook.inHelp":
-    "Make a hook, then paste its URL into your Zap's \"Webhooks by Zapier · POST\" action. Each hook starts the services listening for it. Keep the URL private: it carries the hook's secret.",
+    "Make a hook, then paste its URL into your Zap's \"Webhooks by Zapier · POST\" action. Each hook starts the agents listening for it. Keep the URL private: it carries the hook's secret.",
   "webhook.noHooks": "No hooks yet.",
   "webhook.made": "made {time}",
   "webhook.urlOf": "URL of {name}",
@@ -583,7 +585,7 @@ export const en = {
   "webhook.noOutbound": "No outbound URL yet: agents can't send events.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Upload and forwarding · built in",
+  "forwarding.section": "Forwarding",
   "upload.title": "Upload",
   "upload.help":
     "Invoices and receipts (PDF or image), or a CSV of purchases with date, vendor and amount.",
@@ -597,7 +599,9 @@ export const en = {
   "upload.received": "Received",
   "upload.duplicate": "Already here: we keep one copy.",
   "upload.duplicateOf": "Same invoice as {filename}: we won't process it again.",
+  "upload.sameFile": "Same file as the one received at {time}. We keep one copy.",
   "forwarding.title": "Forward invoices by email",
+  "forwarding.uploadInRecords": "Upload files yourself in Records",
   "forwarding.off": "Forwarding isn't switched on yet. Your private address will appear here.",
   "forwarding.help":
     "Add a forwarding rule in your email (for example from your accounts payable inbox) to this private address. We keep the attachments, never the message text.",
@@ -626,6 +630,7 @@ export const en = {
   "documents.col.received": "Received",
   "documents.duplicate": "Duplicate",
   "documents.invoiceNumber": "Invoice {number}",
+  "documents.sameInvoice": "Same invoice as the one received at {time}",
   "document.status.stored": "Received",
   "document.status.extracting": "Reading",
   "document.status.extracted": "Read",
@@ -671,7 +676,6 @@ export const en = {
   "document.col.page": "Page",
 
   // ── Requests ──
-  "requests.title": "Requests",
   "requests.subtitle": "Ask us to change one of your agents, or for something new. We reply here.",
   "requests.which": "Which requests",
   "requests.filter.all": "All",
@@ -725,7 +729,7 @@ export const en = {
   "signin.error.default": "Sign-in did not finish. Start again.",
 
   // ── Feedback ──
-  "feedback.button": "Feedback",
+  "feedback.button": "Report a problem with the app",
   "feedback.tapWhere": "Tap where the problem is",
   "feedback.noSpot": "No particular spot",
   "feedback.capturing": "Taking the picture…",
@@ -754,7 +758,9 @@ export const en = {
     "We approve changes to your tools on your behalf. You still see every change in your runs.",
   "settings.approvals.byYou": "You approve changes to your tools before they happen.",
   "settings.approvals.howToChange":
-    "To change who approves, ask us. You can also tighten what agents may do on Connections.",
+    "Add a rule below to choose who approves. You can make approvals stricter; only we loosen them. To limit what agents may do in a tool, go to",
+  "settings.approvals.accountsLink": "Accounts.",
+  "settings.approvals.askAdmin": "To change who approves, ask your admin.",
   "settings.emails": "Emails",
   "settings.emailsSoon": "Emails start soon",
   "settings.email.itemsWaiting": "Something waits on you",
@@ -800,7 +806,7 @@ export const en = {
   "reports.period.month": "This month",
   "reports.period.last": "Last month",
   "reports.period.quarter": "Last 3 months",
-  "reports.forService": "Service:",
+  "reports.forService": "Agent:",
   "reports.thisService": "this agent",
   "reports.allServices": "All agents",
   "reports.runs": "Runs",
@@ -823,7 +829,6 @@ export const en = {
   "reports.seeActivity": "See your activity",
 
   // ── Service page ──
-  "service.noDescription": "We'll describe what this service does here.",
   "service.thisMonth": "This month",
   "service.nothingRan": "Nothing ran yet this month",
   "service.allRuns": "All runs",
@@ -1095,9 +1100,9 @@ export const en = {
   // ── People: who each service reaches (plan §1.25) ──
   "reach.title": "People",
   "reach.subtitle":
-    "Who each of your services reaches, and when. We only reach people who agreed, on the channels they agreed to.",
-  "reach.adminOnly": "Your admin chooses who your services reach.",
-  "reach.none": "No agent reaches anyone yet.",
+    "Who each of your agents reaches, and when. We only reach people who agreed, on the channels they agreed to.",
+  "reach.adminOnly": "Your admin chooses who your agents reach.",
+  "reach.none": "None of your agents reach people yet.",
   "reach.noRoles": "This reaches nobody: it has no roles.",
   "reach.channel.email": "Email",
   "reach.channel.sms": "Text",
@@ -1445,8 +1450,8 @@ export const en = {
   "peoplePage.title": "People",
   "peoplePage.subtitle":
     "Everyone your agents may contact, who they are to you, and how they want to be reached.",
-  "peoplePage.import": "Import people",
   "peoplePage.add": "Add a person",
+  "peoplePage.import": "Import people",
   "peoplePage.adminOnly": "Your admin keeps this part of People.",
   "peoplePage.tab.people": "People",
   "peoplePage.tab.organizations": "Organizations",
@@ -1514,7 +1519,7 @@ export const en = {
   "nav.sloanLine": "Your account agent. Ask it anything.",
   "shell.askSloan": "Ask Sloan, your account agent: {q}",
   "runsPage.subtitle":
-    "Every time an agent worked for you: when it started, each step, what changed and who signed.",
+    "Every time an agent worked for you: when it started, each step, what changed and who approved.",
   "runsPage.tab.all": "All",
   "runsPage.tab.going": "Running now",
   "runsPage.tab.waiting": "Needs you",
@@ -1620,10 +1625,13 @@ export const en = {
   "settingsPage.plan": "This month",
   "settingsPage.statements": "Statements and usage",
   "settingsPage.creditsThisMonth": "Credits this month",
-  "settingsPage.creditsUsed": "{used} of {included} used",
+  "settingsPage.creditsUsed": "{used} used of {included} included so far",
+  "settingsPage.creditsIncludedHelp":
+    "Each agent adds its included credits day by day, so the included number grows through the month.",
   "settingsPage.creditsOut": "If credits run out",
   "settingsPage.creditsOut.continue": "Keep working and add credits",
-  "settingsPage.creditsOut.continueHelp": "We tell you each time another {block} credits are used.",
+  "settingsPage.creditsOut.continueHelp":
+    "Credits past the included ones go on your next invoice. We email you each time another {block} extra credits are used.",
   "settingsPage.creditsOut.pause": "Pause agents until next month",
   "settingsPage.creditsOut.pauseHelp":
     "Agents stop when the month's credits are used. Sloan stays on.",
@@ -1665,7 +1673,7 @@ export const en = {
 
   // ── UI-3a: client extras (records, upload, team, exports) ──
   "records.lastSync": "Last synced {time}.",
-  "records.upload": "Upload documents",
+  "records.fromAccount": "From {account}",
   "records.found": { one: "{count} record", other: "{count} records" },
   "records.kind.receivables": "Receivables",
   "records.col.customer": "Customer",
@@ -1717,6 +1725,7 @@ export const en = {
   "settingsPage.exportsLinkHelp": "The accountant export and your audit log.",
   "knowledge.adminOnly": "Only your admin can see and change what agents know about your business.",
   "sloan.requests": "Your requests to us",
+  "sloan.mode.change": "Ask for a change",
   "signin.needAccess": "Need access? Ask your admin or your Mezonas lead.",
   "nav.upload": "Upload",
   // UI cleanup (run pages and changes): approval words and new strings.
@@ -1726,7 +1735,6 @@ export const en = {
     one: "{count} item waits for your approval.",
     other: "{count} items wait for your approval.",
   },
-  "change.unchanged": { one: "{count} field unchanged", other: "{count} fields unchanged" },
   "change.linesUnchanged": { one: "{count} line unchanged", other: "{count} lines unchanged" },
 
   // UI cleanup, stream E: the portal's new structure (Home, Inbox, Contacts, the agent page's

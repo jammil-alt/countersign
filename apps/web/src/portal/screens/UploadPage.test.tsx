@@ -22,6 +22,8 @@ const document = {
   vendorName: "Northline Panel Supply",
   invoiceNumber: "20418",
   total: "9742.3500",
+  match: null,
+  duplicateOf: null,
 };
 
 const forwarding = (allowedSenders: string[]) => ({
@@ -110,6 +112,59 @@ describe("portal upload", () => {
     await waitFor(() => expect(puts).toEqual([{ allowed: ["northline.com"] }]));
     expect(await screen.findByTestId("portal-forwarding-senders")).toHaveTextContent(
       "northline.com",
+    );
+  });
+
+  it("marks a second copy of an invoice, and says when the same file came", async () => {
+    const SECOND = "00000000-0000-4000-8000-0000000d0002";
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/documents": () => ({
+        documents: [
+          {
+            ...document,
+            id: SECOND,
+            filename: "northline-20418-scan.pdf",
+            receivedAt: "2026-11-05T10:32:00.000Z",
+            duplicateOf: { documentId: DOC, filename: "northline-20418.pdf" },
+          },
+          document,
+        ],
+      }),
+      "GET /api/connections/upload/forwarding": () => forwarding([]),
+    });
+    // The same bytes again: the first document comes back, `created` false.
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                filename: "northline-20418.pdf",
+                kind: "document",
+                document,
+                created: false,
+                purchases: null,
+                error: null,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    renderAt("/upload", api);
+
+    // A second copy of an invoice already here is marked as a duplicate (it started nothing).
+    expect(await screen.findByTestId(`portal-document-${SECOND}-duplicate`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`portal-document-${DOC}-duplicate`)).toBeNull();
+
+    await userEvent.upload(
+      screen.getByTestId("portal-upload-input"),
+      new File(["%PDF"], "northline-20418.pdf", { type: "application/pdf" }),
+    );
+    expect(await screen.findByTestId("portal-upload-results")).toHaveTextContent(
+      /Same file as the one received at .+\. We keep one copy\./,
     );
   });
 });

@@ -177,7 +177,7 @@ export function looseningProblems(
 /** A change that can't be drafted as asked, whatever it loosens. */
 export function changeProblem(change: AccountChange): string | null {
   if (change.kind === "add_signer" && !change.canSign && change.rules.length > 0) {
-    return "someone who signs nothing can't have rules: make them a signer or drop the rules";
+    return "someone who approves nothing can't have rules: make them an approver or drop the rules";
   }
   return null;
 }

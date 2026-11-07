@@ -28,7 +28,8 @@ export const PORTAL_PATHS = {
   // Off the nav: reached from an agent, a run, Home or Sloan.
   reports: "/reports",
   records: "/records",
-  requests: "/requests",
+  // QA round 1: asking for a change is a mode of Sloan; `/requests` redirects here.
+  requests: "/sloan?mode=change",
   knowledge: "/knowledge",
   weekly: "/weekly",
   sloan: "/sloan",

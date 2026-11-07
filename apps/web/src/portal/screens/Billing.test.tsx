@@ -2,7 +2,7 @@
 // credits included and used, the price of an extra credit, and past statements with Stripe's
 // links. Cost, tokens or prompts mixed into a response are dropped by the contract parse and never
 // shown; a client user has no Billing link.
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -169,7 +169,13 @@ describe("portal billing", () => {
     expect(screen.queryByTestId("portal-billing-payment-problem")).toBeNull();
   });
 
-  it("gives a client user no Billing link", async () => {
+  it("keeps Billing under Settings for the admin, and gives a client user no Billing link", async () => {
+    renderAt("/settings", portal(LEAKY_BILLING));
+    expect(await screen.findByTestId("portal-settings-nav-billing")).toHaveAttribute(
+      "href",
+      "/settings/billing",
+    );
+    cleanup();
     const userSession = {
       ...CLIENT_SESSION,
       tenants: CLIENT_SESSION.tenants.map((t) => ({ ...t, role: "client_user" as const })),

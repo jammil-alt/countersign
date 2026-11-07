@@ -39,7 +39,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 item waits for you in Mezonas" : `${x.n} items wait for you in Mezonas`,
-      action: "Open your Desk",
+      action: "Open your inbox",
     },
     weeklyTable: {
       subject: (x) => `Your weekly summary for the week of ${x.week}`,
@@ -47,9 +47,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Open the weekly summary",
     },
     reconnect: {
-      subject: "A connection needs you to sign in again",
-      line: "One of your connected tools stopped working. Sign in to it again so your services keep going.",
-      action: "Open your connections",
+      subject: "An account needs you to sign in again",
+      line: "One of your connected tools stopped working. Sign in to it again so your agents keep going.",
+      action: "Open your accounts",
     },
     credits: {
       subject: (b, x) =>
@@ -69,9 +69,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Read and reply",
     },
     signoff: {
-      subject: "An agent waits for your sign-off to go live",
-      line: "See what it did during its trial and sign off on your Desk.",
-      action: "Open your Desk",
+      subject: "An agent waits for your approval to go live",
+      line: "See what it did during its trial and approve it in your inbox.",
+      action: "Open your inbox",
     },
     footer: "This email is from Mezonas. You choose which emails you get in your settings.",
   },
@@ -79,7 +79,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 elemento le espera en Mezonas" : `${x.n} elementos le esperan en Mezonas`,
-      action: "Abrir su escritorio",
+      action: "Abrir su bandeja",
     },
     weeklyTable: {
       subject: (x) => `Su resumen de la semana del ${x.week}`,
@@ -88,9 +88,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Abrir el resumen semanal",
     },
     reconnect: {
-      subject: "Una conexión necesita que vuelva a iniciar sesión",
-      line: "Una de sus herramientas conectadas dejó de funcionar. Vuelva a iniciar sesión para que sus servicios sigan.",
-      action: "Abrir sus conexiones",
+      subject: "Una cuenta necesita que vuelva a iniciar sesión",
+      line: "Una de sus herramientas conectadas dejó de funcionar. Vuelva a iniciar sesión para que sus agentes sigan.",
+      action: "Abrir sus cuentas",
     },
     credits: {
       subject: (b, x) =>
@@ -113,8 +113,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Un agente espera su aprobación para empezar",
-      line: "Vea lo que hizo durante su prueba y apruébelo en su escritorio.",
-      action: "Abrir su escritorio",
+      line: "Vea lo que hizo durante su prueba y apruébelo en su bandeja.",
+      action: "Abrir su bandeja",
     },
     footer: "Este correo es de Mezonas. Usted elige qué correos recibe en su configuración.",
   },
@@ -124,7 +124,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
         c === 1
           ? "1 élément vous attend dans Mezonas"
           : `${x.n} éléments vous attendent dans Mezonas`,
-      action: "Ouvrir votre bureau",
+      action: "Ouvrir votre boîte de réception",
     },
     weeklyTable: {
       subject: (x) => `Votre bilan de la semaine du ${x.week}`,
@@ -133,9 +133,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Ouvrir le bilan de la semaine",
     },
     reconnect: {
-      subject: "Une connexion vous demande de vous reconnecter",
-      line: "Un de vos outils connectés ne fonctionne plus. Reconnectez-vous pour que vos services continuent.",
-      action: "Ouvrir vos connexions",
+      subject: "Un compte vous demande de vous reconnecter",
+      line: "Un de vos outils connectés ne fonctionne plus. Reconnectez-vous pour que vos agents continuent.",
+      action: "Ouvrir vos comptes",
     },
     credits: {
       subject: (b, x) =>
@@ -157,9 +157,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Lire et répondre",
     },
     signoff: {
-      subject: "Un agent attend votre accord pour démarrer",
-      line: "Voyez ce qu'il a fait pendant son essai et donnez votre accord sur votre bureau.",
-      action: "Ouvrir votre bureau",
+      subject: "Un agent attend votre approbation pour démarrer",
+      line: "Voyez ce qu'il a fait pendant son essai et approuvez-le dans votre boîte de réception.",
+      action: "Ouvrir votre boîte de réception",
     },
     footer:
       "Cet e-mail vient de Mezonas. Vous choisissez les e-mails que vous recevez dans vos paramètres.",
@@ -168,7 +168,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 item espera por você no Mezonas" : `${x.n} itens esperam por você no Mezonas`,
-      action: "Abrir sua mesa",
+      action: "Abrir sua caixa de entrada",
     },
     weeklyTable: {
       subject: (x) => `Seu resumo da semana de ${x.week}`,
@@ -177,9 +177,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Abrir o resumo semanal",
     },
     reconnect: {
-      subject: "Uma conexão precisa que você entre de novo",
-      line: "Uma das suas ferramentas conectadas parou de funcionar. Entre de novo para que seus serviços continuem.",
-      action: "Abrir suas conexões",
+      subject: "Uma conta precisa que você entre de novo",
+      line: "Uma das suas ferramentas conectadas parou de funcionar. Entre de novo para que seus agentes continuem.",
+      action: "Abrir suas contas",
     },
     credits: {
       subject: (b, x) =>
@@ -202,8 +202,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Um agente espera sua aprovação para começar",
-      line: "Veja o que ele fez durante o teste e aprove na sua mesa.",
-      action: "Abrir sua mesa",
+      line: "Veja o que ele fez durante o teste e aprove na sua caixa de entrada.",
+      action: "Abrir sua caixa de entrada",
     },
     footer: "Este e-mail é do Mezonas. Você escolhe quais e-mails recebe nas suas configurações.",
   },
@@ -211,7 +211,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 elemento ti aspetta in Mezonas" : `${x.n} elementi ti aspettano in Mezonas`,
-      action: "Apri la tua scrivania",
+      action: "Apri la posta in arrivo",
     },
     weeklyTable: {
       subject: (x) => `Il tuo riepilogo della settimana del ${x.week}`,
@@ -220,9 +220,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Apri il riepilogo settimanale",
     },
     reconnect: {
-      subject: "Una connessione ti chiede di accedere di nuovo",
-      line: "Uno dei tuoi strumenti collegati ha smesso di funzionare. Accedi di nuovo perché i tuoi servizi continuino.",
-      action: "Apri le tue connessioni",
+      subject: "Un account ti chiede di accedere di nuovo",
+      line: "Uno dei tuoi strumenti collegati ha smesso di funzionare. Accedi di nuovo perché i tuoi agenti continuino.",
+      action: "Apri i tuoi account",
     },
     credits: {
       subject: (b, x) =>
@@ -245,8 +245,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Un agente aspetta la tua approvazione per partire",
-      line: "Guarda cosa ha fatto durante la prova e approva dalla tua scrivania.",
-      action: "Apri la tua scrivania",
+      line: "Guarda cosa ha fatto durante la prova e approva dalla posta in arrivo.",
+      action: "Apri la posta in arrivo",
     },
     footer: "Questa email è di Mezonas. Scegli quali email ricevere nelle impostazioni.",
   },
@@ -256,7 +256,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
         c === 1
           ? "1 Eintrag wartet in Mezonas auf Sie"
           : `${x.n} Einträge warten in Mezonas auf Sie`,
-      action: "Ihren Schreibtisch öffnen",
+      action: "Posteingang öffnen",
     },
     weeklyTable: {
       subject: (x) => `Ihre Wochenübersicht für die Woche vom ${x.week}`,
@@ -265,9 +265,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Wochenübersicht öffnen",
     },
     reconnect: {
-      subject: "Eine Verbindung braucht eine neue Anmeldung",
-      line: "Eines Ihrer verbundenen Tools funktioniert nicht mehr. Melden Sie sich neu an, damit Ihre Dienste weiterlaufen.",
-      action: "Ihre Verbindungen öffnen",
+      subject: "Ein Konto braucht eine neue Anmeldung",
+      line: "Eines Ihrer verbundenen Tools funktioniert nicht mehr. Melden Sie sich neu an, damit Ihre Agenten weiterarbeiten.",
+      action: "Ihre Konten öffnen",
     },
     credits: {
       subject: (b, x) =>
@@ -290,8 +290,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Ein Agent wartet auf Ihre Freigabe für den Start",
-      line: "Sehen Sie, was er in der Testphase getan hat, und geben Sie ihn auf Ihrem Schreibtisch frei.",
-      action: "Ihren Schreibtisch öffnen",
+      line: "Sehen Sie, was er in der Testphase getan hat, und geben Sie ihn in Ihrem Posteingang frei.",
+      action: "Posteingang öffnen",
     },
     footer:
       "Diese E-Mail kommt von Mezonas. Welche E-Mails Sie bekommen, wählen Sie in Ihren Einstellungen.",

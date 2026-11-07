@@ -80,7 +80,7 @@ function setup(
         {
           id: ITEM,
           kind: "review",
-          title: "Add Lisa Park as a signer",
+          title: "Add Lisa Park as an approver",
           payload: {
             accountChange: {
               now: ["Only Dana signs."],
@@ -100,7 +100,12 @@ function setup(
     [`POST /api/account-changes/${ITEM}/resolve`]: ({ init }) => {
       resolves.push(JSON.parse(String(init.body)));
       return {
-        item: { id: ITEM, title: "Add Lisa Park as a signer", status: "resolved", approved: true },
+        item: {
+          id: ITEM,
+          title: "Add Lisa Park as an approver",
+          status: "resolved",
+          approved: true,
+        },
         applied: { kind: "add_signer", userId: "u2", contactId: null },
       };
     },
@@ -147,7 +152,7 @@ describe("Sloan", () => {
   it("signs a change Sloan drafted through its own route", async () => {
     const { resolves } = setup();
     const changes = await screen.findByTestId("portal-sloan-changes");
-    expect(changes).toHaveTextContent("Add Lisa Park as a signer");
+    expect(changes).toHaveTextContent("Add Lisa Park as an approver");
     expect(changes).toHaveTextContent("Lisa signs bills under $2,000.");
     await userEvent.click(within(changes).getByTestId("inbox-item-approve"));
     await waitFor(() => expect(resolves).toEqual([{ decision: "approve" }]));

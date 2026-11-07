@@ -144,7 +144,9 @@ const ACCESS = {
       name: "QuickBooks Online",
       kind: "oauth",
       status: "active",
-      externalAccountId: null,
+      // A QuickBooks realm id: never shown to the client; the company name is.
+      externalAccountId: "9341455130122716",
+      accountName: "Harbor Millwork",
       secret: { set: true, fields: [], updatedAt: null },
       credentialForm: false,
       matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
@@ -311,11 +313,13 @@ describe("the agent page", () => {
     // Access: what it can reach, verb by verb; changes are made on Accounts.
     await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Access" }));
     const reach = await screen.findByTestId(`agent-reach-${QBO}`);
+    expect(reach).toHaveTextContent("QuickBooks Online · Harbor Millwork");
+    expect(reach).not.toHaveTextContent("9341455130122716");
     expect(within(reach).getByTestId(`agent-reach-${QBO}-read`)).toHaveTextContent(
       "Read: on its own",
     );
     expect(within(reach).getByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Update: needs approval",
+      "Update: needs your approval",
     );
     expect(within(reach).getByTestId(`agent-reach-${QBO}-delete`)).toHaveTextContent("Delete: off");
     expect(
@@ -615,7 +619,7 @@ describe("the agent page", () => {
     renderAt(`/agents/${SVC}/access`, api);
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Arbeitet"));
     expect(await screen.findByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Ändern: braucht Freigabe",
+      "Ändern: braucht Ihre Freigabe",
     );
     expect(
       within(screen.getByRole("main")).getByRole("link", { name: "Abläufe" }),

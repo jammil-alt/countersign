@@ -22,7 +22,7 @@ const ciphers = new Map<string, Promise<CredentialCipher>>();
 /** The deployment's cipher; 503 when ENCRYPTION_KEY is not set (nothing secret can be stored). */
 export function cipherFor(env: Pick<Bindings, "ENCRYPTION_KEY" | "ENCRYPTION_KEY_PREVIOUS">) {
   if (!env.ENCRYPTION_KEY) {
-    throw new HttpError(503, "not_configured", "connection credentials can't be stored here yet");
+    throw new HttpError(503, "not_configured", "account logins can't be stored here yet");
   }
   const cacheKey = `${env.ENCRYPTION_KEY}|${env.ENCRYPTION_KEY_PREVIOUS ?? ""}`;
   let c = ciphers.get(cacheKey);

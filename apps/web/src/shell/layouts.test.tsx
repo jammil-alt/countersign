@@ -245,6 +245,7 @@ describe("portal layout", () => {
     expect(
       within(within(nav).getByTestId("portal-nav-inbox")).getByTestId("count-slot"),
     ).toBeTruthy();
+    // The top bar's Inbox keeps its count's place too.
     expect(within(screen.getByTestId("shell-inbox")).getByTestId("count-slot")).toBeTruthy();
 
     answer(overview([{ ...service(SERVICE, "Material costs"), stage: "live" }], 1));

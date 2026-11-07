@@ -26,7 +26,7 @@ import {
   PageHeader,
 } from "../../ui/primitives";
 import { useRefreshInboxCount } from "../inboxCount";
-import { askSloan } from "../paths";
+import { askSloan, PORTAL_PATHS } from "../paths";
 
 const VIEWS = ["waiting", "done"] as const;
 type View = (typeof VIEWS)[number];
@@ -261,9 +261,9 @@ export function PortalInboxScreen() {
       </div>
 
       {/* Phone: the list, then the open item. Wide: the list on the left, the open item on the
-          right. */}
-      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)] lg:items-start">
-        <div className="flex min-w-0 flex-col gap-5">
+          right with most of the width (its before and after tables need it). */}
+      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-3">
           <Card testId="desk-list">
             {state.error && !state.data ? (
               <div className="p-4">
@@ -306,6 +306,13 @@ export function PortalInboxScreen() {
               </>
             )}
           </Card>
+          <Link
+            to={PORTAL_PATHS.approvals}
+            className="self-start text-sm text-link hover:underline"
+            data-testid="desk-approval-settings"
+          >
+            {t("desk.approvalSettings")}
+          </Link>
         </div>
 
         <div ref={detailRef} className="flex min-w-0 flex-col gap-5">

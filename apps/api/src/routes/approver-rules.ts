@@ -266,7 +266,11 @@ export async function save(
         ),
       );
     if (viewers.length > 0) {
-      throw new HttpError(422, "not_a_signer", "a rule names someone who doesn't sign (a viewer)");
+      throw new HttpError(
+        422,
+        "not_a_signer",
+        "a rule names someone who doesn't approve (a viewer)",
+      );
     }
   }
   const [who, agents] = await Promise.all([

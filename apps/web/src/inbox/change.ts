@@ -159,18 +159,34 @@ function asNames(v: unknown): Names {
 }
 
 /**
- * What a line is booked to, as text: a `{ id, name }` ref by name, an id by the name the before
- * state keeps for it. An id with no name known reads as nothing ("—"), never "#20".
+ * What a line is booked to: a `{ id, name }` ref by name, or an id by the name the before state
+ * (or the server, from synced records) keeps for it. An id nobody names is `{ id }`.
  */
-// DECISION: a bare id is not shown to people (UI cleanup decision 3); when the tool couldn't
-// name an item or account, the line still reads by its description and amount.
-function refText(v: unknown, known: Record<string, string> | undefined): string | null {
+function refText(
+  v: unknown,
+  known: Record<string, string> | undefined,
+): { name: string } | { id: string } | null {
   if (v === null || v === undefined) return null;
   const name = refName(v);
-  if (name !== null) return name;
+  if (name !== null) return { name };
   const id = isPlainObject(v) ? str(v.id) : str(v);
   if (id === null) return null;
-  return known?.[id] ?? null;
+  const named = known?.[id];
+  return named === undefined ? { id } : { name: named };
+}
+
+/** How a card treats ids: names from the server, and whether an unnamed id shows at all. */
+export interface ChangeOptions {
+  /** Show an id no one names as "#20" (the back office). Default: never (a client's card). */
+  showIds?: boolean;
+  /** Names the server found for ids the before state leaves unnamed (ChangeDisplayView `names`). */
+  names?: Record<string, Record<string, string>> | undefined;
+}
+
+/** The before state's names over the server's (`over` wins). */
+function mergeNames(under: Names, over: Names): Names {
+  const lists = new Set([...Object.keys(under), ...Object.keys(over)]);
+  return Object.fromEntries([...lists].map((l) => [l, { ...under[l], ...over[l] }]));
 }
 
 function itemView(
@@ -178,14 +194,24 @@ function itemView(
   cols: DisplayColumns,
   names: Names,
   marked: boolean,
+  showIds: boolean,
 ): ItemView | null {
   if (!isPlainObject(raw)) return null;
   const at = (k: string | undefined) => (k === undefined ? undefined : raw[k]);
+  // The first ref with a name wins; an unnamed id is only the last resort.
   let ref: string | null = null;
+  let bare: string | null = null;
   for (const r of cols.refs ?? []) {
-    ref = refText(raw[r.key], r.names === undefined ? undefined : names[r.names]);
-    if (ref !== null) break;
+    const got = refText(raw[r.key], r.names === undefined ? undefined : names[r.names]);
+    if (got === null) continue;
+    if ("name" in got) {
+      ref = got.name;
+      break;
+    }
+    bare ??= got.id;
   }
+  // DECISION (QA round 1): a client never reads a bare id; the back office keeps "#20".
+  if (ref === null && bare !== null && showIds) ref = `#${bare}`;
   const size = at(cols.size);
   return {
     description: str(at(cols.description)),
@@ -252,6 +278,7 @@ function declaredField(
   ctx: { before: unknown; input: unknown },
   names: Names,
   locale: Locale,
+  showIds: boolean,
 ): ChangeField | null {
   const key = lastPart(field.now ?? field.after, `field${index}`);
   const label = pickLocalized(field.label, locale);
@@ -270,7 +297,7 @@ function declaredField(
         const id = idOf(raw);
         // Without `adds`, a change that sets the list replaces every item.
         const goes = field.after !== undefined && (!field.adds || (id !== null && removed.has(id)));
-        return itemView(raw, cols, names, goes);
+        return itemView(raw, cols, names, goes, showIds);
       })
       .filter((x): x is ItemView => x !== null);
     const afterItems =
@@ -283,9 +310,9 @@ function declaredField(
                     const id = idOf(raw);
                     return id === null || !removed.has(id);
                   })
-                  .map((raw) => itemView(raw, cols, names, false))
+                  .map((raw) => itemView(raw, cols, names, false, showIds))
               : []),
-            ...listOf(afterRaw).map((raw) => itemView(raw, cols, names, true)),
+            ...listOf(afterRaw).map((raw) => itemView(raw, cols, names, true, showIds)),
           ].filter((x): x is ItemView => x !== null);
     const side = (items: ItemView[]): ChangeValue =>
       field.kind === "lines"
@@ -368,13 +395,15 @@ export function changeModel(
   before: unknown,
   input: unknown,
   locale: Locale = "en",
+  options: ChangeOptions = {},
 ): ChangeModel {
   const create = isCreate(before);
   if (!display) return { fields: genericFields(before, input), create };
   const ctx = { before, input };
-  const names = asNames(changeValue(ctx, display.names));
+  const names = mergeNames(asNames(options.names), asNames(changeValue(ctx, display.names)));
+  const showIds = options.showIds === true;
   const fields = display.fields
-    .map((f, i) => declaredField(f, i, ctx, names, locale))
+    .map((f, i) => declaredField(f, i, ctx, names, locale, showIds))
     .filter((f): f is ChangeField => f !== null);
   return { fields, create };
 }

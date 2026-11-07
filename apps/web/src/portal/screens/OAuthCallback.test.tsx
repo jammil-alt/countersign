@@ -1,5 +1,5 @@
 // The page a tool's sign-in returns to: it passes the provider's parameters to the API once, then
-// goes back to Connections; a refusal stays on the page with a way back.
+// goes back to Accounts; a refusal stays on the page with a way back.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -46,7 +46,7 @@ function renderAt(path: string, reply: () => unknown) {
 }
 
 describe("OAuthCallbackScreen", () => {
-  it("sends the provider's parameters once, then returns to Connections", async () => {
+  it("sends the provider's parameters once, then returns to Accounts", async () => {
     const { sent } = renderAt(
       "/connections/zoho_crm/callback?code=abc&state=s1&location=eu&accounts-server=https%3A%2F%2Faccounts.zoho.eu",
       () => CONNECTED,
@@ -87,7 +87,7 @@ describe("OAuthCallbackScreen", () => {
     expect(await screen.findByText(/invalid OAuth state/)).toBeInTheDocument();
     expect(sent.map((s) => s.connector)).toEqual(["podio"]);
     expect(screen.queryByText("connections page")).toBeNull();
-    await user.click(screen.getByRole("link", { name: "Back to Connections" }));
+    await user.click(screen.getByRole("link", { name: "Back to Accounts" }));
     expect(await screen.findByText("connections page")).toBeInTheDocument();
   });
 

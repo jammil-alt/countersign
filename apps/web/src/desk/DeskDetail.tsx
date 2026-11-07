@@ -50,7 +50,7 @@ import {
 } from "./model";
 import { DeskWorksheet } from "./Worksheet";
 
-/** What this person did on the card, for its words after ("Signed by you"). */
+/** What this person did on the card, for its words after ("Approved by you"). */
 type Decision = "signed" | "rejected" | "answered" | "declined" | "done" | "snoozed";
 
 /** Payload keys the Desk shows in its own way, never as a raw fact. */
@@ -471,6 +471,7 @@ function ItemBody({
           before={item.payload.before}
           input={signedInput(item.payload)}
           display={item.display?.tool}
+          names={item.display?.names}
         />
       </div>
     );
@@ -572,6 +573,7 @@ function BatchList({
                       before={item.payload.before}
                       input={signedInput(item.payload)}
                       display={item.display?.tool}
+                      names={item.display?.names}
                     />
                   </div>
                 </details>

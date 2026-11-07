@@ -107,16 +107,19 @@ describe("portal settings in Spanish", () => {
         client: { id: DEMO, name: "Demo client", timezone: "UTC" },
         approvals: "client_admin",
         notifications: { itemsWaiting: true, weeklyDigest: false },
-        emailsOn: false,
+        emailsOn: true,
+      }),
+      "GET /api/settings/my-notifications": () => ({
+        email: true,
+        sms: false,
+        canText: false,
+        emailsOn: true,
       }),
     });
     renderAt("/settings", api);
     expect(await screen.findByRole("heading", { name: "Ajustes" })).toBeInTheDocument();
     const emails = await screen.findByTestId("portal-settings-notifications");
     expect(emails).toHaveTextContent("Resumen semanal");
-    expect(within(emails).getByTestId("portal-notifications-off")).toHaveTextContent(
-      "Los correos llegarán pronto",
-    );
     expect(within(emails).getByTestId("portal-notifications-save")).toHaveTextContent("Guardar");
     await userEvent.click(screen.getByRole("link", { name: "Aprobaciones" }));
     expect(await screen.findByTestId("portal-settings-approvals")).toHaveTextContent(
@@ -840,7 +843,7 @@ describe("the access page in Spanish and German", () => {
       "de",
       "Konten",
       "Geheimnis gespeichert",
-      "Alle Werkzeuge",
+      "Alle Tools",
       "Verschärfen",
       "Ana Ruiz gibt es mit einem Code per SMS frei, für 4 Stunden.",
     ],

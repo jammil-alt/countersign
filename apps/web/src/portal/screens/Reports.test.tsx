@@ -133,7 +133,7 @@ describe("portal reports", () => {
     expect(packReportPath(prices)).toBe("/reports/materials/prices");
   });
 
-  it("says when there are no services yet", async () => {
+  it("says when there are no agents yet", async () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => new Reply(404, {}),

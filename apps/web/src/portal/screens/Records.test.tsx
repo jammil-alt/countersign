@@ -107,8 +107,40 @@ describe("portal records list", () => {
     expect(row).toHaveTextContent("Northline Panel Supply");
     expect(row).toHaveTextContent("20418");
     expect(row).toHaveTextContent("$9,742.35");
-    expect(row).toHaveTextContent("Harbor Millwork");
+    // One account: named once above the table, not on every row.
+    expect(row).not.toHaveTextContent("Harbor Millwork");
+    expect(screen.getByTestId("portal-records-account")).toHaveTextContent("From Harbor Millwork");
     expect(within(row).getByRole("link")).toHaveAttribute("href", `/records/${TXN}`);
+  });
+
+  it("names each row's account when records come from more than one", async () => {
+    const two = {
+      ...transactions,
+      sources: [
+        ...base.sources,
+        {
+          ...base.sources[0],
+          id: "00000000-0000-4000-8000-0000000b700a",
+          accountName: "Second Co",
+        },
+      ],
+    };
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/records": () => two,
+    });
+    render(
+      <MemoryRouter initialEntries={["/records"]}>
+        <AppProviders client={api.client}>
+          <Routes>
+            <Route path="/records" element={<PortalRecordsScreen />} />
+          </Routes>
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const row = await screen.findByTestId(`portal-records-row-${TXN}`);
+    expect(row).toHaveTextContent("Harbor Millwork");
+    expect(screen.queryByTestId("portal-records-account")).toBeNull();
   });
 
   it("switches to vendors and searches", async () => {
@@ -176,6 +208,7 @@ describe("portal records list", () => {
     // No route serves one receivable yet: its row opens nothing.
     expect(within(table).queryByRole("link")).toBeNull();
     expect(screen.getByRole("link", { name: /Receivables/ })).toHaveTextContent("2");
-    expect(screen.getByTestId("portal-records-upload")).toHaveAttribute("href", "/upload");
+    // Uploading is on Home ("Add documents") and on the agents that read documents.
+    expect(screen.queryByTestId("portal-records-upload")).toBeNull();
   });
 });

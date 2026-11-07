@@ -38,7 +38,7 @@ function team(canSign = true) {
         canSign,
         signs: canSign
           ? ["Every change no rule sends to someone else."]
-          : ["Sees everything, signs nothing."],
+          : ["Sees everything, approves nothing."],
       },
     ],
     settings: { undoSeconds: 60 },
@@ -124,7 +124,7 @@ describe("The Inbox: a QuickBooks change", () => {
     );
     expect(screen.queryByTestId("desk-team")).toBeNull();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Inbox");
-    expect(entry).toHaveTextContent("Approve");
+    expect(entry).toHaveTextContent("Needs your approval");
     expect(entry).toHaveTextContent("QuickBooks bill 20418 · Northline Panel Supply");
 
     const card = await screen.findByTestId("desk-detail");
@@ -135,7 +135,7 @@ describe("The Inbox: a QuickBooks change", () => {
     expect(within(card).getByTestId("desk-description")).toHaveTextContent(
       "Replace the bill's lines with the items on the vendor's invoice. The total stays the same.",
     );
-    expect(within(card).getByTestId("change-same-now-row-total")).toHaveTextContent("$9,742.35");
+    expect(within(card).getByTestId("change-unchanged-total")).toHaveTextContent("$9,742.35");
     const after = within(card).getByTestId("change-lines-after");
     expect(within(after).getByTestId("change-lines-after-item-0")).toHaveTextContent(
       "Baltic birch 3/4 4x8",
@@ -154,7 +154,7 @@ describe("The Inbox: a QuickBooks change", () => {
       expect(text).not.toContain(hidden);
     }
 
-    const count = screen.getByTestId("shell-inbox");
+    const count = screen.getByTestId("portal-nav-inbox");
     await waitFor(() => expect(count).toHaveTextContent("1"));
 
     const sign = within(card).getByTestId("desk-sign");
@@ -187,7 +187,7 @@ describe("The Inbox: a QuickBooks change", () => {
     expect(within(card).getByRole("heading", { level: 2 })).toHaveTextContent(
       "Factura de QuickBooks 20418 · Northline Panel Supply",
     );
-    expect(within(card).getByTestId("change-same-now-row-total")).toHaveTextContent("9742,35");
+    expect(within(card).getByTestId("change-unchanged-total")).toHaveTextContent("9742,35");
     expect(within(card).getByTestId("desk-sign")).toHaveTextContent(
       "Aprobar y actualizar QuickBooks Online",
     );
@@ -441,7 +441,7 @@ describe("portal header: the Inbox count", () => {
       "GET /api/inbox": inbox(() => ({ open: count > 0 ? [ITEM] : [] })),
     });
     renderAt("/", api);
-    const desk = await screen.findByTestId("shell-inbox");
+    const desk = await screen.findByTestId("portal-nav-inbox");
     await waitFor(() => expect(desk).toHaveTextContent("0"));
 
     // The Bill clerk proposes the change while the client has the portal open.

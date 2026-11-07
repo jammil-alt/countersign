@@ -27,7 +27,7 @@ export interface AccountWords {
   };
   /** Not on the team yet. */
   notOnTeam(name: string): string;
-  /** On the team, and whether they sign. */
+  /** On the team, and whether they approve. */
   onTeam(name: string, signs: boolean): string;
   joins(name: string, signs: boolean): string;
   /** "<rule> → <who>". */
@@ -65,15 +65,19 @@ const EN: Labels = {
 export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
   en: {
     title: {
-      addSigner: (n) => `Add ${n} as a signer`,
+      addSigner: (n) => `Add ${n} as an approver`,
       editPerson: (n) => `Update ${n}'s details`,
       changeContact: (n) => `Change how we reach ${n}`,
     },
     notOnTeam: (n) => `${n} is not on your team.`,
     onTeam: (n, s) =>
-      s ? `${n} is on your team and signs.` : `${n} is on your team and signs nothing.`,
+      s
+        ? `${n} is on your team and approves changes.`
+        : `${n} is on your team and approves nothing.`,
     joins: (n, s) =>
-      s ? `${n} joins your team and signs.` : `${n} joins your team and signs nothing.`,
+      s
+        ? `${n} joins your team and approves changes.`
+        : `${n} joins your team and approves nothing.`,
     signs: (r, w) => `${r} → ${w}`,
     admins: "your admins",
     field: field(EN),
@@ -82,15 +86,17 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
   },
   es: {
     title: {
-      addSigner: (n) => `Agregar a ${n} como firmante`,
+      addSigner: (n) => `Agregar a ${n} como aprobador`,
       editPerson: (n) => `Actualizar los datos de ${n}`,
       changeContact: (n) => `Cambiar cómo contactamos a ${n}`,
     },
     notOnTeam: (n) => `${n} no está en su equipo.`,
     onTeam: (n, s) =>
-      s ? `${n} está en su equipo y firma.` : `${n} está en su equipo y no firma nada.`,
+      s ? `${n} está en su equipo y aprueba cambios.` : `${n} está en su equipo y no aprueba nada.`,
     joins: (n, s) =>
-      s ? `${n} se une a su equipo y firma.` : `${n} se une a su equipo y no firma nada.`,
+      s
+        ? `${n} se une a su equipo y aprueba cambios.`
+        : `${n} se une a su equipo y no aprueba nada.`,
     signs: (r, w) => `${r} → ${w}`,
     admins: "sus administradores",
     field: field({
@@ -113,17 +119,19 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
   },
   fr: {
     title: {
-      addSigner: (n) => `Ajouter ${n} comme signataire`,
+      addSigner: (n) => `Ajouter ${n} comme approbateur`,
       editPerson: (n) => `Mettre à jour les informations de ${n}`,
       changeContact: (n) => `Changer comment nous joignons ${n}`,
     },
     notOnTeam: (n) => `${n} ne fait pas partie de votre équipe.`,
     onTeam: (n, s) =>
       s
-        ? `${n} fait partie de votre équipe et signe.`
-        : `${n} fait partie de votre équipe et ne signe rien.`,
+        ? `${n} fait partie de votre équipe et approuve les modifications.`
+        : `${n} fait partie de votre équipe et n'approuve rien.`,
     joins: (n, s) =>
-      s ? `${n} rejoint votre équipe et signe.` : `${n} rejoint votre équipe et ne signe rien.`,
+      s
+        ? `${n} rejoint votre équipe et approuve les modifications.`
+        : `${n} rejoint votre équipe et n'approuve rien.`,
     signs: (r, w) => `${r} → ${w}`,
     admins: "vos administrateurs",
     field: field({
@@ -146,15 +154,19 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
   },
   "pt-BR": {
     title: {
-      addSigner: (n) => `Adicionar ${n} como signatário`,
+      addSigner: (n) => `Adicionar ${n} como aprovador`,
       editPerson: (n) => `Atualizar os dados de ${n}`,
       changeContact: (n) => `Mudar como falamos com ${n}`,
     },
     notOnTeam: (n) => `${n} não está na sua equipe.`,
     onTeam: (n, s) =>
-      s ? `${n} está na sua equipe e assina.` : `${n} está na sua equipe e não assina nada.`,
+      s
+        ? `${n} está na sua equipe e aprova alterações.`
+        : `${n} está na sua equipe e não aprova nada.`,
     joins: (n, s) =>
-      s ? `${n} entra na sua equipe e assina.` : `${n} entra na sua equipe e não assina nada.`,
+      s
+        ? `${n} entra na sua equipe e aprova alterações.`
+        : `${n} entra na sua equipe e não aprova nada.`,
     signs: (r, w) => `${r} → ${w}`,
     admins: "seus administradores",
     field: field({
@@ -177,15 +189,19 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
   },
   it: {
     title: {
-      addSigner: (n) => `Aggiungere ${n} come firmatario`,
+      addSigner: (n) => `Aggiungere ${n} come approvatore`,
       editPerson: (n) => `Aggiornare i dati di ${n}`,
       changeContact: (n) => `Cambiare come contattiamo ${n}`,
     },
     notOnTeam: (n) => `${n} non fa parte del suo team.`,
     onTeam: (n, s) =>
-      s ? `${n} fa parte del suo team e firma.` : `${n} fa parte del suo team e non firma nulla.`,
+      s
+        ? `${n} fa parte del suo team e approva le modifiche.`
+        : `${n} fa parte del suo team e non approva nulla.`,
     joins: (n, s) =>
-      s ? `${n} entra nel suo team e firma.` : `${n} entra nel suo team e non firma nulla.`,
+      s
+        ? `${n} entra nel suo team e approva le modifiche.`
+        : `${n} entra nel suo team e non approva nulla.`,
     signs: (r, w) => `${r} → ${w}`,
     admins: "i suoi amministratori",
     field: field({
@@ -208,19 +224,19 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
   },
   de: {
     title: {
-      addSigner: (n) => `${n} als Unterzeichner hinzufügen`,
+      addSigner: (n) => `${n} als freigebende Person hinzufügen`,
       editPerson: (n) => `Angaben von ${n} aktualisieren`,
       changeContact: (n) => `Ändern, wie wir ${n} erreichen`,
     },
     notOnTeam: (n) => `${n} ist nicht in Ihrem Team.`,
     onTeam: (n, s) =>
       s
-        ? `${n} ist in Ihrem Team und unterschreibt.`
-        : `${n} ist in Ihrem Team und unterschreibt nichts.`,
+        ? `${n} ist in Ihrem Team und gibt Änderungen frei.`
+        : `${n} ist in Ihrem Team und gibt nichts frei.`,
     joins: (n, s) =>
       s
-        ? `${n} kommt in Ihr Team und unterschreibt.`
-        : `${n} kommt in Ihr Team und unterschreibt nichts.`,
+        ? `${n} kommt in Ihr Team und gibt Änderungen frei.`
+        : `${n} kommt in Ihr Team und gibt nichts frei.`,
     signs: (r, w) => `${r} → ${w}`,
     admins: "Ihre Administratoren",
     field: field({

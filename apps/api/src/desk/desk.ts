@@ -82,7 +82,11 @@ async function lockItem(tx: Tx, tenantId: string, itemId: string): Promise<Inbox
 async function signer(tx: Tx, tenantId: string, by: Approver): Promise<Approver> {
   const who = await withCanSign(tx, tenantId, by);
   if (who.canSign === false) {
-    throw new HttpError(403, "cannot_sign", "you can see this, but you don't sign for your team");
+    throw new HttpError(
+      403,
+      "cannot_sign",
+      "you can see this, but you don't approve for your team",
+    );
   }
   return who;
 }
@@ -135,7 +139,7 @@ export async function undoItem(
     throw new HttpError(
       403,
       "not_signer",
-      "only the person who signed, or the client admin, can undo",
+      "only the person who approved, or the client admin, can undo",
     );
   }
   const [live] = await tx
@@ -273,7 +277,7 @@ export async function editItem(
     throw new HttpError(409, "not_a_change", "only a drafted change can be edited");
   }
   if (item.status !== "open") {
-    throw new HttpError(409, "already_resolved", "this change was already signed or rejected");
+    throw new HttpError(409, "already_resolved", "this change was already approved or rejected");
   }
   if (!mayResolve(item, by)) {
     throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
