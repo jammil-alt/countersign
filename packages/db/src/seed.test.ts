@@ -57,7 +57,7 @@ describe("seed files", () => {
   it("hold the supervisor's v2, Sloan: the three watch workflows unchanged plus chat", async () => {
     const [v1] = (await loadSeedTemplates()).filter((t) => t.slug === "supervisor");
     const later = await loadSeedVersions();
-    expect(later.map((v) => `${v.slug}.v${v.version}`)).toEqual(["supervisor.v2"]);
+    expect(later.map((v) => `${v.slug}.v${v.version}`)).toEqual(["supervisor.v2", "supervisor.v3"]);
     const v2 = later[0];
     if (!v1 || !v2) throw new Error("no supervisor seed");
     expect(v2.bundle.definition.identity.name).toBe("Sloan");
@@ -69,6 +69,37 @@ describe("seed files", () => {
     const chat = v2.bundle.workflows.find((w) => w.slug === "chat")?.workflow;
     expect(chat?.trigger.on).toMatchObject({ type: "event", event: "thread.message_posted" });
     expect(chat?.steps).toMatchObject([{ kind: "skill", skill: "account.chat" }]);
+  });
+
+  // ARCHITECTURE §10.11, docs/plan.md §1.54 "Sloan".
+  it("hold the supervisor's v3: a failed run's own diagnosis is reported without a triage", async () => {
+    const later = await loadSeedVersions();
+    const v2 = later.find((v) => v.slug === "supervisor" && v.version === 2);
+    const v3 = later.find((v) => v.slug === "supervisor" && v.version === 3);
+    if (!v2 || !v3) throw new Error("no supervisor seed");
+    // Only the failed-run workflow changes.
+    expect(v3.bundle.definition).toEqual(v2.bundle.definition);
+    for (const w of v2.bundle.workflows.filter((x) => x.slug !== "run-failed")) {
+      expect(v3.bundle.workflows.find((x) => x.slug === w.slug)).toEqual(w);
+    }
+    const before = v2.bundle.workflows.find((w) => w.slug === "run-failed")?.workflow;
+    const after = v3.bundle.workflows.find((w) => w.slug === "run-failed")?.workflow;
+    expect(after?.trigger).toEqual(before?.trigger);
+    const [fork] = after?.steps ?? [];
+    if (fork?.kind !== "fork") throw new Error("no fork");
+    expect(fork.paths).toMatchObject([
+      {
+        when: { match: "all", rules: [{ field: "{{trigger.diagnosis}}", op: "exists" }] },
+        steps: [
+          {
+            skill: "supervisor.report",
+            input: { event: "run.failed", facts: "{{trigger}}", note: "{{trigger.diagnosis}}" },
+          },
+        ],
+      },
+    ]);
+    // Without a diagnosis, v2's two steps run as they were, same ids.
+    expect(fork.otherwise.steps).toEqual(before?.steps);
   });
 });
 
@@ -98,7 +129,7 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 6 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 7 });
     expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
@@ -107,6 +138,7 @@ describe.skipIf(!online)("seed", () => {
 
     const templates = await t.db
       .select({
+        id: agent.id,
         slug: agent.slug,
         kind: agent.kind,
         live: agent.liveVersionId,
@@ -127,18 +159,22 @@ describe.skipIf(!online)("seed", () => {
     for (const r of templates) {
       expect(r.kind).toBe("template");
       expect(r.tenantId).toBeNull();
-      // v0.12 W2-D: the supervisor's live version is its seeded v2 (Sloan); v1 is retired.
+      // The supervisor's live version is its last seeded one, v3 (Sloan, v0.13), whose parent is
+      // v2; v1 and v2 are retired.
       if (r.slug === "supervisor") {
         const live = versions.find((v) => v.id === r.live);
-        expect(live?.version).toBe(2);
-        expect(live?.parentVersionId).toBe(supervisor?.versionId);
+        expect(live?.version).toBe(3);
+        const v2 = versions.find((v) => v.agentId === r.id && v.version === 2);
+        expect(v2?.parentVersionId).toBe(supervisor?.versionId);
+        expect(live?.parentVersionId).toBe(v2?.id);
       } else {
         expect(r.live).toBe(first.templates[r.slug]?.versionId);
       }
     }
 
+    const supervisorRow = templates.find((r) => r.slug === "supervisor");
     for (const v of versions) {
-      const retired = v.id === supervisor?.versionId;
+      const retired = v.agentId === supervisorRow?.id && v.id !== supervisorRow?.live;
       expect(v.status).toBe(retired ? "retired" : "live");
       expect(validateBundle(v.bundle).valid).toBe(true);
       expect(v.bundleHash).toBe(await bundleHash(v.bundle));

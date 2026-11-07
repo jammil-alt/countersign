@@ -20,6 +20,7 @@ import coordinatorV1 from "@countersign/db/seed/agents/coordinator.v1.json";
 import documentClerkV1 from "@countersign/db/seed/agents/document-clerk.v1.json";
 import supervisorV1 from "@countersign/db/seed/agents/supervisor.v1.json";
 import supervisorV2 from "@countersign/db/seed/agents/supervisor.v2.json";
+import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
 import { and, eq, isNull } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import type { Platform } from "../platform";
@@ -30,7 +31,7 @@ const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
   builder: { 1: builderV1 },
   coordinator: { 1: coordinatorV1 },
   "document-clerk": { 1: documentClerkV1 },
-  supervisor: { 1: supervisorV1, 2: supervisorV2 },
+  supervisor: { 1: supervisorV1, 2: supervisorV2, 3: supervisorV3 },
 };
 
 function seeded(slug: string, version: number): unknown {
