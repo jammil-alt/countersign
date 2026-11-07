@@ -75,7 +75,7 @@ describe("what a run waits on", () => {
   });
 
   it("says on whom, since when and for how long, in one line every place uses", () => {
-    const wait = runWaiting([item()], new Date("2026-11-06T22:00:00.000Z"));
+    const wait = runWaiting([item()], null, new Date("2026-11-06T22:00:00.000Z"));
     expect(wait).toMatchObject({
       line: "Waiting for approval · client admin",
       since: "2026-11-05T07:00:00.000Z",
@@ -99,5 +99,26 @@ describe("what a run waits on", () => {
     expect(wait?.since).toBe("2026-11-05T07:00:00.000Z");
     expect(runWaiting([item({ status: "resolved" })])).toBeNull();
     expect(runWaiting([item({ assigneeRole: "client_user" })])?.who).toBe("client's team");
+  });
+
+  it("reads who and since when from the API's wait (core's run state)", () => {
+    const wait = runWaiting(
+      [item({ assigneeUserId: "u1", createdAt: "2026-11-05T09:00:00.000Z" })],
+      {
+        on: "person",
+        person: "Ana Ruiz",
+        since: "2026-11-05T07:00:00.000Z",
+        items: 1,
+        nobodyToAct: "not_signed_in",
+        emailOff: true,
+      },
+      new Date("2026-11-06T22:00:00.000Z"),
+    );
+    expect(wait).toMatchObject({
+      line: "Waiting for approval · Ana Ruiz",
+      since: "2026-11-05T07:00:00.000Z",
+      waited: "39 h",
+      nobodyToAct: "not_signed_in",
+    });
   });
 });

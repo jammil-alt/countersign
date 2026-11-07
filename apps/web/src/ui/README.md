@@ -26,6 +26,12 @@ In the client portal every run and agent goes through the one status model in
 the client is never Running, whatever its stored status) and `agentChip` (Working, Waiting on you,
 Ready, Paused, Setting up). `workedMs` is a run's "Took": its time less the time it waited on you.
 
+In the back office every run goes through `runChip(run)` in `../ops/run/words.ts` (pass the run, with
+its `waiting`, not its status): a run waiting on a person reads "Waiting for approval · client admin"
+(or a named person, or "us"), never Running. `waitLine` adds how long, `NOBODY_TO_ACT_WORDS` why
+nobody can approve, and `runErrorLine` a failed run's reason at its step's name. Both surfaces derive
+the state from core's `runState` (`packages/core/src/api/run-state.ts`).
+
 ## Layout (`page.tsx`)
 
 - `Page` — a page's column (1200px, sections 32px apart); `width="narrow"` for forms.

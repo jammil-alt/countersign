@@ -1,9 +1,10 @@
-// What a run waits on, from what the run detail serves (its open inbox items): one reading for the
-// run page's top block, its status chip, the Timeline's waiting step and the Changes tab, so they
-// all say the same thing ("Waiting for approval · client admin").
-// DECISION: derived here from the run's open items until the runs list's derived "Waiting for
-// approval" state (UI cleanup stream A) serves who a run waits on; then this reads that instead.
-import { age } from "./words";
+// What a run waits on, for the run page's top block, its status chip, the Timeline's waiting step
+// and the Changes tab, so they all say the same thing ("Waiting for approval · client admin").
+// One source of truth: who waits and since when come from the API's `run.waiting` (core's
+// `runWaitOf`, packages/core/src/api/run-state.ts) and core's `waitOn`; this file only adds what
+// the page needs to act: which open item to answer first and whether we may.
+import { type NobodyToAct, type RunWait as ServerWait, waitOn } from "@countersign/core";
+import { age, waitOnWords } from "./words";
 
 export interface WaitingItem {
   id: string;
@@ -18,11 +19,11 @@ export interface WaitingItem {
 export interface RunWait<I extends WaitingItem = WaitingItem> {
   /** "Waiting for approval", "Waiting for an answer". */
   what: string;
-  /** Who must act: "you", "client admin", "client's team", "a named person at the client". */
+  /** Who must act: "you", "client admin", "client's team", a named person, "us". */
   who: string;
   /** "Waiting for approval · client admin". */
   line: string;
-  /** When the oldest open item was raised. */
+  /** When the run started waiting: the oldest open item. */
   since: string;
   /** "39 h", "3 days". */
   waited: string;
@@ -32,20 +33,14 @@ export interface RunWait<I extends WaitingItem = WaitingItem> {
   mine: boolean;
   /** Every open item of the run. */
   items: I[];
+  /** Why nobody can act on it, when that's so (from the API). */
+  nobodyToAct: NobodyToAct | null;
 }
 
-/** Who an item waits on, in the back office's words. */
-export function waitingOn(item: WaitingItem): string {
+/** Who an item waits on, in the back office's words ("you" when we may answer it). */
+export function waitingOn(item: WaitingItem, person: string | null = null): string {
   if (item.resolvableByOperator) return "you";
-  if (item.assigneeUserId) return "a named person at the client";
-  switch (item.assigneeRole) {
-    case "client_user":
-      return "client's team";
-    case "operator":
-      return "us";
-    default:
-      return "client admin";
-  }
+  return waitOnWords({ on: waitOn(item), person });
 }
 
 /** "Waiting for approval" for a change or an approval; "Waiting for an answer" for a question. */
@@ -55,9 +50,13 @@ export function waitingWhat(kind: string): string {
     : "Waiting for an answer";
 }
 
-/** The run's wait, or null when nothing of it is open. */
+/**
+ * The run's wait, or null when nothing of it is open. `server` is the run's `waiting` from the API:
+ * when given, its time, named person and "nobody can act" are used.
+ */
 export function runWaiting<I extends WaitingItem>(
   items: readonly I[],
+  server: ServerWait | null | undefined = null,
   now: Date = new Date(),
 ): RunWait<I> | null {
   const open = items
@@ -67,15 +66,17 @@ export function runWaiting<I extends WaitingItem>(
   if (!oldest) return null;
   const item = open.find((i) => i.resolvableByOperator) ?? oldest;
   const what = waitingWhat(item.kind);
-  const who = waitingOn(item);
+  const who = waitingOn(item, item === oldest ? (server?.person ?? null) : null);
+  const since = server?.since ?? oldest.createdAt;
   return {
     what,
     who,
     line: `${what} · ${who}`,
-    since: oldest.createdAt,
-    waited: age(oldest.createdAt, now),
+    since,
+    waited: age(since, now),
     item,
     mine: item.resolvableByOperator,
     items: open,
+    nobodyToAct: server?.nobodyToAct ?? null,
   };
 }

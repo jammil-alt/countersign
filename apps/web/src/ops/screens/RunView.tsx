@@ -42,6 +42,7 @@ import { checklistRows, type RunStepRow } from "../run/checklist";
 import { ModelCalls, RunControls } from "../run/RunControls";
 import { type RunWait, runWaiting, waitingOn, waitingWhat } from "../run/waiting";
 import {
+  NOBODY_TO_ACT_WORDS,
   OVERSIGHT_ACTION_WORDS,
   OVERSIGHT_CAUSE_WORDS,
   oversightLine,
@@ -107,7 +108,8 @@ export function OpsRunScreen() {
     runCreatedAt: run.createdAt,
     going,
   });
-  const wait = going ? runWaiting(data.inbox) : null;
+  // Who it waits on and since when come from the API's `run.waiting` (core's run state).
+  const wait = going ? runWaiting(data.inbox, run.waiting) : null;
   const clientName = session.tenants.find((t) => t.id === run.tenantId)?.name ?? "Client";
   const name = agent?.name ?? "Agent";
   const short = shortRunId(run.id);
@@ -316,8 +318,13 @@ function WaitingBlock({
               ? approves
                 ? `Nothing changes${connector ? ` in ${connector}` : ""} until it is approved.`
                 : "The run goes on once it is answered."
-              : `Only the ${wait.who} can ${approves ? "approve" : "answer"} this. We can't do it for them.`}
+              : `Only ${wait.who === "client admin" || wait.who === "client's team" ? `the ${wait.who}` : wait.who} can ${approves ? "approve" : "answer"} this. We can't do it for them.`}
           </p>
+          {wait.nobodyToAct ? (
+            <p className="mt-1 text-sm ui-tone-risk" data-testid="ops-run-waiting-nobody">
+              {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}
+            </p>
+          ) : null}
         </div>
         {wait.mine && approves ? (
           <div className="flex flex-wrap gap-2">
@@ -607,7 +614,7 @@ function SameError({ run }: { run: RunDetail["run"] }) {
         >
           <span className="reference text-ink">{shortRunId(r.id)}</span>
           <span className="flex-1 text-ink-muted">{shortTime(r.startedAt ?? r.createdAt)}</span>
-          <StatusChip state={runChip(r.status).state}>{runChip(r.status).words}</StatusChip>
+          <StatusChip state={runChip(r).state}>{runChip(r).words}</StatusChip>
         </Link>
       ))}
     </Card>

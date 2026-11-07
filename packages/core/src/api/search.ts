@@ -7,6 +7,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
 import { shortRunIdTail } from "./run-controls";
+import { RunWait } from "./run-state";
 import { RunSubject } from "./run-subject";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
@@ -108,6 +109,8 @@ export const SearchRunHit = z.object({
   service: Ref,
   status: z.string(),
   createdAt: z.string(),
+  /** The portal: the run waits on someone of the client now (UI cleanup, stream A). */
+  waitingOnYou: z.boolean().optional(),
   /** What the run is about, for its title: see RunSubject. */
   subject: RunSubject.optional(),
 });
@@ -185,6 +188,8 @@ export const OpsSearchResult = z.object({
       mode: z.string(),
       /** The latest step summary, for telling runs apart. */
       summary: z.string().nullable(),
+      /** Who the run waits on, when it waits for approval (UI cleanup, stream A). */
+      waiting: RunWait.nullable().optional(),
     }),
   ),
   records: z.array(SearchRecordHit.extend(WithClient)),

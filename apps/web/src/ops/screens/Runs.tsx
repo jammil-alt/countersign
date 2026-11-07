@@ -5,13 +5,13 @@
 // while any run is still going.
 import {
   askChips,
-  errorGroupKey,
+  OpsRunsQuery,
   type RunFilter,
   runFilterQuery,
   shortRunId,
 } from "@countersign/core";
 import { type FormEvent, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -32,7 +32,14 @@ import {
   PageHeader,
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
-import { plural, runChip, runErrorParts } from "../run/words";
+import {
+  age,
+  NOBODY_TO_ACT_WORDS,
+  plural,
+  RUN_STATUS_WORDS,
+  runChip,
+  runErrorLine,
+} from "../run/words";
 
 type Run = ResponseOf<typeof apiRoutes.opsRuns>["runs"][number];
 type Group = NonNullable<ResponseOf<typeof apiRoutes.opsRuns>["groups"]>[number];
@@ -51,8 +58,9 @@ const VIEWS = [
     filter: (): RunFilter => ({ statuses: ["queued", "running"] }),
   },
   {
+    // A run waiting on a person (the client or us), whatever its stored status (UI cleanup).
     id: "waiting",
-    label: "Waiting on clients",
+    label: "Waiting for approval",
     filter: (): RunFilter => ({ statuses: ["waiting"] }),
   },
   {
@@ -90,12 +98,48 @@ function without(filter: RunFilter, key: string): RunFilter {
   return Object.fromEntries(Object.entries(filter).filter(([k]) => k !== key)) as RunFilter;
 }
 
-/** A time filter's value as people read it. */
+/** A time filter's value as people read it, and statuses in words. */
 function chipValue(key: string, value: string): string {
   if ((key === "since" || key === "until") && !Number.isNaN(Date.parse(value))) {
     return shortTime(value);
   }
+  if (key === "statuses") {
+    return value
+      .split(", ")
+      .map((s) => RUN_STATUS_WORDS[s] ?? s)
+      .join(", ");
+  }
+  if (key === "mode") return value === "test" ? "test runs" : "live runs";
   return value;
+}
+
+/**
+ * The filter in the page's address (UI cleanup, stream A): the list's own query parameters
+ * (`?statuses=waiting&mode=live`, or the older `?status=failed`), so other pages link to it filtered.
+ * A client's own runs page adds its client itself.
+ */
+export function filterFromParams(params: URLSearchParams): RunFilter {
+  const raw: Record<string, string> = {};
+  for (const [key, value] of params) raw[key] = raw[key] ? `${raw[key]},${value}` : value;
+  const parsed = OpsRunsQuery.safeParse(raw);
+  return parsed.success ? parsed.data.filter : {};
+}
+
+/** The quick view a filter is, if it is one. */
+export function viewOf(filter: RunFilter): ViewId | null {
+  const keys = Object.keys(filter).filter((k) => k !== "mode" || filter.mode !== "live");
+  const statuses = [...(filter.statuses ?? [])].sort().join(",");
+  if (keys.length === 0) return filter.mode === "live" ? null : "all";
+  if (keys.length === 1 && statuses === "waiting") return "waiting";
+  if (keys.length === 1 && (statuses === "queued,running" || statuses === "running")) {
+    return "running";
+  }
+  if (statuses === "failed" && keys.every((k) => k === "statuses" || k === "since")) {
+    return "failed";
+  }
+  if (keys.length === 1 && filter.costOver === "1") return "cost";
+  if (keys.length === 1 && filter.mode === "test") return "test";
+  return null;
 }
 
 export function OpsRunsScreen() {
@@ -104,8 +148,11 @@ export function OpsRunsScreen() {
   const session = useSession();
   const clients = useMemo(() => new Map(session.tenants.map((t) => [t.id, t.name])), [session]);
 
-  const [view, setView] = useState<ViewId | null>("all");
-  const [filter, setFilter] = useState<RunFilter>({});
+  // The filter lives in the address, so a link can open the list filtered; the quick view
+  // highlighted is the one the filter is.
+  const [params, setParams] = useSearchParams();
+  const filter = useMemo(() => filterFromParams(params), [params]);
+  const view = viewOf(filter);
   const [grouped, setGrouped] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [question, setQuestion] = useState("");
@@ -131,9 +178,8 @@ export function OpsRunsScreen() {
     connectors: new Map(),
   });
 
-  const apply = (next: RunFilter, from: ViewId | null) => {
-    setFilter(next);
-    setView(from);
+  const apply = (next: RunFilter) => {
+    setParams(runFilterQuery(next), { replace: true });
     setSelected(new Set());
     setNote(null);
   };
@@ -150,7 +196,7 @@ export function OpsRunsScreen() {
       if (!answer.understood) {
         setNote(answer.message);
       } else {
-        apply(without(answer.filter, clientId ? "clients" : ""), null);
+        apply(without(answer.filter, clientId ? "clients" : ""));
         setQuestion("");
         setNote(answer.leftOut.length > 0 ? `We left out: ${answer.leftOut.join("; ")}.` : null);
       }
@@ -162,9 +208,9 @@ export function OpsRunsScreen() {
   };
 
   const runs = data?.runs ?? [];
-  const picked = runs.filter((r) => selected.has(r.id));
-  const retryable = picked.filter((r) => r.status === "failed" && r.mode === "live");
-  const cancellable = picked.filter((r) => isRunGoing(r.status));
+  const chosen = runs.filter((r) => selected.has(r.id));
+  const retryable = chosen.filter((r) => r.status === "failed" && r.mode === "live");
+  const cancellable = chosen.filter((r) => isRunGoing(r.status));
 
   const bulk = async (what: "retry" | "cancel") => {
     const list = what === "retry" ? retryable : cancellable;
@@ -226,7 +272,7 @@ export function OpsRunsScreen() {
               <button
                 type="button"
                 aria-label={`Remove the ${CHIP_WORDS[c.key] ?? c.key} filter`}
-                onClick={() => apply(without(filter, c.key), null)}
+                onClick={() => apply(without(filter, c.key))}
               >
                 <Icon name="close" size={14} />
               </button>
@@ -265,7 +311,7 @@ export function OpsRunsScreen() {
                 aria-pressed={view === v.id}
                 data-testid={`ops-runs-view-${v.id}`}
                 onClick={() => {
-                  apply(v.filter(), v.id);
+                  apply(v.filter());
                   setGrouped(v.id === "failed");
                 }}
               >
@@ -282,7 +328,7 @@ export function OpsRunsScreen() {
             {grouped ? "Grouped by error" : "Group by error"}
           </Button>
         </div>
-        <SavedViews state={views} onOpen={(f) => apply(f, null)} onDeleted={views.reload} />
+        <SavedViews state={views} onOpen={(f) => apply(f)} onDeleted={views.reload} />
       </div>
 
       {grouped && data?.groups ? (
@@ -295,7 +341,6 @@ export function OpsRunsScreen() {
               key === filter.errorKey
                 ? without(filter, "errorKey")
                 : { ...filter, statuses: ["failed"], errorKey: key },
-              null,
             )
           }
         />
@@ -309,8 +354,8 @@ export function OpsRunsScreen() {
             <Card testId="ops-runs-card">
               <div className="ui-card__head">
                 <span className="text-sm font-medium text-ink" data-testid="ops-runs-selected">
-                  {picked.length > 0
-                    ? `${picked.length} selected`
+                  {chosen.length > 0
+                    ? `${chosen.length} selected`
                     : "Select runs to retry or cancel them."}
                 </span>
                 <span className="flex flex-wrap gap-2">
@@ -386,8 +431,8 @@ function RunsTable({
         <tbody>
           {runs.map((r) => {
             const short = shortRunId(r.id);
-            const chip = runChip(r.status);
-            const err = r.status === "failed" ? runErrorParts(r.error) : null;
+            const chip = runChip(r);
+            const wait = r.waiting ?? null;
             return (
               <tr
                 key={r.id}
@@ -419,26 +464,39 @@ function RunsTable({
                 <td className="text-sm">{clients.get(r.tenantId) ?? "Client"}</td>
                 <td className="text-sm">
                   {agents.get(r.agentId)?.name ?? "Agent"}
-                  <span className="ml-1 reference text-xs text-ink-muted">{r.workflowSlug}</span>
+                  {r.workflowName ? (
+                    <span className="block text-xs text-ink-muted">{r.workflowName}</span>
+                  ) : null}
                 </td>
                 <td>
-                  <span className="flex items-center gap-1.5">
-                    <StatusChip state={chip.state}>{chip.words}</StatusChip>
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <StatusChip state={chip.state} testId={`ops-run-${r.id}-status`}>
+                      {chip.words}
+                    </StatusChip>
                     {r.mode === "test" ? (
                       <span className="text-xs text-ink-muted">Test</span>
                     ) : null}
                   </span>
+                  {wait ? (
+                    <span
+                      className="block text-xs text-ink-muted"
+                      data-testid={`ops-run-${r.id}-wait`}
+                    >
+                      For {age(wait.since)}
+                      {wait.nobodyToAct ? (
+                        <span className="ui-tone-risk">
+                          {" "}
+                          · {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="text-sm figures">{shortTime(r.startedAt ?? r.createdAt)}</td>
                 <td className="text-sm figures">{duration(r.startedAt, r.finishedAt)}</td>
-                <td className="text-sm">
-                  {err ? (
-                    <span className="ui-tone-risk">
-                      {errorGroupKey(r.error)}
-                      {err.nodeId ? (
-                        <span className="text-ink-muted"> · at {err.nodeId}</span>
-                      ) : null}
-                    </span>
+                <td className="text-sm" data-testid={`ops-run-${r.id}-error`}>
+                  {r.status === "failed" ? (
+                    <span className="ui-tone-risk">{runErrorLine(r.error, r.errorStep)}</span>
                   ) : null}
                 </td>
                 <td className="n">{usd(r.costUsd)}</td>

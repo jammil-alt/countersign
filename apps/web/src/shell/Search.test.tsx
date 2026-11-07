@@ -168,7 +168,26 @@ describe("search groups", () => {
             status: null,
           },
         ],
-        runs: [],
+        runs: [
+          {
+            id: "r1",
+            shortId: "R-85ab6f",
+            service: { id: "a1", name: "Material costs" },
+            status: "running",
+            createdAt: "2026-11-05T21:00:00.000Z",
+            client,
+            mode: "live",
+            summary: null,
+            waiting: {
+              on: "client_admin",
+              person: null,
+              since: "2026-11-05T21:00:00.000Z",
+              items: 1,
+              nobodyToAct: null,
+              emailOff: false,
+            },
+          },
+        ],
         records: [{ ...RECORD, client }],
         people: [],
         organizations: [],
@@ -178,12 +197,34 @@ describe("search groups", () => {
       "sand",
     );
     const flat = groups.flatMap((g) => g.hits.map((h) => [h.href, h.meta ?? ""]));
+    // A run waiting on a person reads as it does on Runs; money with its currency's sign.
     expect(flat).toEqual([
       [`/ops/clients/${SANDBOX}`, ""],
-      ["/ops/agents/a1", "Sandbox · active"],
+      ["/ops/agents/a1", "Sandbox · Active"],
       ["/ops/agents/t1", "Template"],
+      ["/ops/runs/r1", "Sandbox · Waiting for approval · client admin"],
       [`/ops/clients/${SANDBOX}/records/${TXN}`, "Sandbox · 48211 · 2026-11-04 · $1,284.00"],
     ]);
+  });
+
+  it("says a portal run waits on you, as Runs does", () => {
+    const groups = portalSearchGroups(
+      {
+        ...EMPTY,
+        runs: [
+          {
+            id: "r1",
+            shortId: "R-85ab6f",
+            service: { id: SVC, name: "Bill clerk" },
+            status: "running",
+            createdAt: "2026-11-05T21:00:00.000Z",
+            waitingOnYou: true,
+          },
+        ],
+      },
+      t,
+    );
+    expect(groups.find((g) => g.label === "Runs")?.hits[0]?.meta).toBe("Waiting on you");
   });
 
   it("searches across the clients served in the back office", async () => {

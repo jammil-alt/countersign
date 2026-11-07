@@ -46,18 +46,21 @@ function OpsFrame({ children }: { children: ReactNode }) {
     [clientsState.data, session.tenants],
   );
 
-  // Escalations: the operator's open items. Reloads on each page change and every 20 s, as the
-  // portal's Desk count does.
-  const inbox = useApi(apiRoutes.opsInbox, { query: { status: "open", assigned: "operator" } });
+  // Escalations: what needs us (UI cleanup, stream A), from the clients list's `needsUs`, the
+  // count the Clients page and the command center show. Reloads on each page change and every
+  // 20 s, as the portal's Desk count does.
   const { pathname } = useLocation();
-  const { reload: reloadInbox } = inbox;
+  const { reload: reloadClients } = clientsState;
   const firstPath = useRef(pathname);
   useEffect(() => {
     if (pathname === firstPath.current) return;
     firstPath.current = pathname;
-    reloadInbox();
-  }, [pathname, reloadInbox]);
-  usePoll(reloadInbox, true, INBOX_COUNT_POLL_MS, inbox.loading);
+    reloadClients();
+  }, [pathname, reloadClients]);
+  usePoll(reloadClients, true, INBOX_COUNT_POLL_MS, clientsState.loading);
+  const needsUs = clientsState.data
+    ? clientsState.data.clients.reduce((n, c) => n + (c.needsUs ?? 0), 0)
+    : undefined;
 
   // On an agent's page: the client's agents, for the agent switcher.
   const agentMatch = useMatch("/ops/clients/:clientId/agents/:slug/*");
@@ -91,7 +94,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
           </>
         }
         search={{ placeholder: "Find a client, agent, run or record", run: search }}
-        desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: inbox.data?.items.length }}
+        desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: needsUs }}
         pageBar={
           clientId && agentSlug && client.data ? (
             <AgentSwitcher
@@ -118,7 +121,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 to={OPS_PATHS.escalations}
                 icon="desk"
                 label="Escalations"
-                count={inbox.data?.items.length}
+                count={needsUs}
                 testId="ops-nav-inbox"
               />
               <SidebarLink

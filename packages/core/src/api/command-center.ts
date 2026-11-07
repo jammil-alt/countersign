@@ -7,6 +7,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 import { defineRoute } from "./contract";
+import { RunWait } from "./run-state";
 import { runsAskRoutes } from "./runs-ask";
 import { searchRoutes } from "./search";
 
@@ -116,7 +117,15 @@ const AgentRef = z.object({
   serviceName: z.string().nullable(),
 });
 
-export const ESCALATION_KINDS = ["item", "failed_run", "connection", "low_confidence"] as const;
+// UI cleanup (stream A): `approval`, a client's approval waiting over APPROVAL_OVERDUE_HOURS or
+// one nobody can act on (./run-state.ts), one per run (or per item without a run).
+export const ESCALATION_KINDS = [
+  "item",
+  "failed_run",
+  "connection",
+  "low_confidence",
+  "approval",
+] as const;
 export const EscalationKind = z.enum(ESCALATION_KINDS);
 
 export const Escalation = z.object({
@@ -130,6 +139,8 @@ export const Escalation = z.object({
   title: z.string(),
   /** When the client started waiting on us: the oldest cause. */
   blockedSince: z.string(),
+  /** An approval's wait: who it waits on, and whether anybody can act on it. */
+  wait: RunWait.nullable().optional(),
 });
 export type Escalation = z.infer<typeof Escalation>;
 
@@ -157,7 +168,23 @@ export const CommandCenter = z.object({
     count: z.number().int(),
     clients: z.array(ClientRef.extend({ agents: z.number().int() })),
   }),
+  /** Runs queued or running and not waiting on a person, and their steps in flight. */
   runningNow: z.object({ runs: z.number().int(), steps: z.number().int() }),
+  // UI cleanup (stream A)
+  /**
+   * Live runs waiting for approval (on the client or us): how many, the oldest's start, how many
+   * waited over APPROVAL_OVERDUE_HOURS and how many nobody can act on.
+   */
+  waitingForApproval: z
+    .object({
+      runs: z.number().int(),
+      oldestSince: z.string().nullable(),
+      overdue: z.number().int(),
+      nobodyToAct: z.number().int(),
+    })
+    .optional(),
+  /** Live runs that failed today (UTC). */
+  failedToday: z.object({ runs: z.number().int() }).optional(),
   needUs: z.object({ count: z.number().int(), blockedLong: z.number().int() }),
   waitingOnClients: z.object({
     count: z.number().int(),
@@ -214,12 +241,16 @@ export const CommandCenter = z.object({
       stage: z.string().nullable(),
       /** Runs queued, running or waiting now. */
       openRuns: z.number().int(),
+      /** Of those, runs waiting for approval (UI cleanup, stream A). */
+      waitingRuns: z.number().int().optional(),
       recentRuns: z.array(
         z.object({
           id: z.string(),
           status: z.string(),
           mode: z.string(),
           createdAt: z.string(),
+          /** Waits on a person now (UI cleanup, stream A). */
+          waiting: z.boolean().optional(),
         }),
       ),
       cost7dUsd: Usd,
@@ -266,6 +297,17 @@ const commandCenterOnly = {
       "The command center across the clients served (or one): agents live, running now, escalations, today's runs and spend, low confidence, client health and the agents table",
     query: z.object({ client: Id.optional() }),
     response: CommandCenter,
+  }),
+  // UI cleanup (stream A): Needs us alone, for Escalations and the clients' counts.
+  opsNeedsUs: defineRoute({
+    method: "GET",
+    path: "/api/ops/needs-us",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Needs us across the clients served (or one): items for us, failed runs, broken connections, low-confidence readings, and approvals waiting long or that nobody can act on",
+    query: z.object({ client: Id.optional() }),
+    response: z.object({ count: z.number().int(), escalations: z.array(Escalation) }),
   }),
   opsFeed: defineRoute({
     method: "GET",

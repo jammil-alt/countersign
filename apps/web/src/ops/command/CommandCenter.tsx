@@ -1,9 +1,12 @@
 // `/ops`, O1 Command center (docs/design/prototype.html `#O1-Command`; ARCHITECTURE §13.1): every
-// agent, every client, right now. Six figures; "Needs us", the escalations sorted by how long a
-// client has been blocked; all agents by client, template or status; the live feed; client health
-// with the supervisor's findings; low-confidence readings and run oversight. Back office only:
-// cost is shown here (invariant 11). Polls every 30 s; the feed every 10 s.
+// agent, every client, right now. Up to four figures, each a link to its filtered list (Needs us,
+// waiting for approval, running now, failed today; a figure at 0 is left out); "Needs us", the
+// escalations sorted by how long a client has been blocked; all agents by client, template or
+// status; then lower down the live feed, client health with the supervisor's findings,
+// low-confidence readings and run oversight. Back office only: cost is shown here (invariant 11).
+// Polls every 30 s; the feed every 10 s.
 import {
+  APPROVAL_OVERDUE_HOURS,
   BLOCKED_LONG_HOURS,
   type CommandCenter,
   type Escalation,
@@ -19,12 +22,14 @@ import { shortTime, usd } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
-import { ProgressBar, Sparkbars, StatTile } from "../../ui/figures";
-import { Loaded, Page, PageGrid } from "../../ui/page";
+import { Sparkbars, StatTile } from "../../ui/figures";
+import { Columns, Loaded, Page } from "../../ui/page";
 import { Button, buttonClass, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { OPS_PATHS } from "../paths";
-import { age, ageSeconds, oversightLine, percent, plural } from "../run/words";
+import { failedRunsSince, RUNNING_RUNS, WAITING_RUNS } from "../run/links";
+import { age, oversightLine, percent, plural } from "../run/words";
+import { escalationAction, escalationChip, escalationLine } from "./escalations";
 
 /** How often the figures reload, and the feed asks for what's new. */
 export const COMMAND_POLL_MS = 30_000;
@@ -51,7 +56,7 @@ export function CommandCenterScreen() {
     <Page testId="ops-command">
       <PageHeader
         title="Command center"
-        subtitle="Every agent, every client, right now."
+        subtitle={state.data ? todayLine(state.data) : "Every agent, every client, right now."}
         actions={
           <span className="flex flex-wrap items-center gap-3">
             {state.data ? (
@@ -69,19 +74,14 @@ export function CommandCenterScreen() {
         {(data) => (
           <>
             <Figures data={data} />
-            <PageGrid
-              rail={
-                <>
-                  <LiveFeed />
-                  <ClientHealth data={data} />
-                  <LowConfidence data={data} />
-                  <Oversight />
-                </>
-              }
-            >
-              <NeedsUs escalations={data.escalations} count={data.needUs.count} />
-              <AllAgents agents={data.agents} behind={behind} />
-            </PageGrid>
+            <NeedsUs escalations={data.escalations} count={data.needUs.count} />
+            <AllAgents agents={data.agents} behind={behind} />
+            <Columns count={2}>
+              <LiveFeed />
+              <ClientHealth data={data} />
+            </Columns>
+            <LowConfidence data={data} />
+            <Oversight />
           </>
         )}
       </Loaded>
@@ -91,100 +91,94 @@ export function CommandCenterScreen() {
 
 // ── Figures ──
 
-function Figures({ data }: { data: CommandCenter }) {
+/** "312 runs today, 98.1% clean · $41.80 model spend · 2 agents live": under the title. */
+export function todayLine(data: CommandCenter): string {
   const clean = percent(data.runsToday.cleanShare);
+  return [
+    data.runsToday.runs > 0
+      ? `${plural(data.runsToday.runs, "run", "runs")} today${clean ? `, ${clean} clean` : ""}`
+      : "No runs yet today",
+    `${usd(data.spendToday.costUsd)} model spend`,
+    `${plural(data.agentsLive.count, "agent", "agents")} live`,
+  ].join(" · ");
+}
+
+/**
+ * Four figures, each a link to its list filtered (UI cleanup, stream A): Needs us (Escalations),
+ * waiting for approval, running now and failed today (Runs). A figure at 0 is left out.
+ */
+function Figures({ data }: { data: CommandCenter }) {
+  const waiting = data.waitingForApproval ?? {
+    runs: 0,
+    oldestSince: null,
+    overdue: 0,
+    nobodyToAct: 0,
+  };
+  const failed = data.failedToday?.runs ?? 0;
+  const tiles = [
+    data.needUs.count > 0 ? (
+      <FigureLink key="need" to={OPS_PATHS.escalations} testId="ops-command-need-us">
+        <StatTile
+          label="Needs us"
+          value={data.needUs.count}
+          alert
+          note={
+            data.needUs.blockedLong > 0
+              ? `${data.needUs.blockedLong} blocked over ${BLOCKED_LONG_HOURS} h`
+              : "None blocked long"
+          }
+          {...(data.needUs.blockedLong > 0 ? { noteTone: "risk" as const } : {})}
+        />
+      </FigureLink>
+    ) : null,
+    waiting.runs > 0 ? (
+      <FigureLink key="waiting" to={WAITING_RUNS} testId="ops-command-waiting">
+        <StatTile
+          label="Waiting for approval"
+          value={waiting.runs}
+          note={
+            waiting.nobodyToAct > 0
+              ? `Nobody can approve ${waiting.nobodyToAct}`
+              : waiting.overdue > 0
+                ? `${waiting.overdue} over ${APPROVAL_OVERDUE_HOURS} h`
+                : `Oldest ${age(waiting.oldestSince)}`
+          }
+          noteTone={waiting.nobodyToAct > 0 ? "risk" : "signal"}
+        />
+      </FigureLink>
+    ) : null,
+    data.runningNow.runs > 0 ? (
+      <FigureLink key="running" to={RUNNING_RUNS} testId="ops-command-running">
+        <StatTile
+          label="Running now"
+          value={data.runningNow.runs}
+          note={`${plural(data.runningNow.steps, "step", "steps")} in flight`}
+        />
+      </FigureLink>
+    ) : null,
+    failed > 0 ? (
+      <FigureLink key="failed" to={failedRunsSince(data.today)} testId="ops-command-failed">
+        <StatTile label="Failed today" value={failed} note="Live runs" noteTone="risk" />
+      </FigureLink>
+    ) : null,
+  ].filter(Boolean);
+  if (tiles.length === 0) return null;
   return (
     <div className="ops-tiles" data-testid="ops-command-figures">
-      <StatTile
-        label="Agents live"
-        value={data.agentsLive.count}
-        note={plural(data.agentsLive.clients.length, "client", "clients")}
-        testId="ops-command-live"
-      />
-      <StatTile
-        label="Running now"
-        value={data.runningNow.runs}
-        note={`${plural(data.runningNow.steps, "step", "steps")} in flight`}
-        testId="ops-command-running"
-      />
-      <StatTile
-        label="Need us"
-        value={data.needUs.count}
-        alert={data.needUs.count > 0}
-        note={
-          data.needUs.blockedLong > 0
-            ? `${data.needUs.blockedLong} blocked over ${BLOCKED_LONG_HOURS} h`
-            : "None blocked long"
-        }
-        {...(data.needUs.blockedLong > 0 ? { noteTone: "risk" as const } : {})}
-        testId="ops-command-need-us"
-      />
-      <StatTile
-        label="Waiting on clients"
-        value={data.waitingOnClients.count}
-        note={
-          data.waitingOnClients.count > 0
-            ? `Oldest ${ageSeconds(data.waitingOnClients.oldestAgeSeconds)}`
-            : "Nothing waiting"
-        }
-        {...(data.waitingOnClients.count > 0 ? { noteTone: "signal" as const } : {})}
-        testId="ops-command-waiting"
-      />
-      <StatTile
-        label="Runs today"
-        value={data.runsToday.runs}
-        note={clean ? `${clean} clean` : "No runs yet"}
-        testId="ops-command-runs"
-      />
-      <StatTile
-        label="Model spend today"
-        value={usd(data.spendToday.costUsd)}
-        note={
-          data.spendToday.perRunUsd ? `${usd(data.spendToday.perRunUsd)} per run` : "No runs yet"
-        }
-        testId="ops-command-spend"
-      />
+      {tiles}
     </div>
   );
 }
 
+function FigureLink({ to, testId, children }: { to: string; testId: string; children: ReactNode }) {
+  return (
+    <Link to={to} className="ops-pick" data-testid={testId}>
+      {children}
+    </Link>
+  );
+}
+
 // ── Needs us ──
-
-function escalationChip(e: Escalation): { state: ChipState; words: string } {
-  switch (e.kind) {
-    case "item":
-      return { state: "waiting", words: `Waiting ${age(e.blockedSince)}` };
-    case "low_confidence":
-      return { state: "waiting", words: "Low confidence" };
-    default:
-      return { state: "blocked", words: `Blocked ${age(e.blockedSince)}` };
-  }
-}
-
-function escalationLine(e: Escalation): string {
-  switch (e.kind) {
-    case "failed_run":
-      return e.title;
-    case "connection":
-      return `The ${e.title} connection failed. The client signs in again from their portal.`;
-    case "low_confidence":
-      return `${e.title} was read under the confidence threshold today.`;
-    default:
-      return e.title;
-  }
-}
-
-function escalationAction(e: Escalation): { to: string; label: string } {
-  if (e.runId && e.kind !== "item") return { to: `/ops/runs/${e.runId}`, label: "Open run" };
-  switch (e.kind) {
-    case "connection":
-      return { to: `/ops/clients/${e.client.id}/connections`, label: "Open connections" };
-    case "low_confidence":
-      return { to: `/ops/clients/${e.client.id}/documents`, label: "Open documents" };
-    default:
-      return { to: OPS_PATHS.escalations, label: "Open escalations" };
-  }
-}
 
 function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: number }) {
   const [all, setAll] = useState(false);
@@ -212,8 +206,8 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
       {escalations.length === 0 ? (
         <div className="ui-card__body">
           <p className="text-ink-muted" data-testid="ops-command-clear">
-            Nothing needs us. Failed runs, broken connections, low-confidence readings and items for
-            us show here.
+            Nothing needs us. Failed runs, broken connections, low-confidence readings, items for us
+            and approvals stuck at a client show here.
           </p>
         </div>
       ) : (
@@ -244,8 +238,13 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
 
 // ── All agents ──
 
-/** An agent's state for its chip: running with open runs, its last run failed, paused, … */
-export function agentChip(a: Pick<Agent, "status" | "openRuns" | "recentRuns">): {
+/**
+ * An agent's state for its chip: waiting for approval when any of its runs waits on a person,
+ * running with other open runs, its last run failed, paused, …
+ */
+export function agentChip(
+  a: Pick<Agent, "status" | "openRuns" | "recentRuns"> & { waitingRuns?: number | undefined },
+): {
   state: ChipState;
   words: string;
 } {
@@ -253,8 +252,9 @@ export function agentChip(a: Pick<Agent, "status" | "openRuns" | "recentRuns">):
   if (a.status === "retired") return { state: "idle", words: "Retired" };
   if (a.status === "draft" || a.status === "testing")
     return { state: "setup", words: "Setting up" };
-  const waiting = a.recentRuns.some((r) => r.status === "waiting");
-  if (waiting) return { state: "waiting", words: "On client" };
+  const waiting =
+    (a.waitingRuns ?? 0) > 0 || a.recentRuns.some((r) => r.status === "waiting" || r.waiting);
+  if (waiting) return { state: "waiting", words: "Waiting for approval" };
   if (a.openRuns > 0) return { state: "running", words: "Running" };
   if (a.recentRuns[0]?.status === "failed") return { state: "failed", words: "Last run failed" };
   return { state: "idle", words: "Idle" };
@@ -268,7 +268,11 @@ const STAGE_WORDS: Record<string, string> = {
 
 function agentNow(a: Agent): ReactNode {
   const words: string[] = [];
-  if (a.openRuns > 0) words.push(`${plural(a.openRuns, "run", "runs")} open`);
+  const waiting = a.waitingRuns ?? 0;
+  if (waiting > 0) words.push(`${plural(waiting, "run", "runs")} waiting`);
+  if (a.openRuns - waiting > 0) {
+    words.push(`${plural(a.openRuns - waiting, "run", "runs")} running`);
+  }
   const stage = a.stage ? STAGE_WORDS[a.stage] : undefined;
   if (stage) words.push(stage);
   if (words.length === 0) return <span className="text-ink-muted">Nothing open</span>;
@@ -533,8 +537,14 @@ function LiveFeed() {
 
 // ── Client health ──
 
-const HEALTH_WORDS = { good: "Good", watch: "Watch", bad: "Needs us" } as const;
-const HEALTH_TONE = { good: "accent", watch: "waiting", bad: "risk" } as const;
+// UI cleanup (stream A): health is a chip with its word (the bars drew nothing for a client with no
+// clean runs this week); "bad" reads "At risk" so it isn't mistaken for Needs us.
+const HEALTH_WORDS = { good: "Good", watch: "Watch", bad: "At risk" } as const;
+const HEALTH_CHIP: Record<keyof typeof HEALTH_WORDS, ChipState> = {
+  good: "done",
+  watch: "idle",
+  bad: "blocked",
+};
 
 function ClientHealth({ data }: { data: CommandCenter }) {
   const agents = new Map(data.agentsLive.clients.map((c) => [c.id, c.agents]));
@@ -545,7 +555,8 @@ function ClientHealth({ data }: { data: CommandCenter }) {
       footer={
         <span className="text-sm text-ink-muted">
           Health is clean runs, how fast the client answers and open escalations, last {HEALTH_DAYS}{" "}
-          days.
+          days. The supervisor is the agent that checks each client's account every day; what it
+          finds is listed under each client.
         </span>
       }
     >
@@ -568,8 +579,7 @@ function HealthRow({
   const [open, setOpen] = useState(false);
   const clean = percent(client.cleanShare);
   const facts = [
-    HEALTH_WORDS[client.status],
-    clean ? `${clean} clean` : "no live runs",
+    clean ? `${clean} of ${plural(client.runs, "run", "runs")} clean` : "no live runs",
     client.medianResponseHours === null
       ? null
       : `answers in ${Math.round(client.medianResponseHours)} h`,
@@ -579,17 +589,22 @@ function HealthRow({
     <div className="ops-row" data-testid={`ops-health-${client.id}`}>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className="flex items-center justify-between gap-3 text-sm">
-          <Link to={OPS_PATHS.client(client.id)} className="font-medium text-ink hover:underline">
-            {client.name}
-          </Link>
-          <span className="text-ink-muted">{plural(agents, "agent", "agents")} live</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <StatusChip
+              state={HEALTH_CHIP[client.status]}
+              testId={`ops-health-${client.id}-status`}
+            >
+              {HEALTH_WORDS[client.status]}
+            </StatusChip>
+            <Link
+              to={OPS_PATHS.client(client.id)}
+              className="truncate font-medium text-ink hover:underline"
+            >
+              {client.name}
+            </Link>
+          </span>
+          <span className="shrink-0 text-ink-muted">{plural(agents, "agent", "agents")} live</span>
         </span>
-        <ProgressBar
-          value={Math.round((client.cleanShare ?? 0) * 100)}
-          max={100}
-          tone={HEALTH_TONE[client.status]}
-          label={`${client.name}: ${facts.join(", ")}`}
-        />
         <span className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
           <span data-testid={`ops-health-${client.id}-facts`}>{facts.join(" · ")}</span>
           <Button
@@ -599,7 +614,7 @@ function HealthRow({
             onClick={() => setOpen(!open)}
             data-testid={`ops-health-${client.id}-findings`}
           >
-            {open ? "Hide findings" : "Findings"}
+            {open ? "Hide what the supervisor found" : "What the supervisor found"}
           </Button>
         </span>
         {open ? <SupervisorFindings clientId={client.id} /> : null}
@@ -684,6 +699,12 @@ function Oversight() {
       title="Run oversight"
       meta={`${plural(totals.count, "decision", "decisions")} · ${usd(totals.costUsd)}`}
       testId="ops-command-oversight"
+      footer={
+        <span className="text-sm text-ink-muted">
+          When a step fails or reaches a checkpoint, the agent decides to go on, retry, correct the
+          input, ask a person or stop. Its latest decisions.
+        </span>
+      }
     >
       {decisions.map((d) => (
         <ActivityRow key={d.id} time={shortTime(d.createdAt)} to={`/ops/runs/${d.runId}`}>

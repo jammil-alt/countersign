@@ -3,6 +3,7 @@
 import type { OpsSearchResult, PortalSearchResult } from "@countersign/core";
 import type { Translate } from "../i18n/catalog";
 import { EN, type I18n } from "../i18n/i18n";
+import { runChip } from "../ops/run/words";
 import { money } from "../runs/format";
 import { opsRunTitle, subjectTitle } from "../runs/subject";
 import type { SearchGroup } from "./Search";
@@ -23,6 +24,17 @@ function runStatus(t: Translate, status: string): string {
     ? t(RUN_STATUS[status as keyof typeof RUN_STATUS])
     : status;
 }
+
+const GOING = new Set(["queued", "running", "waiting"]);
+
+/** An agent's status in words (the back office). */
+const AGENT_STATUS_WORDS: Record<string, string> = {
+  active: "Active",
+  paused: "Paused",
+  draft: "Draft",
+  testing: "Testing",
+  retired: "Retired",
+};
 
 /** The portal: its own client's hits. Receivables have no page of their own yet: their list. */
 export function portalSearchGroups(
@@ -45,7 +57,9 @@ export function portalSearchGroups(
         href: `/runs/${x.id}`,
         // Titled by what the run is about ("Northline Panel Supply · Invoice 20418").
         title: dot(subjectTitle(x.subject, { t, locale: i18n.locale }), x.shortId, x.service.name),
-        meta: runStatus(t, x.status),
+        // A run waiting on the client reads as it does on Runs (UI cleanup, stream A).
+        meta:
+          x.waitingOnYou && GOING.has(x.status) ? t("common.waitingOnYou") : runStatus(t, x.status),
       })),
     },
     {
@@ -112,7 +126,10 @@ export function opsSearchGroups(
         // The agent page is addressed by slug; `/ops/agents/:id` finds it.
         href: `/ops/agents/${a.id}`,
         title: a.serviceName && a.serviceName !== a.name ? dot(a.name, a.serviceName) : a.name,
-        meta: a.kind === "template" ? "Template" : dot(a.client?.name, a.status),
+        meta:
+          a.kind === "template"
+            ? "Template"
+            : dot(a.client?.name, a.status ? (AGENT_STATUS_WORDS[a.status] ?? a.status) : null),
       })),
     },
     {
@@ -121,7 +138,13 @@ export function opsSearchGroups(
         key: `r:${x.id}`,
         href: `/ops/runs/${x.id}`,
         title: dot(x.subject ? opsRunTitle(x.subject) : null, x.shortId, x.service.name),
-        meta: dot(x.client.name, x.status, x.mode === "live" ? null : x.mode, x.summary),
+        // "Waiting for approval · client admin", never "running" (UI cleanup, stream A).
+        meta: dot(
+          x.client.name,
+          runChip({ status: x.status, waiting: x.waiting ?? null }).words,
+          x.mode === "live" ? null : "Test run",
+          x.summary,
+        ),
       })),
     },
     {

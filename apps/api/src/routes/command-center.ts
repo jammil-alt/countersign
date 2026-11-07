@@ -5,6 +5,7 @@
 
 import {
   AGENT_RECENT_RUNS,
+  approvalOverdue,
   BLOCKED_LONG_HOURS,
   type CommandCenter,
   clientHealth,
@@ -15,10 +16,13 @@ import {
   FEED_LIMIT,
   type FeedItem,
   HEALTH_DAYS,
+  isPlainObject,
   LOW_CONFIDENCE_DEFAULT,
   lowConfidenceThreshold,
   newestFeed,
+  type ReachContext,
   routes,
+  runWaitOf,
   shareOf,
   sortEscalations,
 } from "@countersign/core";
@@ -37,7 +41,17 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, gt, gte, inArray, isNotNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, mount } from "../http";
+import { type AppEnv, ensureClient, mount, type Services } from "../http";
+// UI cleanup (stream A)
+import {
+  clientMembers,
+  type OpenItemRow,
+  openItems,
+  opsStatusWhere,
+  reachContext,
+  runWaits,
+  waitsOnPerson,
+} from "../runs/run-wait";
 import { searchRoutes } from "./search";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -107,6 +121,19 @@ async function namesFor(tx: Tx, ids: readonly string[], agentIds: Iterable<strin
 const clientRef = (names: Names, id: string) => ({ id, name: names.clients.get(id) ?? "" });
 const agentRef = (names: Names, id: string | null) => (id ? (names.agents.get(id) ?? null) : null);
 
+/** What Needs us reads of the deployment: who can be reached, and connectors' names. */
+export interface NeedsUsContext extends ReachContext {
+  /** A connector's name from its manifest ("QuickBooks Online"), never its id. */
+  connectorName: (id: string) => string;
+}
+
+export function needsUsContext(services: Pick<Services, "auth" | "env" | "platform">) {
+  return {
+    ...reachContext(services),
+    connectorName: (id: string) => services.platform.connectors.get(id)?.manifest.name ?? id,
+  } satisfies NeedsUsContext;
+}
+
 /** The low-confidence threshold of each client, as SQL over `doc_extraction.tenant_id`. */
 function thresholdSql(thresholds: ReadonlyMap<string, string>): SQL {
   const cases = [...thresholds.entries()]
@@ -116,35 +143,16 @@ function thresholdSql(thresholds: ReadonlyMap<string, string>): SQL {
   return sql`(case ${docExtraction.tenantId} ${sql.join(cases, sql` `)} else ${LOW_CONFIDENCE_DEFAULT}::numeric end)`;
 }
 
-// ── The command center ──────────────────────────────────────────────────────────────────────────
+// ── Needs us ────────────────────────────────────────────────────────────────────────────────────
 
-async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandCenter> {
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const weekAgo = new Date(now.getTime() - HEALTH_DAYS * DAY_MS);
-  const failedSince = new Date(now.getTime() - FAILED_RUN_ESCALATION_DAYS * DAY_MS);
-  const base: CommandCenter = {
-    at: now.toISOString(),
-    today: today.toISOString(),
-    agentsLive: { count: 0, clients: [] },
-    runningNow: { runs: 0, steps: 0 },
-    needUs: { count: 0, blockedLong: 0 },
-    waitingOnClients: { count: 0, oldestSince: null, oldestAgeSeconds: null },
-    runsToday: { runs: 0, clean: 0, cleanShare: null },
-    spendToday: { costUsd: "0", stepsUsd: "0", readingUsd: "0", perRunUsd: null },
-    escalations: [],
-    lowConfidence: [],
-    health: [],
-    agents: [],
-  };
-  if (ids.length === 0) return base;
-
-  // Client agents (not test copies): the live count, connection users and the agents table.
-  const clientAgents = await tx
+/** Active client agents (not test copies, not retired): live counts, connection users, the table. */
+async function activeClientAgents(tx: Tx, ids: readonly string[]) {
+  return tx
     .select()
     .from(agent)
     .where(
       and(
-        inArray(agent.tenantId, ids),
+        inArray(agent.tenantId, [...ids]),
         eq(agent.kind, "client"),
         eq(agent.status, "active"),
         eq(agent.testCopy, false),
@@ -152,108 +160,28 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
       ),
     )
     .orderBy(agent.tenantId, agent.slug);
-  const templateIds = clientAgents.map((a) => a.templateId);
-  const { names, clients } = await namesFor(tx, ids, [
-    ...clientAgents.map((a) => a.id),
-    ...templateIds,
-  ]);
+}
 
-  // Agents live: active client agents, by client.
-  const liveByClient = new Map<string, number>();
-  for (const a of clientAgents) {
-    if (a.runStatus !== "active" || !a.tenantId) continue;
-    liveByClient.set(a.tenantId, (liveByClient.get(a.tenantId) ?? 0) + 1);
-  }
+/** What Needs us is built from, kept for the command center's other figures. */
+interface NeedsUsParts {
+  escalations: Escalation[];
+  names: Names;
+  clients: Awaited<ReturnType<typeof namesFor>>["clients"];
+  clientAgents: (typeof agent.$inferSelect)[];
+  thresholds: Map<string, string>;
+  lowReadings: LowReading[];
+}
 
-  // Running now: runs queued or running, and their steps in flight.
-  // (Joined, not a correlated subquery: drizzle leaves a single table's columns unqualified in
-  // its select list, which would bind them inside a subquery to the wrong table.)
-  const [running] = await tx
-    .select({
-      runs: sql<number>`count(distinct ${run.id})::int`,
-      steps: sql<number>`(count(${stepRun.id}) filter (where ${stepRun.status} = 'running'))::int`,
-    })
-    .from(run)
-    .leftJoin(stepRun, and(eq(stepRun.runId, run.id), eq(stepRun.tenantId, run.tenantId)))
-    .where(and(inArray(run.tenantId, ids), inArray(run.status, ["queued", "running"])));
+type LowReading = Awaited<ReturnType<typeof lowReadingsToday>>[number];
 
-  // ── Escalations ──
-  type Pending = Omit<Escalation, "agent"> & { agentId: string | null };
-  const escalations: Pending[] = [];
-  const items = await tx
-    .select()
-    .from(inboxItem)
-    .where(
-      and(
-        inArray(inboxItem.tenantId, ids),
-        eq(inboxItem.status, "open"),
-        eq(inboxItem.assigneeRole, "operator"),
-        // DECISION: a test run's items (always the operator's) block no client: left out.
-        sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
-      ),
-    );
-  for (const i of items) {
-    escalations.push({
-      kind: "item",
-      id: i.id,
-      client: clientRef(names, i.tenantId),
-      agentId: i.agentId,
-      runId: i.runId,
-      title: i.title,
-      blockedSince: i.createdAt.toISOString(),
-    });
-  }
-  const failed = await tx
-    .select()
-    .from(run)
-    .where(
-      and(
-        inArray(run.tenantId, ids),
-        eq(run.mode, "live"),
-        eq(run.status, "failed"),
-        gte(run.createdAt, failedSince),
-        sql`not exists (select 1 from run retry where retry.retry_of = ${run.id} and retry.tenant_id = ${run.tenantId})`,
-      ),
-    );
-  for (const r of failed) {
-    escalations.push({
-      kind: "failed_run",
-      id: r.id,
-      client: clientRef(names, r.tenantId),
-      agentId: r.agentId,
-      runId: r.id,
-      title: errorLine(r.error),
-      blockedSince: (r.finishedAt ?? r.createdAt).toISOString(),
-    });
-  }
-  const broken = await tx
-    .select()
-    .from(connection)
-    .where(and(inArray(connection.tenantId, ids), eq(connection.status, "error")));
-  for (const c of broken) {
-    const users = clientAgents.filter(
-      (a) =>
-        a.tenantId === c.tenantId &&
-        (Object.values(a.bindings).includes(c.id) || Object.values(a.channels).includes(c.id)),
-    );
-    // DECISION: a connection in error escalates only while an agent uses it (a binding or a
-    // channel), as §13.1 says; it is blocked since the connection last changed.
-    if (users.length === 0) continue;
-    escalations.push({
-      kind: "connection",
-      id: c.id,
-      client: clientRef(names, c.tenantId),
-      agentId: users[0]?.id ?? null,
-      runId: null,
-      title: c.connector,
-      blockedSince: c.updatedAt.toISOString(),
-    });
-  }
-
-  // Low confidence: today's readings under each client's threshold.
-  const thresholds = new Map(clients.map((c) => [c.id, lowConfidenceThreshold(c.settings)]));
-  const threshold = thresholdSql(thresholds);
-  const lowReadings = await tx
+/** Today's readings under each client's threshold, oldest first. */
+async function lowReadingsToday(
+  tx: Tx,
+  ids: readonly string[],
+  thresholds: ReadonlyMap<string, string>,
+  today: Date,
+) {
+  return tx
     .select({
       id: docExtraction.id,
       tenantId: docExtraction.tenantId,
@@ -274,16 +202,121 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
     .leftJoin(agentVersion, eq(agentVersion.id, docExtraction.agentVersionId))
     .where(
       and(
-        inArray(docExtraction.tenantId, ids),
+        inArray(docExtraction.tenantId, [...ids]),
         gte(docExtraction.createdAt, today),
         isNotNull(docExtraction.confidence),
-        sql`${docExtraction.confidence} < ${threshold}`,
+        sql`${docExtraction.confidence} < ${thresholdSql(thresholds)}`,
       ),
     )
     .orderBy(docExtraction.createdAt);
+}
+
+/**
+ * Needs us (§13.1), longest blocked first: open items for us, failed live runs not retried, broken
+ * connections an agent uses, today's low-confidence readings and (UI cleanup, stream A) clients'
+ * approvals waiting over APPROVAL_OVERDUE_HOURS or that nobody can act on.
+ */
+async function needsUsParts(
+  tx: Tx,
+  ids: readonly string[],
+  now: Date,
+  reach: NeedsUsContext,
+): Promise<NeedsUsParts> {
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const failedSince = new Date(now.getTime() - FAILED_RUN_ESCALATION_DAYS * DAY_MS);
+  const clientAgents = await activeClientAgents(tx, ids);
+  const { names, clients } = await namesFor(tx, ids, [
+    ...clientAgents.map((a) => a.id),
+    ...clientAgents.map((a) => a.templateId),
+  ]);
+
+  // The Sandbox has no client people: the operator resolves every item there, so all of its items
+  // are items for us (as Escalations lists them), never a client's approval.
+  const sandboxes = clients
+    .filter((c) => isPlainObject(c.settings) && c.settings.sandbox === true)
+    .map((c) => c.id);
+  const ours = sandboxes.length
+    ? (or(eq(inboxItem.assigneeRole, "operator"), inArray(inboxItem.tenantId, sandboxes)) as SQL)
+    : eq(inboxItem.assigneeRole, "operator");
+
+  type Pending = Omit<Escalation, "agent"> & { agentId: string | null };
+  const escalations: Pending[] = [];
+  const items = await tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, [...ids]),
+        eq(inboxItem.status, "open"),
+        ours,
+        // DECISION: a test run's items (always the operator's) block no client: left out.
+        sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
+      ),
+    );
+  for (const i of items) {
+    escalations.push({
+      kind: "item",
+      id: i.id,
+      client: clientRef(names, i.tenantId),
+      agentId: i.agentId,
+      runId: i.runId,
+      title: i.title,
+      blockedSince: i.createdAt.toISOString(),
+    });
+  }
+  const failed = await tx
+    .select()
+    .from(run)
+    .where(
+      and(
+        inArray(run.tenantId, [...ids]),
+        eq(run.mode, "live"),
+        eq(run.status, "failed"),
+        gte(run.createdAt, failedSince),
+        sql`not exists (select 1 from run retry where retry.retry_of = ${run.id} and retry.tenant_id = ${run.tenantId})`,
+      ),
+    );
+  for (const r of failed) {
+    escalations.push({
+      kind: "failed_run",
+      id: r.id,
+      client: clientRef(names, r.tenantId),
+      agentId: r.agentId,
+      runId: r.id,
+      title: errorLine(r.error),
+      blockedSince: (r.finishedAt ?? r.createdAt).toISOString(),
+    });
+  }
+  const broken = await tx
+    .select()
+    .from(connection)
+    .where(and(inArray(connection.tenantId, [...ids]), eq(connection.status, "error")));
+  for (const c of broken) {
+    const users = clientAgents.filter(
+      (a) =>
+        a.tenantId === c.tenantId &&
+        (Object.values(a.bindings).includes(c.id) || Object.values(a.channels).includes(c.id)),
+    );
+    // DECISION: a connection in error escalates only while an agent uses it (a binding or a
+    // channel), as §13.1 says; it is blocked since the connection last changed.
+    if (users.length === 0) continue;
+    escalations.push({
+      kind: "connection",
+      id: c.id,
+      client: clientRef(names, c.tenantId),
+      agentId: users[0]?.id ?? null,
+      runId: null,
+      title: reach.connectorName(c.connector),
+      blockedSince: c.updatedAt.toISOString(),
+    });
+  }
+
+  // Low confidence: today's readings under each client's threshold.
+  const thresholds = new Map(clients.map((c) => [c.id, lowConfidenceThreshold(c.settings)]));
+  const lowReadings = await lowReadingsToday(tx, ids, thresholds, today);
   // DECISION: each document read under the threshold today escalates once (its latest such
   // reading), blocked since that reading; the low-confidence figure counts every reading.
-  const latestPerDocument = new Map<string, (typeof lowReadings)[number]>();
+  const latestPerDocument = new Map<string, LowReading>();
   for (const r of lowReadings) latestPerDocument.set(r.documentId, r);
   for (const r of latestPerDocument.values()) {
     escalations.push({
@@ -297,11 +330,128 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
     });
   }
 
+  // Approvals on the client: one per run (or per item without a run), when the oldest has waited
+  // over a day or nobody can act on it. A test run's items are ours, so never here.
+  const clientItems = await openItems(
+    tx,
+    ids.filter((id) => !sandboxes.includes(id)),
+    [clientAssigned, sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`],
+  );
+  if (clientItems.length > 0) {
+    const members = await clientMembers(tx, ids, reach);
+    const groups = new Map<string, OpenItemRow[]>();
+    for (const i of clientItems) {
+      const key = i.runId ?? `item:${i.id}`;
+      groups.set(key, [...(groups.get(key) ?? []), i]);
+    }
+    for (const list of groups.values()) {
+      const first = [...list].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+      const wait = runWaitOf(list, members.get(first?.tenantId ?? "") ?? [], reach);
+      if (!first || !wait) continue;
+      if (!wait.nobodyToAct && !approvalOverdue(wait.since, now)) continue;
+      escalations.push({
+        kind: "approval",
+        id: first.runId ?? first.id,
+        client: clientRef(names, first.tenantId),
+        agentId: first.agentId,
+        runId: first.runId,
+        title: first.title,
+        blockedSince: wait.since,
+        wait,
+      });
+    }
+  }
+
   // Names for every agent an escalation or reading points at.
   const moreAgents = [
     ...escalations.map((e) => e.agentId),
     ...lowReadings.map((r) => r.agentId),
   ].filter((id): id is string => !!id && !names.agents.has(id));
+  const extra = await namesFor(tx, [], moreAgents);
+  for (const [id, a] of extra.names.agents) names.agents.set(id, a);
+  return {
+    escalations: sortEscalations(
+      escalations.map(({ agentId, ...rest }) => ({ ...rest, agent: agentRef(names, agentId) })),
+    ),
+    names,
+    clients,
+    clientAgents,
+    thresholds,
+    lowReadings,
+  };
+}
+
+/** Needs us alone: for Escalations and each client's count. */
+export async function needsUs(
+  tx: Tx,
+  ids: readonly string[],
+  now: Date,
+  reach: NeedsUsContext,
+): Promise<Escalation[]> {
+  if (ids.length === 0) return [];
+  return (await needsUsParts(tx, ids, now, reach)).escalations;
+}
+
+// ── The command center ──────────────────────────────────────────────────────────────────────────
+
+async function commandCenter(
+  tx: Tx,
+  ids: string[],
+  now: Date,
+  reach: NeedsUsContext,
+): Promise<CommandCenter> {
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekAgo = new Date(now.getTime() - HEALTH_DAYS * DAY_MS);
+  const base: CommandCenter = {
+    at: now.toISOString(),
+    today: today.toISOString(),
+    agentsLive: { count: 0, clients: [] },
+    runningNow: { runs: 0, steps: 0 },
+    waitingForApproval: { runs: 0, oldestSince: null, overdue: 0, nobodyToAct: 0 },
+    failedToday: { runs: 0 },
+    needUs: { count: 0, blockedLong: 0 },
+    waitingOnClients: { count: 0, oldestSince: null, oldestAgeSeconds: null },
+    runsToday: { runs: 0, clean: 0, cleanShare: null },
+    spendToday: { costUsd: "0", stepsUsd: "0", readingUsd: "0", perRunUsd: null },
+    escalations: [],
+    lowConfidence: [],
+    health: [],
+    agents: [],
+  };
+  if (ids.length === 0) return base;
+
+  const parts = await needsUsParts(tx, ids, now, reach);
+  const { names, clients, clientAgents, thresholds, lowReadings } = parts;
+  const sorted = parts.escalations;
+
+  // Agents live: active client agents, by client.
+  const liveByClient = new Map<string, number>();
+  for (const a of clientAgents) {
+    if (a.runStatus !== "active" || !a.tenantId) continue;
+    liveByClient.set(a.tenantId, (liveByClient.get(a.tenantId) ?? 0) + 1);
+  }
+
+  // Running now: runs queued or running that wait on nobody, and their steps in flight.
+  // (Joined, not a correlated subquery: drizzle leaves a single table's columns unqualified in
+  // its select list, which would bind them inside a subquery to the wrong table.)
+  const [running] = await tx
+    .select({
+      runs: sql<number>`count(distinct ${run.id})::int`,
+      steps: sql<number>`(count(${stepRun.id}) filter (where ${stepRun.status} = 'running'))::int`,
+    })
+    .from(run)
+    .leftJoin(stepRun, and(eq(stepRun.runId, run.id), eq(stepRun.tenantId, run.tenantId)))
+    .where(and(inArray(run.tenantId, ids), ...opsStatusWhere(["queued", "running"])));
+
+  // Waiting for approval (UI cleanup, stream A): live runs waiting on a person, as Runs filters
+  // them; how many waited over a day, and how many nobody can act on.
+  const waitingRows = await tx
+    .select()
+    .from(run)
+    .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])));
+  const waits = [...(await runWaits(tx, waitingRows, reach)).values()];
+  const oldestWait = waits.map((w) => w.since).sort()[0] ?? null;
+
   const templateVersionIds = [
     ...new Set(lowReadings.map((r) => r.templateVersionId).filter((v): v is string => !!v)),
   ];
@@ -315,11 +465,12 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
         .from(agentVersion)
         .where(inArray(agentVersion.id, templateVersionIds))
     : [];
-  const extra = await namesFor(tx, [], [...moreAgents, ...templateVersions.map((t) => t.agentId)]);
-  for (const [id, a] of extra.names.agents) names.agents.set(id, a);
-  const sorted = sortEscalations(
-    escalations.map(({ agentId, ...rest }) => ({ ...rest, agent: agentRef(names, agentId) })),
+  const extra = await namesFor(
+    tx,
+    [],
+    templateVersions.map((t) => t.agentId).filter((id) => !names.agents.has(id)),
   );
+  for (const [id, a] of extra.names.agents) names.agents.set(id, a);
   const blockedLongBefore = new Date(now.getTime() - BLOCKED_LONG_HOURS * HOUR_MS).toISOString();
 
   const groups = new Map<string, CommandCenter["lowConfidence"][number]>();
@@ -366,7 +517,11 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
   const noRetry = and(eq(retried.runId, run.id), eq(retried.tenantId, run.tenantId));
   const clean = sql<number>`(count(*) filter (where ${run.status} = 'succeeded' and ${retried.runId} is null))::int`;
   const [todayRuns] = await tx
-    .select({ runs: sql<number>`count(*)::int`, clean })
+    .select({
+      runs: sql<number>`count(*)::int`,
+      clean,
+      failed: sql<number>`(count(*) filter (where ${run.status} = 'failed'))::int`,
+    })
     .from(run)
     .leftJoin(retried, noRetry)
     .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, today)));
@@ -453,10 +608,12 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
         status: string;
         mode: string;
         created_at: string;
+        waiting: boolean;
       }>(sql`
-        select id, agent_id, status, mode, created_at from (
+        select id, agent_id, status, mode, created_at, waiting from (
           select ${run.id} as id, ${run.agentId} as agent_id, ${run.status} as status,
                  ${run.mode} as mode, ${isoText(run.createdAt)} as created_at,
+                 (${run.status} = 'waiting' or (${run.status} in ('queued', 'running') and ${waitsOnPerson})) as waiting,
                  row_number() over (partition by ${run.agentId} order by ${run.createdAt} desc, ${run.id} desc) as n
           from ${run}
           where ${run.tenantId} in (${uuidList(ids)}) and ${run.agentId} in (${uuidList(agentIds)})
@@ -465,7 +622,11 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
     : [];
   const open = agentIds.length
     ? await tx
-        .select({ agentId: run.agentId, n: sql<number>`count(*)::int` })
+        .select({
+          agentId: run.agentId,
+          n: sql<number>`count(*)::int`,
+          waiting: sql<number>`(count(*) filter (where ${run.status} = 'waiting' or ${waitsOnPerson}))::int`,
+        })
         .from(run)
         .where(
           and(
@@ -505,9 +666,16 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
     status: a.runStatus ?? "draft",
     stage: a.stage ?? null,
     openRuns: open.find((o) => o.agentId === a.id)?.n ?? 0,
+    waitingRuns: open.find((o) => o.agentId === a.id)?.waiting ?? 0,
     recentRuns: recentRows
       .filter((r) => r.agent_id === a.id)
-      .map((r) => ({ id: r.id, status: r.status, mode: r.mode, createdAt: r.created_at })),
+      .map((r) => ({
+        id: r.id,
+        status: r.status,
+        mode: r.mode,
+        createdAt: r.created_at,
+        waiting: r.waiting === true,
+      })),
     cost7dUsd: weekCost.find((w) => w.agentId === a.id)?.usd ?? "0.0000",
   }));
 
@@ -522,6 +690,13 @@ async function commandCenter(tx: Tx, ids: string[], now: Date): Promise<CommandC
         .sort((a, b) => a.name.localeCompare(b.name)),
     },
     runningNow: { runs: running?.runs ?? 0, steps: running?.steps ?? 0 },
+    waitingForApproval: {
+      runs: waitingRows.length,
+      oldestSince: oldestWait,
+      overdue: waits.filter((w) => approvalOverdue(w.since, now)).length,
+      nobodyToAct: waits.filter((w) => w.nobodyToAct !== null).length,
+    },
+    failedToday: { runs: todayRuns?.failed ?? 0 },
     needUs: {
       count: sorted.length,
       blockedLong: sorted.filter((e) => e.blockedSince < blockedLongBefore).length,
@@ -717,8 +892,24 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
 
 export function commandCenterRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsCommandCenter, async (ctx) =>
-    commandCenter(ctx.tx, scopeIds(ctx, ctx.query.client), new Date()),
+    commandCenter(
+      ctx.tx,
+      scopeIds(ctx, ctx.query.client),
+      new Date(),
+      needsUsContext(ctx.services),
+    ),
   );
+
+  // UI cleanup (stream A): Needs us alone (Escalations).
+  mount(app, routes.opsNeedsUs, async (ctx) => {
+    const escalations = await needsUs(
+      ctx.tx,
+      scopeIds(ctx, ctx.query.client),
+      new Date(),
+      needsUsContext(ctx.services),
+    );
+    return { count: escalations.length, escalations: escalations.slice(0, ESCALATION_LIST_MAX) };
+  });
 
   mount(app, routes.opsFeed, async (ctx) => {
     const now = new Date();

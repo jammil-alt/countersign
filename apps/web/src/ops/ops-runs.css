@@ -54,6 +54,10 @@
 .ops-pick[aria-pressed="true"] .ui-stat {
   border-color: var(--slate);
 }
+/* A figure tile that links to its filtered list (the command center). */
+a.ops-pick:hover .ui-stat {
+  border-color: var(--line-strong);
+}
 
 /* The runs list's filter bar: chips, then the question box. */
 .ops-query {

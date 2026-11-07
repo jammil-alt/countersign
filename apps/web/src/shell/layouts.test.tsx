@@ -42,34 +42,15 @@ const service = (id: string, name: string, status = "active") => ({
   status,
 });
 
-const escalation = (id: string, tenantId: string) => ({
-  id,
-  tenantId,
-  kind: "approval",
-  agentId: null,
-  runId: null,
-  subjectType: null,
-  subjectId: null,
-  assigneeRole: "operator",
-  assigneeUserId: null,
-  title: "Check the match",
-  payload: {},
-  status: "open",
-  resolution: null,
-  resolvedBy: null,
-  dueAt: null,
-  createdAt: "2026-11-05T10:00:00.000Z",
-  resolvedAt: null,
-  resolvableByOperator: true,
-});
-
-const clientRow = (id: string, name: string) => ({
+const clientRow = (id: string, name: string, needsUs = 0) => ({
   id,
   name,
   timezone: "UTC",
   createdAt: "2026-11-01T00:00:00.000Z",
   agents: 1,
-  openInbox: 0,
+  openInbox: needsUs,
+  needsUs,
+  waitingRuns: 0,
 });
 
 afterEach(() => {
@@ -83,14 +64,8 @@ describe("back office layout", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       "GET /api/ops/clients": () => ({
-        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client")],
-      }),
-      "GET /api/ops/inbox": () => ({
-        items: [
-          escalation("00000000-0000-4000-8000-0000000f0001", DEMO),
-          escalation("00000000-0000-4000-8000-0000000f0002", DEMO),
-        ],
-        agents: [],
+        // What needs us, counted per client by the API (UI cleanup, stream A): the badges read it.
+        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client", 2)],
       }),
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
     });
