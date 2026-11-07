@@ -138,7 +138,7 @@ describe("portal run timeline", () => {
     expect(screen.getByText("Not started yet")).toBeInTheDocument();
   });
 
-  it("shows the audit trail, the changes waiting with before and after, and the way to sign", async () => {
+  it("shows the audit trail, the changes waiting with before and after, and the way to approve", async () => {
     const ITEM = "00000000-0000-4000-8000-0000000f3002";
     renderTimeline(
       {
@@ -209,7 +209,7 @@ describe("portal run timeline", () => {
     const audit = await screen.findByTestId("portal-run-audit");
     await waitFor(() => expect(audit).toHaveTextContent("Ana Ruiz opened this run"));
     expect(audit).toHaveTextContent("2 times");
-    expect(audit).toHaveTextContent("Demo admin signed");
+    expect(audit).toHaveTextContent("Demo admin approved");
     const waiting = await screen.findByTestId("portal-run-waiting");
     expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board");
     expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board, 3/4 in");

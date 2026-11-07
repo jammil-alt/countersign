@@ -130,7 +130,7 @@ describe("C5 People", () => {
     expect(within(detail).getByTestId("people-reach-email-state")).toHaveTextContent(
       "No extra limit",
     );
-    expect(within(detail).getByTestId("people-reach-sms-state")).toHaveTextContent("Your sign");
+    expect(within(detail).getByTestId("people-reach-sms-state")).toHaveTextContent("Your approval");
     // Calls: a number, but no consent to call yet.
     expect(within(detail).getByTestId("people-reach-voice-state")).toHaveTextContent(
       "No consent yet",
@@ -190,13 +190,13 @@ describe("C5 People", () => {
       within(sms)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["Your sign", "Off"]);
+    ).toEqual(["Your approval", "Off"]);
     const email = within(detail).getByTestId("people-reach-email-level");
     expect(
       within(email)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["No extra limit", "Your sign", "Off"]);
+    ).toEqual(["No extra limit", "Your approval", "Off"]);
     await userEvent.selectOptions(email, "off");
     await userEvent.click(within(detail).getByTestId("people-reach-save"));
     await waitFor(() => expect(puts).toEqual([{ autonomy: { email: "off", sms: "approval" } }]));

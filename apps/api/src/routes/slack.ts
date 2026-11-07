@@ -52,7 +52,7 @@ async function listed(tx: Tx, services: Services, row: Row): Promise<SlackChanne
     throw new HttpError(409, "not_available", "Slack is not available here");
   }
   if (!services.env.ENCRYPTION_KEY) {
-    throw new HttpError(503, "not_configured", "connections are not set up here yet");
+    throw new HttpError(503, "not_configured", "connecting tools is not set up here yet");
   }
   try {
     return await connector.listChannels({
@@ -72,7 +72,11 @@ async function listed(tx: Tx, services: Services, row: Row): Promise<SlackChanne
     });
   } catch (error) {
     if (error instanceof ReconnectRequiredError) {
-      throw new HttpError(409, "not_connected", "Slack ended this connection; connect Slack again");
+      throw new HttpError(
+        409,
+        "not_connected",
+        "Slack disconnected this account; connect Slack again",
+      );
     }
     if (error instanceof SlackApiError) {
       throw new HttpError(502, "connector_failed", "Slack didn't list the channels; try again");

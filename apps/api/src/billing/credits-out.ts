@@ -153,7 +153,7 @@ export async function setCreditsOut(
       change: { setting: "billing.onCreditsOut", from, to: input.choice },
       reason:
         input.choice === "pause"
-          ? "Pause the services when the month's credits run out"
+          ? "Pause the agents when the month's credits run out"
           : "Keep working and add credits when the month's credits run out",
     });
   }

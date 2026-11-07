@@ -9,9 +9,9 @@
 //
 // Read-only: any request that would change something (a POST, PUT, PATCH or DELETE to /api other
 // than the dev sign-in) is stopped and fails the step, so nothing is sent or run, and no outside
-// service is ever written to (CLAUDE.md invariant 8). One exception: in "Sign and undo", the
-// Desk's sign and undo of the one item the e2e seed puts there (SEED_E2E=1, packages/db/src/seed.ts
-// `seedDemoDesk`), a change on the in-memory testkit that no run ever executes. It is signed and
+// service is ever written to (CLAUDE.md invariant 8). One exception: in "Approve and undo", the
+// Desk's approve and undo of the one item the e2e seed puts there (SEED_E2E=1, packages/db/src/seed.ts
+// `seedDemoDesk`), a change on the in-memory testkit that no run ever executes. It is approved and
 // then undone inside the window, so it waits again for the next look and the next run.
 //
 // A step the seeded data can't support (no client agent, no run) is skipped with a note, not
@@ -63,7 +63,7 @@ function matches(href, target) {
 async function walk(browser, email, lookName, name, script, results) {
   const { context, page, problems, look } = await openPage(browser, email, lookName);
   // Nothing in a walkthrough writes: stop and report any request that would. The one exception is
-  // the seeded Desk item's sign and undo, while the step that does them allows it.
+  // the seeded Desk item's approve and undo, while the step that does them allows it.
   await page.route("**/api/**", (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
@@ -78,7 +78,7 @@ async function walk(browser, email, lookName, name, script, results) {
   let n = 0;
   const w = {
     page,
-    /** On only inside "Sign and undo": lets the seeded item's sign and undo through. */
+    /** On only inside "Approve and undo": lets the seeded item's approve and undo through. */
     allowDesk: false,
     async goto(path) {
       await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -226,12 +226,12 @@ async function clientWalk(w) {
     // Asking us for a change is Sloan's (`/sloan?mode=change`).
     await w.expectLink("/sloan", "Ask for a change");
   });
-  await w.step("Sign and undo", async () => {
+  await w.step("Approve and undo", async () => {
     const page = w.page;
     const entry = page.locator(`main [data-testid="desk-entry-${SEEDED_DESK_ITEM}"]`);
     if ((await entry.count()) === 0) {
       throw new Skip(
-        "the e2e change isn't on the Desk (seed with SEED_E2E=1; or it was signed and not undone)",
+        "the e2e change isn't on the Desk (seed with SEED_E2E=1; or it was approved and not undone)",
       );
     }
     await entry.first().click();

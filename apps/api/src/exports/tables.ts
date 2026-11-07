@@ -117,7 +117,7 @@ function stepOfNode(steps: (id: string) => Step | undefined, nodeId: string): St
 export const EXPORT_TABLES: readonly ExportTable[] = [
   {
     file: "services.csv",
-    about: "The services (agents) we run for you: their names and status.",
+    about: "The agents we run for you: their names and status (services.csv keeps its old name).",
     header: ["id", "name", "description", "status", "created_at"],
     async page(tx, tenantId, cursor, limit) {
       const rows = await tx
@@ -582,7 +582,8 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   },
   {
     file: "runs.csv",
-    about: "Every run of your services: which service and version, when, and how it ended.",
+    about:
+      "Every run of your agents: which agent (the service columns) and version, when, and how it ended.",
     header: [
       "id",
       "service_id",
@@ -761,7 +762,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   },
   {
     file: "inbox_items.csv",
-    about: "Your inbox: approvals, reviews and requests, and how each was resolved.",
+    about: "Your Desk: approvals, reviews and requests, and how each was resolved.",
     header: [
       "id",
       "kind",
@@ -839,7 +840,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   {
     file: "messages.csv",
     about:
-      "Messages: what your services posted for you, and texts, emails and calls with your contacts.",
+      "Messages: what your agents posted for you, and texts, emails and calls with your contacts.",
     header: [
       "id",
       "thread_id",

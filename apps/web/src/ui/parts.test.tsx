@@ -121,7 +121,7 @@ describe("StepList", () => {
           testId="steps"
           steps={[
             { key: "a", title: "Pulled the aging report", state: "done", time: "8:01" },
-            { key: "b", title: "Waiting for your sign", state: "waiting", time: "8:05" },
+            { key: "b", title: "Waiting for your approval", state: "waiting", time: "8:05" },
             { key: "c", title: "Tell Dana", state: "person" },
             { key: "d", title: "Send", state: "todo", detail: "Follow up Nov 12" },
           ]}

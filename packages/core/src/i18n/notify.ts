@@ -47,9 +47,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Open the weekly summary",
     },
     reconnect: {
-      subject: "A connection needs you to sign in again",
-      line: "One of your connected tools stopped working. Sign in to it again so your services keep going.",
-      action: "Open your connections",
+      subject: "An account needs you to sign in again",
+      line: "One of your connected tools stopped working. Sign in to it again so your agents keep going.",
+      action: "Open your accounts",
     },
     credits: {
       subject: (b, x) =>
@@ -69,8 +69,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Read and reply",
     },
     signoff: {
-      subject: "An agent waits for your sign-off to go live",
-      line: "See what it did during its trial and sign off on your Desk.",
+      subject: "An agent waits for your approval to go live",
+      line: "See what it did during its trial and approve it on your Desk.",
       action: "Open your Desk",
     },
     footer: "This email is from Mezonas. You choose which emails you get in your settings.",
@@ -88,9 +88,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Abrir el resumen semanal",
     },
     reconnect: {
-      subject: "Una conexión necesita que vuelva a iniciar sesión",
-      line: "Una de sus herramientas conectadas dejó de funcionar. Vuelva a iniciar sesión para que sus servicios sigan.",
-      action: "Abrir sus conexiones",
+      subject: "Una cuenta necesita que vuelva a iniciar sesión",
+      line: "Una de sus herramientas conectadas dejó de funcionar. Vuelva a iniciar sesión para que sus agentes sigan.",
+      action: "Abrir sus cuentas",
     },
     credits: {
       subject: (b, x) =>
@@ -133,9 +133,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Ouvrir le bilan de la semaine",
     },
     reconnect: {
-      subject: "Une connexion vous demande de vous reconnecter",
-      line: "Un de vos outils connectés ne fonctionne plus. Reconnectez-vous pour que vos services continuent.",
-      action: "Ouvrir vos connexions",
+      subject: "Un compte vous demande de vous reconnecter",
+      line: "Un de vos outils connectés ne fonctionne plus. Reconnectez-vous pour que vos agents continuent.",
+      action: "Ouvrir vos comptes",
     },
     credits: {
       subject: (b, x) =>
@@ -157,8 +157,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Lire et répondre",
     },
     signoff: {
-      subject: "Un agent attend votre accord pour démarrer",
-      line: "Voyez ce qu'il a fait pendant son essai et donnez votre accord sur votre bureau.",
+      subject: "Un agent attend votre approbation pour démarrer",
+      line: "Voyez ce qu'il a fait pendant son essai et approuvez-le sur votre bureau.",
       action: "Ouvrir votre bureau",
     },
     footer:
@@ -177,9 +177,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Abrir o resumo semanal",
     },
     reconnect: {
-      subject: "Uma conexão precisa que você entre de novo",
-      line: "Uma das suas ferramentas conectadas parou de funcionar. Entre de novo para que seus serviços continuem.",
-      action: "Abrir suas conexões",
+      subject: "Uma conta precisa que você entre de novo",
+      line: "Uma das suas ferramentas conectadas parou de funcionar. Entre de novo para que seus agentes continuem.",
+      action: "Abrir suas contas",
     },
     credits: {
       subject: (b, x) =>
@@ -220,9 +220,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Apri il riepilogo settimanale",
     },
     reconnect: {
-      subject: "Una connessione ti chiede di accedere di nuovo",
-      line: "Uno dei tuoi strumenti collegati ha smesso di funzionare. Accedi di nuovo perché i tuoi servizi continuino.",
-      action: "Apri le tue connessioni",
+      subject: "Un account ti chiede di accedere di nuovo",
+      line: "Uno dei tuoi strumenti collegati ha smesso di funzionare. Accedi di nuovo perché i tuoi agenti continuino.",
+      action: "Apri i tuoi account",
     },
     credits: {
       subject: (b, x) =>
@@ -265,9 +265,9 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       action: "Wochenübersicht öffnen",
     },
     reconnect: {
-      subject: "Eine Verbindung braucht eine neue Anmeldung",
-      line: "Eines Ihrer verbundenen Tools funktioniert nicht mehr. Melden Sie sich neu an, damit Ihre Dienste weiterlaufen.",
-      action: "Ihre Verbindungen öffnen",
+      subject: "Ein Konto braucht eine neue Anmeldung",
+      line: "Eines Ihrer verbundenen Tools funktioniert nicht mehr. Melden Sie sich neu an, damit Ihre Agenten weiterarbeiten.",
+      action: "Ihre Konten öffnen",
     },
     credits: {
       subject: (b, x) =>

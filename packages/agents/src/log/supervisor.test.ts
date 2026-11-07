@@ -509,7 +509,7 @@ describe.skipIf(!harness)("supervisor", () => {
     expect(item?.title).toBe("Zoho CRM necesita que inicie sesión de nuevo");
     expect(
       (item?.payload as { finding?: { steps: string[] } } | undefined)?.finding?.steps[0],
-    ).toBe("Vaya a Conexiones.");
+    ).toBe("Vaya a Cuentas.");
     await h.t.db.update(tenant).set({ settings: {} }).where(eq(tenant.id, h.B.tenantId));
   });
 

@@ -85,8 +85,8 @@ describe("drafted changes", () => {
     expect(looseningProblems(change, []).map((p) => p.code)).toEqual(["new_admin"]);
   });
 
-  it("refuses a signer who signs nothing but has rules", () => {
-    expect(changeProblem(addSigner({ canSign: false }))).toMatch(/signs nothing/);
+  it("refuses an approver who approves nothing but has rules", () => {
+    expect(changeProblem(addSigner({ canSign: false }))).toMatch(/approves nothing/);
     expect(changeProblem(addSigner({ canSign: false, rules: [] }))).toBeNull();
   });
 
@@ -123,7 +123,7 @@ describe("drafted changes", () => {
     const stored = {
       change: addSigner(),
       now: ["Lisa is not on your team."],
-      after: ["Lisa joins your team and signs."],
+      after: ["Lisa joins your team and approves changes."],
       askedBy: LISA,
       threadId: null,
       runId: null,

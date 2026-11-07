@@ -146,7 +146,7 @@ describe("stage state", () => {
     const en = goLiveItem("Bill clerk", summary);
     expect(en.title).toBe("Bill clerk going live");
     expect(en.text).toBe(
-      "In its trial: 26 runs (1 failed), 12 changes made, 13 signed, 1 rejected.",
+      "In its trial: 26 runs (1 failed), 12 changes made, 13 approved, 1 rejected.",
     );
     for (const locale of LOCALES) {
       const w = goLiveItem("Bill clerk", summary, locale);

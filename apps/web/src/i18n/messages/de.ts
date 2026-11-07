@@ -126,19 +126,22 @@ export const de: Messages = {
   "nav.access": "Zugriff",
   "nav.directory": "Verzeichnis",
   "nav.records": "Einträge",
-  "page.service": "Service",
+  "page.service": "Agent",
 
   // ── Overview ──
   "overview.title": "Übersicht",
   "overview.subtitleWithClient":
-    "{client}: Ihre Services, was sie erledigt haben und was auf Sie wartet.",
-  "overview.subtitle": "Ihre Services, was sie erledigt haben und was auf Sie wartet.",
-  "overview.services": "Ihre Services",
+    "{client}: Ihre Agenten, was sie erledigt haben und was auf Sie wartet.",
+  "overview.subtitle": "Ihre Agenten, was sie erledigt haben und was auf Sie wartet.",
+  "overview.services": "Ihre Agenten",
   "overview.noServices":
-    "Noch keine Services. Wir richten sie gemeinsam mit Ihnen ein, dann erscheinen sie hier.",
-  "overview.openInbox": "Posteingang öffnen",
+    "Noch keine Agenten. Wir richten sie gemeinsam mit Ihnen ein, dann erscheinen sie hier.",
+  "overview.openInbox": "Ihren Schreibtisch öffnen",
   "overview.needsYou": "Wartet auf Sie",
-  "overview.inboxItems": { one: "Eintrag im Posteingang", other: "Einträge im Posteingang" },
+  "overview.inboxItems": {
+    one: "Eintrag auf Ihrem Schreibtisch",
+    other: "Einträge auf Ihrem Schreibtisch",
+  },
   "overview.changesWait": "Änderungen an Ihren Tools warten auf Ihre Freigabe",
   "overview.questionsWait": "Fragen warten auf Ihre Antwort",
   "overview.health": "Kontoprüfung",
@@ -154,8 +157,8 @@ export const de: Messages = {
     other: "{count} wurden nicht abgeschlossen",
   },
   "overview.healthConnections": {
-    one: "{count} Verbindung braucht Sie",
-    other: "{count} Verbindungen brauchen Sie",
+    one: "{count} Konto braucht Sie",
+    other: "{count} Konten brauchen Sie",
   },
   "overview.healthWaiting": {
     one: "{count} Eintrag wartet auf Sie",
@@ -163,7 +166,8 @@ export const de: Messages = {
   },
   "overview.findings": "Was Sie jetzt tun können",
   "overview.findingReminder": "Erinnerung",
-  "overview.findingMarkDone": "Wenn Sie fertig sind, markieren Sie es im Posteingang als erledigt.",
+  "overview.findingMarkDone":
+    "Wenn Sie fertig sind, markieren Sie es auf Ihrem Schreibtisch als erledigt.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Guten Morgen, {name}",
   "table.greeting.afternoon": "Guten Tag, {name}",
@@ -193,7 +197,7 @@ export const de: Messages = {
   "table.thisWeek": "Diese Woche",
   "table.stat.runs": "Erledigte Abläufe",
   "table.stat.changes": "Änderungen in Ihren Tools",
-  "table.stat.changesNote": "{automatic} automatisch, {signed} von Ihnen unterschrieben",
+  "table.stat.changesNote": "{automatic} automatisch, {signed} von Ihnen freigegeben",
   "table.stat.onYourDesk": "Auf Ihrem Schreibtisch",
   "table.latest": "Neues von Ihren Agenten",
   "table.seeAllRuns": "Alle Abläufe",
@@ -205,7 +209,7 @@ export const de: Messages = {
   "table.openDesk": "Schreibtisch öffnen",
   "table.dueToday": "Heute fällig",
   "table.due": "Fällig {time}",
-  "table.reviewSign": "Prüfen und unterschreiben",
+  "table.reviewSign": "Prüfen und freigeben",
   "table.openItem": "Öffnen",
   "table.notNow": "Nicht jetzt",
   "table.lead.yourReply": "Ihre Antwort",
@@ -225,7 +229,7 @@ export const de: Messages = {
   "table.weekRuns": "Diese Woche gestartete Abläufe: {counts}.",
   "runsPage.perDay.day": "{day}: {parts}",
   "agent.stage.trial": "In der Probephase",
-  "agent.stage.signoff": "Wartet auf Ihre Freigabe",
+  "agent.stage.signoff": "Wartet auf Ihre Freigabe für den Start",
   "agent.pause": "Pausieren",
   "agent.resume": "Fortsetzen",
   "agent.pauseReason": "Warum pausieren Sie {name}?",
@@ -258,7 +262,7 @@ export const de: Messages = {
   "agent.runStarted": "{name} hat begonnen.",
 
   // ── Inbox ──
-  "inbox.title": "Posteingang",
+  "inbox.title": "Ihr Schreibtisch",
   "inbox.subtitle":
     "Änderungen, die Ihre Agenten machen möchten, und Fragen, die eine Antwort brauchen. In Ihren Tools ändert sich nichts, bis jemand aus Ihrem Team zustimmt.",
   "inbox.emptyOpen": "Gerade wartet nichts auf Sie.",
@@ -403,9 +407,9 @@ export const de: Messages = {
 
   // ── Runs ──
   "runs.title": "Abläufe",
-  "runs.subtitle": "Jedes Mal, wenn einer Ihrer Services seine Arbeit gemacht hat.",
+  "runs.subtitle": "Jedes Mal, wenn einer Ihrer Agenten seine Arbeit gemacht hat.",
   "runs.empty": "Noch keine Abläufe.",
-  "runs.col.service": "Service",
+  "runs.col.service": "Agent",
   "runs.col.status": "Status",
   "runs.col.started": "Gestartet",
   "runs.col.took": "Dauer",
@@ -436,7 +440,7 @@ export const de: Messages = {
   "run.noChanges": "In diesem Ablauf keine Änderungen an Ihren Tools.",
   "run.approvals": "Freigaben",
   "run.noApprovals": "In diesem Ablauf keine Freigaben.",
-  "run.openInbox": "Posteingang öffnen",
+  "run.openInbox": "Ihren Schreibtisch öffnen",
   "action.status.proposed": "Wartet auf Freigabe",
   "action.status.approved": "Freigegeben",
   "action.status.executing": "Wird ausgeführt",
@@ -445,21 +449,21 @@ export const de: Messages = {
   "action.status.failed": "Fehlgeschlagen",
 
   // ── Connections ──
-  "connections.title": "Verbindungen",
+  "connections.title": "Konten",
   "connections.subtitle":
-    "Verbinden Sie jedes Tool einmal. Ihre Agenten nutzen diese Verbindungen, im Rahmen der hier gezeigten Berechtigungen.",
+    "Verbinden Sie jedes Tool einmal. Ihre Agenten nutzen diese Konten, im Rahmen der hier gezeigten Berechtigungen.",
   "connections.connected": "Verbunden · {count}",
   "connections.noneConnected": "Noch keine Tools verbunden.",
   "connections.connectBelow": "Verbinden Sie unten eines.",
   "connections.adminConnects": "Ihr Admin verbindet sie.",
   "connections.matrixNote":
-    "Freigabe heißt: Die Änderung wartet in Ihrem Posteingang, bis jemand zustimmt.",
+    "Freigabe heißt: Die Änderung wartet auf Ihrem Schreibtisch, bis jemand zustimmt.",
   "connections.available": "Verfügbar",
   "connections.synced": "synchronisiert {time}",
   "connections.live": "live",
   "connections.usedByServices": {
-    one: "Genutzt von {count} Service",
-    other: "Genutzt von {count} Services",
+    one: "Genutzt von {count} Agent",
+    other: "Genutzt von {count} Agenten",
   },
   "connections.actions": { one: "{count} Aktion", other: "{count} Aktionen" },
   "connections.usedByNames": "Genutzt von {names}",
@@ -503,7 +507,7 @@ export const de: Messages = {
   "matrix.tool": "Tool",
   "matrix.scope": "Umfang",
   "matrix.scopeFor": "Umfang für {name}",
-  "matrix.everything": "Alles, was die Verbindung erreicht",
+  "matrix.everything": "Alles, was das Konto erreicht",
   "matrix.verb.read": "lesen",
   "matrix.verb.create": "anlegen",
   "matrix.verb.update": "ändern",
@@ -517,14 +521,14 @@ export const de: Messages = {
   "matrix.save": "Berechtigungen speichern",
   "callback.title": "Verbindung wird hergestellt",
   "callback.subtitle": "Die Anmeldung bei Ihrem Tool wird abgeschlossen.",
-  "callback.back": "Zurück zu den Verbindungen",
+  "callback.back": "Zurück zu den Konten",
   "callback.connecting": "Wird verbunden…",
   // v0.12 bankfeed (pending review by a fluent speaker).
   "connections.bankfeed.description":
     "Lesen Sie die Umsätze Ihrer Bankkonten und Karten. Hier kann kein Geld bewegt werden.",
   "connections.bankfeed.connect": "Bank oder Karte verbinden",
   "callback.linkLost":
-    "Diese Bankanmeldung wurde in einem anderen Tab oder Fenster begonnen. Beginnen Sie unter Verbindungen neu.",
+    "Diese Bankanmeldung wurde in einem anderen Tab oder Fenster begonnen. Beginnen Sie unter Konten neu.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Zugriff",
@@ -552,11 +556,11 @@ export const de: Messages = {
     "Füllen Sie alle Felder aus. Sie können Ihre Eingaben ersetzen oder entfernen, aber niemand kann sie wieder sehen.",
   "vault.agentsTitle": "Agenten mit Zugriff",
   "vault.noAgents": "Noch nutzt kein Agent diesen Zugang.",
-  "vault.tools": "Werkzeuge",
-  "vault.allTools": "Alle Werkzeuge",
+  "vault.tools": "Tools",
+  "vault.allTools": "Alle Tools",
   "vault.someTools": {
-    one: "{count} von {total} Werkzeugen",
-    other: "{count} von {total} Werkzeugen",
+    one: "{count} von {total} Tools",
+    other: "{count} von {total} Tools",
   },
   "vault.revoked": "Entzogen",
   "vault.tighten": "Verschärfen",
@@ -604,7 +608,7 @@ export const de: Messages = {
   "webhook.section": "Webhooks · Einrichtung",
   "webhook.inTitle": "Zu Mezonas",
   "webhook.inHelp":
-    "Legen Sie einen Hook an und fügen Sie seine URL in die Aktion „Webhooks by Zapier · POST“ Ihres Zaps ein. Jeder Hook startet die Services, die auf ihn hören. Halten Sie die URL geheim: Sie enthält das Geheimnis des Hooks.",
+    "Legen Sie einen Hook an und fügen Sie seine URL in die Aktion „Webhooks by Zapier · POST“ Ihres Zaps ein. Jeder Hook startet die Agenten, die auf ihn hören. Halten Sie die URL geheim: Sie enthält das Geheimnis des Hooks.",
   "webhook.noHooks": "Noch keine Hooks.",
   "webhook.made": "angelegt {time}",
   "webhook.urlOf": "URL von {name}",
@@ -614,7 +618,7 @@ export const de: Messages = {
   "webhook.makeHook": "Hook anlegen",
   "webhook.outTitle": "Von Mezonas",
   "webhook.outHelp":
-    "Fügen Sie die „Catch Hook“-URL Ihres Zaps ein. Jedes Ereignis wartet zuerst auf Freigabe in Ihrem Posteingang, außer Ihre Berechtigungen lassen einen Schritt ohne Rückfrage laufen.",
+    "Fügen Sie die „Catch Hook“-URL Ihres Zaps ein. Jedes Ereignis wartet zuerst auf Freigabe auf Ihrem Schreibtisch, außer Ihre Berechtigungen lassen einen Schritt ohne Rückfrage laufen.",
   "webhook.sendTo": "Ereignisse senden an (https)",
   "webhook.sendingTo": "Senden an {host}.",
   "webhook.sendingToSince": "Senden an {host} seit {time}.",
@@ -721,7 +725,7 @@ export const de: Messages = {
 
   // ── Requests ──
   "requests.subtitle":
-    "Bitten Sie uns um eine Änderung an einem Ihrer Services oder um etwas Neues. Wir antworten hier.",
+    "Bitten Sie uns um eine Änderung an einem Ihrer Agenten oder um etwas Neues. Wir antworten hier.",
   "requests.which": "Welche Anfragen",
   "requests.filter.all": "Alle",
   "requests.filter.open": "Bei uns",
@@ -814,7 +818,7 @@ export const de: Messages = {
   "settings.email.itemsWaiting": "Etwas wartet auf Sie",
   "settings.email.itemsWaitingHelp": "Eine E-Mail, wenn eine Freigabe oder Frage bei Ihnen liegt.",
   "settings.email.weeklyDigest": "Wöchentliche Zusammenfassung",
-  "settings.email.weeklyDigestHelp": "Was Ihre Services jede Woche erledigt haben.",
+  "settings.email.weeklyDigestHelp": "Was Ihre Agenten jede Woche erledigt haben.",
   "settings.emailsNotYet":
     "Wir versenden diese E-Mails noch nicht. Wir speichern Ihre Auswahl und nutzen sie, sobald wir damit beginnen.",
   "settings.saved": "Gespeichert.",
@@ -831,7 +835,7 @@ export const de: Messages = {
   "people.role": "Rolle",
   "people.invite": "Einladen",
   "people.rolesHelp":
-    "Admins verbinden Tools, geben Änderungen frei und laden Personen ein. Nutzer sehen die ihnen zugewiesenen Einträge im Posteingang, die Abläufe und die Berichte.",
+    "Admins verbinden Tools, geben Änderungen frei und laden Personen ein. Nutzer sehen die ihnen zugewiesenen Einträge auf ihrem Schreibtisch, die Abläufe und die Berichte.",
   "people.invite.sent": "Wir haben {email} eine Einladung geschickt.",
   "people.invite.signedUpBefore":
     "{email} wurde hinzugefügt. Die Person hat sich schon einmal angemeldet, deshalb war keine E-Mail nötig.",
@@ -848,16 +852,16 @@ export const de: Messages = {
   "people.problem.failed": "Wir konnten die Einladung nicht senden. Versuchen Sie es noch einmal.",
 
   // ── Reports ──
-  "reports.subtitle": "Was Ihre Services erledigt haben.",
-  "reports.subtitlePeriod": "Was Ihre Services erledigt haben, {period}.",
+  "reports.subtitle": "Was Ihre Agenten erledigt haben.",
+  "reports.subtitlePeriod": "Was Ihre Agenten erledigt haben, {period}.",
   "reports.activity": "Aktivität",
   "reports.period": "Zeitraum",
   "reports.period.month": "Dieser Monat",
   "reports.period.last": "Letzter Monat",
   "reports.period.quarter": "Letzte 3 Monate",
-  "reports.forService": "Service:",
-  "reports.thisService": "dieser Service",
-  "reports.allServices": "Alle Services",
+  "reports.forService": "Agent:",
+  "reports.thisService": "dieser Agent",
+  "reports.allServices": "Alle Agenten",
   "reports.runs": "Abläufe",
   "reports.runs.done": { one: "{count} erledigt", other: "{count} erledigt" },
   "reports.runs.failed": { one: "{count} fehlgeschlagen", other: "{count} fehlgeschlagen" },
@@ -871,9 +875,9 @@ export const de: Messages = {
   },
   "reports.changes": "Änderungen an Ihren Tools",
   "reports.changesNone": "Keine in diesem Zeitraum",
-  "reports.byService": "Nach Service",
+  "reports.byService": "Nach Agent",
   "reports.noServices":
-    "Noch keine Services. Wir richten sie gemeinsam mit Ihnen ein, dann erscheint ihre Arbeit hier.",
+    "Noch keine Agenten. Wir richten sie gemeinsam mit Ihnen ein, dann erscheint ihre Arbeit hier.",
   "reports.col.done": "Erledigt",
   "reports.col.failed": "Fehlgeschlagen",
   "reports.col.waiting": "Wartend",
@@ -886,7 +890,7 @@ export const de: Messages = {
   "service.nothingRan": "Diesen Monat ist noch nichts gelaufen",
   "service.allRuns": "Alle Abläufe",
   "service.recentRuns": "Letzte Abläufe",
-  "service.noRuns": "Noch keine Abläufe. Jeder Ablauf dieses Services erscheint hier.",
+  "service.noRuns": "Noch keine Abläufe. Jeder Ablauf dieses Agenten erscheint hier.",
   "service.activityHelp": {
     one: "{count} Ablauf diesen Monat, nach Ergebnis, mit den gelesenen Dokumenten und den vorgenommenen Änderungen.",
     other:
@@ -972,8 +976,8 @@ export const de: Messages = {
   "approvers.over": "Über {amount} {currency}",
   "approvers.anyChange": "Jede Änderung",
   "approvers.anyTool": "Jedes Tool",
-  "approvers.anyService": "Jeder Service",
-  "approvers.serviceLeft": "Ein Service, den es nicht mehr gibt",
+  "approvers.anyService": "Jeder Agent",
+  "approvers.serviceLeft": "Ein Agent, den es nicht mehr gibt",
   "approvers.addedByYou": "Von Ihnen hinzugefügt",
   "approvers.setByUs": "Von uns festgelegt",
   "approvers.notSaved": "noch nicht gespeichert",
@@ -996,7 +1000,7 @@ export const de: Messages = {
   "approvers.field.amount": "Betrag über",
   "approvers.field.amountHelp": "Leer lassen für jeden Betrag. Es zählt nur dieselbe Währung.",
   "approvers.field.currency": "Währung",
-  "approvers.field.service": "Service",
+  "approvers.field.service": "Agent",
   "approvers.field.note": "Notiz (optional)",
   "approvers.field.where": "Position",
   "approvers.where.top": "Zuerst, vor den anderen Regeln",
@@ -1161,9 +1165,9 @@ export const de: Messages = {
   // ── People: who each service reaches (plan §1.25) ──
   "reach.title": "Personen",
   "reach.subtitle":
-    "Wen jeder Ihrer Services kontaktiert, und wann. Wir kontaktieren nur Personen, die zugestimmt haben, auf den Kanälen, denen sie zugestimmt haben.",
-  "reach.adminOnly": "Ihr Admin wählt, wen Ihre Services kontaktieren.",
-  "reach.none": "Noch kontaktiert keiner Ihrer Services Personen.",
+    "Wen jeder Ihrer Agenten kontaktiert, und wann. Wir kontaktieren nur Personen, die zugestimmt haben, auf den Kanälen, denen sie zugestimmt haben.",
+  "reach.adminOnly": "Ihr Admin wählt, wen Ihre Agenten kontaktieren.",
+  "reach.none": "Noch kontaktiert keiner Ihrer Agenten Personen.",
   "reach.noRoles": "Kontaktiert niemanden: keine Rollen.",
   "reach.channel.email": "E-Mail",
   "reach.channel.sms": "SMS",
@@ -1195,18 +1199,18 @@ export const de: Messages = {
 
   // ── Billing (plan §1.32) ──
   "billing.title": "Abrechnung",
-  "billing.subtitle": "Dieser Monat bis jetzt, die Credits Ihrer Services und Ihre Rechnungen.",
+  "billing.subtitle": "Dieser Monat bis jetzt, die Credits Ihrer Agenten und Ihre Rechnungen.",
   "billing.notSetUp":
     "Die Abrechnung ist noch nicht eingerichtet. Wir melden uns vor Ihrer ersten Rechnung.",
   "billing.paymentProblem":
     "Ihre letzte Zahlung ist nicht durchgegangen. Öffnen Sie die Rechnung unten, um sie zu bezahlen.",
   "billing.included": "Bisher enthalten",
   "billing.creditUnit": { one: "Credit", other: "Credits" },
-  "billing.shared": "Für alle Ihre Services gemeinsam",
+  "billing.shared": "Für alle Ihre Agenten gemeinsam",
   "billing.extra": "Zusätzliche Credits",
   "billing.extraEach": "{price} pro Stück, auf Ihrer nächsten Rechnung",
   "billing.periodBody":
-    "{period}. Credits messen die Arbeit Ihrer Services: Dokumente lesen, Nachrichten, Anrufe. {credits} sind enthalten.",
+    "{period}. Credits messen die Arbeit Ihrer Agenten: Dokumente lesen, Nachrichten, Anrufe. {credits} sind enthalten.",
   "billing.credits": { one: "{count} Credit", other: "{count} Credits" },
   "billing.meter.label": "In diesem Zeitraum verbrauchte Credits",
   "billing.meter.valueText": "{used} von {allowance}",
@@ -1223,7 +1227,7 @@ export const de: Messages = {
   "billing.pdf": "PDF",
   "billing.soFar": "Dieser Monat bis jetzt",
   "billing.soFarNote": "{period}. Der endgültige Betrag kommt Anfang nächsten Monats.",
-  "billing.byService": "Nach Service",
+  "billing.byService": "Nach Agent",
   "billing.statements": "Rechnungen",
   "billing.noStatements": "Noch keine Rechnungen. Die erste kommt Anfang nächsten Monats.",
   "billing.column.item": "Posten",
@@ -1599,7 +1603,7 @@ export const de: Messages = {
   "nav.sloanLine": "Ihr Konto-Agent. Fragen Sie ihn alles.",
   "shell.askSloan": "Sloan fragen: {q}",
   "runsPage.subtitle":
-    "Jedes Mal, wenn ein Agent für Sie gearbeitet hat: wann er begann, jeder Schritt, was sich geändert hat und wer unterschrieben hat.",
+    "Jedes Mal, wenn ein Agent für Sie gearbeitet hat: wann er begann, jeder Schritt, was sich geändert hat und wer freigegeben hat.",
   "runsPage.tab.all": "Alle",
   "runsPage.tab.going": "Laufen gerade",
   "runsPage.tab.waiting": "Brauchen Sie",
@@ -1640,7 +1644,7 @@ export const de: Messages = {
   "runsPage.perDay": "Abläufe pro Tag",
   "runDetail.run": "Ablauf {id}",
   "runDetail.copyLink": "Link kopieren",
-  "runDetail.review": "Prüfen und unterschreiben",
+  "runDetail.review": "Prüfen und freigeben",
   "runDetail.about": "Über diesen Ablauf",
   "runDetail.changes": "Änderungen",
   "runDetail.changesLine": "{made} von {count} ausgeführt",
@@ -1650,7 +1654,7 @@ export const de: Messages = {
   "runDetail.otherRuns": "Weitere Abläufe von {name}",
   "runDetail.allRuns": "Alle",
   "runDetail.noOther": "Noch keine weiteren Abläufe.",
-  "runDetail.waitingChanges": "Änderungen, die auf Ihre Unterschrift warten",
+  "runDetail.waitingChanges": "Änderungen, die auf Ihre Freigabe warten",
   "runDetail.askSloan.prompt": "Stimmt in diesem Ablauf etwas nicht?",
   "runDetail.askSloan": "Sloan dazu fragen",
   "runDetail.askSloan.text": "Zum Ablauf {id}: ",
@@ -1659,10 +1663,10 @@ export const de: Messages = {
   "runDetail.audit.empty": "Niemand hat diesen Ablauf bisher geöffnet.",
   "runDetail.audit.times": { one: "einmal", other: "{count}-mal" },
   "runDetail.audit.opened_run": "hat diesen Ablauf geöffnet",
-  "runDetail.audit.item_edit": "hat eine Änderung vor dem Unterschreiben bearbeitet",
+  "runDetail.audit.item_edit": "hat eine Änderung vor der Freigabe bearbeitet",
   "runDetail.audit.item_snooze": "hat einen Eintrag zurückgestellt",
-  "runDetail.audit.item_undo": "hat eine Unterschrift zurückgenommen",
-  "runDetail.audit.signed": "hat unterschrieben",
+  "runDetail.audit.item_undo": "hat eine Freigabe zurückgenommen",
+  "runDetail.audit.signed": "hat freigegeben",
   "runDetail.audit.declined": "hat abgelehnt",
   "runDetail.audit.answered": "hat eine Frage beantwortet",
   "weekly.title": "Der Wochentisch",
@@ -1679,8 +1683,8 @@ export const de: Messages = {
   "weekly.stat.up": "{n} mehr als letzte Woche",
   "weekly.stat.down": "{n} weniger als letzte Woche",
   "weekly.stat.changes": "Änderungen in Ihren Tools",
-  "weekly.stat.changesNote": "{signed} von Ihnen unterschrieben, {automatic} von selbst",
-  "weekly.stat.signatures": "Unterschriften",
+  "weekly.stat.changesNote": "{signed} von Ihnen freigegeben, {automatic} von selbst",
+  "weekly.stat.signatures": "Freigaben",
   "weekly.stat.documents": "Gelesene Dokumente",
   "weekly.decisions": "Entscheidungen für Sie",
   "weekly.reply": "Antworten",
@@ -1723,7 +1727,7 @@ export const de: Messages = {
   "settingsPage.mine": "Ihre Benachrichtigungen",
   "settingsPage.mine.email": "E-Mails",
   "settingsPage.mine.emailHelp":
-    "Einträge, die auf Sie warten, der Wochentisch und neue Verbindungen.",
+    "Einträge, die auf Sie warten, der Wochentisch und Konten, die neu verbunden werden müssen.",
   "settingsPage.mine.sms": "SMS",
   "settingsPage.mine.smsHelp": "Von der Nummer Ihres Unternehmens.",
   "settingsPage.mine.cantText":
@@ -1736,7 +1740,7 @@ export const de: Messages = {
   "sloan.pastItem": "Begonnen am {date}",
   "sloan.new": "Neu",
   "sloan.empty":
-    "Fragen Sie, warum etwas wartet, pausieren Sie einen Agenten, fügen Sie eine unterschreibende Person hinzu oder geben Sie eine Idee an Ihre Ansprechperson weiter.",
+    "Fragen Sie, warum etwas wartet, pausieren Sie einen Agenten, fügen Sie eine freigebende Person hinzu oder geben Sie eine Idee an Ihre Ansprechperson weiter.",
   "sloan.answering": "Sloan antwortet…",
   "sloan.compose": "Fragen Sie Sloan, oder sagen Sie, was sich ändern soll",
   "sloan.commandHint":
@@ -1744,12 +1748,11 @@ export const de: Messages = {
   "sloan.you": "Sie",
   "sloan.mezonas": "Mezonas",
   "sloan.changes": "Wartet auf Sie: Änderungen an Ihrem Konto",
-  "sloan.adminSigns": "Ihr Administrator unterschreibt Änderungen an Ihrem Konto.",
+  "sloan.adminSigns": "Ihr Administrator gibt Änderungen an Ihrem Konto frei.",
   "sloan.canTitle": "Sloan kann",
   "sloan.can.see": "Die Arbeit, Abläufe und Belege jedes Agenten sehen",
   "sloan.can.pause": "Einen Agenten sofort pausieren oder fortsetzen",
-  "sloan.can.draft":
-    "Änderungen an Personen und Unterschriftsrechten zum Unterschreiben vorbereiten",
+  "sloan.can.draft": "Änderungen an Personen und Freigaberechten zur Freigabe vorbereiten",
   "sloan.can.pass": "Anfragen und Ideen für neue Agenten an Ihre Ansprechperson weitergeben",
   "sloan.can.never": "Lockert nie eine Regel und sieht Ihren Tresor nicht",
   "sloan.team": "Ihr Team gerade",
@@ -1780,18 +1783,18 @@ export const de: Messages = {
   "uploadPage.documents": "Dokumente",
   "teamPage.title": "Team",
   "teamPage.subtitle":
-    "Wer Ihr Portal nutzt und was jede Person unterschreibt. Laden Sie hier Personen aus Ihrem Unternehmen ein.",
-  "teamPage.subtitleMember": "Wer Ihr Portal nutzt und was jede Person unterschreibt.",
+    "Wer Ihr Portal nutzt und was jede Person freigibt. Laden Sie hier Personen aus Ihrem Unternehmen ein.",
+  "teamPage.subtitleMember": "Wer Ihr Portal nutzt und was jede Person freigibt.",
   "teamPage.people": "Personen",
   "teamPage.invite": "Jemanden einladen",
-  "teamPage.viewer": "Unterschreibt nicht. Kann alles lesen.",
+  "teamPage.viewer": "Gibt nichts frei. Kann alles lesen.",
   "exports.title": "Exporte",
   "exports.subtitle":
     "Dateien für Ihre Buchhaltung und Ihre eigenen Unterlagen. Jeder Export umfasst ganze Tage, höchstens ein Jahr.",
   "exports.adminOnly": "Nur Ihr Admin kann Exporte herunterladen.",
   "exports.accountant": "Für Ihre Buchhaltung",
   "exports.accountantHelp":
-    "Jede Änderung, die Ihre Agenten im Zeitraum an Ihren Tools vorgenommen haben: wer sie unterschrieben hat, ihr Lauf und ihre Dokumente.",
+    "Jede Änderung, die Ihre Agenten im Zeitraum an Ihren Tools vorgenommen haben: wer sie freigegeben hat, ihr Lauf und ihre Dokumente.",
   "exports.from": "Von",
   "exports.to": "Bis",
   "exports.format": "Format",
@@ -1802,14 +1805,13 @@ export const de: Messages = {
   "exports.download": "Herunterladen",
   "exports.audit": "Prüfprotokoll",
   "exports.auditHelp":
-    "Wer was wann geöffnet, unterschrieben oder geändert hat. Ihre Leute mit Namen; unsere als Mezonas, außer Ihrer Ansprechperson.",
+    "Wer was wann geöffnet, freigegeben oder geändert hat. Ihre Leute mit Namen; unsere als Mezonas, außer Ihrer Ansprechperson.",
   "exports.downloadCsv": "CSV herunterladen",
   "exports.problem.missing": "Wählen Sie beide Tage.",
   "exports.problem.order": "Der erste Tag muss vor dem letzten liegen.",
   "exports.problem.long": "Ein Zeitraum umfasst höchstens {days} Tage.",
   "settingsPage.teamLink": "Team",
-  "settingsPage.teamLinkHelp":
-    "Wer Ihr Portal nutzt, was jede Person unterschreibt, und Einladungen.",
+  "settingsPage.teamLinkHelp": "Wer Ihr Portal nutzt, was jede Person freigibt, und Einladungen.",
   "settingsPage.exportsLink": "Exporte",
   "settingsPage.exportsLinkHelp": "Der Export für die Buchhaltung und Ihr Prüfprotokoll.",
   "settingsPage.seeTeam": "Sehen, wer in Ihrem Team was freigibt",

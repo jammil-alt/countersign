@@ -181,7 +181,7 @@ describe("reports and the service page in German", () => {
     renderAt("/reports", api);
     expect(await screen.findByRole("heading", { name: "Berichte" })).toBeInTheDocument();
     expect(
-      await screen.findByText("Was Ihre Services erledigt haben, 1. Nov. – 3. Nov. 2026."),
+      await screen.findByText("Was Ihre Agenten erledigt haben, 1. Nov. – 3. Nov. 2026."),
     ).toBeInTheDocument();
     const stat = screen.getByTestId("portal-report-runs");
     expect(stat).toHaveTextContent("1.204");
@@ -803,7 +803,7 @@ describe("the access page in Spanish and German", () => {
       "de",
       "Konten",
       "Geheimnis gespeichert",
-      "Alle Werkzeuge",
+      "Alle Tools",
       "Verschärfen",
       "Ana Ruiz gibt es mit einem Code per SMS frei, für 4 Stunden.",
     ],
