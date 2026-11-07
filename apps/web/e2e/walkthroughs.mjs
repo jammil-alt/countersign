@@ -95,8 +95,8 @@ async function walk(browser, email, lookName, name, script, results) {
       ];
     },
     /** Fails the step unless the screen shows a link that `target` matches. */
-    async expectLink(target, what) {
-      if ((await w.links(target)).length === 0) throw new Error(`no link: ${what}`);
+    async expectLink(target, what, scope = "main") {
+      if ((await w.links(target, scope)).length === 0) throw new Error(`no link: ${what}`);
     },
     /**
      * Clicks the first visible link `target` matches. On a phone the sidebar is behind the menu,
@@ -194,8 +194,9 @@ async function clientWalk(w) {
   await w.step("Home", async () => {
     await w.goto("/");
     // Review 1: the sidebar lists places; Upload is an action on Home.
-    await w.expectLink("/inbox", "Inbox");
-    await w.expectLink("/contacts", "Contacts");
+    // The sidebar's places (outside main): Inbox and Contacts.
+    await w.expectLink("/inbox", "Inbox", "#shell-sidebar");
+    await w.expectLink("/contacts", "Contacts", "#shell-sidebar");
     await w.expectLink("/upload", "Add documents");
   });
 
