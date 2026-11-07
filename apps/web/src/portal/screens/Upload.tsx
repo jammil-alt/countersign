@@ -50,8 +50,9 @@ export function ForwardingSection({ isAdmin }: { isAdmin: boolean }) {
 
 function resultLine(
   r: Result,
-  { t, locale }: Pick<I18n, "t" | "locale">,
+  i18n: Pick<I18n, "t" | "locale" | "fmt">,
 ): { text: string; tone: "positive" | "neutral" | "risk" } {
+  const { t, locale } = i18n;
   // The server's reason is English: other languages show their own word for a refusal.
   if (r.kind === "refused") {
     return {
@@ -66,9 +67,14 @@ function resultLine(
     if (p.errors.length > 0) parts.push(t("upload.rowsSkipped", { count: p.errors.length }));
     return { text: parts.join(" · "), tone: p.errors.length > 0 ? "neutral" : "positive" };
   }
-  return r.created
-    ? { text: t("upload.received"), tone: "positive" }
-    : { text: t("upload.duplicate"), tone: "neutral" };
+  if (r.created) return { text: t("upload.received"), tone: "positive" };
+  // The same bytes are one document: the first one comes back, with when it arrived.
+  return {
+    text: r.document
+      ? t("upload.sameFile", { time: shortTime(r.document.receivedAt, undefined, i18n) })
+      : t("upload.duplicate"),
+    tone: "neutral",
+  };
 }
 
 /**
@@ -371,6 +377,17 @@ export function RecentDocuments({
                       <span className="block text-sm text-ink-muted">
                         {sourceLabel(d.source, i18n)}
                       </span>
+                      {d.sameInvoiceAs ? (
+                        <Link
+                          to={`/documents/${d.sameInvoiceAs.id}`}
+                          data-testid={`portal-document-${d.id}-same`}
+                          className="block text-sm text-link hover:underline"
+                        >
+                          {t("documents.sameInvoice", {
+                            time: shortTime(d.sameInvoiceAs.receivedAt, undefined, i18n),
+                          })}
+                        </Link>
+                      ) : null}
                     </td>
                     <td className="text-ink">{d.vendorName ?? "–"}</td>
                     <td className="n text-ink figures">{money(d.total, "USD", i18n)}</td>

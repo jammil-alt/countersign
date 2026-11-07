@@ -622,6 +622,7 @@ export const it: Messages = {
   "upload.rowsSkipped": { one: "{count} riga saltata", other: "{count} righe saltate" },
   "upload.received": "Ricevuto",
   "upload.duplicate": "Già presente: ne teniamo una sola copia.",
+  "upload.sameFile": "Lo stesso file di quello ricevuto ({time}). Ne teniamo una sola copia.",
   "forwarding.title": "Inoltra le fatture per email",
   "forwarding.uploadInRecords": "Carica tu stesso i file da Record",
   "forwarding.off": "L'inoltro non è ancora attivo. Il tuo indirizzo privato comparirà qui.",
@@ -653,6 +654,7 @@ export const it: Messages = {
   "documents.col.status": "Stato",
   "documents.col.received": "Ricevuto",
   "documents.invoiceNumber": "Fattura {number}",
+  "documents.sameInvoice": "La stessa fattura di quella ricevuta ({time})",
   "document.status.stored": "Ricevuto",
   "document.status.extracting": "In lettura",
   "document.status.extracted": "Letto",
@@ -781,7 +783,9 @@ export const it: Messages = {
     "Approviamo noi le modifiche ai tuoi strumenti per tuo conto. Vedi comunque ogni modifica nelle tue esecuzioni.",
   "settings.approvals.byYou": "Approvi tu le modifiche ai tuoi strumenti prima che avvengano.",
   "settings.approvals.howToChange":
-    "Per cambiare chi approva, chiedi a noi. Puoi anche limitare cosa possono fare gli agenti in Connessioni.",
+    "Aggiungi una regola qui sotto per scegliere chi approva. Puoi rendere le approvazioni più rigide; solo noi le allentiamo. Per limitare cosa possono fare gli agenti in uno strumento, vai su",
+  "settings.approvals.accountsLink": "Account.",
+  "settings.approvals.askAdmin": "Per cambiare chi approva, chiedi al tuo amministratore.",
   "settings.emails": "Email",
   "settings.emailsSoon": "Le email arrivano presto",
   "settings.email.itemsWaiting": "Qualcosa aspetta te",
@@ -855,7 +859,6 @@ export const it: Messages = {
   "reports.seeActivity": "Vedi la tua attività",
 
   // ── Service page ──
-  "service.noDescription": "Qui descriveremo cosa fa questo servizio.",
   "service.thisMonth": "Questo mese",
   "service.nothingRan": "Ancora nessuna esecuzione questo mese",
   "service.allRuns": "Tutte le esecuzioni",
@@ -931,7 +934,7 @@ export const it: Messages = {
   // ── Who approves ──
   "approvers.title": "Chi approva",
   "approvers.intro":
-    "Decide la prima regola che corrisponde a una modifica. Se nessuna corrisponde, approva il tuo amministratore, a meno che il servizio non indichi qualcuno.",
+    "Decide la prima regola che corrisponde a una modifica. Se nessuna corrisponde, approva il tuo amministratore, a meno che l'agente non indichi qualcuno.",
   "approvers.empty": "Ancora nessuna regola. Il tuo amministratore approva ogni modifica.",
   "approvers.who.admin": "Il tuo amministratore",
   "approvers.who.team": "Chiunque nel tuo team",
@@ -1666,7 +1669,7 @@ export const it: Messages = {
   },
   "weekly.details": "Dettagli",
   "weekly.nextWeek": "La prossima settimana",
-  "settingsPage.subtitle": "La tua azienda, chi può firmare, come paghi e come ti raggiungiamo.",
+  "settingsPage.subtitle": "La tua azienda, chi approva, come paghi e come ti raggiungiamo.",
   "settingsPage.subtitleMember": "Come ti raggiungiamo e la lingua in cui leggi.",
   "settingsPage.billing": "Fatturazione",
   "settingsPage.team": "Team",
@@ -1677,11 +1680,13 @@ export const it: Messages = {
   "settingsPage.plan": "Questo mese",
   "settingsPage.statements": "Estratti e utilizzo",
   "settingsPage.creditsThisMonth": "Crediti questo mese",
-  "settingsPage.creditsUsed": "{used} di {included} usati",
+  "settingsPage.creditsUsed": "{used} usati su {included} inclusi finora",
+  "settingsPage.creditsIncludedHelp":
+    "Ogni agente aggiunge i suoi crediti inclusi giorno per giorno, quindi il numero degli inclusi cresce nel corso del mese.",
   "settingsPage.creditsOut": "Se finiscono i crediti",
   "settingsPage.creditsOut.continue": "Continua a lavorare e aggiungi crediti",
   "settingsPage.creditsOut.continueHelp":
-    "Ti avvisiamo ogni volta che si usano altri {block} crediti.",
+    "I crediti oltre quelli inclusi vanno nella tua prossima fattura. Ti scriviamo ogni volta che si usano altri {block} crediti extra.",
   "settingsPage.creditsOut.pause": "Metti in pausa gli agenti fino al mese prossimo",
   "settingsPage.creditsOut.pauseHelp":
     "Gli agenti si fermano quando i crediti del mese sono usati. Sloan resta attivo.",
@@ -1725,6 +1730,7 @@ export const it: Messages = {
   // ── UI-3a: record, caricamento, team, esportazioni ──
   "records.lastSync": "Ultima sincronizzazione {time}.",
   "records.upload": "Carica documenti",
+  "records.fromAccount": "Da {account}",
   "records.found": { one: "{count} record", other: "{count} record" },
   "records.kind.receivables": "Crediti",
   "records.col.customer": "Cliente",
@@ -1775,7 +1781,7 @@ export const it: Messages = {
   "settingsPage.exportsLink": "Esportazioni",
   "settingsPage.exportsLinkHelp":
     "L'esportazione per il commercialista e il tuo registro di audit.",
-  "settingsPage.seeTeam": "Vedi chi firma cosa nel tuo team",
+  "settingsPage.seeTeam": "Vedi chi approva cosa nel tuo team",
   "knowledge.adminOnly":
     "Solo il tuo admin può vedere e cambiare ciò che gli agenti sanno della tua azienda.",
   "sloan.requests": "Le tue richieste a noi",

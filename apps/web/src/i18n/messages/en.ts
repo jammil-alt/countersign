@@ -600,6 +600,7 @@ export const en = {
   "upload.rowsSkipped": { one: "{count} row skipped", other: "{count} rows skipped" },
   "upload.received": "Received",
   "upload.duplicate": "Already here: we keep one copy.",
+  "upload.sameFile": "Same file as the one received at {time}. We keep one copy.",
   "forwarding.title": "Forward invoices by email",
   "forwarding.uploadInRecords": "Upload files yourself in Records",
   "forwarding.off": "Forwarding isn't switched on yet. Your private address will appear here.",
@@ -629,6 +630,7 @@ export const en = {
   "documents.col.status": "Status",
   "documents.col.received": "Received",
   "documents.invoiceNumber": "Invoice {number}",
+  "documents.sameInvoice": "Same invoice as the one received at {time}",
   "document.status.stored": "Received",
   "document.status.extracting": "Reading",
   "document.status.extracted": "Read",
@@ -753,7 +755,9 @@ export const en = {
     "We approve changes to your tools on your behalf. You still see every change in your runs.",
   "settings.approvals.byYou": "You approve changes to your tools before they happen.",
   "settings.approvals.howToChange":
-    "To change who approves, ask us. You can also tighten what agents may do on Connections.",
+    "Add a rule below to choose who approves. You can make approvals stricter; only we loosen them. To limit what agents may do in a tool, go to",
+  "settings.approvals.accountsLink": "Accounts.",
+  "settings.approvals.askAdmin": "To change who approves, ask your admin.",
   "settings.emails": "Emails",
   "settings.emailsSoon": "Emails start soon",
   "settings.email.itemsWaiting": "Something waits on you",
@@ -822,7 +826,6 @@ export const en = {
   "reports.seeActivity": "See your activity",
 
   // ── Service page ──
-  "service.noDescription": "We'll describe what this service does here.",
   "service.thisMonth": "This month",
   "service.nothingRan": "Nothing ran yet this month",
   "service.allRuns": "All runs",
@@ -899,7 +902,7 @@ export const en = {
   // ── Who approves ──
   "approvers.title": "Who approves",
   "approvers.intro":
-    "The first rule that fits a change decides. If none fits, your admin approves, unless the service names someone.",
+    "The first rule that fits a change decides. If none fits, your admin approves, unless the agent names someone.",
   "approvers.empty": "No rules yet. Your admin approves every change.",
   "approvers.who.admin": "Your admin",
   "approvers.who.team": "Anyone on your team",
@@ -1609,7 +1612,7 @@ export const en = {
   "weekly.agentRuns": { one: "{name} finished {count} run", other: "{name} finished {count} runs" },
   "weekly.details": "Details",
   "weekly.nextWeek": "Next week",
-  "settingsPage.subtitle": "Your company, who can sign, how you pay and how we reach you.",
+  "settingsPage.subtitle": "Your company, who approves, how you pay and how we reach you.",
   "settingsPage.subtitleMember": "How we reach you and the language you read in.",
   "settingsPage.billing": "Billing",
   "settingsPage.team": "Team",
@@ -1620,10 +1623,13 @@ export const en = {
   "settingsPage.plan": "This month",
   "settingsPage.statements": "Statements and usage",
   "settingsPage.creditsThisMonth": "Credits this month",
-  "settingsPage.creditsUsed": "{used} of {included} used",
+  "settingsPage.creditsUsed": "{used} used of {included} included so far",
+  "settingsPage.creditsIncludedHelp":
+    "Each agent adds its included credits day by day, so the included number grows through the month.",
   "settingsPage.creditsOut": "If credits run out",
   "settingsPage.creditsOut.continue": "Keep working and add credits",
-  "settingsPage.creditsOut.continueHelp": "We tell you each time another {block} credits are used.",
+  "settingsPage.creditsOut.continueHelp":
+    "Credits past the included ones go on your next invoice. We email you each time another {block} extra credits are used.",
   "settingsPage.creditsOut.pause": "Pause agents until next month",
   "settingsPage.creditsOut.pauseHelp":
     "Agents stop when the month's credits are used. Sloan stays on.",
@@ -1666,6 +1672,7 @@ export const en = {
   // ── UI-3a: client extras (records, upload, team, exports) ──
   "records.lastSync": "Last synced {time}.",
   "records.upload": "Upload documents",
+  "records.fromAccount": "From {account}",
   "records.found": { one: "{count} record", other: "{count} records" },
   "records.kind.receivables": "Receivables",
   "records.col.customer": "Customer",
@@ -1716,7 +1723,7 @@ export const en = {
   "settingsPage.teamLinkHelp": "Who uses your portal, what each person signs, and invites.",
   "settingsPage.exportsLink": "Exports",
   "settingsPage.exportsLinkHelp": "The accountant export and your audit log.",
-  "settingsPage.seeTeam": "See who signs what on your team",
+  "settingsPage.seeTeam": "See who approves what on your team",
   "knowledge.adminOnly": "Only your admin can see and change what agents know about your business.",
   "sloan.requests": "Your requests to us",
   "sloan.mode.change": "Ask for a change",

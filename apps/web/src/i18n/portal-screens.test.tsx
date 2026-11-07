@@ -223,7 +223,8 @@ describe("reports and the service page in German", () => {
     renderAt(`/services/${SVC}`, api);
     expect(await screen.findByRole("heading", { name: "Record keeping" })).toBeInTheDocument();
     expect(screen.getByText("Pausiert")).toBeInTheDocument();
-    expect(screen.getByText("Hier beschreiben wir, was dieser Service tut.")).toBeInTheDocument();
+    // No description: no placeholder either (QA round 1).
+    expect(screen.queryByText(/Hier beschreiben wir/)).toBeNull();
     expect(screen.getByText("1. Nov. – 4. Nov. 2026")).toBeInTheDocument();
     expect(screen.getByTestId("portal-service-runs")).toHaveTextContent("1 erledigt, 1 wartet");
     expect(screen.getByTestId(`portal-service-run-${RUN}`)).toHaveTextContent("Erledigt");

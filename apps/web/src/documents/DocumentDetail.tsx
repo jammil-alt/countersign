@@ -14,12 +14,15 @@ export function DocumentDetailView({
   data,
   onOpenOriginal,
   transactionHref,
+  documentHref,
   surface,
 }: {
   data: DocumentDetail;
   onOpenOriginal(): void;
   /** The record page of the purchase it is matched to, in this surface. */
   transactionHref(id: string): string;
+  /** Another document's page in this surface (the earlier copy of the same invoice). */
+  documentHref(id: string): string;
   surface: "portal" | "ops";
 }) {
   const i18n = useI18n();
@@ -60,6 +63,15 @@ export function DocumentDetailView({
           </Button>
         }
       />
+      {doc.sameInvoiceAs ? (
+        <p className="text-sm text-ink-muted" data-testid={`${testPrefix}-same-invoice`}>
+          <Link to={documentHref(doc.sameInvoiceAs.id)} className="text-link hover:underline">
+            {t("documents.sameInvoice", {
+              time: shortTime(doc.sameInvoiceAs.receivedAt, undefined, i18n),
+            })}
+          </Link>
+        </p>
+      ) : null}
       {!x ? (
         <EmptyState>
           {reading

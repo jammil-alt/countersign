@@ -19,6 +19,15 @@ export const DocumentSummary = z.object({
   vendorName: z.string().nullable(),
   invoiceNumber: z.string().nullable(),
   total: z.string().nullable(),
+  /**
+   * An earlier document of the client that is the same invoice (same vendor and invoice number
+   * in their latest readings): a second copy of a file already here. Null for the first one, and
+   * where the API doesn't look (an upload's own result).
+   */
+  sameInvoiceAs: z
+    .object({ id: z.string(), filename: z.string(), source: z.string(), receivedAt: Timestamp })
+    .nullable()
+    .default(null),
 });
 
 export const DocumentExtractionView = z.object({

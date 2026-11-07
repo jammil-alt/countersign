@@ -25,7 +25,8 @@ function gmail(connection: null | { connectedByYou: boolean }) {
       id: GMAIL_CONN,
       status: "connected",
       externalAccountId: "pat.lee@gmail.test",
-      accountName: null,
+      // The API names a mail account by its address (core connectionLabel).
+      accountName: "pat.lee@gmail.test",
       lastSyncAt: null,
       permissions: matrix,
       access: [],

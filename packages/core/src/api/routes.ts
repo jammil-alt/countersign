@@ -491,7 +491,10 @@ export const PortalConnection = z.object({
       id: z.string(),
       status: z.string(),
       externalAccountId: z.string().nullable(),
-      /** The account's name in the tool (e.g. the QuickBooks company), when the connector gives one. */
+      /**
+       * The account's name in the tool (e.g. the QuickBooks company), or a mail account's address;
+       * null when the tool gives neither (core connectionLabel).
+       */
       accountName: z.string().nullable(),
       lastSyncAt: NullableTimestamp,
       permissions: ConnectionMatrix,

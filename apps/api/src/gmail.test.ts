@@ -317,7 +317,7 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
     expect(
       j(asAdmin.json).connections.find((c: { connector: string }) => c.connector === "gmail")
         .connection,
-    ).toMatchObject({ externalAccountId: MAILBOX, connectedByYou: false });
+    ).toMatchObject({ externalAccountId: MAILBOX, accountName: MAILBOX, connectedByYou: false });
   });
 
   it("binds Gmail as the agent's email channel, by the operator only", async () => {

@@ -153,7 +153,7 @@ describe("back-office documents", () => {
     const results = await screen.findByTestId("ops-upload-results");
     expect(sentTo).toEqual([`/api/ops/clients/${CLIENT}/uploads`]);
     expect(results).toHaveTextContent("Received");
-    expect(results).toHaveTextContent("Already here: we keep one copy.");
+    expect(results).toHaveTextContent(/Same file as the one received at .+\. We keep one copy\./);
     expect(within(results).getByRole("link", { name: "northline-20418.pdf" })).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/documents/${DOC}`,

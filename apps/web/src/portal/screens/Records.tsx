@@ -144,9 +144,20 @@ export function PortalRecordsScreen() {
             <EmptyState>{q ? t("records.noMatch", { q }) : t("records.empty")}</EmptyState>
           ) : (
             <div className="flex flex-col gap-3">
+              {/* One account: named once above the table, not on every row (QA round 1). */}
+              {list.sources.length === 1 && list.sources[0] ? (
+                <p className="text-sm text-ink-muted" data-testid="portal-records-account">
+                  {t("records.fromAccount", { account: sourceName(sources, list.sources[0].id) })}
+                </p>
+              ) : null}
               <Card>
                 <div className="dt dt-ana overflow-x-auto">
-                  <RecordsTable data={list} sources={sources} i18n={i18n} />
+                  <RecordsTable
+                    data={list}
+                    sources={sources}
+                    i18n={i18n}
+                    showSource={list.sources.length > 1}
+                  />
                 </div>
               </Card>
               <Pager
@@ -166,10 +177,13 @@ function RecordsTable({
   data,
   sources,
   i18n,
+  showSource,
 }: {
   data: RecordList;
   sources: Map<string, RecordSource>;
   i18n: I18n;
+  /** A source column only when records come from more than one account. */
+  showSource: boolean;
 }) {
   const { t } = i18n;
   const open = (id: string, label: string) => (
@@ -188,7 +202,7 @@ function RecordsTable({
             <th>{t("records.col.vendor")}</th>
             <th>{t("records.col.number")}</th>
             <th className="n">{t("records.col.total")}</th>
-            <th>{t("records.col.source")}</th>
+            {showSource ? <th>{t("records.col.source")}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -202,7 +216,7 @@ function RecordsTable({
               <td className="text-ink">{r.vendor?.name ?? "–"}</td>
               <td className="reference text-ink">{r.docNumber ?? "–"}</td>
               <td className="n text-ink figures">{money(r.total, r.currency, i18n)}</td>
-              <td className="text-ink">{sourceName(sources, r.sourceId)}</td>
+              {showSource ? <td className="text-ink">{sourceName(sources, r.sourceId)}</td> : null}
             </tr>
           ))}
         </tbody>
@@ -216,7 +230,7 @@ function RecordsTable({
           <tr className="dt-cols">
             <th>{t("records.col.name")}</th>
             <th className="n">{t("records.col.transactions")}</th>
-            <th>{t("records.col.source")}</th>
+            {showSource ? <th>{t("records.col.source")}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -224,7 +238,7 @@ function RecordsTable({
             <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
               <td>{open(r.id, r.name)}</td>
               <td className="n text-ink figures">{i18n.fmt.number(r.transactions)}</td>
-              <td className="text-ink">{sourceName(sources, r.sourceId)}</td>
+              {showSource ? <td className="text-ink">{sourceName(sources, r.sourceId)}</td> : null}
             </tr>
           ))}
         </tbody>
@@ -287,7 +301,7 @@ function RecordsTable({
         <tr className="dt-cols">
           <th>{t("records.col.name")}</th>
           <th>{t("records.col.description")}</th>
-          <th>{t("records.col.source")}</th>
+          {showSource ? <th>{t("records.col.source")}</th> : null}
         </tr>
       </thead>
       <tbody>
@@ -298,7 +312,7 @@ function RecordsTable({
               {r.deleted ? deleted : null}
             </td>
             <td className="text-ink">{r.description ?? "–"}</td>
-            <td className="text-ink">{sourceName(sources, r.sourceId)}</td>
+            {showSource ? <td className="text-ink">{sourceName(sources, r.sourceId)}</td> : null}
           </tr>
         ))}
       </tbody>

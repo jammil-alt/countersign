@@ -159,6 +159,11 @@ export const VaultItem = z.object({
   kind: VaultKind,
   status: z.string(),
   externalAccountId: z.string().nullable(),
+  /**
+   * The account's name in the tool (e.g. the QuickBooks company), or a mail account's address;
+   * null when the tool gives neither (core connectionLabel). Never a bare id.
+   */
+  accountName: z.string().nullable().default(null),
   secret: VaultSecretState,
   /** Whether the client admin can enter or replace its credentials here. */
   credentialForm: z.boolean(),

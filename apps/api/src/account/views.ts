@@ -26,6 +26,7 @@ import {
   snoozedNow,
 } from "../routes/portal";
 import { raiseRequest } from "../routes/requests";
+import { clientDescription } from "../weekly/stats";
 import { draftAccountChange } from "./changes";
 
 const ACTIVE_RUN = ["queued", "running", "waiting"] as const;
@@ -70,7 +71,7 @@ export function accountViews(platform: Platform): AccountViews {
         );
         out.push({
           ...serviceControl(a),
-          description: a.serviceDescription,
+          description: clientDescription(a),
           current: current ?? null,
         });
       }
