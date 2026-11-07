@@ -100,6 +100,31 @@ describe("resolving", () => {
     expect(renderSummary("Updated the bill's memo", null)).toBe("Updated the bill's memo");
   });
 
+  it("says one of a thing in the singular, and stored amounts with two places", () => {
+    expect(renderSummary("Found {{bills.length}} bills", { bills: [1] })).toBe("Found 1 bill");
+    expect(renderSummary("Found {{bills.length}} bills", { bills: [1, 2] })).toBe("Found 2 bills");
+    expect(renderSummary("Looked at {{count}} recent runs", { count: 1 })).toBe(
+      "Looked at 1 recent run",
+    );
+    expect(renderSummary("{{n}} open invoices, {{t}} owed", { n: "1", t: "10.00" })).toBe(
+      "1 open invoice, 10.00 owed",
+    );
+    expect(renderSummary("Found {{n}} people", { n: 1 })).toBe("Found 1 person");
+    expect(renderSummary("Looked up {{n}} entries", { n: 1 })).toBe("Looked up 1 entry");
+    expect(renderSummary("Found {{n}} in the directory", { n: 1 })).toBe(
+      "Found 1 in the directory",
+    );
+    expect(renderSummary("Added {{n}} row(s)", { n: 1 })).toBe("Added 1 row(s)");
+    expect(renderSummary("Itemized into {{n}} lines; total {{t}}", { n: 1, t: "9742.3500" })).toBe(
+      "Itemized into 1 line; total 9742.35",
+    );
+    expect(renderSummary("Unit price {{p}}", { p: "0.0425" })).toBe("Unit price 0.0425");
+    // Other languages write their own templates.
+    expect(renderSummary({ en: "Found {{n}} bills", es: "{{n}} facturas" }, { n: 1 }, "es")).toBe(
+      "1 facturas",
+    );
+  });
+
   it("collects every reference with where it sits, and syntax errors", () => {
     const { refs, errors } = collectRefs({
       a: "{{trigger.x}}",

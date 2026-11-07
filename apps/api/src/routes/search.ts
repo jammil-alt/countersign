@@ -23,6 +23,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, mount } from "../http";
 import { workerTransport } from "../runs/execute";
+import { runSubjects } from "../runs/subject";
 import { compileQuestion } from "../runs-ask/ask";
 import { askContext } from "../runs-ask/context";
 import { recordAskUsage } from "../runs-ask/usage";
@@ -96,9 +97,10 @@ function namesOf(context: AskContext) {
 
 export function searchRoutes(app: Hono<AppEnv>): void {
   // ── Search ──
-  mount(app, routes.portalSearch, async ({ tx, tenantIds, query }) => {
+  mount(app, routes.portalSearch, async ({ tx, tenantIds, query, services }) => {
     const tenantId = tenantIds[0] as string;
     const hits = await searchAll(tx, { surface: "portal", tenantIds: [tenantId] }, query.q);
+    const subjects = await runSubjects(tx, [tenantId], hits.runs, services.platform);
     // Only what the portal shows: no client ids, templates, notes or costs.
     const result: PortalSearchResult = {
       services: hits.agents.map((a) => ({
@@ -112,6 +114,7 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         service: { id: r.agentId, name: r.serviceName ?? r.agentName },
         status: r.status,
         createdAt: r.createdAt.toISOString(),
+        subject: subjects.get(r.id),
       })),
       records: hits.records.map(({ tenantId: _t, ...r }) => r),
       people: hits.people.map(({ tenantId: _t, ...p }) => p),
@@ -132,6 +135,7 @@ export function searchRoutes(app: Hono<AppEnv>): void {
     const { tx, query } = ctx;
     const ids = opsIds(ctx, query.client);
     const hits = await searchAll(tx, { surface: "ops", tenantIds: ids }, query.q);
+    const subjects = await runSubjects(tx, ids, hits.runs, ctx.services.platform);
     const client = await clientNames(tx, ids);
     const named = (id: string) => client(id) ?? { id, name: "" };
     const result: OpsSearchResult = {
@@ -152,6 +156,7 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         client: named(r.tenantId),
         mode: r.mode,
         summary: r.summary,
+        subject: subjects.get(r.id),
       })),
       records: hits.records.map(({ tenantId, ...r }) => ({ ...r, client: named(tenantId) })),
       people: hits.people.map(({ tenantId, ...p }) => ({ ...p, client: named(tenantId) })),
@@ -210,6 +215,7 @@ export function searchRoutes(app: Hono<AppEnv>): void {
       tenantId,
       runFilterWhere(filter, services.platform.ctx.tools.specs()),
       ASK_RUNS_LIMIT,
+      services.platform,
     );
     return {
       understood: true as const,

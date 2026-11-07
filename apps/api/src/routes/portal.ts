@@ -26,6 +26,7 @@ import {
   type Role,
   routes,
   type Step,
+  stepStateLabel,
 } from "@countersign/core";
 import {
   agent,
@@ -58,6 +59,7 @@ import {
   openRunsByAgent,
 } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
+import { runSubjects, sourceNames } from "../runs/subject";
 import { matrixEdit } from "./mappers";
 import { runFilterWhere } from "./run-controls";
 import { latestHealthSummary, portalFindings } from "./supervisor";
@@ -149,7 +151,14 @@ const serviceName = (a: Pick<typeof agent.$inferSelect, "serviceName" | "name">)
   a.serviceName ?? a.name;
 
 /** Live runs of the client's services, newest first (test runs never reach the portal). */
-export async function runSummaries(tx: Tx, tenantId: string, where: SQL[], limit: number) {
+export async function runSummaries(
+  tx: Tx,
+  tenantId: string,
+  where: SQL[],
+  limit: number,
+  /** For each run's subject (core RunSubject): the tool registry names its first change. */
+  platform?: Pick<Platform, "tools" | "connectors">,
+) {
   const rows = await tx
     .select({ r: run, a: agent })
     .from(run)
@@ -163,6 +172,14 @@ export async function runSummaries(tx: Tx, tenantId: string, where: SQL[], limit
     tenantId,
     rows.map(({ r }) => r.id),
   );
+  const subjects = platform
+    ? await runSubjects(
+        tx,
+        [tenantId],
+        rows.map(({ r }) => r),
+        platform,
+      )
+    : new Map();
   return rows.map(({ r, a }) => {
     const w = waits.get(r.id);
     const going = (OPEN_RUN as readonly string[]).includes(r.status);
@@ -174,8 +191,29 @@ export async function runSummaries(tx: Tx, tenantId: string, where: SQL[], limit
       finishedAt: iso(r.finishedAt),
       waitingOnYou: going && (r.status === "waiting" || (w?.waitingOnYou ?? false)),
       waitedMs: Math.round(w?.waitedMs ?? 0),
+      ...(subjects.has(r.id) ? { subject: subjects.get(r.id) } : {}),
     };
   });
+}
+
+/**
+ * A step's stored line without the label it starts with ("Itemized the bill: waiting for
+ * approval" → "Waiting for approval"): the timeline shows the label above it already, and lines
+ * written before steps read by their state carried the done label while they waited.
+ */
+export function summaryAfterLabel(
+  summary: string | null,
+  labels: readonly string[],
+): string | null {
+  if (summary === null) return null;
+  for (const label of labels) {
+    const prefix = `${label}: `;
+    if (label !== "" && summary.startsWith(prefix)) {
+      const rest = summary.slice(prefix.length).trim();
+      return rest === "" ? null : rest.charAt(0).toUpperCase() + rest.slice(1);
+    }
+  }
+  return summary;
 }
 
 /** A step_run's node id names its step: the id, or `${loop}:${index}:${childId}` in a loop. */
@@ -313,7 +351,7 @@ export async function portalConnections(
  */
 export async function portalRunView(tx: Tx, tenantId: string, runId: string, platform: Platform) {
   // Test runs are hidden from the portal (ARCHITECTURE §10.4).
-  const [summary] = await runSummaries(tx, tenantId, [eq(run.id, runId)], 1);
+  const [summary] = await runSummaries(tx, tenantId, [eq(run.id, runId)], 1, platform);
   if (!summary) throw notFound("run");
   const [r] = await tx
     .select({ versionId: run.agentVersionId, slug: run.workflowSlug })
@@ -347,12 +385,14 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
     const step = stepOfNode(lookup, s.nodeId);
     // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
     if (!step || !isClientVisible(step)) return [];
+    // A step reads by its state: "Itemize the bill" until it has run, then "Itemized the bill".
+    const label = stepStateLabel(step, s.status === "succeeded");
     return [
       {
         id: s.id,
-        label: isLeadCheck(step) ? leadCheckLabel(clientLabel(step), leadName) : clientLabel(step),
+        label: isLeadCheck(step) ? leadCheckLabel(label, leadName) : label,
         status: s.status,
-        summary: s.summary,
+        summary: summaryAfterLabel(s.summary, [clientLabel(step), step.name]),
         sources: sourcesOf(s.output),
         startedAt: iso(s.startedAt),
         finishedAt: iso(s.finishedAt),
@@ -404,6 +444,11 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
   return {
     run: summary,
     steps: timeline,
+    sourceNames: await sourceNames(
+      tx,
+      [tenantId],
+      timeline.flatMap((s) => s.sources),
+    ),
     approvals,
     actions: actions.map((a) => ({
       id: a.id,
@@ -421,52 +466,56 @@ function by(session: Session, role: Role) {
 }
 
 export function portalRouteHandlers(app: Hono<AppEnv>): void {
-  mount(app, routes.portalOverview, async ({ tx, tenantIds, role, session }) => {
-    const tenantId = tenantIds[0] as string;
-    const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
-    if (!t) throw notFound("client");
-    const services = await tx
-      .select()
-      .from(agent)
-      .where(
-        and(
-          eq(agent.tenantId, tenantId),
-          eq(agent.kind, "client"),
-          inArray(agent.runStatus, ["active", "paused"]),
-        ),
-      )
-      .orderBy(agent.slug);
-    const going = await openRunsByAgent(tx, tenantId);
-    const open = await tx
-      .select({ id: inboxItem.id })
-      .from(inboxItem)
-      .where(
-        and(
-          eq(inboxItem.tenantId, tenantId),
-          eq(inboxItem.status, "open"),
-          portalInboxFilter(role, session.user.id),
-          snoozedNow(false),
-        ),
-      );
-    return {
-      client: { id: t.id, name: t.name },
-      services: services.map((a) => ({
-        id: a.id,
-        name: serviceName(a),
-        description: a.serviceDescription,
-        status: a.runStatus ?? "draft",
-        // QA round 1: for its state in the sidebar (Working, Waiting on you, Ready, …).
-        stage: a.stage,
-        runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
-      })),
-      needsYou: { inbox: open.length },
-      recentRuns: await runSummaries(tx, tenantId, [], 5),
-      health: {
-        summary: await latestHealthSummary(tx, tenantId),
-        findings: await portalFindings(tx, tenantId, role, session.user.id),
-      },
-    };
-  });
+  mount(
+    app,
+    routes.portalOverview,
+    async ({ tx, tenantIds, role, session, services: ctxServices }) => {
+      const tenantId = tenantIds[0] as string;
+      const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
+      if (!t) throw notFound("client");
+      const services = await tx
+        .select()
+        .from(agent)
+        .where(
+          and(
+            eq(agent.tenantId, tenantId),
+            eq(agent.kind, "client"),
+            inArray(agent.runStatus, ["active", "paused"]),
+          ),
+        )
+        .orderBy(agent.slug);
+      const going = await openRunsByAgent(tx, tenantId);
+      const open = await tx
+        .select({ id: inboxItem.id })
+        .from(inboxItem)
+        .where(
+          and(
+            eq(inboxItem.tenantId, tenantId),
+            eq(inboxItem.status, "open"),
+            portalInboxFilter(role, session.user.id),
+            snoozedNow(false),
+          ),
+        );
+      return {
+        client: { id: t.id, name: t.name },
+        services: services.map((a) => ({
+          id: a.id,
+          name: serviceName(a),
+          description: a.serviceDescription,
+          status: a.runStatus ?? "draft",
+          // QA round 1: for its state in the sidebar (Working, Waiting on you, Ready, …).
+          stage: a.stage,
+          runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
+        })),
+        needsYou: { inbox: open.length },
+        recentRuns: await runSummaries(tx, tenantId, [], 5, ctxServices.platform),
+        health: {
+          summary: await latestHealthSummary(tx, tenantId),
+          findings: await portalFindings(tx, tenantId, role, session.user.id),
+        },
+      };
+    },
+  );
 
   mount(app, routes.portalInbox, async ({ tx, tenantIds, role, session, query, services }) => {
     const tenantId = tenantIds[0] as string;
@@ -535,7 +584,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
       ...clientStatusWhere(statuses),
     ];
-    const runs = await runSummaries(tx, tenantId, where, query.limit);
+    const runs = await runSummaries(tx, tenantId, where, query.limit, services.platform);
     if (!query.perDay) return { runs };
     const scope = [eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where];
     const [t] = await tx

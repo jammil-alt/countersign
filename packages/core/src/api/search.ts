@@ -7,6 +7,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
 import { shortRunIdTail } from "./run-controls";
+import { RunSubject } from "./run-subject";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
@@ -107,6 +108,8 @@ export const SearchRunHit = z.object({
   service: Ref,
   status: z.string(),
   createdAt: z.string(),
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
 
 export const RECORD_HIT_KINDS = ["transaction", "vendor", "receivable"] as const;

@@ -81,7 +81,7 @@ export function accountViews(platform: Platform): AccountViews {
       const where: SQL[] = [];
       if (query.serviceId) where.push(eq(run.agentId, query.serviceId));
       if (query.status) where.push(eq(run.status, query.status));
-      return runSummaries(s.tx, s.tenantId, where, query.limit);
+      return runSummaries(s.tx, s.tenantId, where, query.limit, platform);
     },
 
     run(s, runId) {

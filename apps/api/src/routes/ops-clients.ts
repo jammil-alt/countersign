@@ -34,6 +34,7 @@ import { resolveInboxItem } from "../inbox";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
+import { runSubjects, sourceNames } from "../runs/subject";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
 import {
@@ -47,7 +48,7 @@ import {
   opsToolCall,
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
-import { canSignIn } from "./portal";
+import { canSignIn, sourcesOf } from "./portal";
 import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
 import { addSupervisor } from "./supervisor";
 
@@ -446,8 +447,9 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .orderBy(desc(run.createdAt))
       .limit(query.limit);
     const groups = query.groupBy === "error" ? await runErrorGroups(tx, where) : undefined;
+    const subjects = await runSubjects(tx, ctx.tenantIds, rows, ctx.services.platform);
     return {
-      runs: rows.map(opsRun),
+      runs: rows.map((r) => ({ ...opsRun(r), subject: subjects.get(r.id) })),
       agents: await agentRefs(tx, ctx.tenantIds, [
         ...rows.map((r) => r.agentId),
         ...(groups ?? []).flatMap((g) => g.agents),
@@ -512,8 +514,10 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
     const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
     const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
+    const subjects = await runSubjects(tx, [r.tenantId], [r], services.platform);
+    const cited = steps.flatMap((s) => sourcesOf(s.output));
     return {
-      run: opsRun(r),
+      run: { ...opsRun(r), subject: subjects.get(r.id) },
       steps: steps.map((s) => ({ ...opsStep(s), models: modelsByStep.get(s.id) ?? [] })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),
@@ -523,6 +527,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
       // v0.13 W2-I: each oversight decision with its note, input change, model and cost.
       oversight: await runOversight(tx, r.tenantId, r.id),
+      sourceNames: await sourceNames(tx, [r.tenantId], cited),
     };
   });
 
