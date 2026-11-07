@@ -299,18 +299,22 @@ export function Loading({ label }: { label?: string }) {
 
 /**
  * What a failed load says, as a risk Banner, in the reader's language (by the error's code).
- * Server codes are shown so a contract break is recognisable.
+ * Plain words only: the server's code ("tenant_forbidden") never shows; it stays on the element
+ * (`data-error-code`) for support and tests.
  */
+// DECISION: the code was shown so a contract break was recognisable; people read it as part of
+// the message ("You don't have access to this. tenant_forbidden"), so it moved to an attribute.
 export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const i18n = useI18n();
   const message = errorText(error, i18n);
   return (
-    <div role="alert" className="ds-banner items-center">
+    <div
+      role="alert"
+      className="ds-banner items-center"
+      {...(isApiError(error) ? { "data-error-code": error.code } : {})}
+    >
       <Icon name="alert" className="mt-px" />
-      <span className="min-w-0 flex-1">
-        {message}
-        {isApiError(error) ? <span className="ml-2 reference opacity-80">{error.code}</span> : null}
-      </span>
+      <span className="min-w-0 flex-1">{message}</span>
       {onRetry ? (
         <Button variant="ghost" size="sm" onClick={onRetry} className="text-risk">
           {i18n.t("common.tryAgain")}

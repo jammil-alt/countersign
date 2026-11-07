@@ -156,6 +156,8 @@ export function createTestkitConnector(
     description: "An in-memory system for tests and the Sandbox client. Never a real client tool.",
     icon: "flask",
     auth: "none",
+    // Never offered to a real client (core's `connectorShown`).
+    testOnly: true,
     entities: ["Record"],
     // v0.12 W2-A: record types for the matrix (docs/plan.md §1.44).
     permissionEntities: [{ id: "record", label: "Records", verbs: ["read", "update"] }],

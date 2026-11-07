@@ -22,16 +22,18 @@ import {
   type AgentBundle,
   type BuilderCatalog,
   type BundleChange,
+  connectorShown,
   diffBundles,
   flattenBundle,
   mergeBundles,
   routes,
   type SkillDefinition,
 } from "@countersign/core";
-import { agent, run, skill, skillVersion, tenant } from "@countersign/db";
+import { agent, connection, run, skill, skillVersion, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import type { Platform } from "../platform";
 import { agentSummary, versionSummary } from "./mappers";
 // v0.12 W2-B
 import { builderAutomations } from "./ops-automations";
@@ -160,6 +162,52 @@ function skillOption(
   };
 }
 
+/**
+ * The test-only connectors (the testkit) an agent's builder doesn't offer: all of them, unless the
+ * agent is in the Sandbox client or a template's test copy, or its client has a connection to it,
+ * or its latest version already names one of its tools.
+ */
+// DECISION: "names one of its tools" reads the bundle as text for the tool ids (a step's tool, an
+// extra tool, a rule): a version that already uses the testkit keeps typing in the builder.
+async function hiddenTestConnectors(
+  tx: Tx,
+  row: AgentRow,
+  bundle: AgentBundle | null,
+  platform: Platform,
+): Promise<Set<string>> {
+  const testOnly = platform.connectors.list().filter((c) => c.manifest.testOnly === true);
+  if (testOnly.length === 0) return new Set();
+  let sandbox = false;
+  let connected = new Set<string>();
+  if (row.tenantId) {
+    const [t] = await tx
+      .select({ settings: tenant.settings })
+      .from(tenant)
+      .where(eq(tenant.id, row.tenantId));
+    sandbox = t?.settings.sandbox === true;
+    const conns = await tx
+      .select({ connector: connection.connector })
+      .from(connection)
+      .where(eq(connection.tenantId, row.tenantId));
+    connected = new Set(conns.map((c) => c.connector));
+  }
+  const text = bundle ? JSON.stringify(bundle) : "";
+  return new Set(
+    testOnly
+      .filter(
+        (c) =>
+          !connectorShown(c.manifest, {
+            sandbox,
+            testCopy: row.testCopy,
+            inUse:
+              connected.has(c.manifest.id) ||
+              c.manifest.tools.some((t) => text.includes(JSON.stringify(t.id))),
+          }),
+      )
+      .map((c) => c.manifest.id),
+  );
+}
+
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
@@ -262,16 +310,29 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         if (!skills.has(ref)) skills.set(ref, entry(ref, def, "pinned", null));
       }
     }
+    // Test-only connectors (the testkit) and their tools only for the Sandbox and test copies, or
+    // where the agent or its client already uses them (core's connectorShown).
+    const hidden = await hiddenTestConnectors(tx, row, latest?.bundle ?? null, platform);
+    const toolHidden = (id: string) => {
+      const owner = platform.connectors.findTool(id)?.connector.manifest.id;
+      return owner !== undefined && hidden.has(owner);
+    };
     return {
       skills: [...skills.values()].sort((a, b) =>
         a.definition.name.localeCompare(b.definition.name),
       ),
-      tools: platform.tools.list().map((t) => t.spec),
-      connectors: platform.connectors.list().map((c) => ({
-        id: c.manifest.id,
-        name: c.manifest.name,
-        icon: c.manifest.icon || null,
-      })),
+      tools: platform.tools
+        .list()
+        .map((t) => t.spec)
+        .filter((t) => !toolHidden(t.id)),
+      connectors: platform.connectors
+        .list()
+        .filter((c) => !hidden.has(c.manifest.id))
+        .map((c) => ({
+          id: c.manifest.id,
+          name: c.manifest.name,
+          icon: c.manifest.icon || null,
+        })),
       // v0.12 W2-B: automations a use step can pin (ARCHITECTURE §10.7).
       automations: await builderAutomations(tx, {
         tenantId: row.tenantId,

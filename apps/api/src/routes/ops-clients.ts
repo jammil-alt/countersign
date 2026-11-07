@@ -5,6 +5,7 @@ import type { Approver } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
 import {
   complianceOf,
+  connectorShown,
   parseCoveredProcessors,
   processingRefusal,
   processorsForOffer,
@@ -305,20 +306,29 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     return {
       connections: rows.map(opsConnection),
       offered: offeredConnectors(t.settings),
-      connectors: services.platform.connectors.list().map((c) => ({
-        id: c.manifest.id,
-        name: c.manifest.name,
-        description: c.manifest.description,
-        icon: c.manifest.icon ?? null,
-        auth: c.manifest.auth,
-        available: canSignIn(c),
-        tools: c.manifest.tools.map((tool) => ({
-          id: tool.id,
-          description: tool.description,
-          verb: tool.verb,
-          sideEffect: tool.sideEffect,
+      // Test-only connectors only in the Sandbox, or where the client already has a connection.
+      connectors: services.platform.connectors
+        .list()
+        .filter((c) =>
+          connectorShown(c.manifest, {
+            sandbox: isSandbox(t.settings),
+            inUse: rows.some((r) => r.connector === c.manifest.id),
+          }),
+        )
+        .map((c) => ({
+          id: c.manifest.id,
+          name: c.manifest.name,
+          description: c.manifest.description,
+          icon: c.manifest.icon ?? null,
+          auth: c.manifest.auth,
+          available: canSignIn(c),
+          tools: c.manifest.tools.map((tool) => ({
+            id: tool.id,
+            description: tool.description,
+            verb: tool.verb,
+            sideEffect: tool.sideEffect,
+          })),
         })),
-      })),
       usedBy,
       sandbox: isSandbox(t.settings),
     };

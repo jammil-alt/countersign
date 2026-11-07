@@ -451,6 +451,7 @@ export function defineConnector(
     sharedNamespaces,
     credentialFields,
     permissionEntities,
+    testOnly,
     tools,
     ...hooks
   } = def;
@@ -474,6 +475,7 @@ export function defineConnector(
     ...(credentialFields === undefined ? {} : { credentialFields }),
     // v0.12 W2-A
     ...(permissionEntities === undefined ? {} : { permissionEntities }),
+    ...(testOnly === undefined ? {} : { testOnly }),
   });
   if (!parsed.success) {
     problems.push(

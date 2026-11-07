@@ -14,6 +14,7 @@ import {
   type ApproverRuleChange,
   type ApproverRuleInput,
   clientTighteningProblems,
+  connectorShown,
   deepEqual,
   readApproverRuleSet,
   routes,
@@ -24,6 +25,7 @@ import {
   agent,
   agentVersion,
   appUser,
+  connection,
   membership,
   type Tx,
   tenant,
@@ -87,14 +89,24 @@ async function clientAgents(tx: Tx, tenantId: string) {
     }));
 }
 
-/** Write tools rules can name, per connector (all registered, or those the client is offered). */
+/**
+ * Write tools rules can name, per connector (all registered, or those the client is offered).
+ * Test-only connectors (the testkit) only where `testOnly` says they show (core's connectorShown).
+ */
 function connectorOptions(
   platform: Platform,
+  testOnly: { sandbox: boolean; inUse: ReadonlySet<string> },
   only?: ReadonlySet<string>,
 ): ApproverConnectorOption[] {
   return platform.connectors
     .list()
     .filter((c) => !only || only.has(c.manifest.id))
+    .filter((c) =>
+      connectorShown(c.manifest, {
+        sandbox: testOnly.sandbox,
+        inUse: testOnly.inUse.has(c.manifest.id),
+      }),
+    )
     .map((c) => ({
       id: c.manifest.id,
       name: c.manifest.name,
@@ -108,6 +120,27 @@ function connectorOptions(
         })),
     }))
     .filter((c) => c.tools.length > 0);
+}
+
+/** Connectors the client has a connection to, or a rule already names. */
+async function inUseConnectors(
+  tx: Tx,
+  tenantId: string,
+  set: ReturnType<typeof readApproverRuleSet>,
+  platform: Platform,
+): Promise<Set<string>> {
+  const rows = await tx
+    .select({ connector: connection.connector })
+    .from(connection)
+    .where(eq(connection.tenantId, tenantId));
+  return new Set([
+    ...rows.map((r) => r.connector),
+    ...set.rules.flatMap((r) => (r.match.connector ? [r.match.connector] : [])),
+    ...set.rules.flatMap((r) => {
+      const hit = r.match.tool ? platform.connectors.findTool(r.match.tool) : undefined;
+      return hit ? [hit.connector.manifest.id] : [];
+    }),
+  ]);
 }
 
 async function changes(tx: Tx, tenantId: string, nameOperators: boolean) {
@@ -284,7 +317,10 @@ async function opsView(tx: Tx, tenantId: string, platform: Platform) {
   return {
     ...set,
     people: await people(tx, tenantId),
-    connectors: connectorOptions(platform),
+    connectors: connectorOptions(platform, {
+      sandbox: t.settings.sandbox === true,
+      inUse: await inUseConnectors(tx, tenantId, set, platform),
+    }),
     changes: await changes(tx, tenantId, true),
     agents: await clientAgents(tx, tenantId),
     clientDefault: typeof fallback === "string" ? fallback : null,
@@ -308,7 +344,11 @@ async function portalView(tx: Tx, tenantId: string, platform: Platform, canTight
   return {
     ...set,
     people: await people(tx, tenantId),
-    connectors: connectorOptions(platform, shown),
+    connectors: connectorOptions(
+      platform,
+      { sandbox: false, inUse: await inUseConnectors(tx, tenantId, set, platform) },
+      shown,
+    ),
     changes: await changes(tx, tenantId, false),
     agents: agents.map((a) => ({ id: a.id, name: a.name })),
     canTighten,

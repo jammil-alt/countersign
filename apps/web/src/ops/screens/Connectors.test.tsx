@@ -18,6 +18,8 @@ const qbo = (over: Record<string, unknown> = {}) => ({
   icon: "book",
   auth: "oauth2",
   status: "live",
+  statusSource: "operator",
+  testOnly: false,
   note: "",
   available: true,
   clientsConnected: 2,
@@ -87,7 +89,7 @@ describe("ops connectors catalog", () => {
     const waiting = within(panel).getByTestId("connector-qbo-waiting");
     expect(waiting).toHaveTextContent("Lakeside Millwork");
     expect(waiting).toHaveTextContent("Pia needs it");
-    expect(within(panel).getAllByText("Client signs")).toHaveLength(2);
+    expect(within(panel).getAllByText("Needs approval")).toHaveLength(2);
     expect(panel).toHaveTextContent("Platform defaults");
     expect(within(panel).getByText("update invoice")).toBeInTheDocument();
     // The default access shows the connector's entities under it.
@@ -96,12 +98,53 @@ describe("ops connectors catalog", () => {
     // Filter by status; the rail follows the selection.
     await userEvent.click(screen.getByTestId("connectors-filter-in_review"));
     expect(screen.queryByTestId("connector-qbo")).toBeNull();
-    expect(
-      within(screen.getByTestId("connector-panel")).getByText("connectors/gmail"),
-    ).toBeInTheDocument();
+    const gmailPanel = screen.getByTestId("connector-panel");
+    expect(within(gmailPanel).getByRole("heading", { name: "Gmail" })).toBeInTheDocument();
+    // No internal ids on the page.
+    expect(gmailPanel).not.toHaveTextContent("connectors/gmail");
     await userEvent.click(screen.getByTestId("connectors-filter-all"));
     await userEvent.click(screen.getByTestId("connector-gmail-open"));
     expect(screen.getByTestId("connector-gmail")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("reads a status nobody set from the deployment, never as 'Not set'", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/connectors": () => ({
+        connectors: [
+          qbo({ statusSource: "deployment" }),
+          qbo({
+            id: "zoho_crm",
+            name: "Zoho CRM",
+            status: null,
+            statusSource: "deployment",
+            available: false,
+            clientsConnected: 0,
+            errors: { toolCalls: 0, connections: 0 },
+          }),
+          qbo({
+            id: "testkit",
+            name: "Testkit",
+            auth: "none",
+            statusSource: "deployment",
+            testOnly: true,
+            errors: { toolCalls: 0, connections: 0 },
+          }),
+        ],
+      }),
+    });
+    renderAt(api);
+    const row = await screen.findByTestId("connector-qbo");
+    expect(within(row).getByText("Live")).toBeInTheDocument();
+    expect(screen.getByTestId("connector-panel")).toHaveTextContent(
+      "Live because clients can connect it here.",
+    );
+    expect(within(screen.getByTestId("connector-zoho_crm")).getByText("Not set up")).toBeVisible();
+    expect(screen.queryByText("Not set")).toBeNull();
+    await userEvent.click(screen.getByTestId("connector-testkit-open"));
+    expect(screen.getByTestId("connector-panel-test-only")).toHaveTextContent(
+      "real clients never see it",
+    );
   });
 
   it("sets the status, and the default access with an entity scope", async () => {

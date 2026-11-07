@@ -16,6 +16,7 @@ import {
 import {
   clientLabel,
   connectionAccountName,
+  connectorShown,
   findStep,
   isClientVisible,
   isPlainObject,
@@ -276,9 +277,21 @@ export async function portalConnections(
       .map((a) => ({ id: a.id, name: serviceName(a) }));
   // Upload (with forwarding) is built in: every client has it, offered or not.
   const builtIn = platform.connectors.has(UPLOAD_CONNECTOR_ID) ? [UPLOAD_CONNECTOR_ID] : [];
-  const ids = only
-    ? rows.map((r) => r.connector)
-    : [...new Set([...builtIn, ...offered, ...rows.map((r) => r.connector)])];
+  // Test-only connectors (the testkit) only in the Sandbox or where a connection already exists.
+  const ids = (
+    only
+      ? rows.map((r) => r.connector)
+      : [...new Set([...builtIn, ...offered, ...rows.map((r) => r.connector)])]
+  ).filter((id) => {
+    const m = platform.connectors.get(id)?.manifest;
+    return (
+      !m ||
+      connectorShown(m, {
+        sandbox: t.settings.sandbox === true,
+        inUse: rows.some((r) => r.connector === id),
+      })
+    );
+  });
   return ids.map((id) => {
     const manifest = platform.connectors.get(id)?.manifest;
     const c = rows.find((r) => r.connector === id) ?? null;

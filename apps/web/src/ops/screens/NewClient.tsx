@@ -110,7 +110,11 @@ export function NewClientScreen() {
   const client = useApiClient();
   const { refresh } = useSessionState();
   const navigate = useNavigate();
-  const connectors = useApi(apiRoutes.connectors);
+  // The catalog is the back office's own route: the portal's `/api/connectors` acts in one client,
+  // and a client being made has none yet (it answered 403 tenant_forbidden here).
+  const connectors = useApi(apiRoutes.opsConnectors);
+  // Test-only connectors (the testkit) are never offered to a real client.
+  const offerable = connectors.data?.connectors.filter((c) => !c.testOnly) ?? null;
   const [name, setName] = useState("");
   const [timezone, setTimezone] = useState(browserTimezone);
   // DECISION: English unless the operator picks another; the client admin can change it later.
@@ -268,9 +272,9 @@ export function NewClientScreen() {
               <ErrorNotice error={connectors.error} onRetry={connectors.reload} />
             </div>
           ) : null}
-          {connectors.data ? (
+          {offerable ? (
             <ul>
-              {connectors.data.connectors.map((c) => {
+              {offerable.map((c) => {
                 const on = offered.includes(c.id);
                 return (
                   <li key={c.id} className="border-b border-line last:border-b-0">

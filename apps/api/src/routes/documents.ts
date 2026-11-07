@@ -19,7 +19,12 @@ import {
   type UploadConnectionRow,
   updateForwarding,
 } from "@countersign/connectors";
-import { type ExtractedHeader, parseCoveredProcessors, routes } from "@countersign/core";
+import {
+  connectorShown,
+  type ExtractedHeader,
+  parseCoveredProcessors,
+  routes,
+} from "@countersign/core";
 import {
   docExtraction,
   document,
@@ -423,21 +428,26 @@ export function documentRoutes(app: Hono<AppEnv>): void {
     return { forwarding: await forwardingView(tx, services, tenantId, conn, session.user.id) };
   });
 
+  // Test-only connectors (the testkit) are never offered to a real client (core's connectorShown);
+  // the portal never acts in the Sandbox, which has no client people.
   mount(app, routes.connectors, async ({ services }) => ({
-    connectors: services.platform.connectors.manifests().map((m) => ({
-      id: m.id,
-      name: m.name,
-      description: m.description,
-      icon: m.icon,
-      auth: m.auth,
-      entities: m.entities,
-      tools: m.tools.map((t) => ({
-        id: t.id,
-        description: t.description,
-        verb: t.verb,
-        sideEffect: t.sideEffect,
+    connectors: services.platform.connectors
+      .manifests()
+      .filter((m) => connectorShown(m, { sandbox: false }))
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        icon: m.icon,
+        auth: m.auth,
+        entities: m.entities,
+        tools: m.tools.map((t) => ({
+          id: t.id,
+          description: t.description,
+          verb: t.verb,
+          sideEffect: t.sideEffect,
+        })),
       })),
-    })),
   }));
 
   // The Worker's own signed link (storage.ts). Public: the signature is the authority, and it names

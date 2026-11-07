@@ -118,6 +118,11 @@ export const ConnectorManifest = z
     // v0.12 W2-A: the record types its tools touch (ARCHITECTURE §6.1 "Permissions per record
     // type"), with their verbs and scopes. Absent: the verbs alone govern its tools.
     permissionEntities: z.array(PermissionEntity).max(32).optional(),
+    /**
+     * A connector for tests only (the testkit): offered and shown only where testing happens (the
+     * Sandbox client and a template's test copies), never to a real client. See `showsTestOnly`.
+     */
+    testOnly: z.boolean().optional(),
   })
   .superRefine((m, ctx) => {
     // v0.12 W2-A: entities and scopes are the connector's own and agree with its tools.
@@ -174,3 +179,27 @@ export const ConnectorManifest = z
   })
   .meta({ id: "ConnectorManifest" });
 export type ConnectorManifest = z.infer<typeof ConnectorManifest>;
+
+/**
+ * Where a test-only connector (`testOnly`, the testkit) may show: in the Sandbox client and a
+ * template's test copies, or where it is already in use (a connection the client has, a tool a
+ * version already names), so nothing that exists disappears from view. Real clients never see it
+ * offered: not in their connector lists, the builder's palette or the approver rules' options.
+ */
+// DECISION: "already in use" keeps it: the local seed's demo client has a testkit connection and
+// agent, and the builder must still type a step that names a testkit tool.
+export function showsTestOnly(where: {
+  sandbox: boolean;
+  testCopy?: boolean | undefined;
+  inUse?: boolean | undefined;
+}): boolean {
+  return where.sandbox || where.testCopy === true || where.inUse === true;
+}
+
+/** Whether a connector is shown in a list for this client (see `showsTestOnly`). */
+export function connectorShown(
+  manifest: Pick<ConnectorManifest, "testOnly">,
+  where: Parameters<typeof showsTestOnly>[0],
+): boolean {
+  return manifest.testOnly !== true || showsTestOnly(where);
+}
