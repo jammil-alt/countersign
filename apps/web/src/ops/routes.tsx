@@ -12,6 +12,7 @@
 import { Route } from "react-router-dom";
 import {
   OpsClientCatalogScreen,
+  OpsClientPacksScreen,
   OpsClientPriceWatchScreen,
   OpsPacksScreen,
 } from "../packs/screens";
@@ -107,6 +108,7 @@ export const opsRoutes = (
     <Route path="requests" element={<OpsRequestsScreen />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
+    <Route path="clients/:clientId/packs" element={<OpsClientPacksScreen />} />
     <Route
       path="clients/:clientId/reports/materials/prices"
       element={<OpsClientPriceWatchScreen />}

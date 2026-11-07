@@ -7,11 +7,13 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
+import { ClientFrame } from "../ops/client/ClientFrame";
 import { shortTime } from "../runs/format";
 import {
   Badge,
   Button,
   Card,
+  EmptyState,
   ErrorNotice,
   Loading,
   PageHeader,
@@ -26,21 +28,32 @@ export const PortalCatalogScreen = () => <CatalogView />;
 
 // ── Back office ──────────────────────────────────────────────────────────────────────────────────
 
-function useClientName(clientId: string) {
-  const { data } = useApi(apiRoutes.opsClient, { params: { id: clientId } });
-  return data?.client.name;
+// A client's pack pages sit in the client page's Packs tab (../ops/client/ClientFrame.tsx).
+export function OpsClientPacksScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <ClientPacks clientId={clientId} />
+    </ClientFrame>
+  );
 }
 
 export function OpsClientPriceWatchScreen() {
   const { clientId = "" } = useParams();
-  const name = useClientName(clientId);
-  return <PriceWatchView clientId={clientId} {...(name ? { clientName: name } : {})} />;
+  return (
+    <ClientFrame clientId={clientId}>
+      <PriceWatchView clientId={clientId} />
+    </ClientFrame>
+  );
 }
 
 export function OpsClientCatalogScreen() {
   const { clientId = "" } = useParams();
-  const name = useClientName(clientId);
-  return <CatalogView clientId={clientId} {...(name ? { clientName: name } : {})} />;
+  return (
+    <ClientFrame clientId={clientId}>
+      <CatalogView clientId={clientId} />
+    </ClientFrame>
+  );
 }
 
 function EnableButton({
@@ -171,13 +184,12 @@ export function OpsPacksScreen() {
 
 /** The client page's packs: which are on, switch one on, and that client's reports. */
 export function ClientPacks({ clientId }: { clientId: string }) {
-  const { data, reload } = useApi(apiRoutes.opsClientPacks, { params: { id: clientId } });
-  // DECISION: the client page's packs section is an extra: when it can't load, the page shows
-  // the rest without it (the Packs page shows the same switches with its own error).
-  if (!data || data.packs.length === 0) return null;
+  const { data, error, reload } = useApi(apiRoutes.opsClientPacks, { params: { id: clientId } });
+  if (error) return <ErrorNotice error={error} onRetry={reload} />;
+  if (!data) return <Loading />;
+  if (data.packs.length === 0) return <EmptyState>This deployment has no packs.</EmptyState>;
   return (
-    <section className="mt-8" data-testid="ops-client-packs">
-      <SectionLabel>Packs</SectionLabel>
+    <section data-testid="ops-client-packs">
       <div className="flex flex-col gap-3">
         {data.packs.map((p) => (
           <Card key={p.id} className="p-5" testId={`ops-client-pack-${p.id}`}>

@@ -10,7 +10,6 @@ import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import { ClientPacks } from "../../packs/screens";
 import { InviteForm, inviteMessage, MemberList } from "../../people/People";
 import { Field, TextInput } from "../../ui/forms";
 import { Section } from "../../ui/page";
@@ -36,7 +35,6 @@ export const SETTINGS_SECTIONS = [
   ["people", "People"],
   ["billing", "Billing"],
   ["compliance", "Compliance"],
-  ["packs", "Packs"],
   ["exports", "Exports"],
   ["retire", "Retire client"],
 ] as const;
@@ -100,12 +98,6 @@ function SectionBody({ clientId, section }: { clientId: string; section: Setting
       return (
         <Titled title="Compliance">
           <ClientComplianceSetting clientId={clientId} />
-        </Titled>
-      );
-    case "packs":
-      return (
-        <Titled title="Packs">
-          <ClientPacks clientId={clientId} />
         </Titled>
       );
     case "exports":

@@ -31,10 +31,10 @@ export function useClientPage(): ApiState<OpsClient> {
   return state;
 }
 
-export type ClientTabId = "overview" | "agents" | "data" | "setup" | "settings";
+export type ClientTabId = "overview" | "agents" | "data" | "setup" | "packs" | "settings";
 
 /**
- * The five tabs. `pages`: the addresses under `/ops/clients/:clientId` each tab owns, the first
+ * The six tabs. `pages`: the addresses under `/ops/clients/:clientId` each tab owns, the first
  * its own; a tab with more than one page shows the switch between them.
  */
 export const CLIENT_TABS: {
@@ -62,6 +62,8 @@ export const CLIENT_TABS: {
       ["knowledge", "Knowledge"],
     ],
   },
+  // P-1: the business areas switched on for the client; their reports open under it.
+  { id: "packs", label: "Packs", pages: [["packs", "Packs"]] },
   // The old Exports tab is a section of Settings now.
   { id: "settings", label: "Settings", pages: [["settings", "Settings"]] },
 ];
@@ -81,6 +83,7 @@ export function clientPageOf(
   const rest = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, "") : "";
   const first = rest.split("/")[0] ?? "";
   if (first === "exports") return { tab: "settings", page: "settings" };
+  if (first === "reports") return { tab: "packs", page: "packs" };
   for (const tab of CLIENT_TABS) {
     if (tab.pages.some(([p]) => p === first)) return { tab: tab.id, page: first };
   }
