@@ -443,6 +443,7 @@ describe("ops billing", () => {
   });
 });
 
+// The client's Settings, Billing section.
 describe("the client page's billing", () => {
   const detail = (over: Record<string, unknown>) => ({
     stripeConfigured: true,
@@ -482,7 +483,7 @@ describe("the client page's billing", () => {
         return client(SANDBOX, "Sandbox", { setUp: true });
       },
     });
-    renderAt(`/ops/clients/${SANDBOX}`, api);
+    renderAt(`/ops/clients/${SANDBOX}/settings/billing`, api);
     const section = await screen.findByTestId("ops-client-billing");
     expect(section).toHaveTextContent("Not billed yet");
     const agentRow = screen.getByTestId(`ops-client-billing-agent-${AGENT}`);
@@ -523,7 +524,7 @@ describe("the client page's billing", () => {
         ],
       }),
     });
-    renderAt(`/ops/clients/${SANDBOX}`, api);
+    renderAt(`/ops/clients/${SANDBOX}/settings/billing`, api);
     const card = await screen.findByTestId(`ops-statement-${STATEMENT}`);
     expect(card).toHaveTextContent("Paid");
     expect(card).toHaveTextContent("paid Nov 10, 2026");

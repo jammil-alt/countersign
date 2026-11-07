@@ -264,10 +264,13 @@ describe("back office knowledge tab", () => {
     expect(await screen.findByText(/No FAQs or policies yet/)).toBeInTheDocument();
   });
 
-  it("the client page has the Agents and Knowledge tabs", async () => {
+  it("the client page has the Agents tab, and Knowledge under Setup", async () => {
     const { api } = opsApi();
     renderAt(`/ops/clients/${CLIENT}`, api);
-    expect(await screen.findByRole("link", { name: "Knowledge" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Setup" })).toHaveAttribute(
+      "href",
+      `/ops/clients/${CLIENT}/connections`,
+    );
     expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/agents`,

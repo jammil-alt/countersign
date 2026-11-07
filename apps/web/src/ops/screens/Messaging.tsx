@@ -106,9 +106,9 @@ function TwilioSetup({
       <Card className="p-5">
         <SectionLabel>Twilio</SectionLabel>
         {!setup.available ? (
-          <p className="text-ink-muted">
-            Mezonas' Twilio account isn't set up on this deployment yet (TWILIO_ACCOUNT_SID and
-            TWILIO_AUTH_TOKEN).
+          <p className="text-ink-muted" data-testid="ops-twilio-unavailable">
+            Texts and WhatsApp aren't set up for Mezonas yet. An engineer adds our Twilio key; then
+            you can set up this client's numbers here.
           </p>
         ) : twilio === null || twilio.status !== "connected" ? (
           <div className="flex flex-wrap items-center justify-between gap-3">

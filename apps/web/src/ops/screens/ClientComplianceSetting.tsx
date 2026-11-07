@@ -1,18 +1,15 @@
-// The client settings' Compliance card (docs/plan.md §1.33): HIPAA mode, switched on or off by the
-// operator with a reason (refused while a vendor it needs has no signed BAA, and then the card says
-// why), the vendors and whether each is covered, and the log of changes. Below it, retiring the
-// client: a reason and the client's name typed again; afterwards, when its data can be purged.
-import {
-  type ClientCompliance,
-  COMPLIANCE_REASON_MAX,
-  RETIREMENT_PURGE_DAYS,
-} from "@countersign/core";
+// The client settings' Compliance and Retire client sections (docs/plan.md §1.33): HIPAA mode,
+// switched on or off by the operator (refused while a vendor it needs has no signed BAA, and then
+// the card says why), the vendors and whether each is covered, and the log of changes. Retiring the
+// client: the client's name typed again; afterwards, when its data can be purged. Neither asks for
+// a reason: the log says what changed, who changed it and when.
+import { type ClientCompliance, RETIREMENT_PURGE_DAYS } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { Field, TextInput } from "../../ui/forms";
-import { Badge, Button, Card, ErrorNotice, SectionLabel } from "../../ui/primitives";
+import { Badge, Button, Card, ErrorNotice, Loading } from "../../ui/primitives";
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -34,30 +31,55 @@ function changeText(c: ClientCompliance["changes"][number]): string {
   return `${c.setting} changed`;
 }
 
-export function ClientComplianceSetting({
+/** A reason worth showing: one a person wrote, not the log's own default. */
+function ownReason(reason: string, what: string): string | null {
+  const r = reason.trim();
+  if (!r || r === what || r === "Retired from the back office") return null;
+  return r;
+}
+
+function useCompliance(clientId: string) {
+  const { data, error, reload } = useApi(apiRoutes.opsClientCompliance, {
+    params: { id: clientId },
+  });
+  const [current, setCurrent] = useState<ClientCompliance | undefined>(undefined);
+  useEffect(() => setCurrent(data), [data]);
+  return { current, setCurrent, error, reload };
+}
+
+/** HIPAA mode and the vendors. */
+export function ClientComplianceSetting({ clientId }: { clientId: string }) {
+  const { current, setCurrent, error, reload } = useCompliance(clientId);
+  return (
+    <div data-testid="ops-client-compliance">
+      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+      {current ? (
+        <Hipaa clientId={clientId} data={current} onChange={setCurrent} />
+      ) : error ? null : (
+        <Loading />
+      )}
+    </div>
+  );
+}
+
+/** Retiring the client, or when a retired client's data can be purged. */
+export function ClientRetireSetting({
   clientId,
   clientName,
 }: {
   clientId: string;
   clientName: string;
 }) {
-  const { data, error, reload } = useApi(apiRoutes.opsClientCompliance, {
-    params: { id: clientId },
-  });
-  const [current, setCurrent] = useState<ClientCompliance | undefined>(undefined);
-  useEffect(() => setCurrent(data), [data]);
-
+  const { current, setCurrent, error, reload } = useCompliance(clientId);
   return (
-    <>
-      <section className="mt-8" data-testid="ops-client-compliance">
-        <SectionLabel>Compliance</SectionLabel>
-        {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-        {current ? <Hipaa clientId={clientId} data={current} onChange={setCurrent} /> : null}
-      </section>
+    <div data-testid="ops-client-retire">
+      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {current ? (
         <Retire clientId={clientId} clientName={clientName} data={current} onChange={setCurrent} />
-      ) : null}
-    </>
+      ) : error ? null : (
+        <Loading />
+      )}
+    </div>
   );
 }
 
@@ -71,28 +93,19 @@ function Hipaa({
   onChange: (next: ClientCompliance) => void;
 }) {
   const api = useApiClient();
-  const [reason, setReason] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const next = !data.hipaa;
   const blocked = next && !data.readiness.ready;
 
   async function save() {
-    const text = reason.trim();
-    if (!text) {
-      setProblem("Give a reason.");
-      return;
-    }
     setBusy(true);
-    setProblem(null);
     setFailed(null);
     try {
       const result = await api.call(apiRoutes.opsClientComplianceSet, {
         params: { id: clientId },
-        body: { hipaa: next, reason: text },
+        body: { hipaa: next },
       });
-      setReason("");
       onChange(result);
     } catch (error) {
       setFailed(failureText(error, "We couldn't save that. Try again."));
@@ -112,9 +125,19 @@ function Hipaa({
               : "Off. Switch it on for a client whose records hold health information."}
           </p>
         </div>
-        <Badge tone={data.hipaa ? "positive" : "neutral"} testId="ops-client-hipaa-state">
-          {data.hipaa ? "On" : "Off"}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge tone={data.hipaa ? "positive" : "neutral"} testId="ops-client-hipaa-state">
+            {data.hipaa ? "On" : "Off"}
+          </Badge>
+          <Button
+            variant={next ? "primary" : "secondary"}
+            data-testid="ops-client-hipaa-toggle"
+            disabled={busy || blocked}
+            onClick={() => void save()}
+          >
+            {next ? "Switch on" : "Switch off"}
+          </Button>
+        </div>
       </div>
 
       {blocked ? (
@@ -127,32 +150,6 @@ function Hipaa({
           </ul>
         </div>
       ) : null}
-
-      <div className="mt-4 flex flex-wrap items-end gap-3">
-        <Field
-          label={next ? "Why switch it on?" : "Why switch it off?"}
-          error={problem ?? undefined}
-          className="min-w-64 flex-1"
-          testId="ops-client-hipaa-reason"
-        >
-          <TextInput
-            data-testid="ops-client-hipaa-reason"
-            value={reason}
-            maxLength={COMPLIANCE_REASON_MAX}
-            invalid={!!problem}
-            disabled={blocked}
-            onChange={(e) => setReason(e.target.value)}
-          />
-        </Field>
-        <Button
-          variant={next ? "primary" : "secondary"}
-          data-testid="ops-client-hipaa-toggle"
-          disabled={busy || blocked}
-          onClick={() => void save()}
-        >
-          {next ? "Switch on" : "Switch off"}
-        </Button>
-      </div>
       {failed ? (
         <p role="alert" className="ds-error mt-2 text-sm" data-testid="ops-client-hipaa-error">
           {failed}
@@ -185,12 +182,22 @@ function Hipaa({
           className="mt-5 flex flex-col gap-1 border-t border-line pt-4 text-sm text-ink-muted"
           data-testid="ops-client-compliance-history"
         >
-          {data.changes.map((c) => (
-            <li key={c.id}>
-              {changeText(c)} by {c.by?.email ?? "someone"} on {day(c.createdAt)}:{" "}
-              <span className="text-ink">{c.reason}</span>
-            </li>
-          ))}
+          {data.changes.map((c) => {
+            const what = changeText(c);
+            const reason = ownReason(c.reason, what);
+            return (
+              <li key={c.id}>
+                {what} by {c.by?.email ?? "someone"} on {day(c.createdAt)}
+                {reason ? (
+                  <>
+                    : <span className="text-ink">{reason}</span>
+                  </>
+                ) : (
+                  "."
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </Card>
@@ -209,11 +216,10 @@ function Retire({
   onChange: (next: ClientCompliance) => void;
 }) {
   const api = useApiClient();
-  const [reason, setReason] = useState("");
   const [name, setName] = useState("");
   const [failed, setFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ready = reason.trim() !== "" && name.trim() === clientName.trim();
+  const ready = name.trim() === clientName.trim();
 
   async function retire() {
     if (!ready) return;
@@ -222,9 +228,8 @@ function Retire({
     try {
       const result = await api.call(apiRoutes.opsClientRetire, {
         params: { id: clientId },
-        body: { reason: reason.trim(), confirmName: name.trim() },
+        body: { confirmName: name.trim() },
       });
-      setReason("");
       setName("");
       onChange(result);
     } catch (error) {
@@ -235,59 +240,48 @@ function Retire({
   }
 
   return (
-    <section className="mt-8" data-testid="ops-client-retire">
-      <SectionLabel>Retire client</SectionLabel>
-      <Card className="p-5">
-        {data.retiredAt ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge>Retired</Badge>
-            <p className="text-ink" data-testid="ops-client-retired">
-              Retired on {day(data.retiredAt)}
-              {data.purgeAfter ? `; data can be purged after ${day(data.purgeAfter)}.` : "."}
-            </p>
-          </div>
-        ) : (
-          <>
-            <p className="text-ink">
-              Retiring {clientName} stops every sign-in and run, retires its agents and disconnects
-              its tools. After {RETIREMENT_PURGE_DAYS} days we delete its files, then its records.
-              This can't be undone.
-            </p>
-            <div className="mt-4 flex flex-wrap items-end gap-3">
-              <Field label="Why retire it?" className="min-w-64 flex-1">
-                <TextInput
-                  data-testid="ops-client-retire-reason"
-                  value={reason}
-                  maxLength={COMPLIANCE_REASON_MAX}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-              </Field>
-              <Field label={`Type ${clientName} to confirm`} className="min-w-64 flex-1">
-                <TextInput
-                  data-testid="ops-client-retire-name"
-                  value={name}
-                  maxLength={200}
-                  autoComplete="off"
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </Field>
-              <Button
-                className="text-risk"
-                data-testid="ops-client-retire-confirm"
-                disabled={busy || !ready}
-                onClick={() => void retire()}
-              >
-                Retire client
-              </Button>
-            </div>
-          </>
-        )}
-        {failed ? (
-          <p role="alert" className="ds-error mt-2 text-sm" data-testid="ops-client-retire-error">
-            {failed}
+    <Card className="p-5">
+      {data.retiredAt ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge>Retired</Badge>
+          <p className="text-ink" data-testid="ops-client-retired">
+            Retired on {day(data.retiredAt)}
+            {data.purgeAfter ? `; data can be purged after ${day(data.purgeAfter)}.` : "."}
           </p>
-        ) : null}
-      </Card>
-    </section>
+        </div>
+      ) : (
+        <>
+          <p className="text-ink">
+            Retiring {clientName} stops every sign-in and run, retires its agents and disconnects
+            its tools. After {RETIREMENT_PURGE_DAYS} days we delete its files, then its records.
+            This can't be undone.
+          </p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <Field label={`Type ${clientName} to confirm`} className="min-w-64 flex-1">
+              <TextInput
+                data-testid="ops-client-retire-name"
+                value={name}
+                maxLength={200}
+                autoComplete="off"
+                onChange={(e) => setName(e.target.value)}
+              />
+            </Field>
+            <Button
+              className="text-risk"
+              data-testid="ops-client-retire-confirm"
+              disabled={busy || !ready}
+              onClick={() => void retire()}
+            >
+              Retire client
+            </Button>
+          </div>
+        </>
+      )}
+      {failed ? (
+        <p role="alert" className="ds-error mt-2 text-sm" data-testid="ops-client-retire-error">
+          {failed}
+        </p>
+      ) : null}
+    </Card>
   );
 }

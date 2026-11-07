@@ -48,11 +48,17 @@ export function OpsDocumentsScreen() {
         </section>
       ) : null}
       {data && data.documents.length === 0 ? (
-        <EmptyState>
-          {data.sandbox
-            ? "No documents yet. Upload an invoice above."
-            : "No documents yet. They arrive when the client uploads or forwards an invoice."}
-        </EmptyState>
+        <EmptyState
+          testId="ops-documents-empty"
+          line={
+            data.sandbox
+              ? "No documents yet. Upload an invoice above."
+              : "No documents yet. They arrive when the client uploads or forwards an invoice, or a connection brings one in."
+          }
+          {...(data.sandbox
+            ? {}
+            : { action: { label: "See connections", to: `${base}/connections` } })}
+        />
       ) : null}
       {data && data.documents.length > 0 ? (
         <div className="dt dt-ana">

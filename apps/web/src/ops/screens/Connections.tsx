@@ -25,9 +25,27 @@ import {
   Loading,
   SectionLabel,
 } from "../../ui/primitives";
+import { plural } from "../../usage/format";
 import { ClientFrame } from "../client/ClientFrame";
 
 type Data = ResponseOf<typeof apiRoutes.opsClientConnections>;
+
+/** How the client connects each kind of connector, in the operator's words. */
+const AUTH_LINE: Record<string, string> = {
+  oauth2: "the client signs in from their portal",
+  api_key: "the client adds a key from their portal",
+  none: "no sign-in needed",
+};
+
+/**
+ * A connector's description for the back office: its manifest writes to the client ("You sign in
+ * to QuickBooks yourself."), so the sentences addressed to them are left out here.
+ */
+export function operatorBlurb(description: string): string {
+  const sentences = description.match(/[^.!?]+[.!?]*/g) ?? [description];
+  const kept = sentences.filter((s) => !/^\s*you\b/i.test(s));
+  return (kept.length > 0 ? kept : sentences).join("").trim();
+}
 
 export function OpsConnectionsScreen() {
   const { clientId = "" } = useParams();
@@ -70,7 +88,7 @@ function Connections({ clientId }: { clientId: string }) {
             <EmptyState>
               {data.sandbox
                 ? "No connections yet. Connect a connector below."
-                : "No connections yet. Offer a connector below; the client admin signs in from the portal's Connections page."}
+                : "No connections yet. Offer a connector below; the client admin signs in from their portal."}
             </EmptyState>
           ) : (
             <div
@@ -274,19 +292,15 @@ function ConnectionCard({
         <div className="min-w-0">
           <p className="font-medium text-ink">{name}</p>
           {accountName ? (
-            <>
-              <p className="text-sm text-ink" data-testid="ops-connection-account">
-                {accountName}
-              </p>
-              {c.externalAccountId ? (
-                <p className="reference text-xs text-ink-muted">{c.externalAccountId}</p>
-              ) : null}
-            </>
-          ) : (
-            <p className="text-sm text-ink-muted" data-testid="ops-connection-account">
-              {c.externalAccountId ?? c.connector}
+            <p className="text-sm text-ink" data-testid="ops-connection-account">
+              {accountName}
             </p>
-          )}
+          ) : c.externalAccountId?.includes("@") ? (
+            // A mailbox's address names it; a provider's company id (a QuickBooks realm) never shows.
+            <p className="text-sm text-ink-muted" data-testid="ops-connection-account">
+              {c.externalAccountId}
+            </p>
+          ) : null}
         </div>
       </div>
       <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
@@ -447,11 +461,10 @@ function Offering({
                 />
                 <label htmlFor={`offer-${c.id}`} className="min-w-0 flex-1">
                   <span className="font-medium text-ink">{c.name}</span>
-                  <span className="ml-2 reference text-ink-muted">{c.id}</span>
-                  <span className="block text-sm text-ink">{c.description}</span>
+                  <span className="block text-sm text-ink">{operatorBlurb(c.description)}</span>
                   <span className="block text-xs text-ink-muted">
-                    {c.tools.length} tools ·{" "}
-                    {c.auth === "none" ? "no sign-in needed" : `signs in with ${c.auth}`}
+                    {plural(c.tools.length, "tool")} ·{" "}
+                    {AUTH_LINE[c.auth] ?? "the client connects it from their portal"}
                   </span>
                 </label>
                 {data.sandbox &&
@@ -484,12 +497,14 @@ function Offering({
               </li>
             );
           })}
-          {unknown.map((id) => (
-            <li key={id} className="px-4 py-3 text-sm text-ink-muted">
-              <span className="reference">{id}</span>: offered, but this deployment does not have
-              it; saving the offering drops it.
+          {unknown.length > 0 ? (
+            <li className="px-4 py-3 text-sm text-ink-muted">
+              {unknown.length === 1
+                ? "One connector offered to this client isn't available here any more"
+                : `${unknown.length} connectors offered to this client aren't available here any more`}
+              ; saving the offering drops {unknown.length === 1 ? "it" : "them"}.
             </li>
-          ))}
+          ) : null}
         </ul>
         {problem ? (
           <div className="px-4 pb-3">

@@ -88,6 +88,22 @@ export function approverLabel(
   }
 }
 
+/** The most a tool's short label runs to before it is cut at a word. */
+const TOOL_LABEL_MAX = 60;
+
+/**
+ * A write tool's short name for a choice list: its description up to the first colon, full stop or
+ * bracket ("Itemize a QuickBooks bill: replace lines …" → "Itemize a QuickBooks bill"). The whole
+ * description shows under the field once the tool is chosen.
+ */
+export function toolShortLabel(description: string): string {
+  const cut = description.search(/[:.;(]/);
+  const head = (cut > 0 ? description.slice(0, cut) : description).trim();
+  if (head.length <= TOOL_LABEL_MAX) return head;
+  const words = head.slice(0, TOOL_LABEL_MAX).replace(/\s+\S*$/, "");
+  return `${words}…`;
+}
+
 export function matchLabel(
   match: ApproverMatch,
   view: Pick<RulesView, "connectors" | "agents">,
@@ -100,7 +116,7 @@ export function matchLabel(
   if (match.tool) {
     // A tool's description is the connector's own (English) words.
     const tool = view.connectors.flatMap((c) => c.tools).find((x) => x.id === match.tool);
-    parts.push(tool?.description ?? match.tool);
+    parts.push(tool ? toolShortLabel(tool.description) : match.tool);
   }
   if (match.verb) parts.push(t(VERB_LABEL[match.verb]));
   if (match.amountOver) {
@@ -594,7 +610,12 @@ function MatchInputs({
           ))}
         </Select>
       </Field>
-      <Field label={t("approvers.field.change")}>
+      <Field
+        label={t("approvers.field.change")}
+        // Short names in the list; the chosen change's whole description under the field.
+        hint={tools.find((x) => x.id === fields.tool)?.description}
+        testId={`${prefix}-tool-field`}
+      >
         <Select
           data-testid={`${prefix}-tool`}
           value={fields.tool}
@@ -603,7 +624,7 @@ function MatchInputs({
           <option value="">{t("approvers.anyChange")}</option>
           {tools.map((x) => (
             <option key={x.id} value={x.id}>
-              {x.description}
+              {toolShortLabel(x.description)}
             </option>
           ))}
         </Select>

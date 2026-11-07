@@ -1,17 +1,11 @@
 // `/ops/feedback` and the client page's switch: the list with pins and pictures, resolve with a
-// note, reopen; switching the portal's button on needs a reason.
+// note, reopen; switching the portal's button on asks for no reason.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import {
-  fakeApi,
-  OPERATOR_SESSION,
-  opsClientSettings,
-  Reply,
-  SANDBOX_DETAIL,
-} from "../../test/fixtures";
+import { fakeApi, OPERATOR_SESSION, opsClientSettings, SANDBOX_DETAIL } from "../../test/fixtures";
 
 const ID = "00000000-0000-4000-8000-0000000fb001";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
@@ -118,7 +112,7 @@ describe("ops feedback", () => {
 });
 
 describe("client feedback switch", () => {
-  it("needs a reason, then switches the portal's button on and shows who and why", async () => {
+  it("switches the portal's button on without a reason and shows who and when", async () => {
     let enabled = false;
     const changes: unknown[] = [];
     const sent: unknown[] = [];
@@ -126,18 +120,17 @@ describe("client feedback switch", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${client}`]: () => SANDBOX_DETAIL,
-      // The switch sits on the client page's Settings tab.
+      // The switch sits in the client's Settings, under General.
       [`GET /api/ops/clients/${client}/settings`]: () => opsClientSettings(client),
       [`GET /api/ops/clients/${client}/feedback`]: () => ({ enabled, changes }),
       [`PUT /api/ops/clients/${client}/feedback`]: ({ init }) => {
-        const body = JSON.parse(String(init.body)) as { enabled: boolean; reason: string };
-        if (!body.reason) return new Reply(400, { error: { code: "invalid_request" } });
+        const body = JSON.parse(String(init.body)) as { enabled: boolean; reason?: string };
         sent.push(body);
         enabled = body.enabled;
         changes.unshift({
           id: "c1",
           enabled,
-          reason: body.reason,
+          reason: body.reason ?? "Feedback button switched on",
           by: { id: "o", email: "operator@example.com", name: "Operator" },
           createdAt: "2026-11-04T10:00:00.000Z",
         });
@@ -145,19 +138,17 @@ describe("client feedback switch", () => {
       },
     });
     renderAt(`/ops/clients/${client}/settings`, api);
-    const section = await screen.findByTestId("ops-client-feedback");
+    const section = await screen.findByTestId("ops-client-feedback", {}, { timeout: 10_000 });
     expect(within(section).getByTestId("ops-client-feedback-state")).toHaveTextContent("Off");
-    await userEvent.click(within(section).getByTestId("ops-client-feedback-toggle"));
-    expect(await within(section).findByText("Give a reason.")).toBeInTheDocument();
-    expect(sent).toEqual([]);
-    await userEvent.type(within(section).getByTestId("ops-client-feedback-reason"), "Beta");
+    expect(within(section).queryByRole("textbox")).toBeNull();
     await userEvent.click(within(section).getByTestId("ops-client-feedback-toggle"));
     await waitFor(() =>
       expect(within(section).getByTestId("ops-client-feedback-state")).toHaveTextContent("On"),
     );
-    expect(sent).toEqual([{ enabled: true, reason: "Beta" }]);
+    expect(sent).toEqual([{ enabled: true }]);
+    // The server's default reason isn't repeated after the line.
     expect(within(section).getByTestId("ops-client-feedback-history")).toHaveTextContent(
-      "Switched on by Operator",
+      /^Switched on by Operator on .+\.$/,
     );
     expect(within(section).getByTestId("ops-client-feedback-toggle")).toHaveTextContent(
       "Switch off",

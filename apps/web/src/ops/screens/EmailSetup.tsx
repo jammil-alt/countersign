@@ -40,7 +40,7 @@ export function EmailPanel({ clientId }: { clientId: string }) {
       <SectionLabel>Email</SectionLabel>
       {!setup.available ? (
         <p className="text-sm text-ink-muted">
-          This deployment has no email sending account set up yet.
+          Agents can't send email for Mezonas yet. An engineer sets up our sending account.
         </p>
       ) : null}
       {conn ? (
