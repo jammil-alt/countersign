@@ -35,6 +35,17 @@ function detailLines(details: Record<string, unknown> | null): [string, string][
   });
 }
 
+/**
+ * What the supervisor does, reading well whatever it is called: "The supervisor checks …", or
+ * "Ana, the supervisor, checks …" when it has a name of its own.
+ */
+export function supervisorLine(name: string): string {
+  const who = /^\s*(the\s+)?supervisor\s*$/i.test(name)
+    ? "The supervisor"
+    : `${name}, the supervisor,`;
+  return `${who} checks this client's runs, connections, logins, codes and waiting items every day. It changes nothing.`;
+}
+
 export function ClientHealthSection({
   clientId,
   onChanged,
@@ -91,10 +102,8 @@ export function ClientHealthSection({
       <Card className="flex flex-col gap-3 p-5">
         {data.supervisor ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-ink">
-              {data.supervisor.name}, this client's supervisor (an agent that checks the account
-              each day and changes nothing), watches runs, connections, logins, codes and waiting
-              items.
+            <p className="text-ink" data-testid="ops-client-supervisor-line">
+              {supervisorLine(data.supervisor.name)}
             </p>
             <Badge
               tone={data.supervisor.runStatus === "active" ? "positive" : "neutral"}

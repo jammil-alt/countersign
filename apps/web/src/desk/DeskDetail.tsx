@@ -230,7 +230,7 @@ export function DeskDetail({
         />
         <div className="flex flex-col gap-4 p-6 max-sm:p-4">
           <div className="flex items-start gap-3">
-            {agent ? <AgentBadge name={agent} /> : null}
+            {agent ? <AgentBadge name={agent} seed={lead.service?.id} /> : null}
             <div className="min-w-0">
               <h2 id="desk-detail-title" className="type-heading text-ink">
                 {title}

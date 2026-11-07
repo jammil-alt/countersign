@@ -1734,10 +1734,6 @@ export const en = {
   // tabs, Settings sections).
   "nav.home": "Home",
   "nav.inbox": "Inbox",
-  "home.week": {
-    one: "{count} run finished this week.",
-    other: "{count} runs finished this week.",
-  },
   "home.addDocuments": "Add documents",
   "home.agents": "Your agents",
   "home.needsYou": "Needs you",
@@ -1779,6 +1775,25 @@ export const en = {
   "settingsPage.conversations": "Conversations",
   "settingsPage.voice": "Voice samples",
   "settingsPage.sloanBody":
-    "Sloan is your account agent. Ask it about your agents' work, or ask it to pause one, in the search box at the top. Sloan never loosens a rule.",
+    "Sloan is your account agent. Ask it about your agents' work, or ask it to pause one: use Ask Sloan at the top, or the search box. Sloan never loosens a rule.",
   "settingsPage.sloanOpen": "Open Sloan",
+
+  // UI cleanup (design pass): Home's figures, each agent's figures, and Ask Sloan in the top bar.
+  "home.kpi.runsDone": "Runs done · this week",
+  "home.kpi.changes": "Tool changes · this week",
+  "home.kpi.changesNote": "{automatic} on their own · {approved} approved by you",
+  "home.kpi.waiting": "Waiting on you",
+  "home.kpi.waitingNote": "Approvals and questions",
+  "home.kpi.documents": "Documents read · this week",
+  "home.kpi.up": "Up {count} on last week",
+  "home.kpi.down": "Down {count} on last week",
+  "home.kpi.same": "Same as last week",
+  "kpi.runsDays": {
+    one: "{count} run in the last {days} days",
+    other: "{count} runs in the last {days} days",
+  },
+  "home.card.runsWeek": { one: "run this week", other: "runs this week" },
+  "home.card.changes": { one: "change to your tools", other: "changes to your tools" },
+  "shell.askSloanButton": "Ask Sloan",
+  "shell.askSloanHint": "Your account agent: ask about your agents' work",
 } as const;

@@ -1796,10 +1796,6 @@ export const es: Messages = {
   // tabs, Settings sections). Needs a fluent speaker's review, as do the lines marked above.
   "nav.home": "Inicio",
   "nav.inbox": "Bandeja",
-  "home.week": {
-    one: "{count} ejecución terminó esta semana.",
-    other: "{count} ejecuciones terminaron esta semana.",
-  },
   "home.addDocuments": "Añadir documentos",
   "home.agents": "Sus agentes",
   "home.needsYou": "Le necesita",
@@ -1841,6 +1837,26 @@ export const es: Messages = {
   "settingsPage.conversations": "Conversaciones",
   "settingsPage.voice": "Muestras de estilo",
   "settingsPage.sloanBody":
-    "Sloan es su agente de cuenta. Pregúntele por el trabajo de sus agentes, o pídale que pause uno, en el buscador de arriba. Sloan nunca afloja una regla.",
+    "Sloan es su agente de cuenta. Pregúntele por el trabajo de sus agentes, o pídale que pause uno: use «Preguntar a Sloan» arriba, o el buscador. Sloan nunca afloja una regla.",
   "settingsPage.sloanOpen": "Abrir Sloan",
+
+  // UI cleanup (design pass): Home's figures, each agent's figures, and Ask Sloan in the top bar.
+  // Needs a fluent speaker's review.
+  "home.kpi.runsDone": "Ejecuciones hechas · esta semana",
+  "home.kpi.changes": "Cambios en herramientas · esta semana",
+  "home.kpi.changesNote": "{automatic} por su cuenta · {approved} aprobados por usted",
+  "home.kpi.waiting": "Le espera a usted",
+  "home.kpi.waitingNote": "Aprobaciones y preguntas",
+  "home.kpi.documents": "Documentos leídos · esta semana",
+  "home.kpi.up": "{count} más que la semana pasada",
+  "home.kpi.down": "{count} menos que la semana pasada",
+  "home.kpi.same": "Igual que la semana pasada",
+  "kpi.runsDays": {
+    one: "{count} ejecución en los últimos {days} días",
+    other: "{count} ejecuciones en los últimos {days} días",
+  },
+  "home.card.runsWeek": { one: "ejecución esta semana", other: "ejecuciones esta semana" },
+  "home.card.changes": { one: "cambio en sus herramientas", other: "cambios en sus herramientas" },
+  "shell.askSloanButton": "Preguntar a Sloan",
+  "shell.askSloanHint": "Su agente de cuenta: pregúntele por el trabajo de sus agentes",
 };

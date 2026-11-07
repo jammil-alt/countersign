@@ -1798,10 +1798,6 @@ export const it: Messages = {
   // tabs, Settings sections). Needs a fluent speaker's review, as do the lines marked above.
   "nav.home": "Home",
   "nav.inbox": "In arrivo",
-  "home.week": {
-    one: "{count} esecuzione completata questa settimana.",
-    other: "{count} esecuzioni completate questa settimana.",
-  },
   "home.addDocuments": "Aggiungi documenti",
   "home.agents": "I tuoi agenti",
   "home.needsYou": "Serve a te",
@@ -1847,6 +1843,29 @@ export const it: Messages = {
   "settingsPage.conversations": "Conversazioni",
   "settingsPage.voice": "Esempi di stile",
   "settingsPage.sloanBody":
-    "Sloan è il tuo agente di account. Chiedigli del lavoro dei tuoi agenti, o di metterne uno in pausa, nella ricerca in alto. Sloan non allenta mai una regola.",
+    "Sloan è il tuo agente di account. Chiedigli del lavoro dei tuoi agenti, o di metterne uno in pausa: usa «Chiedi a Sloan» in alto, o la ricerca. Sloan non allenta mai una regola.",
   "settingsPage.sloanOpen": "Apri Sloan",
+
+  // UI cleanup (design pass): Home's figures, each agent's figures, and Ask Sloan in the top bar.
+  // Needs a fluent speaker's review.
+  "home.kpi.runsDone": "Esecuzioni completate · questa settimana",
+  "home.kpi.changes": "Modifiche agli strumenti · questa settimana",
+  "home.kpi.changesNote": "{automatic} da sole · {approved} approvate da te",
+  "home.kpi.waiting": "Aspetta te",
+  "home.kpi.waitingNote": "Approvazioni e domande",
+  "home.kpi.documents": "Documenti letti · questa settimana",
+  "home.kpi.up": "{count} in più della settimana scorsa",
+  "home.kpi.down": "{count} in meno della settimana scorsa",
+  "home.kpi.same": "Come la settimana scorsa",
+  "kpi.runsDays": {
+    one: "{count} esecuzione negli ultimi {days} giorni",
+    other: "{count} esecuzioni negli ultimi {days} giorni",
+  },
+  "home.card.runsWeek": {
+    one: "esecuzione questa settimana",
+    other: "esecuzioni questa settimana",
+  },
+  "home.card.changes": { one: "modifica ai tuoi strumenti", other: "modifiche ai tuoi strumenti" },
+  "shell.askSloanButton": "Chiedi a Sloan",
+  "shell.askSloanHint": "Il tuo agente di account: chiedigli del lavoro dei tuoi agenti",
 };

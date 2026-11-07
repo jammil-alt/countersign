@@ -1823,10 +1823,6 @@ export const fr: Messages = {
   // tabs, Settings sections). Needs a fluent speaker's review, as do the lines marked above.
   "nav.home": "Accueil",
   "nav.inbox": "Boîte de réception",
-  "home.week": {
-    one: "{count} exécution terminée cette semaine.",
-    other: "{count} exécutions terminées cette semaine.",
-  },
   "home.addDocuments": "Ajouter des documents",
   "home.agents": "Vos agents",
   "home.needsYou": "Vous attend",
@@ -1874,6 +1870,26 @@ export const fr: Messages = {
   "settingsPage.conversations": "Conversations",
   "settingsPage.voice": "Exemples de style",
   "settingsPage.sloanBody":
-    "Sloan est votre agent de compte. Interrogez-le sur le travail de vos agents, ou demandez-lui d'en mettre un en pause, dans la recherche en haut. Sloan n'assouplit jamais une règle.",
+    "Sloan est votre agent de compte. Interrogez-le sur le travail de vos agents, ou demandez-lui d'en mettre un en pause : utilisez « Demander à Sloan » en haut, ou la recherche. Sloan n'assouplit jamais une règle.",
   "settingsPage.sloanOpen": "Ouvrir Sloan",
+
+  // UI cleanup (design pass): Home's figures, each agent's figures, and Ask Sloan in the top bar.
+  // Needs a fluent speaker's review.
+  "home.kpi.runsDone": "Exécutions terminées · cette semaine",
+  "home.kpi.changes": "Changements d'outils · cette semaine",
+  "home.kpi.changesNote": "{automatic} d'eux-mêmes · {approved} approuvés par vous",
+  "home.kpi.waiting": "Vous attend",
+  "home.kpi.waitingNote": "Approbations et questions",
+  "home.kpi.documents": "Documents lus · cette semaine",
+  "home.kpi.up": "{count} de plus que la semaine dernière",
+  "home.kpi.down": "{count} de moins que la semaine dernière",
+  "home.kpi.same": "Comme la semaine dernière",
+  "kpi.runsDays": {
+    one: "{count} exécution sur les {days} derniers jours",
+    other: "{count} exécutions sur les {days} derniers jours",
+  },
+  "home.card.runsWeek": { one: "exécution cette semaine", other: "exécutions cette semaine" },
+  "home.card.changes": { one: "changement dans vos outils", other: "changements dans vos outils" },
+  "shell.askSloanButton": "Demander à Sloan",
+  "shell.askSloanHint": "Votre agent de compte : interrogez-le sur le travail de vos agents",
 };

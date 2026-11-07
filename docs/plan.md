@@ -1650,6 +1650,19 @@ did not go through) reach it too. Triage in `docs/operations.md` "Error tracking
 | `ops_health` (MCP) | Read tool on the back office's MCP server: `{client?, hours 1–168 = 24}`, the same findings for the clients the operator serves (failures over `hours`, states now), each with its client's name. No back-office route or screen (the owner is redesigning the UI). // DECISION |
 | Files | `apps/api/src/observability/{report,health}.ts`, `apps/api/src/scheduled.ts`; the call sites' `console.error` lines only. |
 
+### 1.62 KPIs and colour on the cards (UI design pass, owner 2026-11-07; no migration)
+
+After the cleanup the owner found the UI too plain. Figures and state colour come back, from real
+data only, within the brand rules (`apps/web/src/ui/README.md`).
+
+| Topic | Decision |
+|---|---|
+| "Live" | One meaning everywhere: switched on (`run_status` active) and at the `live` stage (core `isLiveAgent`, `goLiveCounts`). Trial and sign-off are named ("1 in trial"), never counted as live. The command center's line and Client health, and the client page's line, count this way; before, the client page counted any published version and the command center any active agent, even on the bench. // DECISION |
+| Runs each day | `KPI_DAYS` (14) days of `{ runs, failed }`, a run on the day it started: the portal in the client's time zone, live runs (`TableService.perDay`, `TableView.figures.perDay`); the back office in UTC, every run of an agent, test runs included (`CommandCenter.agents[].perDay`; `perDay` live across the clients served; `opsClient.activity[].perDay`). `apps/api/src/runs/figures.ts`. // DECISION |
+| Home's figures | Runs done this week, changes to your tools (automatic and approved), waiting on you, documents read (as Reports counts them: the activity report for this week and last). Optional contract fields, so an older answer still parses. A figure with nothing this week or last is left out; runs always show. // DECISION |
+| Agent colour | Five steps of the slate ramp (`data-seq-1`…`-5`), picked by the agent's id, never a state colour (copper is people, gold waits on you). // DECISION |
+| Go-live view | `goLive.writes` reads the live version, else the latest (a draft that writes no longer reads "goes straight to live"); `liveVersion` says whether there is one. Stage moves still read the live version alone. // DECISION |
+
 ---
 
 ## 2. Package layering

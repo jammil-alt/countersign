@@ -1831,10 +1831,6 @@ export const de: Messages = {
   // tabs, Settings sections). Needs a fluent speaker's review, as do the lines marked above.
   "nav.home": "Start",
   "nav.inbox": "Posteingang",
-  "home.week": {
-    one: "{count} Ablauf diese Woche abgeschlossen.",
-    other: "{count} Abläufe diese Woche abgeschlossen.",
-  },
   "home.addDocuments": "Dokumente hinzufügen",
   "home.agents": "Ihre Agenten",
   "home.needsYou": "Braucht Sie",
@@ -1880,6 +1876,26 @@ export const de: Messages = {
   "settingsPage.conversations": "Unterhaltungen",
   "settingsPage.voice": "Stilbeispiele",
   "settingsPage.sloanBody":
-    "Sloan ist Ihr Konto-Agent. Fragen Sie ihn in der Suche oben nach der Arbeit Ihrer Agenten, oder bitten Sie ihn, einen zu pausieren. Sloan lockert nie eine Regel.",
+    "Sloan ist Ihr Konto-Agent. Fragen Sie ihn nach der Arbeit Ihrer Agenten, oder bitten Sie ihn, einen zu pausieren: mit „Sloan fragen“ oben oder in der Suche. Sloan lockert nie eine Regel.",
   "settingsPage.sloanOpen": "Sloan öffnen",
+
+  // UI cleanup (design pass): Home's figures, each agent's figures, and Ask Sloan in the top bar.
+  // Needs a fluent speaker's review.
+  "home.kpi.runsDone": "Erledigte Abläufe · diese Woche",
+  "home.kpi.changes": "Änderungen in Tools · diese Woche",
+  "home.kpi.changesNote": "{automatic} selbstständig · {approved} von Ihnen freigegeben",
+  "home.kpi.waiting": "Wartet auf Sie",
+  "home.kpi.waitingNote": "Freigaben und Fragen",
+  "home.kpi.documents": "Gelesene Dokumente · diese Woche",
+  "home.kpi.up": "{count} mehr als letzte Woche",
+  "home.kpi.down": "{count} weniger als letzte Woche",
+  "home.kpi.same": "Wie letzte Woche",
+  "kpi.runsDays": {
+    one: "{count} Ablauf in den letzten {days} Tagen",
+    other: "{count} Abläufe in den letzten {days} Tagen",
+  },
+  "home.card.runsWeek": { one: "Ablauf diese Woche", other: "Abläufe diese Woche" },
+  "home.card.changes": { one: "Änderung in Ihren Tools", other: "Änderungen in Ihren Tools" },
+  "shell.askSloanButton": "Sloan fragen",
+  "shell.askSloanHint": "Ihr Konto-Agent: Fragen Sie ihn nach der Arbeit Ihrer Agenten",
 };

@@ -8,7 +8,7 @@
 // - Access (`/agents/:id/access`): what it may do in each of your tools, read-only (the client
 //   admin tightens on Accounts), and who it contacts (the client admin chooses).
 // Never the agent's bundle, instructions, prompts or cost (invariant 11).
-import type { PortalAccessView, RunForm, ServiceControl } from "@countersign/core";
+import type { DayRuns, PortalAccessView, RunForm, ServiceControl } from "@countersign/core";
 import { type FormEvent, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views";
@@ -21,8 +21,10 @@ import { PortalPeopleList } from "../../people/PeoplePanel";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
+import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
+import { hasRuns, KpiStrip, Sparkline, StatTile } from "../../ui/figures";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
@@ -116,7 +118,8 @@ function AgentPage({
             {t("nav.home")}
           </Link>
         }
-        leading={<AgentBadge name={name} size="lg" />}
+        beside={<HeaderSwitcher />}
+        leading={<AgentBadge name={name} seed={id} size="lg" />}
         title={name}
         badge={
           <span className="flex items-center gap-2">
@@ -147,21 +150,29 @@ function AgentPage({
       ) : tab === "access" ? (
         <AgentAccess id={id} name={name} isAdmin={isAdmin} />
       ) : (
-        <PageGrid rail={<RunNow id={id} name={name} />}>
-          <OwnView id={id} detail={detail} />
-          {detail.readsDocuments ? <Documents isAdmin={isAdmin} /> : null}
-          <RightNow
-            runId={live?.now?.runId ?? null}
-            going={live?.now ? runOpen(live.now) : false}
+        <>
+          <AgentFiguresStrip
+            id={id}
+            detail={detail}
+            perDay={live?.perDay}
+            waiting={live?.runsNow?.waitingOnYou ?? 0}
           />
-          <LatestWork
-            name={name}
-            recent={finishedWork(
-              (table.data?.recent ?? []).filter((r) => r.service.id === id),
-              [...detail.recentRuns, ...(live?.now ? [{ id: live.now.runId, ...live.now }] : [])],
-            )}
-          />
-        </PageGrid>
+          <PageGrid rail={<RunNow id={id} name={name} />}>
+            <OwnView id={id} detail={detail} />
+            {detail.readsDocuments ? <Documents isAdmin={isAdmin} /> : null}
+            <RightNow
+              runId={live?.now?.runId ?? null}
+              going={live?.now ? runOpen(live.now) : false}
+            />
+            <LatestWork
+              name={name}
+              recent={finishedWork(
+                (table.data?.recent ?? []).filter((r) => r.service.id === id),
+                [...detail.recentRuns, ...(live?.now ? [{ id: live.now.runId, ...live.now }] : [])],
+              )}
+            />
+          </PageGrid>
+        </>
       )}
     </>
   );
@@ -187,6 +198,8 @@ function OwnView({ id, detail }: { id: string; detail: Detail }) {
     );
   }
   const reports = defaultReports(key);
+  // Nothing of its own to show: no empty block (its figures are above).
+  if (reports.length === 0) return null;
   return (
     <div className="flex flex-col gap-5" data-testid="agent-own-view">
       {reports.map((r) => (
@@ -203,7 +216,6 @@ function OwnView({ id, detail }: { id: string; detail: Detail }) {
           <r.Component />
         </Card>
       ))}
-      <ThisMonth id={id} detail={detail} />
     </div>
   );
 }
@@ -526,75 +538,107 @@ export function finishedWork(recent: Recent[], runs: (RunFields & { id: string }
   return recent.filter((r) => !open.has(r.runId)).sort((a, b) => time(b) - time(a));
 }
 
-// ── This month, and what it may do in your tools ─────────────────────────────────────────────────
+// ── This month's figures, and what it may do in your tools ───────────────────────────────────────
 
-function Figure({
-  value,
-  label,
-  note,
-  testId,
+/**
+ * The agent's own figures first (the owner's v1 agent page): runs this month (with its last 14
+ * days), changes to your tools, documents read and what waits on you, then its template's own
+ * KPIs. Runs always show; a figure at 0 is left out. Each links to its list.
+ */
+function AgentFiguresStrip({
+  id,
+  detail,
+  perDay,
+  waiting,
 }: {
-  value: string;
-  label: string;
-  note?: string | null;
-  testId?: string;
+  id: string;
+  detail: Detail;
+  perDay: readonly DayRuns[] | undefined;
+  waiting: number;
 }) {
-  return (
-    <div data-testid={testId} className="flex min-w-0 flex-col gap-0.5">
-      <span className="ui-stat__value">{value}</span>
-      <span className="text-sm text-ink-muted">{label}</span>
-      {note ? <span className="text-sm text-ink-muted">{note}</span> : null}
-    </div>
-  );
-}
-
-function ThisMonth({ id, detail }: { id: string; detail: Detail }) {
   const i18n = useI18n();
   const { t, fmt } = i18n;
   const view = useApi(apiRoutes.portalServiceView, { params: { id } });
   const { thisMonth } = detail;
   // The client view's KPIs: labels and values, never their definition.
   const kpis = (view.data?.kpis ?? []).filter((k) => k.display !== null);
+  const runs14 = (perDay ?? []).reduce((n, d) => n + d.runs, 0);
+  const reportPath = `${PORTAL_PATHS.reports}?service=${id}`;
   return (
-    <Card
+    <Section
       title={t("service.thisMonth")}
       meta={periodLabel(thisMonth.from, thisMonth.to, i18n.intl)}
-      testId="agent-month"
-      footer={
+      action={
         <Link
-          to={`${PORTAL_PATHS.reports}?service=${id}`}
+          to={reportPath}
           className="text-sm text-link hover:underline"
           data-testid="agent-full-report"
         >
           {t("agent.fullReport")}
         </Link>
       }
-      pad
+      testId="agent-month"
     >
-      <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-        {kpis.map((k) => (
-          <Figure key={k.id} value={k.display ?? ""} label={k.label} testId={`agent-kpi-${k.id}`} />
-        ))}
-        <Figure
+      <KpiStrip testId="agent-figures">
+        <StatTile
           testId="portal-service-runs"
-          value={fmt.number(thisMonth.runs.total)}
+          to={PORTAL_PATHS.agentRuns(id)}
           label={t("reports.runs")}
+          value={fmt.number(thisMonth.runs.total)}
+          tone={
+            thisMonth.runs.failed > 0 ? "risk" : thisMonth.runs.succeeded > 0 ? "positive" : "slate"
+          }
+          mark={
+            hasRuns(perDay) ? (
+              <Sparkline
+                days={perDay}
+                label={t("kpi.runsDays", { count: runs14, days: perDay.length })}
+                testId="agent-runs-spark"
+              />
+            ) : undefined
+          }
           note={
             thisMonth.runs.total === 0 ? t("service.nothingRan") : runsNote(thisMonth.runs, i18n)
           }
         />
-        <Figure
-          testId="portal-service-documents"
-          value={fmt.number(thisMonth.documentsRead)}
-          label={t("reports.documentsRead")}
-        />
-        <Figure
-          testId="portal-service-actions"
-          value={fmt.number(thisMonth.actions)}
-          label={t("reports.changes")}
-        />
-      </div>
-    </Card>
+        {thisMonth.actions > 0 ? (
+          <StatTile
+            testId="portal-service-actions"
+            to={reportPath}
+            label={t("reports.changes")}
+            value={fmt.number(thisMonth.actions)}
+            tone="slate"
+          />
+        ) : null}
+        {thisMonth.documentsRead > 0 ? (
+          <StatTile
+            testId="portal-service-documents"
+            to={PORTAL_PATHS.upload}
+            label={t("reports.documentsRead")}
+            value={fmt.number(thisMonth.documentsRead)}
+            tone="slate"
+          />
+        ) : null}
+        {waiting > 0 ? (
+          <StatTile
+            testId="agent-kpi-waiting"
+            to={PORTAL_PATHS.inbox}
+            label={t("home.kpi.waiting")}
+            value={fmt.number(waiting)}
+            tone="signal"
+            note={t("home.kpi.waitingNote")}
+          />
+        ) : null}
+        {kpis.map((k) => (
+          <StatTile
+            key={k.id}
+            testId={`agent-kpi-${k.id}`}
+            label={k.label}
+            value={k.display ?? ""}
+          />
+        ))}
+      </KpiStrip>
+    </Section>
   );
 }
 

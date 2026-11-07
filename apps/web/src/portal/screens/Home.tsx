@@ -1,9 +1,11 @@
-// `/`: Home (was "The Table"; docs/ui-plan.md C1, Review 1). A short greeting, then each agent and
-// how it stands (the owner's v1 home: name, what it does, state, the tools it works in, its last
-// run in a line), and beside them what needs you: the top of the Inbox and the supervisor's
-// findings. A weekly summary card when a Weekly Table was sent, the lead's latest message and the
-// latest work when there is any. Each fact once: the Inbox's count is in the sidebar and on "Needs
-// you", never in tiles; empty sections are left out. Read from `GET /api/table` (and
+// `/`: Home (was "The Table"; docs/ui-plan.md C1, Review 1). A short greeting, the week's figures
+// (the owner's v1 KPI tiles, design pass: runs done, changes, waiting on you, documents read), then
+// each agent and how it stands (name, what it does, state in its colour, the tools it works in,
+// its week's runs and changes, its last run in a line), and beside them what needs you: the top of
+// the Inbox and the supervisor's findings. A weekly summary card when a Weekly Table was sent, the
+// lead's latest message and the latest work when there is any. Each fact once: what waits on you is
+// the gold tile (and the sidebar's badge), not a count on "Needs you" too; empty figures and
+// sections are left out. Read from `GET /api/table` (and
 // `/api/overview` for the findings, `/api/access` for each agent's tools, `/api/weekly` for the
 // summary). Never a bundle, an instruction, a prompt or a cost (invariant 11).
 import type { PortalAccessView, PortalFinding, TableView } from "@countersign/core";
@@ -19,19 +21,19 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
+import { Delta, hasRuns, KpiStrip, Sparkline, StatTile } from "../../ui/figures";
 import { Field, TextArea } from "../../ui/forms";
 import { Columns, Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
   Button,
   buttonClass,
   Card,
-  Count,
   EmptyState,
   ErrorNotice,
   PageHeader,
   Tag,
 } from "../../ui/primitives";
-import { StatusChip } from "../../ui/status";
+import { type ChipState, StatusChip } from "../../ui/status";
 import { longDay, partOfDay, sameDay, stageWord } from "../agentState";
 import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
@@ -76,7 +78,6 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
   const first = session.user.name?.trim().split(/\s+/)[0];
   const part = partOfDay(now, tz);
   const greeting = first ? t(`table.greeting.${part}`, { name: first }) : t(`table.hello.${part}`);
-  const finished = data.figures.runs?.succeeded ?? data.figures.runsDone;
   const findings = overview.data?.health?.findings ?? [];
   const sent = weekly.data?.table ?? null;
 
@@ -85,12 +86,7 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
       <PageHeader
         eyebrow={longDay(now, i18n.intl, tz)}
         title={greeting}
-        // The week in one line, without what waits on you: "Needs you" says that, once.
-        subtitle={
-          finished > 0 ? (
-            <span data-testid="home-week-line">{t("home.week", { count: finished })}</span>
-          ) : undefined
-        }
+        // The week's figures are the strip below: no line repeats them here.
         actions={
           <Link
             to={PORTAL_PATHS.upload}
@@ -101,6 +97,7 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
           </Link>
         }
       />
+      {data.services.length > 0 ? <HomeFigures data={data} /> : null}
       <PageGrid
         rail={
           <>
@@ -116,6 +113,91 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
         {sent ? <WeeklyCard table={sent} /> : null}
       </PageGrid>
     </>
+  );
+}
+
+// ── This week's figures ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * The KPI strip (the owner's v1 home): runs done this week with its last 14 days, changes made to
+ * your tools, what waits on you (signal) and documents read, each a link to its list. A figure
+ * with nothing this week or last is left out (runs always show). Each number appears once on the
+ * page: "Needs you" carries no count of its own, and no line under the title repeats them.
+ */
+function HomeFigures({ data }: { data: TableView }) {
+  const i18n = useI18n();
+  const { t, fmt } = i18n;
+  const f = data.figures;
+  const done = f.runs?.succeeded ?? f.runsDone;
+  const changes = f.changes.automatic + f.changes.signed;
+  const last = f.lastWeek;
+  const days = f.perDay;
+  const runs14 = (days ?? []).reduce((n, d) => n + d.runs, 0);
+  const delta = (direction: "up" | "down" | "same", by: number) =>
+    direction === "same"
+      ? t("home.kpi.same")
+      : t(direction === "up" ? "home.kpi.up" : "home.kpi.down", { count: by });
+  const documents = f.documentsRead;
+  return (
+    <KpiStrip testId="home-figures">
+      <StatTile
+        testId="home-kpi-runs"
+        to={PORTAL_PATHS.runs}
+        label={t("home.kpi.runsDone")}
+        value={fmt.number(done)}
+        tone={done > 0 ? "positive" : undefined}
+        mark={
+          hasRuns(days) ? (
+            <Sparkline
+              days={days}
+              label={t("kpi.runsDays", { count: runs14, days: days.length })}
+              testId="home-kpi-runs-spark"
+            />
+          ) : undefined
+        }
+        note={hasRuns(days) ? t("kpi.runsDays", { count: runs14, days: days.length }) : undefined}
+      />
+      {changes > 0 || (last?.changes ?? 0) > 0 ? (
+        <StatTile
+          testId="home-kpi-changes"
+          to={PORTAL_PATHS.reports}
+          label={t("home.kpi.changes")}
+          tone="slate"
+          value={fmt.number(changes)}
+          mark={last ? <Delta now={changes} before={last.changes} words={delta} /> : undefined}
+          note={
+            changes > 0
+              ? t("home.kpi.changesNote", {
+                  automatic: fmt.number(f.changes.automatic),
+                  approved: fmt.number(f.changes.signed),
+                })
+              : undefined
+          }
+        />
+      ) : null}
+      {data.desk.open > 0 ? (
+        <StatTile
+          testId="home-kpi-waiting"
+          to={PORTAL_PATHS.inbox}
+          label={t("home.kpi.waiting")}
+          value={fmt.number(data.desk.open)}
+          tone="signal"
+          note={t("home.kpi.waitingNote")}
+        />
+      ) : null}
+      {documents !== undefined && (documents > 0 || (last?.documentsRead ?? 0) > 0) ? (
+        <StatTile
+          testId="home-kpi-documents"
+          to={PORTAL_PATHS.upload}
+          label={t("home.kpi.documents")}
+          tone="slate"
+          value={fmt.number(documents)}
+          mark={
+            last ? <Delta now={documents} before={last.documentsRead} words={delta} /> : undefined
+          }
+        />
+      ) : null}
+    </KpiStrip>
   );
 }
 
@@ -161,16 +243,18 @@ function AgentCard({ service: s, tools }: { service: Service; tools: string[] })
   const { t } = i18n;
   const chip = agentChip(s, t);
   const stage = stageWord(s.stage, t);
+  const tone = agentAccent(s, chip.state);
   return (
     <Link
       to={PORTAL_PATHS.agent(s.id)}
       data-testid={`portal-service-${s.id}`}
+      data-tone={tone}
       className={`ds-card flex min-w-0 flex-col gap-4 p-6 text-ink no-underline hover:border-line-strong ${
-        chip.state === "setup" ? "border-dashed" : ""
-      }`}
+        tone ? "ui-accent" : ""
+      } ${chip.state === "setup" ? "border-dashed" : ""}`}
     >
       <span className="flex items-start gap-3">
-        <AgentBadge name={s.name} />
+        <AgentBadge name={s.name} seed={s.id} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="type-subheading">{s.name}</span>
           {s.description ? (
@@ -191,6 +275,7 @@ function AgentCard({ service: s, tools }: { service: Service; tools: string[] })
           ))}
         </span>
       ) : null}
+      <AgentFigures service={s} />
       <span
         className="border-t border-line pt-3.5 text-sm text-ink-muted"
         data-testid={`table-agent-now-${s.id}`}
@@ -198,6 +283,57 @@ function AgentCard({ service: s, tools }: { service: Service; tools: string[] })
         {lastRunLine(s, i18n)}
       </span>
     </Link>
+  );
+}
+
+/**
+ * A card's state colour, beside its chip (brand book): waiting on you in signal, a last run that
+ * failed in risk, working or ready and live in positive ("working fine"). Setting up and paused
+ * have none: the chip says it.
+ */
+export function agentAccent(
+  s: Pick<Service, "now">,
+  state: ChipState,
+): "signal" | "risk" | "positive" | undefined {
+  if (state === "waiting") return "signal";
+  if (state === "setup" || state === "paused") return undefined;
+  if (s.now && !runOpen(s.now) && s.now.status === "failed") return "risk";
+  return "positive";
+}
+
+/**
+ * The agent's own figures this week: runs (with its last 14 days) and changes to your tools. Left
+ * out until it has run at all in those days or changed something.
+ */
+function AgentFigures({ service: s }: { service: Service }) {
+  const { t, fmt } = useI18n();
+  const runs = s.runs?.total ?? s.runsDone;
+  const changes = s.changes ?? 0;
+  const days = s.perDay;
+  if (!hasRuns(days) && runs === 0 && changes === 0) return null;
+  const runs14 = (days ?? []).reduce((n, d) => n + d.runs, 0);
+  return (
+    <span className="ui-figs" data-testid={`home-agent-figures-${s.id}`}>
+      <span className="ui-fig">
+        <span className="ui-fig__value">{fmt.number(runs)}</span>
+        <span className="ui-fig__label">{t("home.card.runsWeek", { count: runs })}</span>
+      </span>
+      {changes > 0 ? (
+        <span className="ui-fig">
+          <span className="ui-fig__value">{fmt.number(changes)}</span>
+          <span className="ui-fig__label">{t("home.card.changes", { count: changes })}</span>
+        </span>
+      ) : null}
+      {hasRuns(days) ? (
+        <span className="ui-figs__spark">
+          <Sparkline
+            days={days}
+            label={t("kpi.runsDays", { count: runs14, days: days.length })}
+            testId={`home-agent-spark-${s.id}`}
+          />
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -287,7 +423,7 @@ function Latest({ recent }: { recent: TableView["recent"] }) {
           key={`${r.runId}:${r.label}:${r.at ?? ""}`}
           testId={`table-latest-${r.runId}`}
           time={r.at ? shortTime(r.at, undefined, i18n) : ""}
-          badge={<AgentBadge name={r.service.name} size="sm" />}
+          badge={<AgentBadge name={r.service.name} seed={r.service.id} size="sm" />}
           to={`/runs/${r.runId}`}
         >
           <span className="font-medium">{r.service.name}</span> {r.summary ?? r.label}
@@ -324,7 +460,6 @@ function NeedsYou({
     <Card
       testId="table-desk"
       title={t("home.needsYou")}
-      meta={desk.open > 0 ? <Count n={desk.open} tone="warning" /> : undefined}
       footer={
         <Link
           to={PORTAL_PATHS.inbox}
@@ -377,7 +512,11 @@ function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange:
   };
 
   return (
-    <div className="flex flex-col gap-3 px-6 py-4" data-testid={`table-desk-item-${item.id}`}>
+    <div
+      className="ui-accent ui-accent--left flex flex-col gap-3 px-6 py-4"
+      data-tone="signal"
+      data-testid={`table-desk-item-${item.id}`}
+    >
       <span className="flex flex-wrap items-center justify-between gap-2">
         <Tag>{kind ? t(kind) : item.kind}</Tag>
         {due ? (

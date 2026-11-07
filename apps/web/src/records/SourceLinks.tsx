@@ -27,7 +27,8 @@ export function SourceLinks({
   if (ids.length === 0) return null;
   return (
     <span data-testid={testId} className="mt-1 flex flex-wrap gap-1.5">
-      {ids.map((id) =>
+      {/* A record named twice (a finding counting one run twice) shows once. */}
+      {[...new Set(ids)].map((id) =>
         isUuid(id) ? (
           <Link
             key={id}

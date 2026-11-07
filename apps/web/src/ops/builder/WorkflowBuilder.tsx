@@ -32,6 +32,7 @@ import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
 import { Badge, Button, buttonClass, cx, ErrorNotice, Loading } from "../../ui/primitives";
@@ -179,10 +180,9 @@ function Frame(props: WorkflowBuilderProps & { children: ReactNode }) {
 }
 
 /** "Remy · Card receipts": the agent's name, and its service's when that differs. */
+/** The name the client knows (the service name), as the agent page's title (design pass, fix 1). */
 function agentTitle(agent: AgentSummary): string {
-  return agent.serviceName && agent.serviceName !== agent.name
-    ? `${agent.name} · ${agent.serviceName}`
-    : agent.name;
+  return agent.serviceName ?? agent.name;
 }
 
 /** The builder's bar (prototype `#O6-Builder`): the agent, its version and counts, its actions. */
@@ -200,11 +200,12 @@ function BuilderBar({
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 pb-3">
       <div className="flex min-w-0 items-center gap-3">
-        <AgentBadge name={agent.name} size="md" />
+        <AgentBadge name={agentTitle(agent)} seed={agent.id} size="md" />
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="ui-crumbs">
             <h1 className="type-subheading text-ink">{agentTitle(agent)}</h1>
             {badge}
+            <HeaderSwitcher />
           </div>
           {line ? <p className="text-sm text-ink-muted">{line}</p> : null}
         </div>

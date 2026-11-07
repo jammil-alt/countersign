@@ -7,6 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { AGENT_SUMMARY, fakeApi, OPERATOR_SESSION, SANDBOX_DETAIL } from "../../test/fixtures";
+import { supervisorLine } from "../screens/ClientHealth";
 import { lastMonth } from "./ClientExports";
 import { clientPageOf } from "./ClientFrame";
 
@@ -19,7 +20,7 @@ const DETAIL = {
   ...SANDBOX_DETAIL,
   client: { ...SANDBOX_DETAIL.client, name: "Harbor Millwork", timezone: "America/Chicago" },
   agents: [
-    AGENT_SUMMARY,
+    { ...AGENT_SUMMARY, stage: "trial" },
     {
       ...AGENT_SUMMARY,
       id: "00000000-0000-4000-8000-00000000b002",
@@ -55,6 +56,29 @@ const DETAIL = {
   ],
 };
 
+/** Each agent's work at a glance (`activity` on GET /api/ops/clients/:id). */
+const ACTIVITY = [
+  {
+    agentId: AGENT,
+    runs7d: 13,
+    waitingRuns: 1,
+    lastRun: {
+      id: "00000000-0000-4000-8000-0000000f0001",
+      status: "running",
+      at: "2026-11-05T15:00:00.000Z",
+      waiting: true,
+    },
+    perDay: Array.from({ length: 14 }, (_, i) => ({ runs: i % 3, failed: 0 })),
+  },
+  {
+    agentId: "00000000-0000-4000-8000-00000000b002",
+    runs7d: 0,
+    waitingRuns: 0,
+    lastRun: null,
+    perDay: Array.from({ length: 14 }, () => ({ runs: 0, failed: 0 })),
+  },
+];
+
 const goLive = (stage: string, extra: Record<string, unknown> = {}) => ({
   goLive: {
     stage,
@@ -84,7 +108,22 @@ describe("the client page", () => {
     let lead: { userId: string; name: string; email: string } | null = null;
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      [`GET /api/ops/clients/${CLIENT}`]: () => DETAIL,
+      [`GET /api/ops/clients/${CLIENT}`]: () => ({ ...DETAIL, activity: ACTIVITY }),
+      // The frame's clients list: Needs us and runs waiting per client.
+      "GET /api/ops/clients": () => ({
+        clients: [
+          {
+            id: CLIENT,
+            name: "Harbor Millwork",
+            timezone: "America/Chicago",
+            createdAt: "2026-11-01T00:00:00.000Z",
+            agents: 2,
+            openInbox: 3,
+            needsUs: 2,
+            waitingRuns: 1,
+          },
+        ],
+      }),
       // The sidebar counts every client's; the Overview asks for this client's.
       "GET /api/ops/inbox": ({ url }) => {
         if (url.searchParams.get("client") !== CLIENT) return { items: [], agents: [] };
@@ -131,7 +170,8 @@ describe("the client page", () => {
             ready: false,
           },
         }),
-      "GET /api/ops/agents/00000000-0000-4000-8000-00000000b002/go-live": () => goLive("bench"),
+      "GET /api/ops/agents/00000000-0000-4000-8000-00000000b002/go-live": () =>
+        goLive("bench", { liveVersion: false }),
       [`GET /api/ops/clients/${CLIENT}/threads`]: () => ({
         lead,
         threads: [
@@ -161,7 +201,15 @@ describe("the client page", () => {
 
     const page = await screen.findByTestId("ops-client-page", {}, { timeout: 10_000 });
     expect(await within(page).findByRole("heading", { name: "Harbor Millwork" })).toBeVisible();
-    expect(within(page).getByText("1 of 2 agents live · America/Chicago")).toBeInTheDocument();
+    // The slim KPI line: live means switched on and at the live stage (the trial agent is named
+    // as such), its runs in 7 days, what needs us and what waits for approval.
+    expect(within(page).getByTestId("ops-client-line")).toHaveTextContent(
+      "0 of 2 agents live · 1 in trial · 13 live runs in 7 days · America/Chicago",
+    );
+    expect(within(page).getByTestId("ops-client-needs-us")).toHaveTextContent("Needs us 2");
+    expect(within(page).getByTestId("ops-client-approvals")).toHaveTextContent(
+      "1 waiting for approval",
+    );
     const tabs = within(screen.getByTestId("ops-client-tabs")).getAllByRole("link");
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Overview",
@@ -185,7 +233,8 @@ describe("the client page", () => {
     // No figure tiles: the summary opens short.
     expect(screen.queryByTestId("ops-client-stat-live")).toBeNull();
     expect(await screen.findByTestId("ops-client-waiting")).toHaveTextContent("Baltic birch 3/4");
-    expect(screen.getByTestId("ops-client-go-live")).toHaveTextContent("1 of 2 live");
+    // How many are live is the header's line, not repeated here.
+    expect(screen.getByTestId("ops-client-go-live")).not.toHaveTextContent("of 2 live");
     // Billing is in Settings.
     expect(screen.queryByTestId("ops-client-billing")).toBeNull();
 
@@ -195,8 +244,23 @@ describe("the client page", () => {
       "aria-label",
       "Stage 2 of 4: Trial",
     );
+    // Its work at a glance: runs in 7 days, the last run, what waits, and its 14 days; waiting
+    // for approval, its accent is gold.
+    expect(within(trial).getByTestId("ops-client-activity-material-costs")).toHaveTextContent(
+      /^13 live runs in 7 days · Last run .+1 run waiting for approval$/,
+    );
+    expect(trial).toHaveAttribute("data-tone", "signal");
+    expect(within(trial).getByTestId("ops-client-spark-material-costs")).toBeInTheDocument();
     const bench = screen.getByTestId("ops-client-stage-collections");
     expect(await within(bench).findByText("Bench")).toBeInTheDocument();
+    // No live version yet: it says so, rather than "goes straight to live" (fix 2).
+    expect(await within(bench).findByTestId("ops-client-stage-note")).toHaveTextContent(
+      "No live version yet · test runs only",
+    );
+    expect(within(bench).getByTestId("ops-client-activity-collections")).toHaveTextContent(
+      "No runs yet",
+    );
+    expect(bench).not.toHaveAttribute("data-tone");
 
     const threads = await screen.findByTestId("ops-client-threads");
     expect(await within(threads).findByText("Baltic birch prices")).toBeVisible();
@@ -240,9 +304,8 @@ describe("the client page", () => {
       `/ops/clients/${CLIENT}/agents/material-costs`,
     );
     expect(within(list).getByTestId("ops-agent-card-collections")).toHaveTextContent("Not started");
-    expect(screen.getByTestId("ops-client-agents-section")).toHaveTextContent(
-      "1 live · 1 not live yet",
-    );
+    // How many are live is said once, in the frame's line.
+    expect(screen.getByTestId("ops-client-agents-section")).not.toHaveTextContent("not live yet");
     expect(screen.getByTestId("ops-client-new-agent")).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/agents/new`,
@@ -425,5 +488,16 @@ describe("the clients list", () => {
     );
     expect(within(table).getByText("Sandbox", { selector: "span" })).toBeInTheDocument();
     expect(within(page).getByTestId("ops-new-client")).toHaveAttribute("href", "/ops/clients/new");
+  });
+});
+
+describe("the client's supervisor in words (fix 3 of the design pass)", () => {
+  it("reads well whatever it is called", () => {
+    expect(supervisorLine("Supervisor")).toBe(
+      "The supervisor checks this client's runs, connections, logins, codes and waiting items every day. It changes nothing.",
+    );
+    expect(supervisorLine("the supervisor")).toMatch(/^The supervisor checks/);
+    expect(supervisorLine("Sloan")).toMatch(/^Sloan, the supervisor, checks this client's runs/);
+    expect(supervisorLine("Supervisor")).not.toMatch(/Supervisor, this client's supervisor/);
   });
 });

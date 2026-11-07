@@ -17,6 +17,13 @@ export function escalationChip(e: Escalation): { state: ChipState; words: string
   }
 }
 
+/** A Needs us row's accent (design pass): its chip's colour, gold for waiting, risk for blocked. */
+export function escalationTone(state: ChipState): "signal" | "risk" | undefined {
+  if (state === "waiting") return "signal";
+  if (state === "blocked" || state === "failed") return "risk";
+  return undefined;
+}
+
 /** A title as the start of a sentence's end: "Is it right?" stays, "Itemize bill 20418" gets ".". */
 function sentence(text: string): string {
   return /[.?!]$/.test(text) ? text : `${text}.`;

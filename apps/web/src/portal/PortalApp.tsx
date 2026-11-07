@@ -2,21 +2,21 @@
 // (ARCHITECTURE §15). Every screen reads in the session's language (docs/plan.md §1.18). The
 // sidebar lists places only: Home, Inbox, Runs, Accounts and Contacts (Review 1, approved by the
 // owner). The agents are on Home and the agent switcher on an agent's page; Settings and the lead
-// are in the avatar menu (Settings also at the sidebar's foot); Sloan is in the search box. The
-// routes live in ./routes.tsx.
+// are in the avatar menu (Settings also at the sidebar's foot); Sloan is Ask Sloan in the top bar
+// and in the search box. The routes live in ./routes.tsx.
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
-import { Link, Route, Routes, useLocation, useMatch } from "react-router-dom";
+import { Link, NavLink, Route, Routes, useLocation, useMatch } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { useI18n } from "../i18n/i18n";
 import { usePoll } from "../runs/usePoll";
 import { useSession } from "../session/session";
-import { AgentSwitcher } from "../shell/AgentSwitcher";
+import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { portalSearchGroups } from "../shell/searchGroups";
-import { PersonBadge } from "../ui/badges";
+import { AgentBadge, PersonBadge } from "../ui/badges";
 import { Placeholder } from "../ui/primitives";
 import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { askSloan, PORTAL_PATHS } from "./paths";
@@ -45,6 +45,11 @@ export function PortalLayout({ children }: { children: ReactNode }) {
   // The operator switches the Feedback button on per client; off, there is no button.
   const feedback = useApi(apiRoutes.portalFeedbackStatus);
   const services = overview.data?.services ?? [];
+  const switchAgents = services.map((s) => ({
+    key: s.id,
+    name: s.name,
+    href: PORTAL_PATHS.agent(s.id),
+  }));
   const agentMatch = useMatch("/agents/:id/*");
 
   const search: SearchRun = useCallback(
@@ -77,18 +82,12 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           // QA round 1: the badge's slot is kept while the count loads (no shift).
           reserve: true,
         }}
-        pageBar={
-          agentMatch?.params.id ? (
-            <AgentSwitcher
-              current={agentMatch.params.id}
-              agents={services.map((s) => ({
-                key: s.id,
-                name: s.name,
-                href: PORTAL_PATHS.agent(s.id),
-              }))}
-            />
+        switcher={
+          agentMatch?.params.id && canSwitch(agentMatch.params.id, switchAgents) ? (
+            <AgentSwitcher current={agentMatch.params.id} agents={switchAgents} />
           ) : null
         }
+        topAction={<AskSloanButton />}
         sidebar={
           <nav className="flex flex-col gap-0.5">
             <SidebarLink
@@ -157,6 +156,29 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       </AppShell>
       {feedback.data?.enabled ? <FeedbackButton surface="portal" /> : null}
     </>
+  );
+}
+
+/**
+ * Ask Sloan in the top bar, beside the Inbox: Sloan's badge and the words (the badge alone at
+ * phone width, named for screen readers), with what Sloan is in its title. It opens `/sloan`;
+ * the search box still offers "Ask Sloan" for what was typed.
+ */
+export function AskSloanButton() {
+  const { t } = useI18n();
+  const label = t("shell.askSloanButton");
+  const hint = t("shell.askSloanHint");
+  return (
+    <NavLink
+      to={PORTAL_PATHS.sloan}
+      className="ui-topbar__ask"
+      title={hint}
+      aria-label={`${label}. ${hint}`}
+      data-testid="shell-ask-sloan"
+    >
+      <AgentBadge name="Sloan" size="sm" />
+      <span className="ui-topbar__asklabel">{label}</span>
+    </NavLink>
   );
 }
 

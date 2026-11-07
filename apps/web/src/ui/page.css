@@ -113,6 +113,28 @@
   color: var(--slate);
   font: 600 13px / 1 var(--font-sans);
 }
+/* An agent's own colour (badges.tsx `agentHue`): the slate ramp, each step with the text token that
+ * meets 4.5:1 on it in both themes (seq-1 slate, seq-2 and -3 ink, seq-4 and -5 on-slate). */
+.ui-agentbadge[data-hue="1"] {
+  background: var(--data-seq-1);
+  color: var(--slate);
+}
+.ui-agentbadge[data-hue="2"] {
+  background: var(--data-seq-2);
+  color: var(--ink);
+}
+.ui-agentbadge[data-hue="3"] {
+  background: var(--data-seq-3);
+  color: var(--ink);
+}
+.ui-agentbadge[data-hue="4"] {
+  background: var(--data-seq-4);
+  color: var(--on-slate);
+}
+.ui-agentbadge[data-hue="5"] {
+  background: var(--data-seq-5);
+  color: var(--on-slate);
+}
 .ui-agentbadge--sm {
   width: 28px;
   height: 28px;
@@ -157,6 +179,154 @@
 .ui-stat--alert .ui-stat__value {
   color: var(--risk-ink);
 }
+/* A tile's state colour (StatTile `tone`): the accent on top, and waiting on you in its tint. */
+.ui-stat--signal {
+  border-color: var(--signal-tint);
+  background: var(--signal-tint);
+}
+.ui-stat--signal .ui-stat__label,
+.ui-stat--signal .ui-stat__note {
+  color: var(--signal-ink);
+}
+.ui-stat--risk .ui-stat__label {
+  color: var(--risk-ink);
+}
+.ui-stat--positive .ui-stat__label {
+  color: var(--positive);
+}
+.ui-stat__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+.ui-stat__mark {
+  display: inline-flex;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+/* A tile that links to its list. */
+a.ui-stat--link {
+  color: inherit;
+  text-decoration: none;
+}
+a.ui-stat--link:hover {
+  border-color: var(--line-strong);
+}
+a.ui-stat--signal:hover {
+  border-color: var(--signal);
+}
+a.ui-stat--link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* A row of figures: as many as fit, two at phone width. */
+.ui-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+
+/* ── Accents: a thin bar in a state colour on a card's top or a row's left edge, a mark (not a
+ * border colour change, not a shadow). Always beside a chip or word that says the state. ── */
+.ui-accent {
+  position: relative;
+  overflow: hidden;
+}
+.ui-accent::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--ui-accent, transparent);
+  pointer-events: none;
+}
+.ui-accent--left::before {
+  inset: 0 auto 0 0;
+  width: 3px;
+  height: auto;
+}
+[data-tone="signal"] {
+  --ui-accent: var(--signal);
+}
+[data-tone="positive"] {
+  --ui-accent: var(--positive);
+}
+[data-tone="risk"] {
+  --ui-accent: var(--risk);
+}
+[data-tone="slate"] {
+  --ui-accent: var(--slate);
+}
+[data-tone="copper"] {
+  --ui-accent: var(--copper);
+}
+
+/* ── Small charts ── */
+.ui-sparkline {
+  flex: none;
+  overflow: visible;
+}
+.ui-sparkline .ui-sparkline__failed {
+  fill: var(--risk);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+.ui-delta {
+  justify-content: flex-start;
+  color: var(--ink-muted);
+}
+
+/* A slim line of figures under a title ("2 of 3 agents live · 41 live runs in 7 days"): words
+ * and figures, the waiting ones as chips. */
+.ui-kpiline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5) var(--space-3);
+}
+.ui-kpiline b {
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ui-kpiline > a {
+  text-decoration: none;
+}
+
+/* An agent card's figures (Home, the client page): number over words, then the sparkline. */
+.ui-figs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-6);
+}
+.ui-fig {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.ui-fig__value {
+  font: 500 22px / 28px var(--font-sans);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.ui-fig__label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ink-muted);
+}
+.ui-figs__spark {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-left: auto;
+}
+
 .ui-tone-risk {
   color: var(--risk-ink);
 }
@@ -384,6 +554,17 @@
   .ui-cols--3,
   .ui-cols--4 {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .ui-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+  .ui-kpis .ui-stat {
+    padding: var(--space-4);
+  }
+  .ui-kpis .ui-stat__value {
+    font-size: 26px;
+    line-height: 30px;
   }
   .ui-card__head,
   .ui-card__body,

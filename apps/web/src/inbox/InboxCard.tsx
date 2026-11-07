@@ -19,6 +19,7 @@ import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { SourceLinks } from "../records/SourceLinks";
 import { shortTime } from "../runs/format";
+import type { AccentTone } from "../ui/figures";
 import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
 import { ChangeTables } from "./ChangePanel";
@@ -190,6 +191,16 @@ export function isAccountChangeItem(item: Pick<InboxCardItem, "payload">): boole
   return isPlainObject(item.payload.accountChange);
 }
 
+/** An item's accent colour, from its status badge's tone (none for neutral and slate). */
+const BADGE_ACCENT: Record<Tone, AccentTone | undefined> = {
+  neutral: undefined,
+  accent: undefined,
+  positive: "positive",
+  warning: "signal",
+  risk: "risk",
+  person: "copper",
+};
+
 function statusBadge(
   item: InboxCardItem,
   outcome: string | null,
@@ -317,7 +328,12 @@ export function InboxCard({
   return (
     // The Mezonas SignCard (mz-sign): one decision per card, what changes before and after, the
     // run behind it as a Receipt, then the decision.
-    <article data-testid={testId ?? `inbox-item-${item.id}`} className="mz-sign">
+    // Its state as a thin accent on the left (design pass), the colour of its status badge.
+    <article
+      data-testid={testId ?? `inbox-item-${item.id}`}
+      className="mz-sign ui-accent ui-accent--left"
+      data-tone={BADGE_ACCENT[badge.tone]}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={badge.tone} testId="inbox-item-status">

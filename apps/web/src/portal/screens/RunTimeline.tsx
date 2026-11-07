@@ -157,7 +157,7 @@ function RunPage({ data }: { data: RunData }) {
         {` / ${short}`}
       </p>
       <PageHeader
-        leading={<AgentBadge name={run.service.name} size="lg" />}
+        leading={<AgentBadge name={run.service.name} seed={run.service.id} size="lg" />}
         title={title ?? run.service.name}
         badge={
           <StatusChip state={runChip(run, t).state} testId="portal-run-status">

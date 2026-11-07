@@ -9,9 +9,10 @@ import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { LanguageMenu } from "../i18n/LanguageMenu";
 import { displayName, userInitial, useSession, useSessionState } from "../session/session";
-import { Logo, PRODUCT_NAME } from "../ui/brand";
+import { Logo, LogoMark, PRODUCT_NAME } from "../ui/brand";
 import { Icon, type IconName } from "../ui/icons";
 import { Count, cx } from "../ui/primitives";
+import { HeaderSwitcherProvider } from "./HeaderSwitcher";
 import { type SearchAsk, SearchBox, type SearchRun } from "./Search";
 import { THEMES, type Theme, useTheme } from "./theme";
 
@@ -46,7 +47,8 @@ export function AppShell({
   desk,
   sidebar,
   sidebarFooter,
-  pageBar,
+  switcher,
+  topAction,
   menu,
   children,
 }: {
@@ -60,8 +62,10 @@ export function AppShell({
   sidebar: ReactNode;
   /** Pinned to the sidebar's foot (the portal's Sloan card and lead). */
   sidebarFooter?: ReactNode;
-  /** A slim bar above the page (the agent switcher on an agent's page). */
-  pageBar?: ReactNode;
+  /** The agent switcher on an agent's page: its header draws it (`HeaderSwitcher`). */
+  switcher?: ReactNode;
+  /** Beside the Inbox in the top bar (the portal's Ask Sloan). */
+  topAction?: ReactNode;
   /** Extra rows at the top of the avatar menu (the portal's Settings and its lead). */
   menu?: ReactNode;
   children: ReactNode;
@@ -93,13 +97,19 @@ export function AppShell({
           <Icon name="sidebar" size={20} />
         </button>
         <Link to={home} className="ui-topbar__logo" title={PLATFORM_NAME}>
-          <Logo height={18} />
+          <span className="ui-topbar__lockup">
+            <Logo height={18} />
+          </span>
+          <span className="ui-topbar__mark">
+            <LogoMark size={28} />
+          </span>
         </Link>
         <span aria-hidden className="ui-topbar__sep" />
         <div className="ui-topbar__context">{context}</div>
         <div className="ui-topbar__search">
           <SearchBox placeholder={search.placeholder} run={search.run} ask={search.ask} />
         </div>
+        {topAction}
         <NavLink
           to={desk.to}
           data-testid="shell-inbox"
@@ -136,8 +146,7 @@ export function AppShell({
           {sidebarFooter ? <div className="ui-sidebar__foot">{sidebarFooter}</div> : null}
         </aside>
         <main className="ui-main">
-          {pageBar ? <div className="ui-pagebar">{pageBar}</div> : null}
-          {children}
+          <HeaderSwitcherProvider switcher={switcher ?? null}>{children}</HeaderSwitcherProvider>
         </main>
       </div>
     </div>

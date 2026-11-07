@@ -48,11 +48,10 @@ function Agents({ clientId }: { clientId: string }) {
   const names = Object.fromEntries(
     (catalog.data?.connectors ?? []).map((c) => [c.id, c.name] as const),
   );
-  const live = data.agents.filter((a) => a.liveVersionId !== null).length;
   return (
     <Section
       title="Agents"
-      meta={`${live} live · ${data.agents.length - live} not live yet`}
+      // How many are live is the frame's line above every tab (one home per fact).
       testId="ops-client-agents-section"
     >
       {data.agents.length === 0 ? (
@@ -103,7 +102,7 @@ function AgentCard({
             to={`${OPS_PATHS.client(clientId)}/agents/${agent.slug}`}
             className="flex min-w-0 items-center gap-3"
           >
-            <AgentBadge name={name} />
+            <AgentBadge name={name} seed={agent.id} />
             <span className="min-w-0">
               <span className="block font-medium text-ink hover:underline">{name}</span>
               <span className="block truncate text-sm text-ink-muted">

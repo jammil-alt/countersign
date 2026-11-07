@@ -49,13 +49,33 @@ the state from core's `runState` (`packages/core/src/api/run-state.ts`).
 - `Card` (`primitives.tsx`) — `title`, `meta` (right side of the head), `footer`, `pad` (padded body),
   `dashed`. Without a title it is a plain sheet, as before.
 - `StatTile` (`figures.tsx`) — `label`, `value`, `note`, `noteTone` (`risk`, `signal`, `positive`), `alert`
-  (risk border and figure, for "Need us").
+  (risk border and figure, for "Need us"), `tone` (an `AccentTone`: the state colour's accent on
+  top; `signal` also tints the tile, for "Waiting on you"), `mark` (a `Sparkline` or `Delta` beside
+  the value), `to` (the tile is a link to its list).
+- `KpiStrip` — a row of `StatTile`s, as many as fit, two at phone width. Four at most; leave out a
+  tile with nothing to say rather than show a 0 (runs always show).
 - `ProgressBar` — `value`, `max`, `label` (for screen readers), `tone` (`accent`, `waiting`, `risk`).
 - `Sparkbars` — `values` (`{ value, failed? }[]`), `label`. Failed bars in risk.
+- `Sparkline` — `days` (`{ runs, failed? }[]`, oldest first: the API's `perDay`, `KPI_DAYS` long),
+  `label` (it in words). The design system's `dt-spark`: a `data-line` line, a dot on today, a risk
+  dot on a day with a failed run. `hasRuns(days)` says whether there is anything to draw.
+- `Delta` — `now`, `before`, `words(direction, by)`: the change from last time with `dt-delta`'s
+  arrow in `data-up` / `data-down`, always in words.
+
+## State colour and accents (`page.css`)
+
+`ui-accent` (a 3px bar on the top) or `ui-accent ui-accent--left` (on the left), with `data-tone`
+`signal`, `positive`, `risk`, `slate` or `copper`: a mark, not a border colour or a shadow, and
+always beside a chip or word that says the state. Used on agent cards (Home, the client page's
+agent rows), Needs us and Escalations rows, Inbox entries (`entryTone`) and Inbox cards (the status
+badge's colour). `ui-kpiline` is a slim line of figures under a title (the client page's header).
 
 ## People and agents (`badges.tsx`)
 
-- `AgentBadge` — `name`, `size` (`sm` 28, `md` 36, `lg` 52): the initials tile.
+- `AgentBadge` — `name`, `seed` (the agent's id), `size` (`sm` 28, `md` 36, `lg` 52): the initials
+  tile in the agent's own colour. `agentHue(seed)` picks one of five steps of the slate ramp
+  (`data-seq-1`…`-5`, each with the text token that meets 4.5:1 in both themes), the same for the
+  same agent on both sides; never a state colour. Pass the id wherever you have it.
 - `PersonBadge` — `name`, `line` (shows name and line beside the badge), `plain` (a client's own person,
   not copper), `size`.
 
@@ -76,6 +96,9 @@ each a route: the client page's Data and Setup), `SectionLabel`, `AgentAvatar`, 
 
 ## The frame (`../shell`)
 
-`AppShell` (top bar, sidebar, page), `SidebarLink`, `SidebarSection`, `SidebarMore`, `SidebarAgent`,
-`SearchBox` (⌘K), `AgentSwitcher`, `Redirect`. Routes: `../portal/routes.tsx` and `../ops/routes.tsx`
+`AppShell` (top bar, sidebar, page; `topAction` beside the Inbox: the portal's Ask Sloan;
+`switcher` handed to the agent page's header), `SidebarLink`, `SidebarSection`, `SidebarMore`,
+`SidebarAgent`, `SearchBox` (⌘K), `AgentSwitcher` (`canSwitch`), `HeaderSwitcher` (where an agent
+page's header draws the switcher, after its eyebrow, like a breadcrumb; `PageHeader`'s `beside`),
+`Redirect`. Routes: `../portal/routes.tsx` and `../ops/routes.tsx`
 (one line per route); page addresses: `../portal/paths.ts` and `../ops/paths.ts`.

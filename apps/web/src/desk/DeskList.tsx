@@ -51,6 +51,16 @@ const NEED_CHIP: Record<ReturnType<typeof needOf>, { state: ChipState; key: Plai
   request: { state: "idle", key: "desk.chip.request" },
 };
 
+/**
+ * An entry's accent (design pass), the colour of its chip: gold while it waits on you, green once
+ * done; none for answers, requests, set-aside and expired items.
+ */
+export function entryTone(item: DeskItem, now: Date): "signal" | "positive" | undefined {
+  if (item.status === "resolved") return "positive";
+  if (item.status === "expired" || isSnoozed(item, now.getTime())) return undefined;
+  return NEED_CHIP[needOf(item)].state === "waiting" ? "signal" : undefined;
+}
+
 function Chip({ item, now }: { item: DeskItem; now: Date }): ReactNode {
   const { t, fmt } = useI18n();
   if (item.status === "resolved") {
@@ -133,13 +143,14 @@ export function DeskList({
                     data-testid={`desk-entry-${lead.id}`}
                     aria-current={on ? "true" : undefined}
                     onClick={() => onSelect(e)}
+                    data-tone={entryTone(lead, now)}
                     className={cx(
-                      "flex w-full flex-col gap-1.5 px-5 py-3.5 text-left",
+                      "ui-accent ui-accent--left flex w-full flex-col gap-1.5 px-5 py-3.5 text-left",
                       on ? "bg-slate-tint" : "hover:bg-surface-subtle",
                     )}
                   >
                     <span className="flex w-full items-center gap-2">
-                      {agent ? <AgentBadge name={agent} size="sm" /> : null}
+                      {agent ? <AgentBadge name={agent} seed={lead.service?.id} size="sm" /> : null}
                       <span className="min-w-0 flex-1 truncate text-sm text-ink-muted">
                         {meta.join(" · ")}
                       </span>

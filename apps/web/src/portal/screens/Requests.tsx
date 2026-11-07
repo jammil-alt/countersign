@@ -203,7 +203,7 @@ function RequestCard({ item, showWho }: { item: PortalRequest; showWho: boolean 
         <p className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
           {item.service ? (
             <span className="flex items-center gap-2 text-ink">
-              <AgentBadge name={item.service.name} size="sm" />
+              <AgentBadge name={item.service.name} seed={item.service.id} size="sm" />
               {item.service.name}
             </span>
           ) : null}
