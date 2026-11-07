@@ -1051,7 +1051,16 @@ export const TRANSACTION_STATUSES = [
 ] as const;
 export const LINE_DETAIL_TYPES = ["account", "item"] as const;
 // v0.14 capture: `message`, a file sent in a WhatsApp message (migration 0031, docs/plan.md §1.55).
-export const DOCUMENT_SOURCES = ["connector", "upload", "email", "request", "message"] as const;
+// P-5: `generated`, a document a tool made for the client (a purchase order PDF; migration 0033,
+// docs/plan.md §1.67). It never comes in from outside, so nothing reads it as an invoice.
+export const DOCUMENT_SOURCES = [
+  "connector",
+  "upload",
+  "email",
+  "request",
+  "message",
+  "generated",
+] as const;
 export const DOCUMENT_STATUSES = [
   "stored",
   "extracting",
