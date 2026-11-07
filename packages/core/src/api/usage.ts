@@ -93,7 +93,11 @@ export type UsageReport = z.infer<typeof UsageReport>;
 
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
-/** Runs in a period by how they ended (waiting = on a person; going = queued or running). */
+/**
+ * Runs started in a period by how they stand (QA round 1, one definition for the Table, an agent's
+ * page and Reports): waiting = waiting on someone of the client, even while the run's stored status
+ * is running; going = queued or running and not waiting on the client.
+ */
 export const ActivityRuns = z.object({
   total: z.number().int(),
   succeeded: z.number().int(),
@@ -103,11 +107,21 @@ export const ActivityRuns = z.object({
   going: z.number().int(),
 });
 
+/** What an agent has going now: runs working, and runs waiting on the client. */
+export const AgentRunsNow = z.object({
+  running: z.number().int(),
+  waitingOnYou: z.number().int(),
+});
+export type AgentRunsNow = z.infer<typeof AgentRunsNow>;
+
 export const ActivityService = z.object({
   id: z.string(),
   name: z.string(),
   runs: ActivityRuns,
-  /** Documents this service read in the period. */
+  /**
+   * Documents this service read in the period: those it extracted, and those its live runs started
+   * in the period worked on (the document that started the run).
+   */
   documentsRead: z.number().int(),
   /** Changes it made to your tools in the period. */
   actions: z.number().int(),
@@ -122,7 +136,7 @@ export const ActivityReport = z.object({
   documents: z.object({
     /** Uploaded or forwarded in the period. */
     received: z.number().int(),
-    /** Read (extracted) in the period. */
+    /** Read in the period: extracted, or worked on by a live run (the services' documents too). */
     read: z.number().int(),
   }),
   actions: z.object({
@@ -142,6 +156,9 @@ const PortalRun = z.object({
   status: z.enum(["queued", "running", "waiting", "succeeded", "failed", "cancelled"]),
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
+  // QA round 1: as on `/api/runs` (PortalRunSummary): waiting on the client now, time waited.
+  waitingOnYou: z.boolean().optional(),
+  waitedMs: z.number().int().nonnegative().optional(),
 });
 
 export const ServiceDetail = z.object({

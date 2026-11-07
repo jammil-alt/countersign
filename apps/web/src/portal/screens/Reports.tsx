@@ -66,18 +66,18 @@ function ReportLinks({ packs, current }: { packs: PackReport[]; current: string 
   );
 }
 
-/** "1 done, 1 failed, 1 waiting for a person": how a period's runs ended, the empty ones left out. */
+/**
+ * "1 done, 1 failed, 1 waiting on you": how a period's runs stand, the empty ones left out. The
+ * same counts and words as the Table and an agent's page (QA round 1).
+ */
 export function runsNote(
   runs: Pick<ActivityReport["runs"], "succeeded" | "failed" | "waiting" | "going" | "cancelled">,
   { t }: Pick<I18n, "t">,
-  waiting:
-    | "reports.runs.waitingForPerson"
-    | "reports.runs.waiting" = "reports.runs.waitingForPerson",
 ): string | null {
   const parts = [
     runs.succeeded ? t("reports.runs.done", { count: runs.succeeded }) : null,
     runs.failed ? t("reports.runs.failed", { count: runs.failed }) : null,
-    runs.waiting ? t(waiting, { count: runs.waiting }) : null,
+    runs.waiting ? t("table.meta.waiting", { count: runs.waiting }) : null,
     runs.going ? t("reports.runs.running", { count: runs.going }) : null,
     runs.cancelled ? t("reports.runs.cancelled", { count: runs.cancelled }) : null,
   ].filter(Boolean);
@@ -212,7 +212,7 @@ export function ActivityReportScreen() {
                           <td className="n">
                             {s.runs.waiting > 0 ? (
                               <Badge tone="warning">
-                                {t("reports.runs.waiting", { count: s.runs.waiting })}
+                                {t("table.meta.waiting", { count: s.runs.waiting })}
                               </Badge>
                             ) : (
                               fmt.number(0)

@@ -10,7 +10,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
-import { runStatusLabel, shortTime } from "../../runs/format";
+import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
@@ -29,11 +29,33 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
-import { agentChip, isGoing, longDay, partOfDay, sameDay, stageWord } from "../agentState";
+import { longDay, partOfDay, sameDay, stageWord } from "../agentState";
 import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
+import { agentChip, runChip, runOpen } from "../status";
 
 type Service = TableView["services"][number];
+type WeekRuns = NonNullable<TableView["figures"]["runs"]>;
+
+/**
+ * "0 finished · 1 waiting on you": the week's runs as the client counts them (started this week,
+ * by how they stand), the same counts as an agent's page and Reports. Finished always shows.
+ */
+export function weekRunParts(
+  runs: WeekRuns | undefined,
+  finished: number,
+  t: ReturnType<typeof useI18n>["t"],
+  withFinished = true,
+): string {
+  return [
+    withFinished ? t("table.week.finished", { count: runs?.succeeded ?? finished }) : null,
+    runs && runs.waiting > 0 ? t("table.meta.waiting", { count: runs.waiting }) : null,
+    runs && runs.going > 0 ? t("table.meta.running", { count: runs.going }) : null,
+    runs && runs.failed > 0 ? t("reports.runs.failed", { count: runs.failed }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 type DeskItem = TableView["desk"]["top"][number];
 
 const KIND_LABEL: Record<string, PlainKey> = {
@@ -79,7 +101,9 @@ function TheTable({ data, reload }: { data: TableView; reload: () => void }) {
         title={greeting}
         subtitle={
           <span data-testid="table-week-line">
-            {t("table.weekLine", { count: data.figures.runsDone })}{" "}
+            {t("table.weekRuns", {
+              counts: weekRunParts(data.figures.runs, data.figures.runsDone, t),
+            })}{" "}
             {waiting === 0 ? t("table.waitNone") : t("table.waitLine", { count: waiting })}
           </span>
         }
@@ -105,7 +129,8 @@ function TheTable({ data, reload }: { data: TableView; reload: () => void }) {
             <StatTile
               testId="table-stat-runs"
               label={t("table.stat.runs")}
-              value={i18n.fmt.number(data.figures.runsDone)}
+              value={i18n.fmt.number(data.figures.runs?.succeeded ?? data.figures.runsDone)}
+              note={weekRunParts(data.figures.runs, data.figures.runsDone, t, false) || undefined}
             />
             <StatTile
               testId="table-stat-changes"
@@ -203,7 +228,7 @@ function AgentCard({ service: s, tools }: { service: Service; tools: string[] })
   const { t } = i18n;
   const chip = agentChip(s, t);
   const stage = stageWord(s.stage, t);
-  const going = isGoing(s.now);
+  const going = s.now ? runOpen(s.now) : false;
   const step = going ? s.now?.step : null;
   const today =
     s.kpis.length > 0
@@ -211,7 +236,7 @@ function AgentCard({ service: s, tools }: { service: Service; tools: string[] })
           .slice(0, 2)
           .map((k) => `${k.label}: ${k.value}`)
           .join(" · ")
-      : t("table.runsThisWeek", { count: s.runsDone });
+      : weekRunParts(s.runs, s.runsDone, t);
   return (
     <Link
       to={PORTAL_PATHS.agent(s.id)}
@@ -240,7 +265,7 @@ function AgentCard({ service: s, tools }: { service: Service; tools: string[] })
           {going ? t("table.now") : t("table.lastRun")}
         </span>
         <span data-testid={`table-agent-now-${s.id}`}>
-          {!s.now ? t("table.noRunsYet") : step ? step.label : runStatusLabel(s.now.status, i18n)}
+          {!s.now ? t("table.noRunsYet") : step ? step.label : runChip(s.now, t).label}
         </span>
       </span>
       {going ? (

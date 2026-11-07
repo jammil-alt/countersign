@@ -39,13 +39,19 @@ import { readerLocale, weekKpis } from "../kpi/view";
 import { leadUserId, type TenantRow, tenantRow } from "../notify/people";
 import { LEAD_SUBJECT } from "../notify/scan";
 import type { Platform } from "../platform";
+import {
+  at,
+  clientWaits,
+  noRuns,
+  OPEN_RUN,
+  openRunsByAgent,
+  runCounts,
+} from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
 import { paperFor, weeklyPdf } from "../weekly/pdf";
-import { clientDescription, runsDone, serviceName, services, toolChanges } from "../weekly/stats";
+import { clientDescription, serviceName, services, toolChanges } from "../weekly/stats";
 import { editWeek, replyToDecision, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
 import { portalInboxFilter, sourcesOf } from "./portal";
-
-const ACTIVE_RUN = ["queued", "running", "waiting"] as const;
 
 async function clientOf(tx: Tx, tenantId: string): Promise<TenantRow> {
   const t = await tenantRow(tx, tenantId);
@@ -90,7 +96,10 @@ async function buildTable(
   const bounds = weekBounds(weekStart, t.timezone);
   const workflows = workflowCache(tx, t.id);
   const agents = await services(tx, t.id);
-  const done = await runsDone(tx, t.id, bounds);
+  // QA round 1: runs started this week by how they stand, as Reports counts them; what each
+  // agent has going now (any run, not only its latest) for its state.
+  const counts = await runCounts(tx, t.id, { lo: at(bounds.from), hi: at(bounds.to) });
+  const going = await openRunsByAgent(tx, t.id);
   const changes = await toolChanges(tx, t.id, bounds);
   // v0.12 W2-G: each service's KPIs for this week, in the viewer's language.
   const kpis = await weekKpis(tx, agents, {
@@ -121,10 +130,13 @@ async function buildTable(
       .limit(1);
     let now_: TableView["services"][number]["now"] = null;
     if (latest) {
-      const active = (ACTIVE_RUN as readonly string[]).includes(latest.status);
+      const active = (OPEN_RUN as readonly string[]).includes(latest.status);
       let step: { index: number; total: number; label: string } | null = null;
       let since = active ? iso(latest.startedAt ?? latest.createdAt) : iso(latest.finishedAt);
-      const waiting = desk.find((i) => i.runId === latest.id);
+      // The client's wait (anyone of the client), the one definition every portal route uses.
+      const waiting = active
+        ? (await clientWaits(tx, t.id, [latest.id], now)).get(latest.id)
+        : undefined;
       if (active) {
         const workflow = await workflows(latest.agentVersionId, latest.workflowSlug);
         const [current] = await tx
@@ -146,14 +158,14 @@ async function buildTable(
           if (s) step = { index: index + 1, total: workflow.steps.length, label: clientLabel(s) };
           since = iso(current.startedAt) ?? since;
         }
-        if (waiting) since = waiting.createdAt.toISOString();
+        if (waiting?.since) since = waiting.since.toISOString();
       }
       now_ = {
         runId: latest.id,
         status: latest.status,
         step,
         since,
-        waitingOnYou: Boolean(waiting),
+        waitingOnYou: waiting?.waitingOnYou ?? false,
       };
     }
     out.push({
@@ -163,7 +175,9 @@ async function buildTable(
       status: a.runStatus ?? "draft",
       stage: a.stage,
       now: now_,
-      runsDone: done.filter((r) => r.agentId === a.id).length,
+      runsDone: counts.byAgent.get(a.id)?.succeeded ?? 0,
+      runs: counts.byAgent.get(a.id) ?? noRuns(),
+      runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
       // v0.12 W2-G
       kpis: kpis.get(a.id) ?? [],
     });
@@ -186,7 +200,12 @@ async function buildTable(
         ),
       ),
     )
-    .orderBy(sql`${stepRun.finishedAt} desc nulls last`, desc(stepRun.id))
+    // QA round 1: newest first by the time each row shows (finished, else started), so a step
+    // still waiting doesn't sink below older ones.
+    .orderBy(
+      sql`coalesce(${stepRun.finishedAt}, ${stepRun.startedAt}) desc nulls last`,
+      desc(stepRun.id),
+    )
     .limit(40);
   const recent: TableView["recent"] = [];
   for (const { s, r } of steps) {
@@ -211,7 +230,8 @@ async function buildTable(
     week: { weekStart, from: bounds.from.toISOString(), to: bounds.to.toISOString() },
     services: out,
     figures: {
-      runsDone: done.length,
+      runsDone: counts.all.succeeded,
+      runs: counts.all,
       changes: { automatic: changes.automatic.length, signed: changes.signed.length },
     },
     recent,

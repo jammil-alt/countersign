@@ -182,7 +182,7 @@ describe("reports and the service page in German", () => {
     ).toBeInTheDocument();
     const stat = screen.getByTestId("portal-report-runs");
     expect(stat).toHaveTextContent("1.204");
-    expect(stat).toHaveTextContent("1.200 erledigt, 1 fehlgeschlagen, 3 warten auf eine Person");
+    expect(stat).toHaveTextContent("1.200 erledigt, 1 fehlgeschlagen, 3 warten auf Sie");
     expect(screen.getByTestId("portal-report-documents")).toHaveTextContent(
       "4 Dokumente eingegangen",
     );
