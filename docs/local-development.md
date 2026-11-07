@@ -126,12 +126,15 @@ What it holds (`packages/db/src/seed-demo.ts`):
 
 - Four client agents with their versions: the **Bill clerk** (live, a client v2 that writes the
   bill memo without a signature), the **Document clerk** (live, a client v2 that looks for the
-  document behind each new bill or purchase), the **Supervisor** (live) and the **Records clerk**
-  (in trial, on the testkit). The first three are forks of the platform templates.
-- Connections: QuickBooks (connected, for show: no credentials), uploads and the testkit.
+  document behind each new bill or purchase), the **Supervisor** (live) and the **Price keeper**
+  (in trial, on QuickBooks: it sets an item's purchase cost to the price on a vendor's invoice).
+  The first three are forks of the platform templates; the Price keeper was made for the client.
+- Connections: QuickBooks (connected, for show: no credentials) and uploads. No testkit: that is
+  for the Sandbox and template test copies.
 - About 110 runs over the last 21 days: invoices read, bills itemized, filed and noted, documents
-  looked for, daily checks, three failures and the supervisor's reports on them. Three changes wait
-  for Dana (one for over a day), one question waits for her, one change she turned down.
+  looked for, item costs updated, daily checks, three failures and the supervisor's reports on
+  them. Three changes wait for Dana (one for over a day), one question waits for her, one change
+  she turned down.
 - 34 vendor invoices from five vendors, read, one of them a duplicate; the bills and card purchases
   they belong to; 12 contacts at the shop and its vendors, with consent; three knowledge entries;
   30 days of usage; last week's Weekly Table, sent; two open findings and the latest health check.

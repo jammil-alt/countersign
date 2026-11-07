@@ -9,6 +9,7 @@ import { withTenant } from "./client";
 import {
   agent,
   agentVersion,
+  connection,
   document,
   externalAction,
   inboxItem,
@@ -20,6 +21,12 @@ import { HARBOR, HARBOR_PEOPLE, seedDemo } from "./seed-demo";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
+const PURCHASE_COST = "qbo.item.update_purchase_cost";
+
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("missing");
+  return value;
+}
 
 describe.skipIf(!online)("demo seed", () => {
   let t: TestDatabase;
@@ -86,13 +93,13 @@ describe.skipIf(!online)("demo seed", () => {
       expect(agents.map((a) => [a.slug, a.stage, a.runStatus]).sort()).toEqual([
         ["bill-clerk", "live", "active"],
         ["document-clerk", "live", "active"],
-        ["records-clerk", "trial", "active"],
+        ["price-keeper", "trial", "active"],
         ["supervisor", "live", "active"],
       ]);
       expect(agents.find((a) => a.slug === "supervisor")?.serviceName).toBe("Supervisor");
       for (const a of agents) {
         expect(a.liveVersionId, a.slug).not.toBeNull();
-        expect(a.templateId === null, a.slug).toBe(a.slug === "records-clerk");
+        expect(a.templateId === null, a.slug).toBe(a.slug === "price-keeper");
       }
       // Every version is a valid bundle with its hash; forks name their template version.
       const versions = await tx
@@ -107,6 +114,82 @@ describe.skipIf(!online)("demo seed", () => {
       }
       expect(versions.filter((v) => v.status === "live")).toHaveLength(4);
     });
+  });
+
+  it("runs the Price keeper on QuickBooks, with no testkit anywhere for the client", async () => {
+    const d = await seedDemo(t.db, { operatorId: base.users.operator });
+    await withTenant(t.db, d.tenantId, async (tx) => {
+      await asWorker(tx);
+      // The testkit is for the Sandbox and template test copies, never this client.
+      const connections = await tx
+        .select()
+        .from(connection)
+        .where(eq(connection.tenantId, d.tenantId));
+      expect(connections.map((c) => c.connector).sort()).toEqual(["qbo", "upload"]);
+      const qbo = must(connections.find((c) => c.connector === "qbo"));
+
+      const [keeper] = await tx
+        .select()
+        .from(agent)
+        .where(and(eq(agent.tenantId, d.tenantId), eq(agent.slug, "price-keeper")));
+      expect(keeper?.serviceName).toBe("Price keeper");
+      expect(keeper?.bindings).toEqual({ qbo: qbo.id });
+      const [live] = await tx
+        .select()
+        .from(agentVersion)
+        .where(eq(agentVersion.id, must(keeper?.liveVersionId)));
+      const bundle = must(live).bundle;
+      expect(bundle.definition.extraTools).toEqual([PURCHASE_COST]);
+      // Invariant 8: its one write step asks for a signature.
+      const writes = bundle.workflows
+        .flatMap((w) => w.workflow.steps)
+        .flatMap((s) => (s.kind === "action" ? [[s.tool, s.approval.required]] : []));
+      expect(writes).toEqual([[PURCHASE_COST, "required"]]);
+      expect(JSON.stringify(bundle)).not.toContain("testkit");
+
+      // Its changes: the item and its cost before and after, as decimal strings. Dana signed all
+      // three; two were written and QuickBooks refused one (the item changed since it was read).
+      const actions = await tx
+        .select()
+        .from(externalAction)
+        .where(
+          and(eq(externalAction.tenantId, d.tenantId), eq(externalAction.tool, PURCHASE_COST)),
+        );
+      expect(actions.map((a) => a.status).sort()).toEqual(["done", "done", "failed"]);
+      for (const a of actions) {
+        expect(a.connectionId).toBe(qbo.id);
+        expect(a.approvedBy).toBe(d.users.admin);
+        const before = a.before as { name: string; purchaseCost: string };
+        const input = a.input as { purchaseCost: string };
+        expect(before.name).not.toBe("");
+        expect(before.purchaseCost).toMatch(/^\d+\.\d{4}$/);
+        expect(input.purchaseCost).toMatch(/^\d+\.\d{4}$/);
+        expect(input.purchaseCost).not.toBe(before.purchaseCost);
+      }
+      expect(actions.find((a) => a.status === "failed")?.error).toEqual({
+        message: expect.stringContaining("changed in QuickBooks since it was read"),
+      });
+
+      // The Supervisor's open finding on it, for the operator.
+      const findings = await tx
+        .select()
+        .from(inboxItem)
+        .where(
+          and(
+            eq(inboxItem.tenantId, d.tenantId),
+            eq(inboxItem.subjectType, "supervisor_finding"),
+            eq(inboxItem.status, "open"),
+          ),
+        );
+      const onKeeper = findings.filter((f) => f.title.startsWith("Price keeper:"));
+      expect(onKeeper.map((f) => f.assigneeRole)).toEqual(["operator"]);
+    });
+
+    // Not even a row the client's session can't see.
+    const testkit = await t.db.$client<{ n: number }[]>`
+      select count(*)::int as n from connection
+      where tenant_id = ${d.tenantId} and connector = 'testkit'`;
+    expect(testkit).toEqual([{ n: 0 }]);
   });
 
   it("keeps the inbox, the changes and the documents as the runtime writes them", async () => {
