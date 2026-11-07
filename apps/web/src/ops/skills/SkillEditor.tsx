@@ -5,6 +5,7 @@ import type { ToolSpec } from "@countersign/core";
 import { useState } from "react";
 import { Button, Card, SectionLabel, Tag } from "../../ui/primitives";
 import { Field, Select, TextArea, TextInput } from "../agents/ui";
+import { toolTitle } from "../builder/model";
 import {
   CATEGORIES,
   categoryLabel,
@@ -393,7 +394,7 @@ export function SkillEditor({
                       )
                     }
                   >
-                    <span className="reference">{t.id}</span>
+                    <span>{toolTitle(t)}</span>
                     <span className="text-ink-muted">{t.description}</span>
                     {t.sideEffect === "external" ? <Tag>Changes the tool</Tag> : null}
                   </Check>

@@ -262,11 +262,16 @@ function SkillCard({ skill: s, tools }: { skill: SkillListItem; tools: readonly 
           "flex flex-wrap items-center justify-between gap-2 border-t border-line px-6 py-3 text-sm",
         )}
       >
-        <span className="text-ink">
-          {s.usedBy === 0 ? "No agents yet" : plural(s.usedBy, "agent")}
+        {/* Client agents only (not templates or test copies), named on hover. */}
+        <span
+          className="text-ink"
+          title={s.usedByNames?.length ? s.usedByNames.join("\n") : undefined}
+          data-testid={`skills-card-${s.ref}-used-by`}
+        >
+          {s.usedBy === 0 ? "No client agents yet" : `Used by ${plural(s.usedBy, "client agent")}`}
         </span>
         <span className="text-ink-muted">
-          {writes(s, tools) ? "Writes · signed by default" : sourceText(s)}
+          {writes(s, tools) ? "Writes · needs approval by default" : sourceText(s)}
         </span>
       </div>
     </Card>

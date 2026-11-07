@@ -28,6 +28,7 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { errorText, Field, Notice, Select, TextArea, useAction } from "../agents/ui";
+import { toolTitle } from "../builder/model";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -439,7 +440,7 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
               <p className="text-sm text-ink-muted">
                 {def.tools.length === 0
                   ? "Tools it may use: none. It only reads what the step gives it."
-                  : `Tools it may use: ${def.tools.join(", ")}.`}
+                  : `Tools it may use: ${def.tools.map((id) => toolTitle({ id }).toLowerCase()).join(", ")}.`}
               </p>
             </>
           ) : tab === "tests" ? (
