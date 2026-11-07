@@ -176,11 +176,11 @@ export const feedbackRoutes = {
     path: "/api/ops/clients/:id/feedback",
     auth: "session",
     roles: OPS,
-    summary: "Switch the Feedback button on or off for a client's portal, with a reason",
+    summary: "Switch the Feedback button on or off for a client's portal (a reason is optional)",
     params: IdParams,
     body: z.strictObject({
       enabled: z.boolean(),
-      reason: z.string().trim().min(1).max(FEEDBACK_REASON_MAX),
+      reason: z.string().trim().max(FEEDBACK_REASON_MAX).optional(),
     }),
     response: FeedbackSetting,
   }),
