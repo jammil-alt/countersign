@@ -8,19 +8,20 @@ import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import type { MessageKey, PlainKey } from "../../i18n/catalog";
+import type { PlainKey, Translate } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
-import { duration, isRunGoing, shortTime } from "../../runs/format";
+import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { AgentBadge } from "../../ui/badges";
 import { Select } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
 import { Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
-import { runChipState, StatusChip } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
-import { RunsPerDayChart } from "./runsParts";
+import { runChip, runOpen, runState, runStateWords } from "../status";
+import { RunsPerDayChart, TookCell } from "./runsParts";
 
 /** The status tabs: each one a `statuses` filter on the list. */
 const TABS = {
@@ -62,18 +63,10 @@ const CHIP_WORDS: Record<string, PlainKey> = {
   text: "runsPage.chip.text",
 };
 
-/** A run's status in the portal's words: "Waiting on you", never just "Waiting". */
-export function runWords(status: string, t: (k: PlainKey) => string): string {
-  const key: Record<string, MessageKey> = {
-    queued: "run.status.queued",
-    running: "run.status.running",
-    waiting: "common.waitingOnYou",
-    succeeded: "run.status.succeeded",
-    failed: "runsPage.status.failed",
-    cancelled: "run.status.cancelled",
-  };
-  const k = key[status];
-  return k ? t(k as PlainKey) : status;
+/** A run status (a filter's, a chip's) in the client's words: "Waiting on you", "Stopped". */
+export function runWords(status: string, t: Translate): string {
+  const known = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
+  return known.includes(status) ? runStateWords(runState({ status }), t) : status;
 }
 
 interface Asked {
@@ -109,12 +102,7 @@ export function PortalRunsScreen() {
         ...(startedBy ? { startedBy } : {}),
       };
   const runs = useApi(apiRoutes.portalRuns, { query });
-  usePoll(
-    runs.reload,
-    runs.data?.runs.some((r) => isRunGoing(r.status)) ?? false,
-    5_000,
-    runs.loading,
-  );
+  usePoll(runs.reload, runs.data?.runs.some((r) => runOpen(r)) ?? false, 5_000, runs.loading);
 
   async function ask(e: FormEvent) {
     e.preventDefault();
@@ -305,12 +293,15 @@ export function PortalRunsScreen() {
                           <td className="text-ink figures">
                             {shortTime(r.startedAt, undefined, i18n)}
                           </td>
-                          <td className="text-ink figures">
-                            {duration(r.startedAt, r.finishedAt, undefined, i18n)}
+                          <td className="text-ink figures" data-testid={`portal-run-took-${r.id}`}>
+                            <TookCell run={r} />
                           </td>
                           <td>
-                            <StatusChip state={runChipState(r.status)}>
-                              {runWords(r.status, t)}
+                            <StatusChip
+                              state={runChip(r, t).state}
+                              testId={`portal-run-state-${r.id}`}
+                            >
+                              {runChip(r, t).label}
                             </StatusChip>
                           </td>
                         </tr>

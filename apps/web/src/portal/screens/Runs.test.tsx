@@ -83,9 +83,72 @@ describe("portal runs", () => {
     );
     expect(within(table).getByTestId(`portal-run-row-${RUN_B}`)).toHaveTextContent("Done");
     expect(screen.getByTestId("portal-runs-per-day")).toBeInTheDocument();
-    expect(screen.getByLabelText(/3 runs, 1 didn't finish/)).toBeInTheDocument();
+    // An older answer (runs and failed only): the rest is drawn as done.
+    expect(screen.getByLabelText(/Done: 2, Failed: 1/)).toBeInTheDocument();
     expect(queries[0]?.get("perDay")).toBe("true");
     expect(document.body.textContent).not.toContain("0.12");
+  });
+
+  // QA round 1: a run waiting on your approval keeps status "running" in the API.
+  it("never shows a run waiting on you as running, and keeps its wait out of Took", async () => {
+    const HOUR = 3_600_000;
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => ({
+        client: { id: DEMO, name: "Demo client" },
+        services: [],
+        needsYou: { inbox: 1 },
+        recentRuns: [],
+      }),
+      "GET /api/runs": () => ({
+        runs: [
+          {
+            ...run(RUN_A, "running"),
+            startedAt: "2026-11-05T23:44:00.000Z",
+            waitingOnYou: true,
+            waitedMs: 21 * HOUR,
+          },
+          {
+            ...run(RUN_B, "succeeded"),
+            startedAt: "2026-11-03T08:00:00.000Z",
+            finishedAt: "2026-11-04T06:00:00.000Z",
+            waitingOnYou: false,
+            waitedMs: 21 * HOUR,
+          },
+        ],
+        // Started Nov 5 where the client is, still waiting: one waiting bar on Nov 5.
+        perDay: [
+          { day: "2026-11-03", runs: 1, failed: 0, done: 1, waiting: 0, going: 0, stopped: 0 },
+          { day: "2026-11-05", runs: 1, failed: 0, done: 0, waiting: 1, going: 0, stopped: 0 },
+        ],
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={["/runs"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const table = await screen.findByTestId("portal-runs");
+    expect(within(table).getByTestId(`portal-run-state-${RUN_A}`)).toHaveAttribute(
+      "data-state",
+      "waiting",
+    );
+    expect(within(table).getByTestId(`portal-run-row-${RUN_A}`)).not.toHaveTextContent("Running");
+    // Not finished: Took is "—", and the wait so far shows apart.
+    expect(within(table).getByTestId(`portal-run-took-${RUN_A}`)).toHaveTextContent(
+      "—Waited 21 h on you",
+    );
+    // Finished: 22 h in all, 21 of them waiting on you, so it worked 1 h.
+    expect(within(table).getByTestId(`portal-run-took-${RUN_B}`)).toHaveTextContent(
+      "1 hWaited 21 h on you",
+    );
+    const nov5 = screen.getByTestId("portal-runs-per-day-2026-11-05");
+    expect(nov5.querySelector("[data-state]")?.getAttribute("data-state")).toBe("waiting");
+    expect(nov5.querySelector('[data-state="done"]')).toBeNull();
+    expect(nov5).toHaveAccessibleName(/Waiting on you: 1/);
+    expect(screen.getByTestId("portal-runs-per-day")).toHaveTextContent("Waiting on you");
   });
 
   it("filters by status from the tabs", async () => {

@@ -32,13 +32,27 @@
   height: 10px;
   border-radius: 2px;
 }
+/* Each run in its state's colour (brand book): done = positive, running = slate, waiting on you =
+   signal (with its word in the legend), failed = risk, stopped = neutral. */
 .ui-legend--done,
-.ui-daybars__done {
+.ui-daybars__seg--done {
+  background: var(--positive);
+}
+.ui-legend--running,
+.ui-daybars__seg--running {
   background: var(--slate);
 }
+.ui-legend--waiting,
+.ui-daybars__seg--waiting {
+  background: var(--signal);
+}
 .ui-legend--failed,
-.ui-daybars__failed {
+.ui-daybars__seg--failed {
   background: var(--risk);
+}
+.ui-legend--stopped,
+.ui-daybars__seg--stopped {
+  background: var(--line-strong);
 }
 .ui-daybars {
   display: flex;

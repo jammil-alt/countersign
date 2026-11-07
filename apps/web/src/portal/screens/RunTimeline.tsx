@@ -14,7 +14,7 @@ import { useI18n } from "../../i18n/i18n";
 import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeHeading, connectorName, connectorOf } from "../../inbox/change";
 import { SourceLinks } from "../../records/SourceLinks";
-import { duration, isRunGoing, shortTime, stepStatusLabel } from "../../runs/format";
+import { shortTime, stepStatusLabel } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
@@ -31,10 +31,11 @@ import {
   PageHeader,
   type Tone,
 } from "../../ui/primitives";
-import { runChipState, StatusChip } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { PORTAL_PATHS } from "../paths";
-import { runWords } from "./Runs";
+import { runChip, runOpen, workedMs } from "../status";
+import { msDuration, TookCell } from "./runsParts";
 
 const ACTION_WORDS: Record<string, PlainKey> = {
   proposed: "action.status.proposed",
@@ -83,7 +84,7 @@ export function PortalRunScreen() {
   const { id = "" } = useParams();
   const state = useApi(apiRoutes.portalRun, { params: { id } });
   const { data, loading, reload } = state;
-  usePoll(reload, data ? isRunGoing(data.run.status) : false, 2_000, loading);
+  usePoll(reload, data ? runOpen(data.run) : false, 2_000, loading);
 
   return (
     <Page testId="portal-run-page">
@@ -148,15 +149,19 @@ function RunPage({ data }: { data: RunData }) {
         leading={<AgentBadge name={run.service.name} size="lg" />}
         title={run.service.name}
         badge={
-          <StatusChip state={runChipState(run.status)} testId="portal-run-status">
-            {runWords(run.status, t)}
+          <StatusChip state={runChip(run, t).state} testId="portal-run-status">
+            {runChip(run, t).label}
           </StatusChip>
         }
         subtitle={[
           t("runDetail.run", { id: short }),
           run.startedAt ? t("run.started", { time: time(run.startedAt) }) : t("run.notStarted"),
-          run.finishedAt
-            ? t("run.took", { duration: duration(run.startedAt, run.finishedAt, undefined, i18n) })
+          // QA round 1: the time it worked, without the time it waited on you.
+          workedMs(run) !== null
+            ? t("run.took", { duration: msDuration(workedMs(run) ?? 0, i18n) })
+            : null,
+          (run.waitedMs ?? 0) >= 60_000
+            ? t("runs.waitedOnYou", { duration: msDuration(run.waitedMs ?? 0, i18n) })
             : null,
         ]
           .filter(Boolean)
@@ -322,8 +327,10 @@ function AboutRun({ data }: { data: RunData }) {
         </dd>
         {run.startedAt ? (
           <>
-            <dt>{run.finishedAt ? t("runs.col.took") : t("runDetail.runningFor")}</dt>
-            <dd className="figures">{duration(run.startedAt, run.finishedAt, undefined, i18n)}</dd>
+            <dt>{t("runs.col.took")}</dt>
+            <dd className="figures" data-testid="portal-run-took">
+              <TookCell run={run} />
+            </dd>
           </>
         ) : null}
         <dt>{t("runDetail.changes")}</dt>
@@ -383,7 +390,7 @@ function OtherRuns({
               key={r.id}
               time={<span className="font-mono">{shortRunId(r.id)}</span>}
               to={`${PORTAL_PATHS.runs}/${r.id}`}
-              end={<StatusChip state={runChipState(r.status)}>{runWords(r.status, t)}</StatusChip>}
+              end={<StatusChip state={runChip(r, t).state}>{runChip(r, t).label}</StatusChip>}
             >
               {shortTime(r.startedAt, undefined, i18n)}
             </ActivityRow>
