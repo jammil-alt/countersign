@@ -1,6 +1,6 @@
 // The portal's activity report and service page render only what the contract names: counts of
 // runs, documents and changes. Cost, tokens or prompts mixed into a response are dropped by the
-// contract parse and never shown. Pack reports have a slot under /reports and none are built yet.
+// contract parse and never shown. Pack reports mount under /reports for the client's packs.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -112,12 +112,13 @@ describe("portal reports", () => {
     await waitFor(() => expect(queries.at(-1)?.has("service")).toBe(false));
   });
 
-  it("keeps a slot for pack reports, shown only for the client's packs", async () => {
+  it("mounts pack reports only for the client's packs", async () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => new Reply(404, {}),
       "GET /api/feedback/status": () => ({ enabled: false }),
-      "GET /api/reports/activity": () => ({ ...LEAKY_REPORT, packs: ["materials"] }),
+      // Materials isn't on for this client, so its Price watch isn't mounted.
+      "GET /api/reports/activity": () => ({ ...LEAKY_REPORT, packs: [] }),
     });
     renderAt("/reports/materials/prices", api);
     expect(await screen.findByText("This report isn't available for you.")).toBeInTheDocument();

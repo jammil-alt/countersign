@@ -8,7 +8,13 @@
 // `triggers` and `tests` addresses redirect. The sidebar lists places only, no client or agent pages.
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
+
 import { Route } from "react-router-dom";
+import {
+  OpsClientCatalogScreen,
+  OpsClientPriceWatchScreen,
+  OpsPacksScreen,
+} from "../packs/screens";
 import { OpsRecordScreen } from "../records/RecordScreens";
 import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
@@ -99,8 +105,17 @@ export const opsRoutes = (
     <Route path="audit" element={<OpsAuditScreen />} />
     <Route path="browser-sites" element={<OpsBrowserSitesScreen />} />
     <Route path="requests" element={<OpsRequestsScreen />} />
+    {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
+    <Route path="packs" element={<OpsPacksScreen />} />
+    <Route
+      path="clients/:clientId/reports/materials/prices"
+      element={<OpsClientPriceWatchScreen />}
+    />
+    <Route
+      path="clients/:clientId/reports/materials/catalog"
+      element={<OpsClientCatalogScreen />}
+    />
     {/* ARCHITECTURE §15 screens not built yet */}
-    <Route path="packs" element={<Placeholder title="Packs" />} />
     <Route path="settings" element={<Placeholder title="Settings" />} />
 
     {/* An address a provider sends the browser back to: it never moves. */}

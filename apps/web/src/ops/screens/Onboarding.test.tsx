@@ -298,6 +298,7 @@ describe("client settings", () => {
       "People",
       "Billing",
       "Compliance",
+      "Packs",
       "Exports",
       "Retire client",
     ]);
