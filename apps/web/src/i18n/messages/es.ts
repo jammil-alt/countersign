@@ -132,9 +132,9 @@ export const es: Messages = {
   "overview.subtitle": "Sus agentes, lo que hicieron y lo que le espera.",
   "overview.services": "Sus agentes",
   "overview.noServices": "Aún no hay agentes. Los configuramos con usted y aparecen aquí.",
-  "overview.openInbox": "Abrir la bandeja",
+  "overview.openInbox": "Abrir su escritorio",
   "overview.needsYou": "Le necesita",
-  "overview.inboxItems": { one: "elemento en su bandeja", other: "elementos en su bandeja" },
+  "overview.inboxItems": { one: "elemento en su escritorio", other: "elementos en su escritorio" },
   "overview.changesWait": "Los cambios en sus herramientas esperan su aprobación",
   "overview.questionsWait": "Las preguntas esperan su respuesta",
   "overview.health": "Revisión de la cuenta",
@@ -156,7 +156,7 @@ export const es: Messages = {
   },
   "overview.findings": "Lo que le necesita ahora",
   "overview.findingReminder": "Recordatorio",
-  "overview.findingMarkDone": "Cuando lo haya hecho, márquelo como hecho en su bandeja.",
+  "overview.findingMarkDone": "Cuando lo haya hecho, márquelo como hecho en su escritorio.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Buenos días, {name}",
   "table.greeting.afternoon": "Buenas tardes, {name}",
@@ -247,7 +247,7 @@ export const es: Messages = {
   "agent.runStarted": "{name} empezó.",
 
   // ── Inbox ──
-  "inbox.title": "Bandeja",
+  "inbox.title": "Su escritorio",
   "inbox.subtitle":
     "Cambios que sus agentes quieren hacer y preguntas que necesitan respuesta. Nada cambia en sus herramientas hasta que alguien de su equipo diga que sí.",
   "inbox.emptyOpen": "Nada le espera ahora.",
@@ -419,7 +419,7 @@ export const es: Messages = {
   "run.noChanges": "Esta ejecución no hizo cambios en sus herramientas.",
   "run.approvals": "Aprobaciones",
   "run.noApprovals": "Esta ejecución no tuvo aprobaciones.",
-  "run.openInbox": "Abrir su bandeja",
+  "run.openInbox": "Abrir su escritorio",
   "action.status.proposed": "Esperando aprobación",
   "action.status.approved": "Aprobado",
   "action.status.executing": "En proceso",
@@ -436,7 +436,7 @@ export const es: Messages = {
   "connections.connectBelow": "Conecte una abajo.",
   "connections.adminConnects": "Su administrador las conecta.",
   "connections.matrixNote":
-    "Aprobación significa que el cambio espera en su bandeja hasta que alguien diga que sí.",
+    "Aprobación significa que el cambio espera en su escritorio hasta que alguien diga que sí.",
   "connections.available": "Disponibles",
   "connections.synced": "sincronizado {time}",
   "connections.live": "en vivo",
@@ -596,7 +596,7 @@ export const es: Messages = {
   "webhook.makeHook": "Crear hook",
   "webhook.outTitle": "Desde Mezonas",
   "webhook.outHelp":
-    'Pegue la URL "Catch Hook" de su Zap. Cada evento espera aprobación en su bandeja, salvo que sus permisos dejen que un paso se ejecute sin preguntar.',
+    'Pegue la URL "Catch Hook" de su Zap. Cada evento espera aprobación en su escritorio, salvo que sus permisos dejen que un paso se ejecute sin preguntar.',
   "webhook.sendTo": "Enviar eventos a (https)",
   "webhook.sendingTo": "Enviando a {host}.",
   "webhook.sendingToSince": "Enviando a {host} desde {time}.",
@@ -804,7 +804,7 @@ export const es: Messages = {
   "people.role": "Rol",
   "people.invite": "Invitar",
   "people.rolesHelp":
-    "Los administradores conectan herramientas, aprueban cambios e invitan a personas. Los usuarios ven los elementos de la bandeja que se les asignan, las ejecuciones y los informes.",
+    "Los administradores conectan herramientas, aprueban cambios e invitan a personas. Los usuarios ven los elementos del escritorio que se les asignan, las ejecuciones y los informes.",
   "people.invite.sent": "Enviamos una invitación a {email}.",
   "people.invite.signedUpBefore":
     "Agregamos a {email}. Ya inició sesión antes, así que no hacía falta enviar un correo.",

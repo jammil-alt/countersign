@@ -132,11 +132,11 @@ export const ptBR: Messages = {
   "overview.services": "Seus agentes",
   "overview.noServices":
     "Ainda não há agentes. Nós os configuramos com você, e eles aparecem aqui.",
-  "overview.openInbox": "Abrir a caixa de entrada",
+  "overview.openInbox": "Abrir sua mesa",
   "overview.needsYou": "Aguarda você",
   "overview.inboxItems": {
-    one: "item na sua caixa de entrada",
-    other: "itens na sua caixa de entrada",
+    one: "item na sua mesa",
+    other: "itens na sua mesa",
   },
   "overview.changesWait": "As mudanças nas suas ferramentas aguardam sua aprovação",
   "overview.questionsWait": "As perguntas aguardam sua resposta",
@@ -159,7 +159,7 @@ export const ptBR: Messages = {
   },
   "overview.findings": "O que precisa de você agora",
   "overview.findingReminder": "Lembrete",
-  "overview.findingMarkDone": "Quando terminar, marque como feito na sua caixa de entrada.",
+  "overview.findingMarkDone": "Quando terminar, marque como feito na sua mesa.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Bom dia, {name}",
   "table.greeting.afternoon": "Boa tarde, {name}",
@@ -248,7 +248,7 @@ export const ptBR: Messages = {
   "agent.runStarted": "{name} começou.",
 
   // ── Inbox ──
-  "inbox.title": "Caixa de entrada",
+  "inbox.title": "Sua mesa",
   "inbox.subtitle":
     "Mudanças que seus agentes querem fazer e perguntas que precisam de resposta. Nada muda nas suas ferramentas até que alguém da sua equipe diga sim.",
   "inbox.emptyOpen": "Nada aguarda você agora.",
@@ -419,7 +419,7 @@ export const ptBR: Messages = {
   "run.noChanges": "Esta execução não fez mudanças nas suas ferramentas.",
   "run.approvals": "Aprovações",
   "run.noApprovals": "Esta execução não teve aprovações.",
-  "run.openInbox": "Abrir sua caixa de entrada",
+  "run.openInbox": "Abrir sua mesa",
   "action.status.proposed": "Aguardando aprovação",
   "action.status.approved": "Aprovado",
   "action.status.executing": "Em andamento",
@@ -436,7 +436,7 @@ export const ptBR: Messages = {
   "connections.connectBelow": "Conecte uma abaixo.",
   "connections.adminConnects": "Seu administrador faz a conexão.",
   "connections.matrixNote":
-    "Aprovação significa que a mudança aguarda na sua caixa de entrada até alguém dizer sim.",
+    "Aprovação significa que a mudança aguarda na sua mesa até alguém dizer sim.",
   "connections.available": "Disponíveis",
   "connections.synced": "sincronizado {time}",
   "connections.live": "ao vivo",
@@ -595,7 +595,7 @@ export const ptBR: Messages = {
   "webhook.makeHook": "Criar hook",
   "webhook.outTitle": "Da Mezonas",
   "webhook.outHelp":
-    'Cole a URL "Catch Hook" do seu Zap. Cada evento aguarda aprovação na sua caixa de entrada, a menos que suas permissões deixem uma etapa executar sem perguntar.',
+    'Cole a URL "Catch Hook" do seu Zap. Cada evento aguarda aprovação na sua mesa, a menos que suas permissões deixem uma etapa executar sem perguntar.',
   "webhook.sendTo": "Enviar eventos para (https)",
   "webhook.sendingTo": "Enviando para {host}.",
   "webhook.sendingToSince": "Enviando para {host} desde {time}.",
@@ -803,7 +803,7 @@ export const ptBR: Messages = {
   "people.role": "Função",
   "people.invite": "Convidar",
   "people.rolesHelp":
-    "Administradores conectam ferramentas, aprovam mudanças e convidam pessoas. Usuários veem os itens da caixa de entrada atribuídos a eles, as execuções e os relatórios.",
+    "Administradores conectam ferramentas, aprovam mudanças e convidam pessoas. Usuários veem os itens da mesa atribuídos a eles, as execuções e os relatórios.",
   "people.invite.sent": "Enviamos um convite para {email}.",
   "people.invite.signedUpBefore":
     "Adicionamos {email}. Essa pessoa já entrou antes, então não havia nada para enviar.",

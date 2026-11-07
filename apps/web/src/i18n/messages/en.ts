@@ -128,9 +128,9 @@ export const en = {
   "overview.subtitle": "Your agents, what they did, and what needs you.",
   "overview.services": "Your agents",
   "overview.noServices": "No agents yet. We set them up with you, and they show here.",
-  "overview.openInbox": "Open inbox",
+  "overview.openInbox": "Open your Desk",
   "overview.needsYou": "Needs you",
-  "overview.inboxItems": { one: "item in your inbox", other: "items in your inbox" },
+  "overview.inboxItems": { one: "item on your Desk", other: "items on your Desk" },
   "overview.changesWait": "Changes to your tools wait for your approval",
   "overview.questionsWait": "Questions wait for your answer",
   "overview.health": "Account check",
@@ -152,7 +152,7 @@ export const en = {
   },
   "overview.findings": "What needs you now",
   "overview.findingReminder": "Reminder",
-  "overview.findingMarkDone": "When you have done it, mark it done in your inbox.",
+  "overview.findingMarkDone": "When you have done it, mark it done on your Desk.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Good morning, {name}",
   "table.greeting.afternoon": "Good afternoon, {name}",
@@ -240,7 +240,7 @@ export const en = {
   "agent.runStarted": "{name} started.",
 
   // ── Inbox ──
-  "inbox.title": "Inbox",
+  "inbox.title": "Your Desk",
   "inbox.subtitle":
     "Changes your agents want to make, and questions they need answered. Nothing changes in your tools until someone here says yes.",
   "inbox.emptyOpen": "Nothing needs you right now.",
@@ -409,7 +409,7 @@ export const en = {
   "run.noChanges": "No changes to your tools in this run.",
   "run.approvals": "Approvals",
   "run.noApprovals": "No approvals in this run.",
-  "run.openInbox": "Open your inbox",
+  "run.openInbox": "Open your Desk",
   "action.status.proposed": "Waiting for approval",
   "action.status.approved": "Approved",
   "action.status.executing": "Being made",
@@ -425,7 +425,7 @@ export const en = {
   "connections.noneConnected": "No tools connected yet.",
   "connections.connectBelow": "Connect one below.",
   "connections.adminConnects": "Your admin connects them.",
-  "connections.matrixNote": "Approval means the change waits in your inbox until someone says yes.",
+  "connections.matrixNote": "Approval means the change waits on your Desk until someone says yes.",
   "connections.available": "Available",
   "connections.synced": "synced {time}",
   "connections.live": "live",
@@ -578,7 +578,7 @@ export const en = {
   "webhook.makeHook": "Make hook",
   "webhook.outTitle": "Out of Mezonas",
   "webhook.outHelp":
-    'Paste your Zap\'s "Catch Hook" URL. Each event waits for approval in your inbox first, unless your permissions let a step run without asking.',
+    'Paste your Zap\'s "Catch Hook" URL. Each event waits for approval on your Desk first, unless your permissions let a step run without asking.',
   "webhook.sendTo": "Send events to (https)",
   "webhook.sendingTo": "Sending to {host}.",
   "webhook.sendingToSince": "Sending to {host} since {time}.",
@@ -779,7 +779,7 @@ export const en = {
   "people.role": "Role",
   "people.invite": "Invite",
   "people.rolesHelp":
-    "Admins connect tools, approve changes and invite people. Users see the inbox items given to them, runs and reports.",
+    "Admins connect tools, approve changes and invite people. Users see the Desk items given to them, runs and reports.",
   "people.invite.sent": "We emailed {email} an invitation.",
   "people.invite.signedUpBefore":
     "Added {email}. They've signed in before, so there was nothing to email.",

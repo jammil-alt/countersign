@@ -132,11 +132,11 @@ export const it: Messages = {
   "overview.subtitle": "I tuoi agenti, cosa hanno fatto e cosa ti aspetta.",
   "overview.services": "I tuoi agenti",
   "overview.noServices": "Ancora nessun agente. Li configuriamo insieme a te e compaiono qui.",
-  "overview.openInbox": "Apri la posta in arrivo",
+  "overview.openInbox": "Apri la tua scrivania",
   "overview.needsYou": "Ti aspetta",
   "overview.inboxItems": {
-    one: "elemento nella posta in arrivo",
-    other: "elementi nella posta in arrivo",
+    one: "elemento sulla tua scrivania",
+    other: "elementi sulla tua scrivania",
   },
   "overview.changesWait": "Le modifiche ai tuoi strumenti aspettano la tua approvazione",
   "overview.questionsWait": "Le domande aspettano la tua risposta",
@@ -159,7 +159,7 @@ export const it: Messages = {
   },
   "overview.findings": "Cosa serve da te adesso",
   "overview.findingReminder": "Promemoria",
-  "overview.findingMarkDone": "Quando hai fatto, segnalalo come fatto nella posta in arrivo.",
+  "overview.findingMarkDone": "Quando hai fatto, segnalalo come fatto sulla tua scrivania.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Buongiorno, {name}",
   "table.greeting.afternoon": "Buon pomeriggio, {name}",
@@ -251,7 +251,7 @@ export const it: Messages = {
   "agent.runStarted": "{name} è partito.",
 
   // ── Inbox ──
-  "inbox.title": "Posta in arrivo",
+  "inbox.title": "La tua scrivania",
   "inbox.subtitle":
     "Le modifiche che i tuoi agenti vogliono fare e le domande che aspettano una risposta. Nei tuoi strumenti non cambia nulla finché qualcuno del tuo team non dice sì.",
   "inbox.emptyOpen": "Al momento non ti aspetta nulla.",
@@ -421,7 +421,7 @@ export const it: Messages = {
   "run.noChanges": "Nessuna modifica ai tuoi strumenti in questa esecuzione.",
   "run.approvals": "Approvazioni",
   "run.noApprovals": "Nessuna approvazione in questa esecuzione.",
-  "run.openInbox": "Apri la posta in arrivo",
+  "run.openInbox": "Apri la tua scrivania",
   "action.status.proposed": "In attesa di approvazione",
   "action.status.approved": "Approvata",
   "action.status.executing": "In corso",
@@ -438,7 +438,7 @@ export const it: Messages = {
   "connections.connectBelow": "Collegane uno qui sotto.",
   "connections.adminConnects": "Li collega il tuo amministratore.",
   "connections.matrixNote":
-    "Approvazione vuol dire che la modifica aspetta nella posta in arrivo finché qualcuno non dice sì.",
+    "Approvazione vuol dire che la modifica aspetta sulla tua scrivania finché qualcuno non dice sì.",
   "connections.available": "Disponibili",
   "connections.synced": "sincronizzato {time}",
   "connections.live": "in tempo reale",
@@ -596,7 +596,7 @@ export const it: Messages = {
   "webhook.makeHook": "Crea hook",
   "webhook.outTitle": "Da Mezonas",
   "webhook.outHelp":
-    "Incolla l'URL \"Catch Hook\" del tuo Zap. Ogni evento aspetta prima l'approvazione nella posta in arrivo, a meno che i tuoi permessi non lascino eseguire un passo senza chiedere.",
+    "Incolla l'URL \"Catch Hook\" del tuo Zap. Ogni evento aspetta prima l'approvazione sulla tua scrivania, a meno che i tuoi permessi non lascino eseguire un passo senza chiedere.",
   "webhook.sendTo": "Invia gli eventi a (https)",
   "webhook.sendingTo": "Invio a {host}.",
   "webhook.sendingToSince": "Invio a {host} da {time}.",
@@ -808,7 +808,7 @@ export const it: Messages = {
   "people.role": "Ruolo",
   "people.invite": "Invita",
   "people.rolesHelp":
-    "Gli amministratori collegano gli strumenti, approvano le modifiche e invitano persone. Gli utenti vedono gli elementi della posta in arrivo assegnati a loro, le esecuzioni e i report.",
+    "Gli amministratori collegano gli strumenti, approvano le modifiche e invitano persone. Gli utenti vedono gli elementi della scrivania assegnati a loro, le esecuzioni e i report.",
   "people.invite.sent": "Abbiamo inviato un invito a {email}.",
   "people.invite.signedUpBefore":
     "Abbiamo aggiunto {email}. Ha già effettuato l'accesso in passato, quindi non c'era niente da inviare.",

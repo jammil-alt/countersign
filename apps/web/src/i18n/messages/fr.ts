@@ -133,11 +133,11 @@ export const fr: Messages = {
   "overview.services": "Vos agents",
   "overview.noServices":
     "Pas encore d'agents. Nous les mettons en place avec vous, et ils apparaissent ici.",
-  "overview.openInbox": "Ouvrir la boîte de réception",
+  "overview.openInbox": "Ouvrir votre bureau",
   "overview.needsYou": "Vous attend",
   "overview.inboxItems": {
-    one: "élément dans votre boîte de réception",
-    other: "éléments dans votre boîte de réception",
+    one: "élément sur votre bureau",
+    other: "éléments sur votre bureau",
   },
   "overview.changesWait": "Les modifications de vos outils attendent votre approbation",
   "overview.questionsWait": "Les questions attendent votre réponse",
@@ -160,7 +160,7 @@ export const fr: Messages = {
   },
   "overview.findings": "Ce qui vous attend maintenant",
   "overview.findingReminder": "Rappel",
-  "overview.findingMarkDone": "Une fois fait, marquez-le comme fait dans votre boîte de réception.",
+  "overview.findingMarkDone": "Une fois fait, marquez-le comme fait sur votre bureau.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Bonjour, {name}",
   "table.greeting.afternoon": "Bonjour, {name}",
@@ -251,7 +251,7 @@ export const fr: Messages = {
   "agent.runStarted": "{name} a commencé.",
 
   // ── Inbox ──
-  "inbox.title": "Boîte de réception",
+  "inbox.title": "Votre bureau",
   "inbox.subtitle":
     "Les modifications que vos agents veulent faire, et les questions qui attendent une réponse. Rien ne change dans vos outils tant qu'une personne de votre équipe n'a pas dit oui.",
   "inbox.emptyOpen": "Rien ne vous attend pour le moment.",
@@ -430,7 +430,7 @@ export const fr: Messages = {
   "run.noChanges": "Aucune modification de vos outils dans cette exécution.",
   "run.approvals": "Approbations",
   "run.noApprovals": "Aucune approbation dans cette exécution.",
-  "run.openInbox": "Ouvrir votre boîte de réception",
+  "run.openInbox": "Ouvrir votre bureau",
   "action.status.proposed": "En attente d'approbation",
   "action.status.approved": "Approuvé",
   "action.status.executing": "En cours",
@@ -447,7 +447,7 @@ export const fr: Messages = {
   "connections.connectBelow": "Connectez-en un ci-dessous.",
   "connections.adminConnects": "Votre administrateur les connecte.",
   "connections.matrixNote":
-    "Approbation : la modification attend dans votre boîte de réception jusqu'à ce que quelqu'un dise oui.",
+    "Approbation : la modification attend sur votre bureau jusqu'à ce que quelqu'un dise oui.",
   "connections.available": "Disponibles",
   "connections.synced": "synchronisé {time}",
   "connections.live": "en direct",
@@ -608,7 +608,7 @@ export const fr: Messages = {
   "webhook.makeHook": "Créer le hook",
   "webhook.outTitle": "Depuis Mezonas",
   "webhook.outHelp":
-    "Collez l'URL « Catch Hook » de votre Zap. Chaque événement attend d'abord une approbation dans votre boîte de réception, sauf si vos autorisations laissent une étape s'exécuter sans demander.",
+    "Collez l'URL « Catch Hook » de votre Zap. Chaque événement attend d'abord une approbation sur votre bureau, sauf si vos autorisations laissent une étape s'exécuter sans demander.",
   "webhook.sendTo": "Envoyer les événements à (https)",
   "webhook.sendingTo": "Envoi vers {host}.",
   "webhook.sendingToSince": "Envoi vers {host} depuis {time}.",
@@ -820,7 +820,7 @@ export const fr: Messages = {
   "people.role": "Rôle",
   "people.invite": "Inviter",
   "people.rolesHelp":
-    "Les administrateurs connectent les outils, approuvent les changements et invitent des personnes. Les utilisateurs voient les éléments de la boîte de réception qui leur sont confiés, les exécutions et les rapports.",
+    "Les administrateurs connectent les outils, approuvent les changements et invitent des personnes. Les utilisateurs voient les éléments du bureau qui leur sont confiés, les exécutions et les rapports.",
   "people.invite.sent": "Nous avons envoyé une invitation à {email}.",
   "people.invite.signedUpBefore":
     "{email} a été ajouté. Cette personne s'est déjà connectée, il n'y avait donc rien à envoyer.",

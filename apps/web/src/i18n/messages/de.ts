@@ -136,9 +136,12 @@ export const de: Messages = {
   "overview.services": "Ihre Agenten",
   "overview.noServices":
     "Noch keine Agenten. Wir richten sie gemeinsam mit Ihnen ein, dann erscheinen sie hier.",
-  "overview.openInbox": "Posteingang öffnen",
+  "overview.openInbox": "Ihren Schreibtisch öffnen",
   "overview.needsYou": "Wartet auf Sie",
-  "overview.inboxItems": { one: "Eintrag im Posteingang", other: "Einträge im Posteingang" },
+  "overview.inboxItems": {
+    one: "Eintrag auf Ihrem Schreibtisch",
+    other: "Einträge auf Ihrem Schreibtisch",
+  },
   "overview.changesWait": "Änderungen an Ihren Tools warten auf Ihre Freigabe",
   "overview.questionsWait": "Fragen warten auf Ihre Antwort",
   "overview.health": "Kontoprüfung",
@@ -163,7 +166,8 @@ export const de: Messages = {
   },
   "overview.findings": "Was Sie jetzt tun können",
   "overview.findingReminder": "Erinnerung",
-  "overview.findingMarkDone": "Wenn Sie fertig sind, markieren Sie es im Posteingang als erledigt.",
+  "overview.findingMarkDone":
+    "Wenn Sie fertig sind, markieren Sie es auf Ihrem Schreibtisch als erledigt.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Guten Morgen, {name}",
   "table.greeting.afternoon": "Guten Tag, {name}",
@@ -258,7 +262,7 @@ export const de: Messages = {
   "agent.runStarted": "{name} hat begonnen.",
 
   // ── Inbox ──
-  "inbox.title": "Posteingang",
+  "inbox.title": "Ihr Schreibtisch",
   "inbox.subtitle":
     "Änderungen, die Ihre Agenten machen möchten, und Fragen, die eine Antwort brauchen. In Ihren Tools ändert sich nichts, bis jemand aus Ihrem Team zustimmt.",
   "inbox.emptyOpen": "Gerade wartet nichts auf Sie.",
@@ -436,7 +440,7 @@ export const de: Messages = {
   "run.noChanges": "In diesem Ablauf keine Änderungen an Ihren Tools.",
   "run.approvals": "Freigaben",
   "run.noApprovals": "In diesem Ablauf keine Freigaben.",
-  "run.openInbox": "Posteingang öffnen",
+  "run.openInbox": "Ihren Schreibtisch öffnen",
   "action.status.proposed": "Wartet auf Freigabe",
   "action.status.approved": "Freigegeben",
   "action.status.executing": "Wird ausgeführt",
@@ -453,7 +457,7 @@ export const de: Messages = {
   "connections.connectBelow": "Verbinden Sie unten eines.",
   "connections.adminConnects": "Ihr Admin verbindet sie.",
   "connections.matrixNote":
-    "Freigabe heißt: Die Änderung wartet in Ihrem Posteingang, bis jemand zustimmt.",
+    "Freigabe heißt: Die Änderung wartet auf Ihrem Schreibtisch, bis jemand zustimmt.",
   "connections.available": "Verfügbar",
   "connections.synced": "synchronisiert {time}",
   "connections.live": "live",
@@ -614,7 +618,7 @@ export const de: Messages = {
   "webhook.makeHook": "Hook anlegen",
   "webhook.outTitle": "Von Mezonas",
   "webhook.outHelp":
-    "Fügen Sie die „Catch Hook“-URL Ihres Zaps ein. Jedes Ereignis wartet zuerst auf Freigabe in Ihrem Posteingang, außer Ihre Berechtigungen lassen einen Schritt ohne Rückfrage laufen.",
+    "Fügen Sie die „Catch Hook“-URL Ihres Zaps ein. Jedes Ereignis wartet zuerst auf Freigabe auf Ihrem Schreibtisch, außer Ihre Berechtigungen lassen einen Schritt ohne Rückfrage laufen.",
   "webhook.sendTo": "Ereignisse senden an (https)",
   "webhook.sendingTo": "Senden an {host}.",
   "webhook.sendingToSince": "Senden an {host} seit {time}.",
@@ -831,7 +835,7 @@ export const de: Messages = {
   "people.role": "Rolle",
   "people.invite": "Einladen",
   "people.rolesHelp":
-    "Admins verbinden Tools, geben Änderungen frei und laden Personen ein. Nutzer sehen die ihnen zugewiesenen Einträge im Posteingang, die Abläufe und die Berichte.",
+    "Admins verbinden Tools, geben Änderungen frei und laden Personen ein. Nutzer sehen die ihnen zugewiesenen Einträge auf ihrem Schreibtisch, die Abläufe und die Berichte.",
   "people.invite.sent": "Wir haben {email} eine Einladung geschickt.",
   "people.invite.signedUpBefore":
     "{email} wurde hinzugefügt. Die Person hat sich schon einmal angemeldet, deshalb war keine E-Mail nötig.",
