@@ -16,6 +16,14 @@
 > change the setting, and every change is logged. Changed: §5.5 (0031), §6.12 (new), §14, §15, §18
 > (M33), §20; `docs/plan.md` §1.55, M33, §8.
 
+> **Conversations (P-4, 2026-11-07, owner):** **An agent can hold a bounded back-and-forth with a
+> person** to settle one thing: clarify a purchase request with whoever sent it, work out with the
+> owner where to buy an item, clear up a vendor's quote. A conversation is a step, `comms.converse`
+> (§10.12), on reach out's channels (WhatsApp, text, email) and the portal's threads, with a typed
+> goal, limits on messages, time and cost, and a hand-over to a person when a limit is hit. Model-written
+> messages are allowed inside it, under the same consent, hours, approvals and autonomy as reach out.
+> Changed: §1, §10.12 (new), §11.2, §18 (M37); `docs/plan.md` §1.66, M37.
+
 > **v0.13 (2026-11-06, owner):** **The agent oversees its own runs, and each step runs on the model
 > it needs.** A workflow stays the operator's fixed plan; the client agent that owns it now watches its
 > runs. Clean steps (rules, forks, actions, automations, `tool` skills) run as code with no model.
@@ -391,6 +399,9 @@ only what a test or an existing screen needs.
   oversight model and continues, retries, retries with a corrected input, asks a person or stops,
   within limits, never changing its plan, approvals or permissions; a fix that should last is a
   proposal to the operator
+- **Conversations** (P-4, §10.12): the `comms.converse` step talks with one person on one channel
+  until a typed goal is met and confirmed, within limits; each message is sent like a reach-out's,
+  and a limit hands the conversation to a person
 
 Out (designed for, not built):
 - Client self-serve building;
@@ -401,8 +412,9 @@ Out (designed for, not built):
 - Card on file and automatic charges: billing stays Stripe invoices paid by link (owner, 2026-11-06)
 - Signing by replying to a text or email: a notification links to the Desk, and signing needs a
   signed-in session (owner, 2026-11-06)
-- Model-written replies in client threads from any agent but Sloan; translating messages (next, plan
-  §1.18); live push (the app polls)
+- Model-written messages from any agent but Sloan, except inside a conversation step (§10.12, bounded
+  by its goal, limits, approvals and the person's autonomy); translating messages (next, plan §1.18);
+  live push (the app polls)
 - Slack and bank or card feeds until the owner decides (§6.11); Gmail push notifications (v1 polls);
   sending email without a person's approval; code steps in workflows; A/B versions; custom collections
   and fields UI; nesting automations inside automations
@@ -2040,6 +2052,117 @@ words in `packages/core`; an `OversightPort` the executor calls (`packages/workf
 executor stays free of models; the review itself in `packages/agents/src/runtime/oversee.ts`, its rows
 written from `src/log/`; the wiring in `apps/api`.
 
+### 10.12 Conversations with people (P-4, owner 2026-11-07)
+
+A **conversation** is one step in which the agent talks with one person on one channel until a goal
+is met: "clarify this purchase request with whoever sent it until the item list is right", "work out
+with the owner where to buy this item", "clear up this quote with the vendor's rep". Reach out (§1.25
+of the plan) asks one question and waits for one answer; a conversation keeps going, turn by turn,
+inside fixed bounds. The workflow is still the operator's fixed plan (§10.11): the conversation is one
+step of it, and the agent can't change who it talks to, the channel, the goal or the limits.
+
+**Shape.** A built-in skill, `comms.converse` ("Talk with a person"), run only as a workflow step
+and carried out by apps/api, like `comms.reach-out`. // DECISION: not a new step kind: a skill step
+already has an approval setting, a per-step `model`, oversight, the builder's skill inspector and the
+executor's `waiting` and `approval` outcomes, which already let one step wait any number of times.
+
+```ts
+ConverseInput = {
+  to: { role } | { contactId: Template } | { userId: Template },  // a directory contact, or a client user
+  channel: 'whatsapp' | 'sms' | 'email' | 'portal',                 // contacts: the first three; users: portal
+  goal: { instructions: string /*fixed*/, result: JsonSchema /*fixed, an object*/, confirm: boolean = true },
+  opening: { brief: string /*fixed*/, whatsappTemplate?: { id, variables } },
+  about: string[] /*record ids: sources*/, data?: Template /*record data, given to the model as data*/,
+  limits: { maxMessages = 6 /*1–12*/, waitPerReply = '1 day' /*≤ 7 days*/,
+            deadline = '3 days' /*≤ 14 days*/, maxCostUsd = '0.50' /*≤ 5*/ },
+}
+ConverseOutput = { outcome: 'completed' | 'handed_over' | 'opted_out' | 'declined' | 'not_allowed' | 'not_sent',
+  result /*typed by goal.result*/, confirmed, who, channel, messages, replies,
+  transcript: [{ direction: 'out'|'in', text, at, sourceId }], sources, reason, costUsd }
+```
+
+`goal.instructions`, `goal.result` and `opening.brief` are fixed inputs (the step's own text, never a
+template: they become instructions). Validation types `{{steps.<id>.output.result}}` from
+`goal.result`, so later steps and forks use the answer like any typed output.
+
+**Turns.** Each turn is one model call on the agent (agent-mode work: its instructions, memory notes
+and the client's language; the step's `model` overrides the agent's). The model sees a platform
+preamble, the goal and the brief as instructions; the transcript and the record's data arrive in a
+tool-result block, never as instructions (invariant 9). It answers through one forced tool, `turn`:
+
+| Answer | Effect |
+|---|---|
+| `ask {message}` | The message is sent; the step waits for the reply. |
+| `confirm {message, result}` | The proposed result (validated against `goal.result`) and a message asking the person to confirm it. |
+| `done {result, confirmed, closing?}` | Ends the conversation as `completed`. With `goal.confirm`, accepted only after a `confirm` was answered and `confirmed` is true; `closing` is a last thank-you, sent under the same rules. |
+| `give_up {reason}` | The agent can't get there: hand-over (below). |
+
+There is no field for a recipient, channel, approval or limit, so nothing the person writes can change
+them. An answer that fails its schema fails the turn; the step fails, and oversight (§10.11) may retry
+it, which redoes only that turn.
+
+**Sending.** Each message to a contact is a reach-out of its own: a `reach_out` row with the
+message as fixed text in the contact's language, the conversation's one channel, and the reply wait.
+So everything reach out checks holds per message: opt-out, consent, the binding's conditions, the
+person's autonomy (`off`), the agent's bound channel, the matrix (`off` refuses) and grant, a human
+release, quiet hours (a message is held until they end) and the idempotency key
+(`<run>:<node>:m<n>:reach:0`, sent once). A conversation counts once toward the person's daily cap.
+**WhatsApp's 24-hour window:** the opening goes as `opening.whatsappTemplate` when the person hasn't
+written in 24 hours; without one it ends `not_allowed` ("outside WhatsApp's 24-hour window and no
+approved template") and nothing is sent. A later message outside the window (an approval that waited
+too long) ends the conversation the same way, handed over. **Portal:** with a client user, the
+messages are posted in the agent's thread (`agent` subject, "Message Pia"), addressed to that user.
+
+**Approval.** On by default (invariant 8), in two layers:
+- **The conversation** is signed once, like a reach-out's plan: who, channel, goal, limits and the
+  opening message as written ("Talk with Dana on WhatsApp to confirm the item list: up to 6 messages,
+  a day per reply, done within 3 days. First message: …"), routed by the approver rules. It runs
+  unsigned only under the usual three conditions, and never when the person's autonomy on the
+  channel is `approval`.
+- **Each later message** goes under that signature, except when the person's autonomy on the channel
+  is `approval` or the agent is in trial or sign-off: then each message is its own card, "Message 3
+  of up to 6 to Dana on WhatsApp", with the text, the conversation so far (their words quoted and
+  marked as theirs), the goal and why it waits ("Dana's WhatsApp messages need approval"). Approving
+  sends exactly that text; declining ends the conversation `declined` (the step's `onReject`). Only
+  the operator sets a person's channel to "on its own" (§1.42 of the plan).
+
+**Replies.** Matched by reach out's matcher, since each message is an open reach-out: a text,
+WhatsApp or email reply ends that message's row as `replied` and wakes the run. **One at a time per
+person:** a conversation doesn't start while the person has another open reach-out or conversation
+(`not_allowed`, "already waiting on them"), no reach-out or other conversation starts to someone in an
+open conversation, and the matcher gives a reply to an open conversation message on its channel
+first. Messages they send between ours are read at the next turn and don't start the agent's message
+trigger while the conversation is open. STOP ends it `opted_out`. In the portal, the user's next
+message in the agent's thread while the step waits on them is the reply.
+
+**Ending.** `completed` (the goal met, confirmed when asked); `opted_out` (STOP); `declined` (the
+approver turned the conversation or a message down); `not_allowed` (it couldn't start: no consent, no
+channel, busy, outside the window). Every **limit** (messages, no reply in time, the deadline, cost) and
+`give_up` **hands over**, never fails silently: an inbox item of the kind a person step makes
+(`request`, subject `conversation_handover`) to the step's approver, else the client's lead, with the
+goal, what is known and the transcript; the step waits on it like a person step. The person answers
+with the result (checked against `goal.result`) and the run goes on with `handed_over`; or drops it,
+which is the step's `onReject`.
+
+**Durable.** The opening turn runs in the step's own durable step, turn *n* in the wait's
+`…:wait:<k>:resume` step or an approval's `…:approval:<k>:resume` step: stable names, so a replayed
+run takes the stored outcome. Inside one, the turn's answer is stored on its message row before the
+message is sent, so a retried durable step neither calls the model twice for a turn nor sends twice.
+
+**Storage.** No new table. The messages are `reach_out` rows (subject `converse:<run>:<node>`, one per
+message, their reply as untrusted data) and the lines reach out already writes in the contact's
+thread; portal messages are `message` rows in the agent's thread; each turn's model call is a
+`model_call` row and its cost is the step's.
+
+**Who sees what.** The back office's run page shows the transcript with each turn's model and cost.
+The portal's run timeline shows the client's side of the conversation (the messages and when), never
+a prompt, a model or a cost (invariant 11). Test runs send nothing: the opening is written (one model
+call) and shown as what would have been sent (`not_sent`).
+
+**Builder.** "Talk with a person" in the palette; the inspector asks who, the channel, what to find out
+(the result's fields), the first message, the WhatsApp template, the limits and the model. Validation
+is core's, one function for the builder and the server (invariant 4).
+
 ---
 
 ## 11. Inbox and threads
@@ -2125,7 +2248,8 @@ posting, and `/command` parsing; `apps/api` wires it, and agents reach it throug
   is the client↔lead conversation ("Message Ana", "Reply to Ana"). **Lead checks** are person steps
   with `assignee: 'lead'`: the item is assigned to the lead's user (`assignee_role = 'operator'`), and
   the client's timeline says "Ana checks new matches". With no lead set it goes to the operator role.
-- Model-written messages in a client thread: Sloan only (§9.8). Other agents answer a message through
+- Model-written messages in a client thread: Sloan (§9.8), and a conversation step with a client user
+  (§10.12). Other agents answer a message through
   their workflow (a fixed `reply.confirm`, a notify step), never free model text.
 
 ### 11.3 Notifications (v0.12)
@@ -2724,6 +2848,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M31 | Run oversight on failures | A lookup that fails on a vendor name with a trailing space is corrected and the run finishes, with one decision row and one proposal for the operator; a write that reached the client's tool is never retried; past the limit the step fails as before; the portal shows only "Corrected and tried again" |
 | M32 | Checkpoint reviews | An extraction that feeds a create-bill step is reviewed; a wrong total is corrected before the bill is proposed and the approver sees the corrected input; with `review: 'failures'` a clean run makes no oversight call |
 | M33 | (v0.14) WhatsApp passive capture | A WhatsApp photo from a contact whose conversation has attachments on becomes one document, extracted, linked to its message; with it off, only the attachment's existence is kept; a retried webhook makes nothing twice; the client admin toggles it and the change is logged |
+| M37 | (P-4) Conversations | A three-turn WhatsApp clarification ends with a confirmed, typed result; a limit hands over to a person with the transcript; a replay sends nothing twice; a contact on "needs approval" makes each message wait |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
