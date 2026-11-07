@@ -167,6 +167,52 @@ describe("ops connections: the Sandbox client", () => {
     expect(within(bare).queryByTestId("ops-connection-records")).toBeNull();
   });
 
+  it("shows upload's last document and the agents its documents start, not 'never synced'", async () => {
+    const UPLOAD = "00000000-0000-4000-8000-0000000000f1";
+    const upload = (over: Record<string, unknown> = {}) => ({
+      id: UPLOAD,
+      tenantId: DEMO,
+      connector: "upload",
+      status: "connected",
+      externalAccountId: null,
+      config: {},
+      permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+      lastSyncAt: null,
+      lastActivityAt: "2026-11-05T12:41:00.000Z",
+      connectedBy: null,
+      createdAt: "2026-11-05T12:00:00.000Z",
+      ...over,
+    });
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}/connections`]: () =>
+        connections({
+          sandbox: false,
+          connections: [upload()],
+          connectors: [connector("upload", "Upload", "none", true)],
+          usedBy: { [UPLOAD]: [{ id: "a1", name: "Bill clerk" }] },
+        }),
+    });
+    const view = renderAt(`/ops/clients/${DEMO}/connections`, api);
+    const card = await screen.findByTestId(`ops-connection-${UPLOAD}`);
+    expect(card).toHaveTextContent("last document");
+    expect(card).not.toHaveTextContent("never synced");
+    expect(card).toHaveTextContent("Used by Bill clerk");
+    view.unmount();
+
+    api.on(`GET /api/ops/clients/${DEMO}/connections`, () =>
+      connections({
+        sandbox: false,
+        connections: [upload({ lastActivityAt: null })],
+        connectors: [connector("upload", "Upload", "none", true)],
+      }),
+    );
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
+    expect(await screen.findByTestId(`ops-connection-${UPLOAD}`)).toHaveTextContent(
+      "no documents yet",
+    );
+  });
+
   it("sends a test email from the Sandbox's Gmail, with an empty body, and says where it went", async () => {
     const GMAIL = "00000000-0000-4000-8000-0000000000e1";
     const gmail = (over: Record<string, unknown> = {}) => ({

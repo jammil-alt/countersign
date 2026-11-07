@@ -232,6 +232,11 @@ export const OpsConnection = z.object({
   config: z.record(z.string(), z.unknown()),
   permissions: ConnectionMatrix,
   lastSyncAt: NullableTimestamp,
+  /**
+   * Its last activity: the last sync, or for a built-in source (upload and email forwarding) the
+   * last document that came through it. Absent where a route doesn't work it out.
+   */
+  lastActivityAt: NullableTimestamp.optional(),
   connectedBy: z.string().nullable(),
   createdAt: Timestamp,
 });
@@ -487,6 +492,8 @@ export const PortalConnection = z.object({
       /** The account's name in the tool (e.g. the QuickBooks company), when the connector gives one. */
       accountName: z.string().nullable(),
       lastSyncAt: NullableTimestamp,
+      /** The last sync, or for upload and forwarding the last document that came through. */
+      lastActivityAt: NullableTimestamp.optional(),
       permissions: ConnectionMatrix,
       access: z.array(ToolAccessSchema),
       usedBy: z.array(z.object({ id: z.string(), name: z.string() })),

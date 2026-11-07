@@ -59,6 +59,7 @@ import {
   openRunsByAgent,
 } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
+import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { matrixEdit } from "./mappers";
 import { runFilterWhere } from "./run-controls";
 import { latestHealthSummary, portalFindings } from "./supervisor";
@@ -250,6 +251,7 @@ export async function portalConnections(
       externalAccountId: string | null;
       accountName: string | null;
       lastSyncAt: string | null;
+      lastActivityAt: string | null;
       permissions: ReturnType<typeof normalizeMatrix>;
       access: ReturnType<typeof describeAccess>;
       usedBy: { id: string; name: string }[];
@@ -271,10 +273,16 @@ export async function portalConnections(
     .select()
     .from(agent)
     .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.status, "active")));
+  // Upload and forwarding: their last document, and the agents their documents start.
+  const activity = await sourceActivity(tx, tenantId, rows);
   const usedBy = (c: ConnectionRow) =>
-    agents
-      .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))
-      .map((a) => ({ id: a.id, name: serviceName(a) }));
+    usedByWith(
+      c,
+      agents
+        .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))
+        .map((a) => ({ id: a.id, name: serviceName(a) })),
+      activity,
+    );
   // Upload (with forwarding) is built in: every client has it, offered or not.
   const builtIn = platform.connectors.has(UPLOAD_CONNECTOR_ID) ? [UPLOAD_CONNECTOR_ID] : [];
   // Test-only connectors (the testkit) only in the Sandbox or where a connection already exists.
@@ -311,6 +319,7 @@ export async function portalConnections(
         externalAccountId: c.externalAccountId,
         accountName: connectionAccountName(c.config),
         lastSyncAt: iso(c.lastSyncAt),
+        lastActivityAt: iso(lastActivityOf(c, activity)),
         permissions: normalizeMatrix(c.permissions),
         access: manifest ? describeAccess(manifest, c.permissions) : [],
         usedBy: usedBy(c),

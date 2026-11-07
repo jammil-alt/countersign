@@ -30,11 +30,12 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+import { type AppEnv, ensureClient, HttpError, iso, mount, notFound } from "../http";
 import { resolveInboxItem } from "../inbox";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
+import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
 import {
@@ -297,14 +298,20 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .where(
         and(eq(agent.tenantId, params.id), eq(agent.kind, "client"), eq(agent.status, "active")),
       );
+    // Upload and forwarding: their last document, and the agents their documents start.
+    const activity = await sourceActivity(tx, params.id, rows);
     const usedBy: Record<string, { id: string; name: string }[]> = {};
     for (const c of rows) {
-      usedBy[c.id] = agents
+      const bound = agents
         .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))
         .map((a) => ({ id: a.id, name: a.serviceName ?? a.name }));
+      usedBy[c.id] = usedByWith(c, bound, activity);
     }
     return {
-      connections: rows.map(opsConnection),
+      connections: rows.map((c) => ({
+        ...opsConnection(c),
+        lastActivityAt: iso(lastActivityOf(c, activity)),
+      })),
       offered: offeredConnectors(t.settings),
       // Test-only connectors only in the Sandbox, or where the client already has a connection.
       connectors: services.platform.connectors
