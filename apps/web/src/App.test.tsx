@@ -184,11 +184,11 @@ describe("app", () => {
       "admin@demo-client.example.com",
     );
     await user.click(screen.getByTestId("signin-email-submit"));
-    // `/inbox` is now Your Desk: the top bar's Desk and the sidebar's are the current page.
+    // `/inbox` is now Your Desk: the sidebar's Desk (its one link) is the current page.
     await waitFor(() =>
       expect(screen.getByTestId("portal-nav-desk")).toHaveAttribute("aria-current", "page"),
     );
-    expect(screen.getByTestId("shell-inbox")).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByTestId("shell-inbox")).toBeNull();
   });
 
   it("says when a version's bundle does not match the schema", async () => {

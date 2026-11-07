@@ -116,7 +116,6 @@ export const en = {
   "nav.contacts": "Contacts",
   // v0.14 capture
   "nav.conversations": "Conversations",
-  "nav.billing": "Billing",
   "nav.people": "People",
   "nav.access": "Access",
   "nav.directory": "Directory",
@@ -163,7 +162,7 @@ export const en = {
   "table.hello.evening": "Good evening",
   "table.waitLine": { one: "{count} thing waits on you.", other: "{count} things wait on you." },
   "table.waitNone": "Nothing waits on you.",
-  "table.openWeekly": "Open the Weekly Table",
+  "table.view.today": "Today",
   "table.askSloan": "Ask Sloan",
   "table.workingNow": "Working now",
   "table.meta.running": { one: "{count} running", other: "{count} running" },
@@ -584,7 +583,7 @@ export const en = {
   "webhook.noOutbound": "No outbound URL yet: agents can't send events.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Upload and forwarding · built in",
+  "forwarding.section": "Forwarding",
   "upload.title": "Upload",
   "upload.help":
     "Invoices and receipts (PDF or image), or a CSV of purchases with date, vendor and amount.",
@@ -598,6 +597,7 @@ export const en = {
   "upload.received": "Received",
   "upload.duplicate": "Already here: we keep one copy.",
   "forwarding.title": "Forward invoices by email",
+  "forwarding.uploadInRecords": "Upload files yourself in Records",
   "forwarding.off": "Forwarding isn't switched on yet. Your private address will appear here.",
   "forwarding.help":
     "Add a forwarding rule in your email (for example from your accounts payable inbox) to this private address. We keep the attachments, never the message text.",
@@ -666,7 +666,6 @@ export const en = {
   "document.col.page": "Page",
 
   // ── Requests ──
-  "requests.title": "Requests",
   "requests.subtitle":
     "Ask us to change one of your services, or for something new. We reply here.",
   "requests.which": "Which requests",
@@ -721,7 +720,7 @@ export const en = {
   "signin.error.default": "Sign-in did not finish. Start again.",
 
   // ── Feedback ──
-  "feedback.button": "Feedback",
+  "feedback.button": "Report a problem with the app",
   "feedback.tapWhere": "Tap where the problem is",
   "feedback.noSpot": "No particular spot",
   "feedback.capturing": "Taking the picture…",
@@ -1443,7 +1442,6 @@ export const en = {
   "peoplePage.title": "People",
   "peoplePage.subtitle":
     "Everyone your agents may contact, who they are to you, and how they want to be reached.",
-  "peoplePage.import": "Import people",
   "peoplePage.add": "Add a person",
   "peoplePage.adminOnly": "Your admin keeps this part of People.",
   "peoplePage.tab.people": "People",
@@ -1717,6 +1715,6 @@ export const en = {
   "settingsPage.seeTeam": "See who signs what on your team",
   "knowledge.adminOnly": "Only your admin can see and change what agents know about your business.",
   "sloan.requests": "Your requests to us",
+  "sloan.mode.change": "Ask for a change",
   "signin.needAccess": "Need access? Ask your admin or your Mezonas lead.",
-  "nav.upload": "Upload",
 } as const;

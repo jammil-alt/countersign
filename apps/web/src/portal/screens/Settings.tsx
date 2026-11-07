@@ -7,7 +7,7 @@ import type { MyNotifications, NotificationSettings, OnCreditsOut } from "@count
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
+import { type ApiState, useApi, useApiClient } from "../../api/useApi";
 import { CreditMeter } from "../../billing/parts";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
@@ -34,9 +34,15 @@ export function PortalSettingsScreen() {
   const session = useSession();
   const role = session.tenants.find((x) => x.id === session.activeTenantId)?.role;
   const isAdmin = role === "client_admin";
-  const sections: SectionId[] = isAdmin
-    ? ["billing", "team", "signoff", "notifications", "language"]
-    : ["signoff", "notifications", "language"];
+  // DECISION (QA round 1): Notifications stays hidden until we send these emails (`emailsOn`), so
+  // no "we don't send these yet" and no Save for nothing. Language saves as it is chosen.
+  const mine = useApi(apiRoutes.portalMyNotifications);
+  const emailsOn = mine.data?.emailsOn === true;
+  const sections = (
+    isAdmin
+      ? (["billing", "team", "signoff", "notifications", "language"] as const)
+      : (["signoff", "notifications", "language"] as const)
+  ).filter((s): s is SectionId => s !== "notifications" || emailsOn);
 
   return (
     <Page testId="portal-settings">
@@ -72,10 +78,12 @@ export function PortalSettingsScreen() {
             {isAdmin ? <WhoApproves /> : <TeamLink />}
             <PortalApproverRules />
           </Anchor>
-          <Anchor id="notifications" title={t("settingsPage.notifications")}>
-            <MyNotificationsCard />
-            {isAdmin ? <TeamNotifications /> : null}
-          </Anchor>
+          {emailsOn ? (
+            <Anchor id="notifications" title={t("settingsPage.notifications")}>
+              <MyNotificationsCard state={mine} />
+              {isAdmin ? <TeamNotifications /> : null}
+            </Anchor>
+          ) : null}
           <Anchor id="language" title={t("settingsPage.language")}>
             <Card pad testId="portal-settings-language">
               <p className="text-sm text-ink-muted">{t("settingsPage.languageBody")}</p>
@@ -309,10 +317,9 @@ function WhoApproves() {
 }
 
 /** Your own emails and texts from Mezonas. */
-function MyNotificationsCard() {
+function MyNotificationsCard({ state }: { state: ApiState<MyNotifications> }) {
   const { t } = useI18n();
   const api = useApiClient();
-  const state = useApi(apiRoutes.portalMyNotifications);
   const [saved, setSaved] = useState<MyNotifications | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);

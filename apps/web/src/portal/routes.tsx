@@ -20,7 +20,6 @@ import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { PeopleScreen } from "./screens/People";
 import { PortalRecordsScreen } from "./screens/Records";
 import { PortalReportsScreen } from "./screens/Reports";
-import { PortalRequestsScreen } from "./screens/Requests";
 import { PortalRunsScreen } from "./screens/Runs";
 import { PortalRunScreen } from "./screens/RunTimeline";
 import { PortalSettingsScreen } from "./screens/Settings";
@@ -28,12 +27,11 @@ import { PortalSloanScreen } from "./screens/Sloan";
 import { TableScreen } from "./screens/Table";
 import { PortalTeamScreen } from "./screens/Team";
 import { PortalUploadScreen } from "./screens/UploadPage";
-import { PortalWeeklyScreen } from "./screens/Weekly";
 import { WhatsappMetaSignupScreen } from "./screens/WhatsappMetaSignup";
 
 export const portalRoutes = (
   <>
-    {/* C1 The Table (UI-1a) */}
+    {/* C1 The Table (UI-1a), with C8 the Weekly Table as its `?view=weekly` (QA round 1) */}
     <Route index element={<TableScreen />} />
     {/* C2 Agent (UI-1a) */}
     <Route path="agents/:id" element={<AgentScreen />} />
@@ -56,8 +54,6 @@ export const portalRoutes = (
     {/* C9, C10 Runs and run detail (UI-1d) */}
     <Route path="runs" element={<PortalRunsScreen />} />
     <Route path="runs/:id" element={<PortalRunScreen />} />
-    {/* C8 Weekly Table (UI-1d) */}
-    <Route path="weekly" element={<PortalWeeklyScreen />} />
     {/* C6 Sloan (UI-1d) */}
     <Route path="sloan" element={<PortalSloanScreen />} />
     <Route path="sloan/:id" element={<PortalSloanScreen />} />
@@ -67,7 +63,6 @@ export const portalRoutes = (
     <Route path="records" element={<PortalRecordsScreen />} />
     <Route path="records/:id" element={<PortalRecordScreen />} />
     <Route path="documents/:id" element={<PortalDocumentScreen />} />
-    <Route path="requests" element={<PortalRequestsScreen />} />
     <Route path="knowledge" element={<PortalKnowledgeScreen />} />
     <Route path="conversations" element={<PortalConversationsScreen />} />
     <Route path="upload" element={<PortalUploadScreen />} />
@@ -88,5 +83,8 @@ export const portalRoutes = (
     <Route path="directory" element={<Redirect to="/people" />} />
     <Route path="contacts" element={<Redirect to="/people/contacts" />} />
     <Route path="billing" element={<Redirect to="/settings/billing" />} />
+    {/* QA round 1: fewer places. Sloan takes requests; the Table, the Weekly Table. */}
+    <Route path="requests" element={<Redirect to="/sloan?mode=change" />} />
+    <Route path="weekly" element={<Redirect to="/?view=weekly" />} />
   </>
 );

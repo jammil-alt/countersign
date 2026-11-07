@@ -1,8 +1,9 @@
-// The Weekly Table (C8): the lead's note, the week's figures, decisions answered once in the lead
-// thread, setup to do, what each agent did, next week, the PDF and earlier weeks.
+// The Weekly Table (C8), a view of The Table (`/?view=weekly`; QA round 1): the lead's note, the
+// week's figures, decisions answered once in the lead thread, setup to do, what each agent did,
+// next week, the PDF and earlier weeks.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { CLIENT_SESSION, fakeApi, Reply } from "../../test/fixtures";
@@ -47,7 +48,12 @@ const table = (replied: boolean) => ({
   updatedAt: "2026-11-09T07:00:00.000Z",
 });
 
-function setup() {
+function LocationProbe() {
+  const { pathname, search } = useLocation();
+  return <span data-testid="location">{`${pathname}${search}`}</span>;
+}
+
+function setup(path = "/weekly") {
   let replied = false;
   const replies: unknown[] = [];
   const weeks: (string | null)[] = [];
@@ -65,9 +71,10 @@ function setup() {
     },
   });
   render(
-    <MemoryRouter initialEntries={["/weekly"]}>
+    <MemoryRouter initialEntries={[path]}>
       <AppProviders client={api.client}>
         <AppRoutes />
+        <LocationProbe />
       </AppProviders>
     </MemoryRouter>,
   );
@@ -104,10 +111,30 @@ describe("the Weekly Table", () => {
     expect(within(decision).queryByTestId("portal-weekly-reply")).not.toBeInTheDocument();
   });
 
-  it("opens an earlier week", async () => {
+  it("opens an earlier week, and stays on the Weekly Table", async () => {
     const { weeks } = setup();
     await userEvent.selectOptions(await screen.findByTestId("portal-weekly-weeks"), "2026-10-26");
     await waitFor(() => expect(weeks.at(-1)).toBe("2026-10-26"));
+    expect(screen.getByTestId("location")).toHaveTextContent("/?view=weekly&week=2026-10-26");
+  });
+
+  it("is a tab of The Table once a week was sent; /weekly lands on it with its week", async () => {
+    setup("/weekly?week=2026-10-26");
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("/?view=weekly&week=2026-10-26"),
+    );
+    expect(await screen.findByTestId("portal-weekly-note")).toBeInTheDocument();
+    const views = screen.getByTestId("table-views");
+    expect(within(views).getByRole("link", { name: "Weekly Table" })).toHaveAttribute(
+      "href",
+      "/?view=weekly",
+    );
+    await userEvent.click(within(views).getByRole("link", { name: "Today" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
+    expect(await screen.findByTestId("portal-table")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("table-views")).getByRole("link", { name: "Weekly Table" }),
+    ).toBeInTheDocument();
   });
 
   it("says when no week was sent yet", async () => {

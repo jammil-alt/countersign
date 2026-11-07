@@ -141,6 +141,40 @@ describe("C5 People", () => {
     );
   });
 
+  // QA round 1: two tabs; the admin's four other pages behind one "More".
+  it("shows People and Organizations as tabs, the admin's other pages under More", async () => {
+    renderAt("/people", "client_admin");
+    const tabs = await screen.findByRole("navigation", { name: "Sections" });
+    expect(
+      within(tabs)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["People", "Organizations"]);
+    expect(screen.queryByTestId("people-import")).toBeNull();
+    const more = screen.getByTestId("people-more");
+    await userEvent.click(within(more).getByText("More"));
+    expect(
+      ["consent", "reach", "voice", "import"].map((id) =>
+        within(more).getByTestId(`people-more-${id}`).getAttribute("href"),
+      ),
+    ).toEqual(["/people/contacts", "/people/reach", "/people/voice", "/people/import"]);
+    await userEvent.click(within(more).getByTestId("people-more-voice"));
+    // The page open from More also shows as a tab, current.
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("navigation", { name: "Sections" })).getByRole("link", {
+          name: "Voice samples",
+        }),
+      ).toHaveClass("border-slate"),
+    );
+  });
+
+  it("gives a client user no More menu", async () => {
+    renderAt("/people", "client_user");
+    await screen.findByRole("navigation", { name: "Sections" });
+    expect(screen.queryByTestId("people-more")).toBeNull();
+  });
+
   it("makes a channel stricter for a person: never looser, the rest kept", async () => {
     const puts: unknown[] = [];
     renderAt(`/people?person=${MARCO}`, "client_admin", {

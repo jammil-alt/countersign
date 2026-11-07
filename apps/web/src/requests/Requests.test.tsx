@@ -1,4 +1,5 @@
-// Requests on both surfaces: the client asks from /requests and follows the reply; the operator
+// Requests on both surfaces: the client asks from Sloan's "Ask for a change" (`/sloan?mode=change`;
+// `/requests` redirects there, QA round 1) and follows the reply; the operator
 // works the queue at /ops/requests, hands a request to the Builder, and resolves it as done with
 // the versions made for it, or declines it with a note.
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -40,6 +41,26 @@ const portalItem = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("portal requests", () => {
+  it("lives in Sloan: /requests opens Ask for a change, and the tabs switch modes", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/feedback/status": () => ({ enabled: false }),
+      "GET /api/requests": () => ({ items: [portalItem()] }),
+      "GET /api/threads": () => ({ threads: [] }),
+    });
+    renderAt("/requests?x=1", api);
+    expect(await screen.findByRole("heading", { name: "Sloan", level: 1 })).toBeInTheDocument();
+    const modes = screen.getByTestId("portal-sloan-modes");
+    expect(within(modes).getByRole("link", { name: "Ask for a change" })).toHaveClass(
+      "border-slate",
+    );
+    expect(await screen.findByTestId(`portal-request-${REQ}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("portal-sloan-conversation")).toBeNull();
+    await userEvent.click(within(modes).getByRole("link", { name: "Ask Sloan" }));
+    expect(await screen.findByTestId("portal-sloan-conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("portal-requests-page")).toBeNull();
+  });
+
   it("sends a request about a service and shows it with us", { timeout: SLOW }, async () => {
     const items: unknown[] = [];
     const sent: unknown[] = [];
@@ -61,7 +82,7 @@ describe("portal requests", () => {
         return { item };
       },
     });
-    renderAt("/requests", api);
+    renderAt("/sloan?mode=change", api);
     expect(await screen.findByText(/No requests yet/)).toBeInTheDocument();
     const send = screen.getByTestId("portal-request-send");
     expect(send).toBeDisabled();
