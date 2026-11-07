@@ -108,7 +108,7 @@ describe("read tool", () => {
     expect(r.output).toEqual({
       records: [{ id: "r1", name: "Plywood order", amount: "120.0000", syncToken: "0" }],
     });
-    expect(r.summary).toBe("Found 1 records");
+    expect(r.summary).toBe("Found 1 record");
     const other = await runReadTool(
       connector,
       TESTKIT_QUERY_TOOL,

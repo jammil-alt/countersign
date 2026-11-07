@@ -165,7 +165,7 @@ describe("podio connector", () => {
       { appId: APP, filters: { status: [1] } },
       c,
     );
-    expect(found.summary).toBe("Found 1 of 1 items");
+    expect(found.summary).toBe("Found 1 of 1 item");
     expect(found.output).toMatchObject({
       total: 37,
       filtered: 1,

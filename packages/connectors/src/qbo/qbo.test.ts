@@ -480,7 +480,7 @@ describe("qbo connector: itemizing lines", () => {
       lineCount: 3,
       alreadyDone: false,
     });
-    expect(written.summary).toBe("Itemized the bill into 3 lines; total unchanged at 1352.7500");
+    expect(written.summary).toBe("Itemized the bill into 3 lines; total unchanged at 1352.75");
     expect(written.before).toMatchObject({ syncToken: "0", lines: [{ id: "1" }] });
     const posts = s.qbo.apiCalls("POST", "bill");
     expect(posts).toHaveLength(1);
