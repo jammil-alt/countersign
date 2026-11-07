@@ -2,11 +2,16 @@
 // the last price, its change on the price before and a 90-day sparkline; alerts with the invoices
 // behind them) and Catalog, each with CSV export. The portal shows the client's own; the back
 // office shows the same views for any client it serves (`clientId`).
+//
+// Words come from the message catalog (`materials.*`), and numbers, money and days go through the
+// reader's locale; the back office reads them in English. Item and vendor names, alert texts and
+// catalog attributes are the pack's data and show as written. The catalog merge is back office
+// only, so its words stay English, as on the other back-office screens.
 import { type CSSProperties, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import { money } from "../../portal/documents";
+import { type I18n, useI18n } from "../../i18n/i18n";
 import { Icon } from "../../ui/icons";
 import {
   Badge,
@@ -19,6 +24,7 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
+import { dayLabel } from "../../usage/format";
 import { Sparkline } from "./Sparkline";
 import {
   ALERT_LABEL,
@@ -54,6 +60,7 @@ function csvHref(report: string, clientId: string | undefined): string {
 }
 
 function CsvLink({ report, clientId }: { report: string; clientId?: string | undefined }) {
+  const { t } = useI18n();
   return (
     <a
       href={csvHref(report, clientId)}
@@ -62,26 +69,51 @@ function CsvLink({ report, clientId }: { report: string; clientId?: string | und
       data-testid={`materials-${report}-csv`}
     >
       <Icon name="upload" size={16} className="ds-icon rotate-180" />
-      Download CSV
+      {t("materials.downloadCsv")}
     </a>
   );
 }
 
-const perUnit = (uom: string) => (uom === "each" ? "each" : `/ ${UNIT_LABEL[uom] ?? uom}`);
+const unitWord = (uom: string, { t }: Pick<I18n, "t">) => {
+  const key = UNIT_LABEL[uom];
+  return key ? t(key) : uom;
+};
+
+const categoryWord = (category: string, { t }: Pick<I18n, "t">) => {
+  const key = CATEGORY_LABEL[category];
+  return key ? t(key) : category;
+};
+
+/** "each", or "/ sheet": what a price is for. */
+const perUnit = (uom: string, i18n: Pick<I18n, "t">) =>
+  uom === "each"
+    ? i18n.t("materials.each")
+    : i18n.t("materials.perUnit", { unit: unitWord(uom, i18n) });
+
+/** A `YYYY-MM-DD` day in the reader's locale, or a dash. */
+const day = (on: string | null | undefined, intl: string) => (on ? dayLabel(on, intl) : "–");
 
 function Delta({ pct }: { pct: string | null }) {
+  const { t, intl } = useI18n();
   if (pct === null) return <span className="text-ink-muted">–</span>;
+  // A percentage, not an amount: a number is fine here, formatted in the reader's locale.
   const n = Number(pct);
-  if (n === 0) return <span className="dt-delta">0%</span>;
+  const share = (places: number) =>
+    new Intl.NumberFormat(intl, {
+      style: "percent",
+      minimumFractionDigits: places,
+      maximumFractionDigits: places,
+    });
+  if (n === 0) return <span className="dt-delta">{share(0).format(0)}</span>;
   const up = n > 0;
   return (
     <span className="dt-delta">
       <span className={up ? "up" : "down"} aria-hidden="true">
         {up ? "▲" : "▼"}
       </span>
-      <span className="sr-only">{up ? "up" : "down"}</span>
+      <span className="sr-only">{t(up ? "materials.change.up" : "materials.change.down")}</span>
       {up ? "+" : "−"}
-      {Math.abs(n).toFixed(1)}%
+      {share(1).format(Math.abs(n) / 100)}
     </span>
   );
 }
@@ -106,27 +138,30 @@ function Stat({
   );
 }
 
+function alertWord(alert: PriceWatchAlert, { t }: Pick<I18n, "t">): string {
+  if (alert.status === "accepted") return t("materials.alert.accepted");
+  if (alert.status !== "open") return t("materials.alert.dismissed");
+  const key = ALERT_LABEL[alert.kind];
+  return key ? t(key) : t("materials.alert.kind.other");
+}
+
 function AlertCard({ alert, clientId }: { alert: PriceWatchAlert; clientId?: string | undefined }) {
+  const i18n = useI18n();
   const open = alert.status === "open";
   return (
     <article className="mz-sign" data-testid={`materials-alert-${alert.id}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {/* Signal means it waits on you, always with a word. */}
-          <Badge tone={open ? "warning" : "neutral"}>
-            {open
-              ? (ALERT_LABEL[alert.kind] ?? "Alert")
-              : alert.status === "accepted"
-                ? "Accepted"
-                : "Dismissed"}
-          </Badge>
+          <Badge tone={open ? "warning" : "neutral"}>{alertWord(alert, i18n)}</Badge>
         </div>
         {alert.dollarImpact && Number(alert.dollarImpact) !== 0 ? (
           <span className="text-sm tabular-nums text-ink" data-testid="materials-alert-impact">
-            {money(alert.dollarImpact)} at stake
+            {i18n.t("materials.alert.atStake", { amount: i18n.fmt.money(alert.dollarImpact) })}
           </span>
         ) : null}
       </div>
+      {/* The alert's own title and body are the pack's text, as written. */}
       <h3 className="mz-sign__title text-lg leading-6 font-medium">{alert.title}</h3>
       <p className="text-sm text-ink-muted">{alert.body}</p>
       {alert.documents.length > 0 ? (
@@ -157,12 +192,15 @@ function AlertCard({ alert, clientId }: { alert: PriceWatchAlert; clientId?: str
 
 type SortKey = "item" | "change" | "price";
 
-function sortRows(rows: PriceWatchRow[], key: SortKey): PriceWatchRow[] {
+function sortRows(rows: PriceWatchRow[], key: SortKey, intl: string): PriceWatchRow[] {
   const out = [...rows];
   if (key === "change")
     out.sort((a, b) => Number(b.changePct ?? -1e9) - Number(a.changePct ?? -1e9));
   else if (key === "price") out.sort((a, b) => Number(b.lastPrice) - Number(a.lastPrice));
-  else out.sort((a, b) => a.item.localeCompare(b.item) || a.vendor.localeCompare(b.vendor));
+  else
+    out.sort(
+      (a, b) => a.item.localeCompare(b.item, intl) || a.vendor.localeCompare(b.vendor, intl),
+    );
   return out;
 }
 
@@ -173,17 +211,20 @@ export function PriceWatchView({
   clientId?: string;
   clientName?: string;
 }) {
+  const i18n = useI18n();
+  const { t, fmt, intl } = i18n;
   const { data, error, loading, reload } = useReport<PriceWatchReport>("prices", clientId);
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("item");
   const rows = useMemo(() => {
-    const q = filter.trim().toLowerCase();
+    const q = filter.trim().toLocaleLowerCase(intl);
     const all = data?.rows ?? [];
     return sortRows(
-      q ? all.filter((r) => `${r.item} ${r.vendor}`.toLowerCase().includes(q)) : all,
+      q ? all.filter((r) => `${r.item} ${r.vendor}`.toLocaleLowerCase(intl).includes(q)) : all,
       sort,
+      intl,
     );
-  }, [data, filter, sort]);
+  }, [data, filter, sort, intl]);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
@@ -200,41 +241,40 @@ export function PriceWatchView({
       </button>
     </th>
   );
+  const subtitle = t("materials.prices.subtitle", { date: dayLabel(data.asOf, intl) });
 
   return (
     <div data-testid="materials-price-watch">
       <PageHeader
-        title="Price watch"
-        subtitle={`${clientName ? `${clientName} · ` : ""}What each material cost, by vendor, in one unit. Prices as of ${data.asOf}.`}
+        title={t("materials.prices.title")}
+        subtitle={clientName ? `${clientName} · ${subtitle}` : subtitle}
         actions={<CsvLink report="prices" clientId={clientId} />}
       />
       <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
         <Stat
-          label="Open alerts"
-          value={String(data.totals.openAlerts)}
-          note={
-            data.totals.openAlerts === 1 ? "price change to look at" : "price changes to look at"
-          }
+          label={t("materials.stat.openAlerts")}
+          value={fmt.number(data.totals.openAlerts)}
+          note={t("materials.stat.openAlertsNote", { count: data.totals.openAlerts })}
           testId="materials-stat-alerts"
         />
         <Stat
-          label="At stake"
-          value={money(data.totals.dollarImpact)}
-          note="over the last 90 days' quantities"
+          label={t("materials.stat.atStake")}
+          value={fmt.money(data.totals.dollarImpact)}
+          note={t("materials.stat.atStakeNote")}
           testId="materials-stat-impact"
         />
         <Stat
-          label="Watched"
-          value={`${data.totals.items} items`}
-          note={`from ${data.totals.vendors} vendors`}
+          label={t("materials.stat.watched")}
+          value={t("materials.stat.items", { count: data.totals.items })}
+          note={t("materials.stat.vendors", { count: data.totals.vendors })}
           testId="materials-stat-items"
         />
       </div>
 
       <section className="mb-8" data-testid="materials-alerts">
-        <SectionLabel>Alerts</SectionLabel>
+        <SectionLabel>{t("materials.alerts.title")}</SectionLabel>
         {open.length === 0 ? (
-          <EmptyState>No open alerts. We tell you here when a price moves.</EmptyState>
+          <EmptyState>{t("materials.alerts.none")}</EmptyState>
         ) : (
           <div className="flex flex-col gap-3">
             {open.map((a) => (
@@ -245,7 +285,7 @@ export function PriceWatchView({
         {closed.length > 0 ? (
           <details className="mt-3">
             <summary className="cursor-pointer text-sm text-ink-muted">
-              {closed.length} closed alerts
+              {t("materials.alerts.closed", { count: closed.length })}
             </summary>
             <div className="mt-3 flex flex-col gap-3">
               {closed.map((a) => (
@@ -257,17 +297,19 @@ export function PriceWatchView({
       </section>
 
       {data.rows.length === 0 ? (
-        <EmptyState>No prices yet. They appear here once we've read your first invoice.</EmptyState>
+        <EmptyState>{t("materials.prices.none")}</EmptyState>
       ) : (
         <div className="dt dt-ana" style={{ "--dt-max-h": "640px" } as CSSProperties}>
           <div className="dt-bar">
-            <span className="dt-title">Prices by item and vendor</span>
-            <span className="ds-num text-ink-muted">{rows.length} rows</span>
+            <span className="dt-title">{t("materials.prices.table")}</span>
+            <span className="ds-num text-ink-muted">
+              {t("materials.prices.rows", { count: rows.length })}
+            </span>
             <span className="dt-grow" />
             <input
               className="ds-input dt-search"
-              placeholder="Filter items or vendors"
-              aria-label="Filter items or vendors"
+              placeholder={t("materials.prices.filter")}
+              aria-label={t("materials.prices.filter")}
               data-testid="materials-prices-filter"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -277,48 +319,62 @@ export function PriceWatchView({
             <table data-testid="materials-prices-table">
               <thead>
                 <tr className="dt-cols">
-                  {sortHeader("item", "Item")}
-                  <th>Vendor</th>
-                  {sortHeader("price", "Last price", true)}
-                  {sortHeader("change", "Change", true)}
-                  <th>90 days</th>
-                  <th className="n">Last bought</th>
-                  <th className="n">Alerts</th>
+                  {sortHeader("item", t("materials.col.item"))}
+                  <th>{t("materials.col.vendor")}</th>
+                  {sortHeader("price", t("materials.col.lastPrice"), true)}
+                  {sortHeader("change", t("materials.col.change"), true)}
+                  <th>{t("materials.col.days90")}</th>
+                  <th className="n">{t("materials.col.lastBought")}</th>
+                  <th className="n">{t("materials.col.alerts")}</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={`${r.catalogItemId}:${r.vendorId}`} data-testid="materials-price-row">
-                    <td className="dt-who">
-                      <b>{r.item}</b>
-                      <span>
-                        {CATEGORY_LABEL[r.category] ?? r.category} · {r.purchases90} purchases in 90
-                        days
-                      </span>
-                    </td>
-                    <td>{r.vendor}</td>
-                    <td className="n">
-                      {money(r.lastPrice)}{" "}
-                      <span className="text-ink-muted">{perUnit(r.standardUom)}</span>
-                    </td>
-                    <td className="n">
-                      <Delta pct={r.changePct} />
-                    </td>
-                    <td>
-                      <Sparkline points={r.series} label={`${r.item} at ${r.vendor}`} />
-                    </td>
-                    <td className="n">{r.lastOn}</td>
-                    <td className="n">
-                      {r.openAlerts > 0 ? (
-                        <Badge tone="warning">
-                          {r.openAlerts === 1 ? "1 alert" : `${r.openAlerts} alerts`}
-                        </Badge>
-                      ) : (
-                        <span className="text-ink-muted">–</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const what = t("materials.prices.at", { item: r.item, vendor: r.vendor });
+                  const first = r.series[0]?.on;
+                  const last = r.series.at(-1)?.on;
+                  return (
+                    <tr key={`${r.catalogItemId}:${r.vendorId}`} data-testid="materials-price-row">
+                      <td className="dt-who">
+                        <b>{r.item}</b>
+                        <span>
+                          {categoryWord(r.category, i18n)} ·{" "}
+                          {t("materials.prices.purchases90", { count: r.purchases90 })}
+                        </span>
+                      </td>
+                      <td>{r.vendor}</td>
+                      <td className="n">
+                        {fmt.unitPrice(r.lastPrice)}{" "}
+                        <span className="text-ink-muted">{perUnit(r.standardUom, i18n)}</span>
+                      </td>
+                      <td className="n">
+                        <Delta pct={r.changePct} />
+                      </td>
+                      <td>
+                        <Sparkline
+                          points={r.series}
+                          label={t("materials.spark.label", {
+                            what,
+                            count: r.series.length,
+                            from: day(first, intl),
+                            to: day(last, intl),
+                          })}
+                          title={t("materials.spark.title", { what, count: r.series.length })}
+                        />
+                      </td>
+                      <td className="n">{day(r.lastOn, intl)}</td>
+                      <td className="n">
+                        {r.openAlerts > 0 ? (
+                          <Badge tone="warning">
+                            {t("materials.prices.alerts", { count: r.openAlerts })}
+                          </Badge>
+                        ) : (
+                          <span className="text-ink-muted">–</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -330,7 +386,8 @@ export function PriceWatchView({
 
 /**
  * The back office's catalog merge: this item is a duplicate of another in the same category and
- * unit (the only merges the pack allows); its vendor names and price history move there.
+ * unit (the only merges the pack allows); its vendor names and price history move there. Back
+ * office only, so in English.
  */
 function MergeControl({
   clientId,
@@ -394,36 +451,39 @@ function MergeControl({
 }
 
 export function CatalogView({ clientId, clientName }: { clientId?: string; clientName?: string }) {
+  const i18n = useI18n();
+  const { t, fmt, intl } = i18n;
   const { data, error, loading, reload } = useReport<CatalogReport>("catalog", clientId);
   const [filter, setFilter] = useState("");
   const items = useMemo(() => {
-    const q = filter.trim().toLowerCase();
+    const q = filter.trim().toLocaleLowerCase(intl);
     const all = data?.items ?? [];
-    return q ? all.filter((i) => i.name.toLowerCase().includes(q)) : all;
-  }, [data, filter]);
+    return q ? all.filter((i) => i.name.toLocaleLowerCase(intl).includes(q)) : all;
+  }, [data, filter, intl]);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!data) return null;
+  const subtitle = t("materials.catalog.subtitle", { count: data.items.length });
   return (
     <div data-testid="materials-catalog">
       <PageHeader
-        title="Catalog"
-        subtitle={`${clientName ? `${clientName} · ` : ""}${data.items.length} materials your invoice lines are matched to.`}
+        title={t("materials.catalog.title")}
+        subtitle={clientName ? `${clientName} · ${subtitle}` : subtitle}
         actions={<CsvLink report="catalog" clientId={clientId} />}
       />
       {data.items.length === 0 ? (
-        <EmptyState>The catalog is empty. Items appear as invoice lines are matched.</EmptyState>
+        <EmptyState>{t("materials.catalog.empty")}</EmptyState>
       ) : (
         <div className="dt dt-ledger" style={{ "--dt-max-h": "640px" } as CSSProperties}>
           <div className="dt-bar">
-            <span className="dt-title">Items</span>
-            <span className="ds-num text-ink-muted">{items.length}</span>
+            <span className="dt-title">{t("materials.catalog.items")}</span>
+            <span className="ds-num text-ink-muted">{fmt.number(items.length)}</span>
             <span className="dt-grow" />
             <input
               className="ds-input dt-search"
-              placeholder="Filter items"
-              aria-label="Filter items"
+              placeholder={t("materials.catalog.filter")}
+              aria-label={t("materials.catalog.filter")}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
@@ -432,14 +492,14 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
             <table data-testid="materials-catalog-table">
               <thead>
                 <tr className="dt-cols">
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Unit</th>
-                  <th>Attributes</th>
-                  <th className="n">Vendors</th>
-                  <th className="n">Purchases</th>
-                  <th className="n">Last price</th>
-                  <th className="n">Last bought</th>
+                  <th>{t("materials.col.item")}</th>
+                  <th>{t("materials.col.category")}</th>
+                  <th>{t("materials.col.unit")}</th>
+                  <th>{t("materials.col.attributes")}</th>
+                  <th className="n">{t("materials.col.vendors")}</th>
+                  <th className="n">{t("materials.col.purchases")}</th>
+                  <th className="n">{t("materials.col.lastPrice")}</th>
+                  <th className="n">{t("materials.col.lastBought")}</th>
                   {clientId ? <th>Merge</th> : null}
                 </tr>
               </thead>
@@ -447,18 +507,19 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
                 {items.map((i) => (
                   <tr key={i.id} data-testid="materials-catalog-row">
                     <td>{i.name}</td>
-                    <td>{CATEGORY_LABEL[i.category] ?? i.category}</td>
-                    <td>{UNIT_LABEL[i.standardUom] ?? i.standardUom}</td>
+                    <td>{categoryWord(i.category, i18n)}</td>
+                    <td>{unitWord(i.standardUom, i18n)}</td>
+                    {/* The pack's attribute names and values, as it records them. */}
                     <td className="muted">
                       {Object.entries(i.attributes)
                         .filter(([k]) => !k.endsWith("_mm"))
                         .map(([k, v]) => `${k.replace(/_/g, " ")} ${v.replace(/_/g, " ")}`)
                         .join(" · ")}
                     </td>
-                    <td className="n">{i.vendors}</td>
-                    <td className="n">{i.purchases}</td>
-                    <td className="n">{i.lastPrice ? money(i.lastPrice) : "–"}</td>
-                    <td className="n">{i.lastOn ?? "–"}</td>
+                    <td className="n">{fmt.number(i.vendors)}</td>
+                    <td className="n">{fmt.number(i.purchases)}</td>
+                    <td className="n">{i.lastPrice ? fmt.unitPrice(i.lastPrice) : "–"}</td>
+                    <td className="n">{day(i.lastOn, intl)}</td>
                     {clientId ? (
                       <td>
                         <MergeControl
@@ -480,7 +541,10 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
   );
 }
 
-/** Links to a pack's reports, for the portal's Reports page and the client page. */
+/**
+ * Links to a pack's reports on the back office's client page (its Packs tab), titled as the API
+ * names the pack's screens.
+ */
 export function PackReportLinks({
   screens,
   base,
