@@ -7,6 +7,7 @@ import {
   complianceOf,
   connectorShown,
   findStep,
+  type OpsAgentActivity,
   parseCoveredProcessors,
   processingRefusal,
   processorsForOffer,
@@ -36,6 +37,7 @@ import { resolveInboxItem } from "../inbox";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
+import { daysOf, runsByDay } from "../runs/figures";
 import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects, sourceNames } from "../runs/subject";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
@@ -126,6 +128,85 @@ function validTimezone(tz: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * UI cleanup (design pass): each client agent's work at a glance for the client page: live runs
+ * started in the last 7 days, runs waiting for approval now (as Runs filters them), its last run
+ * (any mode) and its runs each day (UTC, test runs included, as the command center counts them).
+ */
+async function agentActivity(
+  tx: Tx,
+  tenantId: string,
+  agentIds: string[],
+  now: Date,
+): Promise<OpsAgentActivity[]> {
+  if (agentIds.length === 0) return [];
+  const scope = and(eq(run.tenantId, tenantId), inArray(run.agentId, agentIds)) as SQL;
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+  const week = await tx
+    .select({ agentId: run.agentId, n: count() })
+    .from(run)
+    .where(
+      and(
+        scope,
+        eq(run.mode, "live"),
+        sql`${run.createdAt} >= ${weekAgo.toISOString()}::timestamptz`,
+      ),
+    )
+    .groupBy(run.agentId);
+  const waiting = await tx
+    .select({ agentId: run.agentId, n: count() })
+    .from(run)
+    .where(and(scope, eq(run.mode, "live"), ...opsStatusWhere(["waiting"])))
+    .groupBy(run.agentId);
+  const lastRuns = await tx
+    .selectDistinctOn([run.agentId], {
+      agentId: run.agentId,
+      id: run.id,
+      status: run.status,
+      createdAt: run.createdAt,
+    })
+    .from(run)
+    .where(scope)
+    .orderBy(run.agentId, desc(run.createdAt), desc(run.id));
+  const lastWaiting = new Set(
+    lastRuns.length
+      ? (
+          await tx
+            .select({ id: run.id })
+            .from(run)
+            .where(
+              and(
+                scope,
+                inArray(
+                  run.id,
+                  lastRuns.map((r) => r.id),
+                ),
+                ...opsStatusWhere(["waiting"]),
+              ),
+            )
+        ).map((r) => r.id)
+      : [],
+  );
+  const days = await runsByDay(tx, [scope], { timezone: "UTC", now });
+  return agentIds.map((agentId) => {
+    const last = lastRuns.find((r) => r.agentId === agentId);
+    return {
+      agentId,
+      runs7d: week.find((w) => w.agentId === agentId)?.n ?? 0,
+      waitingRuns: waiting.find((w) => w.agentId === agentId)?.n ?? 0,
+      lastRun: last
+        ? {
+            id: last.id,
+            status: last.status,
+            at: last.createdAt.toISOString(),
+            waiting: lastWaiting.has(last.id),
+          }
+        : null,
+      perDay: daysOf(days.byAgent, agentId),
+    };
+  });
 }
 
 async function clientSummaries(
@@ -340,6 +421,12 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       agents: agents.map(agentSummary),
       connections: connections.map(opsConnection),
       members,
+      activity: await agentActivity(
+        tx,
+        t.id,
+        agents.filter((a) => !a.testCopy).map((a) => a.id),
+        new Date(),
+      ),
     };
   });
 

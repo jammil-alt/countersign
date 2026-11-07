@@ -16,6 +16,7 @@ import {
   FEED_LIMIT,
   type FeedItem,
   HEALTH_DAYS,
+  isLiveAgent,
   isPlainObject,
   LOW_CONFIDENCE_DEFAULT,
   lowConfidenceThreshold,
@@ -42,6 +43,7 @@ import {
 import { and, desc, eq, gt, gte, inArray, isNotNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, mount, type Services } from "../http";
+import { daysOf, runsByDay } from "../runs/figures";
 // UI cleanup (stream A)
 import {
   clientMembers,
@@ -424,10 +426,10 @@ async function commandCenter(
   const { names, clients, clientAgents, thresholds, lowReadings } = parts;
   const sorted = parts.escalations;
 
-  // Agents live: active client agents, by client.
+  // Agents live: switched on and at the live stage (isLiveAgent, one meaning everywhere), by client.
   const liveByClient = new Map<string, number>();
   for (const a of clientAgents) {
-    if (a.runStatus !== "active" || !a.tenantId) continue;
+    if (!isLiveAgent(a) || !a.tenantId) continue;
     liveByClient.set(a.tenantId, (liveByClient.get(a.tenantId) ?? 0) + 1);
   }
 
@@ -655,6 +657,18 @@ async function commandCenter(
         .groupBy(run.agentId)
     : [];
   const recentRows = [...recent];
+  // UI cleanup (design pass): runs each day for the small charts, in UTC like "today": every run
+  // of each agent (test runs included), and live runs across the clients for the figures.
+  const agentDays = agentIds.length
+    ? await runsByDay(tx, [inArray(run.tenantId, ids), inArray(run.agentId, agentIds)], {
+        timezone: "UTC",
+        now,
+      })
+    : { all: [], byAgent: new Map() };
+  const liveDays = await runsByDay(tx, [inArray(run.tenantId, ids), eq(run.mode, "live")], {
+    timezone: "UTC",
+    now,
+  });
   const agents = clientAgents.map((a) => ({
     id: a.id,
     name: a.name,
@@ -677,6 +691,7 @@ async function commandCenter(
         waiting: r.waiting === true,
       })),
     cost7dUsd: weekCost.find((w) => w.agentId === a.id)?.usd ?? "0.0000",
+    perDay: daysOf(agentDays.byAgent, a.id),
   }));
 
   const oldest = waiting?.oldest ?? null;
@@ -723,6 +738,7 @@ async function commandCenter(
     lowConfidence: [...groups.values()],
     health,
     agents,
+    perDay: liveDays.all,
   };
 }
 

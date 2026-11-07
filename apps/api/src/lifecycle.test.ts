@@ -193,6 +193,28 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
     ]);
   });
 
+  it("a draft with no live version is read from its latest version, and says it has none", async () => {
+    // Design pass, fix 2: the Bill clerk's draft writes to QuickBooks, but the page read
+    // "Writes nothing: goes straight to live" because only a live version was read.
+    const created = await ok(OPERATOR, "POST", `/api/ops/clients/${A().tenantId}/agents`, {
+      slug: "draft-writer",
+      bundle: fullBundle(),
+    });
+    const g = await goLive(created.agent.id as string);
+    expect(g).toMatchObject({ stage: "bench", writes: true, liveVersion: false });
+    const quiet = await ok(OPERATOR, "POST", `/api/ops/clients/${A().tenantId}/agents`, {
+      slug: "draft-quiet",
+      bundle: quietBundle(),
+    });
+    expect(await goLive(quiet.agent.id as string)).toMatchObject({
+      writes: false,
+      liveVersion: false,
+    });
+    // Published, it has a live version.
+    const { id } = await ready("published-writer");
+    expect(await goLive(id)).toMatchObject({ writes: true, liveVersion: true });
+  });
+
   it('an agent that writes nothing goes from the bench to live with "no writes"', async () => {
     const { id } = await ready("quiet-agent", quietBundle());
     await ok(OPERATOR, "POST", `/api/ops/agents/${id}/activate`);

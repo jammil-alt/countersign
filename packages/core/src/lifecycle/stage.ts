@@ -86,6 +86,32 @@ export function effectiveMode(
   return stage === "live" ? definition.permissions.mode : "suggest_only";
 }
 
+// UI cleanup (design pass): one meaning of "live" for every count and line, on both sides.
+// DECISION: an agent is live when it is switched on (`run_status` active) and its go-live stage is
+// `live`, as effectiveMode treats it. Trial and sign-off run on the client's work but every write
+// waits for approval, so they are named as such ("1 in trial"), never counted as live; the bench
+// only test-runs. A paused agent is not live.
+/** Whether a client agent is live: switched on and at the `live` stage. */
+export function isLiveAgent(a: {
+  runStatus: string | null | undefined;
+  stage: string | null | undefined;
+}): boolean {
+  return a.runStatus === "active" && a.stage === "live";
+}
+
+/** Switched-on client agents by go-live stage (no stage reads as the bench). */
+export function goLiveCounts(
+  agents: readonly { runStatus: string | null | undefined; stage: string | null | undefined }[],
+): Record<AgentStage, number> {
+  const out: Record<AgentStage, number> = { bench: 0, trial: 0, signoff: 0, live: 0 };
+  for (const a of agents) {
+    if (a.runStatus !== "active") continue;
+    const stage = AgentStage.safeParse(a.stage);
+    out[stage.success ? stage.data : "bench"] += 1;
+  }
+  return out;
+}
+
 export function stageIndex(stage: AgentStage): number {
   return AGENT_STAGES.indexOf(stage);
 }

@@ -5,7 +5,7 @@
 // portal's answers carry no templates, notes or costs; a question's answer that isn't a valid
 // RunFilter is refused, and a portal question's cost is the client's usage under Sloan.
 
-import { shortRunId } from "@countersign/core";
+import { KPI_DAYS, shortRunId } from "@countersign/core";
 import {
   agent,
   connection,
@@ -473,6 +473,12 @@ describe.skipIf(!h)("command center, search and questions", () => {
       client: { id: H.A.tenantId, name: "Client A" },
     });
     expect(irisA.recentRuns).toHaveLength(7);
+    // Design pass: its runs each day (test runs too, UTC) for the small chart, as many as its
+    // recent runs here (all started within the last day), and live runs across the clients.
+    const days = irisA.perDay as { runs: number; failed: number }[];
+    expect(days).toHaveLength(KPI_DAYS);
+    expect(days.reduce((n, d) => n + d.runs, 0)).toBe(7);
+    expect(cc.perDay).toHaveLength(KPI_DAYS);
   });
 
   it("narrows to one client served, and refuses one not served", async () => {
