@@ -308,12 +308,10 @@ async function opsWalk(w) {
         await w.follow(tab, { scope: "main" });
       });
     }
-    await w.step("Workflow builder", async () => {
+    // The agent's triggers are the first part of its Workflow tab (the owner's review).
+    await w.step("Workflow builder and triggers", async () => {
       await w.goto(agent);
       await w.follow((p) => p.startsWith(`${agent}/workflow`), { scope: "main" });
-    });
-    await w.step("Triggers", async () => {
-      await w.follow(`${agent}/triggers`, { scope: "main" });
     });
   }
 
