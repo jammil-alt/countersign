@@ -104,7 +104,7 @@ describe("InboxCard: external action", () => {
     const onResolve = vi.fn().mockResolvedValueOnce(undefined);
     renderCard({ onResolve });
     const approve = screen.getByTestId("inbox-item-approve");
-    expect(approve).toHaveTextContent("Sign and update Testkit");
+    expect(approve).toHaveTextContent("Approve and update Testkit");
     await userEvent.click(approve);
     expect(onResolve).toHaveBeenCalledWith({ decision: "approve" });
 

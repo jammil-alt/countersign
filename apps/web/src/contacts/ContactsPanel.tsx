@@ -1,5 +1,6 @@
-// A client's contacts and their consent (plan §1.22), on the back office's messaging page and the
-// portal's /contacts (client admin). The same rules on both: numbers in international form,
+// A client's contacts and their consent (plan §1.22): the whole panel on the back office's
+// messaging page; in the portal, a person's consent and reach preferences in their detail on
+// Contacts (`ContactConsent`; the client admin edits them). The same rules on both: numbers in international form,
 // consent per channel with how it was given, an opt-out that stops every channel. A STOP text is
 // lifted only by the contact texting START, so its opt-out has no "lift" button here. Reach out
 // (plan §1.25) adds email, preferred channels in order, the contact's own timezone and quiet hours,
@@ -85,12 +86,15 @@ function languageName(code: string, i18n: I18n): string {
   }
 }
 
-/** The routes for one surface, so the rest of the panel doesn't care which it is on. */
-function useContactsApi(surface: ContactsSurface) {
+/**
+ * The routes for one surface, so the rest of the panel doesn't care which it is on. `withList`
+ * false: the writes only (one person's detail needs no list).
+ */
+function useContactsApi(surface: ContactsSurface, withList = true) {
   const api = useApiClient();
   const ops = surface.kind === "ops" ? surface.clientId : null;
-  const opsList = useApi(apiRoutes.opsContacts, ops ? { params: { id: ops } } : null);
-  const portalList = useApi(apiRoutes.portalContacts, ops ? null : {});
+  const opsList = useApi(apiRoutes.opsContacts, ops && withList ? { params: { id: ops } } : null);
+  const portalList = useApi(apiRoutes.portalContacts, !ops && withList ? {} : null);
   const list = ops ? opsList : portalList;
   return {
     list,
@@ -201,7 +205,7 @@ function ContactDetails({
   onChanged,
 }: {
   contact: Contact;
-  api: ReturnType<typeof useContactsApi>;
+  api: Pick<ReturnType<typeof useContactsApi>, "update">;
   onChanged: () => void;
 }) {
   const i18n = useI18n();
@@ -399,27 +403,7 @@ function ContactCard({
   onChanged: () => void;
 }) {
   const i18n = useI18n();
-  const { t, fmt } = i18n;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [channel, setChannel] = useState<ConsentChoice>(contact.phone ? "sms" : "whatsapp");
-  const [source, setSource] = useState("");
-
-  async function change(body: ContactConsentChangeInput) {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.consent(contact.id, body);
-      setSource("");
-      onChanged();
-    } catch (e) {
-      setError(problemText(e, "contacts.problem.notSaved", i18n));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const keywordOptOut = contact.optedOut?.source === "keyword:STOP";
+  const { t } = i18n;
   return (
     <Card className="p-4" testId={`contact-${contact.id}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -462,93 +446,226 @@ function ContactCard({
       {open ? (
         <div className="mt-4 flex flex-col gap-4 border-t border-line pt-4">
           <ContactDetails contact={contact} api={api} onChanged={onChanged} />
-          {contact.optedOut ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-              <span className="text-ink-muted">
-                {keywordOptOut
-                  ? t("contacts.stoppedByText", { date: fmt.date(contact.optedOut.at) })
-                  : t("contacts.optedOutOn", { date: fmt.date(contact.optedOut.at) })}
-              </span>
-              {keywordOptOut ? null : (
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void change({ action: "lift_opt_out" })}
-                  data-testid={`contact-${contact.id}-lift`}
-                >
-                  {t("contacts.liftOptOut")}
-                </Button>
-              )}
-            </div>
-          ) : (
-            <form
-              className="flex flex-col gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (source.trim()) void change({ action: "grant", channel, source: source.trim() });
-              }}
-            >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
-                <Field label={t("contacts.consentChannel")}>
-                  <Select
-                    value={channel}
-                    onChange={(e) => setChannel(e.target.value as ConsentChoice)}
-                    data-testid={`contact-${contact.id}-channel`}
-                  >
-                    <option value="sms">{t("contacts.channel.sms")}</option>
-                    <option value="whatsapp">{t("contacts.channel.whatsapp")}</option>
-                    <option value="voice">{t("contacts.consentOption.voice")}</option>
-                    <option value="email">{t("contacts.channel.email")}</option>
-                  </Select>
-                </Field>
-                <Field label={t("contacts.howAgreed")} hint={t("contacts.howAgreedHint")}>
-                  <TextInput
-                    value={source}
-                    maxLength={CONSENT_SOURCE_MAX}
-                    onChange={(e) => setSource(e.target.value)}
-                    data-testid={`contact-${contact.id}-source`}
-                  />
-                </Field>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={busy || !source.trim()}
-                  data-testid={`contact-${contact.id}-grant`}
-                >
-                  {t("contacts.recordConsent")}
-                </Button>
-                {contact.consent[channel] ? (
-                  <Button
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void change({ action: "withdraw", channel })}
-                  >
-                    {t("contacts.withdrawConsent")}
-                  </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void change({ action: "opt_out" })}
-                  data-testid={`contact-${contact.id}-opt-out`}
-                >
-                  {t("contacts.optOutAll")}
-                </Button>
-              </div>
-            </form>
-          )}
-          {error ? (
-            <p role="alert" className="ds-error text-sm">
-              {error}
-            </p>
-          ) : null}
+          <ConsentForm contact={contact} api={api} onChanged={onChanged} />
           <ContactMessages api={api} contactId={contact.id} />
         </div>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * Record consent for a channel (and how it was given), withdraw it, opt the person out of every
+ * channel, or lift an opt-out we recorded (a STOP text is lifted only by START).
+ */
+function ConsentForm({
+  contact,
+  api,
+  onChanged,
+}: {
+  contact: Contact;
+  api: Pick<ReturnType<typeof useContactsApi>, "consent">;
+  onChanged: () => void;
+}) {
+  const i18n = useI18n();
+  const { t, fmt } = i18n;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [channel, setChannel] = useState<ConsentChoice>(contact.phone ? "sms" : "whatsapp");
+  const [source, setSource] = useState("");
+
+  async function change(body: ContactConsentChangeInput) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.consent(contact.id, body);
+      setSource("");
+      onChanged();
+    } catch (e) {
+      setError(problemText(e, "contacts.problem.notSaved", i18n));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const keywordOptOut = contact.optedOut?.source === "keyword:STOP";
+  return (
+    <>
+      {contact.optedOut ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <span className="text-ink-muted">
+            {keywordOptOut
+              ? t("contacts.stoppedByText", { date: fmt.date(contact.optedOut.at) })
+              : t("contacts.optedOutOn", { date: fmt.date(contact.optedOut.at) })}
+          </span>
+          {keywordOptOut ? null : (
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => void change({ action: "lift_opt_out" })}
+              data-testid={`contact-${contact.id}-lift`}
+            >
+              {t("contacts.liftOptOut")}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (source.trim()) void change({ action: "grant", channel, source: source.trim() });
+          }}
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
+            <Field label={t("contacts.consentChannel")}>
+              <Select
+                value={channel}
+                onChange={(e) => setChannel(e.target.value as ConsentChoice)}
+                data-testid={`contact-${contact.id}-channel`}
+              >
+                <option value="sms">{t("contacts.channel.sms")}</option>
+                <option value="whatsapp">{t("contacts.channel.whatsapp")}</option>
+                <option value="voice">{t("contacts.consentOption.voice")}</option>
+                <option value="email">{t("contacts.channel.email")}</option>
+              </Select>
+            </Field>
+            <Field label={t("contacts.howAgreed")} hint={t("contacts.howAgreedHint")}>
+              <TextInput
+                value={source}
+                maxLength={CONSENT_SOURCE_MAX}
+                onChange={(e) => setSource(e.target.value)}
+                data-testid={`contact-${contact.id}-source`}
+              />
+            </Field>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={busy || !source.trim()}
+              data-testid={`contact-${contact.id}-grant`}
+            >
+              {t("contacts.recordConsent")}
+            </Button>
+            {contact.consent[channel] ? (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => void change({ action: "withdraw", channel })}
+              >
+                {t("contacts.withdrawConsent")}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => void change({ action: "opt_out" })}
+              data-testid={`contact-${contact.id}-opt-out`}
+            >
+              {t("contacts.optOutAll")}
+            </Button>
+          </div>
+        </form>
+      )}
+      {error ? (
+        <p role="alert" className="ds-error text-sm">
+          {error}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/** How a person likes to be reached, in words: first by, then, quiet hours, their time zone. */
+function ReachSummary({ contact }: { contact: Contact }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const order = contact.preferredChannels ?? [];
+  const lines = [
+    order.length > 0
+      ? t("contacts.prefers", {
+          channels: new Intl.ListFormat(i18n.intl, { type: "conjunction" }).format(
+            order.map((ch) => t(CHANNEL_KEY[ch])),
+          ),
+        })
+      : null,
+    contact.quietHours
+      ? t("contacts.quietLine", { start: contact.quietHours.start, end: contact.quietHours.end })
+      : null,
+    contact.timezone ? t("contacts.timezoneLine", { zone: contact.timezone }) : null,
+    contact.language ? languageName(contact.language, i18n) : null,
+  ].filter(Boolean);
+  if (lines.length === 0) return null;
+  return (
+    <ul
+      className="flex flex-col gap-0.5 text-sm text-ink"
+      data-testid={`contact-${contact.id}-reach`}
+    >
+      {lines.map((line) => (
+        <li key={line}>{line}</li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The portal's Contacts detail: a person's consent per channel and how they like to be reached.
+ * The client admin records or withdraws consent and edits the preferences; others read them.
+ */
+export function ContactConsent({
+  contact,
+  canEdit,
+  onChanged,
+}: {
+  contact: Contact;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const { t } = useI18n();
+  const api = useContactsApi({ kind: "portal" }, false);
+  const [open, setOpen] = useState<"consent" | "reach" | null>(null);
+  return (
+    <div className="flex flex-col gap-3" data-testid={`contact-${contact.id}-consent`}>
+      <div className="flex flex-wrap gap-1.5">
+        <ConsentPills contact={contact} />
+      </div>
+      <ReachSummary contact={contact} />
+      {canEdit ? (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              aria-expanded={open === "consent"}
+              onClick={() => setOpen(open === "consent" ? null : "consent")}
+              data-testid={`contact-${contact.id}-open`}
+            >
+              {t("contacts.consentEdit")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={open === "reach"}
+              onClick={() => setOpen(open === "reach" ? null : "reach")}
+              data-testid={`contact-${contact.id}-reach-edit`}
+            >
+              {t("contacts.reachEdit")}
+            </Button>
+          </div>
+          {open === "consent" ? (
+            <div className="flex flex-col gap-3 border-t border-line pt-3">
+              <ConsentForm contact={contact} api={api} onChanged={onChanged} />
+            </div>
+          ) : null}
+          {open === "reach" ? (
+            <div className="border-t border-line pt-3">
+              <ContactDetails contact={contact} api={api} onChanged={onChanged} />
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
 }
 

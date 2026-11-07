@@ -180,16 +180,16 @@ describe("app", () => {
 
   it("sends an old portal address on to its new home after sign-in", async () => {
     const api = backend();
-    renderApp(api, "/inbox?status=open");
+    renderApp(api, "/desk?status=open");
     const user = userEvent.setup();
     await user.type(
       await screen.findByTestId("signin-email-input"),
       "admin@demo-client.example.com",
     );
     await user.click(screen.getByTestId("signin-email-submit"));
-    // `/inbox` is now Your Desk: the top bar's Desk and the sidebar's are the current page.
+    // `/desk` is now the Inbox: the top bar's Inbox and the sidebar's are the current page.
     await waitFor(() =>
-      expect(screen.getByTestId("portal-nav-desk")).toHaveAttribute("aria-current", "page"),
+      expect(screen.getByTestId("portal-nav-inbox")).toHaveAttribute("aria-current", "page"),
     );
     expect(screen.getByTestId("shell-inbox")).toHaveAttribute("aria-current", "page");
   });

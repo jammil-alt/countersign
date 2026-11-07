@@ -33,12 +33,23 @@ function periodProblem(
   return null;
 }
 
-export function PortalExportsScreen() {
+/** `embedded`: inside Settings (its Exports section), without a header of its own. */
+export function PortalExportsScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useI18n();
   const session = useSession();
   const client = session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0];
   if (client?.role !== "client_admin") {
     return <Placeholder title={t("exports.title")}>{t("exports.adminOnly")}</Placeholder>;
+  }
+  if (embedded) {
+    return (
+      <div data-testid="portal-exports-page">
+        <Columns count={2}>
+          <AccountantExport />
+          <AuditExport />
+        </Columns>
+      </div>
+    );
   }
   return (
     <Page testId="portal-exports-page">

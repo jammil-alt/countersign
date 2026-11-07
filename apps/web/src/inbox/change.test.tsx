@@ -357,7 +357,7 @@ describe("InboxCard: a declared change, for a client", () => {
     expect(card.textContent).not.toContain("qbo.bill.update_lines");
     expect(card.textContent).not.toContain("Qbo");
     expect(within(card).getByTestId("inbox-item-approve")).toHaveTextContent(
-      "update QuickBooks Online",
+      "Approve and update QuickBooks Online",
     );
   });
 });

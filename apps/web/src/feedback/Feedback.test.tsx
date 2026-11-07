@@ -72,8 +72,8 @@ describe("Feedback button", () => {
 
   it("pins, shows the picture, sends the comment then the JPEG", async () => {
     const { api, sent } = portal(true);
-    // The old address redirects to the Desk, query kept.
-    renderAt("/inbox?status=open", api);
+    // The old address redirects to the Inbox, query kept.
+    renderAt("/desk?status=open", api);
     await userEvent.click(await screen.findByTestId("feedback-button"));
     await userEvent.click(screen.getByTestId("feedback-pick-area"));
     expect(await screen.findByTestId("feedback-composer")).toBeInTheDocument();
@@ -90,7 +90,7 @@ describe("Feedback button", () => {
       "Thanks. We got your feedback.",
     );
     expect(sent).toMatchObject([
-      { comment: "Runs is hard to find", path: "/desk?status=open", target: expect.any(String) },
+      { comment: "Runs is hard to find", path: "/inbox?status=open", target: expect.any(String) },
     ]);
     expect(puts).toEqual([{ url: `/api/feedback/${ID}/screenshot`, type: "image/jpeg" }]);
     expect(screen.queryByTestId("feedback-composer")).toBeNull();

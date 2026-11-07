@@ -1,7 +1,7 @@
-// Upload and forwarding (ARCHITECTURE §6.3, §6.5), built in on every client's Accounts page and on
-// `/upload` (UploadPage.tsx): drop invoices, receipts or a purchases CSV; see the private forwarding
-// address and who may forward to it (the client admin edits the list); and the documents that
-// arrived.
+// Upload and forwarding (ARCHITECTURE §6.3, §6.5), on the page of each agent that reads documents
+// and on `/upload` (UploadPage.tsx): drop invoices, receipts or a purchases CSV; see the private
+// forwarding address and who may forward to it (the client admin edits the list); and the documents
+// that arrived.
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -18,7 +18,6 @@ import {
   EmptyState,
   ErrorNotice,
   Loading,
-  SectionLabel,
   Tag,
 } from "../../ui/primitives";
 import { documentStatus, dropReason, money, sourceLabel } from "../documents";
@@ -30,23 +29,6 @@ type Summary = NonNullable<Result["document"]>;
 /** How often, and how many times, an upload's new documents are checked until they are read. */
 const READ_POLL_MS = 3_000;
 const READ_POLL_TRIES = 40;
-
-export function UploadSection({ isAdmin }: { isAdmin: boolean }) {
-  const { t } = useI18n();
-  const documents = useApi(apiRoutes.portalDocuments, { query: { limit: 20 } });
-  return (
-    <section data-testid="portal-upload">
-      <SectionLabel>{t("upload.section")}</SectionLabel>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <DropZone onUploaded={documents.reload} />
-        <Forwarding isAdmin={isAdmin} />
-      </div>
-      <div className="mt-4">
-        <RecentDocuments state={documents} />
-      </div>
-    </section>
-  );
-}
 
 function resultLine(
   r: Result,

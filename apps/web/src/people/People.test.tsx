@@ -58,12 +58,36 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
   );
 }
 
-describe("portal: People", () => {
+/** An agent's page, for its Access tab (who it contacts): the portal's service route. */
+const agentPage = {
+  [`GET /api/services/${AGENT}`]: () => ({
+    service: { id: AGENT, name: "Pia", description: null, status: "active" },
+    thisMonth: {
+      from: "2026-11-01",
+      to: "2026-11-04",
+      runs: { total: 0, succeeded: 0, failed: 0, cancelled: 0, waiting: 0, going: 0 },
+      documentsRead: 0,
+      actions: 0,
+    },
+    recentRuns: [],
+    packs: [],
+  }),
+  "GET /api/access": () => ({
+    items: [],
+    setup: [],
+    browserSites: [],
+    canEdit: true,
+    people: [],
+  }),
+};
+
+describe("portal: who an agent contacts (its Access tab)", () => {
   it("lets the client admin bind a contact to a role, with conditions; no channels here", async () => {
     const sent: unknown[] = [];
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/feedback/status": () => ({ enabled: false }),
+      ...agentPage,
       "GET /api/people": () => ({ items: [peopleOf()] }),
       [`PUT /api/people/${AGENT}`]: ({ init }) => {
         const body = JSON.parse(String(init.body));
@@ -71,7 +95,7 @@ describe("portal: People", () => {
         return { people: peopleOf(body.people) };
       },
     });
-    renderAt("/people/reach", api);
+    renderAt(`/agents/${AGENT}/access`, api);
     const role = await screen.findByTestId("role-purchaser", {}, { timeout: 10_000 });
     expect(within(role).getByTestId("role-purchaser-required")).toHaveTextContent(
       "Required: nobody yet",
@@ -104,7 +128,7 @@ describe("portal: People", () => {
   });
 });
 
-describe("portal: People picked from the directory", () => {
+describe("portal: an agent's people, picked from the directory", () => {
   it("shows each person's title and organization, and narrows a long list by search", async () => {
     const many = Array.from({ length: 9 }, (_, i) => ({
       id: `00000000-0000-4000-8000-0000000c01${String(i).padStart(2, "0")}`,
@@ -119,6 +143,7 @@ describe("portal: People picked from the directory", () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/feedback/status": () => ({ enabled: false }),
+      ...agentPage,
       "GET /api/people": () => ({
         items: [
           {
@@ -131,7 +156,7 @@ describe("portal: People picked from the directory", () => {
         ],
       }),
     });
-    renderAt("/people/reach", api);
+    renderAt(`/agents/${AGENT}/access`, api);
     const role = await screen.findByTestId("role-purchaser", {}, { timeout: 10_000 });
     expect(within(role).getByText("Buyer, Birch & Co")).toBeInTheDocument();
     await userEvent.type(within(role).getByTestId("role-purchaser-find"), "birch");
@@ -334,13 +359,23 @@ describe("contacts: reach-out details", () => {
       canMessage: { sms: false, whatsapp: false },
       canCall: false,
       canEmail: false,
+      organization: null,
+      title: null,
+      relationship: null,
+      source: "manual",
       createdAt: "2026-11-04T10:00:00.000Z",
       updatedAt: "2026-11-04T10:00:00.000Z",
     };
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/feedback/status": () => ({ enabled: false }),
-      "GET /api/contacts": () => ({ items: [contact] }),
+      // Contacts (UI cleanup): a person's reach preferences are in their detail.
+      "GET /api/directory": () => ({
+        people: [contact],
+        organizations: [],
+        pendingSuggestions: 0,
+      }),
+      "GET /api/people": () => ({ items: [] }),
       [`GET /api/contacts/${PAT}/messages`]: () => ({ items: [] }),
       [`PATCH /api/contacts/${PAT}`]: ({ init }) => {
         const body = JSON.parse(String(init.body));
@@ -348,9 +383,9 @@ describe("contacts: reach-out details", () => {
         return { contact: { ...contact, ...body, canEmail: false } };
       },
     });
-    renderAt("/contacts", api);
+    renderAt(`/contacts?person=${PAT}`, api);
     await userEvent.click(
-      await screen.findByTestId(`contact-${PAT}-open`, {}, { timeout: 10_000 }),
+      await screen.findByTestId(`contact-${PAT}-reach-edit`, {}, { timeout: 10_000 }),
     );
     await userEvent.type(screen.getByTestId(`contact-${PAT}-email-input`), "pat@shop.example");
     await userEvent.selectOptions(screen.getByTestId(`contact-${PAT}-preferred-0`), "whatsapp");

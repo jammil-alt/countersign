@@ -1,0 +1,538 @@
+// `/`: Home (was "The Table"; docs/ui-plan.md C1, Review 1). A short greeting, then each agent and
+// how it stands (the owner's v1 home: name, what it does, state, the tools it works in, its last
+// run in a line), and beside them what needs you: the top of the Inbox and the supervisor's
+// findings. A weekly summary card when a Weekly Table was sent, the lead's latest message and the
+// latest work when there is any. Each fact once: the Inbox's count is in the sidebar and on "Needs
+// you", never in tiles; empty sections are left out. Read from `GET /api/table` (and
+// `/api/overview` for the findings, `/api/access` for each agent's tools, `/api/weekly` for the
+// summary). Never a bundle, an instruction, a prompt or a cost (invariant 11).
+import type { PortalAccessView, PortalFinding, TableView } from "@countersign/core";
+import { type FormEvent, useState } from "react";
+import { Link } from "react-router-dom";
+import type { ResponseOf } from "../../api/client";
+import { apiRoutes } from "../../api/routes";
+import { useApi, useApiClient } from "../../api/useApi";
+import type { PlainKey } from "../../i18n/catalog";
+import { type I18n, useI18n } from "../../i18n/i18n";
+import { shortTime } from "../../runs/format";
+import { usePoll } from "../../runs/usePoll";
+import { useSession } from "../../session/session";
+import { ActivityRow } from "../../ui/activity";
+import { AgentBadge, PersonBadge } from "../../ui/badges";
+import { Field, TextArea } from "../../ui/forms";
+import { Columns, Loaded, Page, PageGrid, Section } from "../../ui/page";
+import {
+  Button,
+  buttonClass,
+  Card,
+  Count,
+  EmptyState,
+  ErrorNotice,
+  PageHeader,
+  Tag,
+} from "../../ui/primitives";
+import { StatusChip } from "../../ui/status";
+import { longDay, partOfDay, sameDay, stageWord } from "../agentState";
+import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
+import { PORTAL_PATHS } from "../paths";
+import { agentChip, runChip, runOpen } from "../status";
+
+type Service = TableView["services"][number];
+type DeskItem = TableView["desk"]["top"][number];
+type SentWeekly = NonNullable<ResponseOf<typeof apiRoutes.portalWeekly>["table"]>;
+
+const KIND_LABEL: Record<string, PlainKey> = {
+  external_action: "inbox.kind.external_action",
+  approval: "inbox.kind.approval",
+  request: "inbox.kind.request",
+  review: "inbox.kind.review",
+  extraction_review: "inbox.kind.extraction_review",
+  change_request: "inbox.kind.change_request",
+};
+
+/** Items whose main action is an approval; the rest are answered or checked in the Inbox. */
+const APPROVED = new Set(["external_action", "approval", "change_request"]);
+
+export function HomeScreen() {
+  const table = useApi(apiRoutes.portalTable);
+  usePoll(table.reload, true, INBOX_COUNT_POLL_MS, table.loading);
+  return (
+    <Page testId="portal-home">
+      <Loaded state={table}>{(data) => <Home data={data} reload={table.reload} />}</Loaded>
+    </Page>
+  );
+}
+
+function Home({ data, reload }: { data: TableView; reload: () => void }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const session = useSession();
+  const overview = useApi(apiRoutes.portalOverview);
+  // Each agent's tools are the connections it is granted; the cards go without them if this fails.
+  const access = useApi(apiRoutes.portalAccess);
+  const weekly = useApi(apiRoutes.portalWeekly, { query: {} });
+  const now = new Date();
+  const tz = data.client.timezone;
+  const first = session.user.name?.trim().split(/\s+/)[0];
+  const part = partOfDay(now, tz);
+  const greeting = first ? t(`table.greeting.${part}`, { name: first }) : t(`table.hello.${part}`);
+  const finished = data.figures.runs?.succeeded ?? data.figures.runsDone;
+  const findings = overview.data?.health?.findings ?? [];
+  const sent = weekly.data?.table ?? null;
+
+  return (
+    <>
+      <PageHeader
+        eyebrow={longDay(now, i18n.intl, tz)}
+        title={greeting}
+        // The week in one line, without what waits on you: "Needs you" says that, once.
+        subtitle={
+          finished > 0 ? (
+            <span data-testid="home-week-line">{t("home.week", { count: finished })}</span>
+          ) : undefined
+        }
+        actions={
+          <Link
+            to={PORTAL_PATHS.upload}
+            className={buttonClass("secondary")}
+            data-testid="home-add-documents"
+          >
+            {t("home.addDocuments")}
+          </Link>
+        }
+      />
+      <PageGrid
+        rail={
+          <>
+            {data.desk.open > 0 || findings.length > 0 ? (
+              <NeedsYou desk={data.desk} findings={findings} tz={tz} onChange={reload} />
+            ) : null}
+            {data.lead?.message ? <LeadNote lead={data.lead} /> : null}
+            {data.recent.length > 0 ? <Latest recent={data.recent} /> : null}
+          </>
+        }
+      >
+        <Agents services={data.services} access={access.data} />
+        {sent ? <WeeklyCard table={sent} /> : null}
+      </PageGrid>
+    </>
+  );
+}
+
+// ── Your agents ──────────────────────────────────────────────────────────────────────────────────
+
+function Agents({
+  services,
+  access,
+}: {
+  services: Service[];
+  access: PortalAccessView | undefined;
+}) {
+  const { t } = useI18n();
+  return (
+    <Section title={t("home.agents")} testId="home-agents">
+      {services.length === 0 ? (
+        <EmptyState>{t("overview.noServices")}</EmptyState>
+      ) : (
+        <Columns count={2}>
+          {services.map((s) => (
+            <AgentCard key={s.id} service={s} tools={toolsOf(s.id, access)} />
+          ))}
+        </Columns>
+      )}
+    </Section>
+  );
+}
+
+/** The connections an agent is granted (not revoked), by name. */
+function toolsOf(agentId: string, access: PortalAccessView | undefined): string[] {
+  if (!access) return [];
+  return access.items
+    .filter((item) => item.agents.some((a) => a.agentId === agentId && !a.revoked))
+    .map((item) => item.name);
+}
+
+/**
+ * One agent as the owner's v1 home draws it: its name and what it does, its state (and its go-live
+ * stage before it is live), the tools it works in, and its last run in one line.
+ */
+function AgentCard({ service: s, tools }: { service: Service; tools: string[] }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const chip = agentChip(s, t);
+  const stage = stageWord(s.stage, t);
+  return (
+    <Link
+      to={PORTAL_PATHS.agent(s.id)}
+      data-testid={`portal-service-${s.id}`}
+      className={`ds-card flex min-w-0 flex-col gap-4 p-6 text-ink no-underline hover:border-line-strong ${
+        chip.state === "setup" ? "border-dashed" : ""
+      }`}
+    >
+      <span className="flex items-start gap-3">
+        <AgentBadge name={s.name} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="type-subheading">{s.name}</span>
+          {s.description ? (
+            <span className="line-clamp-2 text-sm text-ink-muted">{s.description}</span>
+          ) : null}
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1.5">
+          <StatusChip state={chip.state} testId={`table-agent-state-${s.id}`}>
+            {chip.label}
+          </StatusChip>
+          {stage ? <Tag>{stage}</Tag> : null}
+        </span>
+      </span>
+      {tools.length > 0 ? (
+        <span className="flex flex-wrap gap-1.5" data-testid={`home-agent-tools-${s.id}`}>
+          {tools.map((name) => (
+            <Tag key={name}>{name}</Tag>
+          ))}
+        </span>
+      ) : null}
+      <span
+        className="border-t border-line pt-3.5 text-sm text-ink-muted"
+        data-testid={`table-agent-now-${s.id}`}
+      >
+        {lastRunLine(s, i18n)}
+      </span>
+    </Link>
+  );
+}
+
+/**
+ * The card's one line: what it is doing now ("Now: Match items · Step 3 of 6"), since when it
+ * waits on you, or its last run ("Last run 7:04 · Done"), with this week's KPIs after it.
+ */
+export function lastRunLine(s: Service, i18n: I18n): string {
+  const { t } = i18n;
+  const kpis = s.kpis.slice(0, 2).map((k) => `${k.label}: ${k.value}`);
+  const at = (iso: string | null) => (iso ? shortTime(iso, undefined, i18n) : "");
+  const now = s.now;
+  if (!now) return [t("table.noRunsYet"), ...kpis].join(" · ");
+  if (runOpen(now) && now.waitingOnYou) {
+    return [t("home.card.waitingSince", { time: at(now.since) }), ...kpis].join(" · ");
+  }
+  if (runOpen(now)) {
+    const step = now.step;
+    return [
+      step ? t("home.card.now", { step: step.label }) : runChip(now, t).label,
+      step ? t("table.stepOf", { index: step.index, total: step.total }) : null,
+      ...kpis,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return [
+    now.since ? t("home.card.lastRun", { time: at(now.since) }) : t("table.lastRun"),
+    runChip(now, t).label,
+    ...kpis,
+  ].join(" · ");
+}
+
+// ── The weekly summary ───────────────────────────────────────────────────────────────────────────
+
+function WeeklyCard({ table }: { table: SentWeekly }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const lead = table.noteBy?.name;
+  return (
+    <Card
+      testId="home-weekly"
+      title={t("home.weekly.title")}
+      meta={t("weekly.weekOf", { date: i18n.fmt.date(`${table.weekStart}T12:00:00Z`) })}
+      footer={
+        <Link
+          to={PORTAL_PATHS.weekly}
+          className="text-sm text-link hover:underline"
+          data-testid="home-weekly-open"
+        >
+          {t("home.weekly.open")}
+        </Link>
+      }
+      pad
+    >
+      {table.note ? (
+        <>
+          <p className="line-clamp-3 whitespace-pre-line text-ink">{table.note}</p>
+          {lead ? (
+            <p className="mt-2 text-sm text-ink-muted">{t("weekly.fromLead", { name: lead })}</p>
+          ) : null}
+        </>
+      ) : (
+        <p className="text-ink-muted">{t("home.weekly.ready")}</p>
+      )}
+    </Card>
+  );
+}
+
+// ── Latest from your agents ──────────────────────────────────────────────────────────────────────
+
+function Latest({ recent }: { recent: TableView["recent"] }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
+    <Card
+      testId="table-latest"
+      title={t("table.latest")}
+      meta={
+        <Link to={PORTAL_PATHS.runs} className="text-sm text-link hover:underline">
+          {t("table.seeAllRuns")}
+        </Link>
+      }
+    >
+      {recent.slice(0, 5).map((r) => (
+        <ActivityRow
+          key={`${r.runId}:${r.label}:${r.at ?? ""}`}
+          testId={`table-latest-${r.runId}`}
+          time={r.at ? shortTime(r.at, undefined, i18n) : ""}
+          badge={<AgentBadge name={r.service.name} size="sm" />}
+          to={`/runs/${r.runId}`}
+        >
+          <span className="font-medium">{r.service.name}</span> {r.summary ?? r.label}
+        </ActivityRow>
+      ))}
+    </Card>
+  );
+}
+
+// ── Needs you: the top of the Inbox and the supervisor's findings ────────────────────────────────
+
+/** "Not now" from Home: back tomorrow at 8:00 on the reader's clock. */
+export function tomorrowMorning(now: Date = new Date()): string {
+  const d = new Date(now);
+  d.setDate(d.getDate() + 1);
+  d.setHours(8, 0, 0, 0);
+  return d.toISOString();
+}
+
+function NeedsYou({
+  desk,
+  findings,
+  tz,
+  onChange,
+}: {
+  desk: TableView["desk"];
+  findings: PortalFinding[];
+  tz: string;
+  onChange: () => void;
+}) {
+  const { t } = useI18n();
+  const more = desk.open - desk.top.length;
+  return (
+    <Card
+      testId="table-desk"
+      title={t("home.needsYou")}
+      meta={desk.open > 0 ? <Count n={desk.open} tone="warning" /> : undefined}
+      footer={
+        <Link
+          to={PORTAL_PATHS.inbox}
+          className="text-sm text-link hover:underline"
+          data-testid="home-open-inbox"
+        >
+          {more > 0 ? t("home.moreInInbox", { count: more }) : t("home.openInbox")}
+        </Link>
+      }
+    >
+      <div className="divide-y divide-line">
+        {desk.top.map((item) => (
+          <DeskRow key={item.id} item={item} tz={tz} onChange={onChange} />
+        ))}
+        {findings.map((f) => (
+          <FindingRow key={f.id} finding={f} />
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange: () => void }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const api = useApiClient();
+  const refreshCount = useRefreshInboxCount();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const kind = KIND_LABEL[item.kind];
+  const due = item.dueAt ? new Date(item.dueAt) : null;
+
+  // DECISION: Home never approves or answers. Its main action opens the item in the Inbox, where
+  // the change shows with its before and after; "Not now" snoozes it to tomorrow 8:00, and the
+  // Inbox offers the other times.
+  const notNow = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.call(apiRoutes.portalSnoozeInbox, {
+        params: { id: item.id },
+        body: { until: tomorrowMorning() },
+      });
+      refreshCount();
+      onChange();
+    } catch (e) {
+      setError(e);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 px-6 py-4" data-testid={`table-desk-item-${item.id}`}>
+      <span className="flex flex-wrap items-center justify-between gap-2">
+        <Tag>{kind ? t(kind) : item.kind}</Tag>
+        {due ? (
+          <StatusChip state="waiting">
+            {sameDay(due, new Date(), tz)
+              ? t("table.dueToday")
+              : t("table.due", { time: shortTime(item.dueAt, undefined, i18n) })}
+          </StatusChip>
+        ) : null}
+      </span>
+      <p className="font-medium text-ink">{item.title}</p>
+      {error ? <ErrorNotice error={error} /> : null}
+      <span className="flex flex-wrap gap-2">
+        <Link
+          to={`${PORTAL_PATHS.inbox}?item=${encodeURIComponent(item.id)}`}
+          className={buttonClass("primary", undefined, "sm")}
+          data-testid={`table-desk-open-${item.id}`}
+        >
+          {APPROVED.has(item.kind) ? t("table.reviewSign") : t("table.openItem")}
+        </Link>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          onClick={notNow}
+          data-testid={`table-desk-later-${item.id}`}
+        >
+          {t("table.notNow")}
+        </Button>
+      </span>
+    </div>
+  );
+}
+
+// ── The lead's note ──────────────────────────────────────────────────────────────────────────────
+
+function LeadNote({ lead }: { lead: NonNullable<TableView["lead"]> }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const api = useApiClient();
+  const name = lead.name ?? t("nav.lead");
+  const first = name.split(/\s+/)[0] ?? name;
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [error, setError] = useState<unknown>(null);
+  if (!lead.message) return null;
+
+  const send = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setState("sending");
+    setError(null);
+    try {
+      // The lead thread is opened on first ask; the reply goes into it.
+      const { threads } = await api.call(apiRoutes.portalThreads, {
+        query: { subject: "lead" },
+      });
+      const thread = threads.find((th) => th.subject === "lead");
+      if (!thread) throw new Error("no lead thread");
+      await api.call(apiRoutes.portalPostMessage, {
+        params: { id: thread.id },
+        body: { text: text.trim() },
+      });
+      setText("");
+      setOpen(false);
+      setState("sent");
+    } catch (err) {
+      setError(err);
+      setState("idle");
+    }
+  };
+
+  return (
+    <div
+      data-testid="table-lead"
+      className="ds-card flex flex-col gap-3 border-copper-tint bg-copper-tint p-6"
+    >
+      <PersonBadge
+        name={name}
+        line={`${t("nav.lead")} · ${shortTime(lead.message.at, undefined, i18n)}`}
+        size="sm"
+      />
+      <p className="text-ink whitespace-pre-line">{lead.message.text}</p>
+      {state === "sent" ? (
+        <p className="text-sm text-ink-muted" role="status">
+          {t("table.lead.sent", { name: first })}
+        </p>
+      ) : null}
+      {open ? (
+        <form onSubmit={send} className="flex flex-col gap-2">
+          <Field label={t("table.lead.yourReply")}>
+            <TextArea
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              data-testid="table-lead-text"
+            />
+          </Field>
+          {error ? <ErrorNotice error={error} /> : null}
+          <span className="flex gap-2">
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={state === "sending" || !text.trim()}
+              data-testid="table-lead-send"
+            >
+              {state === "sending" ? t("common.sending") : t("common.send")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+          </span>
+        </form>
+      ) : (
+        <button
+          type="button"
+          className="self-start text-sm text-copper-ink hover:underline"
+          onClick={() => {
+            setOpen(true);
+            setState("idle");
+          }}
+          data-testid="table-lead-reply"
+        >
+          {t("table.lead.reply", { name: first })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A finding of the supervisor's account check: its title and plain steps, in their language. */
+function FindingRow({ finding: f }: { finding: PortalFinding }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
+    <div className="flex flex-col gap-2 px-6 py-4" data-testid={`portal-finding-${f.id}`}>
+      <span className="flex flex-wrap items-center justify-between gap-2">
+        <Tag>{t("overview.findings")}</Tag>
+        {f.remindedAt ? (
+          <StatusChip state="waiting">{t("overview.findingReminder")}</StatusChip>
+        ) : (
+          <span className="text-sm text-ink-muted">{shortTime(f.createdAt, undefined, i18n)}</span>
+        )}
+      </span>
+      <p className="font-medium text-ink">{f.title}</p>
+      {f.steps.length > 0 ? (
+        <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-ink">
+          {f.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      ) : null}
+      <p className="text-sm text-ink-muted">{t("overview.findingMarkDone")}</p>
+    </div>
+  );
+}

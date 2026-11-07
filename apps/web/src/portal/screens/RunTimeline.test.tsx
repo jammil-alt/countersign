@@ -219,7 +219,7 @@ describe("portal run timeline", () => {
     expect(approve).toHaveTextContent("Waiting on you since");
     expect(approve).toHaveTextContent("1 item waits for your approval.");
     expect(screen.getByTestId("portal-run-review")).toHaveTextContent("Review and approve");
-    expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", `/desk?item=${ITEM}`);
+    expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", `/inbox?item=${ITEM}`);
     expect(screen.getByTestId("portal-run-status")).toHaveTextContent("Waiting on you");
     expect(screen.getByTestId("portal-run-status")).not.toHaveTextContent("Running");
     expect(screen.getByTestId("portal-run-took")).toHaveTextContent("—Waited 21 h on you");

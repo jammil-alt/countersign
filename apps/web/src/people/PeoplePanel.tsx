@@ -564,21 +564,25 @@ function ChannelsEditor({
   );
 }
 
-/** The portal's People page (client admin): each of your agents' roles. */
-export function PortalPeopleList() {
+/**
+ * Who your agents contact (client admin): each agent's roles and the people bound to them. On an
+ * agent's Access tab (`agentId`), that agent's alone, without its name over it.
+ */
+export function PortalPeopleList({ agentId }: { agentId?: string } = {}) {
   const { t } = useI18n();
   const api = useApiClient();
   const { data, error, reload } = useApi(apiRoutes.portalAgentPeople, {});
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!data) return <Loading />;
-  if (data.items.length === 0) {
+  const items = agentId ? data.items.filter((i) => i.agentId === agentId) : data.items;
+  if (items.length === 0) {
     return <EmptyState>{t("reach.none")}</EmptyState>;
   }
   return (
     <div className="flex flex-col gap-8">
-      {data.items.map((item) => (
+      {items.map((item) => (
         <section key={item.agentId}>
-          <h2 className="mb-3 type-subheading text-ink">{item.agentName}</h2>
+          {agentId ? null : <h2 className="mb-3 type-subheading text-ink">{item.agentName}</h2>}
           <AgentPeopleEditor
             people={item}
             save={async (people) =>

@@ -1,6 +1,8 @@
 // "What agents may do in each tool" (design screen 2): one row per connection, read / create /
-// update / delete as auto, approval or off, plus the connector's scope. Edits collect in a draft
-// and are saved together; a client admin is offered only the saved level or stricter.
+// update / delete as On its own, Needs approval or Off, plus the connector's scope. The tool's own
+// row shows first; its record types expand on demand, and the Scope column shows only when there is
+// a scope to show or set (Review 2: the table scrolled sideways and cut Scope off). Edits collect in
+// a draft and are saved together; a client admin is offered only the saved level or stricter.
 import type {
   EntityLevels,
   EntityPermissions,
@@ -12,6 +14,7 @@ import { type ReactNode, useState } from "react";
 import { useI18n } from "../i18n/i18n";
 import { formatValue } from "../inbox/change";
 import { Select } from "../ui/forms";
+import { Icon } from "../ui/icons";
 import { Badge, Button, Card, cx, ErrorNotice } from "../ui/primitives";
 import {
   allowedLevels,
@@ -66,8 +69,23 @@ export function MatrixTable({
   const [draft, setDraft] = useState<Draft>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // The rows whose record types are open.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const editable = editor !== "viewer" && onSave !== undefined;
   const dirty = Object.values(draft).some((e) => Object.keys(e).length > 0);
+  const toggle = (id: string) =>
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const showScope = rows.some(
+    (row) =>
+      row.permissions.scope !== undefined ||
+      (editable && editor === "operator" && isTextScope(row.permissions.scope)) ||
+      (expanded.has(row.id) && (row.entities ?? []).some((e) => (e.scopes ?? []).length > 0)),
+  );
 
   function set(row: MatrixRow, key: Verb | "scope", value: unknown) {
     setDraft((d) => {
@@ -136,7 +154,7 @@ export function MatrixTable({
               {VERBS.map((v) => (
                 <th key={v}>{t(VERB_LABEL[v])}</th>
               ))}
-              <th>{t("matrix.scope")}</th>
+              {showScope ? <th>{t("matrix.scope")}</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -144,7 +162,24 @@ export function MatrixTable({
               const edit = draft[row.id] ?? {};
               return [
                 <tr key={row.id} data-testid={`matrix-row-${row.id}`}>
-                  <td className="font-medium text-ink">{row.name}</td>
+                  <td className="font-medium text-ink">
+                    <span className="block">{row.name}</span>
+                    {(row.entities ?? []).length > 0 ? (
+                      <button
+                        type="button"
+                        className="mt-1 inline-flex items-center gap-1 text-sm font-normal text-link hover:underline"
+                        aria-expanded={expanded.has(row.id)}
+                        onClick={() => toggle(row.id)}
+                        data-testid={`matrix-entities-toggle-${row.id}`}
+                      >
+                        {t("matrix.recordTypes", { count: row.entities?.length ?? 0 })}
+                        <Icon
+                          name={expanded.has(row.id) ? "chevron-down" : "chevron-right"}
+                          size={16}
+                        />
+                      </button>
+                    ) : null}
+                  </td>
                   {VERBS.map((verb) => {
                     const saved = row.permissions[verb];
                     const current = edit[verb] ?? saved;
@@ -167,30 +202,33 @@ export function MatrixTable({
                       </td>
                     );
                   })}
-                  <td className="text-ink">
-                    {editable && editor === "operator" && isTextScope(row.permissions.scope) ? (
-                      <input
-                        aria-label={t("matrix.scopeFor", { name: row.name })}
-                        data-testid="matrix-scope-input"
-                        value={String(
-                          (edit.scope as string | undefined) ?? row.permissions.scope ?? "",
-                        )}
-                        placeholder={t("matrix.everything")}
-                        onChange={(e) => set(row, "scope", e.target.value || undefined)}
-                        className="ds-input h-8 min-w-48 text-sm"
-                      />
-                    ) : row.permissions.scope === undefined ? (
-                      <span className="text-ink-muted">{t("matrix.everything")}</span>
-                    ) : (
-                      formatValue(row.permissions.scope)
-                    )}
-                  </td>
+                  {showScope ? (
+                    <td className="text-ink">
+                      {editable && editor === "operator" && isTextScope(row.permissions.scope) ? (
+                        <input
+                          aria-label={t("matrix.scopeFor", { name: row.name })}
+                          data-testid="matrix-scope-input"
+                          value={String(
+                            (edit.scope as string | undefined) ?? row.permissions.scope ?? "",
+                          )}
+                          placeholder={t("matrix.everything")}
+                          onChange={(e) => set(row, "scope", e.target.value || undefined)}
+                          className="ds-input h-8 min-w-48 text-sm"
+                        />
+                      ) : row.permissions.scope === undefined ? (
+                        <span className="text-ink-muted">{t("matrix.everything")}</span>
+                      ) : (
+                        formatValue(row.permissions.scope)
+                      )}
+                    </td>
+                  ) : null}
                 </tr>,
-                ...(row.entities ?? []).map((entity) => (
+                ...(expanded.has(row.id) ? (row.entities ?? []) : []).map((entity) => (
                   <EntityRow
                     key={`${row.id}:${entity.id}`}
                     row={row}
                     entity={entity}
+                    showScope={showScope}
                     edit={edit}
                     editor={editable ? editor : "viewer"}
                     onLevel={(verb, level) =>
@@ -270,6 +308,7 @@ function BareFrame({
 function EntityRow({
   row,
   entity,
+  showScope,
   edit,
   editor,
   onLevel,
@@ -277,6 +316,7 @@ function EntityRow({
 }: {
   row: MatrixRow;
   entity: PermissionEntity;
+  showScope: boolean;
   edit: MatrixRowEdit;
   editor: MatrixEditor;
   onLevel: (verb: Verb, level: PermissionLevel) => void;
@@ -323,42 +363,44 @@ function EntityRow({
           </td>
         );
       })}
-      <td className="text-ink">
-        {scopedVerbs.length === 0 ? null : (
-          <div className="flex flex-col gap-1">
-            {scopedVerbs.map((verb) => {
-              const savedScope = own(saved, verb);
-              const value = own(current, verb);
-              const scopes = (entity.scopes ?? []).filter((s) => s.verb === verb);
-              // A client narrows to a scope where none is set; dropping one is the operator's.
-              const choosing =
-                editor === "operator" || (editor === "client_admin" && savedScope === undefined);
-              const label = scopes.find((s) => s.id === value)?.label;
-              return choosing ? (
-                <Select
-                  key={verb}
-                  aria-label={`${entity.label} ${t(VERB_LABEL[verb])}`}
-                  data-testid={`matrix-entity-${entity.id}-scope-select`}
-                  value={value ?? ""}
-                  onChange={(e) => onScope(verb, e.target.value || undefined)}
-                  className={cx("h-8 min-w-40 text-sm", value !== savedScope && "border-slate")}
-                >
-                  <option value="">{t("matrix.everything")}</option>
-                  {scopes.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <span key={verb} data-testid={`matrix-entity-${entity.id}-scope`}>
-                  {label ?? <span className="text-ink-muted">{t("matrix.everything")}</span>}
-                </span>
-              );
-            })}
-          </div>
-        )}
-      </td>
+      {showScope ? (
+        <td className="text-ink">
+          {scopedVerbs.length === 0 ? null : (
+            <div className="flex flex-col gap-1">
+              {scopedVerbs.map((verb) => {
+                const savedScope = own(saved, verb);
+                const value = own(current, verb);
+                const scopes = (entity.scopes ?? []).filter((s) => s.verb === verb);
+                // A client narrows to a scope where none is set; dropping one is the operator's.
+                const choosing =
+                  editor === "operator" || (editor === "client_admin" && savedScope === undefined);
+                const label = scopes.find((s) => s.id === value)?.label;
+                return choosing ? (
+                  <Select
+                    key={verb}
+                    aria-label={`${entity.label} ${t(VERB_LABEL[verb])}`}
+                    data-testid={`matrix-entity-${entity.id}-scope-select`}
+                    value={value ?? ""}
+                    onChange={(e) => onScope(verb, e.target.value || undefined)}
+                    className={cx("h-8 min-w-40 text-sm", value !== savedScope && "border-slate")}
+                  >
+                    <option value="">{t("matrix.everything")}</option>
+                    {scopes.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <span key={verb} data-testid={`matrix-entity-${entity.id}-scope`}>
+                    {label ?? <span className="text-ink-muted">{t("matrix.everything")}</span>}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </td>
+      ) : null}
     </tr>
   );
 }

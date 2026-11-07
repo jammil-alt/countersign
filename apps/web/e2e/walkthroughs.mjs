@@ -1,6 +1,7 @@
 // The prototype's two walkthroughs (docs/design/prototype.html, `#Start`), clicked through the real
-// UI on the seeded data: the client's morning (The Table, an agent, Your Desk, Runs, Accounts,
-// People, Settings, the Weekly Table, Sloan) and the back office's (Command center, Escalations,
+// UI on the seeded data: the client's morning (Home, an agent and its tabs, the Inbox, Runs,
+// Accounts, Contacts, Settings and its sections, the Weekly Table, Sloan from the search box) and
+// the back office's (Command center, Escalations,
 // Runs, a client and its tabs, Agent lab, an agent and its tabs, the workflow builder, triggers,
 // Skills, Connectors, Usage and billing). Each step moves by clicking a link the screen shows, as
 // a person would, opening the menu on a phone; every page gets the route sweep's checks
@@ -8,10 +9,11 @@
 //
 // Read-only: any request that would change something (a POST, PUT, PATCH or DELETE to /api other
 // than the dev sign-in) is stopped and fails the step, so nothing is sent or run, and no outside
-// service is ever written to (CLAUDE.md invariant 8). One exception: in "Sign and undo", the
-// Desk's sign and undo of the one item the e2e seed puts there (SEED_E2E=1, packages/db/src/seed.ts
-// `seedDemoDesk`), a change on the in-memory testkit that no run ever executes. It is signed and
-// then undone inside the window, so it waits again for the next look and the next run.
+// service is ever written to (CLAUDE.md invariant 8). One exception: in "Approve and undo", the
+// Inbox's approval and undo of the one item the e2e seed puts there (SEED_E2E=1,
+// packages/db/src/seed.ts `seedDemoDesk`), a change on the in-memory testkit that no run ever
+// executes. It is approved and then undone inside the window, so it waits again for the next look
+// and the next run.
 //
 // A step the seeded data can't support (no client agent, no run) is skipped with a note, not
 // failed.
@@ -77,7 +79,7 @@ async function walk(browser, email, lookName, name, script, results) {
   let n = 0;
   const w = {
     page,
-    /** On only inside "Sign and undo": lets the seeded item's sign and undo through. */
+    /** On only inside "Approve and undo": lets the seeded item's approval and undo through. */
     allowDesk: false,
     async goto(path) {
       await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -189,31 +191,39 @@ function stripQuery(href) {
 // ── The client's morning (Dana at Harbor Millwork in the prototype; the Demo client here) ─────────
 
 async function clientWalk(w) {
-  await w.step("The Table", async () => {
+  await w.step("Home", async () => {
     await w.goto("/");
-    await w.expectLink("/weekly", "Open the Weekly Table");
-    await w.expectLink("/sloan", "Ask Sloan");
-    await w.expectLink("/desk", "Your Desk");
+    // Review 1: the sidebar lists places; Upload is an action on Home.
+    await w.expectLink("/inbox", "Inbox");
+    await w.expectLink("/contacts", "Contacts");
+    await w.expectLink("/upload", "Add documents");
   });
 
   const agent = (p) => /^\/agents\/[^/]+$/.test(p);
+  let agentPage = null;
   const hasAgent = await w.step("An agent", async () => {
-    await w.follow(agent, { scope: "main", skip: "the seed has no client agent on the Table" });
-    await w.expectLink("/sloan", "Ask Sloan");
-    await w.expectLink("/weekly", "Open the Weekly Table");
+    agentPage = await w.follow(agent, {
+      scope: "main",
+      skip: "the seed has no client agent on Home",
+    });
   });
-  if (hasAgent === "skip") await w.goto("/");
+  if (hasAgent !== "skip" && agentPage) {
+    for (const tab of ["runs", "access"]) {
+      await w.step(`Agent, ${tab}`, () => w.follow(`${agentPage}/${tab}`, { scope: "main" }));
+    }
+  }
 
-  await w.step("Your Desk", async () => {
-    await w.follow("/desk");
-    await w.expectLink("/requests", "Requests");
+  await w.step("Inbox", async () => {
+    await w.follow("/inbox");
+    // "Ask us" is a question to Sloan, ready to send.
+    await w.expectLink("/sloan", "Ask us");
   });
-  await w.step("Sign and undo", async () => {
+  await w.step("Approve and undo", async () => {
     const page = w.page;
     const entry = page.locator(`main [data-testid="desk-entry-${SEEDED_DESK_ITEM}"]`);
     if ((await entry.count()) === 0) {
       throw new Skip(
-        "the e2e change isn't on the Desk (seed with SEED_E2E=1; or it was signed and not undone)",
+        "the e2e change isn't in the Inbox (seed with SEED_E2E=1; or it was approved and not undone)",
       );
     }
     await entry.first().click();
@@ -227,14 +237,14 @@ async function clientWalk(w) {
       const outcome = detail.locator('[data-testid="desk-outcome"]');
       await outcome.waitFor({ state: "visible", timeout: 10_000 });
       const said = (await outcome.innerText()).trim();
-      if (said !== "Signed by you") throw new Error(`after signing it says "${said}"`);
+      if (said !== "Approved by you") throw new Error(`after approving it says "${said}"`);
       const left = detail.locator('[data-testid="desk-undo-left"]');
       await left.waitFor({ state: "visible", timeout: 5_000 });
       if (!/\d+ seconds? to undo/.test(await left.innerText())) {
         throw new Error(`no undo countdown: "${await left.innerText()}"`);
       }
       await detail.locator('[data-testid="desk-undo"]').click();
-      // Waiting again: its Sign button is back and the outcome is gone.
+      // Waiting again: its Approve button is back and the outcome is gone.
       await sign.waitFor({ state: "visible", timeout: 10_000 });
       if (await outcome.count()) throw new Error("still shows an outcome after Undo");
     } finally {
@@ -248,16 +258,28 @@ async function clientWalk(w) {
     w.follow((p) => /^\/runs\/[^/]+$/.test(p), { scope: "main", skip: "the seed has no runs" }),
   );
   await w.step("Accounts", () => w.follow("/accounts"));
-  await w.step("People", () => w.follow("/people"));
-  for (const tab of await w.links((p) => /^\/people\/[a-z-]+$/.test(p))) {
-    await w.step(`People, ${tab.split("/").pop()}`, () => w.follow(tab, { scope: "main" }));
-  }
+  await w.step("Contacts", () => w.follow("/contacts"));
   await w.step("Settings", () => w.follow("/settings"));
-  await w.step("Weekly Table", () => w.follow("/weekly"));
+  for (const section of await w.links((p) => /^\/settings\/[a-z]+$/.test(p))) {
+    await w.step(`Settings, ${section.split("/").pop()}`, () =>
+      w.follow(section, { scope: "main" }),
+    );
+  }
+  await w.step("Weekly Table", async () => {
+    await w.goto("/");
+    await w.follow("/weekly", { scope: "main", skip: "no weekly summary was sent yet" });
+  });
   await w.step("Sloan", async () => {
-    await w.follow("/sloan");
+    // Sloan lives in the search box: "Ask Sloan" opens it with the question ready.
+    const page = w.page;
+    await page.locator('[data-testid="shell-search"]').click();
+    await page.locator('[data-testid="search-input"]').fill("what waits on me");
+    const ask = page.locator('[data-testid="search-ask"]');
+    await ask.waitFor({ state: "visible", timeout: 10_000 });
+    await ask.click();
+    await settle(page);
     // Ask nothing: a question would run the account agent.
-    if ((await w.page.locator("main textarea, main input[type='text']").count()) === 0) {
+    if ((await page.locator("main textarea, main input[type='text']").count()) === 0) {
       throw new Error("no box to ask Sloan in");
     }
   });

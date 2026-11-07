@@ -1,5 +1,7 @@
-// C2 the agent page (`/agents/:id`): what it does, the run going now step by step, this month,
-// what it can reach, its reports and history; the client admin pauses and resumes it (a pause we
+// C2 the agent page (`/agents/:id`, Review 1): a header with its state and Pause, then three tabs.
+// Overview: its own view first (the default: pack reports, then this month's activity), upload for
+// an agent that reads documents, the run going now step by step and its latest work. Runs: its runs.
+// Access: what it can reach, and who it contacts. The client admin pauses and resumes it (a pause we
 // made is ours to lift); Run now starts a workflow from its form. Never a bundle or a cost.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -194,6 +196,7 @@ const base = {
   "GET /api/overview": () => new Reply(404, {}),
   "GET /api/feedback/status": () => ({ enabled: false }),
   [`GET /api/services/${SVC}`]: () => DETAIL,
+  "GET /api/runs": () => ({ runs: DETAIL.recentRuns }),
 };
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
@@ -207,9 +210,14 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
 }
 
 describe("the agent page", () => {
-  it("shows what it does, its run now, this month, what it can reach and its history", async () => {
+  it("opens on its own view, what it is doing now and its latest work; runs and access are tabs", async () => {
+    const asked: (string | null)[] = [];
     const api = fakeApi({
       ...base,
+      "GET /api/runs": ({ url }) => {
+        asked.push(url.searchParams.get("agents"));
+        return { runs: DETAIL.recentRuns };
+      },
       "GET /api/table": () => TABLE,
       [`GET /api/runs/${RUN}`]: () => RUN_VIEW,
       "GET /api/access": () => ACCESS,
@@ -237,12 +245,20 @@ describe("the agent page", () => {
     expect(await screen.findByRole("heading", { name: "Pia" })).toBeInTheDocument();
     expect(screen.getByText(DETAIL.service.description)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Working"));
-    expect(screen.getByTestId("agent-lead")).toHaveTextContent("Ana Ruiz");
-    expect(screen.getByRole("link", { name: "Ask Sloan" })).toHaveAttribute("href", "/sloan");
-    expect(screen.getByRole("link", { name: "Open the Weekly Table" })).toHaveAttribute(
+    // No Weekly Table or Sloan buttons; the lead is in the avatar menu, not here.
+    expect(screen.queryByRole("link", { name: "Ask Sloan" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open the Weekly Table" })).toBeNull();
+    expect(screen.queryByTestId("agent-lead")).toBeNull();
+    expect(within(screen.getByRole("main")).getByRole("link", { name: "Runs" })).toHaveAttribute(
       "href",
-      "/weekly",
+      `/agents/${SVC}/runs`,
     );
+    expect(within(screen.getByRole("main")).getByRole("link", { name: "Access" })).toHaveAttribute(
+      "href",
+      `/agents/${SVC}/access`,
+    );
+    // It reads no documents: no upload here.
+    expect(screen.queryByTestId("agent-documents")).toBeNull();
 
     // Right now: the run's steps, done, current and still to do.
     const steps = await screen.findByTestId("agent-now-steps");
@@ -260,7 +276,16 @@ describe("the agent page", () => {
       latest.textContent?.indexOf("Looked for the bill") ?? -1,
     );
 
-    // This month: its KPIs, then runs, documents and changes.
+    // Its own view comes first: by default this month's activity, with its KPIs, and the full
+    // report a click away.
+    const own = screen.getByTestId("agent-own-view");
+    expect(own.compareDocumentPosition(screen.getByTestId("agent-now"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(within(own).getByTestId("agent-full-report")).toHaveAttribute(
+      "href",
+      `/reports?service=${SVC}`,
+    );
     expect(await screen.findByTestId("agent-kpi-k1")).toHaveTextContent(
       "$3,940.00Overcharges caught",
     );
@@ -268,27 +293,29 @@ describe("the agent page", () => {
       "2Runs1 done, 1 waiting on you",
     );
     expect(screen.getByTestId("portal-service-documents")).toHaveTextContent("3");
+    expect(screen.queryByTestId("agent-reach")).toBeNull();
 
-    // What it can reach, verb by verb; changes are made on the vault page.
+    // Runs: its runs, the list filtered to it.
+    await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Runs" }));
+    const row = await screen.findByTestId(`portal-service-run-${OLD_RUN}`);
+    expect(within(row).getByRole("link")).toHaveAttribute("href", `/runs/${OLD_RUN}`);
+    expect(row).toHaveTextContent("Took 3 min");
+    expect(row).toHaveTextContent("Done");
+    expect(asked).toContain(SVC);
+
+    // Access: what it can reach, verb by verb; changes are made on Accounts.
+    await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Access" }));
     const reach = await screen.findByTestId(`agent-reach-${QBO}`);
     expect(within(reach).getByTestId(`agent-reach-${QBO}-read`)).toHaveTextContent(
       "Read: on its own",
     );
     expect(within(reach).getByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Update: your sign",
+      "Update: needs approval",
     );
     expect(within(reach).getByTestId(`agent-reach-${QBO}-delete`)).toHaveTextContent("Delete: off");
     expect(
       within(screen.getByTestId("agent-reach")).getByRole("link", { name: "Change" }),
-    ).toHaveAttribute("href", "/accounts#vault");
-
-    const row = screen.getByTestId(`portal-service-run-${OLD_RUN}`);
-    expect(within(row).getByRole("link")).toHaveAttribute("href", `/runs/${OLD_RUN}`);
-    expect(row).toHaveTextContent("Took 3 min");
-    expect(row).toHaveTextContent("Done");
-    expect(
-      within(screen.getByTestId("portal-service-reports")).getByRole("link", { name: "Activity" }),
-    ).toHaveAttribute("href", `/reports?service=${SVC}`);
+    ).toHaveAttribute("href", "/accounts");
     // Never the bundle, the instructions or the cost.
     expect(container.textContent).not.toMatch(/0\.4000|never shown/);
   });
@@ -335,6 +362,18 @@ describe("the agent page", () => {
         ],
       }),
       [`GET /api/runs/${RUN}`]: () => ({ ...RUN_VIEW, run: waiting }),
+      "GET /api/runs": () => ({
+        runs: [
+          waiting,
+          {
+            ...DETAIL.recentRuns[0],
+            startedAt: "2026-11-03T10:00:00.000Z",
+            finishedAt: "2026-11-04T08:00:00.000Z",
+            waitingOnYou: false,
+            waitedMs: 21 * 3_600_000,
+          },
+        ],
+      }),
       "GET /api/access": () => ACCESS,
       "GET /api/controls": () => control(),
     });
@@ -343,7 +382,8 @@ describe("the agent page", () => {
       expect(screen.getByTestId("agent-state")).toHaveTextContent("Waiting on you"),
     );
     expect(await screen.findByTestId("agent-now-state")).toHaveTextContent("Waiting on you");
-    const row = screen.getByTestId(`portal-service-run-${RUN}`);
+    await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Runs" }));
+    const row = await screen.findByTestId(`portal-service-run-${RUN}`);
     expect(within(row).getByTestId(`portal-service-run-${RUN}-state`)).toHaveAttribute(
       "data-state",
       "waiting",
@@ -360,8 +400,74 @@ describe("the agent page", () => {
     renderAt(`/services/${SVC}`, api);
     expect(await screen.findByRole("heading", { name: "Pia" })).toBeInTheDocument();
     expect(screen.getByTestId("agent-state")).toHaveTextContent("Ready");
-    expect(screen.getByTestId("agent-now")).toHaveTextContent("Nothing running now.");
+    // Nothing ran: the section is left out.
+    expect(screen.queryByTestId("agent-now")).toBeNull();
     expect(screen.queryByTestId("agent-reach")).toBeNull();
+  });
+
+  it("offers upload, the latest documents and forwarding to an agent that reads documents", async () => {
+    const api = fakeApi({
+      ...base,
+      [`GET /api/services/${SVC}`]: () => ({ ...DETAIL, readsDocuments: true }),
+      "GET /api/documents": () => ({ documents: [] }),
+      "GET /api/connections/upload/forwarding": () => ({
+        forwarding: {
+          available: true,
+          address: "ap-7f3k@in.mezonas.com",
+          allowedSenders: [],
+          accepted: 0,
+          dropped: 0,
+          lastReceivedAt: null,
+          lastDroppedAt: null,
+          lastDropReason: null,
+        },
+      }),
+    });
+    renderAt(`/agents/${SVC}`, api);
+    const docs = await screen.findByTestId("agent-documents");
+    expect(within(docs).getByTestId("portal-upload-drop")).toBeInTheDocument();
+    expect(await within(docs).findByTestId("portal-forwarding-address")).toHaveTextContent(
+      "ap-7f3k@in.mezonas.com",
+    );
+    expect(within(docs).getByRole("link", { name: "All documents" })).toHaveAttribute(
+      "href",
+      "/upload",
+    );
+  });
+
+  it("shows the client admin who it contacts on its Access tab, and a client user only its reach", async () => {
+    const api = fakeApi({
+      ...base,
+      "GET /api/access": () => ACCESS,
+      "GET /api/controls": () => control(),
+      "GET /api/people": () => ({
+        items: [
+          {
+            agentId: SVC,
+            agentName: "Pia",
+            roles: [
+              { role: "supplier", description: "Who quotes our sheet goods", required: false },
+            ],
+            people: {},
+            missing: [],
+            contacts: [],
+          },
+          {
+            agentId: "00000000-0000-4000-8000-00000000b009",
+            agentName: "Cole",
+            roles: [],
+            people: {},
+            missing: [],
+            contacts: [],
+          },
+        ],
+      }),
+    });
+    renderAt(`/agents/${SVC}/access`, api);
+    const contacts = await screen.findByTestId("agent-contacts");
+    expect(contacts).toHaveTextContent("Who Pia contacts");
+    expect(await within(contacts).findByTestId(`people-${SVC}`)).toBeInTheDocument();
+    expect(within(contacts).queryByText("Cole")).toBeNull();
   });
 
   it("shows not found for an agent that isn't the client's", async () => {
@@ -501,12 +607,14 @@ describe("the agent page", () => {
       "GET /api/table": () => TABLE,
       "GET /api/access": () => ACCESS,
     });
-    renderAt(`/agents/${SVC}`, api);
+    renderAt(`/agents/${SVC}/access`, api);
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Arbeitet"));
     expect(await screen.findByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Ändern: mit Ihrer Unterschrift",
+      "Ändern: braucht Freigabe",
     );
-    expect(screen.getByText("Verlauf")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("main")).getByRole("link", { name: "Abläufe" }),
+    ).toBeInTheDocument();
   });
 });
 

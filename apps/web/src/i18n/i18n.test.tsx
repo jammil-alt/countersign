@@ -218,19 +218,17 @@ describe("the portal in the session's language", () => {
       "GET /api/feedback/status": () => ({ enabled: false }),
     });
     renderAt("/", api);
-    expect(await screen.findByRole("heading", { name: "Trabajando ahora" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sus agentes" })).toBeInTheDocument();
     const nav = screen.getByRole("complementary", { name: "Navegación" });
-    for (const label of ["Su escritorio", "Ejecuciones", "Cuentas", "Solicitudes", "Ajustes"]) {
+    for (const label of ["Inicio", "Bandeja", "Ejecuciones", "Cuentas", "Contactos", "Ajustes"]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
     }
-    expect(screen.getByTestId("table-week-line")).toHaveTextContent("3 cosas le esperan.");
-    // The status reads in Spanish on the page and in the sidebar's agent row.
+    // The status reads in Spanish on the agent's card.
     expect(within(screen.getByRole("main")).getByText("Trabajando")).toBeInTheDocument();
     expect(
-      within(screen.getByRole("main")).getByText("Paso 2 de 4 · empezó", { exact: false }),
+      within(screen.getByRole("main")).getByText("Paso 2 de 4", { exact: false }),
     ).toBeInTheDocument();
-    expect(await within(nav).findByText("Trabajando")).toBeInTheDocument();
-    expect(screen.getByTestId("table-desk")).toHaveTextContent("Le espera a usted");
+    expect(screen.getByTestId("table-desk")).toHaveTextContent("Le necesita");
     // Names and what the operator wrote stay as written.
     expect(within(screen.getByRole("main")).getByText("Record keeping")).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("es");
@@ -250,7 +248,7 @@ describe("the portal in the session's language", () => {
     expect(within(table).getByText("Dauer")).toBeInTheDocument();
     expect(within(table).getByText("Wartet auf Sie")).toBeInTheDocument();
     expect(within(table).getByText(/3\. Nov\., \d{2}:00/)).toBeInTheDocument();
-    expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Ihr Schreibtisch");
+    expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Posteingang");
   });
 });
 
@@ -271,7 +269,7 @@ describe("the language picker", () => {
       },
     });
     renderAt("/", api);
-    await screen.findByRole("heading", { name: "Trabajando ahora" });
+    await screen.findByRole("heading", { name: "Sus agentes" });
     await userEvent.click(screen.getByTestId("shell-avatar"));
     const mine = screen.getByTestId("language-mine") as HTMLSelectElement;
     // No choice of your own yet: your team's language.
@@ -279,9 +277,7 @@ describe("the language picker", () => {
     expect(mine.options[0]?.text).toBe("Idioma del equipo · Español");
     await userEvent.selectOptions(mine, "de");
     expect(bodies).toEqual([{ language: "de" }]);
-    expect(
-      await screen.findByRole("heading", { name: "Gerade bei der Arbeit" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Ihre Agenten" })).toBeInTheDocument();
     // The client admin also sets the team's default.
     expect(screen.getByTestId("language-team")).toHaveValue("es");
   });
@@ -299,7 +295,7 @@ describe("the language picker", () => {
       },
     });
     renderAt("/", api);
-    await screen.findByRole("heading", { name: "Working now" });
+    await screen.findByRole("heading", { name: "Your agents" });
     await userEvent.click(screen.getByTestId("shell-avatar"));
     await userEvent.selectOptions(screen.getByTestId("language-team"), "it");
     await waitFor(() => expect(bodies).toEqual([{ language: "it" }]));

@@ -28,7 +28,7 @@ export function tabTitle(place: string | null, waiting: number | undefined): str
 }
 
 export interface ShellDesk {
-  /** "/desk" in the portal, "/ops/inbox" (Escalations) in the back office. */
+  /** "/inbox" in the portal, "/ops/inbox" (Escalations) in the back office. */
   to: string;
   label: string;
   /** Waiting on you (signal); undefined until it loads. */
@@ -47,6 +47,7 @@ export function AppShell({
   sidebar,
   sidebarFooter,
   pageBar,
+  menu,
   children,
 }: {
   surface: "ops" | "portal";
@@ -61,6 +62,8 @@ export function AppShell({
   sidebarFooter?: ReactNode;
   /** A slim bar above the page (the agent switcher on an agent's page). */
   pageBar?: ReactNode;
+  /** Extra rows at the top of the avatar menu (the portal's Settings and its lead). */
+  menu?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -111,7 +114,7 @@ export function AppShell({
             <CountSlot />
           ) : null}
         </NavLink>
-        <UserMenu surface={surface} />
+        <UserMenu surface={surface} extra={menu} />
       </header>
       <div className="ui-shell__body">
         {menuOpen ? (
@@ -147,7 +150,7 @@ const THEME_LABEL = {
   dark: "shell.theme.dark",
 } as const satisfies Record<Theme, MessageKey>;
 
-function UserMenu({ surface }: { surface: "ops" | "portal" }) {
+function UserMenu({ surface, extra }: { surface: "ops" | "portal"; extra?: ReactNode }) {
   const { t } = useI18n();
   const session = useSession();
   const { signOut } = useSessionState();
@@ -157,6 +160,12 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
   const operator = session.operator;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
+  // A page opened from the menu closes it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closes on each page change.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!open) return;
@@ -193,6 +202,9 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
         <div className="ui-menu" data-testid="shell-user-menu">
           <p className="font-medium text-ink">{displayName(session.user)}</p>
           <p className="truncate text-sm text-ink-muted">{session.user.email}</p>
+          {extra ? (
+            <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">{extra}</div>
+          ) : null}
           <div className="mt-3 flex flex-col gap-1.5 border-t border-line pt-3">
             <span className="text-sm font-medium text-ink" id="shell-theme-label">
               {t("shell.theme")}

@@ -1,11 +1,13 @@
-// `/people`, C5 People (docs/ui-plan.md; plan §1.22, §1.25, §1.27, §1.42): everyone the client's
-// agents may contact, who they are to the client, and how each wants to be reached. One page with
-// tabs: the people (a table, and one person's details beside it), organizations, consent and
-// messages, who each agent reaches, voice samples, and import with agents' suggestions.
+// `/contacts`, Contacts (was People, six tabs; docs/ui-plan.md C5, Review 1; plan §1.22, §1.25,
+// §1.27): everyone the client's agents may contact. One list with a person's detail beside it: who
+// they are, what agents should know, their consent and how they like to be reached, and how agents
+// may reach them. Organizations are a filter of the list (`?show=organizations`); import is an
+// action on it (`?import=1`, with agents' suggestions). Who each agent reaches is on the agent's
+// Access tab, and voice samples are in Settings.
 //
-// Client users read the people and organizations; the client admin also edits them, records
-// consent, and makes a channel stricter for a person (ask first, or never: only we loosen it).
-// Names, notes and messages stay as written; the words around them are in the reader's language.
+// Client users read the list; the client admin also edits it, records consent, and makes a channel
+// stricter for a person (needs approval, or off: only we loosen it). Names, notes and messages stay
+// as written; the words around them are in the reader's language.
 import {
   CONTACT_RELATIONSHIPS,
   type Contact,
@@ -19,7 +21,7 @@ import { type ReactNode, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import { ContactsPanel } from "../../contacts/ContactsPanel";
+import { ContactConsent } from "../../contacts/ContactsPanel";
 import {
   DirectoryPanel,
   languageUsedText,
@@ -28,7 +30,6 @@ import {
 } from "../../directory/DirectoryPanel";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
-import { PortalPeopleList } from "../../people/PeoplePanel";
 import { shortTime } from "../../runs/format";
 import { useSession } from "../../session/session";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
@@ -42,17 +43,10 @@ import {
   EmptyState,
   ErrorNotice,
   PageHeader,
-  Tabs,
   Tag,
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
-import { VoiceSamples } from "./VoiceSamples";
-
-export type PeopleTab = "people" | "organizations" | "consent" | "reach" | "voice" | "import";
-
-/** The tabs only the client admin has. */
-const ADMIN_TABS: readonly PeopleTab[] = ["consent", "reach", "voice", "import"];
 
 const CHANNELS: readonly ReachChannel[] = ["email", "sms", "whatsapp", "voice"];
 
@@ -88,78 +82,50 @@ function useIsAdmin(): boolean {
   return client?.role === "client_admin";
 }
 
-export function PeopleScreen({ tab }: { tab: PeopleTab }) {
+export function ContactsScreen() {
   const { t } = useI18n();
   const admin = useIsAdmin();
-  const tabs: { id: PeopleTab; to: string; label: string }[] = [
-    { id: "people", to: PORTAL_PATHS.people, label: t("peoplePage.tab.people") },
-    {
-      id: "organizations",
-      to: PORTAL_PATHS.organizations,
-      label: t("peoplePage.tab.organizations"),
-    },
-    { id: "consent", to: PORTAL_PATHS.contacts, label: t("peoplePage.tab.consent") },
-    { id: "reach", to: PORTAL_PATHS.reach, label: t("peoplePage.tab.reach") },
-    { id: "voice", to: PORTAL_PATHS.voice, label: t("peoplePage.tab.voice") },
-    { id: "import", to: PORTAL_PATHS.peopleImport, label: t("peoplePage.tab.import") },
-  ];
-  const shown = admin ? tabs : tabs.filter((x) => !ADMIN_TABS.includes(x.id));
+  const [params] = useSearchParams();
+  const importing = admin && params.has("import");
   return (
-    <Page testId="portal-people">
-      <div className="flex flex-col gap-6">
-        <PageHeader
-          title={t("peoplePage.title")}
-          subtitle={t("peoplePage.subtitle")}
-          actions={
-            admin ? (
-              <>
-                <Link
-                  to={PORTAL_PATHS.peopleImport}
-                  className={buttonClass("secondary")}
-                  data-testid="people-import"
-                >
-                  {t("peoplePage.import")}
-                </Link>
-                <Link
-                  to={`${PORTAL_PATHS.people}?add=1`}
-                  className={buttonClass("primary")}
-                  data-testid="people-add"
-                >
-                  {t("peoplePage.add")}
-                </Link>
-              </>
-            ) : null
-          }
-        />
-        <div className="overflow-x-auto">
-          <Tabs
-            items={shown.map((x) => ({
-              to: x.to,
-              label: x.label,
-              end: true,
-              active: x.id === tab,
-            }))}
+    <Page testId="portal-contacts">
+      <PageHeader
+        title={t("nav.contacts")}
+        subtitle={t("peoplePage.subtitle")}
+        actions={
+          admin && !importing ? (
+            <>
+              <Link
+                to={PORTAL_PATHS.contactsImport}
+                className={buttonClass("secondary")}
+                data-testid="people-import"
+              >
+                {t("peoplePage.import")}
+              </Link>
+              <Link
+                to={`${PORTAL_PATHS.contacts}?add=1`}
+                className={buttonClass("primary")}
+                data-testid="people-add"
+              >
+                {t("peoplePage.add")}
+              </Link>
+            </>
+          ) : null
+        }
+      />
+      {importing ? (
+        <div className="flex flex-col gap-4" data-testid="contacts-import">
+          <Link to={PORTAL_PATHS.contacts} className="text-sm text-link hover:underline">
+            {t("contactsPage.backToList")}
+          </Link>
+          <DirectoryPanel
+            surface={{ kind: "portal" }}
+            canEdit={admin}
+            only={["import", "suggestions"]}
           />
         </div>
-      </div>
-      {!admin && ADMIN_TABS.includes(tab) ? (
-        <EmptyState>{t("peoplePage.adminOnly")}</EmptyState>
-      ) : tab === "people" ? (
-        <PeopleDirectory admin={admin} />
-      ) : tab === "organizations" ? (
-        <DirectoryPanel surface={{ kind: "portal" }} canEdit={admin} only={["organizations"]} />
-      ) : tab === "consent" ? (
-        <ContactsPanel surface={{ kind: "portal" }} />
-      ) : tab === "reach" ? (
-        <PortalPeopleList />
-      ) : tab === "voice" ? (
-        <VoiceSamples />
       ) : (
-        <DirectoryPanel
-          surface={{ kind: "portal" }}
-          canEdit={admin}
-          only={["import", "suggestions"]}
-        />
+        <PeopleDirectory admin={admin} />
       )}
     </Page>
   );
@@ -183,14 +149,31 @@ function channelList(channels: ReachChannel[], i18n: I18n): string {
   );
 }
 
-/** The People tab: filters by relationship, a search, the table and one person's details. */
+/**
+ * The list: filters by relationship (and Organizations, which lists the organizations instead), a
+ * search, the table and one person's details.
+ */
 function PeopleDirectory({ admin }: { admin: boolean }) {
   const i18n = useI18n();
   const { t } = i18n;
   const api = useApiClient();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<Relationship | "all">("all");
+  const [relationship, setRelationship] = useState<Relationship | "all">("all");
+  const organizations = params.get("show") === "organizations";
+  const filter: Relationship | "all" | "organizations" = organizations
+    ? "organizations"
+    : relationship;
+  function setFilter(next: Relationship | "all" | "organizations") {
+    setParams((p) => {
+      const out = new URLSearchParams(p);
+      if (next === "organizations") out.set("show", "organizations");
+      else out.delete("show");
+      out.delete("person");
+      return out;
+    });
+    if (next !== "organizations") setRelationship(next);
+  }
   const list = useApi(apiRoutes.portalDirectory, { query: q.trim() ? { q: q.trim() } : {} });
   // Who each agent reaches (the client admin's view): the agents in touch with each person.
   const reach = useApi(apiRoutes.portalAgentPeople, admin ? {} : null);
@@ -225,12 +208,13 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
         for (const p of people) {
           if (p.relationship) counts.set(p.relationship, (counts.get(p.relationship) ?? 0) + 1);
         }
-        const shown = filter === "all" ? people : people.filter((p) => p.relationship === filter);
+        const shown =
+          relationship === "all" ? people : people.filter((p) => p.relationship === relationship);
         const selected = people.find((p) => p.id === selectedId) ?? null;
         return (
           <PageGrid
             rail={
-              adding ? (
+              organizations ? null : adding ? (
                 <Card title={t("peoplePage.addTitle")} pad testId="people-add-form">
                   <PersonForm
                     person={null}
@@ -253,11 +237,11 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                   admin={admin}
                   onChanged={list.reload}
                 />
-              ) : (
+              ) : shown.length > 0 ? (
                 <Card pad testId="people-pick">
                   <p className="text-sm text-ink-muted">{t("peoplePage.pick")}</p>
                 </Card>
-              )
+              ) : null
             }
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -287,18 +271,36 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                     {t(FILTER_KEY[r])} · {counts.get(r)}
                   </button>
                 ))}
+                {data.organizations.length > 0 || admin ? (
+                  <button
+                    type="button"
+                    aria-pressed={filter === "organizations"}
+                    onClick={() => setFilter("organizations")}
+                    data-testid="people-filter-organizations"
+                  >
+                    {t("peoplePage.tab.organizations")} · {data.organizations.length}
+                  </button>
+                ) : null}
               </div>
-              <TextInput
-                type="search"
-                className="w-full sm:w-72"
-                aria-label={t("peoplePage.search")}
-                placeholder={t("peoplePage.search")}
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                data-testid="people-search"
-              />
+              {organizations ? null : (
+                <TextInput
+                  type="search"
+                  className="w-full sm:w-72"
+                  aria-label={t("peoplePage.search")}
+                  placeholder={t("peoplePage.search")}
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  data-testid="people-search"
+                />
+              )}
             </div>
-            {shown.length === 0 ? (
+            {organizations ? (
+              <DirectoryPanel
+                surface={{ kind: "portal" }}
+                canEdit={admin}
+                only={["organizations"]}
+              />
+            ) : shown.length === 0 ? (
               <EmptyState>
                 {people.length === 0 && !q.trim() ? t("peoplePage.empty") : t("peoplePage.noMatch")}
               </EmptyState>
@@ -478,6 +480,9 @@ function PersonDetail({
         <p className="text-sm whitespace-pre-line text-ink" data-testid="people-detail-notes">
           {p.notes?.trim() ? p.notes : t("peoplePage.knowNone")}
         </p>
+      </DetailBlock>
+      <DetailBlock title={t("contactsPage.consent")}>
+        <ContactConsent contact={p} canEdit={admin} onChanged={onChanged} />
       </DetailBlock>
       <DetailBlock title={t("peoplePage.howReach")}>
         <ReachLevels person={p} admin={admin} onChanged={onChanged} />

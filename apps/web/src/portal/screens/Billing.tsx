@@ -29,7 +29,8 @@ import {
 import { count, dayLabel, periodLabel } from "../../usage/format";
 import { Stat, StatRow } from "../../usage/Stat";
 
-export function PortalBillingScreen() {
+/** `embedded`: inside Settings (its Billing section), without a header of its own. */
+export function PortalBillingScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const i18n = useI18n();
   const { t, intl } = i18n;
   const { data, error, loading, reload } = useApi(apiRoutes.portalBilling);
@@ -37,7 +38,7 @@ export function PortalBillingScreen() {
 
   return (
     <div>
-      <PageHeader title={t("billing.title")} subtitle={t("billing.subtitle")} />
+      {embedded ? null : <PageHeader title={t("billing.title")} subtitle={t("billing.subtitle")} />}
       {loading && !data ? <Loading /> : null}
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data && !data.setUp ? <EmptyState>{t("billing.notSetUp")}</EmptyState> : null}

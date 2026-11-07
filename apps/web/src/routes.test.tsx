@@ -63,18 +63,23 @@ describe("the portal's routes", () => {
   it("has the plan's new homes", () => {
     for (const p of [
       "/",
-      "/desk",
+      "/inbox",
       "/agents/x",
+      "/agents/x/runs",
+      "/agents/x/access",
       "/accounts",
-      "/people",
+      "/contacts",
       "/settings",
+      "/settings/approvals",
+      "/settings/team",
+      "/settings/billing",
+      "/settings/exports",
+      "/settings/conversations",
+      "/settings/voice",
       "/runs",
       "/weekly",
       "/sloan",
-      // UI-3a
       "/upload",
-      "/settings/team",
-      "/settings/exports",
     ]) {
       const pattern = p.replace("/x", `/${ID}`);
       expect(all).toContain(pattern);
@@ -90,13 +95,19 @@ describe("the portal's routes", () => {
 
   it.each([
     [`/services/${ID}`, `/agents/${ID}`],
-    ["/inbox?status=open#top", "/desk?status=open#top"],
+    ["/desk?status=open#top", "/inbox?status=open#top"],
     ["/connections", "/accounts"],
     ["/access", "/accounts#vault"],
     ["/accounts/access?x=1", "/accounts?x=1#vault"],
-    ["/directory", "/people"],
-    ["/people/directory", "/people"],
-    ["/contacts", "/people/contacts"],
+    ["/directory", "/contacts"],
+    ["/people", "/contacts"],
+    ["/people/directory", "/contacts"],
+    ["/people/contacts", "/contacts"],
+    ["/people/organizations", "/contacts?show=organizations"],
+    ["/people/import", "/contacts?import=1"],
+    ["/people/reach", "/"],
+    ["/people/voice", "/settings/voice"],
+    ["/conversations", "/settings/conversations"],
     ["/billing", "/settings/billing"],
   ])("%s redirects to %s", async (from, to) => {
     renderAt(from, false);

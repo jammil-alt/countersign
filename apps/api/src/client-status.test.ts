@@ -257,6 +257,10 @@ describe.skipIf(!h)("a run as the client sees it", () => {
     expect(table.figures.runs).toMatchObject({ waiting: inWeek ? 1 : 0 });
     expect(clerk.runs).toMatchObject({ waiting: inWeek ? 1 : 0, going: 1 });
     expect(clerk.runsDone).toBe(clerk.runs.succeeded);
+    // UI cleanup: an agent built for this client alone has no template; the page knows whether
+    // it reads documents (upload on its page).
+    expect(svc.template).toBeNull();
+    expect(typeof svc.readsDocuments).toBe("boolean");
     // The month (agent page) and Reports count the same way.
     expect(svc.thisMonth.runs).toEqual(report.services[0].runs);
     expect(svc.thisMonth.runs).toMatchObject({ waiting: inMonth ? 1 : 0, going: 1 });

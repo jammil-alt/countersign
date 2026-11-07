@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { I18nProvider } from "../i18n/i18n";
-import { fillPath } from "../shell/Redirect";
+import { fillPath, redirectTarget } from "../shell/Redirect";
 import { applyTheme, storedTheme } from "../shell/theme";
 import { ActivityRow, BeforeAfter } from "./activity";
 import { AgentBadge, PersonBadge } from "./badges";
@@ -176,6 +176,16 @@ describe("shell helpers", () => {
     expect(fillPath("/agents/:id", { id: "a b" })).toBe("/agents/a%20b");
     expect(fillPath("/reports/*", { "*": "materials/costs" })).toBe("/reports/materials/costs");
     expect(fillPath("/desk", {})).toBe("/desk");
+  });
+
+  it("keeps a new address's own query, then the old one's", () => {
+    expect(redirectTarget("/inbox", {}, "?status=open")).toBe("/inbox?status=open");
+    expect(redirectTarget("/contacts?show=organizations", {}, "")).toBe(
+      "/contacts?show=organizations",
+    );
+    expect(redirectTarget("/contacts?import=1", {}, "?person=p1&import=0")).toBe(
+      "/contacts?import=1&person=p1",
+    );
   });
 
   it("applies a theme to <html> and reads the stored one", () => {

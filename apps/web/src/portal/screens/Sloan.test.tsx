@@ -153,14 +153,15 @@ describe("Sloan", () => {
     await waitFor(() => expect(resolves).toEqual([{ decision: "approve" }]));
   });
 
-  it("is in the sidebar, and the search box asks Sloan", async () => {
+  it("is asked from the search box, not the sidebar", async () => {
     setup();
-    expect(await screen.findByTestId("portal-nav-sloan")).toHaveAttribute("href", "/sloan");
-    expect(screen.getByTestId("portal-nav-weekly")).toHaveAttribute("href", "/weekly");
+    expect(await screen.findByTestId("portal-nav-home")).toBeInTheDocument();
+    expect(screen.queryByTestId("portal-nav-sloan")).toBeNull();
+    expect(screen.queryByTestId("portal-nav-weekly")).toBeNull();
     await userEvent.click(screen.getByTestId("shell-search"));
     await userEvent.type(screen.getByTestId("search-input"), "why is Cole waiting");
     const ask = await screen.findByTestId("search-ask");
-    expect(ask).toHaveTextContent("Ask Sloan: why is Cole waiting");
+    expect(ask).toHaveTextContent("Ask Sloan, your account agent: why is Cole waiting");
     expect(ask).toHaveAttribute("href", "/sloan?ask=why%20is%20Cole%20waiting");
   });
 });

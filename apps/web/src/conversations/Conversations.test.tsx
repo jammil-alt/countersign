@@ -76,7 +76,11 @@ describe("portal conversations", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("Pat Lee")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-nav-conversations")).toBeInTheDocument();
+    // `/conversations` is a section of Settings now.
+    expect(screen.getByTestId("portal-settings-nav-conversations")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     await userEvent.selectOptions(
       screen.getByTestId(`conversation-${CONV}-attachments`),
       "documents",
