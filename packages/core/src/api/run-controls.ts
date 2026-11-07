@@ -230,7 +230,25 @@ export const runControlRoutes = {
     roles: OPS,
     summary: "A run's model calls: provider, model, tokens, cost, duration, stop reason",
     params: IdParams,
-    response: z.object({ modelCalls: z.array(OpsModelCall) }),
+    response: z.object({
+      modelCalls: z.array(OpsModelCall),
+      /**
+       * Steps whose tokens and cost are more than their recorded calls account for (a step run
+       * before model calls were kept, or a call that wasn't recorded): what is missing, so the tab
+       * never says "no model calls" of a step that spent tokens.
+       */
+      unrecorded: z
+        .array(
+          z.object({
+            stepRunId: z.string(),
+            nodeId: z.string(),
+            tokensIn: z.number().int(),
+            tokensOut: z.number().int(),
+            costUsd: z.string(),
+          }),
+        )
+        .default([]),
+    }),
   }),
   opsModelCall: defineRoute({
     method: "GET",

@@ -4,6 +4,7 @@
 // saved views of the runs list. RunFilter's SQL is here too: both runs lists use it.
 
 import {
+  Decimal,
   errorGroupKey,
   type ModelCallBody,
   RUNS_CSV_COLUMNS,
@@ -263,6 +264,46 @@ function sameTrigger(r: typeof run.$inferSelect) {
   return { trigger, payload: payload ?? {} };
 }
 
+/**
+ * Each step's tokens and cost beyond what its recorded model calls add up to. The step's usage
+ * (`step_run`) is written as each call returns; its `model_call` rows are kept since v0.12 W1-E.
+ * A step run before then, or a call whose row wasn't written, showed as "no model calls" though
+ * the step spent tokens (staging: step 6 of R-85ab6f, 22.4k tokens, $0.11, no rows).
+ */
+// DECISION: the gap is reported per step rather than made up as calls: tokens and cost are what
+// the step row says beyond its calls; a step whose calls cover it is left out.
+export function unrecordedUsage(
+  steps: readonly {
+    id: string;
+    nodeId: string;
+    tokensIn: number;
+    tokensOut: number;
+    costUsd: string;
+  }[],
+  calls: readonly Pick<
+    typeof modelCall.$inferSelect,
+    "stepRunId" | "tokensIn" | "tokensOut" | "costUsd"
+  >[],
+) {
+  return steps.flatMap((s) => {
+    const mine = calls.filter((c) => c.stepRunId === s.id);
+    const tokensIn = s.tokensIn - mine.reduce((n, c) => n + c.tokensIn, 0);
+    const tokensOut = s.tokensOut - mine.reduce((n, c) => n + c.tokensOut, 0);
+    const cost = mine.reduce((d, c) => d.minus(c.costUsd), new Decimal(s.costUsd));
+    // Recorded costs round each call up to a ten-thousandth: only a whole token gap counts.
+    if (tokensIn <= 0 && tokensOut <= 0) return [];
+    return [
+      {
+        stepRunId: s.id,
+        nodeId: s.nodeId,
+        tokensIn: Math.max(0, tokensIn),
+        tokensOut: Math.max(0, tokensOut),
+        costUsd: Decimal.max(0, cost).toFixed(4),
+      },
+    ];
+  });
+}
+
 function opsModelCall(m: typeof modelCall.$inferSelect) {
   return {
     id: m.id,
@@ -496,12 +537,24 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsRunModelCalls, async ({ tx, params, tenantIds }) => {
     const r = await runInScope(tx, tenantIds, params.id);
-    const rows = await tx
-      .select()
-      .from(modelCall)
-      .where(and(eq(modelCall.runId, r.id), eq(modelCall.tenantId, r.tenantId)))
-      .orderBy(modelCall.createdAt, modelCall.id);
-    return { modelCalls: rows.map(opsModelCall) };
+    const [rows, steps] = await Promise.all([
+      tx
+        .select()
+        .from(modelCall)
+        .where(and(eq(modelCall.runId, r.id), eq(modelCall.tenantId, r.tenantId)))
+        .orderBy(modelCall.createdAt, modelCall.id),
+      tx
+        .select({
+          id: stepRun.id,
+          nodeId: stepRun.nodeId,
+          tokensIn: stepRun.tokensIn,
+          tokensOut: stepRun.tokensOut,
+          costUsd: stepRun.costUsd,
+        })
+        .from(stepRun)
+        .where(and(eq(stepRun.runId, r.id), eq(stepRun.tenantId, r.tenantId))),
+    ]);
+    return { modelCalls: rows.map(opsModelCall), unrecorded: unrecordedUsage(steps, rows) };
   });
 
   mount(app, routes.opsModelCall, async ({ tx, params, tenantIds, services }) => {
