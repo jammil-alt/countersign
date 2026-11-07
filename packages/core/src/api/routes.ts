@@ -290,6 +290,13 @@ export const OpsToolCall = z.object({
 export const ChangeDisplayView = z.object({
   connectorName: z.string(),
   tool: ToolDisplay.nullable(),
+  /**
+   * Names for ids the change's before state leaves unnamed (`{ accounts: { "20": "Job
+   * Materials" } }`, keyed like the display's `names` lists), found by the server in the
+   * connection's synced records. Absent when there is nothing to add. The before state's own
+   * names come first.
+   */
+  names: z.record(z.string(), z.record(z.string(), z.string())).optional(),
 });
 export type ChangeDisplayView = z.infer<typeof ChangeDisplayView>;
 

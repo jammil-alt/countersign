@@ -1,14 +1,14 @@
-// The Feedback button (docs/plan.md §1.10): floats over every screen. Press it and the page dims
+// The Feedback button (docs/plan.md §1.10): an item in the avatar menu (QA round 1: it floated
+// over the page and covered content, such as a bill's Total row). Choose it and the page dims
 // ("Tap where the problem is"); a tap drops a pin and records what was under it, the path and the
 // viewport, and takes a picture of the page without this layer. A sheet shows the picture with the
 // pin, a comment box, "Leave the picture off" and Send. "No particular spot" skips the pin;
-// Escape or Cancel sends nothing. On phones the button is round and the composer full screen.
+// Escape or Cancel sends nothing. On phones the composer is full screen.
 import { FEEDBACK_COMMENT_MAX, type FeedbackSubmission } from "@countersign/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useLocation } from "react-router-dom";
 import { useApiClient } from "../api/useApi";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
-import { Icon } from "../ui/icons";
 import { Button, cx } from "../ui/primitives";
 import { captureViewport, FEEDBACK_LAYER_ATTR } from "./capture";
 import { describeElement } from "./describe";
@@ -45,6 +45,24 @@ function elementAt(x: number, y: number): Element | null {
   return all.find((el) => !el.closest(`[${FEEDBACK_LAYER_ATTR}]`)) ?? null;
 }
 
+// The shell's avatar menu starts it: FeedbackButton (where it is on) registers how to start, and
+// the menu shows "Feedback" only while one is registered.
+let starter: (() => void) | null = null;
+const listeners = new Set<() => void>();
+function setStarter(next: (() => void) | null) {
+  starter = next;
+  for (const l of listeners) l();
+}
+function subscribe(l: () => void) {
+  listeners.add(l);
+  return () => listeners.delete(l);
+}
+
+/** How to start a feedback report, or null where the Feedback button is off. */
+export function useFeedbackStarter(): (() => void) | null {
+  return useSyncExternalStore(subscribe, () => starter);
+}
+
 export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -59,6 +77,16 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
   }, [toast]);
 
   const cancel = useCallback(() => setPhase({ kind: "idle" }), []);
+
+  // DECISION (QA round 1): no floating button; the avatar menu holds "Feedback", so nothing sits
+  // over a page's content on any screen width.
+  useEffect(() => {
+    const start = () => setPhase({ kind: "picking" });
+    setStarter(start);
+    return () => {
+      if (starter === start) setStarter(null);
+    };
+  }, []);
 
   useEffect(() => {
     if (phase.kind === "idle") return;
@@ -82,22 +110,6 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
 
   return (
     <div {...layer} data-testid="feedback-layer">
-      {phase.kind === "idle" ? (
-        <button
-          type="button"
-          data-testid="feedback-button"
-          aria-label={t("feedback.button")}
-          onClick={() => setPhase({ kind: "picking" })}
-          className={cx(
-            "ds-btn ds-btn--secondary fixed right-4 bottom-4 z-40 border border-line bg-surface",
-            "max-sm:size-12 max-sm:rounded-full max-sm:p-0",
-          )}
-        >
-          <Icon name="message" />
-          <span className="max-sm:sr-only">{t("feedback.button")}</span>
-        </button>
-      ) : null}
-
       {phase.kind === "picking" ? <PinPicker onPin={pinAt} onCancel={cancel} /> : null}
 
       {phase.kind === "capturing" ? (

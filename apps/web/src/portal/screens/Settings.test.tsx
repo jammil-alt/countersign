@@ -152,6 +152,51 @@ describe("portal settings", () => {
     expect(api.calls).not.toContain("GET /api/billing");
   });
 
+  it("holds Approvals: who approves what, and the undo window the admin sets", async () => {
+    const saved: unknown[] = [];
+    let undoSeconds = 60;
+    const member = (id: string, name: string, role: string, canSign: boolean, signs: string[]) => ({
+      userId: id,
+      name,
+      email: `${id}@demo.example.com`,
+      role,
+      canSign,
+      signs,
+    });
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview,
+      "GET /api/team": () => ({
+        members: [
+          member("ana", "Ana Diaz", "client_admin", true, [
+            "Every change no rule sends to someone else.",
+          ]),
+          member("bo", "Bo Lee", "client_user", false, ["Sees everything, approves nothing."]),
+        ],
+        settings: { undoSeconds },
+      }),
+      "PUT /api/desk/settings": ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        saved.push(body);
+        undoSeconds = body.undoSeconds;
+        return { settings: { undoSeconds } };
+      },
+    });
+    renderAt("/settings#approvals", api);
+    const team = await screen.findByTestId("desk-team");
+    expect(team).toHaveTextContent("Who approves what");
+    expect(team).toHaveTextContent("Bo Lee");
+    expect(team).toHaveTextContent("Sees everything, approves nothing.");
+    expect(screen.getByRole("link", { name: "Approvals" })).toHaveAttribute("href", "#approvals");
+    await userEvent.selectOptions(within(team).getByTestId("desk-undo-window"), "120");
+    expect(saved).toEqual([{ undoSeconds: 120 }]);
+    await waitFor(() =>
+      expect(within(screen.getByTestId("desk-team")).getByTestId("desk-undo-window")).toHaveValue(
+        "120",
+      ),
+    );
+  });
+
   it("shows the admin this month's credits and saves what happens when they run out", async () => {
     const puts: unknown[] = [];
     let onCreditsOut = "continue";

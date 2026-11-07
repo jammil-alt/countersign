@@ -2,14 +2,15 @@
 // §11.1): what the client's agents need from this person, and what they have done. The list on
 // the left by day, the open item on the right with its decision and its worksheet. Views: waiting
 // on you, questions, not now (snoozed), done. A client user sees only what is theirs (the API
-// filters); a viewer sees and never signs. Every action reloads the shell's Desk count.
+// filters); a viewer sees and never approves. Every action reloads the shell's Desk count. Who
+// approves what and the undo window live in Settings, Approvals (QA round 1); the Desk is the list
+// and the open item.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { DeskDetail } from "../../desk/DeskDetail";
 import { DeskList } from "../../desk/DeskList";
-import { DeskTeam } from "../../desk/DeskTeam";
 import { type DeskEntry, entriesOf, leadOf, needOf } from "../../desk/model";
 import { useI18n } from "../../i18n/i18n";
 import { usePoll } from "../../runs/usePoll";
@@ -61,8 +62,6 @@ export function PortalDeskScreen() {
   const team = useApi(apiRoutes.portalTeam);
   usePoll(waiting.reload, true, 20_000, waiting.loading);
 
-  const client = session.tenants.find((c) => c.id === session.activeTenantId) ?? null;
-  const isAdmin = client?.role === "client_admin";
   // A viewer (`canSign` false) sees the Desk without its buttons; until the team loads, the API
   // is the judge.
   const me = team.data?.members.find((m) => m.userId === session.user.id);
@@ -239,10 +238,10 @@ export function PortalDeskScreen() {
         </fieldset>
       </div>
 
-      {/* Phone: the list, the open item, then who signs. Wide: the list and who signs on the
-          left, the open item on the right. */}
-      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start">
-        <div className="flex min-w-0 flex-col gap-5 lg:col-start-1 lg:row-start-1">
+      {/* Phone: the list, then the open item. Wide: the list on the left, the open item on the
+          right with most of the width (its before and after tables need it). */}
+      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-3">
           <Card testId="desk-list">
             {state.error && !state.data ? (
               <div className="p-4">
@@ -275,24 +274,22 @@ export function PortalDeskScreen() {
               </>
             )}
           </Card>
+          <Link
+            to={`${PORTAL_PATHS.settings}#approvals`}
+            className="self-start text-sm text-link hover:underline"
+            data-testid="desk-approval-settings"
+          >
+            {t("desk.approvalSettings")}
+          </Link>
         </div>
 
-        <div
-          ref={detailRef}
-          className="flex min-w-0 flex-col gap-5 lg:col-start-2 lg:row-span-2 lg:row-start-1"
-        >
+        <div ref={detailRef} className="flex min-w-0 flex-col gap-5">
           {selected ? (
             <DeskDetail key={selected.key} entry={selected} canSign={canSign} onChanged={changed} />
           ) : state.data ? (
             <EmptyState>{t("desk.pick")}</EmptyState>
           ) : null}
         </div>
-
-        {team.data ? (
-          <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-            <DeskTeam team={team.data} isAdmin={isAdmin} onSaved={team.reload} />
-          </div>
-        ) : null}
       </div>
     </Page>
   );

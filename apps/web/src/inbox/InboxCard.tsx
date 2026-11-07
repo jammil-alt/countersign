@@ -347,6 +347,7 @@ export function InboxCard({
           before={item.payload.before}
           input={item.payload.input}
           display={item.display?.tool}
+          names={item.display?.names}
         />
       ) : facts.length > 0 ? (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">

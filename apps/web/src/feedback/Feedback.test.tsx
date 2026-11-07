@@ -1,4 +1,4 @@
-// The Feedback button in the portal and the back office: off → no button; on → pin, picture,
+// The Feedback item (avatar menu) in the portal and the back office: off → no item; on → pin, picture,
 // comment, Send (comment first, picture after); leave the picture off; Escape sends nothing.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -61,12 +61,20 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+/** QA round 1: Feedback is an item in the avatar menu, never a button over the page. */
+async function openFeedback() {
+  await userEvent.click(await screen.findByTestId("shell-avatar"));
+  await userEvent.click(await screen.findByTestId("feedback-button"));
+}
+
 describe("Feedback button", () => {
   it("is not in the portal when the operator has it off", async () => {
     const { api } = portal(false);
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
     await waitFor(() => expect(api.calls).toContain("GET /api/feedback/status"));
+    await userEvent.click(screen.getByTestId("shell-avatar"));
+    expect(screen.getByTestId("shell-user-menu")).toBeInTheDocument();
     expect(screen.queryByTestId("feedback-button")).toBeNull();
   });
 
@@ -74,11 +82,12 @@ describe("Feedback button", () => {
     const { api, sent } = portal(true);
     // The old address redirects to the Desk, query kept.
     renderAt("/inbox?status=open", api);
-    // QA round 1: it is for problems with the app; Sloan takes every other ask.
+    // QA round 1: it is for problems with the app (Sloan takes every other ask), in the avatar menu.
+    await userEvent.click(await screen.findByTestId("shell-avatar"));
     expect(await screen.findByTestId("feedback-button")).toHaveAccessibleName(
       "Report a problem with the app",
     );
-    await userEvent.click(await screen.findByTestId("feedback-button"));
+    await userEvent.click(screen.getByTestId("feedback-button"));
     await userEvent.click(screen.getByTestId("feedback-pick-area"));
     expect(await screen.findByTestId("feedback-composer")).toBeInTheDocument();
     expect(screen.getByTestId("feedback-picture-pin")).toBeInTheDocument();
@@ -104,7 +113,7 @@ describe("Feedback button", () => {
     putOk = false;
     const { api } = portal(true);
     renderAt("/", api);
-    await userEvent.click(await screen.findByTestId("feedback-button"));
+    await openFeedback();
     await userEvent.click(screen.getByTestId("feedback-no-spot"));
     await userEvent.type(await screen.findByTestId("feedback-comment"), "Slow");
     await userEvent.click(screen.getByTestId("feedback-send"));
@@ -116,7 +125,7 @@ describe("Feedback button", () => {
   it("leaves the picture off, and skips the pin", async () => {
     const { api, sent } = portal(true);
     renderAt("/", api);
-    await userEvent.click(await screen.findByTestId("feedback-button"));
+    await openFeedback();
     await userEvent.click(screen.getByTestId("feedback-no-spot"));
     await userEvent.click(await screen.findByTestId("feedback-leave-picture-off"));
     expect(screen.getByTestId("feedback-no-picture")).toBeInTheDocument();
@@ -130,10 +139,10 @@ describe("Feedback button", () => {
   it("sends nothing on Escape or Cancel", async () => {
     const { api, sent } = portal(true);
     renderAt("/", api);
-    await userEvent.click(await screen.findByTestId("feedback-button"));
+    await openFeedback();
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByTestId("feedback-pick-area")).toBeNull();
-    await userEvent.click(screen.getByTestId("feedback-button"));
+    await openFeedback();
     await userEvent.click(screen.getByTestId("feedback-no-spot"));
     await userEvent.click(await screen.findByTestId("feedback-cancel"));
     expect(screen.queryByTestId("feedback-composer")).toBeNull();
@@ -152,7 +161,7 @@ describe("Feedback button", () => {
     });
     document.elementsFromPoint = vi.fn(() => []);
     renderAt("/ops", api);
-    await userEvent.click(await screen.findByTestId("feedback-button"));
+    await openFeedback();
     await userEvent.click(screen.getByTestId("feedback-no-spot"));
     await userEvent.type(await screen.findByTestId("feedback-comment"), "Ops idea");
     await userEvent.click(screen.getByTestId("feedback-send"));

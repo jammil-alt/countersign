@@ -600,7 +600,12 @@ function ActionPanel({
         </Badge>
       </div>
       <div className="ui-card__body">
-        <ChangeTables before={action.before} input={action.input} display={action.display?.tool} />
+        <ChangeTables
+          before={action.before}
+          input={action.input}
+          display={action.display?.tool}
+          showIds
+        />
       </div>
       <div className="ui-card__foot justify-between">
         <p className="text-sm text-ink-muted">{text}</p>

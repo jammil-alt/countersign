@@ -45,6 +45,7 @@ import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { changeDisplay, clientTitles, itemDisplay, plainTitle } from "../change-display";
+import { syncedRefNames } from "../change-names";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
 // v0.13 W2-I
@@ -126,12 +127,19 @@ export async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) 
   );
   const services = await serviceRefs(tx, rows);
   const titles = await clientTitles(tx, rows, platform);
+  // QA round 1: ids the before state leaves unnamed are named from the synced records.
+  const refNames = await syncedRefNames(tx, platform, rows);
+  const displayOf = (i: InboxRow) => {
+    const view = itemDisplay(platform, i);
+    const names = refNames.get(i.id);
+    return view && names ? { ...view, names } : view;
+  };
   return rows.map((i) => ({
     id: i.id,
     kind: i.kind,
     title: titles.get(i.id) ?? plainTitle(i),
     payload: scrubForPortal(i.payload) as Record<string, unknown>,
-    display: itemDisplay(platform, i),
+    display: displayOf(i),
     status: i.status,
     runId: i.runId,
     dueAt: iso(i.dueAt),

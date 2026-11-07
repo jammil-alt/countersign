@@ -34,6 +34,7 @@ import {
   RealmId,
   tokensFrom,
 } from "./api";
+import { qboSyncedNames } from "./names";
 import { type QboSyncCursor, qboRawRecord, qboSyncPage } from "./sync";
 import { QBO_TOOLS } from "./tool-kit";
 import { qboTools } from "./tools";
@@ -251,6 +252,8 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
     async verifyWebhook(headers, body) {
       return verifyQboWebhook(options.webhookVerifier, headers[QBO_SIGNATURE_HEADER], body);
     },
+
+    syncedNames: qboSyncedNames,
 
     tools: qboTools(client),
   });

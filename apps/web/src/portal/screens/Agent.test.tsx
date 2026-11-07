@@ -277,7 +277,7 @@ describe("the agent page", () => {
       "Read: on its own",
     );
     expect(within(reach).getByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Update: your sign",
+      "Update: needs your approval",
     );
     expect(within(reach).getByTestId(`agent-reach-${QBO}-delete`)).toHaveTextContent("Delete: off");
     expect(
@@ -506,7 +506,7 @@ describe("the agent page", () => {
     renderAt(`/agents/${SVC}`, api);
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Arbeitet"));
     expect(await screen.findByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Ändern: mit Ihrer Unterschrift",
+      "Ändern: braucht Ihre Freigabe",
     );
     expect(screen.getByText("Verlauf")).toBeInTheDocument();
   });

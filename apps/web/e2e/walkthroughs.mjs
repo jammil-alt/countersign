@@ -245,14 +245,14 @@ async function clientWalk(w) {
       const outcome = detail.locator('[data-testid="desk-outcome"]');
       await outcome.waitFor({ state: "visible", timeout: 10_000 });
       const said = (await outcome.innerText()).trim();
-      if (said !== "Signed by you") throw new Error(`after signing it says "${said}"`);
+      if (said !== "Approved by you") throw new Error(`after approving it says "${said}"`);
       const left = detail.locator('[data-testid="desk-undo-left"]');
       await left.waitFor({ state: "visible", timeout: 5_000 });
       if (!/\d+ seconds? to undo/.test(await left.innerText())) {
         throw new Error(`no undo countdown: "${await left.innerText()}"`);
       }
       await detail.locator('[data-testid="desk-undo"]').click();
-      // Waiting again: its Sign button is back and the outcome is gone.
+      // Waiting again: its Approve button is back and the outcome is gone.
       await sign.waitFor({ state: "visible", timeout: 10_000 });
       if (await outcome.count()) throw new Error("still shows an outcome after Undo");
     } finally {

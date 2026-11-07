@@ -447,6 +447,7 @@ function WaitingChanges({ runId, open }: { runId: string; open: boolean }) {
               before={item.payload.before}
               input={item.payload.input}
               display={item.display?.tool ?? null}
+              names={item.display?.names}
             />
           </div>
         );
