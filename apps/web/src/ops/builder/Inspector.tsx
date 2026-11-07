@@ -31,8 +31,10 @@ import { useApi } from "../../api/useApi";
 import { Icon } from "../../ui/icons";
 import { Badge, Button, cx } from "../../ui/primitives";
 import { KIND_LABEL } from "../workflow/describe";
+import { toolLabel, whenEvent } from "../workflow/labels";
 import { type BuilderData, connectorName } from "./catalog";
 import {
+  EventOptions,
   type FieldErrors,
   JsonInput,
   parseNumberText,
@@ -73,6 +75,8 @@ export interface InspectorProps {
   template: { bundle: AgentBundle; workflow: Workflow | undefined } | null;
   members: readonly Member[];
   focus: FocusRequest | null;
+  /** The connectors the agent may use: their events are the ones a trigger offers. */
+  connectors?: ReadonlySet<string> | undefined;
   /** `key` groups typing in one field into one undo step. */
   onStep(id: string, fn: (step: Step) => Step, key: string): void;
   onTrigger(on: TriggerOn, key: string): void;
@@ -132,6 +136,9 @@ export function Inspector(props: InspectorProps) {
       ref={root}
       data-testid="builder-inspector"
       data-node={selection?.type === "trigger" ? workflow.trigger.id : step?.id}
+      // Focused when a step is picked and the panel sits below the canvas (narrow screens).
+      tabIndex={-1}
+      className="outline-none"
     >
       {body}
     </div>
@@ -311,11 +318,11 @@ function ModelRow({
       >
         <option value="">{fallback}</option>
         {current && !options.some((m) => m.id === current) ? (
-          <option value={current}>{current}</option>
+          <option value={current}>A model no longer offered</option>
         ) : null}
         {options.map((m) => (
           <option key={m.id} value={m.id}>
-            {m.label} · {m.id} · ${m.inputPerMtok} / ${m.outputPerMtok}
+            {m.label} · ${m.inputPerMtok} / ${m.outputPerMtok}
           </option>
         ))}
       </SmallSelect>
@@ -338,9 +345,11 @@ function KindFields(
       return (
         <>
           <Row label="Skill" field="skill" errors={fieldErrors}>
-            <p className="reference text-ink" data-field="skill" tabIndex={-1}>
-              {step.skill}
-              {skill ? <span className="font-sans text-ink-muted"> · {skill.name}</span> : null}
+            <p className="text-sm text-ink" data-field="skill" tabIndex={-1}>
+              {skill?.name ?? "A skill this agent can't find"}
+              {skill?.category ? (
+                <span className="text-ink-muted"> · {skillCategory(skill.category)}</span>
+              ) : null}
             </p>
           </Row>
           {skill?.description ? (
@@ -375,13 +384,10 @@ function KindFields(
       return (
         <>
           <Row label="Changes" field="tool" errors={fieldErrors}>
-            <p className="reference text-ink" data-field="tool" tabIndex={-1}>
-              {step.tool}
+            <p className="text-sm text-ink" data-field="tool" tabIndex={-1}>
+              {toolLabel(step.tool)}
               {tool?.connector ? (
-                <span className="font-sans text-ink-muted">
-                  {" "}
-                  · {connectorName(data, tool.connector)}
-                </span>
+                <span className="text-ink-muted"> · {connectorName(data, tool.connector)}</span>
               ) : null}
             </p>
           </Row>
@@ -648,6 +654,11 @@ function KindFields(
   }
 }
 
+/** A skill's category as a heading word: "documents" → "Documents". */
+function skillCategory(category: string): string {
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -708,12 +719,20 @@ function ApprovalSection(props: InspectorProps & { step: Step; set: SetStep }) {
   const fieldErrors = errorsFor(errors, step.id);
   // Switching approval back on is always allowed; switching it off only where it may be skipped.
   const locked = option.required && !option.canSkip;
-  const tools = option.writes.map((t) => t.id).join(", ");
+  const tools = [
+    ...new Set(
+      option.writes.map((t) =>
+        [t.connector ? connectorName(props.data, t.connector) : null, toolLabel(t.id)]
+          .filter(Boolean)
+          .join(": "),
+      ),
+    ),
+  ].join(", ");
   return (
     <Section title="Approval">
       <p className="text-sm text-ink">
-        This step changes the client's tools ({tools}). It waits for a person unless you switch
-        approval off.
+        This step changes the client's tools ({tools}). It waits for someone to approve unless you
+        switch approval off.
       </p>
       <Row label="" field="approval.required" errors={fieldErrors}>
         <label className="flex items-center gap-2 text-sm text-ink">
@@ -739,7 +758,7 @@ function ApprovalSection(props: InspectorProps & { step: Step; set: SetStep }) {
             }
           />
           Needs approval
-          {option.automatic ? <Badge tone="accent">Runs automatically</Badge> : null}
+          {option.automatic ? <Badge tone="accent">On its own</Badge> : null}
         </label>
       </Row>
       {option.reason ? (
@@ -1287,7 +1306,10 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
   const on = trigger.on;
   const fieldErrors = errorsFor(errors, trigger.id);
   const paths = useMemo(() => triggerPaths(workflow, ctx), [workflow, ctx]);
-  const events = data.events;
+  // Events of connectors the agent may use (as the palette offers them); the platform's always.
+  const events = data.events.filter(
+    (e) => !e.connector || !props.connectors || props.connectors.has(e.connector),
+  );
   return (
     <div className="flex flex-col gap-4">
       <Heading
@@ -1337,13 +1359,9 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
               onChange={(e) => onTrigger({ ...on, event: e.target.value }, "trigger:event")}
             >
               {events.some((e) => e.type === on.event) ? null : (
-                <option value={on.event}>{on.event}</option>
+                <option value={on.event}>{whenEvent(on.event)}</option>
               )}
-              {events.map((e) => (
-                <option key={e.type} value={e.type}>
-                  {e.type}
-                </option>
-              ))}
+              <EventOptions events={events.map((e) => e.type)} />
             </SmallSelect>
           </Row>
           <p className="text-sm text-ink-muted">

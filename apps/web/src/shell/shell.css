@@ -26,6 +26,9 @@
   align-items: center;
   border-radius: var(--radius-sm);
 }
+.ui-topbar__mark {
+  display: none;
+}
 .ui-topbar__sep {
   width: 1px;
   height: 20px;
@@ -229,24 +232,57 @@
   flex: 1;
   padding: var(--space-8) var(--space-10) var(--space-12);
 }
-.ui-pagebar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-}
-
-/* The agent switcher: a quiet select. */
+/* The agent switcher: a quiet select beside the agent page's eyebrow, like a breadcrumb. */
 .ui-agentswitch {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
 }
 .ui-agentswitch .ds-select {
-  height: 32px;
-  max-width: 260px;
-  padding-right: var(--space-8);
-  font-size: 13px;
+  height: 28px;
+  max-width: 240px;
+  padding: 0 var(--space-8) 0 var(--space-2);
+  border-color: var(--line);
+  background: var(--surface);
+  font: 500 13px / 20px var(--font-sans);
+  text-overflow: ellipsis;
+}
+.ui-agentswitch .ds-select:hover {
+  border-color: var(--line-strong);
+}
+.ui-crumbs {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ui-crumbs__sep {
+  color: var(--ink-faint);
+}
+
+/* Ask Sloan in the portal's top bar: Sloan's badge and the words; the badge alone on phones. */
+.ui-topbar__ask {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-2-5) 0 var(--space-1-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font: 500 14px / 20px var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.ui-topbar__ask:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-subtle);
+}
+.ui-topbar__ask[aria-current="page"] {
+  border-color: var(--slate-tint);
+  background: var(--slate-tint);
+  color: var(--slate);
 }
 .ui-agentswitch__chev {
   position: absolute;
@@ -340,6 +376,13 @@
   .ui-topbar__menu {
     display: inline-flex;
   }
+  /* The mark alone at phone width, so the client's name keeps its room. */
+  .ui-topbar__lockup {
+    display: none;
+  }
+  .ui-topbar__mark {
+    display: inline-flex;
+  }
   .ui-topbar__sep {
     display: none;
   }
@@ -363,8 +406,16 @@
   }
   .ui-searchbox__text,
   .ui-searchbox .ui-kbd,
-  .ui-topbar__desklabel {
+  .ui-topbar__desklabel,
+  .ui-topbar__asklabel {
     display: none;
+  }
+  .ui-topbar__ask {
+    padding: 0 var(--space-1);
+    border-color: transparent;
+  }
+  .ui-agentswitch .ds-select {
+    max-width: 200px;
   }
   .ui-topbar__deskicon {
     display: block;

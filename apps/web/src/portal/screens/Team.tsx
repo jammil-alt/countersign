@@ -45,13 +45,21 @@ export function teamRows(users: Member[] | null, team: TeamMember[]): Row[] {
   });
 }
 
-export function PortalTeamScreen() {
+/** `embedded`: inside Settings (its Team section), without a header of its own. */
+export function PortalTeamScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useI18n();
   const session = useSession();
   const client = session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0];
   const isAdmin = client?.role === "client_admin";
   const team = useApi(apiRoutes.portalTeam);
 
+  if (embedded) {
+    return (
+      <div className="flex flex-col gap-8" data-testid="portal-team-page">
+        {isAdmin ? <AdminTeam team={team} /> : <MemberTeam team={team} />}
+      </div>
+    );
+  }
   return (
     <Page testId="portal-team-page">
       <div>

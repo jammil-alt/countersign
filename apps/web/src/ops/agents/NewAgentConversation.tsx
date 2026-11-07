@@ -17,6 +17,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { connectorLabel, toolLabel } from "../../runs/labels";
 import { AgentBadge } from "../../ui/badges";
 import {
   Badge,
@@ -489,7 +490,7 @@ function Access({
                   {connector.slice(0, 2).toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-ink">
-                  {connector} · <span className="font-mono text-sm">{[...tools].join(", ")}</span>
+                  {connectorLabel(connector)} · {[...tools].map((t) => toolLabel(t)).join(", ")}
                 </span>
                 {connections ? (
                   connected ? (

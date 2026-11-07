@@ -2,10 +2,10 @@
 // stream adds or replaces its own line. New routes point at today's screens until their stream
 // rebuilds them; every old address redirects to its new home (params, query and hash kept).
 //
-// The agent page (UI-2b) serves everything under `agents/:slug/*` with its tabs: Overview,
-// `workflow` (and `workflows/:workflow`, the builder), `triggers`, `runs`, `versions`, `tests` and
-// `settings`. UI-2c: the Workflow tab is the O6 Workflow builder (ops/builder) and the Triggers tab
-// the O7 Triggers screen (ops/triggers); the sidebar lists both under the open agent.
+// The agent page serves everything under `agents/:slug/*` with its tabs (UI cleanup): Overview,
+// Workflow (`workflows/:workflow`, the builder, with the agent's triggers at its top), Runs,
+// Versions (with the test bench) and Settings (`settings/access`, `settings/definition`); the old
+// `triggers` and `tests` addresses redirect. The sidebar lists places only, no client or agent pages.
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
@@ -15,7 +15,6 @@ import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
 import { ClientAgentsScreen } from "./client/ClientAgents";
-import { ClientExportsScreen } from "./client/ClientExports";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { LabScreen } from "./lab/LabScreen";
@@ -72,22 +71,27 @@ export const opsRoutes = (
     <Route path="skills/automations/:id" element={<AutomationPage />} />
     <Route path="connectors" element={<OpsConnectorsScreen />} />
 
-    {/* Clients: the client page with its tabs (client/ClientFrame.tsx) and new client (UI-3b) */}
+    {/* Clients: the client page with its five tabs (client/ClientFrame.tsx) and new client. Each
+        page of the Data and Setup tabs keeps its own address. */}
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
     <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
     <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
-    <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
-    <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
-    <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
-    <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
-    <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
+    {/* Data: Documents and Records */}
     <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
     <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />
     <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
     <Route path="clients/:clientId/records/:recordId" element={<OpsRecordScreen />} />
+    {/* Setup: Connections, Messaging, Directory and Knowledge */}
+    <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
     <Route path="clients/:clientId/messaging" element={<OpsMessagingScreen />} />
-    <Route path="clients/:clientId/exports" element={<ClientExportsScreen />} />
+    <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
+    <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
+    {/* Settings, one section at a time (General, Approvals, People, Billing, …) */}
+    <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
+    <Route path="clients/:clientId/settings/:section" element={<ClientSettingsScreen />} />
+    {/* The client's runs: the Runs page, filtered to it (linked from the Overview) */}
+    <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
     {/* Usage, billing, feedback, audit, website logins, requests (UI-3) */}
     <Route path="usage" element={<OpsUsageScreen />} />
     <Route path="billing" element={<OpsBillingScreen />} />
@@ -104,5 +108,17 @@ export const opsRoutes = (
 
     {/* Old addresses → their new homes */}
     <Route path="templates" element={<Redirect to="/ops/lab" />} />
+    <Route
+      path="clients/:clientId/data"
+      element={<Redirect to="/ops/clients/:clientId/documents" />}
+    />
+    <Route
+      path="clients/:clientId/setup"
+      element={<Redirect to="/ops/clients/:clientId/connections" />}
+    />
+    <Route
+      path="clients/:clientId/exports"
+      element={<Redirect to="/ops/clients/:clientId/settings/exports" />}
+    />
   </>
 );

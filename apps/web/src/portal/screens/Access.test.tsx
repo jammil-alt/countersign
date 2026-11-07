@@ -106,7 +106,9 @@ describe("portal access page", () => {
     expect(fields).toHaveTextContent("agent@demo.example.com");
     expect(fields).toHaveTextContent("PasswordSet");
     const agent = within(card).getByTestId(`vault-agent-${AGENT}`);
-    expect(within(agent).getByTestId("vault-agent-create")).toHaveTextContent("create · Approval");
+    expect(within(agent).getByTestId("vault-agent-create")).toHaveTextContent(
+      "create · Needs approval",
+    );
     expect(agent).toHaveTextContent("All tools");
   });
 
@@ -131,7 +133,7 @@ describe("portal access page", () => {
       .getAllByRole("option")
       .map((o) => o.textContent);
     // From approval: approval or off, never auto.
-    expect(levels).toEqual(["Approval", "Off"]);
+    expect(levels).toEqual(["Needs approval", "Off"]);
     await userEvent.selectOptions(create, "off");
     await userEvent.click(within(agent).getByTestId("vault-agent-tool-acme.order.create"));
     await userEvent.click(within(agent).getByTestId("vault-agent-save"));

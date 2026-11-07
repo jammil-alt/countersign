@@ -1,11 +1,11 @@
-// The client page's Exports tab (`/ops/clients/:clientId/exports`; docs/plan.md §1.36): the
-// client's data export (every record table as CSV and the original documents in one ZIP, built in
-// the background, with a reason for the client's change log) and the accountant export for a
-// period (the changes made to its tools, as a ZIP with documents or one CSV). A retired client
-// can be exported until its data is purged; the page says until when.
+// The client settings' Exports section (`/ops/clients/:clientId/settings/exports`, docs/plan.md
+// §1.36; it was the Exports tab, whose address redirects here): the client's data export (every
+// record table as CSV and the original documents in one ZIP, built in the background and noted in
+// the client's change log) and the accountant export for a period (the changes made to its tools,
+// as a ZIP with documents or one CSV). A retired client can be exported until its data is purged;
+// the section says until when.
 import { buildPath, EXPORT_PERIOD_MAX_DAYS, periodDays } from "@countersign/core";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -14,7 +14,6 @@ import { Field, Select, TextInput } from "../../ui/forms";
 import { Loaded, Section } from "../../ui/page";
 import { Button, buttonClass, Card, EmptyState, ErrorNotice } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
-import { ClientFrame } from "./ClientFrame";
 
 /** How often the list reloads while an export is being built. */
 const EXPORT_POLL_MS = 5_000;
@@ -49,16 +48,13 @@ export function lastMonth(today = new Date()): { from: string; to: string } {
   return { from: isoDay(first), to: isoDay(last) };
 }
 
-export function ClientExportsScreen() {
-  const { clientId = "" } = useParams();
+/** Both exports, for the client's Settings. */
+export function ClientExportsSection({ clientId }: { clientId: string }) {
   return (
-    <ClientFrame
-      clientId={clientId}
-      intro="Copies of the client's data: everything they hold with us, or the changes made to their tools for their accountant."
-    >
+    <>
       <DataExports clientId={clientId} />
       <AccountantExport clientId={clientId} />
-    </ClientFrame>
+    </>
   );
 }
 
@@ -67,7 +63,6 @@ function DataExports({ clientId }: { clientId: string }) {
   const state = useApi(apiRoutes.opsClientExports, { params: { id: clientId } });
   const building = state.data?.exports.some((e) => e.status === "running") ?? false;
   usePoll(state.reload, building, EXPORT_POLL_MS, state.loading);
-  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<unknown>(null);
 
@@ -75,11 +70,8 @@ function DataExports({ clientId }: { clientId: string }) {
     setBusy(true);
     setProblem(null);
     try {
-      await api.call(apiRoutes.opsClientExportStart, {
-        params: { id: clientId },
-        body: reason.trim() ? { reason: reason.trim() } : {},
-      });
-      setReason("");
+      // No reason asked for: the client's change log says "Client data export".
+      await api.call(apiRoutes.opsClientExportStart, { params: { id: clientId }, body: {} });
       state.reload();
     } catch (e) {
       setProblem(e);
@@ -93,6 +85,16 @@ function DataExports({ clientId }: { clientId: string }) {
       title="Client data export"
       meta="Every record table as CSV and the original documents, in one ZIP"
       testId="ops-client-exports"
+      action={
+        <Button
+          variant="primary"
+          disabled={busy || building}
+          onClick={() => void start()}
+          data-testid="ops-client-export-start"
+        >
+          {building ? "Building an export" : "Start an export"}
+        </Button>
+      }
     >
       <Loaded state={state}>
         {(data) => (
@@ -105,44 +107,9 @@ function DataExports({ clientId }: { clientId: string }) {
                   : null}
               </p>
             ) : null}
-            <Card pad>
-              <form
-                className="flex flex-wrap items-end gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void start();
-                }}
-              >
-                <Field
-                  label="Reason (optional)"
-                  hint="Goes in the client's change log."
-                  className="min-w-0 flex-1"
-                >
-                  <TextInput
-                    data-testid="ops-client-export-reason"
-                    value={reason}
-                    maxLength={500}
-                    placeholder="Asked for by the client"
-                    onChange={(e) => setReason(e.target.value)}
-                  />
-                </Field>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={busy || building}
-                  data-testid="ops-client-export-start"
-                >
-                  {building ? "Building an export" : "Start an export"}
-                </Button>
-              </form>
-              {problem ? (
-                <div className="mt-3">
-                  <ErrorNotice error={problem} />
-                </div>
-              ) : null}
-            </Card>
+            {problem ? <ErrorNotice error={problem} /> : null}
             {data.exports.length === 0 ? (
-              <EmptyState>No exports yet.</EmptyState>
+              <EmptyState line="No exports yet. Start one above; it takes a few minutes to build." />
             ) : (
               <div className="dt dt-ana overflow-x-auto">
                 <table data-testid="ops-client-exports-table">
@@ -150,7 +117,6 @@ function DataExports({ clientId }: { clientId: string }) {
                     <tr className="dt-cols">
                       <th>Asked for</th>
                       <th>Status</th>
-                      <th>Reason</th>
                       <th className="n">Files</th>
                       <th className="n">Size</th>
                       <th />
@@ -175,7 +141,6 @@ function DataExports({ clientId }: { clientId: string }) {
                             <span className="mt-1 block text-sm ui-tone-risk">{x.error}</span>
                           ) : null}
                         </td>
-                        <td>{x.reason || "–"}</td>
                         <td className="n">{x.files ?? "–"}</td>
                         <td className="n">{x.sizeBytes === null ? "–" : size(x.sizeBytes)}</td>
                         <td>

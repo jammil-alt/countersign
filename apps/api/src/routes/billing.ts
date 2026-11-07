@@ -6,6 +6,7 @@
 // past statements: never our cost, tokens or prompts (invariant 11). Stripe's webhook is public,
 // checked by its signature, and stored once per event id.
 
+import { publishedTemplates } from "@countersign/agents";
 import {
   isHandledStripeEvent,
   STRIPE_SIGNATURE_HEADER,
@@ -53,7 +54,7 @@ import {
   tenant,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
   type LineRow,
@@ -252,13 +253,12 @@ async function opsClient(
   };
 }
 
-/** Templates (operator scope) with their own price and what their client agents get. */
+/**
+ * Templates (operator scope) with their own price and what their client agents get: the published
+ * ones, as Agent lab lists them (drafts aren't priced until they are published).
+ */
 async function templateRows(tx: Tx, pricing: Pricing) {
-  const rows = await tx
-    .select()
-    .from(agent)
-    .where(and(isNull(agent.tenantId), eq(agent.kind, "template"), eq(agent.status, "active")))
-    .orderBy(agent.name);
+  const rows = (await publishedTemplates(tx)).sort((a, b) => a.name.localeCompare(b.name));
   return rows.map((t) => {
     const own = pricing.templates.get(t.id) ?? null;
     const effective = resolveAgentPrice({
@@ -460,15 +460,15 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
     const config = await loadBillingConfig(tx);
     const pricing = await loadPricing(tx, tx, config);
     const ids = query.client ? tenantIds.filter((id) => id === query.client) : tenantIds;
-    const clients: OpsBillingClient[] = [];
-    for (const id of ids) clients.push(await opsClient(tx, id, config));
-    clients.sort((a, b) => Number(b.setUp) - Number(a.setUp) || a.name.localeCompare(b.name));
-    const available = new Set(usageMeasures().map((m) => m.measure));
-    const priced = new Set(config.unitCosts.map((u) => u.measure));
-    const review =
+    // DECISION: each client's month (several reads each) and the lists below are asked at once in
+    // the request's transaction, which the driver pipelines: the first load took one round trip
+    // per query per client in a row. They only read.
+    const [clients, templates, review] = await Promise.all([
+      Promise.all(ids.map((id) => opsClient(tx, id, config))),
+      templateRows(tx, pricing),
       ids.length === 0
-        ? []
-        : await tx
+        ? Promise.resolve([])
+        : tx
             .select()
             .from(billingStatement)
             .where(
@@ -477,7 +477,11 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
                 inArray(billingStatement.status, ["draft", "payment_failed"]),
               ),
             )
-            .orderBy(desc(billingStatement.period), billingStatement.createdAt);
+            .orderBy(desc(billingStatement.period), billingStatement.createdAt),
+    ]);
+    clients.sort((a, b) => Number(b.setUp) - Number(a.setUp) || a.name.localeCompare(b.name));
+    const available = new Set(usageMeasures().map((m) => m.measure));
+    const priced = new Set(config.unitCosts.map((u) => u.measure));
     return {
       stripeConfigured: stripeFor(services.deps, services.env) !== null,
       webhookConfigured: Boolean(services.env.STRIPE_WEBHOOK_SECRET?.trim()),
@@ -487,7 +491,7 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
         available: available.has(measure),
         priced: priced.has(measure),
       })),
-      templates: await templateRows(tx, pricing),
+      templates,
       clients,
       toReview: await opsStatements(tx, review),
     };

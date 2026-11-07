@@ -45,7 +45,7 @@ import {
   tenant,
 } from "@countersign/db";
 import { type EmitPosted, leadThread, postMessage } from "@countersign/threads";
-import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { type AuditEntry, auditInTx } from "../audit";
 import { HttpError } from "../http";
 
@@ -141,6 +141,31 @@ export async function liveVersionWrites(
 ): Promise<boolean> {
   const bundle = await liveBundle(tx, row);
   if (!bundle || !row.tenantId) return false;
+  return bundleWrites(tx, row.tenantId, bundle, ctx);
+}
+
+// UI cleanup (design pass): the back office read "Writes nothing: goes straight to live" for a
+// draft Bill clerk that writes to QuickBooks, because only a live version was read.
+// DECISION: the page's view reads the live version, else the latest one (the draft that will go
+// live); the stage moves (`liveVersionWrites`) keep reading the live version alone.
+/** Whether the version the page describes (live, else the latest) writes to a client's tool. */
+export async function shownVersionWrites(
+  tx: Tx,
+  row: AgentRow,
+  ctx: RegistryContext,
+): Promise<boolean> {
+  if (!row.tenantId) return false;
+  let bundle = await liveBundle(tx, row);
+  if (!bundle) {
+    const [latest] = await tx
+      .select({ bundle: agentVersion.bundle })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, row.id))
+      .orderBy(desc(agentVersion.version))
+      .limit(1);
+    bundle = latest?.bundle ?? null;
+  }
+  if (!bundle) return false;
   return bundleWrites(tx, row.tenantId, bundle, ctx);
 }
 
@@ -700,7 +725,8 @@ export async function goLiveView(
   const pause = readPause(row.pause);
   return {
     stage,
-    writes: row.kind === "client" ? await liveVersionWrites(tx, row, ctx) : false,
+    writes: row.kind === "client" ? await shownVersionWrites(tx, row, ctx) : false,
+    liveVersion: row.liveVersionId !== null,
     trial,
     signoff,
     skipped: state.skipped ?? [],

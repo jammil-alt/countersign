@@ -1,40 +1,61 @@
 // The back-office frame (docs/design/prototype.html, `#O1-Command`): "Back office" and the client
-// switcher in the top bar, ⌘K search across the clients served, Escalations with its count; a
-// sidebar with the command center, the clients (each with what needs us), Build and Business, and
-// a folded "More" for the pages the prototype's sidebar leaves out. With a client selected, its
-// own pages and agents follow its row.
-import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
-import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
+// picker in the top bar (the one way to choose a client; it keeps the picked client from page to
+// page, ./pickedClient.tsx), ⌘K search across the clients served, Escalations with its count; a
+// sidebar that lists places only: Home (the command center), Escalations, Runs, Clients, Build and
+// Business, with the business pages the prototype leaves out folded under More. A client's own
+// pages are tabs on its page; an agent's are tabs on the agent's page.
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
+import { useLocation, useMatch, useNavigate } from "react-router-dom";
+import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { INBOX_COUNT_POLL_MS } from "../portal/inboxCount";
 import { usePoll } from "../runs/usePoll";
 import { useSession } from "../session/session";
-import { AgentSwitcher } from "../shell/AgentSwitcher";
+import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
-import { AppShell, SidebarAgent, SidebarLink, SidebarMore, SidebarSection } from "../shell/Shell";
+import { AppShell, SidebarLink, SidebarMore, SidebarSection } from "../shell/Shell";
 import { opsSearchGroups } from "../shell/searchGroups";
-import { AgentBadge } from "../ui/badges";
 import { Icon } from "../ui/icons";
 import { useAgentsChanged } from "./agents/ui";
 import { OPS_PATHS } from "./paths";
-
-/** The most clients the sidebar lists; "All N clients" opens the rest. */
-export const SIDEBAR_CLIENTS = 8;
+import { PickedClientProvider, usePickedClient, useRouteClientId } from "./pickedClient";
 
 /** `/ops/clients/:clientId/...`, except the "new client" page. */
-export function useSelectedClientId(): string | null {
-  const match = useMatch("/ops/clients/:clientId/*");
-  const id = match?.params.clientId;
-  return id && id !== "new" ? id : null;
+export const useSelectedClientId = useRouteClientId;
+
+type ClientSummaryRow = ResponseOf<typeof apiRoutes.opsClients>["clients"][number];
+
+/** The clients list the frame polls (Needs us, waiting runs per client); null until it loads. */
+const OpsClientsContext = createContext<readonly ClientSummaryRow[] | null>(null);
+
+/** One client's row of the frame's clients list: its Needs us and runs waiting for approval. */
+export function useClientSummary(clientId: string): ClientSummaryRow | null {
+  return useContext(OpsClientsContext)?.find((c) => c.id === clientId) ?? null;
 }
 
 export function OpsLayout({ children }: { children: ReactNode }) {
+  return (
+    <PickedClientProvider>
+      <OpsFrame>{children}</OpsFrame>
+    </PickedClientProvider>
+  );
+}
+
+function OpsFrame({ children }: { children: ReactNode }) {
   const session = useSession();
   const api = useApiClient();
-  const clientId = useSelectedClientId();
-  const base = clientId ? OPS_PATHS.client(clientId) : null;
+  const clientId = useRouteClientId();
+  const picked = usePickedClient();
 
   // The clients served: the API's list, the session's memberships until it loads.
   const clientsState = useApi(apiRoutes.opsClients);
@@ -44,40 +65,46 @@ export function OpsLayout({ children }: { children: ReactNode }) {
     [clientsState.data, session.tenants],
   );
 
-  // Escalations: the operator's open items, counted in all and per client. Reloads on each page
-  // change and every 20 s, as the portal's Desk count does.
-  const inbox = useApi(apiRoutes.opsInbox, { query: { status: "open", assigned: "operator" } });
+  // Escalations: what needs us (UI cleanup, stream A), from the clients list's `needsUs`, the
+  // count the Clients page and the command center show. Reloads on each page change and every
+  // 20 s, as the portal's Desk count does.
   const { pathname } = useLocation();
-  const { reload: reloadInbox } = inbox;
+  const { reload: reloadClients } = clientsState;
   const firstPath = useRef(pathname);
   useEffect(() => {
     if (pathname === firstPath.current) return;
     firstPath.current = pathname;
-    reloadInbox();
-  }, [pathname, reloadInbox]);
-  usePoll(reloadInbox, true, INBOX_COUNT_POLL_MS, inbox.loading);
-  const perClient = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of inbox.data?.items ?? []) {
-      counts.set(item.tenantId, (counts.get(item.tenantId) ?? 0) + 1);
-    }
-    return counts;
-  }, [inbox.data]);
+    reloadClients();
+  }, [pathname, reloadClients]);
+  usePoll(reloadClients, true, INBOX_COUNT_POLL_MS, clientsState.loading);
+  const needsUs = clientsState.data
+    ? clientsState.data.clients.reduce((n, c) => n + (c.needsUs ?? 0), 0)
+    : undefined;
 
-  // The selected client's agents: its sidebar rows and the agent switcher.
-  const client = useApi(apiRoutes.opsClient, clientId ? { params: { id: clientId } } : null);
-  useAgentsChanged(client.reload);
+  // On an agent's page: the client's agents, for the agent switcher.
   const agentMatch = useMatch("/ops/clients/:clientId/agents/:slug/*");
   const agentSlug = agentMatch?.params.slug !== "new" ? agentMatch?.params.slug : undefined;
+  const client = useApi(
+    apiRoutes.opsClient,
+    clientId && agentSlug ? { params: { id: clientId } } : null,
+  );
+  useAgentsChanged(client.reload);
+  // The client's agents by the name the client knows (fix 1 of the design pass): the service
+  // name, the bundle's own name only where it has none.
+  const switchAgents =
+    clientId && client.data
+      ? client.data.agents.map((a) => ({
+          key: a.slug,
+          name: a.serviceName ?? a.name,
+          href: `/ops/clients/${clientId}/agents/${a.slug}`,
+        }))
+      : [];
 
   const search: SearchRun = useCallback(
     async (q, signal) =>
       opsSearchGroups(await api.call(apiRoutes.opsSearch, { query: { q }, signal }), clients, q),
     [api, clients],
   );
-
-  const listed = clients.slice(0, SIDEBAR_CLIENTS);
-  const selected = clients.find((c) => c.id === clientId);
 
   return (
     <>
@@ -88,21 +115,18 @@ export function OpsLayout({ children }: { children: ReactNode }) {
         context={
           <>
             <span>Back office</span>
-            <ClientSwitcher selected={clientId} clients={clients} />
+            <ClientPicker
+              selected={picked.clientId}
+              clients={clients}
+              onPick={(id) => picked.remember(id)}
+            />
           </>
         }
         search={{ placeholder: "Find a client, agent, run or record", run: search }}
-        desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: inbox.data?.items.length }}
-        pageBar={
-          clientId && agentSlug && client.data ? (
-            <AgentSwitcher
-              current={agentSlug}
-              agents={client.data.agents.map((a) => ({
-                key: a.slug,
-                name: a.name,
-                href: `/ops/clients/${clientId}/agents/${a.slug}`,
-              }))}
-            />
+        desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: needsUs }}
+        switcher={
+          agentSlug && canSwitch(agentSlug, switchAgents) ? (
+            <AgentSwitcher current={agentSlug} agents={switchAgents} />
           ) : null
         }
         sidebar={
@@ -111,7 +135,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
               <SidebarLink
                 to={OPS_PATHS.command}
                 icon="table"
-                label="Command center"
+                label="Home"
                 end
                 testId="ops-nav-home"
               />
@@ -119,7 +143,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                 to={OPS_PATHS.escalations}
                 icon="desk"
                 label="Escalations"
-                count={inbox.data?.items.length}
+                count={needsUs}
                 testId="ops-nav-inbox"
               />
               <SidebarLink
@@ -129,52 +153,13 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                 end
                 testId="ops-nav-runs"
               />
-            </div>
-            <SidebarSection
-              label="Clients"
-              testId="ops-nav-clients-section"
-              action={
-                <Link to="/ops/clients/new" className="ds-btn ds-btn--link gap-1 text-xs">
-                  <Icon name="add" size={14} />
-                  New
-                </Link>
-              }
-            >
-              {listed.map((c) => (
-                <SidebarLink
-                  key={c.id}
-                  to={OPS_PATHS.client(c.id)}
-                  label={c.name}
-                  end
-                  count={inbox.data ? (perClient.get(c.id) ?? 0) : undefined}
-                  testId={`ops-nav-client-${c.id}`}
-                />
-              ))}
-              <Link
+              <SidebarLink
                 to={OPS_PATHS.clients}
-                data-testid="ops-nav-clients"
-                className="px-2.5 py-1.5 text-sm text-ink-muted hover:text-ink"
-              >
-                {`All ${clients.length} clients`}
-              </Link>
-            </SidebarSection>
-            {base && clientId ? (
-              <SidebarSection label={selected?.name ?? "Client"} testId="ops-nav-client-section">
-                <SidebarLink
-                  to={`${base}/documents`}
-                  label="Documents"
-                  testId="ops-nav-documents"
-                />
-                <SidebarLink to={`${base}/records`} label="Records" testId="ops-nav-records" />
-                <SidebarLink
-                  to={`${base}/connections`}
-                  label="Connections"
-                  testId="ops-nav-connections"
-                />
-                <SidebarLink to={`${base}/settings`} label="Settings" testId="ops-nav-settings" />
-                <AgentRows clientId={clientId} state={client} selected={agentSlug} />
-              </SidebarSection>
-            ) : null}
+                icon="customer"
+                label="Clients"
+                testId="ops-nav-clients"
+              />
+            </div>
             <SidebarSection label="Build">
               <SidebarLink
                 to={OPS_PATHS.lab}
@@ -185,7 +170,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
               <SidebarLink
                 to={OPS_PATHS.skills}
                 icon="document"
-                label="Skills and automations"
+                label="Skills"
                 testId="ops-nav-skills"
               />
               <SidebarLink
@@ -202,27 +187,23 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                 label="Usage and billing"
                 testId="ops-nav-usage"
               />
-              <SidebarLink
-                to={OPS_PATHS.feedback}
-                icon="message"
-                label="Feedback"
-                testId="ops-nav-feedback"
-              />
             </SidebarSection>
             <SidebarMore label="More" testId="ops-nav-more">
+              <SidebarLink to={OPS_PATHS.feedback} label="Feedback" testId="ops-nav-feedback" />
+              <SidebarLink to={OPS_PATHS.audit} label="Audit log" testId="ops-nav-audit" />
               <SidebarLink to={OPS_PATHS.requests} label="Requests" testId="ops-nav-requests" />
-              <SidebarLink to={OPS_PATHS.billing} label="Billing" testId="ops-nav-billing" />
               <SidebarLink
                 to={OPS_PATHS.browserSites}
                 label="Website logins"
                 testId="ops-nav-browser-sites"
               />
-              <SidebarLink to={OPS_PATHS.audit} label="Audit log" testId="ops-nav-audit" />
             </SidebarMore>
           </nav>
         }
       >
-        {children}
+        <OpsClientsContext.Provider value={clientsState.data?.clients ?? null}>
+          {children}
+        </OpsClientsContext.Provider>
       </AppShell>
       {/* The back office always has the Feedback button. */}
       <FeedbackButton surface="ops" />
@@ -230,21 +211,30 @@ export function OpsLayout({ children }: { children: ReactNode }) {
   );
 }
 
-function ClientSwitcher({
+/** The top bar's client picker: picking a client opens its page; "All clients" opens Home. */
+function ClientPicker({
   selected,
   clients,
+  onPick,
 }: {
   selected: string | null;
   clients: readonly { id: string; name: string }[];
+  onPick: (id: string | null) => void;
 }) {
   const navigate = useNavigate();
+  // A remembered client this operator no longer serves shows as all clients.
+  const value = selected && clients.some((c) => c.id === selected) ? selected : "";
   return (
     <label className="ds-selectwrap flex items-center">
       <span className="sr-only">Client</span>
       <select
         data-testid="ops-client-switcher"
-        value={selected ?? ""}
-        onChange={(e) => navigate(e.target.value ? OPS_PATHS.client(e.target.value) : "/ops")}
+        value={value}
+        onChange={(e) => {
+          const id = e.target.value || null;
+          onPick(id);
+          navigate(id ? OPS_PATHS.client(id) : OPS_PATHS.command);
+        }}
         className="ds-select h-8 max-w-56 bg-surface-subtle pr-8 pl-2 text-sm font-medium hover:border-line-strong"
       >
         <option value="">All clients</option>
@@ -259,58 +249,5 @@ function ClientSwitcher({
         className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-ink-muted"
       />
     </label>
-  );
-}
-
-function AgentRows({
-  clientId,
-  state,
-  selected,
-}: {
-  clientId: string;
-  state: ReturnType<typeof useApi<typeof apiRoutes.opsClient>>;
-  /** The agent whose page is open: its Workflow and Triggers (UI-2c) show under its row. */
-  selected?: string | undefined;
-}) {
-  const { data, error } = state;
-  return (
-    <>
-      <div className="mt-3 mb-1 flex items-center justify-between px-2.5">
-        <h3 className="eyebrow text-ink-muted">Agents</h3>
-        <Link to={OPS_PATHS.newAgent(clientId)} className="ds-btn ds-btn--link gap-1 text-xs">
-          <Icon name="add" size={14} />
-          New
-        </Link>
-      </div>
-      {error ? <p className="px-2.5 text-sm text-ink-muted">Couldn't load agents.</p> : null}
-      {data?.agents.length === 0 ? (
-        <p className="px-2.5 text-sm text-ink-muted">No agents yet.</p>
-      ) : null}
-      {data?.agents.map((a) => (
-        <Fragment key={a.id}>
-          <SidebarAgent
-            to={OPS_PATHS.agent(clientId, a.slug)}
-            name={a.name}
-            line={[a.role, a.liveVersionId === null ? "Draft" : null].filter(Boolean).join(" · ")}
-            badge={<AgentBadge name={a.name} size="sm" />}
-            testId={`ops-nav-agent-${a.slug}`}
-          />
-          {a.slug === selected ? (
-            <div className="ml-6 flex flex-col gap-0.5">
-              <SidebarLink
-                to={OPS_PATHS.agentWorkflow(clientId, a.slug)}
-                label="Workflow"
-                testId="ops-nav-agent-workflow"
-              />
-              <SidebarLink
-                to={OPS_PATHS.agentTriggers(clientId, a.slug)}
-                label="Triggers"
-                testId="ops-nav-agent-triggers"
-              />
-            </div>
-          ) : null}
-        </Fragment>
-      ))}
-    </>
   );
 }

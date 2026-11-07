@@ -22,7 +22,10 @@ import { createLlmClient, type LlmTransport } from "@countersign/llm";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, mount } from "../http";
+import { clientStatusWhere, clientWaits, OPEN_RUN } from "../runs/client-status";
 import { workerTransport } from "../runs/execute";
+import { reachContext, runWaits } from "../runs/run-wait";
+import { runSubjects } from "../runs/subject";
 import { compileQuestion } from "../runs-ask/ask";
 import { askContext } from "../runs-ask/context";
 import { recordAskUsage } from "../runs-ask/usage";
@@ -59,16 +62,19 @@ async function clientNames(tx: Tx, ids: readonly string[]) {
 }
 
 /** Every kind's hits, each one query. */
+// DECISION: the kinds are asked at once, in the request's one transaction: the driver pipelines
+// them on its connection, so a search costs about one round trip to the database instead of ten
+// in a row (it took about 4 seconds on staging). Each query still names its clients (RLS too).
 async function searchAll(tx: Tx, scope: SearchScope, q: string) {
   const text = readSearchText(q);
-  const [agents, runs, records, people, organizations, documents] = [
-    await searchAgents(tx, scope, text),
-    await searchRuns(tx, scope, text),
-    await searchRecords(tx, scope, text),
-    await searchPeople(tx, scope, text),
-    await searchOrganizations(tx, scope, text),
-    await searchDocuments(tx, scope, text),
-  ];
+  const [agents, runs, records, people, organizations, documents] = await Promise.all([
+    searchAgents(tx, scope, text),
+    searchRuns(tx, scope, text),
+    searchRecords(tx, scope, text),
+    searchPeople(tx, scope, text),
+    searchOrganizations(tx, scope, text),
+    searchDocuments(tx, scope, text),
+  ]);
   return {
     agents,
     runs,
@@ -96,9 +102,16 @@ function namesOf(context: AskContext) {
 
 export function searchRoutes(app: Hono<AppEnv>): void {
   // ── Search ──
-  mount(app, routes.portalSearch, async ({ tx, tenantIds, query }) => {
+  mount(app, routes.portalSearch, async ({ tx, tenantIds, query, services }) => {
     const tenantId = tenantIds[0] as string;
     const hits = await searchAll(tx, { surface: "portal", tenantIds: [tenantId] }, query.q);
+    // UI cleanup (stream A): a run waiting on the client reads "waiting on you", as on Runs.
+    const waits = await clientWaits(
+      tx,
+      tenantId,
+      hits.runs.map((r) => r.id),
+    );
+    const subjects = await runSubjects(tx, [tenantId], hits.runs, services.platform);
     // Only what the portal shows: no client ids, templates, notes or costs.
     const result: PortalSearchResult = {
       services: hits.agents.map((a) => ({
@@ -112,6 +125,10 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         service: { id: r.agentId, name: r.serviceName ?? r.agentName },
         status: r.status,
         createdAt: r.createdAt.toISOString(),
+        waitingOnYou:
+          (OPEN_RUN as readonly string[]).includes(r.status) &&
+          (r.status === "waiting" || (waits.get(r.id)?.waitingOnYou ?? false)),
+        subject: subjects.get(r.id),
       })),
       records: hits.records.map(({ tenantId: _t, ...r }) => r),
       people: hits.people.map(({ tenantId: _t, ...p }) => p),
@@ -132,7 +149,10 @@ export function searchRoutes(app: Hono<AppEnv>): void {
     const { tx, query } = ctx;
     const ids = opsIds(ctx, query.client);
     const hits = await searchAll(tx, { surface: "ops", tenantIds: ids }, query.q);
+    const subjects = await runSubjects(tx, ids, hits.runs, ctx.services.platform);
     const client = await clientNames(tx, ids);
+    // UI cleanup (stream A): who each waiting run waits on.
+    const waits = await runWaits(tx, hits.runs, reachContext(ctx.services));
     const named = (id: string) => client(id) ?? { id, name: "" };
     const result: OpsSearchResult = {
       agents: hits.agents.map((a) => ({
@@ -152,6 +172,8 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         client: named(r.tenantId),
         mode: r.mode,
         summary: r.summary,
+        waiting: waits.get(r.id) ?? null,
+        subject: subjects.get(r.id),
       })),
       records: hits.records.map(({ tenantId, ...r }) => ({ ...r, client: named(tenantId) })),
       people: hits.people.map(({ tenantId, ...p }) => ({ ...p, client: named(tenantId) })),
@@ -205,11 +227,17 @@ export function searchRoutes(app: Hono<AppEnv>): void {
     }
     // The portal's own filter (no back-office keys: the schema refused them), its live runs only.
     const filter = portalRunFilter(outcome.filter);
+    // Statuses are the client's (a run waiting on the client is "waiting"), as on its runs list.
+    const { statuses, ...rest } = filter;
     const runs = await runSummaries(
       tx,
       tenantId,
-      runFilterWhere(filter, services.platform.ctx.tools.specs()),
+      [
+        ...runFilterWhere(rest, services.platform.ctx.tools.specs()),
+        ...clientStatusWhere(statuses),
+      ],
       ASK_RUNS_LIMIT,
+      services.platform,
     );
     return {
       understood: true as const,

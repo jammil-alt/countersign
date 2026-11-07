@@ -17,8 +17,8 @@
 //
 // Exit 1 with the failures listed; patterns never reached are listed as a note.
 //
-// Some screens are a view of another one's route, chosen by the query (`/?view=weekly`, the Weekly
-// Table on The Table; `/sloan?mode=change`, Ask for a change): each area's `views` are opened too.
+// Some screens are a view of another one's route, chosen by the query (`/sloan?mode=change`, Ask
+// for a change): each area's `views` are opened too.
 
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -53,7 +53,7 @@ const AREAS = [
     email: CLIENT_ADMIN,
     prefix: "",
     files: ["../src/portal/routes.tsx", "../src/portal/PortalApp.tsx"],
-    views: ["/?view=weekly", "/sloan?mode=change"],
+    views: ["/sloan?mode=change"],
   },
 ];
 

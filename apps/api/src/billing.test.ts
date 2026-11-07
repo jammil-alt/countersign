@@ -13,6 +13,7 @@ import { FORBIDDEN_PORTAL_FIELD, readTenantBilling, type TenantBilling } from "@
 import {
   agent,
   agentChange,
+  agentVersion,
   billingAgentDay,
   billingEvent,
   billingStatement,
@@ -26,7 +27,14 @@ import {
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { date, integer, numeric, pgTable, uuid } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.test-helper";
+import {
+  admin,
+  createApiHarness,
+  OPERATOR,
+  OTHER_OPERATOR,
+  testBundle,
+  user,
+} from "./api.test-helper";
 import { billingTick, buildMonthStatement } from "./billing/jobs";
 import {
   creditsBetween,
@@ -82,6 +90,7 @@ describe.skipIf(!h)("billing", () => {
   const db = H.t.db;
   const ids = {
     ordersTemplate: "",
+    draftTemplate: "",
     supervisorTemplate: "",
     orders: "",
     clerk: "",
@@ -94,6 +103,26 @@ describe.skipIf(!h)("billing", () => {
     const [a] = await db.insert(agent).values(values).returning();
     if (!a) throw new Error("no agent");
     return a.id;
+  }
+
+  /** A template with a published (live) version: what Agent lab and Billing list. */
+  async function insertPublishedTemplate(values: typeof agent.$inferInsert): Promise<string> {
+    const id = await insertAgent(values);
+    const [v] = await db
+      .insert(agentVersion)
+      .values({
+        agentId: id,
+        tenantId: null,
+        version: 1,
+        bundle: testBundle(values.name),
+        bundleHash: "0".repeat(64),
+        status: "live",
+        authorType: "operator",
+      })
+      .returning();
+    if (!v) throw new Error("no version");
+    await db.update(agent).set({ liveVersionId: v.id }).where(eq(agent.id, id));
+    return id;
   }
 
   async function billingOf(tenantId: string): Promise<TenantBilling | null> {
@@ -158,15 +187,21 @@ describe.skipIf(!h)("billing", () => {
 
   beforeAll(async () => {
     const A = H.A.tenantId;
-    ids.ordersTemplate = await insertAgent({
+    ids.ordersTemplate = await insertPublishedTemplate({
       kind: "template",
       slug: "orders-desk",
       name: "Orders desk",
     });
-    ids.supervisorTemplate = await insertAgent({
+    ids.supervisorTemplate = await insertPublishedTemplate({
       kind: "template",
       slug: "supervisor",
       name: "Supervisor",
+    });
+    // A draft never published: Agent lab lists it under drafts, so Billing doesn't count it.
+    ids.draftTemplate = await insertAgent({
+      kind: "template",
+      slug: "staging-check",
+      name: "Staging check",
     });
     ids.orders = await insertAgent({
       tenantId: A,
@@ -300,6 +335,14 @@ describe.skipIf(!h)("billing", () => {
         monthlyPrice: { amount: "300.0000", currency: "USD" },
         includedCredits: 3000,
       });
+      // Only published templates, as Agent lab lists them: the draft isn't one yet.
+      expect(templates.map((t) => t.id)).not.toContain(ids.draftTemplate);
+      const lab = await call(OPERATOR, "GET", "/api/ops/lab");
+      expect(templates.map((t) => t.id).sort()).toEqual(
+        j(lab.json)
+          .published.map((t: { agent: { id: string } }) => t.agent.id)
+          .sort(),
+      );
       // The supervisor's template, unpriced, is free for its client agents.
       expect(templates.find((t) => t.id === ids.supervisorTemplate)?.effective).toMatchObject({
         monthlyPrice: { amount: "0.0000" },

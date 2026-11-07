@@ -1,5 +1,6 @@
-// O1 Command center: the six figures, "Needs us" with a way into each escalation, all agents by
-// client, template or status, the live feed, client health with the supervisor's findings.
+// O1 Command center: up to four figures, each a link to its filtered list; "Needs us" with a way
+// into each escalation (an approval stuck at a client among them); all agents by client, template
+// or status; the live feed; client health with the supervisor's findings.
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -11,6 +12,7 @@ import { agentChip } from "./CommandCenter";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 const OTHER = "00000000-0000-4000-8000-00000000a003";
 const RUN = "00000000-0000-4000-8000-00000000f001";
+const WAITING_RUN = "00000000-0000-4000-8000-00000000f002";
 const AGENT = "00000000-0000-4000-8000-00000000b001";
 const AGENT2 = "00000000-0000-4000-8000-00000000b002";
 
@@ -44,7 +46,9 @@ const center = (over: Record<string, unknown> = {}) => ({
     ],
   },
   runningNow: { runs: 1, steps: 3 },
-  needUs: { count: 2, blockedLong: 1 },
+  waitingForApproval: { runs: 1, oldestSince: hoursAgo(39), overdue: 1, nobodyToAct: 1 },
+  failedToday: { runs: 2 },
+  needUs: { count: 3, blockedLong: 2 },
   waitingOnClients: { count: 3, oldestSince: hoursAgo(26), oldestAgeSeconds: 26 * 3600 },
   runsToday: { runs: 312, clean: 306, cleanShare: 0.9808 },
   spendToday: {
@@ -54,6 +58,23 @@ const center = (over: Record<string, unknown> = {}) => ({
     perRunUsd: "0.1300",
   },
   escalations: [
+    {
+      kind: "approval",
+      id: WAITING_RUN,
+      client: demo,
+      agent: { id: AGENT, name: "Bill clerk", serviceName: null },
+      runId: WAITING_RUN,
+      title: "Itemize bill 20418",
+      blockedSince: hoursAgo(39),
+      wait: {
+        on: "client_admin",
+        person: null,
+        since: hoursAgo(39),
+        items: 1,
+        nobodyToAct: "not_signed_in",
+        emailOff: true,
+      },
+    },
     {
       kind: "failed_run",
       id: RUN,
@@ -99,16 +120,26 @@ const center = (over: Record<string, unknown> = {}) => ({
         { id: "r2", status: "running", mode: "live", createdAt: hoursAgo(1) },
         { id: "r1", status: "failed", mode: "live", createdAt: hoursAgo(2) },
       ],
+      perDay: [
+        ...Array.from({ length: 12 }, () => ({ runs: 0, failed: 0 })),
+        { runs: 2, failed: 1 },
+        { runs: 2, failed: 0 },
+      ],
     }),
     agent({
       id: AGENT2,
       name: "Iris",
+      serviceName: null,
       client: other,
       template: null,
       status: "paused",
       cost7dUsd: "6.1000",
     }),
   ],
+  perDay: Array.from({ length: 14 }, (_, i) => ({
+    runs: i === 13 ? 18 : 24,
+    failed: i === 13 ? 2 : 0,
+  })),
   ...over,
 });
 
@@ -210,13 +241,53 @@ describe("command center", () => {
   it("shows the figures, what needs us and the agents, and opens a blocked run", async () => {
     renderAt(routes());
     const figures = await screen.findByTestId("ops-command-figures");
-    expect(within(figures).getByTestId("ops-command-need-us")).toHaveTextContent(
-      "Need us21 blocked over 6 h",
+    // Four figures, each a link to its list filtered.
+    const need = within(figures).getByTestId("ops-command-need-us");
+    expect(need).toHaveTextContent("Needs us32 blocked over 6 h");
+    expect(need).toHaveAttribute("href", "/ops/inbox");
+    const waiting = within(figures).getByTestId("ops-command-waiting");
+    expect(waiting).toHaveTextContent("Waiting for approval1Nobody can approve 1");
+    expect(waiting).toHaveAttribute("href", "/ops/runs?statuses=waiting&mode=live");
+    // Today's live runs, always shown, with its 14 days and what runs now.
+    const runs = within(figures).getByTestId("ops-command-runs-today");
+    expect(runs).toHaveTextContent("Live runs today312");
+    expect(runs).toHaveTextContent("1 run running now, 3 steps in flight");
+    expect(runs).toHaveAttribute("data-tone", "slate");
+    expect(
+      within(runs).getByRole("img", {
+        name: "Live runs each day, last 14 days: 330 in all, 2 failed",
+      }),
+    ).toBeInTheDocument();
+    expect(new URL(runs.getAttribute("href") ?? "", "http://x").searchParams.get("statuses")).toBe(
+      "queued,running",
     );
-    expect(within(figures).getByTestId("ops-command-waiting")).toHaveTextContent("Oldest 26 h");
-    expect(within(figures).getByTestId("ops-command-runs")).toHaveTextContent("98.1% clean");
-    expect(within(figures).getByTestId("ops-command-spend")).toHaveTextContent("$41.80");
-    expect(within(figures).getByTestId("ops-command-spend")).toHaveTextContent("$0.13 per run");
+    // Each figure in its state colour: Needs us risk, waiting gold, failed risk.
+    expect(need).toHaveAttribute("data-tone", "risk");
+    expect(waiting).toHaveAttribute("data-tone", "signal");
+    const failed = within(figures).getByTestId("ops-command-failed");
+    expect(failed).toHaveTextContent("Failed today2");
+    expect(failed).toHaveAttribute("data-tone", "risk");
+    const failedQuery = new URL(failed.getAttribute("href") ?? "", "http://x").searchParams;
+    expect(Object.fromEntries(failedQuery)).toEqual({
+      statuses: "failed",
+      mode: "live",
+      since: now.toISOString(),
+    });
+    expect(figures.querySelectorAll("a")).toHaveLength(4);
+    // Spend and the agents live sit under the title; today's runs are the figure, said once.
+    // "Live" is switched on and at the live stage: the paused one isn't counted.
+    expect(screen.getByText("$41.80 model spend today · 1 agent live")).toBeInTheDocument();
+
+    // An approval stuck at a client: what waits, on whom, how long, why, and its run.
+    const stuck = screen.getByTestId(`ops-needs-${WAITING_RUN}`);
+    expect(stuck).toHaveTextContent("Waiting 39 h");
+    expect(stuck).toHaveTextContent(
+      "Waiting for approval · client admin: Itemize bill 20418. Everyone who may approve it is still invited and hasn't signed in.",
+    );
+    expect(within(stuck).getByRole("link", { name: "Open run" })).toHaveAttribute(
+      "href",
+      `/ops/runs/${WAITING_RUN}`,
+    );
 
     const run = screen.getByTestId(`ops-needs-${RUN}`);
     expect(run).toHaveTextContent("Blocked 14 h");
@@ -236,11 +307,21 @@ describe("command center", () => {
     expect(within(agents).getByTestId("ops-agents-group-Demo client")).toHaveTextContent("1 agent");
     const pia = within(agents).getByTestId(`ops-agent-${AGENT}`);
     expect(pia).toHaveTextContent("Running");
-    expect(pia).toHaveTextContent("1 run open");
+    expect(pia).toHaveTextContent("1 run running");
     expect(pia).toHaveTextContent("1 version behind");
     expect(pia).toHaveTextContent("$8.40");
-    expect(within(pia).getByRole("img", { name: "Last 2 runs: 1 failed" })).toBeInTheDocument();
+    // The name the client knows (its service name), not the bundle's own.
+    expect(pia).toHaveTextContent("Material costs");
+    expect(pia).not.toHaveTextContent("Pia");
+    // Its runs each day for 14 days, failed days marked.
+    expect(
+      within(pia).getByRole("img", { name: "Runs each day, last 14 days: 4 in all, 1 failed" }),
+    ).toBeInTheDocument();
     expect(within(agents).getByTestId(`ops-agent-${AGENT2}`)).toHaveTextContent("Paused");
+    // Without the days (an older API), the last runs as bars.
+    expect(
+      within(within(agents).getByTestId(`ops-agent-${AGENT2}`)).getByText("No runs"),
+    ).toBeInTheDocument();
 
     // By status groups them by what their chips say.
     await userEvent.click(within(agents).getByTestId("ops-agents-by-status"));
@@ -264,12 +345,16 @@ describe("command center", () => {
     );
     expect(within(feed).getByText("signed")).toHaveClass("text-copper-ink");
 
+    // Health is a chip with its word, whatever the clean share (a bar drew nothing at 0%).
     const health = screen.getByTestId(`ops-health-${DEMO}`);
+    expect(within(health).getByTestId(`ops-health-${DEMO}-status`)).toHaveTextContent("At risk");
     expect(within(health).getByTestId(`ops-health-${DEMO}-facts`)).toHaveTextContent(
-      "Needs us · 61% clean · answers in 80 h · 3 escalations",
+      "61% of 40 runs clean · answers in 80 h · 3 escalations",
     );
-    expect(within(health).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "61");
-    await userEvent.click(within(health).getByTestId(`ops-health-${DEMO}-findings`));
+    expect(within(health).queryByRole("progressbar")).toBeNull();
+    const findings = within(health).getByTestId(`ops-health-${DEMO}-findings`);
+    expect(findings).toHaveTextContent("What the supervisor found");
+    await userEvent.click(findings);
     expect(await within(health).findByText("Cole failed 3 times this week")).toBeInTheDocument();
   });
 
@@ -281,7 +366,9 @@ describe("command center", () => {
       }),
     );
     expect(await screen.findByTestId("ops-command-clear")).toHaveTextContent("Nothing needs us.");
-    expect(screen.getByTestId("ops-command-need-us")).toHaveTextContent("None blocked long");
+    // A figure at 0 is left out.
+    expect(screen.queryByTestId("ops-command-need-us")).toBeNull();
+    expect(screen.getByTestId("ops-command-waiting")).toBeInTheDocument();
   });
 
   it("names an agent's state in words", () => {
@@ -292,7 +379,11 @@ describe("command center", () => {
         openRuns: 1,
         recentRuns: [{ id: "a", status: "waiting", mode: "live", createdAt: "" }],
       }),
-    ).toEqual({ state: "waiting", words: "On client" });
+    ).toEqual({ state: "waiting", words: "Waiting for approval" });
+    // A run stored as running that waits on a person counts as waiting.
+    expect(agentChip({ status: "active", openRuns: 1, waitingRuns: 1, recentRuns: [] }).words).toBe(
+      "Waiting for approval",
+    );
     expect(
       agentChip({
         status: "active",

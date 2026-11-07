@@ -8,6 +8,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../../test/fixtures";
+import { operatorBlurb } from "./Connections";
 
 const SANDBOX = "00000000-0000-4000-8000-00000000a001";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
@@ -51,6 +52,48 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("a connector's description in the back office", () => {
+  it("leaves out what its manifest says to the client", () => {
+    expect(
+      operatorBlurb(
+        "Bills, purchases and vendors in your QuickBooks Online. You sign in to QuickBooks yourself.",
+      ),
+    ).toBe("Bills, purchases and vendors in your QuickBooks Online.");
+    expect(
+      operatorBlurb(
+        "Read the transactions of your bank accounts. You connect them yourself. Nothing here can move money.",
+      ),
+    ).toBe("Read the transactions of your bank accounts. Nothing here can move money.");
+    expect(operatorBlurb("Upload tools.")).toBe("Upload tools.");
+  });
+
+  it("names the tools offered with the right plural and how the client connects", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
+      [`GET /api/ops/clients/${SANDBOX}/connections`]: () => ({
+        ...connections({ offered: [] }),
+        sandbox: false,
+        connectors: [
+          {
+            ...connector("qbo", "QuickBooks Online", "oauth2", true),
+            description: "Bills in your QuickBooks Online. You sign in to QuickBooks yourself.",
+            tools: [
+              { id: "qbo.bill.get", description: "Get a bill", verb: "read", sideEffect: "none" },
+            ],
+          },
+        ],
+      }),
+    });
+    renderAt(`/ops/clients/${SANDBOX}/connections`, api);
+    const offering = await screen.findByTestId("ops-connections-offering", {}, { timeout: 10_000 });
+    expect(offering).toHaveTextContent("Bills in your QuickBooks Online.");
+    expect(offering).not.toHaveTextContent("yourself");
+    expect(offering).toHaveTextContent("1 tool · the client signs in from their portal");
+    expect(offering).not.toHaveTextContent("oauth2");
+  });
 });
 
 describe("ops connections: the Sandbox client", () => {
@@ -114,10 +157,10 @@ describe("ops connections: the Sandbox client", () => {
     renderAt(`/ops/clients/${SANDBOX}/connections`, api);
     const offering = await screen.findByTestId("ops-connections-offering");
     expect(within(offering).queryByTestId("ops-connections-connect-qbo")).toBeNull();
-    expect(screen.getByTestId("ops-connections-list")).toHaveTextContent("9341458640918607");
+    expect(screen.getByTestId("ops-connections-list")).toHaveTextContent("Sandbox Company_US_1");
   });
 
-  it("names a QuickBooks connection by its company, with the realm id under it, and links to what it synced", async () => {
+  it("names a QuickBooks connection by its company, never its realm id, and links to what it synced", async () => {
     const CONN = "00000000-0000-4000-8000-0000000000d1";
     const qbo = (over: Record<string, unknown>) => ({
       id: CONN,
@@ -148,23 +191,70 @@ describe("ops connections: the Sandbox client", () => {
     expect(within(card).getByTestId("ops-connection-account")).toHaveTextContent(
       /^Sandbox Company_US_1$/,
     );
-    expect(card).toHaveTextContent("9341458640918607");
+    // The provider's company id (the realm) never shows.
+    expect(card).not.toHaveTextContent("9341458640918607");
     expect(within(card).getByTestId("ops-connection-records")).toHaveAttribute(
       "href",
       `/ops/clients/${DEMO}/records?source=${CONN}`,
     );
     view.unmount();
 
-    // No company name and never synced: the realm id, and no link to an empty list.
+    // No company name and never synced: no account line (never the realm id), and no link to an
+    // empty list.
     api.on(`GET /api/ops/clients/${DEMO}/connections`, () =>
       connections({ sandbox: false, connections: [qbo({ config: {}, lastSyncAt: null })] }),
     );
     renderAt(`/ops/clients/${DEMO}/connections`, api);
     const bare = await screen.findByTestId(`ops-connection-${CONN}`);
-    expect(within(bare).getByTestId("ops-connection-account")).toHaveTextContent(
-      /^9341458640918607$/,
-    );
+    expect(within(bare).queryByTestId("ops-connection-account")).toBeNull();
+    expect(bare).not.toHaveTextContent("9341458640918607");
     expect(within(bare).queryByTestId("ops-connection-records")).toBeNull();
+  });
+
+  it("shows upload's last document and the agents its documents start, not 'never synced'", async () => {
+    const UPLOAD = "00000000-0000-4000-8000-0000000000f1";
+    const upload = (over: Record<string, unknown> = {}) => ({
+      id: UPLOAD,
+      tenantId: DEMO,
+      connector: "upload",
+      status: "connected",
+      externalAccountId: null,
+      config: {},
+      permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
+      lastSyncAt: null,
+      lastActivityAt: "2026-11-05T12:41:00.000Z",
+      connectedBy: null,
+      createdAt: "2026-11-05T12:00:00.000Z",
+      ...over,
+    });
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}/connections`]: () =>
+        connections({
+          sandbox: false,
+          connections: [upload()],
+          connectors: [connector("upload", "Upload", "none", true)],
+          usedBy: { [UPLOAD]: [{ id: "a1", name: "Bill clerk" }] },
+        }),
+    });
+    const view = renderAt(`/ops/clients/${DEMO}/connections`, api);
+    const card = await screen.findByTestId(`ops-connection-${UPLOAD}`);
+    expect(card).toHaveTextContent("last document");
+    expect(card).not.toHaveTextContent("never synced");
+    expect(card).toHaveTextContent("Used by Bill clerk");
+    view.unmount();
+
+    api.on(`GET /api/ops/clients/${DEMO}/connections`, () =>
+      connections({
+        sandbox: false,
+        connections: [upload({ lastActivityAt: null })],
+        connectors: [connector("upload", "Upload", "none", true)],
+      }),
+    );
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
+    expect(await screen.findByTestId(`ops-connection-${UPLOAD}`)).toHaveTextContent(
+      "no documents yet",
+    );
   });
 
   it("sends a test email from the Sandbox's Gmail, with an empty body, and says where it went", async () => {

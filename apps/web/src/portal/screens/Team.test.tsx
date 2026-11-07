@@ -57,7 +57,7 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
 }
 
 describe("portal team", () => {
-  it("lists the team with what each signs and invites someone", async () => {
+  it("lists the team with what each approves and invites someone", async () => {
     const users = [
       person("admin@demo.example.com", "client_admin"),
       person("viewer@demo.example.com", "client_user", false),

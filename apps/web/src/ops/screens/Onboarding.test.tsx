@@ -1,6 +1,7 @@
 // The back office's onboarding screens: a new client with its
-// admin invited and approvals delegated, and the client's settings (approvals with a reason,
-// invites with what became of the email, refusals in plain words).
+// admin invited and approvals delegated (it opens on the client's People), and the client's
+// settings, one section at a time (approvals with no reason asked for, invites with what became of
+// the email, refusals in plain words).
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -59,31 +60,79 @@ const connections = {
   sandbox: false,
 };
 
+/** One connector of the back office's catalog (`GET /api/ops/connectors`). */
+function catalogConnector(
+  id: string,
+  name: string,
+  description: string,
+  over: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    name,
+    description,
+    icon: id,
+    auth: "none",
+    status: "live",
+    statusSource: "deployment",
+    testOnly: false,
+    note: "",
+    available: true,
+    clientsConnected: 0,
+    tools: [],
+    permissionEntities: [],
+    errors: { toolCalls: 0, connections: 0 },
+    defaultAccess: {
+      matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
+      source: "platform",
+    },
+    waiting: [],
+    updatedAt: null,
+    ...over,
+  };
+}
+
 describe("new client", () => {
+  it("lists the tools to offer without the testkit, and a failure in plain words only", async () => {
+    let fail = true;
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/connectors": () =>
+        fail
+          ? new Reply(403, {
+              error: { code: "tenant_forbidden", message: "choose a client first" },
+            })
+          : {
+              connectors: [
+                catalogConnector("zoho_crm", "Zoho CRM", "Leads and deals"),
+                catalogConnector("testkit", "Testkit", "For tests", { testOnly: true }),
+              ],
+            },
+    });
+    renderAt("/ops/clients/new", api);
+    const card = await screen.findByTestId("new-client-connectors");
+    const alert = await within(card).findByRole("alert");
+    expect(alert).toHaveTextContent("You don't have access to this.");
+    // The server's code is for support, never part of the words.
+    expect(alert).not.toHaveTextContent("tenant_forbidden");
+    expect(alert).toHaveAttribute("data-error-code", "tenant_forbidden");
+    fail = false;
+    await userEvent.click(within(card).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByTestId("new-client-offer-zoho_crm")).toBeInTheDocument();
+    expect(screen.queryByTestId("new-client-offer-testkit")).toBeNull();
+  });
+
   it("creates the client with its offer, approvals and admin, then shows the invite", async () => {
     const bodies: unknown[] = [];
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      "GET /api/connectors": () => ({
+      // The back office's catalog: the portal's /api/connectors needs a client, which a new one
+      // doesn't have yet. The testkit is never offered to a real client.
+      "GET /api/ops/connectors": () => ({
         connectors: [
-          {
-            id: "upload",
-            name: "Upload",
-            description: "Files you upload or forward",
-            icon: "upload",
-            auth: "none",
-            entities: [],
-            tools: [],
-          },
-          {
-            id: "zoho_crm",
-            name: "Zoho CRM",
-            description: "Leads and deals",
-            icon: "zoho",
-            auth: "oauth2",
-            entities: [],
-            tools: [],
-          },
+          catalogConnector("upload", "Upload", "Files you upload or forward"),
+          catalogConnector("zoho_crm", "Zoho CRM", "Leads and deals"),
+          catalogConnector("testkit", "Testkit", "For tests", { testOnly: true }),
         ],
       }),
       "POST /api/ops/clients": ({ init }) => {
@@ -171,7 +220,7 @@ describe("new client", () => {
   it("says why the admin can't be invited, and keeps the form", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      "GET /api/connectors": () => ({ connectors: [] }),
+      "GET /api/ops/connectors": () => ({ connectors: [] }),
       "POST /api/ops/clients": () =>
         new Reply(409, { error: { code: "other_client", message: "x" } }),
     });
@@ -187,7 +236,7 @@ describe("new client", () => {
 });
 
 describe("client settings", () => {
-  it("delegates approvals with a reason and shows the change", async () => {
+  it("delegates approvals and shows the change", async () => {
     let current = settings();
     const bodies: unknown[] = [];
     const api = fakeApi({
@@ -210,7 +259,7 @@ describe("client settings", () => {
                 id: "c1",
                 from: "client_admin",
                 to: "operator",
-                reason: "Owner away in December",
+                reason: "",
                 by: { id: "o", email: "operator@example.com", name: "Operator" },
                 createdAt: "2026-11-04T10:00:00.000Z",
               },
@@ -220,26 +269,61 @@ describe("client settings", () => {
         return current;
       },
     });
-    renderAt(`/ops/clients/${DEMO}/settings`, api);
-    const approvals = await screen.findByTestId("ops-client-settings-approvals");
-    expect(screen.getByText(/approvals by their admin/)).toBeInTheDocument();
+    renderAt(`/ops/clients/${DEMO}/settings/approvals`, api);
+    const approvals = await screen.findByTestId(
+      "ops-client-settings-approvals",
+      {},
+      { timeout: 10_000 },
+    );
+    expect(within(approvals).getByText("Approvals by their admin")).toBeInTheDocument();
     expect(within(approvals).queryByTestId("ops-client-approvals-save")).toBeNull();
     await userEvent.click(within(approvals).getByTestId("ops-client-approvals-operator"));
-    await userEvent.type(
-      within(approvals).getByTestId("ops-client-approvals-reason"),
-      "Owner away in December",
-    );
+    // No reason asked for.
+    expect(within(approvals).queryByTestId("ops-client-approvals-reason")).toBeNull();
     await userEvent.click(within(approvals).getByTestId("ops-client-approvals-save"));
     expect(await within(approvals).findByTestId("ops-client-approvals-history")).toHaveTextContent(
       "Changed to us by Operator",
     );
-    expect(bodies).toEqual([{ approvals: "operator", reason: "Owner away in December" }]);
-    expect(screen.getByText(/approvals by us/)).toBeInTheDocument();
-    // The offering is shown, and changed on Connections.
-    const offered = screen.getByTestId("ops-client-settings-offered");
-    expect(await within(offered).findByText("Upload")).toBeInTheDocument();
+    expect(bodies).toEqual([{ approvals: "operator" }]);
+    expect(within(approvals).getByText("Approvals by us")).toBeInTheDocument();
+    // The section list, one section at a time: People isn't on this page.
+    const nav = screen.getByTestId("ops-client-settings-nav");
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual([
+      "General",
+      "Approvals",
+      "People",
+      "Billing",
+      "Compliance",
+      "Exports",
+      "Retire client",
+    ]);
+    expect(within(nav).getByRole("link", { name: "Approvals" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByTestId("ops-client-settings-people")).toBeNull();
+  });
+
+  it("lists the client's people apart from the team serving it", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "UTC", settings: {}, createdAt: "x" },
+        agents: [],
+        connections: [],
+        members: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/settings`]: () => settings(),
+    });
+    renderAt(`/ops/clients/${DEMO}/settings/people`, api);
     // Operators are the team serving the client, not its people.
-    expect(screen.getByTestId("ops-client-team")).toHaveTextContent("operator@example.com");
+    expect(await screen.findByTestId("ops-client-team", {}, { timeout: 10_000 })).toHaveTextContent(
+      "operator@example.com",
+    );
     expect(screen.queryByTestId("ops-client-members-operator@example.com")).toBeNull();
   });
 
@@ -263,8 +347,8 @@ describe("client settings", () => {
               email: { status: "failed", reason: "invitation_invalid" },
             },
     });
-    renderAt(`/ops/clients/${DEMO}/settings`, api);
-    const form = await screen.findByTestId("ops-client-invite");
+    renderAt(`/ops/clients/${DEMO}/settings/people`, api);
+    const form = await screen.findByTestId("ops-client-invite", {}, { timeout: 10_000 });
     await userEvent.type(
       within(form).getByTestId("ops-client-invite-email"),
       "clerk@demo.example.com",

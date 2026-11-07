@@ -4,15 +4,25 @@ import { Navigate, useLocation, useParams } from "react-router-dom";
 
 /**
  * `/services/:id` → `<Redirect to="/agents/:id" />`. A `*` in `to` takes the rest of the path. A
- * query in `to` (`/?view=weekly`) is merged with the old address's own (`?week=…`).
+ * query in `to` (`/contacts?show=organizations`) is kept, with the old address's own query after it.
  */
 export function Redirect({ to }: { to: string }) {
   const params = useParams();
   const { search, hash } = useLocation();
-  const [path, query = ""] = to.split("?");
-  return (
-    <Navigate to={`${fillPath(path ?? "/", params)}${mergeQuery(query, search)}${hash}`} replace />
-  );
+  return <Navigate to={`${redirectTarget(to, params, search)}${hash}`} replace />;
+}
+
+/** The new address: `to` filled from the params, its own query merged with the old one. */
+export function redirectTarget(
+  to: string,
+  params: Readonly<Record<string, string | undefined>>,
+  search: string,
+): string {
+  const [path = "", own = ""] = to.split("?");
+  const query = new URLSearchParams(own);
+  for (const [k, v] of new URLSearchParams(search)) if (!query.has(k)) query.append(k, v);
+  const q = query.toString();
+  return `${fillPath(path, params)}${q ? `?${q}` : ""}`;
 }
 
 /** Fills `:name` segments and a trailing `*` from the matched params. */
@@ -24,16 +34,4 @@ export function fillPath(to: string, params: Readonly<Record<string, string | un
   });
   while (segments.length > 1 && segments[segments.length - 1] === "") segments.pop();
   return segments.join("/") || "/";
-}
-
-/**
- * The new home's fixed query, then the old address's own: `("view=weekly", "?week=2026-11-02")` →
- * `"?view=weekly&week=2026-11-02"`. The new home's value wins where both name the same key.
- */
-export function mergeQuery(fixed: string, search: string): string {
-  if (!fixed) return search;
-  const out = new URLSearchParams(fixed);
-  for (const [k, v] of new URLSearchParams(search)) if (!out.has(k)) out.append(k, v);
-  const s = out.toString();
-  return s ? `?${s}` : "";
 }

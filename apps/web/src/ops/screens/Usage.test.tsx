@@ -1,6 +1,6 @@
 // `/ops/usage`: cost and usage per client, client agent and template, by month; filters travel in
 // the URL and the request; sub-cent costs stay visible; nothing is computed with floats.
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -178,5 +178,138 @@ describe("ops usage", () => {
       from: "2026-09-01",
       to: "2026-11-04",
     });
+  });
+
+  it("knows every period, and a custom range", () => {
+    const now = new Date("2026-11-04T10:00:00Z");
+    expect(usageRange("today", now)).toEqual({ from: "2026-11-04", to: "2026-11-04" });
+    expect(usageRange("7d", now)).toEqual({ from: "2026-10-29", to: "2026-11-04" });
+    expect(usageRange("mtd", now)).toEqual({ from: "2026-11-01", to: "2026-11-04" });
+    expect(usageRange("month", now)).toEqual({ from: "2026-11-01", to: "2026-11-30" });
+    expect(usageRange("last", now)).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+    expect(usageRange("12m", now)).toEqual({ from: "2025-12-01", to: "2026-11-04" });
+    expect(usageRange("custom", now, { from: "2026-10-05", to: "2026-10-20" })).toEqual({
+      from: "2026-10-05",
+      to: "2026-10-20",
+    });
+    // A backwards or missing end falls back to month to date.
+    expect(usageRange("custom", now, { from: "2026-10-20", to: "2026-10-05" })).toEqual({
+      from: "2026-11-01",
+      to: "2026-11-04",
+    });
+  });
+
+  it("asks for a custom range from the URL and changes its ends", async () => {
+    const queries: URLSearchParams[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/usage": ({ url }) => {
+        queries.push(url.searchParams);
+        return REPORT;
+      },
+    });
+    renderAt("/ops/usage?range=custom&from=2026-10-05&to=2026-10-20", api);
+    await screen.findByTestId("ops-usage-cost");
+    expect(queries[0]?.get("from")).toBe("2026-10-05");
+    expect(queries[0]?.get("to")).toBe("2026-10-20");
+    const to = screen.getByTestId("ops-usage-to");
+    expect(to).toHaveValue("2026-10-20");
+    fireEvent.change(to, { target: { value: "2026-10-25" } });
+    await waitFor(() => expect(queries.at(-1)?.get("to")).toBe("2026-10-25"));
+    await userEvent.selectOptions(screen.getByTestId("ops-usage-range"), "7d");
+    await waitFor(() => expect(queries.at(-1)?.get("from")).toBe(usageRange("7d").from));
+  });
+
+  it("hides rows with nothing in them until Show all, charts the cost and splits it", async () => {
+    const zero = fig("0.0000", 0, { steps: 0, tokensIn: 0, tokensOut: 0 });
+    const idle = {
+      id: "00000000-0000-4000-8000-00000000a003",
+      name: "Idle client",
+      total: zero,
+      byMonth: [
+        { month: "2026-10", figures: zero },
+        { month: "2026-11", figures: zero },
+      ],
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/models": () => ({
+        models: [
+          { id: "claude-opus-5-5", label: "Best (Opus)", inputPerMtok: "5", outputPerMtok: "25" },
+        ],
+      }),
+      "GET /api/ops/usage": () => ({
+        ...REPORT,
+        byMonth: [{ month: "2026-10", figures: zero }, REPORT.byMonth[1]],
+        clients: [...REPORT.clients, idle],
+        byDay: [
+          { day: "2026-11-02", figures: fig("2.0000", 2) },
+          { day: "2026-11-03", figures: fig("0.3456", 1) },
+        ],
+        byModel: [
+          {
+            provider: "anthropic",
+            model: "claude-opus-5-5",
+            calls: 4,
+            tokensIn: 1000,
+            tokensOut: 200,
+            costUsd: "2.3000",
+          },
+        ],
+        byVendor: [
+          {
+            id: "anthropic",
+            name: "Anthropic",
+            costUsd: "2.3000",
+            estimated: false,
+            calls: 4,
+          },
+          {
+            id: "twilio",
+            name: "Twilio (texts and WhatsApp)",
+            costUsd: "0.0996",
+            estimated: true,
+            messages: 12,
+          },
+        ],
+      }),
+    });
+    renderAt("/ops/usage", api);
+    await screen.findByTestId(`ops-usage-row-${DEMO}`);
+    // The idle client and the empty October are hidden, and the toggle says so.
+    expect(screen.queryByTestId(`ops-usage-row-${idle.id}`)).toBeNull();
+    const months = within(screen.getByTestId("ops-usage-months")).getAllByRole("row");
+    expect(months).toHaveLength(2);
+    expect(screen.getByTestId("ops-usage-show-all").closest("label")).toHaveTextContent(
+      "Show all (2 empty rows hidden)",
+    );
+    await userEvent.click(screen.getByTestId("ops-usage-show-all"));
+    expect(await screen.findByTestId(`ops-usage-row-${idle.id}`)).toBeInTheDocument();
+    expect(within(screen.getByTestId("ops-usage-months")).getAllByRole("row")).toHaveLength(3);
+
+    // A bar a day, each with its figure.
+    expect(screen.getByText("Model cost by day")).toBeInTheDocument();
+    expect(screen.getByTestId("ops-usage-chart-bar-2026-11-02")).toHaveAccessibleName(
+      "Nov 2, 2026: $2.00, 2 runs",
+    );
+    // By vendor and by model, the model by its label.
+    expect(screen.getByTestId("ops-usage-vendor-twilio")).toHaveTextContent(
+      "Twilio (texts and WhatsApp)12 messagesabout $0.10",
+    );
+    expect(screen.getByTestId("ops-usage-vendor-anthropic")).toHaveTextContent("4 model calls");
+    expect(await screen.findByText("Best (Opus)")).toBeInTheDocument();
+    expect(screen.getByTestId("ops-usage-model-claude-opus-5-5")).toHaveTextContent("$2.30");
+  });
+
+  it("keeps billing a tab away", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/usage": () => REPORT,
+    });
+    renderAt("/ops/usage", api);
+    await screen.findByTestId("ops-usage-cost");
+    expect(
+      within(screen.getByTestId("ops-usage")).getByRole("link", { name: "Billing" }),
+    ).toHaveAttribute("href", "/ops/billing");
   });
 });

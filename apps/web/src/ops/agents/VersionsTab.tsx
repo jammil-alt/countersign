@@ -1,12 +1,13 @@
 // The Versions tab (ARCHITECTURE §9.3, §10.5 "Versions"): history with change notes and status
 // badges, each version's readable diff against its parent, publish a draft, roll back to an older
 // version. On a client agent: "Based on template vN", update available, and its customizations
-// against the template; on a template: "Used by", with versions behind and open conflicts.
-import { useState } from "react";
+// against the template; on a template: "Used by", with versions behind and open conflicts. The
+// test bench sits with them (the owner's review: test before you publish, beside the versions).
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
-import { useApi } from "../../api/useApi";
+import { type ApiState, useApi } from "../../api/useApi";
 import {
   Badge,
   Button,
@@ -22,10 +23,26 @@ import { detailMessages, errorText, Notice, plural, Select, useAction } from "./
 
 export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
+const RUN_WORDS: Record<string, string> = {
+  active: "running",
+  paused: "paused",
+  retired: "retired",
+  draft: "not started",
+};
+
 /** "retired" → "Retired": statuses read in sentence case. */
 function sentence(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
+
+/** Who made a version, in words: "the Builder", "a template update". */
+export const AUTHOR_WORDS: Record<string, string> = {
+  operator: "us",
+  builder: "the Builder",
+  pack: "its pack",
+  merge: "a template update",
+  promote: "a promotion",
+};
 
 function statusBadge(v: VersionSummary, liveId: string | null) {
   if (v.id === liveId) return <Badge tone="positive">Live</Badge>;
@@ -39,6 +56,8 @@ export function VersionsTab({
   liveId,
   base,
   update,
+  template,
+  tests,
   onChanged,
 }: {
   agent: AgentSummary;
@@ -46,6 +65,13 @@ export function VersionsTab({
   liveId: string | null;
   base: string;
   update: AgentDetail["update"];
+  /**
+   * A client agent's template (GET /api/ops/agents/:templateId) when the agent page has fetched
+   * it already; left out, the tab fetches it itself.
+   */
+  template?: ApiState<AgentDetail> | null;
+  /** The test bench, shown with the versions. */
+  tests?: ReactNode;
   onChanged(): void;
 }) {
   const sorted = [...versions].sort((a, b) => b.version - a.version);
@@ -53,12 +79,15 @@ export function VersionsTab({
   const [confirming, setConfirming] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const action = useAction();
-  const template = useApi(
+  const own = useApi(
     apiRoutes.opsAgent,
-    agent.kind === "client" && agent.templateId ? { params: { id: agent.templateId } } : null,
+    template === undefined && agent.kind === "client" && agent.templateId
+      ? { params: { id: agent.templateId } }
+      : null,
   );
+  const tpl = template === undefined ? own : template;
   const templateVersion = (id: string | null) =>
-    id ? template.data?.versions.find((v) => v.id === id) : undefined;
+    id ? tpl?.data?.versions.find((v) => v.id === id) : undefined;
   const live = versions.find((v) => v.id === liveId) ?? null;
 
   if (versions.length === 0) return <EmptyState>No versions yet.</EmptyState>;
@@ -106,9 +135,9 @@ export function VersionsTab({
           agent={agent}
           update={update}
           hasLive={liveId !== null}
-          templateVersions={template.data?.versions ?? []}
+          templateVersions={tpl?.data?.versions ?? []}
           onChanged={onChanged}
-          templateName={template.data?.agent.name ?? null}
+          templateName={tpl?.data?.agent.name ?? null}
           baseVersion={
             templateVersion(
               live?.basedOnTemplateVersionId ?? sorted[0]?.basedOnTemplateVersionId ?? null,
@@ -173,7 +202,9 @@ export function VersionsTab({
                         </span>
                       ) : null}
                       {v.authorType !== "operator" ? (
-                        <span className="block text-sm text-ink-muted">by {v.authorType}</span>
+                        <span className="block text-sm text-ink-muted">
+                          by {AUTHOR_WORDS[v.authorType] ?? v.authorType}
+                        </span>
                       ) : null}
                     </td>
                     <td>
@@ -183,13 +214,13 @@ export function VersionsTab({
                             ? `v${tv.version}`
                             : "template"
                           : "—"
-                        : v.authorType}
+                        : (AUTHOR_WORDS[v.authorType] ?? v.authorType)}
                     </td>
                     <td className="text-sm whitespace-nowrap figures">
                       {v.createdAt.slice(0, 10)}
                     </td>
                     <td className="text-right whitespace-nowrap">
-                      {v.status === "draft" ? (
+                      {v.status === "draft" && v.id !== liveId ? (
                         <Button
                           variant="primary"
                           data-testid={`agent-version-${v.version}-publish`}
@@ -228,6 +259,18 @@ export function VersionsTab({
           <VersionDiff agentId={agent.id} versionId={selected} versions={versions} />
         ) : null}
       </div>
+
+      {tests ? (
+        <section className="flex flex-col gap-4" id="tests" data-testid="agent-versions-tests">
+          <div>
+            <h2 className="type-subheading text-ink">Test before you publish</h2>
+            <p className="text-sm text-ink-muted">
+              Run the cases against a version. Test runs never write to a client's tools.
+            </p>
+          </div>
+          {tests}
+        </section>
+      ) : null}
 
       {agent.kind === "client" && agent.templateId ? (
         <CustomizationsCard key={liveId ?? "none"} agentId={agent.id} />
@@ -492,7 +535,9 @@ function UsedByCard({ templateId }: { templateId: string }) {
                     <span className="block text-sm text-ink-muted">
                       {u.client.name}
                       {u.agent.linked ? "" : " · detached"}
-                      {u.agent.runStatus ? ` · ${u.agent.runStatus}` : ""}
+                      {u.agent.runStatus
+                        ? ` · ${RUN_WORDS[u.agent.runStatus] ?? u.agent.runStatus}`
+                        : ""}
                     </span>
                   </td>
                   <td className="figures">{u.baseVersion ? `v${u.baseVersion}` : "—"}</td>

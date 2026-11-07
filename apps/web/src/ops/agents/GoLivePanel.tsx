@@ -104,14 +104,14 @@ export function GoLivePanel({
         <p className="text-ink">
           Test runs only.{" "}
           {g.writes
-            ? "Start the trial when it is ready: every change it makes then waits for a signature."
+            ? "Start the trial when it is ready: every change it makes then waits for approval."
             : "It changes nothing in the client's tools, so it goes live when started."}
         </p>
       ) : null}
       {g.trial && (stage === "trial" || stage === "bench") ? (
         <p className="text-ink" data-testid="agent-trial-progress">
           {stage === "trial"
-            ? `Trial since ${day(g.trial.startedAt)}: ${plural(g.trial.days, "day")} of ${g.trial.minDays}, ${plural(g.trial.runs, "finished run")} of ${g.trial.minRuns}. Every change waits for a signature.`
+            ? `Trial since ${day(g.trial.startedAt)}: ${plural(g.trial.days, "day")} of ${g.trial.minDays}, ${plural(g.trial.runs, "finished run")} of ${g.trial.minRuns}. Every change waits for approval.`
             : `Trial minimums: ${plural(g.trial.minDays, "day")}, ${plural(g.trial.minRuns, "run")}.`}
         </p>
       ) : null}
@@ -119,7 +119,7 @@ export function GoLivePanel({
         <p className="text-ink" data-testid="agent-signoff">
           Waiting on the client admin's sign-off since {day(g.signoff.askedAt)}
           {g.signoff.summary
-            ? `: ${plural(g.signoff.summary.runs, "run")}, ${plural(g.signoff.summary.changesMade, "change")} made, ${g.signoff.summary.signed} signed, ${g.signoff.summary.rejected} rejected.`
+            ? `: ${plural(g.signoff.summary.runs, "run")}, ${plural(g.signoff.summary.changesMade, "change")} made, ${g.signoff.summary.signed} approved, ${g.signoff.summary.rejected} rejected.`
             : "."}
         </p>
       ) : null}
@@ -265,7 +265,7 @@ function PastEventRun({
     <div className="mt-5 border-t border-line pt-4" data-testid="agent-run-event">
       <p className="mb-3 text-sm text-ink-muted">
         Run the live version on an event that came in before it was running. It runs once per event,
-        and its changes wait for a signature as in any live run.
+        and its changes wait for approval as in any live run.
       </p>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
         <Field label="Workflow">

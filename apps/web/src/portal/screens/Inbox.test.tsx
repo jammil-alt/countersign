@@ -1,10 +1,11 @@
-// Your Desk (`/desk`, docs/ui-plan.md C3): the list by day and the open item. A QuickBooks change
-// reads like the record (the bill's number and vendor, its lines with totals, money in the reader's
-// language), never a tool id or a raw object, only what changes, and is approved with the tool's
-// name; the approval can be undone inside its window. One step's batch is approved in part; "Not
-// now" snoozes; a question takes an answer; a change's editable fields are edited before
-// approving; a viewer sees and never approves. Who approves what lives in Settings (QA round 1).
-// The shell's Desk count follows every action. `/inbox` lands here.
+// The Inbox (`/inbox`, was Your Desk; docs/ui-plan.md C3, Review 1): Waiting and Done, the list by
+// day and the open item. A QuickBooks change reads like the record (the bill's number and vendor,
+// its lines with totals, money in the reader's language), never a tool id or a raw object, and is
+// approved with the tool's name; the approval can be undone inside its window. One step's batch is
+// approved in part; "Not now" snoozes, and the set-aside items show under Waiting when asked for;
+// a question waits with the rest and takes an answer; a change's editable fields are edited before
+// approving; a viewer sees and never approves. Who approves what is in Settings. The shell's Inbox
+// count follows every action. `/desk` lands here.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -73,8 +74,8 @@ const base = {
   "GET /api/team": () => team(),
 };
 
-describe("Your Desk: a QuickBooks change", () => {
-  it("shows the bill as the client knows it, signs with the tool's name, and undoes in the window", async () => {
+describe("The Inbox: a QuickBooks change", () => {
+  it("shows the bill as the client knows it, approves with the tool's name, and undoes in the window", async () => {
     let open = true;
     const resolved: unknown[] = [];
     let undone = 0;
@@ -111,12 +112,18 @@ describe("Your Desk: a QuickBooks change", () => {
         };
       },
     });
-    // The old address lands on the Desk.
-    renderAt("/inbox", api);
+    // The old address lands on the Inbox.
+    renderAt("/desk", api);
 
     const entry = await screen.findByTestId(`desk-entry-${ITEM.id}`);
     expect(entry).toHaveTextContent("Pia");
-    expect(screen.getByTestId("desk-requests")).toHaveAttribute("href", "/sloan?mode=change");
+    // Asking us for something is a question to Sloan, ready to send.
+    expect(screen.getByTestId("inbox-ask-us")).toHaveAttribute(
+      "href",
+      `/sloan?ask=${encodeURIComponent("I'd like to ask Mezonas for: ")}`,
+    );
+    expect(screen.queryByTestId("desk-team")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Inbox");
     expect(entry).toHaveTextContent("Needs your approval");
     expect(entry).toHaveTextContent("QuickBooks bill 20418 · Northline Panel Supply");
 
@@ -128,10 +135,7 @@ describe("Your Desk: a QuickBooks change", () => {
     expect(within(card).getByTestId("desk-description")).toHaveTextContent(
       "Replace the bill's lines with the items on the vendor's invoice. The total stays the same.",
     );
-    // QA round 1: the date and total don't change, so they are one line, not two tables.
-    expect(within(card).getByTestId("change-unchanged")).toHaveTextContent(
-      "Unchanged: Date Oct 28, 2026 · Total $9,742.35",
-    );
+    expect(within(card).getByTestId("change-unchanged-total")).toHaveTextContent("$9,742.35");
     const after = within(card).getByTestId("change-lines-after");
     expect(within(after).getByTestId("change-lines-after-item-0")).toHaveTextContent(
       "Baltic birch 3/4 4x8",
@@ -150,7 +154,7 @@ describe("Your Desk: a QuickBooks change", () => {
       expect(text).not.toContain(hidden);
     }
 
-    const count = screen.getByTestId("portal-nav-desk");
+    const count = screen.getByTestId("portal-nav-inbox");
     await waitFor(() => expect(count).toHaveTextContent("1"));
 
     const sign = within(card).getByTestId("desk-sign");
@@ -187,12 +191,12 @@ describe("Your Desk: a QuickBooks change", () => {
     expect(within(card).getByTestId("desk-sign")).toHaveTextContent(
       "Aprobar y actualizar QuickBooks Online",
     );
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Su escritorio");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bandeja");
   });
 });
 
-describe("Your Desk: batches, not now, questions, edits", () => {
-  it("signs part of one step's batch", async () => {
+describe("The Inbox: batches, not now, questions, edits", () => {
+  it("approves part of one step's batch", async () => {
     const key = `${ITEM.runId}:send`;
     const one = { ...ITEM, id: "00000000-0000-4000-8000-0000000b0001", batchKey: key };
     const two = { ...ITEM, id: "00000000-0000-4000-8000-0000000b0002", batchKey: key };
@@ -265,7 +269,7 @@ describe("Your Desk: batches, not now, questions, edits", () => {
     expect(await within(card).findByTestId("desk-band")).toHaveTextContent("Set aside for later");
   });
 
-  it("answers a question, and lists it under Questions", async () => {
+  it("answers a question, which waits with the rest", async () => {
     const question = {
       ...ITEM,
       id: "00000000-0000-4000-8000-0000000c0001",
@@ -285,12 +289,11 @@ describe("Your Desk: batches, not now, questions, edits", () => {
       },
     });
     renderAt("/desk", api);
-    // The list is in before the view changes, so the count is there.
-    await screen.findByTestId(`desk-entry-${question.id}`);
-    await userEvent.click(screen.getByTestId("desk-view-questions"));
-    expect(screen.getByTestId("desk-view-questions")).toHaveTextContent("Questions · 1");
-    expect(screen.queryByTestId(`desk-entry-${ITEM.id}`)).toBeNull();
-    // The view opens its first item.
+    // Two views only: the question is in Waiting, with the change.
+    expect(screen.queryByTestId("desk-view-questions")).toBeNull();
+    await userEvent.click(await screen.findByTestId(`desk-entry-${question.id}`));
+    expect(screen.getByTestId(`desk-entry-${ITEM.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId("desk-view-waiting")).toHaveTextContent("Waiting · 2");
     await waitFor(() =>
       expect(screen.getByTestId("desk-band")).toHaveTextContent("Waiting on your answer"),
     );
@@ -301,7 +304,7 @@ describe("Your Desk: batches, not now, questions, edits", () => {
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Answered by you");
   });
 
-  it("edits a change's editable fields before signing", async () => {
+  it("edits a change's editable fields before approving", async () => {
     const mail = {
       ...ITEM,
       id: "00000000-0000-4000-8000-0000000d0001",
@@ -376,12 +379,44 @@ describe("Your Desk: batches, not now, questions, edits", () => {
     const card = await screen.findByTestId("desk-detail");
     expect(await within(card).findByText(/you don't approve for your team/)).toBeInTheDocument();
     expect(within(card).queryByTestId("desk-sign")).toBeNull();
-    // Who approves what moved to Settings, Approvals; the Desk links there.
-    expect(screen.queryByTestId("desk-team")).toBeNull();
-    expect(screen.getByTestId("desk-approval-settings")).toHaveAttribute(
-      "href",
-      "/settings#approvals",
+  });
+
+  it("shows what was set aside with Not now under Waiting, when asked", async () => {
+    const later = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000c0002",
+      snoozedUntil: new Date(Date.now() + 3_600_000).toISOString(),
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(1),
+      "GET /api/inbox": inbox(() => ({ open: [ITEM], snoozed: [later] })),
+    });
+    renderAt("/inbox", api);
+    await screen.findByTestId(`desk-entry-${ITEM.id}`);
+    expect(screen.queryByTestId(`desk-entry-${later.id}`)).toBeNull();
+    const toggle = await screen.findByTestId("desk-show-later");
+    expect(toggle.closest("label")).toHaveTextContent("Show 1 set aside with Not now");
+    await userEvent.click(toggle);
+    expect(await screen.findByTestId("desk-later")).toContainElement(
+      screen.getByTestId(`desk-entry-${later.id}`),
     );
+  });
+
+  it("opens the old Not now view as Waiting with the set-aside items shown", async () => {
+    const later = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000c0003",
+      snoozedUntil: new Date(Date.now() + 3_600_000).toISOString(),
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(0),
+      "GET /api/inbox": inbox(() => ({ snoozed: [later] })),
+    });
+    renderAt("/inbox?view=later", api);
+    expect(await screen.findByTestId(`desk-entry-${later.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId("desk-view-waiting")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("says so when nothing waits", async () => {
@@ -397,7 +432,7 @@ describe("Your Desk: batches, not now, questions, edits", () => {
   });
 });
 
-describe("portal header: the Desk count", () => {
+describe("portal header: the Inbox count", () => {
   it("counts an approval that opened after the portal loaded, on the next page", async () => {
     let count = 0;
     const api = fakeApi({
@@ -406,12 +441,12 @@ describe("portal header: the Desk count", () => {
       "GET /api/inbox": inbox(() => ({ open: count > 0 ? [ITEM] : [] })),
     });
     renderAt("/", api);
-    const desk = await screen.findByTestId("portal-nav-desk");
+    const desk = await screen.findByTestId("portal-nav-inbox");
     await waitFor(() => expect(desk).toHaveTextContent("0"));
 
     // The Bill clerk proposes the change while the client has the portal open.
     count = 1;
-    await userEvent.click(screen.getByTestId("portal-nav-desk"));
+    await userEvent.click(screen.getByTestId("portal-nav-inbox"));
     await screen.findByTestId(`desk-entry-${ITEM.id}`);
     await waitFor(() => expect(desk).toHaveTextContent("1"));
   });

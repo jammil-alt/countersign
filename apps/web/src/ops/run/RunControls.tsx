@@ -77,9 +77,55 @@ export function RunControls({
 }
 
 /** The run's model calls: provider, model, tokens, cost, time and how each ended. */
-export function ModelCalls({ calls, names }: { calls: ModelCall[]; names: Map<string, string> }) {
+type Unrecorded = ResponseOf<typeof apiRoutes.opsRunModelCalls>["unrecorded"][number];
+
+export function ModelCalls({
+  calls,
+  names,
+  unrecorded = [],
+}: {
+  calls: ModelCall[];
+  names: Map<string, string>;
+  /** Steps whose tokens and cost their recorded calls don't account for. */
+  unrecorded?: readonly Unrecorded[];
+}) {
   const [open, setOpen] = useState<string | null>(null);
-  if (calls.length === 0) return <EmptyState>This run made no model calls.</EmptyState>;
+  const missing =
+    unrecorded.length > 0 ? (
+      <Card pad testId="ops-run-model-calls-unrecorded">
+        <p className="text-ink">Some model use wasn't recorded call by call.</p>
+        <ul className="mt-2 flex flex-col gap-1 text-sm text-ink-muted">
+          {unrecorded.map((u) => (
+            <li key={u.stepRunId}>
+              {names.get(u.stepRunId) ?? "A step"}:{" "}
+              {(u.tokensIn + u.tokensOut).toLocaleString("en-US")} tokens, {usd(u.costUsd)}
+            </li>
+          ))}
+        </ul>
+      </Card>
+    ) : null;
+  if (calls.length === 0) {
+    return missing ?? <EmptyState>This run made no model calls.</EmptyState>;
+  }
+  return (
+    <>
+      {missing}
+      <ModelCallTable calls={calls} names={names} open={open} setOpen={setOpen} />
+    </>
+  );
+}
+
+function ModelCallTable({
+  calls,
+  names,
+  open,
+  setOpen,
+}: {
+  calls: ModelCall[];
+  names: Map<string, string>;
+  open: string | null;
+  setOpen: (id: string | null) => void;
+}) {
   return (
     <Card testId="ops-run-model-calls">
       <div className="dt dt-ana overflow-x-auto rounded-none border-0">

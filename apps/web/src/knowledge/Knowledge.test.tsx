@@ -87,7 +87,8 @@ describe("portal knowledge", () => {
     renderAt("/knowledge", api);
     const card = await screen.findByTestId(`portal-knowledge-entry-${ENTRY}`);
     expect(card).toHaveTextContent("Version 1 · us");
-    expect(screen.getByTestId("portal-nav-knowledge")).toBeInTheDocument();
+    // Knowledge belongs to the back office: the page keeps its address, off the nav.
+    expect(screen.queryByTestId("portal-nav-knowledge")).toBeNull();
 
     const save = screen.getByTestId("portal-knowledge-new-save");
     expect(save).toBeDisabled();
@@ -143,7 +144,7 @@ describe("portal knowledge", () => {
       }),
     });
     renderAt("/", api);
-    await screen.findByTestId("portal-nav-table");
+    await screen.findByTestId("portal-nav-home");
     expect(screen.queryByTestId("portal-nav-knowledge")).toBeNull();
   });
 });
@@ -264,10 +265,13 @@ describe("back office knowledge tab", () => {
     expect(await screen.findByText(/No FAQs or policies yet/)).toBeInTheDocument();
   });
 
-  it("the client page has the Agents and Knowledge tabs", async () => {
+  it("the client page has the Agents tab, and Knowledge under Setup", async () => {
     const { api } = opsApi();
     renderAt(`/ops/clients/${CLIENT}`, api);
-    expect(await screen.findByRole("link", { name: "Knowledge" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Setup" })).toHaveAttribute(
+      "href",
+      `/ops/clients/${CLIENT}/connections`,
+    );
     expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/agents`,

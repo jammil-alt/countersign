@@ -177,7 +177,7 @@ describe("builder model", () => {
     expect(allowStep(BUNDLE, skill, CTX).definition.skills).toEqual([
       { skill: "docs.extract", settings: {} },
     ]);
-    expect(toolTitle(UPDATE)).toBe("Update record");
+    expect(toolTitle(UPDATE)).toBe("Update a record");
   });
 
   it("keeps the trigger's id when what starts the workflow changes; adds workflows", () => {

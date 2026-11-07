@@ -39,7 +39,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 item waits for you in Mezonas" : `${x.n} items wait for you in Mezonas`,
-      action: "Open your Desk",
+      action: "Open your inbox",
     },
     weeklyTable: {
       subject: (x) => `Your weekly summary for the week of ${x.week}`,
@@ -70,8 +70,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "An agent waits for your approval to go live",
-      line: "See what it did during its trial and approve it on your Desk.",
-      action: "Open your Desk",
+      line: "See what it did during its trial and approve it in your inbox.",
+      action: "Open your inbox",
     },
     footer: "This email is from Mezonas. You choose which emails you get in your settings.",
   },
@@ -79,7 +79,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 elemento le espera en Mezonas" : `${x.n} elementos le esperan en Mezonas`,
-      action: "Abrir su escritorio",
+      action: "Abrir su bandeja",
     },
     weeklyTable: {
       subject: (x) => `Su resumen de la semana del ${x.week}`,
@@ -113,8 +113,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Un agente espera su aprobación para empezar",
-      line: "Vea lo que hizo durante su prueba y apruébelo en su escritorio.",
-      action: "Abrir su escritorio",
+      line: "Vea lo que hizo durante su prueba y apruébelo en su bandeja.",
+      action: "Abrir su bandeja",
     },
     footer: "Este correo es de Mezonas. Usted elige qué correos recibe en su configuración.",
   },
@@ -124,7 +124,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
         c === 1
           ? "1 élément vous attend dans Mezonas"
           : `${x.n} éléments vous attendent dans Mezonas`,
-      action: "Ouvrir votre bureau",
+      action: "Ouvrir votre boîte de réception",
     },
     weeklyTable: {
       subject: (x) => `Votre bilan de la semaine du ${x.week}`,
@@ -158,8 +158,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Un agent attend votre approbation pour démarrer",
-      line: "Voyez ce qu'il a fait pendant son essai et approuvez-le sur votre bureau.",
-      action: "Ouvrir votre bureau",
+      line: "Voyez ce qu'il a fait pendant son essai et approuvez-le dans votre boîte de réception.",
+      action: "Ouvrir votre boîte de réception",
     },
     footer:
       "Cet e-mail vient de Mezonas. Vous choisissez les e-mails que vous recevez dans vos paramètres.",
@@ -168,7 +168,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 item espera por você no Mezonas" : `${x.n} itens esperam por você no Mezonas`,
-      action: "Abrir sua mesa",
+      action: "Abrir sua caixa de entrada",
     },
     weeklyTable: {
       subject: (x) => `Seu resumo da semana de ${x.week}`,
@@ -202,8 +202,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Um agente espera sua aprovação para começar",
-      line: "Veja o que ele fez durante o teste e aprove na sua mesa.",
-      action: "Abrir sua mesa",
+      line: "Veja o que ele fez durante o teste e aprove na sua caixa de entrada.",
+      action: "Abrir sua caixa de entrada",
     },
     footer: "Este e-mail é do Mezonas. Você escolhe quais e-mails recebe nas suas configurações.",
   },
@@ -211,7 +211,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     itemsWaiting: {
       subject: (c, x) =>
         c === 1 ? "1 elemento ti aspetta in Mezonas" : `${x.n} elementi ti aspettano in Mezonas`,
-      action: "Apri la tua scrivania",
+      action: "Apri la posta in arrivo",
     },
     weeklyTable: {
       subject: (x) => `Il tuo riepilogo della settimana del ${x.week}`,
@@ -245,8 +245,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Un agente aspetta la tua approvazione per partire",
-      line: "Guarda cosa ha fatto durante la prova e approva dalla tua scrivania.",
-      action: "Apri la tua scrivania",
+      line: "Guarda cosa ha fatto durante la prova e approva dalla posta in arrivo.",
+      action: "Apri la posta in arrivo",
     },
     footer: "Questa email è di Mezonas. Scegli quali email ricevere nelle impostazioni.",
   },
@@ -256,7 +256,7 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
         c === 1
           ? "1 Eintrag wartet in Mezonas auf Sie"
           : `${x.n} Einträge warten in Mezonas auf Sie`,
-      action: "Ihren Schreibtisch öffnen",
+      action: "Posteingang öffnen",
     },
     weeklyTable: {
       subject: (x) => `Ihre Wochenübersicht für die Woche vom ${x.week}`,
@@ -290,8 +290,8 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
     },
     signoff: {
       subject: "Ein Agent wartet auf Ihre Freigabe für den Start",
-      line: "Sehen Sie, was er in der Testphase getan hat, und geben Sie ihn auf Ihrem Schreibtisch frei.",
-      action: "Ihren Schreibtisch öffnen",
+      line: "Sehen Sie, was er in der Testphase getan hat, und geben Sie ihn in Ihrem Posteingang frei.",
+      action: "Posteingang öffnen",
     },
     footer:
       "Diese E-Mail kommt von Mezonas. Welche E-Mails Sie bekommen, wählen Sie in Ihren Einstellungen.",

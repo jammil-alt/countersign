@@ -5,6 +5,9 @@ import type { Approver } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
 import {
   complianceOf,
+  connectorShown,
+  findStep,
+  type OpsAgentActivity,
   parseCoveredProcessors,
   processingRefusal,
   processorsForOffer,
@@ -29,11 +32,16 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
 import { resolveInboxItem } from "../inbox";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
+import { daysOf, runsByDay } from "../runs/figures";
+import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
+import { runSubjects, sourceNames } from "../runs/subject";
+import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
+import { needsUs, needsUsContext } from "./command-center";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
 import {
@@ -47,7 +55,7 @@ import {
   opsToolCall,
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
-import { canSignIn } from "./portal";
+import { canSignIn, sourcesOf } from "./portal";
 import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
 import { addSupervisor } from "./supervisor";
 
@@ -122,7 +130,90 @@ function validTimezone(tz: string): boolean {
   }
 }
 
-async function clientSummaries(tx: Tx, ids: readonly string[]) {
+/**
+ * UI cleanup (design pass): each client agent's work at a glance for the client page: live runs
+ * started in the last 7 days, runs waiting for approval now (as Runs filters them), its last run
+ * (any mode) and its runs each day (UTC, test runs included, as the command center counts them).
+ */
+async function agentActivity(
+  tx: Tx,
+  tenantId: string,
+  agentIds: string[],
+  now: Date,
+): Promise<OpsAgentActivity[]> {
+  if (agentIds.length === 0) return [];
+  const scope = and(eq(run.tenantId, tenantId), inArray(run.agentId, agentIds)) as SQL;
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+  const week = await tx
+    .select({ agentId: run.agentId, n: count() })
+    .from(run)
+    .where(
+      and(
+        scope,
+        eq(run.mode, "live"),
+        sql`${run.createdAt} >= ${weekAgo.toISOString()}::timestamptz`,
+      ),
+    )
+    .groupBy(run.agentId);
+  const waiting = await tx
+    .select({ agentId: run.agentId, n: count() })
+    .from(run)
+    .where(and(scope, eq(run.mode, "live"), ...opsStatusWhere(["waiting"])))
+    .groupBy(run.agentId);
+  const lastRuns = await tx
+    .selectDistinctOn([run.agentId], {
+      agentId: run.agentId,
+      id: run.id,
+      status: run.status,
+      createdAt: run.createdAt,
+    })
+    .from(run)
+    .where(scope)
+    .orderBy(run.agentId, desc(run.createdAt), desc(run.id));
+  const lastWaiting = new Set(
+    lastRuns.length
+      ? (
+          await tx
+            .select({ id: run.id })
+            .from(run)
+            .where(
+              and(
+                scope,
+                inArray(
+                  run.id,
+                  lastRuns.map((r) => r.id),
+                ),
+                ...opsStatusWhere(["waiting"]),
+              ),
+            )
+        ).map((r) => r.id)
+      : [],
+  );
+  const days = await runsByDay(tx, [scope], { timezone: "UTC", now });
+  return agentIds.map((agentId) => {
+    const last = lastRuns.find((r) => r.agentId === agentId);
+    return {
+      agentId,
+      runs7d: week.find((w) => w.agentId === agentId)?.n ?? 0,
+      waitingRuns: waiting.find((w) => w.agentId === agentId)?.n ?? 0,
+      lastRun: last
+        ? {
+            id: last.id,
+            status: last.status,
+            at: last.createdAt.toISOString(),
+            waiting: lastWaiting.has(last.id),
+          }
+        : null,
+      perDay: daysOf(days.byAgent, agentId),
+    };
+  });
+}
+
+async function clientSummaries(
+  tx: Tx,
+  ids: readonly string[],
+  services: Pick<Services, "auth" | "env" | "platform">,
+) {
   if (ids.length === 0) return [];
   const rows = await tx
     .select()
@@ -141,6 +232,16 @@ async function clientSummaries(tx: Tx, ids: readonly string[]) {
     .from(inboxItem)
     .where(and(inArray(inboxItem.tenantId, [...ids]), eq(inboxItem.status, "open")))
     .groupBy(inboxItem.tenantId);
+  // UI cleanup (stream A): Needs us and runs waiting for approval, per client, from the same
+  // definitions the command center and the runs list use, so every count agrees.
+  const escalations = await needsUs(tx, ids, new Date(), needsUsContext(services));
+  const waiting = await tx
+    .select({ tenantId: run.tenantId, n: count() })
+    .from(run)
+    .where(
+      and(inArray(run.tenantId, [...ids]), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])),
+    )
+    .groupBy(run.tenantId);
   return rows.map((t) => ({
     id: t.id,
     name: t.name,
@@ -148,6 +249,8 @@ async function clientSummaries(tx: Tx, ids: readonly string[]) {
     createdAt: t.createdAt.toISOString(),
     agents: agents.find((a) => a.tenantId === t.id)?.n ?? 0,
     openInbox: open.find((o) => o.tenantId === t.id)?.n ?? 0,
+    needsUs: escalations.filter((e) => e.client.id === t.id).length,
+    waitingRuns: waiting.find((w) => w.tenantId === t.id)?.n ?? 0,
     sandbox: isSandbox(t.settings as Record<string, unknown>),
   }));
 }
@@ -169,6 +272,47 @@ async function agentRefs(tx: Tx, tenantIds: readonly string[], ids: (string | nu
   }));
 }
 
+/**
+ * Runs as the back office lists them (UI cleanup, stream A): each with its wait (who a run waiting
+ * for approval waits on, since when), its workflow's name and, failed, the name of the step it
+ * failed at, both read from the run's version.
+ */
+export async function opsRunViews(
+  tx: Tx,
+  rows: (typeof run.$inferSelect)[],
+  services: Pick<Services, "auth" | "env">,
+) {
+  const waits = await runWaits(tx, rows, reachContext(services));
+  const versionIds = [...new Set(rows.map((r) => r.agentVersionId))];
+  const versions = versionIds.length
+    ? await tx
+        .select({
+          id: agentVersion.id,
+          tenantId: agentVersion.tenantId,
+          bundle: agentVersion.bundle,
+        })
+        .from(agentVersion)
+        .where(inArray(agentVersion.id, versionIds))
+    : [];
+  const bundles = new Map(versions.map((v) => [v.id, v.bundle]));
+  return rows.map((r) => {
+    const wf = bundles.get(r.agentVersionId)?.workflows.find((w) => w.slug === r.workflowSlug);
+    const nodeId =
+      r.status === "failed" && r.error && typeof r.error === "object"
+        ? (r.error as { nodeId?: unknown }).nodeId
+        : undefined;
+    // A step in a loop runs as `<loop>:<index>:<step>`: its own id is the last part.
+    const stepId = typeof nodeId === "string" ? (nodeId.split(":").at(-1) ?? nodeId) : null;
+    const step = wf && stepId ? findStep(wf.workflow, stepId)?.step : undefined;
+    return {
+      ...opsRun(r),
+      waiting: waits.get(r.id) ?? null,
+      workflowName: wf?.name ?? null,
+      errorStep: step ? step.name : null,
+    };
+  });
+}
+
 async function connectionInScope(tx: Tx, tenantIds: readonly string[], id: string) {
   const [row] = await tx
     .select()
@@ -180,7 +324,7 @@ async function connectionInScope(tx: Tx, tenantIds: readonly string[], id: strin
 
 export function opsClientRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsClients, async (ctx) => ({
-    clients: await clientSummaries(ctx.tx, ctx.tenantIds),
+    clients: await clientSummaries(ctx.tx, ctx.tenantIds, ctx.services),
   }));
 
   mount(app, routes.opsCreateClient, async (ctx) => {
@@ -235,7 +379,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         platform: services.platform,
       });
     }
-    const [summary] = await clientSummaries(tx, [row.id]);
+    const [summary] = await clientSummaries(tx, [row.id], services);
     if (!summary) throw new Error("the new client is not visible");
     return { client: summary, admin: invited };
   });
@@ -277,6 +421,12 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       agents: agents.map(agentSummary),
       connections: connections.map(opsConnection),
       members,
+      activity: await agentActivity(
+        tx,
+        t.id,
+        agents.filter((a) => !a.testCopy).map((a) => a.id),
+        new Date(),
+      ),
     };
   });
 
@@ -296,29 +446,44 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .where(
         and(eq(agent.tenantId, params.id), eq(agent.kind, "client"), eq(agent.status, "active")),
       );
+    // Upload and forwarding: their last document, and the agents their documents start.
+    const activity = await sourceActivity(tx, params.id, rows);
     const usedBy: Record<string, { id: string; name: string }[]> = {};
     for (const c of rows) {
-      usedBy[c.id] = agents
+      const bound = agents
         .filter((a) => a.runStatus !== "retired" && Object.values(a.bindings).includes(c.id))
         .map((a) => ({ id: a.id, name: a.serviceName ?? a.name }));
+      usedBy[c.id] = usedByWith(c, bound, activity);
     }
     return {
-      connections: rows.map(opsConnection),
-      offered: offeredConnectors(t.settings),
-      connectors: services.platform.connectors.list().map((c) => ({
-        id: c.manifest.id,
-        name: c.manifest.name,
-        description: c.manifest.description,
-        icon: c.manifest.icon ?? null,
-        auth: c.manifest.auth,
-        available: canSignIn(c),
-        tools: c.manifest.tools.map((tool) => ({
-          id: tool.id,
-          description: tool.description,
-          verb: tool.verb,
-          sideEffect: tool.sideEffect,
-        })),
+      connections: rows.map((c) => ({
+        ...opsConnection(c),
+        lastActivityAt: iso(lastActivityOf(c, activity)),
       })),
+      offered: offeredConnectors(t.settings),
+      // Test-only connectors only in the Sandbox, or where the client already has a connection.
+      connectors: services.platform.connectors
+        .list()
+        .filter((c) =>
+          connectorShown(c.manifest, {
+            sandbox: isSandbox(t.settings),
+            inUse: rows.some((r) => r.connector === c.manifest.id),
+          }),
+        )
+        .map((c) => ({
+          id: c.manifest.id,
+          name: c.manifest.name,
+          description: c.manifest.description,
+          icon: c.manifest.icon ?? null,
+          auth: c.manifest.auth,
+          available: canSignIn(c),
+          tools: c.manifest.tools.map((tool) => ({
+            id: tool.id,
+            description: tool.description,
+            verb: tool.verb,
+            sideEffect: tool.sideEffect,
+          })),
+        })),
       usedBy,
       sandbox: isSandbox(t.settings),
     };
@@ -446,8 +611,12 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .orderBy(desc(run.createdAt))
       .limit(query.limit);
     const groups = query.groupBy === "error" ? await runErrorGroups(tx, where) : undefined;
+    const subjects = await runSubjects(tx, ctx.tenantIds, rows, ctx.services.platform);
     return {
-      runs: rows.map(opsRun),
+      runs: (await opsRunViews(tx, rows, ctx.services)).map((v) => ({
+        ...v,
+        subject: subjects.get(v.id),
+      })),
       agents: await agentRefs(tx, ctx.tenantIds, [
         ...rows.map((r) => r.agentId),
         ...(groups ?? []).flatMap((g) => g.agents),
@@ -512,8 +681,11 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
     const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
     const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
+    const [view] = await opsRunViews(tx, [r], services);
+    const subjects = await runSubjects(tx, [r.tenantId], [r], services.platform);
+    const cited = steps.flatMap((s) => sourcesOf(s.output));
     return {
-      run: opsRun(r),
+      run: { ...(view ?? opsRun(r)), subject: subjects.get(r.id) },
       steps: steps.map((s) => ({ ...opsStep(s), models: modelsByStep.get(s.id) ?? [] })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),
@@ -523,6 +695,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
       // v0.13 W2-I: each oversight decision with its note, input change, model and cost.
       oversight: await runOversight(tx, r.tenantId, r.id),
+      sourceNames: await sourceNames(tx, [r.tenantId], cited),
     };
   });
 

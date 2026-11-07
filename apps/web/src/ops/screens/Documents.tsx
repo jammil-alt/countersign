@@ -8,7 +8,7 @@ import { apiRoutes } from "../../api/routes";
 import { sandboxUploadPath, uploadFiles } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
-import { documentStatus, money, sourceLabel } from "../../portal/documents";
+import { documentStatus, MATCH_KIND_LABEL, money, sourceLabel } from "../../portal/documents";
 import { DropZone } from "../../portal/screens/Upload";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
@@ -17,6 +17,7 @@ import { ClientFrame } from "../client/ClientFrame";
 
 export function OpsDocumentsScreen() {
   const { clientId = "" } = useParams();
+  const api = useApiClient();
   const { data, error, loading, reload } = useApi(apiRoutes.opsClientDocuments, {
     params: { id: clientId },
     query: { limit: 200 },
@@ -43,16 +44,29 @@ export function OpsDocumentsScreen() {
             testId="ops-upload"
             upload={(files) => uploadFiles(files, undefined, sandboxUploadPath(clientId))}
             documentHref={(id) => `${base}/documents/${id}`}
+            readDocument={async (documentId) =>
+              (
+                await api.call(apiRoutes.opsClientDocument, {
+                  params: { id: clientId, documentId },
+                })
+              ).document
+            }
             onUploaded={reload}
           />
         </section>
       ) : null}
       {data && data.documents.length === 0 ? (
-        <EmptyState>
-          {data.sandbox
-            ? "No documents yet. Upload an invoice above."
-            : "No documents yet. They arrive when the client uploads or forwards an invoice."}
-        </EmptyState>
+        <EmptyState
+          testId="ops-documents-empty"
+          line={
+            data.sandbox
+              ? "No documents yet. Upload an invoice above."
+              : "No documents yet. They arrive when the client uploads or forwards an invoice, or a connection brings one in."
+          }
+          {...(data.sandbox
+            ? {}
+            : { action: { label: "See connections", to: `${base}/connections` } })}
+        />
       ) : null}
       {data && data.documents.length > 0 ? (
         <div className="dt dt-ana">
@@ -89,13 +103,23 @@ export function OpsDocumentsScreen() {
                       <td>
                         <Badge tone={s.tone}>{s.label}</Badge>
                       </td>
-                      <td>
-                        {d.transactionId ? (
+                      <td data-testid={`ops-document-match-${d.id}`}>
+                        {d.duplicateOf ? (
+                          <Badge tone="warning">
+                            <Link
+                              to={`${base}/documents/${d.duplicateOf.documentId}`}
+                              className="hover:underline"
+                            >
+                              Duplicate of {d.duplicateOf.filename}
+                            </Link>
+                          </Badge>
+                        ) : d.match ? (
                           <Link
-                            to={`${base}/records/${d.transactionId}`}
+                            to={`${base}/records/${d.match.transactionId}`}
                             className="text-link underline"
                           >
-                            Purchase
+                            {MATCH_KIND_LABEL[d.match.kind] ?? "Record"}
+                            {d.match.number ? ` ${d.match.number}` : ""}
                           </Link>
                         ) : (
                           <span className="text-ink-muted">Not yet</span>
@@ -148,7 +172,7 @@ export function OpsDocumentScreen() {
           surface="ops"
           onOpenOriginal={() => void openOriginal()}
           transactionHref={(t) => `${base}/records/${t}`}
-          documentHref={(d) => `${base}/documents/${d}`}
+          documentHref={(id) => `${base}/documents/${id}`}
         />
       ) : null}
     </div>

@@ -9,7 +9,7 @@ import {
   type Trigger,
   type TriggerOn,
 } from "@countersign/core";
-import { rulesText } from "../workflow/describe";
+import { readableEvent, rulesText } from "../workflow/describe";
 
 export interface TriggerRow {
   workflow: string;
@@ -88,7 +88,10 @@ export function guardWords(on: TriggerOn): string[] {
     case "webhook":
       if (on.filter?.rules.length) out.push(`only if ${rulesText(on.filter)}`);
       if (on.dedupeKey) out.push(`once per ${on.dedupeKey}`);
-      if (on.rateLimit) out.push(`at most ${on.rateLimit.max} a ${on.rateLimit.per}`);
+      if (on.rateLimit) {
+        const per = on.rateLimit.per;
+        out.push(`at most ${on.rateLimit.max} ${per === "hour" ? "an" : "a"} ${per}`);
+      }
       break;
     case "message":
       out.push(`from ${peopleWords(on.from).toLowerCase()}`);
@@ -100,11 +103,35 @@ export function guardWords(on: TriggerOn): string[] {
   return out;
 }
 
+/** Event types by their plain words ("A document's lines and totals were extracted"). */
+export type EventLabels = ReadonlyMap<string, string>;
+
+/** The event catalog's descriptions as labels, without their full stop. */
+export function eventLabels(
+  events: readonly { type: string; description: string }[] | undefined,
+): EventLabels {
+  return new Map(
+    (events ?? [])
+      .filter((e) => e.description.trim())
+      .map((e) => [e.type, e.description.trim().replace(/\.$/, "")] as const),
+  );
+}
+
+/**
+ * An event type in words: its catalog description, else the type made readable
+ * (`document.extracted` → "Document extracted"). Never the raw id.
+ */
+export function eventWords(type: string, labels?: EventLabels): string {
+  return labels?.get(type) ?? readableEvent(type);
+}
+
 /** "Weekdays at 8:00" stays the cron as written; the table shows what the trigger listens to. */
-export function whenWords(on: TriggerOn): string {
+export function whenWords(on: TriggerOn, labels?: EventLabels): string {
   switch (on.type) {
-    case "event":
-      return `When ${on.event}`;
+    case "event": {
+      const words = eventWords(on.event, labels);
+      return `When ${words.charAt(0).toLowerCase()}${words.slice(1)}`;
+    }
     case "schedule":
       return `On ${on.cron}`;
     case "manual":

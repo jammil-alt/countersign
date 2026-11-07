@@ -251,7 +251,7 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
         tenantId: t.id,
         actorId: session.user.id,
         change: { setting: "hipaa", from: before, to: body.hipaa },
-        reason: body.reason,
+        reason: body.reason || (body.hipaa ? "HIPAA mode switched on" : "HIPAA mode switched off"),
       });
       return complianceView(tx, services.env, t.id);
     },
@@ -275,7 +275,7 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
       tenantId: t.id,
       actorId: session.user.id,
       change: { setting: "retired", from: null, to: new Date().toISOString() },
-      reason: body.reason,
+      reason: body.reason || "Retired from the back office",
     });
     return complianceView(tx, services.env, t.id);
   });

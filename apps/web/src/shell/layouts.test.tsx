@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import {
+  AGENT_DETAIL,
   CLIENT_SESSION,
   fakeApi,
   OPERATOR_SESSION,
@@ -42,39 +43,35 @@ const service = (id: string, name: string, status = "active") => ({
   status,
 });
 
-const escalation = (id: string, tenantId: string) => ({
-  id,
-  tenantId,
-  kind: "approval",
-  agentId: null,
-  runId: null,
-  subjectType: null,
-  subjectId: null,
-  assigneeRole: "operator",
-  assigneeUserId: null,
-  title: "Check the match",
-  payload: {},
-  status: "open",
-  resolution: null,
-  resolvedBy: null,
-  dueAt: null,
-  createdAt: "2026-11-05T10:00:00.000Z",
-  resolvedAt: null,
-  resolvableByOperator: true,
+/** `GET /api/services/:id`: what the agent page's header needs. */
+const serviceDetail = (id: string, name: string) => ({
+  service: { id, name, description: null, status: "active" },
+  thisMonth: {
+    from: "2026-11-01",
+    to: "2026-11-07",
+    runs: { total: 0, succeeded: 0, failed: 0, cancelled: 0, waiting: 0, going: 0 },
+    documentsRead: 0,
+    actions: 0,
+  },
+  recentRuns: [],
+  packs: [],
 });
 
-const clientRow = (id: string, name: string) => ({
+const clientRow = (id: string, name: string, needsUs = 0) => ({
   id,
   name,
   timezone: "UTC",
   createdAt: "2026-11-01T00:00:00.000Z",
   agents: 1,
-  openInbox: 0,
+  openInbox: needsUs,
+  needsUs,
+  waitingRuns: 0,
 });
 
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("back office layout", () => {
@@ -82,14 +79,8 @@ describe("back office layout", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       "GET /api/ops/clients": () => ({
-        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client")],
-      }),
-      "GET /api/ops/inbox": () => ({
-        items: [
-          escalation("00000000-0000-4000-8000-0000000f0001", DEMO),
-          escalation("00000000-0000-4000-8000-0000000f0002", DEMO),
-        ],
-        agents: [],
+        // What needs us, counted per client by the API (UI cleanup, stream A): the badges read it.
+        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client", 2)],
       }),
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
     });
@@ -117,41 +108,67 @@ describe("back office layout", () => {
       "Demo client",
     ]);
 
+    // Places only: Home, Escalations, Runs, Clients, Build, Business, and More folded.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     expect(within(nav).getByTestId("ops-nav-home")).toHaveAttribute("href", "/ops");
-    for (const label of [
-      "Command center",
+    expect(within(nav).getByTestId("ops-nav-home")).toHaveTextContent("Home");
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((l) => l.textContent?.replace(/\d+$/, "")),
+    ).toEqual([
+      "Home",
       "Escalations",
       "Runs",
+      "Clients",
       "Agent lab",
-      "Skills and automations",
+      "Skills",
       "Connectors",
       "Usage and billing",
+      // Under More.
       "Feedback",
-      // Kept reachable under More.
-      "Requests",
-      "Billing",
-      "Website logins",
       "Audit log",
-    ]) {
-      expect(within(nav).getByText(label)).toBeInTheDocument();
-    }
-    // Each client with what needs us; the selected one is the current page.
-    expect(within(nav).getByTestId(`ops-nav-client-${DEMO}`)).toHaveTextContent("Demo client2");
-    expect(within(nav).getByTestId(`ops-nav-client-${SANDBOX}`)).toHaveTextContent("Sandbox0");
-    expect(within(nav).getByTestId(`ops-nav-client-${SANDBOX}`)).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(within(nav).getByTestId("ops-nav-clients")).toHaveTextContent("All 2 clients");
-    // The selected client's own pages and agents.
-    expect(within(nav).getByTestId("ops-nav-connections")).toHaveAttribute(
-      "href",
-      `/ops/clients/${SANDBOX}/connections`,
-    );
-    const agent = await within(nav).findByTestId("ops-nav-agent-material-costs");
-    expect(agent).toHaveAttribute("href", `/ops/clients/${SANDBOX}/agents/material-costs`);
-    expect(within(agent).getByText("Purchasing")).toBeInTheDocument();
+      "Requests",
+      "Website logins",
+    ]);
+    // Billing is under Usage and billing, not More.
+    expect(within(nav).queryByText("Billing")).toBeNull();
+    // Clients is one link, current on a client's page; no client or agent rows.
+    expect(within(nav).getByTestId("ops-nav-clients")).toHaveAttribute("href", "/ops/clients");
+    expect(within(nav).getByTestId("ops-nav-clients")).toHaveAttribute("aria-current", "page");
+    expect(within(nav).queryByTestId(`ops-nav-client-${SANDBOX}`)).toBeNull();
+    expect(within(nav).queryByTestId("ops-nav-connections")).toBeNull();
+    expect(within(nav).queryByTestId("ops-nav-agent-material-costs")).toBeNull();
+  });
+
+  it("keeps the picked client on a page of its own, and on pages with no client", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/clients": () => ({
+        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client")],
+      }),
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        ...SANDBOX_DETAIL,
+        client: { ...SANDBOX_DETAIL.client, id: DEMO, name: "Demo client" },
+        agents: [],
+      }),
+    });
+    const { unmount } = renderAt("/ops/lab", api);
+    const switcher = (await screen.findByTestId("ops-client-switcher")) as HTMLSelectElement;
+    await waitFor(() => expect(switcher.options.length).toBe(3));
+    expect(switcher.value).toBe("");
+    await userEvent.selectOptions(switcher, DEMO);
+    await screen.findByRole("heading", { level: 1, name: "Demo client" });
+    unmount();
+
+    // A page with no client of its own (Agent lab) shows the last pick, in this tab's session.
+    renderAt("/ops/lab", api);
+    const again = (await screen.findByTestId("ops-client-switcher")) as HTMLSelectElement;
+    await waitFor(() => expect(again.value).toBe(DEMO));
+    // "All clients" forgets it.
+    await userEvent.selectOptions(again, "");
+    await waitFor(() => expect(again.value).toBe(""));
+    expect(sessionStorage.getItem("mezonas.ops.client")).toBeNull();
   });
 
   it("opens a client from the switcher", async () => {
@@ -169,7 +186,8 @@ describe("back office layout", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "Demo client" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("No agents yet.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^No agents yet\./).length).toBeGreaterThan(0);
+    expect(switcher).toHaveValue(DEMO);
   });
 
   it("switches between a client's agents from an agent's page", async () => {
@@ -183,13 +201,19 @@ describe("back office layout", () => {
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${SANDBOX}`]: () => ({
         ...SANDBOX_DETAIL,
-        agents: [...SANDBOX_DETAIL.agents, second],
+        agents: [...SANDBOX_DETAIL.agents, { ...second, serviceName: "Bills" }],
       }),
+      [`GET /api/ops/clients/${SANDBOX}/agents`]: () => ({ agents: SANDBOX_DETAIL.agents }),
+      [`GET /api/ops/agents/${AGENT_DETAIL.agent.id}`]: () => AGENT_DETAIL,
+      [`GET /api/ops/agents/${AGENT_DETAIL.agent.id}/skills`]: () => ({ skills: [] }),
     });
     renderAt(`/ops/clients/${SANDBOX}/agents/material-costs`, api);
-    const switcher = (await screen.findByTestId("agent-switcher")) as HTMLSelectElement;
+    // The switcher is in the agent's own header, after its client, not on a bar of its own.
+    const crumbs = await screen.findByTestId("agent-bar-crumbs");
+    const switcher = (await within(crumbs).findByTestId("agent-switcher")) as HTMLSelectElement;
     expect(switcher.value).toBe("material-costs");
-    expect([...switcher.options].map((o) => o.text)).toEqual(["Material costs", "Bill clerk"]);
+    // Each agent by the name the client knows it by.
+    expect([...switcher.options].map((o) => o.text)).toEqual(["Material costs", "Bills"]);
   });
 
   it("sends a client user who opens /ops to the portal, without loading the back office", async () => {
@@ -205,8 +229,8 @@ describe("back office layout", () => {
 });
 
 describe("portal layout", () => {
-  // QA round 1: nothing pops in late. The agents' rows and the Desk's count keep their place.
-  it("holds the agents' rows and the Desk count's place while they load", async () => {
+  // QA round 1: nothing pops in late. The Inbox's count keeps its place while it loads.
+  it("holds the Inbox count's place while it loads", async () => {
     let answer: (v: unknown) => void = () => {};
     const later = new Promise((resolve) => {
       answer = resolve;
@@ -218,34 +242,22 @@ describe("portal layout", () => {
     });
     renderAt("/runs", api);
     const nav = await screen.findByRole("complementary", { name: "Navigation" });
-    expect(within(nav).getAllByTestId("sidebar-agent-skeleton").length).toBeGreaterThan(0);
     expect(
-      within(within(nav).getByTestId("portal-nav-desk")).getByTestId("count-slot"),
+      within(within(nav).getByTestId("portal-nav-inbox")).getByTestId("count-slot"),
     ).toBeTruthy();
-    // No Desk link in the top bar (QA round 1): the sidebar's is the only one.
-    expect(screen.queryByTestId("shell-inbox")).toBeNull();
+    // The top bar's Inbox keeps its count's place too.
+    expect(within(screen.getByTestId("shell-inbox")).getByTestId("count-slot")).toBeTruthy();
 
-    answer({
-      ...overview([{ ...service(SERVICE, "Material costs"), stage: "live" }], 1),
-      services: [
-        {
-          ...service(SERVICE, "Material costs"),
-          stage: "live",
-          runsNow: { running: 0, waitingOnYou: 1 },
-        },
-      ],
-    });
-    const row = await within(nav).findByTestId(`portal-nav-agent-${SERVICE}`);
-    // The sidebar uses the status model: a run waits on you, so the agent does.
-    expect(row).toHaveTextContent("Waiting on you");
-    expect(within(nav).queryByTestId("sidebar-agent-skeleton")).toBeNull();
-    expect(
-      within(within(nav).getByTestId("portal-nav-desk")).queryByTestId("count-slot"),
-    ).toBeNull();
-    expect(within(nav).getByTestId("portal-nav-desk")).toHaveTextContent("1");
+    answer(overview([{ ...service(SERVICE, "Material costs"), stage: "live" }], 1));
+    await waitFor(() =>
+      expect(
+        within(within(nav).getByTestId("portal-nav-inbox")).queryByTestId("count-slot"),
+      ).toBeNull(),
+    );
+    expect(within(nav).getByTestId("portal-nav-inbox")).toHaveTextContent("1");
   });
 
-  it("shows the client's name, the Desk count once, no switcher, and the short sidebar", async () => {
+  it("shows the client's name, the Inbox count, no switcher, and places only in the sidebar", async () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview([service(SERVICE, "Material costs")], 3),
@@ -265,73 +277,57 @@ describe("portal layout", () => {
     expect(screen.getByTestId("shell-search")).toHaveTextContent(
       "Search your agents, runs, records and people",
     );
-    // QA round 1: Your Desk appears once, in the sidebar; the phone's menu button carries the count.
-    expect(screen.queryByTestId("shell-inbox")).toBeNull();
-    await waitFor(() =>
-      expect(screen.getByTestId("shell-menu")).toHaveAccessibleName("Menu · Your Desk (3)"),
-    );
+    const inbox = screen.getByTestId("shell-inbox");
+    expect(inbox).toHaveAttribute("href", "/inbox");
+    await waitFor(() => expect(inbox).toHaveTextContent("Inbox3"));
     // The signed-in client is the self avatar (ink), not the lead's copper.
     expect(screen.getByTestId("shell-avatar")).toHaveClass("ds-avatar--self");
 
+    // Review 1: the sidebar lists places (Home, Inbox, Runs, Accounts, Contacts), Settings at its
+    // foot; no agents, no "Your business", no "More", no Sloan card.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
-    const hrefs = Object.fromEntries(
-      [
-        "table",
-        "desk",
-        "runs",
-        "accounts",
-        "people",
-        "settings",
-        "records",
-        "knowledge",
-        "conversations",
-      ].map((k) => [k, within(nav).getByTestId(`portal-nav-${k}`).getAttribute("href")]),
-    );
-    expect(hrefs).toEqual({
-      table: "/",
-      desk: "/desk",
-      runs: "/runs",
-      accounts: "/accounts",
-      people: "/people",
-      settings: "/settings",
-      records: "/records",
-      knowledge: "/knowledge",
-      conversations: "/conversations",
-    });
-    // Each has one home now: Upload in Records, Reports on the agent page, Billing in Settings,
-    // requests in Sloan, the Weekly Table on The Table.
-    for (const gone of ["upload", "reports", "requests", "billing", "weekly"]) {
-      expect(within(nav).queryByTestId(`portal-nav-${gone}`)).toBeNull();
-    }
-    expect(within(nav).getByTestId("portal-nav-table")).toHaveAttribute("aria-current", "page");
-    expect(within(nav).getByTestId("portal-nav-desk")).toHaveTextContent("Your Desk3");
-    // Your agents: one row each, with its status.
-    const agent = await within(nav).findByTestId(`portal-nav-agent-${SERVICE}`);
-    expect(agent).toHaveAttribute("href", `/agents/${SERVICE}`);
-    expect(agent).toHaveTextContent("Material costs");
-    // Its state in the status model: live and idle is Ready (never "Active").
-    expect(agent).toHaveTextContent("Ready");
+    const links = within(nav)
+      .getAllByRole("link")
+      .map((a) => [a.getAttribute("data-testid"), a.getAttribute("href")]);
+    expect(links).toEqual([
+      ["portal-nav-home", "/"],
+      ["portal-nav-inbox", "/inbox"],
+      ["portal-nav-runs", "/runs"],
+      ["portal-nav-accounts", "/accounts"],
+      ["portal-nav-contacts", "/contacts"],
+      ["portal-nav-settings", "/settings"],
+    ]);
+    expect(within(nav).getByTestId("portal-nav-home")).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByTestId("portal-nav-inbox")).toHaveTextContent("Inbox3");
+    expect(within(nav).queryByTestId("portal-nav-sloan")).toBeNull();
+    expect(within(nav).queryByTestId(`portal-nav-agent-${SERVICE}`)).toBeNull();
     // No lead set: no lead row.
     expect(screen.queryByTestId("portal-lead")).toBeNull();
 
+    // The agents are on Home.
     const card = await screen.findByTestId(`portal-service-${SERVICE}`);
     expect(within(card).getByText("Keeps bills itemized.")).toBeInTheDocument();
-    expect(screen.getByTestId("table-stat-waiting")).toHaveTextContent("3");
+    // Its state in the status model: live and idle is Ready (never "Active").
+    expect(within(card).getByText("Ready")).toBeInTheDocument();
   });
 
-  it("names the client's Mezonas lead in copper", async () => {
+  it("names the client's Mezonas lead in copper, once: in the avatar menu with Settings", async () => {
     const api = fakeApi({
       "GET /api/session": () => ({ ...CLIENT_SESSION, lead: { name: "Ana Ruiz" } }),
       "GET /api/overview": () => overview(),
     });
     renderAt("/", api);
-    const lead = await screen.findByTestId("portal-lead");
+    await userEvent.click(await screen.findByTestId("shell-avatar"));
+    const menu = screen.getByTestId("shell-user-menu");
+    const lead = within(menu).getByTestId("portal-lead");
     expect(lead).toHaveTextContent("Ana Ruiz");
     expect(lead).toHaveTextContent("Your Mezonas lead");
     expect(lead.querySelector(".mz-lead")).toHaveTextContent("AR");
+    expect(screen.getAllByTestId("portal-lead")).toHaveLength(1);
+    expect(within(menu).getByTestId("shell-menu-settings")).toHaveAttribute("href", "/settings");
   });
 
-  it("hides the admin pages from a client user, and keeps their own settings", async () => {
+  it("gives a client user the same places, and keeps their own settings", async () => {
     const api = fakeApi({
       "GET /api/session": () => ({
         ...CLIENT_SESSION,
@@ -342,12 +338,28 @@ describe("portal layout", () => {
     });
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
-    // Settings holds everyone's own notifications and language (UI-1d); the company's are the admin's.
+    // Settings holds everyone's own notifications and language; the company's are the admin's.
     expect(screen.getByTestId("portal-nav-settings")).toHaveAttribute("href", "/settings");
-    expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
-    // Client users read People too (its people and organizations).
-    expect(screen.getByTestId("portal-nav-people")).toHaveAttribute("href", "/people");
-    expect(await screen.findByText(/No agents yet\. We set them up/)).toBeInTheDocument();
+    // Client users read Contacts too (its people and organizations).
+    expect(screen.getByTestId("portal-nav-contacts")).toHaveAttribute("href", "/contacts");
+    expect(await screen.findByText(/No agents yet/)).toBeInTheDocument();
+  });
+
+  it("offers Ask Sloan beside the Inbox, saying what Sloan is", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview(),
+    });
+    renderAt("/", api);
+    const ask = await screen.findByTestId("shell-ask-sloan");
+    expect(ask).toHaveAttribute("href", "/sloan");
+    expect(ask).toHaveTextContent("Ask Sloan");
+    expect(ask).toHaveAttribute("title", "Your account agent: ask about your agents' work");
+    // Its name starts with the words it shows, so it reads the same with the badge alone.
+    expect(ask.getAttribute("aria-label")).toMatch(/^Ask Sloan\. /);
+    // It sits in the top bar, before the Inbox.
+    const inbox = screen.getByTestId("shell-inbox");
+    expect(ask.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("switches between agents from an agent's page", async () => {
@@ -355,17 +367,17 @@ describe("portal layout", () => {
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () =>
         overview([service(SERVICE, "Material costs"), service(SERVICE_2, "Bill clerk")]),
+      [`GET /api/services/${SERVICE}`]: () => serviceDetail(SERVICE, "Material costs"),
+      [`GET /api/services/${SERVICE_2}`]: () => serviceDetail(SERVICE_2, "Bill clerk"),
     });
     renderAt(`/agents/${SERVICE}`, api);
+    // The switcher is in the agent page's header, after its eyebrow, like a breadcrumb.
     const switcher = (await screen.findByTestId("agent-switcher")) as HTMLSelectElement;
+    expect(switcher.closest(".ui-crumbs")).not.toBeNull();
     expect(switcher.value).toBe(SERVICE);
     await userEvent.selectOptions(switcher, SERVICE_2);
     await waitFor(() =>
       expect((screen.getByTestId("agent-switcher") as HTMLSelectElement).value).toBe(SERVICE_2),
-    );
-    expect(screen.getByTestId(`portal-nav-agent-${SERVICE_2}`)).toHaveAttribute(
-      "aria-current",
-      "page",
     );
   });
 

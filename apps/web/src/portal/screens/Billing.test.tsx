@@ -148,8 +148,11 @@ describe("portal billing", () => {
     expect(container.textContent).not.toMatch(
       /43\.1|12\.0000|123456|123,456|records clerk|internal detail/,
     );
-    // Billing lives only in Settings (QA round 1): no sidebar item.
-    expect(screen.queryByTestId("portal-nav-billing")).toBeNull();
+    // Billing is a section of Settings.
+    expect(screen.getByTestId("portal-settings-nav-billing")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("says when billing isn't set up yet", async () => {
@@ -168,7 +171,7 @@ describe("portal billing", () => {
 
   it("keeps Billing under Settings for the admin, and gives a client user no Billing link", async () => {
     renderAt("/settings", portal(LEAKY_BILLING));
-    expect(await screen.findByTestId("portal-settings-statements")).toHaveAttribute(
+    expect(await screen.findByTestId("portal-settings-nav-billing")).toHaveAttribute(
       "href",
       "/settings/billing",
     );
@@ -177,8 +180,8 @@ describe("portal billing", () => {
       ...CLIENT_SESSION,
       tenants: CLIENT_SESSION.tenants.map((t) => ({ ...t, role: "client_user" as const })),
     };
-    renderAt("/", portal(LEAKY_BILLING, userSession));
-    expect(await screen.findByTestId("portal-nav-table")).toBeInTheDocument();
-    expect(screen.queryByTestId("portal-nav-billing")).toBeNull();
+    renderAt("/settings", portal(LEAKY_BILLING, userSession));
+    expect(await screen.findByTestId("portal-settings-nav-general")).toBeInTheDocument();
+    expect(screen.queryByTestId("portal-settings-nav-billing")).toBeNull();
   });
 });

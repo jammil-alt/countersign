@@ -117,7 +117,7 @@ describe("portal directory", () => {
         return { organization: orgs[0] };
       },
     });
-    // `/directory` was the directory's page: People is its home now.
+    // `/directory` was the directory's page: Contacts is its home now.
     renderAt("/directory", api);
     const row = await screen.findByTestId(`people-row-${PAT}`);
     expect(row).toHaveTextContent("Birch & Co");
@@ -135,7 +135,8 @@ describe("portal directory", () => {
     expect(screen.getByTestId("people-filter-vendor")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId(`people-row-${PAT}`)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("link", { name: "Organizations" }));
+    // Organizations are a filter of the list.
+    await userEvent.click(screen.getByTestId("people-filter-organizations"));
     await userEvent.type(screen.getByTestId("directory-org-new-name"), "Oak Mill");
     await userEvent.click(screen.getByTestId("directory-org-new-kind-vendor"));
     await userEvent.selectOptions(screen.getByTestId("directory-org-new-language"), "fr");
@@ -277,13 +278,13 @@ describe("portal directory", () => {
     expect(screen.queryByTestId("people-reach-tighten")).toBeNull();
     expect(screen.queryByTestId("people-add")).toBeNull();
     expect(screen.queryByTestId("people-import")).toBeNull();
-    // Their tabs: the people and the organizations, nothing an admin keeps.
-    const tabs = screen.getByRole("navigation", { name: "Sections" });
-    expect(
-      within(tabs)
-        .getAllByRole("link")
-        .map((l) => l.textContent),
-    ).toEqual(["People", "Organizations"]);
+    // The people and the organizations (a filter), nothing an admin keeps.
+    expect(screen.getByTestId("people-filter-organizations")).toHaveTextContent(
+      "Organizations · 1",
+    );
+    await userEvent.click(screen.getByTestId("people-filter-organizations"));
+    expect(await screen.findByTestId(`directory-org-${BIRCH}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`directory-org-${BIRCH}-edit`)).toBeNull();
     // Who agents reach is the client admin's: not even asked for.
     expect(api.calls).not.toContain("GET /api/people");
   });
@@ -294,9 +295,9 @@ describe("portal directory", () => {
       "GET /api/directory": () => ({ people: [pat], organizations: [], pendingSuggestions: 0 }),
     });
     renderAt("/people", api);
-    expect(await screen.findByRole("heading", { name: "Personas", level: 1 })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Contactos", level: 1 })).toBeVisible();
     const row = await screen.findByTestId(`people-row-${PAT}`);
-    expect(screen.getByRole("link", { name: "Organizaciones" })).toBeInTheDocument();
+    expect(screen.getByTestId("people-filter-organizations")).toHaveTextContent("Organizaciones");
     expect(within(row).getByText("Proveedor")).toBeVisible();
     await userEvent.click(within(row).getByTestId(`people-open-${PAT}`));
     expect(await screen.findByTestId(`people-detail-${PAT}`)).toHaveTextContent(

@@ -1,10 +1,10 @@
 // The frame both surfaces share (docs/design/prototype.html, `.hdr` and `.side`, on the Mezonas
 // AppHeader and Sidebar): a top bar with the logo, a context slot (the client's name in the portal;
-// "Back office" and the client switcher in the back office), the ⌘K search box, Escalations with
-// its count (back office only: the portal's Desk is in its sidebar once), and the avatar menu
-// (theme, language, sign out); a sidebar; the page. At phone width the sidebar folds behind a menu
-// button and the top bar compacts; where the Desk is only in the sidebar, the menu button carries
-// its count.
+// "Back office" and the client switcher in the back office), the ⌘K search box, the portal's Ask
+// Sloan button, the Inbox or Escalations with its count, and the avatar menu (theme, language,
+// Feedback, sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
+// and the top bar compacts; where a surface keeps its inbox out of the top bar (`inHeader: false`),
+// the menu button carries its count.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useFeedbackStarter } from "../feedback/Feedback";
@@ -12,9 +12,10 @@ import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { LanguageMenu } from "../i18n/LanguageMenu";
 import { displayName, userInitial, useSession, useSessionState } from "../session/session";
-import { Logo, PRODUCT_NAME } from "../ui/brand";
+import { Logo, LogoMark, PRODUCT_NAME } from "../ui/brand";
 import { Icon, type IconName } from "../ui/icons";
 import { Count, cx } from "../ui/primitives";
+import { HeaderSwitcherProvider } from "./HeaderSwitcher";
 import { type SearchAsk, SearchBox, type SearchRun } from "./Search";
 import { THEMES, type Theme, useTheme } from "./theme";
 
@@ -31,7 +32,7 @@ export function tabTitle(place: string | null, waiting: number | undefined): str
 }
 
 export interface ShellDesk {
-  /** "/desk" in the portal, "/ops/inbox" (Escalations) in the back office. */
+  /** "/inbox" in the portal, "/ops/inbox" (Escalations) in the back office. */
   to: string;
   label: string;
   /** Waiting on you (signal); undefined until it loads. */
@@ -54,7 +55,9 @@ export function AppShell({
   desk,
   sidebar,
   sidebarFooter,
-  pageBar,
+  switcher,
+  topAction,
+  menu,
   children,
 }: {
   surface: "ops" | "portal";
@@ -67,8 +70,12 @@ export function AppShell({
   sidebar: ReactNode;
   /** Pinned to the sidebar's foot (the portal's Sloan card and lead). */
   sidebarFooter?: ReactNode;
-  /** A slim bar above the page (the agent switcher on an agent's page). */
-  pageBar?: ReactNode;
+  /** The agent switcher on an agent's page: its header draws it (`HeaderSwitcher`). */
+  switcher?: ReactNode;
+  /** Beside the Inbox in the top bar (the portal's Ask Sloan). */
+  topAction?: ReactNode;
+  /** Extra rows at the top of the avatar menu (the portal's Settings and its lead). */
+  menu?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -106,13 +113,19 @@ export function AppShell({
           {menuCount ? <Count n={menuCount} tone="warning" /> : null}
         </button>
         <Link to={home} className="ui-topbar__logo" title={PLATFORM_NAME}>
-          <Logo height={18} />
+          <span className="ui-topbar__lockup">
+            <Logo height={18} />
+          </span>
+          <span className="ui-topbar__mark">
+            <LogoMark size={28} />
+          </span>
         </Link>
         <span aria-hidden className="ui-topbar__sep" />
         <div className="ui-topbar__context">{context}</div>
         <div className="ui-topbar__search">
           <SearchBox placeholder={search.placeholder} run={search.run} ask={search.ask} />
         </div>
+        {topAction}
         {deskInHeader ? (
           <NavLink
             to={desk.to}
@@ -129,7 +142,7 @@ export function AppShell({
             ) : null}
           </NavLink>
         ) : null}
-        <UserMenu surface={surface} />
+        <UserMenu surface={surface} extra={menu} />
       </header>
       <div className="ui-shell__body">
         {menuOpen ? (
@@ -151,8 +164,7 @@ export function AppShell({
           {sidebarFooter ? <div className="ui-sidebar__foot">{sidebarFooter}</div> : null}
         </aside>
         <main className="ui-main">
-          {pageBar ? <div className="ui-pagebar">{pageBar}</div> : null}
-          {children}
+          <HeaderSwitcherProvider switcher={switcher ?? null}>{children}</HeaderSwitcherProvider>
         </main>
       </div>
     </div>
@@ -165,7 +177,7 @@ const THEME_LABEL = {
   dark: "shell.theme.dark",
 } as const satisfies Record<Theme, MessageKey>;
 
-function UserMenu({ surface }: { surface: "ops" | "portal" }) {
+function UserMenu({ surface, extra }: { surface: "ops" | "portal"; extra?: ReactNode }) {
   const { t } = useI18n();
   const session = useSession();
   const { signOut } = useSessionState();
@@ -176,6 +188,12 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
   const operator = session.operator;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
+  // A page opened from the menu closes it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closes on each page change.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!open) return;
@@ -212,6 +230,9 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
         <div className="ui-menu" data-testid="shell-user-menu">
           <p className="font-medium text-ink">{displayName(session.user)}</p>
           <p className="truncate text-sm text-ink-muted">{session.user.email}</p>
+          {extra ? (
+            <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">{extra}</div>
+          ) : null}
           <div className="mt-3 flex flex-col gap-1.5 border-t border-line pt-3">
             <span className="text-sm font-medium text-ink" id="shell-theme-label">
               {t("shell.theme")}

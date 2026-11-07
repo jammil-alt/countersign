@@ -9,6 +9,7 @@ import { type Connector, connectionDefaults, defaultAccessProblems } from "@coun
 import {
   type CatalogConnector,
   type ConnectorManifest,
+  type ConnectorStatus,
   type PermissionMatrix,
   routes,
   type WaitingClient,
@@ -67,6 +68,21 @@ function toolOwners(platform: Platform): Map<string, string> {
     for (const t of c.manifest.tools) out.set(t.id, c.manifest.id);
   }
   return out;
+}
+
+/**
+ * A connector's status in the catalog: the operator's when they set one, else what this deployment
+ * shows. Without this every connector read "Not set" until someone chose a status by hand, even
+ * QuickBooks with clients connected.
+ */
+// DECISION: with no status set, a connector a client can sign in to on this deployment reads as
+// live (it is: clients connect it here); one that isn't set up here has none ("Not set up").
+export function catalogStatus(
+  set: ConnectorStatus | null,
+  available: boolean,
+): Pick<CatalogConnector, "status" | "statusSource"> {
+  if (set) return { status: set, statusSource: "operator" };
+  return { status: available ? "live" : null, statusSource: "deployment" };
 }
 
 /** The catalog over the clients this operator serves (`tenantIds`). */
@@ -177,15 +193,17 @@ async function catalog(
       if (!offered && agentsNeeding.length === 0) return [];
       return [{ clientId: t.id, clientName: t.name, offered, agents: agentsNeeding }];
     });
+    const available = canSignIn(connector);
     return {
       id: m.id,
       name: m.name,
       description: m.description,
       icon: m.icon,
       auth: m.auth,
-      status: setting?.status ?? null,
+      ...catalogStatus(setting?.status ?? null, available),
+      testOnly: m.testOnly === true,
       note: setting?.note ?? "",
-      available: canSignIn(connector),
+      available,
       clientsConnected: connected.size,
       tools: m.tools.map((t) => ({
         id: t.id,

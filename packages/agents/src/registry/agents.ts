@@ -41,7 +41,7 @@ import {
   tenantPack,
 } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 // v0.12 W2-B: automations
 import {
@@ -109,6 +109,33 @@ export async function resolveVersion(
 export async function listVersions(tx: Tx, agentId: string): Promise<AgentVersionRow[]> {
   return tx
     .select()
+    .from(agentVersion)
+    .where(eq(agentVersion.agentId, agentId))
+    .orderBy(desc(agentVersion.version));
+}
+
+/** An agent's newest version (its latest draft or live one), or null when it has none. */
+export async function latestVersion(tx: Tx, agentId: string): Promise<AgentVersionRow | null> {
+  const [row] = await tx
+    .select()
+    .from(agentVersion)
+    .where(eq(agentVersion.agentId, agentId))
+    .orderBy(desc(agentVersion.version))
+    .limit(1);
+  return row ?? null;
+}
+
+/** A version row without its bundle: what a list of versions shows. */
+export type AgentVersionHead = Omit<AgentVersionRow, "bundle">;
+
+/**
+ * An agent's versions, newest first, without their bundles. A page lists every version but reads
+ * one or two bundles, and bundles are the large part of the row.
+ */
+export async function listVersionHeads(tx: Tx, agentId: string): Promise<AgentVersionHead[]> {
+  const { bundle: _bundle, ...columns } = getTableColumns(agentVersion);
+  return tx
+    .select(columns)
     .from(agentVersion)
     .where(eq(agentVersion.agentId, agentId))
     .orderBy(desc(agentVersion.version));
@@ -985,7 +1012,7 @@ export async function retire(
 /** Templates; discarded drafts only when asked for. */
 export async function listTemplates(
   tx: Tx,
-  options: { discarded?: boolean } = {},
+  options: { discarded?: boolean; published?: boolean } = {},
 ): Promise<AgentRow[]> {
   return tx
     .select()
@@ -995,9 +1022,19 @@ export async function listTemplates(
         isNull(agent.tenantId),
         eq(agent.kind, "template"),
         options.discarded ? undefined : eq(agent.status, "active"),
+        options.published ? isNotNull(agent.liveVersionId) : undefined,
       ),
     )
     .orderBy(agent.slug);
+}
+
+/**
+ * The templates the back office counts as templates (Agent lab's list, Billing's prices): active
+ * and published. A draft never published (a test such as "Staging check") is a draft, not one.
+ */
+// DECISION: one definition for every count of templates, so Billing and Agent lab agree.
+export function publishedTemplates(tx: Tx): Promise<AgentRow[]> {
+  return listTemplates(tx, { published: true });
 }
 
 /** A client's agents; discarded drafts only when asked for. */

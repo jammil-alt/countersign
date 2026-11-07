@@ -208,6 +208,7 @@ describe("portal records list", () => {
     // No route serves one receivable yet: its row opens nothing.
     expect(within(table).queryByRole("link")).toBeNull();
     expect(screen.getByRole("link", { name: /Receivables/ })).toHaveTextContent("2");
-    expect(screen.getByTestId("portal-records-upload")).toHaveAttribute("href", "/upload");
+    // Uploading is on Home ("Add documents") and on the agents that read documents.
+    expect(screen.queryByTestId("portal-records-upload")).toBeNull();
   });
 });

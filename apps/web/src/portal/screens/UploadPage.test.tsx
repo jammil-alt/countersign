@@ -22,7 +22,8 @@ const document = {
   vendorName: "Northline Panel Supply",
   invoiceNumber: "20418",
   total: "9742.3500",
-  sameInvoiceAs: null,
+  match: null,
+  duplicateOf: null,
 };
 
 const forwarding = (allowedSenders: string[]) => ({
@@ -114,7 +115,7 @@ describe("portal upload", () => {
     );
   });
 
-  it("says when a file or an invoice is already here, and when it came", async () => {
+  it("marks a second copy of an invoice, and says when the same file came", async () => {
     const SECOND = "00000000-0000-4000-8000-0000000d0002";
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
@@ -125,12 +126,7 @@ describe("portal upload", () => {
             id: SECOND,
             filename: "northline-20418-scan.pdf",
             receivedAt: "2026-11-05T10:32:00.000Z",
-            sameInvoiceAs: {
-              id: DOC,
-              filename: "northline-20418.pdf",
-              source: "upload",
-              receivedAt: "2026-11-05T10:00:00.000Z",
-            },
+            duplicateOf: { documentId: DOC, filename: "northline-20418.pdf" },
           },
           document,
         ],
@@ -159,10 +155,9 @@ describe("portal upload", () => {
     );
     renderAt("/upload", api);
 
-    const same = await screen.findByTestId(`portal-document-${SECOND}-same`);
-    expect(same).toHaveTextContent(/^Same invoice as the one received at /);
-    expect(same).toHaveAttribute("href", `/documents/${DOC}`);
-    expect(screen.queryByTestId(`portal-document-${DOC}-same`)).toBeNull();
+    // A second copy of an invoice already here is marked as a duplicate (it started nothing).
+    expect(await screen.findByTestId(`portal-document-${SECOND}-duplicate`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`portal-document-${DOC}-duplicate`)).toBeNull();
 
     await userEvent.upload(
       screen.getByTestId("portal-upload-input"),

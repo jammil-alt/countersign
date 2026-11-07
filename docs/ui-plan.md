@@ -25,38 +25,65 @@ The API for almost everything here exists already (built "API first", `docs/plan
 
 ### Client portal
 
-Sidebar (as QA round 1 left it, 2026-11-07):
-- The Table
-- Your Desk (count; the only place it is linked, the top bar has no Desk link)
-- Runs
-- Your agents (one row each, with status)
-- Your business: Accounts, People, Settings
-- More (folded): Records; Knowledge and Conversations for the client admin
-- Sloan
-- Your Mezonas lead
+The structure after the UI cleanup (Review 1, approved by the owner; stream E). The sidebar lists
+places, not features; a feature lives inside the thing it belongs to.
 
-| # | Screen (prototype id) | Route | Replaces today | Main APIs |
+Sidebar:
+- Home
+- Inbox (count)
+- Runs
+- Accounts
+- Contacts
+- Settings at the sidebar's foot, and in the avatar menu with the Mezonas lead (the lead shows only
+  there). Sloan is in the search box ("Ask Sloan, your account agent"); the agents are on Home, and
+  the agent switcher on an agent's page.
+
+| # | Screen | Route | Was | Main APIs |
 |---|---|---|---|---|
-| C1 | The Table (`#Main`) | `/` | Overview, Service | the Table, KPIs, credits, go-live stages |
-| C2 | Agent, e.g. Pia (`#C2-Agent`) | `/agents/:slug` | `services/:id` | run controls (pause, resume), output, access, latest changes |
-| C3 | Your Desk (`#C3-Desk`) | `/desk` | `inbox` | inbox: sign, send, not now, undo, edit, batch, snooze |
-| C4 | Accounts and vault (`#C4-Accounts`) | `/accounts` | `connections`, `access`, `access release` | connections, permission matrix, grants, vault (write-only), browser logins, human release |
-| C5 | People (`#C5-People`) | `/people` | `contacts`, `directory`, `people` | directory, contact autonomy, voice samples |
-| C6 | Sloan (`#C6-Sloan`) | `/sloan` | none | threads, the account agent, `/commands` |
-| C7 | Settings and billing (`#C7-Settings`) | `/settings` | `settings`, `billing`, approver rules | settings, statements, credits, sign-off limits (approver rules) |
-| C8 | Weekly Table (`#C8-Weekly`) | `/?view=weekly` (a tab of The Table; `/weekly` redirects) | none | Weekly Table (Friday draft, Monday send) |
-| C9 | Runs (`#C9-Runs`) | `/runs` | `runs` | runs |
-| C10 | Run detail (`#C10-RunDetail`) | `/runs/:id` | `runs/:id` | run timeline, changes with before and after, audit trail |
+| C1 | Home | `/` | The Table | the Table (agents, Inbox top, lead), findings, access (each agent's tools), the Weekly Table |
+| C2 | Agent | `/agents/:id`, `/agents/:id/runs`, `/agents/:id/access` | `services/:id` | service (with its template's slug and whether it reads documents), controls, runs, access, people |
+| C3 | Inbox | `/inbox` | Your Desk, `/desk` | inbox: approve, answer, not now, undo, edit, batch |
+| C4 | Accounts and vault | `/accounts` | `connections`, `access` | connections, permission matrix, grants, vault (write-only), browser logins, human release |
+| C5 | Contacts | `/contacts` | People (six tabs), `/people/*` | directory, consent, contact autonomy, import and suggestions |
+| C6 | Sloan | `/sloan` | none | threads, the account agent, `/commands` |
+| C7 | Settings | `/settings`, `/settings/{approvals,team,billing,exports,conversations,voice}` | `settings`, `billing`, team, exports, conversations, voice samples | settings, approver rules, team and undo window, statements, credits, exports, capture, voice samples |
+| C8 | Weekly Table | `/weekly` | none | Weekly Table (Friday draft, Monday send); a card on Home when one was sent |
+| C9 | Runs | `/runs` | `runs` | runs |
+| C10 | Run detail | `/runs/:id` | `runs/:id` | run timeline, changes with before and after, audit trail |
+
+- **Home:** a greeting, the agent cards (the owner's v1 home: name, what it does, state, the tools it
+  works in, its last run in a line), "Needs you" (the Inbox's top and the supervisor's findings) and
+  the weekly summary when there is one. Each count once; empty sections are left out.
+- **Agent:** the header holds its name, state, stage and Pause (the client admin). Overview opens on
+  the agent's own view, a slot registered in `apps/web/src/agents/views.ts` by template or pack (by
+  default the client's pack reports, then this month's activity), then upload and documents for an
+  agent that reads them, what it is doing now and its latest work. Runs is its runs; Access is what
+  it may do in your tools (read-only; the admin tightens on Accounts) and who it contacts.
+- **Inbox:** Waiting and Done; questions wait with the rest, and "Not now" items show under Waiting
+  when asked. "Ask us" asks Sloan. Who approves what and the undo window are in Settings.
+- **Accounts:** connections and the vault only; what agents may do (On its own, Needs approval, Off)
+  expands from each tool's row. Upload and forwarding are on the agents that read documents and on
+  `/upload` (Home's "Add documents").
+- **Contacts:** one list with a detail panel. Organizations are a filter (`?show=organizations`),
+  consent and reach preferences are in a person's detail, import is an action (`?import=1`). Who an
+  agent reaches is on its Access tab; voice samples are in Settings.
+- **Off the nav, address kept:** `/weekly`, `/sloan`, `/records`, `/reports/*`, `/upload`,
+  `/requests` (now Sloan's "Ask for a change"), `/knowledge` (the back office's now; nothing in the portal links to it).
+  Old addresses redirect: `/desk` → `/inbox`, `/people/*` → `/contacts` (organizations and import
+  to their filters, voice to Settings, reach to Home), `/conversations` → `/settings/conversations`.
 
 ### Back office
 
-Sidebar:
-- Command center
+Sidebar (after the UI cleanup; places only, no client or agent rows):
+- Home (the command center)
 - Escalations (count)
 - Runs
-- Clients (one row each, with count)
+- Clients
 - Build: Agent lab, Skills and automations, Connectors
-- Business: Usage and billing, Feedback
+- Business: Usage and billing; More: Feedback, Audit log, Requests, Website logins
+
+The client picker in the top bar is the one way to choose a client, and it keeps the client of the
+page you're on (a run, a merge) or the last one picked in this tab.
 
 | # | Screen (prototype id) | Route | Replaces today | Main APIs |
 |---|---|---|---|---|
@@ -148,14 +175,13 @@ UI-0 to UI-3 are merged to `main` (staging). No migrations; one small contract c
 
 ### Decisions taken (owner to adjust)
 
-- Open question 1: Requests is Sloan's "Ask for a change" (`/sloan?mode=change`); `/requests` redirects there (QA round 1; it was its own page until then).
-- Open question 2: each connection's permission matrix sits on Accounts, folded, one per tool; approver rules live in Settings ("Sign-off").
-- Open question 3: the back-office agent page is one page with tabs (Overview, Workflow, Triggers, Runs, Versions, Tests, Settings).
-- Open question 4: every page is built to work at phone width; UI-4 checks it.
-- Portal agent addresses are `/agents/:id` (service id): no portal route serves a slug.
+- Open question 1: Requests is Sloan's "Ask for a change" (`/sloan?mode=change`); `/requests` redirects there.
+- Open question 2: each connection's permission matrix sits on Accounts, folded, one per tool; approver rules, who approves what and the undo window live in Settings, under Approvals.
+- Open question 3: the back-office agent page is one page with tabs (Overview, Workflow, Runs, Versions, Settings). Triggers sit at the top of Workflow, tests inside Versions, and Settings is split into Access (applies at once) and Definition (a new draft).
+- Portal agent addresses are `/agents/:id` (service id); the service route names the template's slug only to pick the agent's own view.
 - Theme (light, dark, system) is kept per browser.
-- Client users see Settings (their own notifications, language, approver rules); company sections stay admin-only.
-- The matrix keeps the app's Auto / Approval / Off words and colours: gold is kept for "waiting on you".
+- Client users see Settings: General (their own notifications and language), Approvals and Team; company sections (Billing, Exports, Conversations, Voice samples) stay admin-only.
+- The matrix says On its own, Needs approval and Off (decision 2 of the UI cleanup), in the same colours: gold is kept for "waiting on you".
 - New agent and new skill start as a Builder conversation; the by-hand skill form stays while model keys are missing.
 - Usage and Billing share the "Usage and billing" heading with tabs.
 - Offering a connector to a client lives on Connectors (owner: also on the client's Connections page?).
@@ -189,6 +215,36 @@ The owner's first click-through as a client asked for one home per thing. Every 
 - **Client extras:** a receivable's own page and totals owed; a customer's organization page; changing a person's role or removing someone; paging documents past the latest 20.
 - **Back-office client page, business:** opening a thread; health over time; cost and runs per agent; billing history and trends; counts for Feedback and Requests.
 
+### UI cleanup (Review 1 and 2, the portal)
+
+Stream E rebuilt the portal's structure as above, with one contract change: the portal's service
+route (`GET /api/services/:id`) names the agent's template slug (the slug the client agent carries;
+template rows aren't readable under the client's RLS) and whether it reads documents (a `document.*`
+event trigger). Neither is a bundle or a prompt (invariant 11).
+
+### UI cleanup (Review 1 and 2, the back office)
+
+- **Run status:** a run waiting on a person is "Waiting for approval · <who>" everywhere, derived
+  from its open items (`packages/core/src/api/run-state.ts`, no migration).
+  - Needs us also lists approvals waiting over 24 hours and approvals nobody can act on.
+  - The Clients list, the sidebar badge and Escalations read the same count.
+- **Command center:** at most four tiles, each a link to its filtered list.
+- **Client page:** five tabs: Overview, Agents, Data (Documents, Records), Setup (Connections,
+  Messaging, Directory, Knowledge) and Settings. Settings shows one section at a time. Old
+  addresses keep working.
+- **Run page:** Timeline, Changes and Details (model calls, oversight, raw data). The waiting block
+  sits at the top.
+  - Runs are titled by what they're about (a derived `subject`).
+  - Changes show only what differs.
+- **Builder:** the palette is a side-panel tab listing only connected tools, by name. Triggers are
+  grouped into seven kinds, and forks keep a readable width.
+- **Usage:** day, week, month-to-date and custom periods; a cost chart; cost by vendor and model;
+  empty rows hidden.
+- **Labels:** event, tool and skill names come from one place (`apps/web/src/runs/labels.ts`). No
+  ids show to people.
+- **Reasons:** no reason is asked to switch HIPAA mode or Feedback, retire a client, export, or
+  change approver rules. Pausing an agent still takes a note, because the pause notice shows it.
+
 ### Translations to review
 
-Every new portal string is in all six languages; es, fr, it, de and pt-BR need a fluent read (each PR lists its strings). Least sure: "The Table", "Your Desk", "Your sign", "No extra limit", "Voice samples", "Vault".
+Every new portal string is in all six languages; es, fr, it, de and pt-BR need a fluent read (each PR lists its strings). Least sure: "No extra limit", "Voice samples", "Vault". The UI cleanup's strings are in one block at the end of each file, and the values it changed carry `// fluent review`; least sure there: "On its own" and "Needs approval" (`matrix.level.*`), "Inbox", "Ask us".

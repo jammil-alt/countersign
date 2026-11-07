@@ -84,6 +84,31 @@ export function duration(
     : t("duration.hoursMinutes", { h: hrs, m: m % 60 });
 }
 
+/**
+ * An amount with its currency, in the reader's locale: "9742.3500" USD → "$9,742.35". The one
+ * money formatter for runs and changes on both sides; from the decimal string, never a float.
+ */
+export function money(
+  amount: string | null | undefined,
+  currency = "USD",
+  { fmt }: Pick<I18n, "fmt"> = EN,
+): string {
+  return fmt.money(amount, currency);
+}
+
+/** `{ amount: "9742.3500", currency: "USD" }`, the shape money takes in payloads and records. */
+export function moneyShape(v: unknown): { amount: string; currency: string } | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const keys = Object.keys(o);
+  if (keys.length !== 2 || typeof o.amount !== "string" || typeof o.currency !== "string") {
+    return null;
+  }
+  return /^-?\d+(\.\d+)?$/.test(o.amount) && /^[A-Z]{3}$/.test(o.currency)
+    ? { amount: o.amount, currency: o.currency }
+    : null;
+}
+
 /** Model cost (operator only): "$0.09", from the decimal string, never a float. */
 export function usd(amount: string | null | undefined): string {
   if (!amount) return "$0.00";

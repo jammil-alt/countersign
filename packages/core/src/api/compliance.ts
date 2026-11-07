@@ -89,11 +89,13 @@ export type ClientCompliance = z.infer<typeof ClientCompliance>;
 
 export const SetHipaaMode = z.strictObject({
   hipaa: z.boolean(),
-  reason: z.string().trim().min(1).max(COMPLIANCE_REASON_MAX),
+  /** Optional: the change log says "HIPAA mode switched on (or off)" without one. */
+  reason: z.string().trim().max(COMPLIANCE_REASON_MAX).optional(),
 });
 
 export const RetireClient = z.strictObject({
-  reason: z.string().trim().min(1).max(COMPLIANCE_REASON_MAX),
+  /** Optional: the change log says "Retired" without one. */
+  reason: z.string().trim().max(COMPLIANCE_REASON_MAX).optional(),
   /** The client's name, typed again: retiring can't be undone. */
   confirmName: z.string().trim().min(1).max(200),
 });
@@ -130,7 +132,7 @@ export const complianceRoutes = {
     path: "/api/ops/clients/:id/compliance",
     auth: "session",
     roles: OPS,
-    summary: "Turn a client's HIPAA mode on or off, with a reason",
+    summary: "Turn a client's HIPAA mode on or off (a reason is optional)",
     params: IdParams,
     body: SetHipaaMode,
     response: ClientCompliance,

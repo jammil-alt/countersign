@@ -10,6 +10,11 @@ export interface SwitchAgent {
   href: string;
 }
 
+/** Whether there is another agent to switch to from `current`'s page. */
+export function canSwitch(current: string | undefined, agents: readonly SwitchAgent[]): boolean {
+  return agents.length >= 2 && agents.some((a) => a.key === current);
+}
+
 export function AgentSwitcher({
   current,
   agents,
@@ -20,7 +25,7 @@ export function AgentSwitcher({
 }) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  if (agents.length < 2 || !agents.some((a) => a.key === current)) return null;
+  if (!canSwitch(current, agents)) return null;
   return (
     <label className="ds-selectwrap ui-agentswitch">
       <span className="sr-only">{t("shell.switchAgent")}</span>

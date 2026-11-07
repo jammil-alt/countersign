@@ -46,11 +46,12 @@ export function agentSummary(a: AgentRow) {
     bindings: a.bindings,
     approver: a.approver,
     testCopy: a.testCopy,
+    stage: a.stage ?? null,
     createdAt: a.createdAt.toISOString(),
   };
 }
 
-export function versionSummary(v: AgentVersionRow) {
+export function versionSummary(v: Omit<AgentVersionRow, "bundle">) {
   return {
     id: v.id,
     agentId: v.agentId,

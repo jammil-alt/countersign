@@ -47,6 +47,7 @@ import {
 } from "../agents/ui";
 import { typingContext, validateLikeServer } from "../builder/catalog";
 import { JsonInput } from "../builder/fields";
+import { usePageClient } from "../pickedClient";
 import { StepList, type StepMark } from "../workflow/StepList";
 import {
   activeResolutions,
@@ -86,6 +87,8 @@ export function MergeScreen() {
   const [search] = useSearchParams();
   const mode: Mode = search.get("mode") === "promote" ? "promote" : "update";
   const agent = useApi(apiRoutes.opsAgent, { params: { id } });
+  // The picker shows the client agent's client while its merge is open (a template has none).
+  usePageClient(agent.data?.agent.tenantId);
   const update = useApi(apiRoutes.opsUpdatePreview, mode === "update" ? { params: { id } } : null);
   const promote = useApi(
     apiRoutes.opsPromotePreview,
@@ -177,7 +180,7 @@ function Header({ agent, mode }: { agent: AgentSummary; mode: Mode }) {
           <span>{mode === "update" ? "Update merge" : "Promotion"}</span>
         </span>
       }
-      leading={<AgentBadge name={agent.name} size="lg" />}
+      leading={<AgentBadge name={agent.name} seed={agent.id} size="lg" />}
       title={
         mode === "update"
           ? `Update ${agent.serviceName ?? agent.name}`

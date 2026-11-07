@@ -2,7 +2,7 @@
 // (waiting on you, time waited, what an agent has going, runs per day by state), and older
 // answers without them still parse.
 import { describe, expect, it } from "vitest";
-import { FORBIDDEN_PORTAL_FIELD } from "./contract";
+import { FORBIDDEN_PORTAL_FIELD, forbiddenPortalFields } from "./contract";
 import { routes } from "./routes";
 
 const run = {
@@ -31,6 +31,23 @@ describe("the client's states in portal shapes", () => {
       packs: [],
     });
     expect(out.recentRuns[0]).toMatchObject({ waitingOnYou: true, waitedMs: 1 });
+  });
+
+  it("names an agent's template and whether it reads documents, and parses without them", () => {
+    const zero = { total: 0, succeeded: 0, failed: 0, cancelled: 0, waiting: 0, going: 0 };
+    const base = {
+      service: { id: "s1", name: "Bill clerk", description: null, status: "active" },
+      thisMonth: { runs: zero, documentsRead: 0, actions: 0, from: "2026-11-01", to: "2026-11-07" },
+      recentRuns: [],
+      packs: [],
+    };
+    const shape = routes.portalService.response;
+    const out = shape.parse({ ...base, template: "bill-clerk", readsDocuments: true });
+    expect(out).toMatchObject({ template: "bill-clerk", readsDocuments: true });
+    expect(shape.parse({ ...base, template: null }).template).toBeNull();
+    expect(shape.parse(base).readsDocuments).toBeUndefined();
+    // A template's name is not its bundle: the portal contract still refuses those (invariant 11).
+    expect(forbiddenPortalFields(shape)).toEqual([]);
   });
 
   it("counts runs per day by state", () => {

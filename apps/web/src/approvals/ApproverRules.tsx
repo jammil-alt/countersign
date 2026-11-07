@@ -88,6 +88,22 @@ export function approverLabel(
   }
 }
 
+/** The most a tool's short label runs to before it is cut at a word. */
+const TOOL_LABEL_MAX = 60;
+
+/**
+ * A write tool's short name for a choice list: its description up to the first colon, full stop or
+ * bracket ("Itemize a QuickBooks bill: replace lines …" → "Itemize a QuickBooks bill"). The whole
+ * description shows under the field once the tool is chosen.
+ */
+export function toolShortLabel(description: string): string {
+  const cut = description.search(/[:.;(]/);
+  const head = (cut > 0 ? description.slice(0, cut) : description).trim();
+  if (head.length <= TOOL_LABEL_MAX) return head;
+  const words = head.slice(0, TOOL_LABEL_MAX).replace(/\s+\S*$/, "");
+  return `${words}…`;
+}
+
 export function matchLabel(
   match: ApproverMatch,
   view: Pick<RulesView, "connectors" | "agents">,
@@ -100,7 +116,7 @@ export function matchLabel(
   if (match.tool) {
     // A tool's description is the connector's own (English) words.
     const tool = view.connectors.flatMap((c) => c.tools).find((x) => x.id === match.tool);
-    parts.push(tool?.description ?? match.tool);
+    parts.push(tool ? toolShortLabel(tool.description) : match.tool);
   }
   if (match.verb) parts.push(t(VERB_LABEL[match.verb]));
   if (match.amountOver) {
@@ -134,8 +150,6 @@ export function ApproverRules({
   const { t } = i18n;
   const [draft, setDraft] = useState<DraftRule[]>(view.rules);
   const [form, setForm] = useState<{ index: number | null } | null>(null);
-  const [reason, setReason] = useState("");
-  const [reasonProblem, setReasonProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const editable = editor !== "viewer" && onSave !== undefined;
@@ -157,17 +171,11 @@ export function ApproverRules({
 
   async function save() {
     if (!onSave) return;
-    const text = reason.trim();
-    if (!text) {
-      setReasonProblem(t("approvers.reasonNeeded"));
-      return;
-    }
     setBusy(true);
     setError(null);
-    setReasonProblem(null);
     try {
-      await onSave({ revision: view.revision, rules: draft, reason: text });
-      setReason("");
+      // No reason is asked (UI cleanup, decision 8): the change log names the change itself.
+      await onSave({ revision: view.revision, rules: draft, reason: "" });
     } catch (e) {
       setError(e);
     } finally {
@@ -251,21 +259,7 @@ export function ApproverRules({
       ) : null}
 
       {editable && dirty ? (
-        <div className="flex flex-wrap items-end justify-between gap-3 border-t border-line px-4 py-3">
-          <Field
-            label={t("approvers.why")}
-            error={reasonProblem ?? undefined}
-            className="min-w-64 flex-1"
-            testId="approver-rules-reason"
-          >
-            <TextInput
-              data-testid="approver-rules-reason"
-              value={reason}
-              maxLength={500}
-              invalid={!!reasonProblem}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
+        <div className="flex flex-wrap items-end justify-end gap-3 border-t border-line px-4 py-3">
           <div className="flex gap-2">
             <Button
               variant="ghost"
@@ -290,7 +284,7 @@ export function ApproverRules({
           <p className="w-full text-sm text-ink-muted">
             {editor === "client_admin"
               ? t("approvers.tightenNote")
-              : "New approvals follow the rules at once. Changes are logged with your reason."}
+              : "New approvals follow the rules at once. Every change is logged."}
           </p>
         </div>
       ) : null}
@@ -304,7 +298,8 @@ export function ApproverRules({
         >
           {view.changes.map((c) => (
             <li key={c.id}>
-              {changeLine(c, editor, i18n)} <span className="text-ink">{c.reason}</span>
+              {changeLine(c, editor, i18n)}{" "}
+              {c.reason ? <span className="text-ink">{c.reason}</span> : null}
             </li>
           ))}
         </ul>
@@ -594,7 +589,12 @@ function MatchInputs({
           ))}
         </Select>
       </Field>
-      <Field label={t("approvers.field.change")}>
+      <Field
+        label={t("approvers.field.change")}
+        // Short names in the list; the chosen change's whole description under the field.
+        hint={tools.find((x) => x.id === fields.tool)?.description}
+        testId={`${prefix}-tool-field`}
+      >
         <Select
           data-testid={`${prefix}-tool`}
           value={fields.tool}
@@ -603,7 +603,7 @@ function MatchInputs({
           <option value="">{t("approvers.anyChange")}</option>
           {tools.map((x) => (
             <option key={x.id} value={x.id}>
-              {x.description}
+              {toolShortLabel(x.description)}
             </option>
           ))}
         </Select>

@@ -253,7 +253,11 @@ export function DirectoryPanel({
 
   return (
     <section data-testid="directory-panel">
-      <nav className="mb-5 flex gap-5 border-b border-line" aria-label={t("common.sections")}>
+      {/* One tab (the portal's organizations filter) needs no tab row. */}
+      <nav
+        className={cx("mb-5 flex gap-5 border-b border-line", tabs.length < 2 && "hidden")}
+        aria-label={t("common.sections")}
+      >
         {tabs.map((x) => (
           <button
             key={x.id}

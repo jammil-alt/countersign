@@ -254,6 +254,25 @@ describe("the change tables", () => {
     );
   });
 
+  it("show only the lines that differ, the lines the change keeps folded", () => {
+    const before = {
+      ...BILL_BEFORE,
+      lines: [
+        ...BILL_BEFORE.lines,
+        { ...BILL_BEFORE.lines[0], id: "2", description: "Freight", amount: "120.00" },
+      ],
+    };
+    renderTables({ before, input: BILL_INPUT, display: BILL_LINES_DISPLAY });
+    const now = screen.getByTestId("change-lines-now");
+    const after = screen.getByTestId("change-lines-after");
+    expect(now).not.toHaveTextContent("Freight");
+    expect(after).not.toHaveTextContent("Freight");
+    expect(within(after).getAllByRole("row").length).toBeGreaterThan(2);
+    const kept = screen.getByTestId("change-lines-unchanged");
+    expect(within(kept).getByText("1 line unchanged")).toBeInTheDocument();
+    expect(kept).toHaveTextContent("Freight");
+  });
+
   it("hide ids, sync tokens and the write's guards", () => {
     const { container } = renderTables({
       before: BILL_BEFORE,
@@ -332,6 +351,22 @@ describe("plain values", () => {
     expect(formatValue([{ id: "1", name: "A" }, { name: "B" }])).toBe("A; B");
     // A field that only ends in "id" is not an id.
     expect(formatValue({ paid: true })).toBe("Paid: true");
+    // Money reads with its currency, never "9742.3500 USD".
+    expect(formatValue({ amount: "9742.3500", currency: "USD" })).toBe("$9,742.35");
+    expect(formatValue({ total: { amount: "12.5", currency: "EUR" } })).toBe("Total: €12.50");
+  });
+
+  it("read a record's amounts beside its currency as money", () => {
+    const model = changeModel(
+      null,
+      { total: "9742.3500", currency: "USD", memo: "a" },
+      { memo: "b" },
+    );
+    expect(model.fields.find((f) => f.key === "total")?.now).toEqual({
+      type: "money",
+      amount: "9742.3500",
+      currency: "USD",
+    });
   });
 });
 

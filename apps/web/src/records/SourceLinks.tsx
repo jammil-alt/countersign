@@ -14,17 +14,21 @@ export function SourceLinks({
   ids,
   href,
   testId,
+  names,
 }: {
   ids: readonly string[];
   /** The record page for an id, in this surface. */
   href: (id: string) => string;
   testId?: string;
+  /** The records' names by id, where the API served them ("Northline Panel Supply · 20418"). */
+  names?: Readonly<Record<string, string>> | undefined;
 }) {
   const i18n = useI18n();
   if (ids.length === 0) return null;
   return (
     <span data-testid={testId} className="mt-1 flex flex-wrap gap-1.5">
-      {ids.map((id) =>
+      {/* A record named twice (a finding counting one run twice) shows once. */}
+      {[...new Set(ids)].map((id) =>
         isUuid(id) ? (
           <Link
             key={id}
@@ -34,7 +38,7 @@ export function SourceLinks({
             data-testid={`source-${id}`}
           >
             <Icon name="receipt" size={14} className="ds-icon" />
-            {sourceLabel(id, i18n)}
+            {names?.[id] ?? sourceLabel(id, i18n)}
           </Link>
         ) : (
           <span key={id} className="mz-receipt cursor-default">

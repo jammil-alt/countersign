@@ -3,6 +3,7 @@
 // the clients it serves) that turns the API's hits into groups of links. Arrow keys move, Enter
 // opens, Escape closes; every hit is a link to its page.
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useI18n } from "../i18n/i18n";
 import { cx } from "../ui/cx";
@@ -178,7 +179,9 @@ export function SearchDialog({
     }
   }
 
-  return (
+  // On document.body: the top bar is its own stacking context, so a dialog inside it would sit
+  // under the phone's open sidebar.
+  return createPortal(
     <div className="ui-overlay ui-overlay--top" data-testid="search-dialog">
       <button
         type="button"
@@ -268,6 +271,7 @@ export function SearchDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
