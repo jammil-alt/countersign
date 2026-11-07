@@ -51,7 +51,9 @@ describe("plain names for ids", () => {
     expect(eventLabel("bill.created")).toBe("bill created");
     expect(qualifiedToolLabel("qbo.bill.update_lines")).toBe("QuickBooks · Itemize a bill");
     expect(qualifiedToolLabel("docs.match-bill")).toBe("Documents · Match bill");
-    expect(qualifiedToolLabel("testkit.record.update", "Testkit")).toBe("Testkit · Update a record");
+    expect(qualifiedToolLabel("testkit.record.update", "Testkit")).toBe(
+      "Testkit · Update a record",
+    );
   });
 
   it("formats money with its currency, from the decimal string", () => {
