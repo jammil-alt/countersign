@@ -113,27 +113,25 @@
   color: var(--slate);
   font: 600 13px / 1 var(--font-sans);
 }
-/* An agent's own colour (badges.tsx `agentHue`): the slate ramp, each step with the text token that
- * meets 4.5:1 on it in both themes (seq-1 slate, seq-2 and -3 ink, seq-4 and -5 on-slate). */
+/* An agent's own colour (badges.tsx `agentHue`, `agentHues`): solid fills of existing tokens, as the
+   owner's v1 screens had, with `surface` initials (4.5:1 or more in both themes). */
+.ui-agentbadge[data-hue] {
+  color: var(--surface);
+}
 .ui-agentbadge[data-hue="1"] {
-  background: var(--data-seq-1);
-  color: var(--slate);
+  background: var(--slate);
 }
 .ui-agentbadge[data-hue="2"] {
-  background: var(--data-seq-2);
-  color: var(--ink);
+  background: var(--copper);
 }
 .ui-agentbadge[data-hue="3"] {
-  background: var(--data-seq-3);
-  color: var(--ink);
+  background: var(--positive);
 }
 .ui-agentbadge[data-hue="4"] {
-  background: var(--data-seq-4);
-  color: var(--on-slate);
+  background: var(--signal-ink);
 }
 .ui-agentbadge[data-hue="5"] {
-  background: var(--data-seq-5);
-  color: var(--on-slate);
+  background: var(--data-seq-4);
 }
 .ui-agentbadge--sm {
   width: 28px;

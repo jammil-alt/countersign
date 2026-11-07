@@ -162,7 +162,6 @@ export const fr: Messages = {
   },
   "overview.findings": "Ce qui vous attend maintenant",
   "overview.findingReminder": "Rappel",
-  "overview.findingMarkDone": "Une fois fait, marquez-le comme fait dans votre boîte de réception.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Bonjour, {name}",
   "table.greeting.afternoon": "Bonjour, {name}",

@@ -467,7 +467,7 @@ describe("Home", () => {
 });
 
 describe("Home's account check", () => {
-  it("lists the findings that need the client under Needs you, with their steps", async () => {
+  it("lists the findings that need the client under Needs you, short, with a way to the Inbox", async () => {
     const api = fakeApi({
       ...base,
       "GET /api/overview": () => overview({ summary: SUMMARY, findings: [FINDING] }),
@@ -477,14 +477,37 @@ describe("Home's account check", () => {
     const card = await screen.findByTestId(`portal-finding-${FINDING.id}`);
     expect(screen.getByTestId("table-desk")).toContainElement(card);
     expect(within(card).getByText(FINDING.title)).toBeInTheDocument();
-    const steps = within(card)
-      .getAllByRole("listitem")
-      .map((li) => li.textContent);
-    expect(steps).toEqual(FINDING.steps);
+    // Short on Home: the steps are on the item in the Inbox.
+    expect(within(card).queryAllByRole("listitem")).toEqual([]);
+    expect(within(card).getByTestId(`portal-finding-open-${FINDING.id}`)).toHaveAttribute(
+      "href",
+      "/inbox",
+    );
     // A reminder says so in words (signal, with a word).
     expect(within(card).getByText("Reminder")).toBeInTheDocument();
     // The daily check's counts repeat other pages: they are not on Home.
     expect(screen.queryByTestId("portal-health")).toBeNull();
+  });
+
+  it("shows at most three short rows under Needs you, the rest as one link to the Inbox", async () => {
+    const top = TABLE.desk.top[0];
+    if (!top) throw new Error("no item");
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      ...top,
+      id: `00000000-0000-4000-8000-0000000e20${i}0`,
+      title: `Approve change ${i + 1}`,
+    }));
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview({ summary: SUMMARY, findings: [FINDING] }),
+      "GET /api/table": () => ({ ...TABLE, desk: { open: 7, top: many } }),
+    });
+    renderAt("/", api);
+    const card = await screen.findByTestId("table-desk");
+    expect(within(card).getAllByTestId(/^table-desk-item-/)).toHaveLength(3);
+    // No room left for the finding: it waits in the Inbox with the rest.
+    expect(within(card).queryByTestId(`portal-finding-${FINDING.id}`)).toBeNull();
+    expect(within(card).getByTestId("home-open-inbox")).toHaveTextContent("4 more in your inbox");
   });
 
   it("shows no Needs you when nothing needs you", async () => {

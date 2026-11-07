@@ -16,7 +16,7 @@ import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { portalSearchGroups } from "../shell/searchGroups";
-import { AgentBadge, PersonBadge } from "../ui/badges";
+import { AgentBadge, AgentHuesProvider, PersonBadge } from "../ui/badges";
 import { Placeholder } from "../ui/primitives";
 import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { askSloan, PORTAL_PATHS } from "./paths";
@@ -152,7 +152,9 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           </>
         }
       >
-        <InboxCountProvider refresh={reloadOverview}>{children}</InboxCountProvider>
+        <InboxCountProvider refresh={reloadOverview}>
+          <AgentHuesProvider agents={services}>{children}</AgentHuesProvider>
+        </InboxCountProvider>
       </AppShell>
       {feedback.data?.enabled ? <FeedbackButton surface="portal" /> : null}
     </>

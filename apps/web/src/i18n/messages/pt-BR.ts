@@ -160,7 +160,6 @@ export const ptBR: Messages = {
   },
   "overview.findings": "O que precisa de você agora",
   "overview.findingReminder": "Lembrete",
-  "overview.findingMarkDone": "Quando terminar, marque como feito na sua caixa de entrada.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Bom dia, {name}",
   "table.greeting.afternoon": "Boa tarde, {name}",

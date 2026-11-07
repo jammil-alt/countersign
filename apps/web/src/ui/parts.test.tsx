@@ -6,7 +6,14 @@ import { I18nProvider } from "../i18n/i18n";
 import { fillPath, redirectTarget } from "../shell/Redirect";
 import { applyTheme, storedTheme } from "../shell/theme";
 import { ActivityRow, BeforeAfter } from "./activity";
-import { AGENT_HUES, AgentBadge, agentHue, PersonBadge } from "./badges";
+import {
+  AGENT_HUES,
+  AgentBadge,
+  AgentHuesProvider,
+  agentHue,
+  agentHues,
+  PersonBadge,
+} from "./badges";
 import { Delta, hasRuns, ProgressBar, Sparkbars, Sparkline, StatTile } from "./figures";
 import { CHIP_STATES, CHIP_TONE, runChipState, StatusChip, serviceChipState } from "./status";
 import { StepList } from "./steps";
@@ -162,7 +169,7 @@ describe("figures", () => {
 });
 
 describe("an agent's colour", () => {
-  it("is the same for the same agent, from the slate ramp, wherever it shows", () => {
+  it("is the same for the same agent, one of the five, wherever it shows", () => {
     const id = "00000000-0000-4000-8000-00000000b001";
     expect(agentHue(id)).toBe(agentHue(id));
     const hues = new Set(
@@ -183,6 +190,27 @@ describe("an agent's colour", () => {
     expect(screen.getByTestId("a").dataset.hue).toBe(String(agentHue(id)));
     expect(screen.getByTestId("b").dataset.hue).toBe(String(agentHue(id)));
     expect(screen.getByTestId("c").dataset.hue).toBe(String(agentHue("Sloan")));
+  });
+
+  it("never repeats within a client's first five agents, and follows its client's set", () => {
+    const ids = Array.from({ length: 5 }, (_, i) => `00000000-0000-4000-8000-00000000c00${i}`);
+    const one = agentHues(ids.map((id) => ({ id, group: "harbor" })));
+    expect(new Set(one.values()).size).toBe(5);
+    // Another client's agents are spread on their own.
+    const two = agentHues([
+      ...ids.map((id) => ({ id, group: "harbor" })),
+      ...ids.map((id) => ({ id: `x${id}`, group: "demo" })),
+    ]);
+    expect(new Set(ids.map((id) => two.get(`x${id}`))).size).toBe(5);
+    render(
+      <AgentHuesProvider agents={ids.map((id) => ({ id }))}>
+        {ids.map((id) => (
+          <AgentBadge key={id} name="Agent" seed={id} testId={`b-${id}`} />
+        ))}
+      </AgentHuesProvider>,
+    );
+    const shown = ids.map((id) => screen.getByTestId(`b-${id}`).dataset.hue);
+    expect(new Set(shown).size).toBe(5);
   });
 });
 

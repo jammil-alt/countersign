@@ -10,6 +10,7 @@ import { useRef } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { AgentHuesProvider } from "../../ui/badges";
 import { ErrorNotice } from "../../ui/primitives";
 import { type AgentDetail, AgentFrameSkeleton, AgentScreen } from "../agents/AgentScreen";
 
@@ -73,7 +74,7 @@ export function AgentPage() {
     return <AgentFrameSkeleton base={base} />;
   }
   return (
-    <>
+    <AgentHuesProvider agents={client.data?.agents ?? []}>
       {client.error ? (
         <div className="mb-4">
           <ErrorNotice error={client.error} onRetry={client.reload} />
@@ -87,6 +88,6 @@ export function AgentPage() {
         members={client.data?.members ?? []}
         initial={given?.detail}
       />
-    </>
+    </AgentHuesProvider>
   );
 }

@@ -11,6 +11,7 @@ import { Link, useLocation } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+import { AgentHuesProvider } from "../../ui/badges";
 import { Page } from "../../ui/page";
 import { ErrorNotice, PageHeader, SubTabs, Tabs, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
@@ -162,49 +163,51 @@ export function ClientFrame({
 
   return (
     <ClientPageContext.Provider value={client}>
-      <Page testId="ops-client-page">
-        <div>
-          <PageHeader
-            eyebrow={
-              <Link to={OPS_PATHS.clients} className="hover:underline">
-                Clients
-              </Link>
-            }
-            title={data?.client.name ?? "Client"}
-            badge={sandbox ? <Tag>Sandbox</Tag> : null}
-            subtitle={data ? <ClientKpiLine data={data} /> : undefined}
-            actions={actions}
-          />
-          {client.error ? <ErrorNotice error={client.error} onRetry={client.reload} /> : null}
-          <div data-testid="ops-client-tabs">
-            <Tabs
-              items={CLIENT_TABS.map((t) => ({
-                to: clientPagePath(clientId, t.pages[0]?.[0] ?? ""),
-                label: t.label,
-                // The tab owns several addresses: the frame says which is current, not the link.
-                end: true,
-                active: t.id === at.tab,
-              }))}
+      <AgentHuesProvider agents={data?.agents ?? []}>
+        <Page testId="ops-client-page">
+          <div>
+            <PageHeader
+              eyebrow={
+                <Link to={OPS_PATHS.clients} className="hover:underline">
+                  Clients
+                </Link>
+              }
+              title={data?.client.name ?? "Client"}
+              badge={sandbox ? <Tag>Sandbox</Tag> : null}
+              subtitle={data ? <ClientKpiLine data={data} /> : undefined}
+              actions={actions}
             />
-          </div>
-          {tab && tab.pages.length > 1 ? (
-            <div className="mt-4">
-              <SubTabs
-                label={tab.label}
-                testId={`ops-client-${tab.id}-pages`}
-                items={tab.pages.map(([page, label]) => ({
-                  to: clientPagePath(clientId, page),
-                  label,
-                  active: page === at.page,
-                  testId: `ops-client-page-${page}`,
+            {client.error ? <ErrorNotice error={client.error} onRetry={client.reload} /> : null}
+            <div data-testid="ops-client-tabs">
+              <Tabs
+                items={CLIENT_TABS.map((t) => ({
+                  to: clientPagePath(clientId, t.pages[0]?.[0] ?? ""),
+                  label: t.label,
+                  // The tab owns several addresses: the frame says which is current, not the link.
+                  end: true,
+                  active: t.id === at.tab,
                 }))}
               />
             </div>
-          ) : null}
-          {intro ? <p className="mt-4 text-ink-muted">{intro}</p> : null}
-        </div>
-        {children}
-      </Page>
+            {tab && tab.pages.length > 1 ? (
+              <div className="mt-4">
+                <SubTabs
+                  label={tab.label}
+                  testId={`ops-client-${tab.id}-pages`}
+                  items={tab.pages.map(([page, label]) => ({
+                    to: clientPagePath(clientId, page),
+                    label,
+                    active: page === at.page,
+                    testId: `ops-client-page-${page}`,
+                  }))}
+                />
+              </div>
+            ) : null}
+            {intro ? <p className="mt-4 text-ink-muted">{intro}</p> : null}
+          </div>
+          {children}
+        </Page>
+      </AgentHuesProvider>
     </ClientPageContext.Provider>
   );
 }

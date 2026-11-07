@@ -160,7 +160,6 @@ export const it: Messages = {
   },
   "overview.findings": "Cosa serve da te adesso",
   "overview.findingReminder": "Promemoria",
-  "overview.findingMarkDone": "Quando hai fatto, segnalalo come fatto nella posta in arrivo.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Buongiorno, {name}",
   "table.greeting.afternoon": "Buon pomeriggio, {name}",

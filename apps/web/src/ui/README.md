@@ -73,9 +73,10 @@ badge's colour). `ui-kpiline` is a slim line of figures under a title (the clien
 ## People and agents (`badges.tsx`)
 
 - `AgentBadge` — `name`, `seed` (the agent's id), `size` (`sm` 28, `md` 36, `lg` 52): the initials
-  tile in the agent's own colour. `agentHue(seed)` picks one of five steps of the slate ramp
-  (`data-seq-1`…`-5`, each with the text token that meets 4.5:1 in both themes), the same for the
-  same agent on both sides; never a state colour. Pass the id wherever you have it.
+  tile in the agent's own colour: a solid block of slate, copper, green (`positive`), mustard
+  (`signal-ink`) or steel (`data-seq-4`), with `surface` initials, as on the owner's v1 screens.
+  `agentHue(seed)` picks it from the id; `AgentHuesProvider` (given a client's agents) spreads them
+  so a client's first five never share one. Pass the id wherever you have it.
 - `PersonBadge` — `name`, `line` (shows name and line beside the badge), `plain` (a client's own person,
   not copper), `size`.
 

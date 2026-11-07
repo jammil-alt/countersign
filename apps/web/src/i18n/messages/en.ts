@@ -153,7 +153,6 @@ export const en = {
   },
   "overview.findings": "What needs you now",
   "overview.findingReminder": "Reminder",
-  "overview.findingMarkDone": "When you have done it, mark it done in your inbox.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Good morning, {name}",
   "table.greeting.afternoon": "Good afternoon, {name}",

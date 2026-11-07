@@ -1,7 +1,7 @@
 // Who did it, at a glance (docs/design/prototype.html `.av`, `.pp`): an agent is an initials tile
 // (slate-tint, square corners), a person a round badge. People of Mezonas (the lead, an operator)
 // and people signing are copper; the client's own people can be plain.
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { cx } from "./cx";
 import { agentInitials } from "./primitives";
 
@@ -10,15 +10,16 @@ export function personInitials(name: string): string {
   return agentInitials(name);
 }
 
-/** How many colours an agent's tile cycles through: the five steps of `data-seq-*`. */
+/** How many colours an agent's tile can take. */
 export const AGENT_HUES = 5;
 
-// UI cleanup (design pass): each agent gets a colour of its own again, as the owner's v1 screens
-// had, so a card, a row and a sidebar entry read as the same agent at a glance.
-// DECISION: the colours are the slate ramp `data-seq-1`…`-5` (each with the text token that
-// meets 4.5:1 on it in both themes, page.css), never a state colour: copper is people, gold
-// waits on you, risk is errors and positive is done. The agent's id picks it (FNV-1a), so the
-// same agent has the same colour on both sides; without an id, its name does.
+// Each agent has a colour of its own, as on the owner's v1 screens (`docs/design/screens/1-home.png`:
+// solid initials blocks in copper, slate, green and mustard), so a card, a row and a header read as
+// the same agent at a glance.
+// DECISION (owner, design pass 2): the blocks are solid fills of existing tokens (slate, copper,
+// positive, signal-ink and the steel step of the slate ramp) with `surface` initials, which meet
+// 4.5:1 in both themes. Status keeps its tinted pills and the gold, red and green accents, so a
+// solid block reads as "which agent" and never as a state.
 /** 1…AGENT_HUES for a seed: the same seed always gives the same colour. */
 export function agentHue(seed: string): number {
   let h = 0x811c9dc5;
@@ -27,6 +28,52 @@ export function agentHue(seed: string): number {
     h = Math.imul(h, 0x01000193);
   }
   return ((h >>> 0) % AGENT_HUES) + 1;
+}
+
+/**
+ * Colours for a set of agents (one client's): each agent starts from its own `agentHue` and, in
+ * id order, steps to the next free colour when an earlier one has it, so a client's first five
+ * agents never share a colour. Agents with a `group` (a client id) are spread within their group.
+ */
+export function agentHues(
+  agents: readonly { id: string; group?: string | null | undefined }[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const used = new Map<string, Set<number>>();
+  for (const a of [...agents].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))) {
+    if (out.has(a.id)) continue;
+    const key = a.group ?? "";
+    const taken = used.get(key) ?? new Set<number>();
+    let hue = agentHue(a.id);
+    for (let i = 0; i < AGENT_HUES && taken.has(hue); i++) hue = (hue % AGENT_HUES) + 1;
+    taken.add(hue);
+    used.set(key, taken);
+    out.set(a.id, hue);
+  }
+  return out;
+}
+
+const AgentHueContext = createContext<ReadonlyMap<string, number>>(new Map());
+
+/**
+ * Gives the badges below it their client's colours (`agentHues`), on top of any from a provider
+ * above. Where no provider knows an agent, its badge falls back to `agentHue` of its id.
+ */
+export function AgentHuesProvider({
+  agents,
+  children,
+}: {
+  agents: readonly { id: string; group?: string | null | undefined }[];
+  children: ReactNode;
+}) {
+  const parent = useContext(AgentHueContext);
+  const key = agents.map((a) => `${a.group ?? ""}:${a.id}`).join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `agents`.
+  const value = useMemo(() => {
+    const mine = agentHues(agents);
+    return mine.size === 0 ? parent : new Map([...parent, ...mine]);
+  }, [key, parent]);
+  return <AgentHueContext.Provider value={value}>{children}</AgentHueContext.Provider>;
 }
 
 /**
@@ -45,11 +92,13 @@ export function AgentBadge({
   size?: "sm" | "md" | "lg";
   testId?: string;
 }) {
+  const hues = useContext(AgentHueContext);
+  const hue = (seed ? hues.get(seed) : undefined) ?? agentHue(seed || name);
   return (
     <span
       aria-hidden
       data-testid={testId}
-      data-hue={agentHue(seed || name)}
+      data-hue={hue}
       className={cx("ui-agentbadge", size !== "md" && `ui-agentbadge--${size}`)}
     >
       {agentInitials(name)}

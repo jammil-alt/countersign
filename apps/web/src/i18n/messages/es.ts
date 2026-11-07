@@ -157,7 +157,6 @@ export const es: Messages = {
   },
   "overview.findings": "Lo que le necesita ahora",
   "overview.findingReminder": "Recordatorio",
-  "overview.findingMarkDone": "Cuando lo haya hecho, márquelo como hecho en su bandeja.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Buenos días, {name}",
   "table.greeting.afternoon": "Buenas tardes, {name}",

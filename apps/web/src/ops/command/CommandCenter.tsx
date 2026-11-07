@@ -24,7 +24,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { shortTime, usd } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { ActivityRow } from "../../ui/activity";
-import { AgentBadge } from "../../ui/badges";
+import { AgentBadge, AgentHuesProvider } from "../../ui/badges";
 import { hasRuns, Sparkbars, Sparkline, StatTile } from "../../ui/figures";
 import { Columns, Loaded, Page } from "../../ui/page";
 import { Button, buttonClass, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
@@ -75,7 +75,7 @@ export function CommandCenterScreen() {
       />
       <Loaded state={state}>
         {(data) => (
-          <>
+          <AgentHuesProvider agents={data.agents.map((a) => ({ id: a.id, group: a.client.id }))}>
             <Figures data={data} />
             <NeedsUs escalations={data.escalations} count={data.needUs.count} />
             <AllAgents agents={data.agents} behind={behind} />
@@ -85,7 +85,7 @@ export function CommandCenterScreen() {
             </Columns>
             <LowConfidence data={data} />
             <Oversight />
-          </>
+          </AgentHuesProvider>
         )}
       </Loaded>
     </Page>

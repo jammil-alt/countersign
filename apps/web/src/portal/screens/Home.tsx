@@ -104,12 +104,12 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
             {data.desk.open > 0 || findings.length > 0 ? (
               <NeedsYou desk={data.desk} findings={findings} tz={tz} onChange={reload} />
             ) : null}
-            {data.lead?.message ? <LeadNote lead={data.lead} /> : null}
             {data.recent.length > 0 ? <Latest recent={data.recent} /> : null}
           </>
         }
       >
         <Agents services={data.services} access={access.data} />
+        {data.lead?.message ? <LeadNote lead={data.lead} /> : null}
         {sent ? <WeeklyCard table={sent} /> : null}
       </PageGrid>
     </>
@@ -443,6 +443,9 @@ export function tomorrowMorning(now: Date = new Date()): string {
   return d.toISOString();
 }
 
+/** The most rows "Needs you" shows on Home; the Inbox has the rest. */
+export const NEEDS_YOU_ROWS = 3;
+
 function NeedsYou({
   desk,
   findings,
@@ -455,7 +458,11 @@ function NeedsYou({
   onChange: () => void;
 }) {
   const { t } = useI18n();
-  const more = desk.open - desk.top.length;
+  // DECISION (owner, design pass 2): Home shows at most three short rows, the Inbox's top first,
+  // then the supervisor's findings in what room is left; the rest is one link to the Inbox.
+  const rows = desk.top.slice(0, NEEDS_YOU_ROWS);
+  const shownFindings = findings.slice(0, NEEDS_YOU_ROWS - rows.length);
+  const more = Math.max(0, desk.open - rows.length);
   return (
     <Card
       testId="table-desk"
@@ -471,10 +478,10 @@ function NeedsYou({
       }
     >
       <div className="divide-y divide-line">
-        {desk.top.map((item) => (
+        {rows.map((item) => (
           <DeskRow key={item.id} item={item} tz={tz} onChange={onChange} />
         ))}
-        {findings.map((f) => (
+        {shownFindings.map((f) => (
           <FindingRow key={f.id} finding={f} />
         ))}
       </div>
@@ -513,7 +520,7 @@ function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange:
 
   return (
     <div
-      className="ui-accent ui-accent--left flex flex-col gap-3 px-6 py-4"
+      className="ui-accent ui-accent--left flex flex-col gap-2 px-6 py-3"
       data-tone="signal"
       data-testid={`table-desk-item-${item.id}`}
     >
@@ -527,7 +534,7 @@ function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange:
           </StatusChip>
         ) : null}
       </span>
-      <p className="font-medium text-ink">{item.title}</p>
+      <p className="line-clamp-2 font-medium text-ink">{item.title}</p>
       {error ? <ErrorNotice error={error} /> : null}
       <span className="flex flex-wrap gap-2">
         <Link
@@ -654,7 +661,11 @@ function FindingRow({ finding: f }: { finding: PortalFinding }) {
   const i18n = useI18n();
   const { t } = i18n;
   return (
-    <div className="flex flex-col gap-2 px-6 py-4" data-testid={`portal-finding-${f.id}`}>
+    <div
+      className="ui-accent ui-accent--left flex flex-col gap-2 px-6 py-3"
+      data-tone="signal"
+      data-testid={`portal-finding-${f.id}`}
+    >
       <span className="flex flex-wrap items-center justify-between gap-2">
         <Tag>{t("overview.findings")}</Tag>
         {f.remindedAt ? (
@@ -663,15 +674,15 @@ function FindingRow({ finding: f }: { finding: PortalFinding }) {
           <span className="text-sm text-ink-muted">{shortTime(f.createdAt, undefined, i18n)}</span>
         )}
       </span>
-      <p className="font-medium text-ink">{f.title}</p>
-      {f.steps.length > 0 ? (
-        <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-ink">
-          {f.steps.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
-      ) : null}
-      <p className="text-sm text-ink-muted">{t("overview.findingMarkDone")}</p>
+      <p className="line-clamp-2 font-medium text-ink">{f.title}</p>
+      {/* What to do, step by step, is on the item in the Inbox: Home stays a short list. */}
+      <Link
+        to={PORTAL_PATHS.inbox}
+        className="self-start text-sm text-link hover:underline"
+        data-testid={`portal-finding-open-${f.id}`}
+      >
+        {t("table.openItem")}
+      </Link>
     </div>
   );
 }

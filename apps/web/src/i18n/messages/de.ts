@@ -164,7 +164,6 @@ export const de: Messages = {
   },
   "overview.findings": "Was Sie jetzt tun können",
   "overview.findingReminder": "Erinnerung",
-  "overview.findingMarkDone": "Wenn Sie fertig sind, markieren Sie es im Posteingang als erledigt.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Guten Morgen, {name}",
   "table.greeting.afternoon": "Guten Tag, {name}",
