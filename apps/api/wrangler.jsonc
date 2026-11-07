@@ -85,7 +85,9 @@
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
   // Resource names match .github/workflows/bootstrap.yml; domains are on the mezonas.com zone
   // (docs/operations.md, "Environments"). `CODES` (the code service, apps/mfa) is bound in the
-  // deployed environments only: locally it is absent and the code service is off.
+  // deployed environments only: locally it is absent and the code service is off. `BROWSER`
+  // (Cloudflare Browser Run, for website logins, docs/plan.md §1.26) likewise: Browser Run must be
+  // on for the account before a deploy with it (docs/operations.md, "Browser logins").
   "env": {
     "staging": {
       "name": "mezonas-staging",
@@ -122,6 +124,8 @@
       "services": [
         { "binding": "CODES", "service": "mezonas-codes-staging", "entrypoint": "Codes" }
       ],
+      // Browser Run: one browser per website-login tool call.
+      "browser": { "binding": "BROWSER" },
       "ratelimits": [
         {
           "name": "MCP_RATE_LIMIT",
@@ -170,6 +174,7 @@
         }
       ],
       "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
+      "browser": { "binding": "BROWSER" },
       "ratelimits": [
         {
           "name": "MCP_RATE_LIMIT",
