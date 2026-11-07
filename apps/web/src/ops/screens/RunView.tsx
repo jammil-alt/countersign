@@ -17,7 +17,7 @@ import { changeHeading } from "../../inbox/change";
 import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
 import { SourceLinks, sourcesOf } from "../../records/SourceLinks";
 import { duration, isRunGoing, shortTime, stepStatusLabel, usd } from "../../runs/format";
-import { toolLabel } from "../../runs/labels";
+import { qualifiedToolLabel as toolLabel } from "../../runs/labels";
 import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";

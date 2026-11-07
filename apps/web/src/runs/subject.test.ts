@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createI18n } from "../i18n/i18n";
 import { runWaiting } from "../ops/run/waiting";
 import { money } from "./format";
-import { eventLabel, toolLabel } from "./labels";
+import { eventLabel, qualifiedToolLabel } from "./labels";
 import { opsRunTitle, subjectTitle } from "./subject";
 
 describe("run titles", () => {
@@ -38,7 +38,7 @@ describe("run titles", () => {
     const trigger = { kind: "trigger" as const, startedBy: "event" as const, event: null };
     expect(subjectTitle(trigger)).toBeNull();
     expect(opsRunTitle({ ...trigger, event: "document.extracted" })).toBe(
-      "When an invoice has been read",
+      "When a document has been read",
     );
     expect(opsRunTitle({ ...trigger, startedBy: "schedule" })).toBe("Scheduled run");
     expect(opsRunTitle(undefined, "Fix a record")).toBe("Fix a record");
@@ -47,11 +47,11 @@ describe("run titles", () => {
 
 describe("plain names for ids", () => {
   it("never show an event, tool or skill id as it is", () => {
-    expect(eventLabel("document.extracted")).toBe("an invoice has been read");
+    expect(eventLabel("document.extracted")).toBe("a document has been read");
     expect(eventLabel("bill.created")).toBe("bill created");
-    expect(toolLabel("qbo.bill.update_lines")).toBe("QuickBooks: bill update lines");
-    expect(toolLabel("docs.match-bill")).toBe("Documents: match bill");
-    expect(toolLabel("testkit.record.update", "Testkit")).toBe("Testkit: record update");
+    expect(qualifiedToolLabel("qbo.bill.update_lines")).toBe("QuickBooks · Itemize a bill");
+    expect(qualifiedToolLabel("docs.match-bill")).toBe("Documents · Match bill");
+    expect(qualifiedToolLabel("testkit.record.update", "Testkit")).toBe("Testkit · Update a record");
   });
 
   it("formats money with its currency, from the decimal string", () => {

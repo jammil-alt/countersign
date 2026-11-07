@@ -594,7 +594,7 @@ describe("run oversight and the same error elsewhere", () => {
     // The old `?tab=oversight` address opens Details, which holds the model calls too.
     expect(screen.getByTestId("ops-run-tab-details")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("ops-run-same-error")).toHaveTextContent(
-      "Testkit: record update · unauthorized",
+      "Testkit · Update a record · unauthorized",
     );
     await userEvent.click(await screen.findByTestId(`ops-run-model-call-${CALL}-open`));
     expect(await screen.findByTestId(`ops-model-body-${CALL}`)).toHaveTextContent(
