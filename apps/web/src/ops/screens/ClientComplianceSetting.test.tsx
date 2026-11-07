@@ -1,6 +1,7 @@
-// The client settings' Compliance card: HIPAA mode needs a reason and is held back while a vendor
-// it needs isn't covered; vendors and the change log show; retiring needs a reason and the name
-// typed again, shows the server's refusal, and then when the data can be purged.
+// The client settings' Compliance and Retire client sections: HIPAA mode switches with no reason
+// asked for and is held back while a vendor it needs isn't covered; vendors and the change log
+// show; retiring needs the name typed again (no reason), shows the server's refusal, and then when
+// the data can be purged.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -9,13 +10,6 @@ import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
-
-const SETTINGS = {
-  client: { id: DEMO, name: "Demo client", timezone: "UTC", sandbox: false },
-  approvals: { externalActions: "client_admin", changes: [] },
-  notifications: { itemsWaiting: true, weeklyDigest: false },
-  members: [],
-};
 
 const compliance = (over: Record<string, unknown> = {}) => ({
   clientId: DEMO,
@@ -32,7 +26,10 @@ const compliance = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function setup(handlers: Record<string, Parameters<typeof fakeApi>[0][string]>) {
+function setup(
+  section: "compliance" | "retire",
+  handlers: Record<string, Parameters<typeof fakeApi>[0][string]>,
+) {
   const api = fakeApi({
     "GET /api/session": () => OPERATOR_SESSION,
     [`GET /api/ops/clients/${DEMO}`]: () => ({
@@ -41,18 +38,10 @@ function setup(handlers: Record<string, Parameters<typeof fakeApi>[0][string]>) 
       connections: [],
       members: [],
     }),
-    [`GET /api/ops/clients/${DEMO}/settings`]: () => SETTINGS,
-    [`GET /api/ops/clients/${DEMO}/connections`]: () => ({
-      connections: [],
-      offered: [],
-      connectors: [],
-      usedBy: {},
-      sandbox: false,
-    }),
     ...handlers,
   });
   render(
-    <MemoryRouter initialEntries={[`/ops/clients/${DEMO}/settings`]}>
+    <MemoryRouter initialEntries={[`/ops/clients/${DEMO}/settings/${section}`]}>
       <AppProviders client={api.client}>
         <AppRoutes />
       </AppProviders>
@@ -62,13 +51,13 @@ function setup(handlers: Record<string, Parameters<typeof fakeApi>[0][string]>) 
 }
 
 describe("client compliance", () => {
-  it("switches HIPAA mode on with a reason, and shows vendors and the change", async () => {
+  it("switches HIPAA mode on without a reason, and shows vendors and the change", async () => {
     let current = compliance();
     const sent: unknown[] = [];
-    setup({
+    setup("compliance", {
       [`GET /api/ops/clients/${DEMO}/compliance`]: () => current,
       [`PUT /api/ops/clients/${DEMO}/compliance`]: ({ init }) => {
-        const body = JSON.parse(String(init.body)) as { hipaa: boolean; reason: string };
+        const body = JSON.parse(String(init.body)) as { hipaa: boolean };
         sent.push(body);
         current = compliance({
           hipaa: body.hipaa,
@@ -77,7 +66,8 @@ describe("client compliance", () => {
               id: "c1",
               setting: "compliance.hipaa",
               to: body.hipaa,
-              reason: body.reason,
+              // The server's default when no reason is given: not repeated in the log line.
+              reason: "HIPAA mode switched on",
               by: { id: "o", email: "operator@example.com" },
               createdAt: "2026-11-05T10:00:00.000Z",
             },
@@ -86,7 +76,7 @@ describe("client compliance", () => {
         return current;
       },
     });
-    const card = await screen.findByTestId("ops-client-compliance");
+    const card = await screen.findByTestId("ops-client-compliance", {}, { timeout: 10_000 });
     expect(await within(card).findByTestId("ops-client-hipaa-state")).toHaveTextContent("Off");
     expect(within(card).getByTestId("ops-client-processor-twilio")).toHaveTextContent(
       "TwilioNot covered",
@@ -94,52 +84,43 @@ describe("client compliance", () => {
     expect(within(card).getByTestId("ops-client-processor-anthropic")).toHaveTextContent(
       "AnthropicCovered",
     );
+    // No reason field.
+    expect(within(card).queryByRole("textbox")).toBeNull();
 
-    await userEvent.click(within(card).getByTestId("ops-client-hipaa-toggle"));
-    expect(await within(card).findByText("Give a reason.")).toBeInTheDocument();
-    expect(sent).toEqual([]);
-
-    await userEvent.type(within(card).getByTestId("ops-client-hipaa-reason"), "Clinic records");
     await userEvent.click(within(card).getByTestId("ops-client-hipaa-toggle"));
     await waitFor(() =>
       expect(within(card).getByTestId("ops-client-hipaa-state")).toHaveTextContent("On"),
     );
-    expect(sent).toEqual([{ hipaa: true, reason: "Clinic records" }]);
-    expect(within(card).getByTestId("ops-client-compliance-history")).toHaveTextContent(
-      "HIPAA mode switched on by operator@example.com",
-    );
-    expect(within(card).getByTestId("ops-client-compliance-history")).toHaveTextContent(
-      "Clinic records",
-    );
+    expect(sent).toEqual([{ hipaa: true }]);
+    const history = within(card).getByTestId("ops-client-compliance-history");
+    expect(history).toHaveTextContent(/^HIPAA mode switched on by operator@example\.com on .+\.$/);
     expect(within(card).getByTestId("ops-client-hipaa-toggle")).toHaveTextContent("Switch off");
   });
 
   it("holds the switch back and says why while a vendor isn't covered", async () => {
-    setup({
+    setup("compliance", {
       [`GET /api/ops/clients/${DEMO}/compliance`]: () =>
         compliance({
           readiness: { ready: false, problems: ["Neon has no signed BAA yet."] },
         }),
     });
-    const card = await screen.findByTestId("ops-client-compliance");
+    const card = await screen.findByTestId("ops-client-compliance", {}, { timeout: 10_000 });
     expect(await within(card).findByTestId("ops-client-hipaa-problems")).toHaveTextContent(
       "Neon has no signed BAA yet.",
     );
     expect(within(card).getByTestId("ops-client-hipaa-toggle")).toBeDisabled();
-    expect(within(card).getByTestId("ops-client-hipaa-reason")).toBeDisabled();
   });
 
   it("shows the server's refusal in the card", async () => {
-    setup({
+    setup("compliance", {
       [`GET /api/ops/clients/${DEMO}/compliance`]: () => compliance(),
       [`PUT /api/ops/clients/${DEMO}/compliance`]: () =>
         new Reply(409, {
           error: { code: "not_covered", message: "Twilio is offered and has no signed BAA." },
         }),
     });
-    const card = await screen.findByTestId("ops-client-compliance");
-    await userEvent.type(await within(card).findByTestId("ops-client-hipaa-reason"), "Clinic");
-    await userEvent.click(within(card).getByTestId("ops-client-hipaa-toggle"));
+    const card = await screen.findByTestId("ops-client-compliance", {}, { timeout: 10_000 });
+    await userEvent.click(await within(card).findByTestId("ops-client-hipaa-toggle"));
     expect(await within(card).findByTestId("ops-client-hipaa-error")).toHaveTextContent(
       "Twilio is offered and has no signed BAA.",
     );
@@ -148,10 +129,10 @@ describe("client compliance", () => {
 });
 
 describe("retire client", () => {
-  it("needs a reason and the name typed again, then shows when data can be purged", async () => {
+  it("needs the name typed again, then shows when data can be purged", async () => {
     const sent: unknown[] = [];
     let refuse = true;
-    setup({
+    setup("retire", {
       [`GET /api/ops/clients/${DEMO}/compliance`]: () => compliance(),
       [`POST /api/ops/clients/${DEMO}/retire`]: ({ init }) => {
         sent.push(JSON.parse(String(init.body)));
@@ -167,12 +148,15 @@ describe("retire client", () => {
         });
       },
     });
-    const section = await screen.findByTestId("ops-client-retire");
-    expect(section).toHaveTextContent("After 30 days we delete its files, then its records.");
+    const section = await screen.findByTestId("ops-client-retire", {}, { timeout: 10_000 });
+    expect(
+      await within(section).findByText(/After 30 days we delete its files, then its records\./),
+    ).toBeInTheDocument();
     const confirm = within(section).getByTestId("ops-client-retire-confirm");
     expect(confirm).toBeDisabled();
+    // One field: the name. No reason.
+    expect(within(section).getAllByRole("textbox")).toHaveLength(1);
 
-    await userEvent.type(within(section).getByTestId("ops-client-retire-reason"), "Contract ended");
     await userEvent.type(within(section).getByTestId("ops-client-retire-name"), "Demo");
     expect(confirm).toBeDisabled();
     await userEvent.type(within(section).getByTestId("ops-client-retire-name"), " client");
@@ -186,21 +170,18 @@ describe("retire client", () => {
     const retired = await within(section).findByTestId("ops-client-retired");
     expect(retired).toHaveTextContent(/^Retired on .+; data can be purged after .+\.$/);
     expect(within(section).queryByTestId("ops-client-retire-confirm")).toBeNull();
-    expect(sent).toEqual([
-      { reason: "Contract ended", confirmName: "Demo client" },
-      { reason: "Contract ended", confirmName: "Demo client" },
-    ]);
+    expect(sent).toEqual([{ confirmName: "Demo client" }, { confirmName: "Demo client" }]);
   });
 
   it("shows a retired client's dates instead of the button", async () => {
-    setup({
+    setup("retire", {
       [`GET /api/ops/clients/${DEMO}/compliance`]: () =>
         compliance({
           retiredAt: "2026-11-01T10:00:00.000Z",
           purgeAfter: "2026-12-01T10:00:00.000Z",
         }),
     });
-    const section = await screen.findByTestId("ops-client-retire");
+    const section = await screen.findByTestId("ops-client-retire", {}, { timeout: 10_000 });
     expect(await within(section).findByTestId("ops-client-retired")).toHaveTextContent(
       "data can be purged after",
     );

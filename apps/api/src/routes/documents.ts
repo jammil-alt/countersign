@@ -19,18 +19,28 @@ import {
   type UploadConnectionRow,
   updateForwarding,
 } from "@countersign/connectors";
-import { type ExtractedHeader, parseCoveredProcessors, routes } from "@countersign/core";
+import {
+  connectorShown,
+  type ExtractedHeader,
+  parseCoveredProcessors,
+  routes,
+} from "@countersign/core";
 import {
   docExtraction,
   document,
   narrowToTenant,
+  run,
+  stepRun,
   type Tx,
   tenant,
+  toolCall,
+  transaction,
   withTenant,
 } from "@countersign/db";
 import {
   DocumentError,
   type DocumentRow,
+  duplicateOfMeta,
   extractDocument,
   getDocument,
   linkToTransaction,
@@ -67,7 +77,19 @@ function isCsv(file: File): boolean {
   return t === "text/csv" || t === "application/csv" || file.name.toLowerCase().endsWith(".csv");
 }
 
-export function documentSummary(d: DocumentRow, x: ExtractionRow | null) {
+/** What a document is matched to, as the documents lists show it (DocumentSummary.match). */
+export interface DocumentMatch {
+  transactionId: string;
+  kind: string;
+  number: string | null;
+  by: "link" | "run";
+}
+
+export function documentSummary(
+  d: DocumentRow,
+  x: ExtractionRow | null,
+  match: DocumentMatch | null = null,
+) {
   const header = (x?.header ?? null) as Partial<ExtractedHeader> | null;
   return {
     id: d.id,
@@ -82,7 +104,99 @@ export function documentSummary(d: DocumentRow, x: ExtractionRow | null) {
     vendorName: header?.vendorName ?? null,
     invoiceNumber: header?.invoiceNumber ?? null,
     total: x?.total ?? null,
+    match,
+    duplicateOf: duplicateOfMeta(d.meta),
   };
+}
+
+/** The tool that matches an invoice to its bill in a run (the Bill clerk's `docs.match-bill`). */
+const MATCH_BILL_TOOL = "docs.match_bill";
+
+/** The tool's document number of a transaction (`ext.<connector>.docNumber`), when it has one. */
+function txnNumber(t: { connector: string; ext: unknown }): string | null {
+  const own = (t.ext as Record<string, unknown> | null)?.[t.connector] as
+    | { docNumber?: unknown }
+    | undefined;
+  return typeof own?.docNumber === "string" && own.docNumber.trim() ? own.docNumber : null;
+}
+
+/**
+ * What each document is matched to: the transaction it is linked to, else the bill a live run's
+ * `docs.match_bill` last matched it to. Before, the lists read only the link and called every
+ * linked record "a purchase": a bill showed as a Purchase, and a copy whose link was taken (the
+ * bill already had a document) read "Not yet" while its run said "matched".
+ */
+// DECISION: the run's match is read from its tool call (the tool only reads, ARCHITECTURE §7), so
+// the lists agree with the run without the run writing a link; test runs don't count.
+export async function documentMatches(
+  tx: Tx,
+  tenantId: string,
+  docs: readonly Pick<DocumentRow, "id" | "transactionId" | "meta">[],
+): Promise<Map<string, DocumentMatch>> {
+  const out = new Map<string, DocumentMatch>();
+  if (docs.length === 0) return out;
+  const unlinked = docs
+    .filter((d) => !d.transactionId && !duplicateOfMeta(d.meta))
+    .map((d) => d.id);
+  const found = unlinked.length
+    ? await tx
+        .select({
+          documentId: sql<string>`${toolCall.input}->>'documentId'`,
+          transactionId: sql<string | null>`${toolCall.output}->'bill'->>'transactionId'`,
+        })
+        .from(toolCall)
+        .innerJoin(
+          stepRun,
+          and(eq(stepRun.id, toolCall.stepRunId), eq(stepRun.tenantId, toolCall.tenantId)),
+        )
+        .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+        .where(
+          and(
+            eq(toolCall.tenantId, tenantId),
+            eq(toolCall.tool, MATCH_BILL_TOOL),
+            eq(toolCall.status, "succeeded"),
+            eq(run.mode, "live"),
+            sql`${toolCall.output}->>'status' = 'matched'`,
+            inArray(sql`${toolCall.input}->>'documentId'`, unlinked),
+          ),
+        )
+        .orderBy(desc(toolCall.createdAt), desc(toolCall.id))
+    : [];
+  const byRun = new Map<string, string>();
+  for (const f of found) {
+    if (f.transactionId && !byRun.has(f.documentId)) byRun.set(f.documentId, f.transactionId);
+  }
+  const txnIds = [
+    ...new Set([
+      ...docs.flatMap((d) => (d.transactionId ? [d.transactionId] : [])),
+      ...byRun.values(),
+    ]),
+  ];
+  const txns = txnIds.length
+    ? await tx
+        .select({
+          id: transaction.id,
+          kind: transaction.kind,
+          connector: transaction.connector,
+          ext: transaction.ext,
+        })
+        .from(transaction)
+        .where(and(eq(transaction.tenantId, tenantId), inArray(transaction.id, txnIds)))
+    : [];
+  const byId = new Map(txns.map((t) => [t.id, t]));
+  for (const d of docs) {
+    const linked = d.transactionId ? byId.get(d.transactionId) : undefined;
+    const ran = byRun.get(d.id);
+    const t = linked ?? (ran ? byId.get(ran) : undefined);
+    if (!t) continue;
+    out.set(d.id, {
+      transactionId: t.id,
+      kind: t.kind,
+      number: txnNumber(t),
+      by: linked ? "link" : "run",
+    });
+  }
+  return out;
 }
 
 async function latestExtractions(tx: Tx, tenantId: string, ids: string[]) {
@@ -135,10 +249,15 @@ export async function extractInBackground(
   for (const documentId of documentIds) {
     const collect = new EmittedEvents();
     try {
-      await extractDocument({ db: services.db, content, llm }, { tenantId, documentId, collect });
-      await withTenant(services.db, tenantId, (tx) => {
+      const read = await extractDocument(
+        { db: services.db, content, llm },
+        { tenantId, documentId, collect },
+      );
+      // A duplicate (the same invoice again) starts nothing and links to nothing: its original
+      // holds the link.
+      await withTenant(services.db, tenantId, async (tx) => {
         collectEmitted(tx, collect);
-        return linkToTransaction(tx, tenantId, documentId);
+        if (!read.duplicateOf) await linkToTransaction(tx, tenantId, documentId);
       });
     } catch (error) {
       reportHandled("extracting a document failed", error, { kind: "extraction" });
@@ -212,11 +331,10 @@ export async function documentDetail(
   const header = (x?.header ?? {}) as Partial<ExtractedHeader>;
   // Only what was printed and the checks on it: model names and costs stay out of the portal.
   const meta = view.document.meta as { email?: Record<string, unknown> };
-  const same = await sameInvoices(tx, tenantId, [{ document: view.document, extraction: x }]);
+  const matches = await documentMatches(tx, tenantId, [view.document]);
   return {
     document: {
-      ...documentSummary(view.document, x),
-      sameInvoiceAs: same.get(view.document.id) ?? null,
+      ...documentSummary(view.document, x, matches.get(view.document.id) ?? null),
       meta: meta.email
         ? { email: { from: meta.email.from, subject: meta.email.subject, date: meta.email.date } }
         : {},
@@ -253,100 +371,15 @@ export async function recentDocuments(tx: Tx, tenantId: string, limit: number) {
     .where(eq(document.tenantId, tenantId))
     .orderBy(desc(document.receivedAt))
     .limit(limit);
-  const latest = await latestExtractions(
-    tx,
-    tenantId,
-    docs.map((d) => d.id),
-  );
-  const same = await sameInvoices(
-    tx,
-    tenantId,
-    docs.map((d) => ({ document: d, extraction: latest.get(d.id) ?? null })),
-  );
-  return docs.map((d) => ({
-    ...documentSummary(d, latest.get(d.id) ?? null),
-    sameInvoiceAs: same.get(d.id) ?? null,
-  }));
-}
-
-type SameInvoice = { id: string; filename: string; source: string; receivedAt: string };
-
-/** Vendor and invoice number as printed, compared without case or extra spaces. */
-function invoiceOf(x: ExtractionRow | null): { key: string; number: string } | null {
-  const header = (x?.header ?? null) as Partial<ExtractedHeader> | null;
-  const norm = (v: unknown) =>
-    typeof v === "string" ? v.trim().toLowerCase().split(/\s+/).join(" ") : "";
-  const vendor = norm(header?.vendorName);
-  const number = norm(header?.invoiceNumber);
-  return vendor && number ? { key: JSON.stringify([vendor, number]), number } : null;
-}
-
-/**
- * For each document, the client's earliest other document that is the same invoice (QA round 1:
- * invoice 20418 uploaded twice). The same bytes are already one document (one per client and
- * sha256), so a second copy is a different file of the same invoice: its latest reading names the
- * same vendor and invoice number as an earlier document's. Documents not read yet have no match.
- */
-// DECISION: compared when documents are listed, over each document's latest reading, not stored:
-// the reading comes after the upload, and a re-reading may change it. Vendor and number both
-// count, since different vendors reuse invoice numbers.
-export async function sameInvoices(
-  tx: Tx,
-  tenantId: string,
-  docs: readonly { document: DocumentRow; extraction: ExtractionRow | null }[],
-): Promise<Map<string, SameInvoice>> {
-  const out = new Map<string, SameInvoice>();
-  const keyed = docs.flatMap((d) => {
-    const invoice = invoiceOf(d.extraction);
-    return invoice ? [{ ...d, ...invoice }] : [];
-  });
-  if (keyed.length === 0) return out;
-  const numbers = [...new Set(keyed.map((d) => d.number))];
-  // Every reading of this client that may name one of these invoices, newest first.
-  const rows = await tx
-    .select({ x: docExtraction, d: document })
-    .from(docExtraction)
-    .innerJoin(
-      document,
-      and(eq(document.id, docExtraction.documentId), eq(document.tenantId, docExtraction.tenantId)),
-    )
-    .where(
-      and(
-        eq(docExtraction.tenantId, tenantId),
-        // The same normalizing as invoiceOf: no case, single spaces.
-        inArray(
-          sql`regexp_replace(lower(trim(${docExtraction.header}->>'invoiceNumber')), '\\s+', ' ', 'g')`,
-          numbers,
-        ),
-      ),
-    )
-    .orderBy(desc(docExtraction.createdAt), desc(docExtraction.id));
-  // Each document's latest reading only.
-  const seen = new Set<string>();
-  const byKey = new Map<string, DocumentRow[]>();
-  for (const { x, d } of rows) {
-    if (seen.has(d.id)) continue;
-    seen.add(d.id);
-    const key = invoiceOf(x)?.key;
-    if (!key) continue;
-    byKey.set(key, [...(byKey.get(key) ?? []), d]);
-  }
-  const earlier = (a: DocumentRow, b: DocumentRow) =>
-    a.receivedAt.getTime() - b.receivedAt.getTime() || a.id.localeCompare(b.id);
-  for (const { document: d, key } of keyed) {
-    const first = (byKey.get(key) ?? [])
-      .filter((o) => o.id !== d.id && earlier(o, d) < 0)
-      .sort(earlier)[0];
-    if (first) {
-      out.set(d.id, {
-        id: first.id,
-        filename: first.filename,
-        source: first.source,
-        receivedAt: first.receivedAt.toISOString(),
-      });
-    }
-  }
-  return out;
+  const [latest, matches] = await Promise.all([
+    latestExtractions(
+      tx,
+      tenantId,
+      docs.map((d) => d.id),
+    ),
+    documentMatches(tx, tenantId, docs),
+  ]);
+  return docs.map((d) => documentSummary(d, latest.get(d.id) ?? null, matches.get(d.id) ?? null));
 }
 
 /**
@@ -513,21 +546,26 @@ export function documentRoutes(app: Hono<AppEnv>): void {
     return { forwarding: await forwardingView(tx, services, tenantId, conn, session.user.id) };
   });
 
+  // Test-only connectors (the testkit) are never offered to a real client (core's connectorShown);
+  // the portal never acts in the Sandbox, which has no client people.
   mount(app, routes.connectors, async ({ services }) => ({
-    connectors: services.platform.connectors.manifests().map((m) => ({
-      id: m.id,
-      name: m.name,
-      description: m.description,
-      icon: m.icon,
-      auth: m.auth,
-      entities: m.entities,
-      tools: m.tools.map((t) => ({
-        id: t.id,
-        description: t.description,
-        verb: t.verb,
-        sideEffect: t.sideEffect,
+    connectors: services.platform.connectors
+      .manifests()
+      .filter((m) => connectorShown(m, { sandbox: false }))
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        icon: m.icon,
+        auth: m.auth,
+        entities: m.entities,
+        tools: m.tools.map((t) => ({
+          id: t.id,
+          description: t.description,
+          verb: t.verb,
+          sideEffect: t.sideEffect,
+        })),
       })),
-    })),
   }));
 
   // The Worker's own signed link (storage.ts). Public: the signature is the authority, and it names

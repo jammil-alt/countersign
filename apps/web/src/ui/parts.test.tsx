@@ -3,11 +3,18 @@ import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { I18nProvider } from "../i18n/i18n";
-import { fillPath, mergeQuery } from "../shell/Redirect";
+import { fillPath, redirectTarget } from "../shell/Redirect";
 import { applyTheme, storedTheme } from "../shell/theme";
 import { ActivityRow, BeforeAfter } from "./activity";
-import { AgentBadge, PersonBadge } from "./badges";
-import { ProgressBar, Sparkbars, StatTile } from "./figures";
+import {
+  AGENT_HUES,
+  AgentBadge,
+  AgentHuesProvider,
+  agentHue,
+  agentHues,
+  PersonBadge,
+} from "./badges";
+import { Delta, hasRuns, ProgressBar, Sparkbars, Sparkline, StatTile } from "./figures";
 import { CHIP_STATES, CHIP_TONE, runChipState, StatusChip, serviceChipState } from "./status";
 import { StepList } from "./steps";
 
@@ -111,6 +118,100 @@ describe("figures", () => {
     expect(spark.children[1]).toHaveClass("is-failed");
     expect(spark.children[1]).toHaveStyle({ height: "100%" });
   });
+
+  it("gives a tile its state colour, a mark and a link", () => {
+    render(
+      <MemoryRouter>
+        <StatTile label="Waiting on you" value="5" tone="signal" to="/inbox" testId="w" />
+        <StatTile
+          label="Runs"
+          value="12"
+          tone="positive"
+          mark={
+            <Sparkline days={[{ runs: 1 }, { runs: 3, failed: 1 }, { runs: 2 }]} label="6 runs" />
+          }
+          testId="r"
+        />
+      </MemoryRouter>,
+    );
+    const waiting = screen.getByTestId("w");
+    expect(waiting.tagName).toBe("A");
+    expect(waiting).toHaveAttribute("href", "/inbox");
+    expect(waiting).toHaveAttribute("data-tone", "signal");
+    expect(waiting).toHaveClass("ui-accent", "ui-stat--signal");
+    const spark = within(screen.getByTestId("r")).getByRole("img", { name: "6 runs" });
+    expect(spark).toHaveClass("dt-spark");
+    // One point per day, today's dot, and a risk dot on the day a run failed.
+    expect(spark.querySelector("polyline")?.getAttribute("points")?.split(" ")).toHaveLength(3);
+    expect(spark.querySelectorAll(".ui-sparkline__failed")).toHaveLength(1);
+    expect(spark.querySelectorAll(".dot")).toHaveLength(1);
+  });
+
+  it("leaves a chart out when nothing ran, and says a change in words", () => {
+    expect(hasRuns(undefined)).toBe(false);
+    expect(hasRuns([{ runs: 0 }, { runs: 0 }])).toBe(false);
+    expect(hasRuns([{ runs: 0 }, { runs: 2 }])).toBe(true);
+    const words = (d: "up" | "down" | "same", by: number) =>
+      d === "same" ? "Same as last week" : `${d === "up" ? "Up" : "Down"} ${by} on last week`;
+    render(
+      <>
+        <Delta now={64} before={50} words={words} testId="up" />
+        <Delta now={31} before={34} words={words} testId="down" />
+        <Delta now={3} before={3} words={words} testId="same" />
+      </>,
+    );
+    expect(screen.getByTestId("up")).toHaveTextContent("Up 14 on last week");
+    expect(screen.getByTestId("up").querySelector(".up")).not.toBeNull();
+    expect(screen.getByTestId("down")).toHaveTextContent("Down 3 on last week");
+    expect(screen.getByTestId("down").querySelector(".down")).not.toBeNull();
+    expect(screen.getByTestId("same")).toHaveTextContent("Same as last week");
+  });
+});
+
+describe("an agent's colour", () => {
+  it("is the same for the same agent, one of the five, wherever it shows", () => {
+    const id = "00000000-0000-4000-8000-00000000b001";
+    expect(agentHue(id)).toBe(agentHue(id));
+    const hues = new Set(
+      Array.from({ length: 50 }, (_, i) => agentHue(`agent-${i}`)).filter(
+        (h) => h >= 1 && h <= AGENT_HUES,
+      ),
+    );
+    // Every colour gets used across agents, and none falls outside the ramp.
+    expect(hues.size).toBe(AGENT_HUES);
+    render(
+      <>
+        <AgentBadge name="Pia" seed={id} testId="a" />
+        <AgentBadge name="Material costs" seed={id} size="sm" testId="b" />
+        <AgentBadge name="Sloan" testId="c" />
+      </>,
+    );
+    // By its id, whatever name it shows; without an id, its name picks it.
+    expect(screen.getByTestId("a").dataset.hue).toBe(String(agentHue(id)));
+    expect(screen.getByTestId("b").dataset.hue).toBe(String(agentHue(id)));
+    expect(screen.getByTestId("c").dataset.hue).toBe(String(agentHue("Sloan")));
+  });
+
+  it("never repeats within a client's first five agents, and follows its client's set", () => {
+    const ids = Array.from({ length: 5 }, (_, i) => `00000000-0000-4000-8000-00000000c00${i}`);
+    const one = agentHues(ids.map((id) => ({ id, group: "harbor" })));
+    expect(new Set(one.values()).size).toBe(5);
+    // Another client's agents are spread on their own.
+    const two = agentHues([
+      ...ids.map((id) => ({ id, group: "harbor" })),
+      ...ids.map((id) => ({ id: `x${id}`, group: "demo" })),
+    ]);
+    expect(new Set(ids.map((id) => two.get(`x${id}`))).size).toBe(5);
+    render(
+      <AgentHuesProvider agents={ids.map((id) => ({ id }))}>
+        {ids.map((id) => (
+          <AgentBadge key={id} name="Agent" seed={id} testId={`b-${id}`} />
+        ))}
+      </AgentHuesProvider>,
+    );
+    const shown = ids.map((id) => screen.getByTestId(`b-${id}`).dataset.hue);
+    expect(new Set(shown).size).toBe(5);
+  });
 });
 
 describe("StepList", () => {
@@ -176,11 +277,16 @@ describe("shell helpers", () => {
     expect(fillPath("/agents/:id", { id: "a b" })).toBe("/agents/a%20b");
     expect(fillPath("/reports/*", { "*": "materials/costs" })).toBe("/reports/materials/costs");
     expect(fillPath("/desk", {})).toBe("/desk");
-    // A new home with a query of its own keeps the old address's too; its own value wins.
-    expect(mergeQuery("view=weekly", "?week=2026-11-02")).toBe("?view=weekly&week=2026-11-02");
-    expect(mergeQuery("mode=change", "?mode=x&status=open")).toBe("?mode=change&status=open");
-    expect(mergeQuery("", "?a=b%20c")).toBe("?a=b%20c");
-    expect(mergeQuery("view=weekly", "")).toBe("?view=weekly");
+  });
+
+  it("keeps a new address's own query, then the old one's", () => {
+    expect(redirectTarget("/inbox", {}, "?status=open")).toBe("/inbox?status=open");
+    expect(redirectTarget("/contacts?show=organizations", {}, "")).toBe(
+      "/contacts?show=organizations",
+    );
+    expect(redirectTarget("/contacts?import=1", {}, "?person=p1&import=0")).toBe(
+      "/contacts?import=1&person=p1",
+    );
   });
 
   it("applies a theme to <html> and reads the stored one", () => {

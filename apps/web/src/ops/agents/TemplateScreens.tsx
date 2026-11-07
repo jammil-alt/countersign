@@ -2,7 +2,7 @@
 // `/ops/templates/new` makes one by conversation with the Builder (O5) or from scratch, and
 // `/ops/templates/:slug` is the agent screen shared with client agents.
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import {
@@ -10,11 +10,11 @@ import {
   buttonClass,
   Card,
   ErrorNotice,
-  Loading,
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
-import { AgentScreen } from "./AgentScreen";
+import { handedOver, useResolvedId } from "../screens/AgentPage";
+import { AgentFrameSkeleton, AgentScreen } from "./AgentScreen";
 import {
   blankBundle,
   DEFAULT_MODEL,
@@ -183,10 +183,26 @@ export function NewTemplateScreen() {
 
 export function TemplatePage() {
   const { slug = "" } = useParams();
-  const list = useApi(apiRoutes.opsTemplates, { query: { include: "discarded" } });
-  const template = list.data?.templates.find((t) => t.slug === slug);
-  if (list.error) return <ErrorNotice error={list.error} onRetry={list.reload} />;
-  if (!list.data) return <Loading />;
-  if (!template) return <ErrorNotice error={new Error(`No template "${slug}".`)} />;
-  return <AgentScreen agentId={template.id} base={`/ops/templates/${slug}`} />;
+  const location = useLocation();
+  const base = `/ops/templates/${slug}`;
+  // A page that has the template already (the lab, the `/ops/agents/:id` hop) hands it over, so
+  // the page skips looking it up by slug (the owner's review: slow agent pages).
+  const handed = handedOver(location.state, { slug, tenantId: null });
+  const kept = useResolvedId(base, handed?.id);
+  const given = handed ?? (kept ? { id: kept } : null);
+  const list = useApi(apiRoutes.opsTemplates, given ? null : { query: { include: "discarded" } });
+  const id = given?.id ?? list.data?.templates.find((t) => t.slug === slug)?.id;
+  if (!id) {
+    if (list.error) {
+      return (
+        <AgentFrameSkeleton
+          base={base}
+          error={<ErrorNotice error={list.error} onRetry={list.reload} />}
+        />
+      );
+    }
+    if (list.data) return <ErrorNotice error={new Error(`No template "${slug}".`)} />;
+    return <AgentFrameSkeleton base={base} />;
+  }
+  return <AgentScreen agentId={id} base={base} initial={given?.detail} />;
 }

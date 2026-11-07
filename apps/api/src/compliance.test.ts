@@ -217,14 +217,14 @@ describe.skipIf(!h)("compliance", () => {
     it("retires: the client's users can't sign in, its connections are gone, and it is logged", async () => {
       expect((await call(admin("b"), "GET", "/api/runs")).status).toBe(200);
       const res = await call(OPERATOR, "POST", `/api/ops/clients/${B.tenantId}/retire`, {
-        reason: "Contract ended",
         confirmName: "client b",
       });
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({
         retiredAt: expect.any(String),
         purgeAfter: expect.any(String),
-        changes: [{ setting: "retired", reason: "Contract ended" }],
+        // No reason asked for: the log says what happened.
+        changes: [{ setting: "retired", reason: "Retired from the back office" }],
       });
       expect((await call(admin("b"), "GET", "/api/runs")).status).toBe(403);
       const conn = await harness.t.db.execute<{ status: string; c: unknown }>(

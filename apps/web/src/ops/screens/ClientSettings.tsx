@@ -1,21 +1,24 @@
-// `/ops/clients/:clientId/settings`: the settings a client was onboarded with (docs/plan.md §1.14):
-// name and timezone, who approves changes to its tools (with the log of who changed it and why),
-// the tools it is offered (changed on Connections), its people and invites, and the email choices
-// its admin made in the portal; then compliance (HIPAA mode, vendors) and retiring the client.
-// On the client page's Settings tab, with the client's language, approver rules, the portal's
-// Feedback switch, which used to sit on the client's first page.
+// The client page's Settings tab (`/ops/clients/:clientId/settings[/:section]`, docs/plan.md
+// §1.14): one section at a time beside a section list, as the portal's Settings. General (name,
+// timezone, language, the portal's Feedback button), Approvals (who approves changes to its tools
+// by default, then the approver rules), People (its people and invites, and the emails its admin
+// chose), Billing, Compliance (HIPAA mode and vendors), Exports (it was a tab; `/exports`
+// redirects here) and Retire client. The tools it is offered are on Setup, Connections.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
-import { useEffect, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { type ReactNode, useEffect, useState } from "react";
+import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { InviteForm, inviteMessage, MemberList } from "../../people/People";
 import { Field, TextInput } from "../../ui/forms";
-import { Badge, Button, Card, ErrorNotice, Loading, SectionLabel, Tag } from "../../ui/primitives";
-import { ClientFrame, useClientPage } from "../client/ClientFrame";
+import { Section } from "../../ui/page";
+import { Badge, Button, Card, ErrorNotice, Loading } from "../../ui/primitives";
+import { ClientExportsSection } from "../client/ClientExports";
+import { ClientFrame, clientPagePath, useClientPage } from "../client/ClientFrame";
 import { ClientApproverRules } from "./ClientApproverRules";
-import { ClientComplianceSetting } from "./ClientComplianceSetting";
+import { ClientBillingSection } from "./ClientBilling";
+import { ClientComplianceSetting, ClientRetireSetting } from "./ClientComplianceSetting";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
 import { ApproverChoice, type CreatedState } from "./NewClient";
@@ -25,22 +28,128 @@ const APPROVER_LABEL: Record<ExternalApprover, string> = {
   operator: "us",
 };
 
+/** The sections, in the list's order; the first is the tab's own address. */
+export const SETTINGS_SECTIONS = [
+  ["general", "General"],
+  ["approvals", "Approvals"],
+  ["people", "People"],
+  ["billing", "Billing"],
+  ["compliance", "Compliance"],
+  ["exports", "Exports"],
+  ["retire", "Retire client"],
+] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number][0];
+
+/** `/ops/clients/:clientId/settings` for General, `…/settings/<section>` for the others. */
+export function settingsPath(clientId: string, section: SettingsSection): string {
+  const base = clientPagePath(clientId, "settings");
+  return section === "general" ? base : `${base}/${section}`;
+}
+
 export function ClientSettingsScreen() {
-  const { clientId = "" } = useParams();
+  const { clientId = "", section: asked } = useParams();
+  // DECISION: an unknown section opens General rather than a "Not found".
+  const section: SettingsSection = SETTINGS_SECTIONS.find(([id]) => id === asked)?.[0] ?? "general";
   return (
     <ClientFrame clientId={clientId}>
-      <Settings clientId={clientId} />
+      <div className="ui-sections" data-testid="ops-client-settings">
+        <nav
+          className="ui-sections__nav"
+          aria-label="Settings sections"
+          data-testid="ops-client-settings-nav"
+        >
+          {SETTINGS_SECTIONS.map(([id, label]) => (
+            <NavLink
+              key={id}
+              to={settingsPath(clientId, id)}
+              end
+              className="ds-navitem ui-navitem"
+              data-testid={`ops-client-settings-nav-${id}`}
+            >
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="ui-sections__body">
+          <SectionBody clientId={clientId} section={section} />
+        </div>
+      </div>
     </ClientFrame>
   );
 }
 
-function Settings({ clientId }: { clientId: string }) {
+function SectionBody({ clientId, section }: { clientId: string; section: SettingsSection }) {
+  const client = useClientPage();
+  switch (section) {
+    case "billing":
+      return (
+        <Titled
+          title="Billing"
+          action={
+            <Link to="/ops/billing" className="ds-btn ds-btn--link text-sm">
+              All clients' billing
+            </Link>
+          }
+        >
+          <ClientBillingSection clientId={clientId} />
+        </Titled>
+      );
+    case "compliance":
+      return (
+        <Titled title="Compliance">
+          <ClientComplianceSetting clientId={clientId} />
+        </Titled>
+      );
+    case "exports":
+      return <ClientExportsSection clientId={clientId} />;
+    case "retire":
+      return (
+        <Titled title="Retire client">
+          {client.data ? (
+            <ClientRetireSetting clientId={clientId} clientName={client.data.client.name} />
+          ) : (
+            <Loading />
+          )}
+        </Titled>
+      );
+    default:
+      return <SettingsForm clientId={clientId} section={section} />;
+  }
+}
+
+function Titled({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Section
+      title={title}
+      action={action}
+      testId={`ops-client-settings-${title.toLowerCase().replace(/ /g, "-")}`}
+    >
+      {children}
+    </Section>
+  );
+}
+
+/** General, Approvals and People: the sections that read the client's settings. */
+function SettingsForm({
+  clientId,
+  section,
+}: {
+  clientId: string;
+  section: "general" | "approvals" | "people";
+}) {
   const client = useClientPage();
   const location = useLocation();
   const created = (location.state as CreatedState | null)?.created ?? null;
   const api = useApiClient();
   const settings = useApi(apiRoutes.opsClientSettings, { params: { id: clientId } });
-  const connections = useApi(apiRoutes.opsClientConnections, { params: { id: clientId } });
   const [current, setCurrent] = useState<OpsClientSettings | undefined>(undefined);
   useEffect(() => setCurrent(settings.data), [settings.data]);
 
@@ -48,12 +157,7 @@ function Settings({ clientId }: { clientId: string }) {
   if (settings.error) return <ErrorNotice error={settings.error} onRetry={settings.reload} />;
   if (!current) return null;
 
-  const save = async (body: {
-    name?: string;
-    timezone?: string;
-    approvals?: ExternalApprover;
-    reason?: string;
-  }) => {
+  const save: Save = async (body) => {
     const next = await api.call(apiRoutes.opsUpdateClientSettings, {
       params: { id: clientId },
       body,
@@ -61,31 +165,49 @@ function Settings({ clientId }: { clientId: string }) {
     setCurrent(next);
     client.reload();
   };
-  const people = current.members.filter((m) => m.role !== "operator");
-  const team = current.members.filter((m) => m.role === "operator");
+
+  if (section === "approvals") {
+    return (
+      <Section
+        title="Approvals"
+        meta={`Approvals by ${APPROVER_LABEL[current.approvals.externalActions]}`}
+        testId="ops-client-settings-approvals"
+      >
+        <Approvals settings={current} onSave={save} />
+        <ClientApproverRules clientId={clientId} />
+      </Section>
+    );
+  }
+
+  if (section === "people") {
+    return (
+      <People
+        clientId={clientId}
+        settings={current}
+        onInvited={settings.reload}
+        created={
+          // A new client opens here: what was set up, and whether its admin was invited.
+          created ? (
+            <Card className="p-5" testId="ops-client-created">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge tone="positive">Created</Badge>
+                <span className="font-medium text-ink">{created.name} is set up.</span>
+              </div>
+              <p className="mt-2 text-ink">
+                {created.admin
+                  ? inviteMessage(created.admin)
+                  : "Nobody is invited yet. Invite their admin below."}
+              </p>
+            </Card>
+          ) : null
+        }
+      />
+    );
+  }
 
   return (
-    <div className="max-w-4xl">
-      <p className="mb-6 text-ink-muted" data-testid="ops-client-settings-line">
-        {`${people.length} ${people.length === 1 ? "person" : "people"} · approvals by ${APPROVER_LABEL[current.approvals.externalActions]}`}
-      </p>
-      {created ? (
-        <Card className="mb-8 p-5" testId="ops-client-created">
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge tone="positive">Created</Badge>
-            <span className="font-medium text-ink">{created.name} is set up.</span>
-          </div>
-          <p className="mt-2 text-ink">
-            {created.admin
-              ? inviteMessage(created.admin)
-              : "Nobody is invited yet. Invite their admin below."}
-          </p>
-        </Card>
-      ) : null}
-
+    <Section title="General" testId="ops-client-settings-general">
       <Details settings={current} onSave={save} />
-      <Approvals settings={current} onSave={save} />
-      <ClientApproverRules clientId={clientId} />
       {client.data ? (
         <ClientLanguageSetting
           clientId={clientId}
@@ -93,85 +215,8 @@ function Settings({ clientId }: { clientId: string }) {
           onSaved={client.reload}
         />
       ) : null}
-
-      <section className="mt-8" data-testid="ops-client-settings-offered">
-        <SectionLabel
-          action={
-            <Link
-              to={`/ops/clients/${clientId}/connections`}
-              className="ds-btn ds-btn--link text-sm"
-            >
-              Change on Connections
-            </Link>
-          }
-        >
-          Tools offered
-        </SectionLabel>
-        <Card className="p-5">
-          {connections.error ? (
-            <ErrorNotice error={connections.error} onRetry={connections.reload} />
-          ) : null}
-          {connections.data ? (
-            connections.data.offered.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {connections.data.offered.map((id) => (
-                  <Tag key={id}>
-                    {connections.data?.connectors.find((c) => c.id === id)?.name ?? id}
-                  </Tag>
-                ))}
-              </div>
-            ) : (
-              <p className="text-ink-muted">No tools offered yet.</p>
-            )
-          ) : null}
-        </Card>
-      </section>
-
-      <section className="mt-8" data-testid="ops-client-settings-people">
-        <SectionLabel>People</SectionLabel>
-        {current.client.sandbox ? (
-          <p className="mb-3 text-sm text-ink-muted">
-            The Sandbox is our own test client: it has no client people.
-          </p>
-        ) : null}
-        <MemberList members={people} testId="ops-client-members" />
-        {current.client.sandbox ? null : (
-          <InviteForm
-            surface="ops"
-            testId="ops-client-invite"
-            onInvite={async (body) => {
-              const result = await api.call(apiRoutes.opsInvite, {
-                params: { id: clientId },
-                body,
-              });
-              settings.reload();
-              return result;
-            }}
-          />
-        )}
-        {team.length > 0 ? (
-          <p className="mt-3 text-sm text-ink-muted" data-testid="ops-client-team">
-            Served by {team.map((m) => m.name ?? m.email).join(", ")}.
-          </p>
-        ) : null}
-      </section>
-
-      <section className="mt-8" data-testid="ops-client-settings-emails">
-        <SectionLabel>Emails</SectionLabel>
-        <Card className="p-5">
-          <p className="text-ink">
-            {current.notifications.itemsWaiting ? "Emails" : "No emails"} when something waits on
-            them; {current.notifications.weeklyDigest ? "a" : "no"} weekly summary.
-          </p>
-          <p className="mt-1 text-sm text-ink-muted">
-            Their admin chooses these in the portal. We don't send them yet.
-          </p>
-        </Card>
-      </section>
-
       <ClientFeedbackSetting clientId={clientId} />
-      <ClientComplianceSetting clientId={clientId} clientName={current.client.name} />
-    </div>
+    </Section>
   );
 }
 
@@ -211,53 +256,49 @@ function Details({ settings, onSave }: { settings: OpsClientSettings; onSave: Sa
   const changed =
     name.trim() !== settings.client.name || timezone.trim() !== settings.client.timezone;
   return (
-    <section data-testid="ops-client-settings-details">
-      <SectionLabel>Client</SectionLabel>
-      <Card className="p-5">
-        <div className="flex flex-wrap gap-4">
-          <Field label="Name" className="min-w-64 flex-1">
-            <TextInput
-              data-testid="ops-client-settings-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </Field>
-          <Field
-            label="Timezone"
-            hint="Schedules run in this timezone."
-            className="min-w-64 flex-1"
-          >
-            <TextInput
-              data-testid="ops-client-settings-timezone"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-            />
-          </Field>
-        </div>
-        <div className="mt-4 flex items-center gap-3">
-          <Button
-            variant="primary"
-            disabled={busy || !changed || !name.trim()}
-            onClick={() => void save()}
-            data-testid="ops-client-settings-save"
-          >
-            Save
-          </Button>
-          {note ? (
-            <span role="status" className="text-sm text-ink-muted">
-              {note}
-            </span>
-          ) : null}
-        </div>
-      </Card>
-    </section>
+    <Card title="Client" pad testId="ops-client-settings-details">
+      <div className="flex flex-wrap gap-4">
+        <Field label="Name" className="min-w-0 flex-1 basis-64">
+          <TextInput
+            data-testid="ops-client-settings-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field
+          label="Timezone"
+          hint="Schedules run in this timezone."
+          className="min-w-0 flex-1 basis-64"
+        >
+          <TextInput
+            data-testid="ops-client-settings-timezone"
+            value={timezone}
+            onChange={(e) => setTimezone(e.target.value)}
+          />
+        </Field>
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <Button
+          variant="primary"
+          disabled={busy || !changed || !name.trim()}
+          onClick={() => void save()}
+          data-testid="ops-client-settings-save"
+        >
+          Save
+        </Button>
+        {note ? (
+          <span role="status" className="text-sm text-ink-muted">
+            {note}
+          </span>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 
 function Approvals({ settings, onSave }: { settings: OpsClientSettings; onSave: Save }) {
   const saved = settings.approvals.externalActions;
   const [choice, setChoice] = useState<ExternalApprover>(saved);
-  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   useEffect(() => setChoice(saved), [saved]);
@@ -266,8 +307,7 @@ function Approvals({ settings, onSave }: { settings: OpsClientSettings; onSave: 
     setBusy(true);
     setNote(null);
     try {
-      await onSave({ approvals: choice, ...(reason.trim() ? { reason: reason.trim() } : {}) });
-      setReason("");
+      await onSave({ approvals: choice });
       setNote("Saved.");
     } catch (error) {
       setNote(failure(error));
@@ -277,27 +317,14 @@ function Approvals({ settings, onSave }: { settings: OpsClientSettings; onSave: 
   }
 
   return (
-    <section className="mt-8" data-testid="ops-client-settings-approvals">
-      <SectionLabel>Approvals</SectionLabel>
+    <Card title="Who approves by default" pad testId="ops-client-settings-default-approver">
       <ApproverChoice value={choice} onChange={setChoice} name="ops-client-approvals" />
       <p className="mt-2 text-sm text-ink-muted">
         A client agent's own approver, and each step's, still come first. Their admin can always
         tighten what agents may do in each tool.
       </p>
       {choice !== saved ? (
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <Field
-            label="Why change it?"
-            hint="Optional. Kept with the change."
-            className="min-w-64 flex-1"
-          >
-            <TextInput
-              data-testid="ops-client-approvals-reason"
-              value={reason}
-              maxLength={500}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
+        <div className="mt-3">
           <Button
             variant="primary"
             disabled={busy}
@@ -331,6 +358,67 @@ function Approvals({ settings, onSave }: { settings: OpsClientSettings; onSave: 
           ))}
         </ul>
       ) : null}
-    </section>
+    </Card>
+  );
+}
+
+function People({
+  clientId,
+  settings,
+  onInvited,
+  created,
+}: {
+  clientId: string;
+  settings: OpsClientSettings;
+  onInvited: () => void;
+  created: ReactNode;
+}) {
+  const api = useApiClient();
+  const people = settings.members.filter((m) => m.role !== "operator");
+  const team = settings.members.filter((m) => m.role === "operator");
+  return (
+    <Section
+      title="People"
+      meta={`${people.length} ${people.length === 1 ? "person" : "people"}`}
+      testId="ops-client-settings-people"
+    >
+      {created}
+      <div>
+        {settings.client.sandbox ? (
+          <p className="mb-3 text-sm text-ink-muted">
+            The Sandbox is our own test client: it has no client people.
+          </p>
+        ) : null}
+        <MemberList members={people} testId="ops-client-members" />
+        {settings.client.sandbox ? null : (
+          <InviteForm
+            surface="ops"
+            testId="ops-client-invite"
+            onInvite={async (body) => {
+              const result = await api.call(apiRoutes.opsInvite, {
+                params: { id: clientId },
+                body,
+              });
+              onInvited();
+              return result;
+            }}
+          />
+        )}
+        {team.length > 0 ? (
+          <p className="mt-3 text-sm text-ink-muted" data-testid="ops-client-team">
+            Served by {team.map((m) => m.name ?? m.email).join(", ")}.
+          </p>
+        ) : null}
+      </div>
+      <Card title="Emails" pad testId="ops-client-settings-emails">
+        <p className="text-ink">
+          {settings.notifications.itemsWaiting ? "Emails" : "No emails"} when something waits on
+          them; {settings.notifications.weeklyDigest ? "a" : "no"} weekly summary.
+        </p>
+        <p className="mt-1 text-sm text-ink-muted">
+          Their admin chooses these in the portal. We don't send them yet.
+        </p>
+      </Card>
+    </Section>
   );
 }

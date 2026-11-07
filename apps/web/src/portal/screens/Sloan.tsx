@@ -387,7 +387,7 @@ function SloanRail() {
             {overview.data.services.map((s) => (
               <ActivityRow
                 key={s.id}
-                badge={<AgentBadge name={s.name} size="sm" />}
+                badge={<AgentBadge name={s.name} seed={s.id} size="sm" />}
                 to={PORTAL_PATHS.agent(s.id)}
                 end={<StatusChip state={agentChip(s, t).state}>{agentChip(s, t).label}</StatusChip>}
               >

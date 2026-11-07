@@ -115,28 +115,14 @@ describe("the Weekly Table", () => {
     const { weeks } = setup();
     await userEvent.selectOptions(await screen.findByTestId("portal-weekly-weeks"), "2026-10-26");
     await waitFor(() => expect(weeks.at(-1)).toBe("2026-10-26"));
-    expect(screen.getByTestId("location")).toHaveTextContent("/?view=weekly&week=2026-10-26");
+    expect(screen.getByTestId("location")).toHaveTextContent("/weekly?week=2026-10-26");
   });
 
-  it("is a tab of The Table once a week was sent; /weekly lands on it with its week", async () => {
+  it("opens the week in its address on /weekly", async () => {
     setup("/weekly?week=2026-10-26");
-    await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent("/?view=weekly&week=2026-10-26"),
-    );
     expect(await screen.findByTestId("portal-weekly-note")).toBeInTheDocument();
-    const views = screen.getByTestId("table-views");
-    expect(within(views).getByRole("link", { name: "Weekly Table" })).toHaveAttribute(
-      "href",
-      "/?view=weekly",
-    );
-    await userEvent.click(within(views).getByRole("link", { name: "Today" }));
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
-    expect(await screen.findByTestId("portal-table")).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId("table-views")).getByRole("link", { name: "Weekly Table" }),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/weekly?week=2026-10-26");
   });
-
   it("says when no week was sent yet", async () => {
     render(
       <MemoryRouter initialEntries={["/weekly"]}>

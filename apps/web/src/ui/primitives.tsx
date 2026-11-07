@@ -3,7 +3,7 @@
 // `<Button>` and get the brand. Colours come only from the token theme in styles.css (bg-surface,
 // text-ink-muted, border-line, …), never raw values.
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { errorText } from "../i18n/errors";
 import { useI18n } from "../i18n/i18n";
@@ -184,9 +184,12 @@ export function PageHeader({
   leading,
   badge,
   eyebrow,
+  beside,
 }: {
   /** "THURSDAY, NOVEMBER 5", "RUNS / R-2287": a kicker above the title. */
   eyebrow?: ReactNode;
+  /** After the eyebrow, as the next step of a breadcrumb (the agent switcher). */
+  beside?: ReactNode;
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
@@ -198,7 +201,14 @@ export function PageHeader({
       <div className="flex min-w-0 items-start gap-4">
         {leading}
         <div className="min-w-0">
-          {eyebrow ? <p className="eyebrow mb-2 text-ink-muted">{eyebrow}</p> : null}
+          {eyebrow && beside ? (
+            <div className="ui-crumbs mb-2">
+              <p className="eyebrow text-ink-muted">{eyebrow}</p>
+              {beside}
+            </div>
+          ) : eyebrow ? (
+            <p className="eyebrow mb-2 text-ink-muted">{eyebrow}</p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="type-title text-ink">{title}</h1>
             {badge}
@@ -288,6 +298,37 @@ export function Tabs({
   );
 }
 
+/**
+ * A small switch between the pages of one tab (the Segmented, ds-seg), each a route: the client
+ * page's Data (Documents, Records) and Setup (Connections, Messaging, …), instead of more top tabs.
+ */
+export function SubTabs({
+  items,
+  label,
+  testId,
+}: {
+  items: { to: string; label: string; active: boolean; testId?: string }[];
+  /** What the switch chooses, for screen readers. */
+  label: string;
+  testId?: string;
+}) {
+  return (
+    <nav className="ds-seg ui-subtabs" aria-label={label} data-testid={testId}>
+      {items.map((i) => (
+        <Link
+          key={i.to}
+          to={i.to}
+          aria-current={i.active ? "page" : undefined}
+          data-testid={i.testId}
+          className="ui-subtabs__item"
+        >
+          {i.label}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
 export function Loading({ label }: { label?: string }) {
   const { t } = useI18n();
   return (
@@ -299,18 +340,22 @@ export function Loading({ label }: { label?: string }) {
 
 /**
  * What a failed load says, as a risk Banner, in the reader's language (by the error's code).
- * Server codes are shown so a contract break is recognisable.
+ * Plain words only: the server's code ("tenant_forbidden") never shows; it stays on the element
+ * (`data-error-code`) for support and tests.
  */
+// DECISION: the code was shown so a contract break was recognisable; people read it as part of
+// the message ("You don't have access to this. tenant_forbidden"), so it moved to an attribute.
 export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const i18n = useI18n();
   const message = errorText(error, i18n);
   return (
-    <div role="alert" className="ds-banner items-center">
+    <div
+      role="alert"
+      className="ds-banner items-center"
+      {...(isApiError(error) ? { "data-error-code": error.code } : {})}
+    >
       <Icon name="alert" className="mt-px" />
-      <span className="min-w-0 flex-1">
-        {message}
-        {isApiError(error) ? <span className="ml-2 reference opacity-80">{error.code}</span> : null}
-      </span>
+      <span className="min-w-0 flex-1">{message}</span>
       {onRetry ? (
         <Button variant="ghost" size="sm" onClick={onRetry} className="text-risk">
           {i18n.t("common.tryAgain")}
@@ -334,11 +379,49 @@ export function Placeholder({ title, children }: { title: string; children?: Rea
   );
 }
 
-/** Says what will appear here and how it fills (EmptyState). */
-export function EmptyState({ children }: { children: ReactNode }) {
+/** What an empty state offers to do: a link to where it fills, or a button. */
+export type EmptyAction =
+  | { label: string; to: string; testId?: string }
+  | { label: string; onClick: () => void; testId?: string };
+
+/**
+ * Says what will appear here and how it fills (EmptyState): an optional `title`, the line (`line`
+ * or `children`), and an optional `action`, a link or a button. `<EmptyState>No runs yet.</EmptyState>`
+ * still works as before.
+ */
+export function EmptyState({
+  title,
+  line,
+  action,
+  testId,
+  children,
+}: {
+  title?: ReactNode;
+  line?: ReactNode;
+  action?: EmptyAction | undefined;
+  testId?: string;
+  children?: ReactNode;
+}) {
+  const text = line ?? children;
   return (
-    <div className="ds-empty">
-      <div className="text-ink-muted">{children}</div>
+    <div className="ds-empty" data-testid={testId}>
+      {title ? <p className="font-medium text-ink">{title}</p> : null}
+      {text ? <div className="text-ink-muted">{text}</div> : null}
+      {action ? (
+        "to" in action ? (
+          <Link
+            to={action.to}
+            className={buttonClass("secondary", undefined, "sm")}
+            data-testid={action.testId}
+          >
+            {action.label}
+          </Link>
+        ) : (
+          <Button size="sm" onClick={action.onClick} data-testid={action.testId}>
+            {action.label}
+          </Button>
+        )
+      ) : null}
     </div>
   );
 }

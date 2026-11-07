@@ -1,7 +1,8 @@
 // The prototype's two walkthroughs (docs/design/prototype.html, `#Start`), clicked through the real
-// UI on the seeded data: the client's morning (The Table and its Weekly Table, an agent, Your Desk,
-// Runs, Accounts, People and its More menu, Settings, Records and Upload documents, Sloan and Ask
-// for a change), following the portal's sidebar as QA round 1 left it; and the back office's (Command center, Escalations,
+// UI on the seeded data: the client's morning (Home, an agent and its tabs, the Inbox, Runs,
+// Accounts, Contacts, Settings and its sections, the Weekly Table, Ask Sloan in the top bar and
+// Sloan from the search box) and
+// the back office's (Command center, Escalations,
 // Runs, a client and its tabs, Agent lab, an agent and its tabs, the workflow builder, triggers,
 // Skills, Connectors, Usage and billing). Each step moves by clicking a link the screen shows, as
 // a person would, opening the menu on a phone; every page gets the route sweep's checks
@@ -10,9 +11,10 @@
 // Read-only: any request that would change something (a POST, PUT, PATCH or DELETE to /api other
 // than the dev sign-in) is stopped and fails the step, so nothing is sent or run, and no outside
 // service is ever written to (CLAUDE.md invariant 8). One exception: in "Approve and undo", the
-// Desk's approve and undo of the one item the e2e seed puts there (SEED_E2E=1, packages/db/src/seed.ts
-// `seedDemoDesk`), a change on the in-memory testkit that no run ever executes. It is approved and
-// then undone inside the window, so it waits again for the next look and the next run.
+// Inbox's approval and undo of the one item the e2e seed puts there (SEED_E2E=1,
+// packages/db/src/seed.ts `seedDemoDesk`), a change on the in-memory testkit that no run ever
+// executes. It is approved and then undone inside the window, so it waits again for the next look
+// and the next run.
 //
 // A step the seeded data can't support (no client agent, no run) is skipped with a note, not
 // failed.
@@ -78,7 +80,7 @@ async function walk(browser, email, lookName, name, script, results) {
   let n = 0;
   const w = {
     page,
-    /** On only inside "Approve and undo": lets the seeded item's approve and undo through. */
+    /** On only inside "Approve and undo": lets the seeded item's approval and undo through. */
     allowDesk: false,
     async goto(path) {
       await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -94,8 +96,8 @@ async function walk(browser, email, lookName, name, script, results) {
       ];
     },
     /** Fails the step unless the screen shows a link that `target` matches. */
-    async expectLink(target, what) {
-      if ((await w.links(target)).length === 0) throw new Error(`no link: ${what}`);
+    async expectLink(target, what, scope = "main") {
+      if ((await w.links(target, scope)).length === 0) throw new Error(`no link: ${what}`);
     },
     /**
      * Clicks the first visible link `target` matches. On a phone the sidebar is behind the menu,
@@ -200,38 +202,40 @@ async function clickExact(w, href, skip) {
 }
 
 async function clientWalk(w) {
-  await w.step("The Table", async () => {
+  await w.step("Home", async () => {
     await w.goto("/");
-    await w.expectLink("/sloan", "Ask Sloan");
-    // Your Desk appears once: in the sidebar, not the top bar.
-    if (await w.page.locator('[data-testid="shell-inbox"]').count()) {
-      throw new Error("the top bar still links Your Desk");
-    }
+    // Review 1: the sidebar lists places; Upload is an action on Home.
+    // The sidebar's places (outside main): Inbox and Contacts.
+    await w.expectLink("/inbox", "Inbox", "#shell-sidebar");
+    await w.expectLink("/contacts", "Contacts", "#shell-sidebar");
+    await w.expectLink("/upload", "Add documents");
   });
-  // The Weekly Table is a tab of The Table, there only once a week was sent.
-  await w.step("Weekly Table", () =>
-    clickExact(w, "/?view=weekly", "no Weekly Table was sent for the seeded client"),
-  );
-  await w.goto("/");
 
   const agent = (p) => /^\/agents\/[^/]+$/.test(p);
+  let agentPage = null;
   const hasAgent = await w.step("An agent", async () => {
-    await w.follow(agent, { scope: "main", skip: "the seed has no client agent on the Table" });
-    await w.expectLink("/sloan", "Ask Sloan");
+    agentPage = await w.follow(agent, {
+      scope: "main",
+      skip: "the seed has no client agent on Home",
+    });
   });
-  if (hasAgent === "skip") await w.goto("/");
+  if (hasAgent !== "skip" && agentPage) {
+    for (const tab of ["runs", "access"]) {
+      await w.step(`Agent, ${tab}`, () => w.follow(`${agentPage}/${tab}`, { scope: "main" }));
+    }
+  }
 
-  await w.step("Your Desk", async () => {
-    await w.follow("/desk");
-    // Asking us for a change is Sloan's (`/sloan?mode=change`).
-    await w.expectLink("/sloan", "Ask for a change");
+  await w.step("Inbox", async () => {
+    await w.follow("/inbox");
+    // "Ask us" is a question to Sloan, ready to send.
+    await w.expectLink("/sloan", "Ask us");
   });
   await w.step("Approve and undo", async () => {
     const page = w.page;
     const entry = page.locator(`main [data-testid="desk-entry-${SEEDED_DESK_ITEM}"]`);
     if ((await entry.count()) === 0) {
       throw new Skip(
-        "the e2e change isn't on the Desk (seed with SEED_E2E=1; or it was approved and not undone)",
+        "the e2e change isn't in the Inbox (seed with SEED_E2E=1; or it was approved and not undone)",
       );
     }
     await entry.first().click();
@@ -266,30 +270,39 @@ async function clientWalk(w) {
     w.follow((p) => /^\/runs\/[^/]+$/.test(p), { scope: "main", skip: "the seed has no runs" }),
   );
   await w.step("Accounts", () => w.follow("/accounts"));
-  await w.step("People", () => w.follow("/people"));
-  // Organizations is a tab; the admin's other pages are under the page's own "More".
-  const peopleMore = w.page.locator('main [data-testid="people-more"]');
-  const openPeopleMore = async () => {
-    if ((await peopleMore.count()) && !(await peopleMore.evaluate((el) => el.open))) {
-      await peopleMore.locator("summary").click();
-    }
-  };
-  await openPeopleMore();
-  for (const tab of await w.links((p) => /^\/people\/[a-z-]+$/.test(p))) {
-    await w.step(`People, ${tab.split("/").pop()}`, async () => {
-      await openPeopleMore();
-      await w.follow(tab, { scope: "main" });
-    });
-  }
+  await w.step("Contacts", () => w.follow("/contacts"));
   await w.step("Settings", () => w.follow("/settings"));
-  await w.step("Billing", () => w.follow("/settings/billing", { scope: "main" }));
-  // Records is under the sidebar's More; uploading starts from it.
-  await w.step("Records", () => w.follow("/records"));
-  await w.step("Upload documents", () => w.follow("/upload", { scope: "main" }));
+  for (const section of await w.links((p) => /^\/settings\/[a-z]+$/.test(p))) {
+    await w.step(`Settings, ${section.split("/").pop()}`, () =>
+      w.follow(section, { scope: "main" }),
+    );
+  }
+  await w.step("Weekly Table", async () => {
+    await w.goto("/");
+    await w.follow("/weekly", { scope: "main", skip: "no weekly summary was sent yet" });
+  });
+  await w.step("Ask Sloan", async () => {
+    // The top bar's Ask Sloan, beside the Inbox (on a phone, Sloan's badge alone): opens Sloan.
+    const page = w.page;
+    await w.goto("/");
+    const ask = page.locator('[data-testid="shell-ask-sloan"]');
+    if (!(await ask.isVisible())) throw new Error("no Ask Sloan in the top bar");
+    if (!(await ask.getAttribute("title"))) throw new Error("Ask Sloan says nothing of Sloan");
+    await ask.click();
+    await settle(page);
+    if (new URL(page.url()).pathname !== "/sloan") throw new Error("Ask Sloan didn't open Sloan");
+  });
   await w.step("Sloan", async () => {
-    await w.follow("/sloan");
+    // Sloan is also in the search box: "Ask Sloan" opens it with the question ready.
+    const page = w.page;
+    await page.locator('[data-testid="shell-search"]').click();
+    await page.locator('[data-testid="search-input"]').fill("what waits on me");
+    const ask = page.locator('[data-testid="search-ask"]');
+    await ask.waitFor({ state: "visible", timeout: 10_000 });
+    await ask.click();
+    await settle(page);
     // Ask nothing: a question would run the account agent.
-    if ((await w.page.locator("main textarea, main input[type='text']").count()) === 0) {
+    if ((await page.locator("main textarea, main input[type='text']").count()) === 0) {
       throw new Error("no box to ask Sloan in");
     }
   });
@@ -315,10 +328,12 @@ async function opsWalk(w) {
     }),
   );
 
+  // The sidebar's Clients is one link; each client opens from the list (or the top bar's picker).
+  await w.step("Clients", () => w.follow("/ops/clients"));
   const clientPage = (p) => /^\/ops\/clients\/[0-9a-f-]{36}$/.test(p);
   let client = null;
   await w.step("A client", async () => {
-    client = await w.follow(clientPage);
+    client = await w.follow(clientPage, { scope: "main" });
   });
   if (client) {
     const tabs = await w.links((p) => p.startsWith(`${client}/`) && !p.includes("/agents/"));
@@ -347,12 +362,10 @@ async function opsWalk(w) {
         await w.follow(tab, { scope: "main" });
       });
     }
-    await w.step("Workflow builder", async () => {
+    // The agent's triggers are the first part of its Workflow tab (the owner's review).
+    await w.step("Workflow builder and triggers", async () => {
       await w.goto(agent);
       await w.follow((p) => p.startsWith(`${agent}/workflow`), { scope: "main" });
-    });
-    await w.step("Triggers", async () => {
-      await w.follow(`${agent}/triggers`, { scope: "main" });
     });
   }
 

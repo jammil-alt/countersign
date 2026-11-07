@@ -5,6 +5,7 @@
 // routes: the lead's edits in the back office, sent tables and their PDF in the portal.
 
 import {
+  addDays,
   clientLabel,
   clientLanguage,
   findStep,
@@ -48,10 +49,12 @@ import {
   runCounts,
 } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
+import { daysOf, runsByDay } from "../runs/figures";
 import { paperFor, weeklyPdf } from "../weekly/pdf";
 import { clientDescription, serviceName, services, toolChanges } from "../weekly/stats";
 import { editWeek, replyToDecision, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
 import { portalInboxFilter, sourcesOf } from "./portal";
+import { activity, todayIn } from "./usage";
 
 async function clientOf(tx: Tx, tenantId: string): Promise<TenantRow> {
   const t = await tenantRow(tx, tenantId);
@@ -90,10 +93,32 @@ async function buildTable(
   t: TenantRow,
   viewer: { userId: string; role: Parameters<typeof portalInboxFilter>[0] },
   now: Date,
-  platform: Pick<Platform, "tools">,
+  platform: Platform,
 ): Promise<TableView> {
   const weekStart = weekStartOf(now, t.timezone);
   const bounds = weekBounds(weekStart, t.timezone);
+  // UI cleanup (design pass): Home's KPI strip and each agent card's figures, counted as Reports
+  // counts them (`activity`): this week so far and all of last week, in the client's days.
+  const today = todayIn(t.timezone, now);
+  const lastWeekStart = addDays(weekStart, -7);
+  const week = await activity(tx, platform, {
+    tenantId: t.id,
+    timezone: t.timezone,
+    from: weekStart,
+    to: today,
+  });
+  const lastWeek = await activity(tx, platform, {
+    tenantId: t.id,
+    timezone: t.timezone,
+    from: lastWeekStart,
+    to: addDays(weekStart, -1),
+  });
+  const lastWeekChanges = await toolChanges(tx, t.id, weekBounds(lastWeekStart, t.timezone));
+  const daily = await runsByDay(tx, [eq(run.tenantId, t.id), eq(run.mode, "live")], {
+    timezone: t.timezone,
+    now,
+  });
+  const weekOf = new Map(week.services.map((s) => [s.id, s]));
   const workflows = workflowCache(tx, t.id);
   const agents = await services(tx, t.id);
   // QA round 1: runs started this week by how they stand, as Reports counts them; what each
@@ -178,6 +203,9 @@ async function buildTable(
       runsDone: counts.byAgent.get(a.id)?.succeeded ?? 0,
       runs: counts.byAgent.get(a.id) ?? noRuns(),
       runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
+      perDay: daysOf(daily.byAgent, a.id),
+      changes: weekOf.get(a.id)?.actions ?? 0,
+      documentsRead: weekOf.get(a.id)?.documentsRead ?? 0,
       // v0.12 W2-G
       kpis: kpis.get(a.id) ?? [],
     });
@@ -233,6 +261,13 @@ async function buildTable(
       runsDone: counts.all.succeeded,
       runs: counts.all,
       changes: { automatic: changes.automatic.length, signed: changes.signed.length },
+      documentsRead: week.documents.read,
+      perDay: daily.all,
+      lastWeek: {
+        runsDone: lastWeek.runs.succeeded,
+        changes: lastWeekChanges.automatic.length + lastWeekChanges.signed.length,
+        documentsRead: lastWeek.documents.read,
+      },
     },
     recent,
     desk: {

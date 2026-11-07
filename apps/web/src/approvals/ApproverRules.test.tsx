@@ -34,7 +34,8 @@ const connectors = [
     tools: [
       {
         id: "testkit.record.update",
-        description: "Change a record's name or amount.",
+        description:
+          "Change a record's name or amount: its description, as the connector words it.",
         verb: "update",
         amount: true,
       },
@@ -85,7 +86,7 @@ describe("back office: who approves", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${CLIENT}`]: () => SANDBOX_DETAIL,
-      // The rules sit on the client page's Settings tab.
+      // The rules sit in the client's Settings, under Approvals.
       [`GET /api/ops/clients/${CLIENT}/settings`]: () => opsClientSettings(CLIENT),
       [`GET /api/ops/clients/${CLIENT}/feedback`]: () => ({ enabled: false, changes: [] }),
       [`GET /api/ops/clients/${CLIENT}/approver-rules`]: () => view,
@@ -100,7 +101,7 @@ describe("back office: who approves", () => {
       },
     });
     render(
-      <MemoryRouter initialEntries={[`/ops/clients/${CLIENT}/settings`]}>
+      <MemoryRouter initialEntries={[`/ops/clients/${CLIENT}/settings/approvals`]}>
         <AppProviders client={api.client}>
           <AppRoutes />
         </AppProviders>
@@ -128,7 +129,7 @@ describe("back office: who approves", () => {
     );
   });
 
-  it("adds, reorders, edits and removes rules, then saves them with a reason", async () => {
+  it("adds, reorders, edits and removes rules, then saves them", async () => {
     const { sent } = setup();
     await screen.findByTestId("approver-rules-list");
     // Add: testkit record changes over 500 USD go to Bo, first.
@@ -138,9 +139,15 @@ describe("back office: who approves", () => {
       within(form).getByTestId("approver-rule-form-connector"),
       "testkit",
     );
-    await userEvent.selectOptions(
-      within(form).getByTestId("approver-rule-form-tool"),
-      "testkit.record.update",
+    // The "Change" list names each change shortly; the chosen one's whole description shows under it.
+    const toolSelect = within(form).getByTestId("approver-rule-form-tool") as HTMLSelectElement;
+    expect([...toolSelect.options].map((o) => o.text)).toEqual([
+      "Any change",
+      "Change a record's name or amount",
+    ]);
+    await userEvent.selectOptions(toolSelect, "testkit.record.update");
+    expect(form).toHaveTextContent(
+      "Change a record's name or amount: its description, as the connector words it.",
     );
     await userEvent.type(within(form).getByTestId("approver-rule-form-amount"), "5OO");
     await userEvent.selectOptions(
@@ -156,7 +163,7 @@ describe("back office: who approves", () => {
     const matches = () =>
       screen.getAllByTestId("approver-rule-match").map((m) => m.textContent ?? "");
     expect(matches()).toEqual([
-      "Testkit · Change a record's name or amount. · Over 500 USD",
+      "Testkit · Change a record's name or amount · Over 500 USD",
       "Over 1000 USD",
       "Testkit",
     ]);
@@ -178,20 +185,17 @@ describe("back office: who approves", () => {
       within(screen.getByTestId("approver-rule-0")).getByTestId("approver-rule-remove"),
     );
     expect(matches()).toEqual([
-      "Testkit · Change a record's name or amount. · Over 500 USD",
+      "Testkit · Change a record's name or amount · Over 500 USD",
       "Testkit",
     ]);
 
-    // A reason is needed.
-    await userEvent.click(screen.getByTestId("approver-rules-save"));
-    expect(screen.getByTestId("approver-rules-reason-error")).toBeInTheDocument();
-    expect(sent).toEqual([]);
-    await userEvent.type(screen.getByTestId("approver-rules-reason"), "Bo signs off big edits");
+    // No reason is asked (UI cleanup, decision 8).
+    expect(screen.queryByTestId("approver-rules-reason")).toBeNull();
     await userEvent.click(screen.getByTestId("approver-rules-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({
       revision: 3,
-      reason: "Bo signs off big edits",
+      reason: "",
       rules: [
         {
           match: {
@@ -292,7 +296,6 @@ describe("portal: who approves", () => {
     expect(screen.getAllByTestId("approver-rule-match")[0]).toHaveTextContent("Creates");
     expect(screen.getByTestId("approver-rule-0")).toHaveTextContent("Added by you");
 
-    await userEvent.type(screen.getByTestId("approver-rules-reason"), "We sign our own changes");
     await userEvent.click(screen.getByTestId("approver-rules-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]?.rules.map((r) => r.approver)).toEqual([

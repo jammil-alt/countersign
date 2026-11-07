@@ -46,7 +46,7 @@ const STATUS_LABEL: Record<ConnectorStatus, string> = {
 
 // DECISION: a connector's status as a chip: live = done (positive), beta = running (slate, in
 // use while we finish it), in review = waiting (a review we wait on, said in words), building =
-// setting up (neutral); not set = idle.
+// setting up (neutral); not set up on this deployment = idle.
 const STATUS_CHIP: Record<ConnectorStatus, ChipState> = {
   live: "done",
   beta: "running",
@@ -82,7 +82,7 @@ function ConnectorStatusChip({
 }) {
   return status === null ? (
     <StatusChip state="idle" {...(testId ? { testId } : {})}>
-      Not set
+      Not set up
     </StatusChip>
   ) : (
     <StatusChip state={STATUS_CHIP[status]} {...(testId ? { testId } : {})}>
@@ -289,7 +289,7 @@ export function OpsConnectorsScreen() {
 
 const LEVEL_WORDS = {
   auto: ["On its own", "neutral"],
-  approval: ["Client signs", "person"],
+  approval: ["Needs approval", "person"],
   off: ["Off", "neutral"],
 } as const;
 
@@ -342,7 +342,7 @@ function ConnectorPanel({
           <LogoSquare name={c.name} />
           <div className="flex min-w-0 flex-1 flex-col">
             <h2 className="type-subheading text-ink">{c.name}</h2>
-            <span className="reference text-sm text-ink-muted">connectors/{c.id}</span>
+            <span className="text-sm text-ink-muted">{KIND_LABEL[c.auth]}</span>
           </div>
           <ConnectorStatusChip status={c.status} testId="connector-panel-status" />
         </div>
@@ -351,7 +351,22 @@ function ConnectorPanel({
             Not set up on this deployment
           </Badge>
         )}
-        <Field label="Status">
+        {c.testOnly ? (
+          <Badge tone="neutral" className="self-start" testId="connector-panel-test-only">
+            For testing only: real clients never see it
+          </Badge>
+        ) : null}
+        <Field
+          label="Status"
+          {...(c.statusSource === "deployment"
+            ? {
+                hint:
+                  c.status === null
+                    ? "Nobody has set a status. Choose one when you start building it."
+                    : "Live because clients can connect it here. Choose a status to set your own.",
+              }
+            : {})}
+        >
           <Select
             aria-label={`Status of ${c.name}`}
             data-testid={`connector-${c.id}-status`}
@@ -359,7 +374,7 @@ function ConnectorPanel({
             disabled={busy}
             onChange={(e) => void save({ status: e.target.value as ConnectorStatus })}
           >
-            {c.status === null ? <option value="">Not set</option> : null}
+            {c.status === null ? <option value="">Not set up</option> : null}
             {CONNECTOR_STATUS_VALUES.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}

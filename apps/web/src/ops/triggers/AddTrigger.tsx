@@ -1,5 +1,5 @@
-// "Add a trigger" on the Triggers screen (prototype `#O7-Triggers`; ARCHITECTURE §10.8): one more
-// way to start one of the agent's workflows, any of the six kinds. It is added to the workflow's
+// "Add a trigger" in the agent's Workflow tab (prototype `#O7-Triggers`; ARCHITECTURE §10.8): one
+// more way to start one of the agent's workflows, any of the six kinds (the dialog picks the kind). It is added to the workflow's
 // `moreTriggers` with a new id and saved as a new draft version, like any edit: it takes effect
 // when that version is published. What the trigger may do is the workflow's; the trigger only
 // starts it.
@@ -17,7 +17,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Button } from "../../ui/primitives";
 import { Field, Select, TextInput } from "../agents/ui";
-import { channelWords, MAX_MORE_TRIGGERS } from "./words";
+import { channelWords, eventLabels, eventWords, MAX_MORE_TRIGGERS } from "./words";
 
 /** The six kinds, in the order the screen explains them. */
 export const TRIGGER_KINDS = [
@@ -66,7 +66,7 @@ function Check({
 
 export function AddTriggerForm({
   bundle,
-  kind: initialKind,
+  kind,
   clientId,
   agentSlug,
   busy,
@@ -85,7 +85,6 @@ export function AddTriggerForm({
   const open = bundle.workflows.filter(
     (w) => (w.workflow.moreTriggers?.length ?? 0) < MAX_MORE_TRIGGERS,
   );
-  const [kind, setKind] = useState<TriggerKind>(initialKind);
   const [workflow, setWorkflow] = useState(open[0]?.slug ?? "");
   const [cron, setCron] = useState("0 8 * * 1-5");
   const [tz, setTz] = useState("");
@@ -113,6 +112,7 @@ export function AddTriggerForm({
   const [touched, setTouched] = useState(false);
 
   const eventType = event || events.data?.events[0]?.type || "";
+  const labels = eventLabels(events.data?.events);
   const tagList = tags
     .split(",")
     .map((t) => t.trim())
@@ -198,7 +198,7 @@ export function AddTriggerForm({
   return (
     <form
       data-testid="trigger-form"
-      className="flex flex-col gap-4 border-t border-line px-6 py-5"
+      className="flex flex-col gap-4 border-t border-line pt-4"
       onSubmit={(e) => {
         e.preventDefault();
         setTouched(true);
@@ -206,20 +206,8 @@ export function AddTriggerForm({
         onAdd(workflow, build());
       }}
     >
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field label="Kind">
-          <Select
-            data-testid="trigger-form-kind"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as TriggerKind)}
-          >
-            {TRIGGER_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {KIND_TITLE[k]}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      {/* One workflow: nothing to choose. */}
+      {bundle.workflows.length > 1 ? (
         <Field
           label="Starts workflow"
           hint="The trigger only starts it; the workflow's steps and approvals stay as they are."
@@ -236,7 +224,7 @@ export function AddTriggerForm({
             ))}
           </Select>
         </Field>
-      </div>
+      ) : null}
 
       {kind === "schedule" ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -268,10 +256,7 @@ export function AddTriggerForm({
       ) : null}
 
       {kind === "event" ? (
-        <Field
-          label="Event"
-          hint={events.data?.events.find((e) => e.type === eventType)?.description}
-        >
+        <Field label="Event">
           <Select
             data-testid="trigger-form-event"
             value={eventType}
@@ -279,7 +264,7 @@ export function AddTriggerForm({
           >
             {(events.data?.events ?? []).map((e) => (
               <option key={e.type} value={e.type}>
-                {e.type}
+                {eventWords(e.type, labels)}
               </option>
             ))}
           </Select>

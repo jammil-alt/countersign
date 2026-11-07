@@ -762,7 +762,7 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
   },
   {
     file: "inbox_items.csv",
-    about: "Your Desk: approvals, reviews and requests, and how each was resolved.",
+    about: "Your inbox: approvals, reviews and requests, and how each was resolved.",
     header: [
       "id",
       "kind",

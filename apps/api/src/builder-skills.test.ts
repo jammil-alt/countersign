@@ -88,7 +88,7 @@ describe.skipIf(!h)("skills library", () => {
     });
     expect(back.json).toMatchObject({ version: { version: 3, status: "live" } });
 
-    // Assign it: a template that uses it, then the library counts the use.
+    // Assign it: a template that uses it is listed, but the library counts client agents only.
     const bundle = testBundle("Summarizer");
     bundle.definition.skills.push({ skill: "custom:summarize", settings: {} });
     const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
@@ -98,8 +98,20 @@ describe.skipIf(!h)("skills library", () => {
     expect(tpl.status).toBe(200);
     const detail = await H.call(OPERATOR, "GET", `/api/ops/skills/${id}`);
     expect(detail.json).toMatchObject({
-      skill: { liveVersion: 3, latestVersion: 3, usedBy: 1 },
+      skill: { liveVersion: 3, latestVersion: 3, usedBy: 0, usedByNames: [] },
       usedBy: [{ slug: "summarizer", kind: "template", ref: "custom:summarize" }],
+    });
+    // Its client copy is the one use, named.
+    const tid = (tpl.json as { agent: Json }).agent.id as string;
+    const tv1 = (tpl.json as { version: Json }).version.id as string;
+    await H.call(OPERATOR, "POST", `/api/ops/agents/${tid}/versions/${tv1}/publish`);
+    const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${tid}/fork`, {
+      clientId: H.A.tenantId,
+    });
+    expect(fork.status, JSON.stringify(fork.json)).toBe(200);
+    const counted = await H.call(OPERATOR, "GET", `/api/ops/skills/${id}`);
+    expect(counted.json).toMatchObject({
+      skill: { usedBy: 1, usedByNames: ["Summarizer · Client A"] },
     });
     const versions = (detail.json as { versions: Json[] }).versions;
     expect(versions.map((v) => [v.version, v.status])).toEqual([

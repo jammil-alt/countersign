@@ -14,18 +14,9 @@ import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
-import {
-  Badge,
-  Button,
-  buttonClass,
-  Card,
-  EmptyState,
-  PageHeader,
-  Tabs,
-} from "../../ui/primitives";
+import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { money } from "../documents";
-import { PORTAL_PATHS } from "../paths";
 
 const KINDS = [
   "transactions",
@@ -100,15 +91,6 @@ export function PortalRecordsScreen() {
                 time: shortTime(data.lastSyncAt, undefined, i18n),
               })}`
             : t("records.subtitle")
-        }
-        actions={
-          <Link
-            to={PORTAL_PATHS.upload}
-            className={buttonClass("secondary")}
-            data-testid="portal-records-upload"
-          >
-            {t("records.upload")}
-          </Link>
         }
       />
       <div className="overflow-x-auto">

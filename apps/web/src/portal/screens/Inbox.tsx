@@ -1,17 +1,17 @@
-// `/desk`, Your Desk (docs/ui-plan.md C3; docs/design/prototype.html `#C3-Desk`; ARCHITECTURE
-// §11.1): what the client's agents need from this person, and what they have done. The list on
-// the left by day, the open item on the right with its decision and its worksheet. Views: waiting
-// on you, questions, not now (snoozed), done. A client user sees only what is theirs (the API
-// filters); a viewer sees and never approves. Every action reloads the shell's Desk count. Who
-// approves what and the undo window live in Settings, Approvals (QA round 1); the Desk is the list
-// and the open item.
+// `/inbox`, the Inbox (was "Your Desk"; docs/ui-plan.md C3, Review 1; ARCHITECTURE §11.1): what
+// the client's agents need from this person, and what they have done. The list on the left by day,
+// the open item on the right with its decision and its worksheet. Two views, Waiting and Done;
+// questions are in Waiting, and "Not now" (snoozed) items show there when asked for. Who approves
+// what and the undo window are in Settings, under Approvals. A client user sees only what is
+// theirs (the API filters); a viewer sees and never approves. Every action reloads the shell's
+// Inbox count.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { DeskDetail } from "../../desk/DeskDetail";
 import { DeskList } from "../../desk/DeskList";
-import { type DeskEntry, entriesOf, leadOf, needOf } from "../../desk/model";
+import { type DeskEntry, entriesOf, leadOf } from "../../desk/model";
 import { useI18n } from "../../i18n/i18n";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
@@ -26,23 +26,30 @@ import {
   PageHeader,
 } from "../../ui/primitives";
 import { useRefreshInboxCount } from "../inboxCount";
-import { PORTAL_PATHS } from "../paths";
+import { askSloan, PORTAL_PATHS } from "../paths";
 
-const VIEWS = ["waiting", "questions", "later", "done"] as const;
+const VIEWS = ["waiting", "done"] as const;
 type View = (typeof VIEWS)[number];
+
+/**
+ * The view an address asks for: `?view=done`, else Waiting. The old views fold in: questions are
+ * in Waiting, and `?view=later` is Waiting with "Not now" shown.
+ */
+export function viewOf(params: URLSearchParams): { view: View; later: boolean } {
+  const v = params.get("view");
+  return { view: v === "done" ? "done" : "waiting", later: v === "later" || params.has("later") };
+}
 
 /** How many of the latest done items show under "Waiting on you" ("Done this week"). */
 const DONE_PREVIEW = 5;
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 
-export function PortalDeskScreen() {
+export function PortalInboxScreen() {
   const { t } = useI18n();
   const session = useSession();
   const refreshCount = useRefreshInboxCount();
   const [params, setParams] = useSearchParams();
-  const view: View = (VIEWS as readonly string[]).includes(params.get("view") ?? "")
-    ? (params.get("view") as View)
-    : "waiting";
+  const { view, later: showLater } = viewOf(params);
   const wanted = params.get("item");
   const [agentFilter, setAgentFilter] = useState("");
   // The open entry belongs to the view it was opened in: a view change (the URL updates after a
@@ -74,7 +81,6 @@ export function PortalDeskScreen() {
     [agentFilter],
   );
   const waitingEntries = useMemo(() => entriesOf(waiting.data?.items ?? []), [waiting.data]);
-  const questionEntries = waitingEntries.filter((e) => needOf(leadOf(e)) === "answer");
   const laterEntries = useMemo(() => entriesOf(later.data?.items ?? []), [later.data]);
   const doneEntries = useMemo(() => entriesOf(done.data?.items ?? []), [done.data]);
   const doneThisWeek = doneEntries
@@ -83,16 +89,9 @@ export function PortalDeskScreen() {
       return at !== null && now.getTime() - new Date(at).getTime() < WEEK_MS;
     })
     .slice(0, DONE_PREVIEW);
-  const shown = byAgent(
-    view === "waiting"
-      ? waitingEntries
-      : view === "questions"
-        ? questionEntries
-        : view === "later"
-          ? laterEntries
-          : doneEntries,
-  );
-  const state = view === "later" ? later : view === "done" ? done : waiting;
+  const shown = byAgent(view === "done" ? doneEntries : waitingEntries);
+  const shownLater = view === "waiting" && showLater ? byAgent(laterEntries) : [];
+  const state = view === "done" ? done : waiting;
 
   // The agents the items come from, for the "All agents" filter.
   const agents = useMemo(() => {
@@ -109,7 +108,7 @@ export function PortalDeskScreen() {
     const all = [...waitingEntries, ...laterEntries, ...doneEntries];
     const loaded = !!(waiting.data && later.data && done.data);
     const found = wanted ? all.find((e) => e.items.some((i) => i.id === wanted)) : undefined;
-    const pick = found ?? (!wanted || loaded ? shown[0] : undefined);
+    const pick = found ?? (!wanted || loaded ? (shown[0] ?? shownLater[0]) : undefined);
     if (pick) setPicked({ view, agent: agentFilter, entry: pick });
   }, [
     selected,
@@ -120,6 +119,7 @@ export function PortalDeskScreen() {
     laterEntries,
     doneEntries,
     shown,
+    shownLater,
     waiting.data,
     later.data,
     done.data,
@@ -151,7 +151,22 @@ export function PortalDeskScreen() {
         const next = new URLSearchParams(p);
         if (v === "waiting") next.delete("view");
         else next.set("view", v);
+        next.delete("later");
         next.delete("item");
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  /** "Not now": the snoozed items, shown under Waiting or not. */
+  const toggleLater = () => {
+    setParams(
+      (p) => {
+        const next = new URLSearchParams(p);
+        if (next.get("view") === "later") next.delete("view");
+        if (showLater) next.delete("later");
+        else next.set("later", "1");
         return next;
       },
       { replace: true },
@@ -169,35 +184,28 @@ export function PortalDeskScreen() {
   const tabs: { view: View; label: string }[] = [
     {
       view: "waiting",
-      label: `${t("common.waitingOnYou")}${count(waiting.data ? waitingEntries.length : undefined)}`,
-    },
-    {
-      view: "questions",
-      label: `${t("desk.view.questions")}${count(waiting.data ? questionEntries.length : undefined)}`,
-    },
-    {
-      view: "later",
-      label: `${t("desk.view.later")}${count(later.data ? laterEntries.length : undefined)}`,
+      label: `${t("common.waiting")}${count(waiting.data ? waitingEntries.length : undefined)}`,
     },
     { view: "done", label: t("desk.view.done") },
   ];
 
   return (
-    <Page testId="portal-desk">
+    <Page testId="portal-inbox">
       <div>
         <PageHeader
-          title={t("desk.title")}
+          title={t("nav.inbox")}
           subtitle={t("desk.subtitle")}
           actions={
             <>
-              {/* DECISION: requests (the client's own asks of us) open from the Desk's header;
-                  where they finally live is open for the owner (docs/ui-plan.md, question 1). */}
+              {/* DECISION: asking us for something is a question to Sloan, who passes requests to
+                  your lead (Review 1: "Requests becomes Ask us"); the list of requests is on
+                  Sloan's page. */}
               <Link
-                to={PORTAL_PATHS.requests}
+                to={askSloan(t("inbox.askUsPrompt"))}
                 className={buttonClass("secondary")}
-                data-testid="desk-requests"
+                data-testid="inbox-ask-us"
               >
-                {t("nav.requests")}
+                {t("inbox.askUs")}
               </Link>
               {agents.length > 1 ? (
                 <Select
@@ -221,21 +229,35 @@ export function PortalDeskScreen() {
             </>
           }
         />
-        <fieldset className="ds-seg min-w-0 max-w-full overflow-x-auto" data-testid="desk-views">
-          <legend className="sr-only">{t("desk.view.label")}</legend>
-          {tabs.map((tab) => (
-            <button
-              key={tab.view}
-              type="button"
-              aria-pressed={view === tab.view}
-              data-testid={`desk-view-${tab.view}`}
-              className="whitespace-nowrap"
-              onClick={() => setView(tab.view)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </fieldset>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <fieldset className="ds-seg min-w-0 max-w-full overflow-x-auto" data-testid="desk-views">
+            <legend className="sr-only">{t("desk.view.label")}</legend>
+            {tabs.map((tab) => (
+              <button
+                key={tab.view}
+                type="button"
+                aria-pressed={view === tab.view}
+                data-testid={`desk-view-${tab.view}`}
+                className="whitespace-nowrap"
+                onClick={() => setView(tab.view)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </fieldset>
+          {view === "waiting" && laterEntries.length > 0 ? (
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="size-4 accent-slate"
+                checked={showLater}
+                onChange={toggleLater}
+                data-testid="desk-show-later"
+              />
+              {t("inbox.showLater", { count: laterEntries.length })}
+            </label>
+          ) : null}
+        </div>
       </div>
 
       {/* Phone: the list, then the open item. Wide: the list on the left, the open item on the
@@ -261,6 +283,16 @@ export function PortalDeskScreen() {
                   empty={t(`desk.empty.${view}`)}
                   testId="desk-entries"
                 />
+                {shownLater.length > 0 ? (
+                  <DeskList
+                    entries={shownLater}
+                    selected={selected?.key ?? null}
+                    onSelect={select}
+                    now={now}
+                    heading={t("desk.view.later")}
+                    testId="desk-later"
+                  />
+                ) : null}
                 {view === "waiting" && !agentFilter && doneThisWeek.length > 0 ? (
                   <DeskList
                     entries={doneThisWeek}
@@ -275,7 +307,7 @@ export function PortalDeskScreen() {
             )}
           </Card>
           <Link
-            to={`${PORTAL_PATHS.settings}#approvals`}
+            to={PORTAL_PATHS.approvals}
             className="self-start text-sm text-link hover:underline"
             data-testid="desk-approval-settings"
           >
@@ -286,7 +318,7 @@ export function PortalDeskScreen() {
         <div ref={detailRef} className="flex min-w-0 flex-col gap-5">
           {selected ? (
             <DeskDetail key={selected.key} entry={selected} canSign={canSign} onChanged={changed} />
-          ) : state.data ? (
+          ) : state.data && shown.length > 0 ? (
             <EmptyState>{t("desk.pick")}</EmptyState>
           ) : null}
         </div>

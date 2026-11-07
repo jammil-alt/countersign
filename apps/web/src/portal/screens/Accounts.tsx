@@ -1,9 +1,9 @@
 // `/accounts`, C4 Accounts and vault (docs/ui-plan.md; ARCHITECTURE §6.1 "Who does what", §6.9):
-// the tools the operator offered this client and the logins in its vault, on one page. Each
-// connected tool is a card: its account and state, the agents that use it, and on request what
-// agents may do there (the permission matrix, per connection), each agent's grant, human release
-// and the tool's own setup. The right rail holds the vault (website logins and keys, entered
-// write-only) and the tools still to connect.
+// your connections and your vault, nothing else (Review 1). Each connected tool is a row: its
+// account and state and the agents that use it; what agents may do there (On its own, Needs
+// approval, Off), each agent's grant, human release and the tool's own setup expand from the row.
+// The right rail holds the vault (website logins and keys, entered write-only) and the tools still
+// to connect. Upload and email forwarding are on the agents that read documents (and `/upload`).
 //
 // The client admin signs in to each tool, disconnects, enters logins and may tighten (never
 // loosen); a client user sees it all read-only, except a person's own account (Gmail), which they
@@ -11,13 +11,7 @@
 // Gmail may also send a test email from it to itself (plan §1.31). The API enforces the same rules.
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
-import {
-  AgentsLine,
-  LoginEditor,
-  VaultCard,
-  VaultDetails,
-  vaultItemNeedsYou,
-} from "../../accounts/vault";
+import { AgentsLine, LoginEditor, VaultCard, VaultDetails } from "../../accounts/vault";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -35,12 +29,11 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
 import { useSession } from "../../session/session";
-import { StatTile } from "../../ui/figures";
-import { Columns, Loaded, Page, PageGrid, Section } from "../../ui/page";
+import { Icon } from "../../ui/icons";
+import { Loaded, Page, PageGrid, Section } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
-import { PORTAL_PATHS } from "../paths";
-import { ForwardingSection } from "./Upload";
+import { askSloan, PORTAL_PATHS } from "../paths";
 // v0.14 W4-A
 import { WHATSAPP_META_SIGNUP_PATH } from "./WhatsappMetaSignup";
 
@@ -48,8 +41,8 @@ type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][num
 type Vault = ResponseOf<typeof apiRoutes.portalAccess>;
 
 // Website logins are connections of the browser connector (packages/connectors/src/browser): one
-// per site, so they live in the vault, never as a tool card. Upload is built in: Records uploads,
-// and the forwarding address has its own section here.
+// per site, so they live in the vault, never as a tool row. Upload is built in: it lives on the
+// agents that read documents.
 const BROWSER_CONNECTOR = "browser";
 const UPLOAD_CONNECTOR = "upload";
 
@@ -84,6 +77,16 @@ const STATUS_CHIP: Record<string, ChipState> = {
 function descriptionOf(item: Offered, { t }: Pick<I18n, "t">): string {
   const key = DESCRIPTIONS[item.connector];
   return key ? t(key) : item.description;
+}
+
+/**
+ * The provider's id for the account, where a person knows it by that (a mailbox's address); null
+ * for a company or realm id, which never shows (Review 2, decision 3).
+ */
+// DECISION: an id that is an email address is the account as people know it; any other id is the
+// provider's own and stays out of sight.
+export function accountAddress(id: string | null | undefined): string | null {
+  return id && /^[^\s@]+@[^\s@]+$/.test(id) ? id : null;
 }
 
 function isBroken(status: string | undefined): boolean {
@@ -180,10 +183,6 @@ export function AccountsScreen() {
     scrollToId("vault");
   }
 
-  const connectedCount = cards.filter((c) => c.connection?.status === "connected").length;
-  const brokenCount = cards.filter((c) => isBroken(c.connection?.status)).length;
-  const loginsNeeding = logins.filter(vaultItemNeedsYou).length;
-
   return (
     <Page testId="portal-accounts">
       <div>
@@ -207,43 +206,6 @@ export function AccountsScreen() {
             ) : null
           }
         />
-        {connections.data ? (
-          <Columns count={3}>
-            <StatTile
-              testId="accounts-stat-connected"
-              label={t("accounts.stat.connected")}
-              value={connectedCount}
-              note={
-                brokenCount > 0
-                  ? t("accounts.stat.stopped", { count: brokenCount })
-                  : t("accounts.stat.allWorking")
-              }
-              {...(brokenCount > 0 ? { noteTone: "risk" as const } : {})}
-            />
-            <StatTile
-              testId="accounts-stat-logins"
-              label={t("accounts.stat.logins")}
-              value={vault.data ? logins.length : "—"}
-              note={
-                loginsNeeding > 0
-                  ? t("accounts.stat.loginsNeed", { count: loginsNeeding })
-                  : t("accounts.stat.loginsOk")
-              }
-              {...(loginsNeeding > 0 ? { noteTone: "signal" as const } : {})}
-            />
-            <StatTile
-              testId="accounts-stat-waiting"
-              label={t("accounts.stat.waiting")}
-              value={brokenCount + loginsNeeding}
-              note={
-                brokenCount + loginsNeeding > 0
-                  ? t("accounts.stat.fixBelow")
-                  : t("accounts.stat.nothingWaits")
-              }
-              {...(brokenCount + loginsNeeding > 0 ? { noteTone: "signal" as const } : {})}
-            />
-          </Columns>
-        ) : null}
       </div>
       {actionError ? <ErrorNotice error={actionError} /> : null}
       <PageGrid
@@ -286,9 +248,9 @@ export function AccountsScreen() {
                   {isAdmin ? t("accounts.tools.connectRight") : t("connections.adminConnects")}
                 </EmptyState>
               ) : (
-                <div className="flex flex-col gap-4">
+                <Card testId="portal-connections-list">
                   {cards.map((c) => (
-                    <ConnectionCard
+                    <ConnectionRow
                       key={c.connector}
                       item={c}
                       vault={vault.data}
@@ -303,22 +265,21 @@ export function AccountsScreen() {
                       onChanged={reloadAll}
                     />
                   ))}
-                </div>
+                </Card>
               )
             }
           </Loaded>
-          {/* Sign-off limits (approver rules) live in Settings, under Sign-off (UI-1d). */}
+          {/* Who approves what, and up to how much, is in Settings, under Approvals. */}
           {isAdmin ? (
             <p className="text-sm text-ink-muted" data-testid="accounts-signoff">
               {t("accounts.signoff")}{" "}
-              <Link className="text-slate underline" to={PORTAL_PATHS.settings}>
+              <Link className="text-slate underline" to={PORTAL_PATHS.approvals}>
                 {t("accounts.signoffLink")}
               </Link>
               .
             </p>
           ) : null}
         </Section>
-        <ForwardingSection isAdmin={isAdmin} />
       </PageGrid>
     </Page>
   );
@@ -374,10 +335,11 @@ function GmailTestSend() {
 }
 
 /**
- * One connected tool: its account, state and the agents that use it; on request what agents may
- * do there (the matrix), each agent's grant, release, the tools and the tool's own setup.
+ * One connected tool, as a row: its account, state and the agents that use it. What agents may do
+ * there (the matrix), each agent's grant, release, the tools, the tool's own setup and disconnect
+ * expand from the row.
  */
-function ConnectionCard({
+function ConnectionRow({
   item,
   vault,
   isAdmin,
@@ -398,18 +360,17 @@ function ConnectionCard({
   const api = useApiClient();
   const i18n = useI18n();
   const { t } = i18n;
-  // DECISION: every card starts folded (the account, its state and its agents); the matrix
-  // opens per card, so a page of several tools stays short. The plan's default keeps the matrix
-  // on this page, per connection (docs/ui-plan.md, open question 2).
+  // DECISION: every row starts folded (the account, its state and its agents); the rest opens
+  // per row, so a page of several tools stays short. The matrix stays on this page, per
+  // connection (docs/ui-plan.md, open question 2).
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const conn = item.connection;
   if (!conn) return null;
   const vaultItem = vault?.items.find((i) => i.connectionId === conn.id);
   const connected = conn.status === "connected";
-  // The account by its name in the tool, never its id there (a QuickBooks realm id).
-  const account = conn.accountName ?? descriptionOf(item, i18n);
+  const account =
+    conn.accountName ?? accountAddress(conn.externalAccountId) ?? descriptionOf(item, i18n);
   const synced = connected
     ? conn.lastSyncAt
       ? t("connections.synced", { time: shortTime(conn.lastSyncAt, undefined, i18n) })
@@ -417,8 +378,11 @@ function ConnectionCard({
     : null;
 
   return (
-    <Card testId={`portal-connection-${item.connector}`}>
-      <div className="flex flex-wrap items-start gap-3 px-6 py-4">
+    <div
+      data-testid={`portal-connection-${item.connector}`}
+      className="border-b border-line last:border-b-0"
+    >
+      <div className="flex flex-wrap items-start gap-3 px-6 py-4 max-sm:px-4">
         <ConnectorMark name={item.name} />
         <div className="min-w-0 flex-1">
           <p className="type-subheading text-ink">{item.name}</p>
@@ -445,10 +409,20 @@ function ConnectionCard({
               {t("connections.reconnect")}
             </Button>
           ) : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            data-testid="portal-connection-permissions-toggle"
+            onClick={() => setOpen((s) => !s)}
+            aria-expanded={open}
+          >
+            {open ? t("accounts.card.hide") : t("accounts.card.agentsMay")}
+            <Icon name={open ? "chevron-down" : "chevron-right"} size={16} />
+          </Button>
         </div>
-      </div>
-      <div className="border-t border-line px-6 py-3">
-        <AgentsLine names={conn.usedBy.map((u) => u.name)} />
+        <div className="basis-full pl-12 max-sm:pl-0">
+          <AgentsLine names={conn.usedBy.map((u) => u.name)} />
+        </div>
       </div>
       {open ? (
         <div
@@ -523,51 +497,72 @@ function ConnectionCard({
               {item.connector === "gsheets" ? <GsheetsSetup /> : null}
             </div>
           ) : null}
+          <ConnectionActions
+            item={item}
+            connectionId={conn.id}
+            connected={connected}
+            canManage={canManage}
+            onDisconnect={onDisconnect}
+          />
         </div>
       ) : null}
-      <div className="ui-card__foot">
+    </div>
+  );
+}
+
+/** A connected tool's own actions, at the foot of its open row: a test email, disconnect. */
+function ConnectionActions({
+  item,
+  connectionId,
+  connected,
+  canManage,
+  onDisconnect,
+}: {
+  item: Offered;
+  connectionId: string;
+  connected: boolean;
+  canManage: boolean;
+  onDisconnect: (connectionId: string) => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+  const gmail = item.connector === "gmail" && connected && canManage;
+  if (!gmail && !(canManage && connected)) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-6 max-sm:px-4">
+      {gmail ? <GmailTestSend /> : null}
+      {canManage && connected && !confirming ? (
         <Button
           size="sm"
-          data-testid="portal-connection-permissions-toggle"
-          onClick={() => setOpen((s) => !s)}
-          aria-expanded={open}
+          data-testid="portal-connection-disconnect-start"
+          variant="ghost"
+          onClick={() => setConfirming(true)}
         >
-          {open ? t("accounts.card.hide") : t("accounts.card.agentsMay")}
+          {t("connections.disconnect")}
         </Button>
-        {item.connector === "gmail" && connected && canManage ? <GmailTestSend /> : null}
-        {canManage && connected && !confirming ? (
-          <Button
-            size="sm"
-            data-testid="portal-connection-disconnect-start"
-            variant="ghost"
-            onClick={() => setConfirming(true)}
-          >
-            {t("connections.disconnect")}
-          </Button>
-        ) : null}
-        {confirming ? (
-          <div className="ds-banner block basis-full">
-            <p>{t("connections.disconnectWarning", { tool: item.name })}</p>
-            <div className="mt-2 flex gap-2">
-              <Button
-                data-testid="portal-connection-disconnect-confirm"
-                variant="primary"
-                onClick={() => void onDisconnect(conn.id).then(() => setConfirming(false))}
-              >
-                {t("connections.disconnect")}
-              </Button>
-              <Button
-                data-testid="portal-connection-disconnect-cancel"
-                variant="ghost"
-                onClick={() => setConfirming(false)}
-              >
-                {t("connections.keepIt")}
-              </Button>
-            </div>
+      ) : null}
+      {confirming ? (
+        <div className="ds-banner block basis-full">
+          <p>{t("connections.disconnectWarning", { tool: item.name })}</p>
+          <div className="mt-2 flex gap-2">
+            <Button
+              data-testid="portal-connection-disconnect-confirm"
+              variant="primary"
+              onClick={() => void onDisconnect(connectionId).then(() => setConfirming(false))}
+            >
+              {t("connections.disconnect")}
+            </Button>
+            <Button
+              data-testid="portal-connection-disconnect-cancel"
+              variant="ghost"
+              onClick={() => setConfirming(false)}
+            >
+              {t("connections.keepIt")}
+            </Button>
           </div>
-        ) : null}
-      </div>
-    </Card>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -591,7 +586,7 @@ function AddToolCard({
       footer={
         <p className="text-sm text-ink-muted">
           {t("accounts.add.ask")}{" "}
-          <Link className="text-slate underline" to={PORTAL_PATHS.requests}>
+          <Link className="text-slate underline" to={askSloan(t("accounts.add.askPrompt"))}>
             {t("accounts.add.askLink")}
           </Link>
         </p>

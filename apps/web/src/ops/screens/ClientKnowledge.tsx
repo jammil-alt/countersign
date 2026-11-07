@@ -18,6 +18,7 @@ import {
   Loading,
   SectionLabel,
 } from "../../ui/primitives";
+import { plural } from "../../usage/format";
 import { ClientFrame } from "../client/ClientFrame";
 
 type Show = "active" | "all";
@@ -58,7 +59,7 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
       clientId={clientId}
       intro={
         data
-          ? `${data.entries.length} FAQs and policies · ${indexed} of ${data.documents.length} documents indexed · ${data.memoryNotes.count} memory notes`
+          ? `${plural(data.entries.length, "FAQ or policy", "FAQs and policies")} · ${indexed} of ${plural(data.documents.length, "document")} indexed · ${plural(data.memoryNotes.count, "memory note")}`
           : undefined
       }
     >
@@ -97,9 +98,13 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
             <section>
               <SectionLabel>Documents</SectionLabel>
               {data.documents.length === 0 ? (
-                <EmptyState>
-                  No documents yet. Uploaded and forwarded documents are indexed here.
-                </EmptyState>
+                <EmptyState
+                  line="No documents yet. Uploaded and forwarded documents are indexed here, so agents can search them."
+                  action={{
+                    label: "See documents",
+                    to: `/ops/clients/${clientId}/documents`,
+                  }}
+                />
               ) : (
                 <div className="dt dt-ana overflow-x-auto">
                   <table data-testid="ops-knowledge-documents">

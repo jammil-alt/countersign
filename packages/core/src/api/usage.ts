@@ -74,6 +74,42 @@ export const UsageTemplateRow = z.object({
   ...UsageSeries,
 });
 
+/** The longest range the report also splits by day (for the period's chart). */
+export const USAGE_DAILY_MAX_DAYS = 92;
+
+/**
+ * UI cleanup: model cost by model, from the model calls in the range (runs' calls, and the clients'
+ * background reading when the report isn't narrowed to an agent or a template).
+ */
+export const UsageModelRow = z.object({
+  /** `anthropic` | `openai`. */
+  provider: z.string(),
+  model: z.string(),
+  calls: z.number().int(),
+  tokensIn: z.number().int(),
+  tokensOut: z.number().int(),
+  costUsd: UsdAmount,
+});
+export type UsageModelRow = z.infer<typeof UsageModelRow>;
+
+/**
+ * UI cleanup: what the work cost by vendor: each model provider from its model calls, and Twilio
+ * and ElevenLabs from the messages and call seconds usage_daily counts, priced at our unit costs
+ * (`estimated`); `costUsd` null when no unit cost is set for that measure.
+ */
+export const UsageVendorRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  costUsd: UsdAmount.nullable(),
+  estimated: z.boolean(),
+  calls: z.number().int().optional(),
+  tokensIn: z.number().int().optional(),
+  tokensOut: z.number().int().optional(),
+  messages: z.number().int().optional(),
+  callSeconds: z.number().int().optional(),
+});
+export type UsageVendorRow = z.infer<typeof UsageVendorRow>;
+
 export const UsageReport = z.object({
   from: IsoDay,
   to: IsoDay,
@@ -82,6 +118,10 @@ export const UsageReport = z.object({
   clients: z.array(UsageClientRow),
   agents: z.array(UsageAgentRow),
   templates: z.array(UsageTemplateRow),
+  /** Every day of the range, oldest first, when it spans at most USAGE_DAILY_MAX_DAYS days. */
+  byDay: z.array(z.object({ day: IsoDay, figures: UsageFigures })).optional(),
+  byModel: z.array(UsageModelRow).optional(),
+  byVendor: z.array(UsageVendorRow).optional(),
   /**
    * v0.12 W1-H (ARCHITECTURE §13): reading no agent asked for (uploads, forwarded mail), the
    * clients' own usage from usage_platform_daily. It is in the total and each client's row, never
@@ -90,6 +130,18 @@ export const UsageReport = z.object({
   background: z.object(UsageSeries).optional(),
 });
 export type UsageReport = z.infer<typeof UsageReport>;
+
+// ── Small charts (both sides) ────────────────────────────────────────────────────────────────────
+
+/** How many days the small run charts (sparklines) cover, on both sides. */
+export const KPI_DAYS = 14;
+
+/** One day's runs for a small chart: how many started, and how many of them failed. */
+export const DayRuns = z.object({
+  runs: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+export type DayRuns = z.infer<typeof DayRuns>;
 
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -172,6 +224,12 @@ export const ServiceDetail = z.object({
   thisMonth: ActivityService.omit({ id: true, name: true }).extend({ from: IsoDay, to: IsoDay }),
   recentRuns: z.array(PortalRun),
   packs: z.array(z.string()),
+  // UI cleanup: what the portal's agent page mounts its own view by (apps/web/src/agents/views.ts).
+  // The slug of the template it was forked from (a name, never the template's bundle: invariant
+  // 11), null for an agent built for this client alone; optional so older answers still parse.
+  template: z.string().nullable().optional(),
+  /** It starts from documents (a `document.*` event trigger): its page offers upload. */
+  readsDocuments: z.boolean().optional(),
 });
 export type ServiceDetail = z.infer<typeof ServiceDetail>;
 

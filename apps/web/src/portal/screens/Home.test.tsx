@@ -1,13 +1,14 @@
-// C1 The Table (`/`): each agent and what it is doing now, the week's figures, the latest step
-// summaries, the top of the Desk with "Not now", the lead's note with a reply, and the
-// supervisor's account check (docs/plan.md §1.28) with its findings. Never a bundle or a cost.
+// C1 Home (`/`, was the Table; Review 1): the agents with their state, tools and last run, what
+// needs you (the top of the Inbox with "Not now", and the supervisor's findings), the weekly
+// summary when one was sent, the lead's note with a reply, and the latest work. Each count once,
+// empty sections left out. Never a bundle or a cost.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { CLIENT_SESSION, fakeApi, tableService, tableView } from "../../test/fixtures";
-import { tomorrowMorning } from "./Table";
+import { tomorrowMorning } from "./Home";
 
 const PIA = "00000000-0000-4000-8000-00000000b001";
 const COLE = "00000000-0000-4000-8000-00000000b002";
@@ -44,6 +45,9 @@ const overview = (health?: unknown) => ({
   ...(health === undefined ? {} : { health }),
 });
 
+/** Runs each day for the small charts, oldest first. */
+const days = (runs: number[]) => runs.map((n) => ({ runs: n, failed: 0 }));
+
 const TABLE = tableView({
   services: [
     tableService(PIA, "Pia", {
@@ -57,6 +61,9 @@ const TABLE = tableView({
       },
       runsDone: 9,
       runs: { total: 10, succeeded: 9, failed: 0, cancelled: 0, waiting: 0, going: 1 },
+      perDay: days([0, 0, 1, 2, 0, 3, 1, 0, 0, 2, 4, 1, 2, 1]),
+      changes: 7,
+      documentsRead: 9,
     }),
     tableService(COLE, "Cole", {
       now: {
@@ -77,6 +84,9 @@ const TABLE = tableView({
     runsDone: 38,
     runs: { total: 41, succeeded: 38, failed: 0, cancelled: 0, waiting: 1, going: 2 },
     changes: { automatic: 52, signed: 12 },
+    documentsRead: 31,
+    perDay: days([2, 3, 4, 5, 2, 3, 6, 5, 4, 7, 8, 6, 5, 6]),
+    lastWeek: { runsDone: 31, changes: 50, documentsRead: 34 },
   },
   recent: [
     {
@@ -180,81 +190,153 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
   );
 }
 
-describe("The Table", () => {
-  it("shows each agent now, the week's figures, the latest work and what waits on you", async () => {
+const WEEKLY = {
+  table: {
+    id: "00000000-0000-4000-8000-0000000d1001",
+    weekStart: "2026-11-02",
+    status: "sent",
+    stats: {
+      weekStart: "2026-11-02",
+      from: "2026-11-02T00:00:00.000Z",
+      to: "2026-11-09T00:00:00.000Z",
+      runs: { done: 38, lastWeek: 31, change: 7, sources: [] },
+      changes: { automatic: 20, signed: 11, sources: [] },
+      signatures: { given: 11, sources: [] },
+      documents: { read: 31, sources: [] },
+      agents: [],
+      computedAt: "2026-11-06T17:00:00.000Z",
+    },
+    note: "A quiet week: prices held, and two vendors sent their new lists.",
+    noteBy: { id: "00000000-0000-4000-8000-00000000d009", name: "Ana Ruiz" },
+    decisions: [],
+    nextWeek: null,
+    setup: { items: [] },
+    sentAt: "2026-11-02T14:00:00.000Z",
+    updatedAt: "2026-11-02T14:00:00.000Z",
+  },
+  weeks: ["2026-11-02"],
+};
+
+describe("Home", () => {
+  it("shows each agent, what needs you, the latest work, and each count once", async () => {
     const api = fakeApi({
       ...base,
       "GET /api/overview": () => overview(),
       "GET /api/table": () => TABLE,
       "GET /api/access": () => ACCESS,
+      "GET /api/weekly": () => ({ table: null, weeks: [] }),
     });
     const { container } = renderAt("/", api);
     expect(
       await screen.findByRole("heading", { name: /^Good (morning|afternoon|evening), Dana$/ }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("table-week-line")).toHaveTextContent(
-      "Runs started this week: 38 finished · 1 waiting on you · 2 running. 5 things wait on you.",
-    );
-    // No week sent yet: no Weekly Table tab (QA round 1).
-    expect(screen.queryByTestId("table-views")).toBeNull();
-    expect(screen.getByRole("link", { name: "Ask Sloan" })).toHaveAttribute("href", "/sloan");
+    // The week's figures, four at most, each a link to its list; no line under the title
+    // repeats them.
+    expect(screen.queryByTestId("home-week-line")).toBeNull();
+    const figures = screen.getByTestId("home-figures");
+    const runs = within(figures).getByTestId("home-kpi-runs");
+    expect(runs).toHaveAttribute("href", "/runs");
+    expect(runs).toHaveTextContent("Runs done · this week38");
+    expect(within(runs).getByRole("img", { name: "66 runs in the last 14 days" })).toBeVisible();
+    const changes = within(figures).getByTestId("home-kpi-changes");
+    expect(changes).toHaveTextContent("64");
+    expect(changes).toHaveTextContent("52 on their own · 12 approved by you");
+    expect(changes).toHaveTextContent("Up 14 on last week");
+    // What waits on you is in gold, with its words, and opens the Inbox.
+    const waiting = within(figures).getByTestId("home-kpi-waiting");
+    expect(waiting).toHaveAttribute("href", "/inbox");
+    expect(waiting).toHaveAttribute("data-tone", "signal");
+    expect(waiting).toHaveTextContent("Waiting on you5Approvals and questions");
+    const documents = within(figures).getByTestId("home-kpi-documents");
+    expect(documents).toHaveTextContent("Documents read · this week31");
+    expect(documents).toHaveTextContent("Down 3 on last week");
+    // No Weekly Table button on the page (Ask Sloan is the top bar's); Add documents uploads.
+    expect(screen.queryByRole("link", { name: "Open the Weekly Table" })).toBeNull();
+    expect(within(screen.getByTestId("portal-home")).queryByText("Ask Sloan")).toBeNull();
+    expect(screen.getByTestId("home-add-documents")).toHaveAttribute("href", "/upload");
 
-    const working = screen.getByTestId("table-working");
-    expect(working).toHaveTextContent("1 running · 1 waiting on you · 1 setting up");
-    const pia = within(working).getByTestId(`portal-service-${PIA}`);
+    const agents = screen.getByTestId("home-agents");
+    const pia = within(agents).getByTestId(`portal-service-${PIA}`);
     expect(pia).toHaveAttribute("href", `/agents/${PIA}`);
     expect(within(pia).getByTestId(`table-agent-state-${PIA}`)).toHaveTextContent("Working");
-    expect(pia).toHaveTextContent("Match items to your catalog");
-    expect(pia).toHaveTextContent("Step 3 of 6 · started");
-    expect(within(pia).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "3");
-    expect(pia).toHaveTextContent("9 finished · 1 running");
+    expect(within(pia).getByTestId(`table-agent-now-${PIA}`)).toHaveTextContent(
+      "Now: Match items to your catalog · Step 3 of 6",
+    );
     // Its tools are the connections it is granted.
     expect(await within(pia).findByText("QuickBooks Online")).toBeInTheDocument();
+    // Its own week: runs (with its 14 days) and changes, in its colour, working fine (positive).
+    const piaFigures = within(pia).getByTestId(`home-agent-figures-${PIA}`);
+    expect(piaFigures).toHaveTextContent("10runs this week");
+    expect(piaFigures).toHaveTextContent("7changes to your tools");
+    expect(
+      within(piaFigures).getByRole("img", { name: "17 runs in the last 14 days" }),
+    ).toBeVisible();
+    expect(pia).toHaveAttribute("data-tone", "positive");
 
-    const cole = within(working).getByTestId(`portal-service-${COLE}`);
+    const cole = within(agents).getByTestId(`portal-service-${COLE}`);
     expect(within(cole).getByTestId(`table-agent-state-${COLE}`)).toHaveAttribute(
       "data-state",
       "waiting",
     );
-    expect(cole).toHaveTextContent("Waiting on you");
-    expect(cole).toHaveTextContent("Overdue: $18,420.00");
-    expect(cole).toHaveTextContent("waiting since");
-    expect(within(working).getByText("Setting up")).toBeInTheDocument();
-
-    expect(screen.getByTestId("table-stat-runs")).toHaveTextContent("38");
-    expect(screen.getByTestId("table-stat-runs")).toHaveTextContent("1 waiting on you · 2 running");
-    expect(screen.getByTestId("table-stat-changes")).toHaveTextContent(
-      "6452 automatic, 12 approved by you",
+    expect(within(cole).getByTestId(`table-agent-now-${COLE}`)).toHaveTextContent(
+      /^Waiting on you since .+ · Overdue: \$18,420\.00$/,
     );
-    expect(screen.getByTestId("table-stat-waiting")).toHaveTextContent("5On your Desk");
+    // Waiting on you: the card's accent is gold, beside its chip.
+    expect(cole).toHaveAttribute("data-tone", "signal");
+    expect(within(agents).getByText("Setting up")).toBeInTheDocument();
+    // An agent still setting up, with no runs: no figures and no accent.
+    const remy = within(agents).getByTestId("portal-service-00000000-0000-4000-8000-00000000b003");
+    expect(remy).not.toHaveAttribute("data-tone");
+    expect(within(remy).queryByTestId(/home-agent-figures/)).toBeNull();
 
     const latest = screen.getByTestId(`table-latest-${RUN}`);
     expect(within(latest).getByRole("link")).toHaveAttribute("href", `/runs/${RUN}`);
     expect(latest).toHaveTextContent('Pia Found Baltic birch 3/4" up 12% at Rugby Architectural');
 
-    const desk = screen.getByTestId("table-desk");
-    const first = within(desk).getByTestId(`table-desk-item-${ITEM}`);
+    const needs = screen.getByTestId("table-desk");
+    expect(needs).toHaveTextContent("Needs you");
+    // Its count is the figure above: not said twice.
+    expect(within(needs).queryByText("5")).toBeNull();
+    const first = within(needs).getByTestId(`table-desk-item-${ITEM}`);
     expect(first).toHaveTextContent("Due today");
-    // The Table never signs: its main action opens the Desk.
+    // Home never approves: its main action opens the item in the Inbox.
     expect(within(first).getByRole("link", { name: "Review and approve" })).toHaveAttribute(
       "href",
-      "/desk",
+      `/inbox?item=${ITEM}`,
     );
     expect(
-      within(within(desk).getByTestId(`table-desk-item-${ITEM_2}`)).getByRole("link", {
+      within(within(needs).getByTestId(`table-desk-item-${ITEM_2}`)).getByRole("link", {
         name: "Open",
       }),
-    ).toHaveAttribute("href", "/desk");
-    expect(within(desk).getByRole("link", { name: "3 more on your Desk" })).toHaveAttribute(
+    ).toHaveAttribute("href", `/inbox?item=${ITEM_2}`);
+    expect(within(needs).getByRole("link", { name: "3 more in your inbox" })).toHaveAttribute(
       "href",
-      "/desk",
+      "/inbox",
     );
 
     expect(screen.getByTestId("table-lead")).toHaveTextContent(
       "Rugby raised birch prices twice this quarter.",
     );
+    // No weekly summary was sent: no card.
+    expect(screen.queryByTestId("home-weekly")).toBeNull();
     expect(screen.queryByText(/bundle|instructions|prompt|cost/i)).toBeNull();
     expect(container.textContent).not.toMatch(/costUsd/);
+  });
+
+  it("shows the weekly summary when one was sent, linking to it", async () => {
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () => TABLE,
+      "GET /api/access": () => ACCESS,
+      "GET /api/weekly": () => WEEKLY,
+    });
+    renderAt("/", api);
+    const card = await screen.findByTestId("home-weekly");
+    expect(card).toHaveTextContent("Your weekly summary");
+    expect(card).toHaveTextContent("A quiet week");
+    expect(card).toHaveTextContent("From Ana Ruiz, your Mezonas lead.");
+    expect(within(card).getByTestId("home-weekly-open")).toHaveAttribute("href", "/weekly");
   });
 
   // QA round 1: a run waiting on an approval keeps status "running"; it is never shown as Running.
@@ -291,13 +373,12 @@ describe("The Table", () => {
     expect(within(card).getByTestId(`table-agent-state-${BILL}`)).toHaveTextContent(
       "Waiting on you",
     );
-    expect(within(card).getByTestId(`table-agent-now-${BILL}`)).toHaveTextContent("Waiting on you");
-    expect(card).not.toHaveTextContent(/Running|Working/);
-    expect(card).toHaveTextContent("0 finished · 1 waiting on you");
-    // It says what it counts: a run started this week that waits on you isn't "0 runs done".
-    expect(screen.getByTestId("table-week-line")).toHaveTextContent(
-      "Runs started this week: 0 finished · 1 waiting on you.",
+    expect(within(card).getByTestId(`table-agent-now-${BILL}`)).toHaveTextContent(
+      "Waiting on you since",
     );
+    expect(card).not.toHaveTextContent(/Running|Working/);
+    // Nothing finished this week: no week line at all.
+    expect(screen.queryByTestId("home-week-line")).toBeNull();
   });
 
   it("puts an item off until tomorrow morning with Not now", async () => {
@@ -369,69 +450,77 @@ describe("The Table", () => {
     expect(posted).toEqual([{ text: "Yes, bring options." }]);
   });
 
-  it("says when nothing is going on yet", async () => {
+  it("leaves out what is empty when nothing is going on yet", async () => {
     const api = fakeApi({
       ...base,
       "GET /api/overview": () => overview(),
       "GET /api/table": () => tableView(),
     });
     renderAt("/", api);
-    expect(await screen.findByText(/No agents yet\. We set them up/)).toBeInTheDocument();
-    expect(screen.getByTestId("table-week-line")).toHaveTextContent("Nothing waits on you.");
-    expect(screen.getByTestId("table-latest")).toHaveTextContent("Nothing yet this week.");
+    expect(await screen.findByText(/No agents yet/)).toBeInTheDocument();
+    expect(screen.queryByTestId("home-week-line")).toBeNull();
+    expect(screen.queryByTestId("table-desk")).toBeNull();
+    expect(screen.queryByTestId("table-latest")).toBeNull();
     expect(screen.queryByTestId("table-lead")).toBeNull();
+    expect(screen.queryByTestId("home-weekly")).toBeNull();
   });
 });
 
-describe("the Table's account check", () => {
-  it("shows the latest check and the findings that need the client, with their steps", async () => {
+describe("Home's account check", () => {
+  it("lists the findings that need the client under Needs you, short, with a way to the Inbox", async () => {
     const api = fakeApi({
       ...base,
       "GET /api/overview": () => overview({ summary: SUMMARY, findings: [FINDING] }),
       "GET /api/table": () => tableView(),
     });
     renderAt("/", api);
-    const findings = await screen.findByTestId("portal-findings");
-    expect(within(findings).getByText("What needs you now")).toBeInTheDocument();
-    const card = within(findings).getByTestId(`portal-finding-${FINDING.id}`);
+    const card = await screen.findByTestId(`portal-finding-${FINDING.id}`);
+    expect(screen.getByTestId("table-desk")).toContainElement(card);
     expect(within(card).getByText(FINDING.title)).toBeInTheDocument();
-    const steps = within(card)
-      .getAllByRole("listitem")
-      .map((li) => li.textContent);
-    expect(steps).toEqual(FINDING.steps);
+    // Short on Home: the steps are on the item in the Inbox.
+    expect(within(card).queryAllByRole("listitem")).toEqual([]);
+    expect(within(card).getByTestId(`portal-finding-open-${FINDING.id}`)).toHaveAttribute(
+      "href",
+      "/inbox",
+    );
     // A reminder says so in words (signal, with a word).
     expect(within(card).getByText("Reminder")).toBeInTheDocument();
-
-    const health = screen.getByTestId("portal-health");
-    expect(within(health).getByTestId("portal-health-state")).toHaveTextContent("Needs a look");
-    expect(health).toHaveTextContent("12 runs in the last day · 1 did not finish");
-    expect(health).toHaveTextContent("1 account needs you");
-    expect(health).toHaveTextContent("2 items wait for you");
+    // The daily check's counts repeat other pages: they are not on Home.
+    expect(screen.queryByTestId("portal-health")).toBeNull();
   });
 
-  it("says all is good, and shows nothing at all before the first check", async () => {
+  it("shows at most three short rows under Needs you, the rest as one link to the Inbox", async () => {
+    const top = TABLE.desk.top[0];
+    if (!top) throw new Error("no item");
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      ...top,
+      id: `00000000-0000-4000-8000-0000000e20${i}0`,
+      title: `Approve change ${i + 1}`,
+    }));
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview({ summary: SUMMARY, findings: [FINDING] }),
+      "GET /api/table": () => ({ ...TABLE, desk: { open: 7, top: many } }),
+    });
+    renderAt("/", api);
+    const card = await screen.findByTestId("table-desk");
+    expect(within(card).getAllByTestId(/^table-desk-item-/)).toHaveLength(3);
+    // No room left for the finding: it waits in the Inbox with the rest.
+    expect(within(card).queryByTestId(`portal-finding-${FINDING.id}`)).toBeNull();
+    expect(within(card).getByTestId("home-open-inbox")).toHaveTextContent("4 more in your inbox");
+  });
+
+  it("shows no Needs you when nothing needs you", async () => {
     const good = { ...SUMMARY, state: "good", runs: { total: 1, failed: 0 } };
     const api = fakeApi({
       ...base,
       "GET /api/overview": () => overview({ summary: good, findings: [] }),
       "GET /api/table": () => tableView(),
     });
-    const { unmount } = renderAt("/", api);
-    expect(await screen.findByTestId("portal-health-state")).toHaveTextContent("All good");
-    expect(screen.getByTestId("portal-health")).toHaveTextContent("1 run in the last day");
-    expect(screen.queryByTestId("portal-findings")).not.toBeInTheDocument();
-    unmount();
-
-    // An API without the supervisor (or before its first check): no check on the Table.
-    const none = fakeApi({
-      ...base,
-      "GET /api/overview": () => overview(undefined),
-      "GET /api/table": () => tableView(),
-    });
-    renderAt("/", none);
-    expect(await screen.findByTestId("table-desk")).toBeInTheDocument();
-    expect(screen.queryByTestId("portal-health")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("portal-findings")).not.toBeInTheDocument();
+    renderAt("/", api);
+    expect(await screen.findByTestId("home-agents")).toBeInTheDocument();
+    await waitFor(() => expect(api.calls).toContain("GET /api/overview"));
+    expect(screen.queryByTestId("table-desk")).not.toBeInTheDocument();
   });
 
   it("reads in the client's language", async () => {
@@ -449,16 +538,14 @@ describe("the Table's account check", () => {
       "GET /api/table": () => TABLE,
     });
     renderAt("/", api);
-    expect(await screen.findByText("Lo que le necesita ahora")).toBeInTheDocument();
-    expect(screen.getByText("Revisión de la cuenta")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-health-state")).toHaveTextContent("Necesita atención");
-    expect(screen.getByText("Recordatorio")).toBeInTheDocument();
+    expect(await screen.findByText("Sus agentes")).toBeInTheDocument();
+    expect(screen.getByText("Le necesita")).toBeInTheDocument();
+    expect(await screen.findByText("Recordatorio")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Revisar y aprobar" })).toBeInTheDocument();
-    expect(screen.getByText("Trabajando ahora")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Preguntar a Sloan" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Añadir documentos" })).toBeInTheDocument();
   });
 
-  it("a finding on the Desk lists its steps and is closed with Done", async () => {
+  it("a finding in the Inbox lists its steps and is closed with Done", async () => {
     const item = {
       id: FINDING.id,
       kind: "review",

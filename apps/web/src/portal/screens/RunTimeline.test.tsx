@@ -211,9 +211,15 @@ describe("portal run timeline", () => {
     expect(audit).toHaveTextContent("2 times");
     expect(audit).toHaveTextContent("Demo admin approved");
     const waiting = await screen.findByTestId("portal-run-waiting");
+    expect(waiting).toHaveTextContent("Changes waiting for your approval");
     expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board");
     expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board, 3/4 in");
-    expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", "/desk");
+    // At the top: what waits on the reader, and the way to the item in the Inbox.
+    const approve = screen.getByTestId("portal-run-approve");
+    expect(approve).toHaveTextContent("Waiting on you since");
+    expect(approve).toHaveTextContent("1 item waits for your approval.");
+    expect(screen.getByTestId("portal-run-review")).toHaveTextContent("Review and approve");
+    expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", `/inbox?item=${ITEM}`);
     expect(screen.getByTestId("portal-run-status")).toHaveTextContent("Waiting on you");
     expect(screen.getByTestId("portal-run-status")).not.toHaveTextContent("Running");
     expect(screen.getByTestId("portal-run-took")).toHaveTextContent("—Waited 21 h on you");
@@ -221,5 +227,29 @@ describe("portal run timeline", () => {
       "href",
       `/sloan?ask=${encodeURIComponent("About run R-0f1001: ")}`,
     );
+  });
+
+  it("titles the run by what it is about and names the records its steps cite", async () => {
+    const VENDOR = "00000000-0000-4000-8000-0000000f5001";
+    renderTimeline({
+      ...LEAKY_TIMELINE,
+      run: {
+        ...LEAKY_TIMELINE.run,
+        subject: {
+          kind: "document",
+          vendor: "Northline Panel Supply",
+          number: "20418",
+          filename: "northline-20418.pdf",
+        },
+      },
+      sourceNames: { [VENDOR]: "Northline Panel Supply" },
+    });
+    expect(
+      await screen.findByText("Northline Panel Supply · Invoice 20418", { selector: "h1" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId(`source-${VENDOR}`)).toHaveTextContent("Northline Panel Supply");
+    expect(document.body.textContent).not.toContain("Record ·");
+    // Nothing waits on the reader: no call to action.
+    expect(screen.queryByTestId("portal-run-approve")).toBeNull();
   });
 });

@@ -326,6 +326,8 @@ interface Setup {
   update?: PermissionMatrix["update"];
   // v0.12 W2-B
   catalog?: BuilderCatalog;
+  /** Whether the agent's client is the Sandbox (the Testkit is offered only there). */
+  sandbox?: boolean;
 }
 
 function setup(options: Setup = {}) {
@@ -338,6 +340,19 @@ function setup(options: Setup = {}) {
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
+    "GET /api/ops/clients": () => ({
+      clients: [
+        {
+          id: CLIENT_ID,
+          name: options.sandbox === false ? "Oak & Co" : "Sandbox",
+          timezone: "UTC",
+          createdAt: "2026-11-01T00:00:00.000Z",
+          agents: 1,
+          openInbox: 0,
+          sandbox: options.sandbox !== false,
+        },
+      ],
+    }),
     [`POST /api/ops/agents/${AGENT_ID}/versions`]: ({ init }) => {
       record("save", init);
       return { version: { ...version(V2, 2, "draft", null), bundle: undefined }, errors: [] };
@@ -464,20 +479,102 @@ describe("WorkflowBuilder", () => {
     await ready();
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
     expect(screen.getByTestId("builder-step-find-number")).toHaveTextContent("1");
-    expect(screen.getByTestId("builder-trigger")).toHaveTextContent("When transaction.created");
+    // Labels, never ids: the event, the tool and its connector, the person a step asks.
+    expect(screen.getByTestId("builder-trigger")).toHaveTextContent(
+      "When a bill or purchase arrives",
+    );
+    expect(screen.getByTestId("builder-trigger")).not.toHaveTextContent("transaction.created");
+    expect(screen.getByTestId("builder-step-update")).toHaveTextContent(
+      "Testkit · Update a record · needs approval",
+    );
+    expect(screen.getByTestId("builder-step-ask")).toHaveTextContent("Ask · client admin · 2 days");
+    expect(screen.getByTestId("builder-step-find")).not.toHaveTextContent("docs.find-support");
     expect(listOrder("path:low")).toEqual(["ask"]);
     expect(screen.getByTestId("builder-counts")).toHaveTextContent(
-      "Purchasing · 5 steps · 1 fork · 1 change your tools · 1 need approval",
+      "Purchasing · 5 steps · 1 fork · 1 changes a tool · 1 needs approval",
     );
     expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v1");
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
-    expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("Approval");
+    expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("Needs approval");
+  });
+
+  it("keeps each fork path readable and lets the canvas scroll sideways in its own box", async () => {
+    setup();
+    await ready();
+    const fork = screen.getByTestId("builder-fork-confidence");
+    // Two paths and otherwise, each at least a card's width (200px plus its padding).
+    expect(fork.style.minWidth).toBe("728px");
+    expect((fork.querySelector(".grid") as HTMLElement).style.gridTemplateColumns).toBe(
+      "minmax(226px, 1fr) minmax(226px, 1fr) minmax(226px, 1fr)",
+    );
+    // The fork scrolls sideways in its own box; the top-level steps keep to the canvas.
+    expect(screen.getByTestId("builder-fork-confidence-scroll")).toHaveClass("overflow-x-auto");
+    expect(screen.getByTestId("builder-canvas").style.minWidth).toBe("");
+  });
+
+  it("shows the selected step on the canvas and opens it in the side panel", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    expect(screen.getByTestId("builder-rail-builder")).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByTestId("builder-step-read-select"));
+    const card = screen.getByTestId("builder-step-read");
+    expect(card).toHaveAttribute("data-selected", "true");
+    expect(card).toHaveClass("border-slate", "bg-slate-tint");
+    expect(screen.getByTestId("builder-step-read-select")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByTestId("builder-step-find")).not.toHaveAttribute("data-selected");
+    expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
+    // Where the panel sits below the canvas (jsdom lays nothing out), the inspector takes focus.
+    await waitFor(() => expect(screen.getByTestId("builder-inspector")).toHaveFocus());
+    // The skill reads by its name, not its reference.
+    expect(screen.getByTestId("builder-inspector")).toHaveTextContent("Read a document");
+    expect(screen.getByTestId("builder-inspector")).not.toHaveTextContent("docs.extract");
+  });
+
+  it("opens the palette from an add point, adds into that fork path, and closes on pick or Escape", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    expect(screen.queryByTestId("builder-palette")).toBeNull();
+    await user.click(screen.getByTestId("builder-add-path:big"));
+    expect(screen.getByTestId("builder-rail-add")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("builder-palette-target")).toHaveTextContent("to “Big change”");
+    expect(screen.getByTestId("builder-palette-search")).toHaveFocus();
+    await user.keyboard("[Escape]");
+    expect(screen.queryByTestId("builder-palette")).toBeNull();
+    expect(screen.getByTestId("builder-rail-builder")).toHaveAttribute("aria-selected", "true");
+
+    await user.click(screen.getByTestId("builder-add-path:big"));
+    await user.click(screen.getByTestId("builder-palette-item-logic:wait-add"));
+    expect(listOrder("path:big")).toHaveLength(1);
+    expect(rootOrder()).toHaveLength(4);
+    // Picking closes the palette; the new step opens in the inspector.
+    expect(screen.queryByTestId("builder-palette")).toBeNull();
+    expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("groups triggers into a few kinds with plain names", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    const triggers = screen.getByTestId("builder-palette-triggers");
+    expect([...triggers.querySelectorAll("summary")].map((s) => s.firstChild?.textContent)).toEqual(
+      ["On a schedule", "A record changes", "A person asks"],
+    );
+    expect(
+      within(screen.getByTestId("builder-palette-triggers-record")).getByText(
+        "When a bill or purchase arrives",
+      ),
+    ).toBeInTheDocument();
+    expect(triggers).not.toHaveTextContent("transaction.created");
   });
 
   it("adds a step from the palette with +, approval on for a write, and marks what is invalid", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
 
     // The agent's own skills come first, then the library; actions are grouped by tool.
     const skills = screen.getByTestId("builder-palette-skills");
@@ -490,19 +587,24 @@ describe("WorkflowBuilder", () => {
       expect.stringContaining("Find supporting document"),
       expect.stringContaining("Track price changes"),
     ]);
-    const actions = screen.getByTestId("builder-palette-actions");
-    expect(within(actions).getByText("Update record")).toBeInTheDocument();
+    // Each connected tool has its own section, by its name.
+    const actions = screen.getByTestId("builder-palette-connector:testkit");
+    expect(within(actions).getByRole("heading")).toHaveTextContent("Testkit");
+    expect(within(actions).getByText("Update a record")).toBeInTheDocument();
+    expect(actions).not.toHaveTextContent("testkit.record.update");
     expect(within(actions).queryByText(/query/i)).toBeNull();
 
     await user.click(screen.getByTestId("builder-palette-item-action:testkit.record.update-add"));
     const order = rootOrder();
     expect(order).toHaveLength(5);
     const added = order[4] as string;
-    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent("Approval");
+    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
+      "Needs approval",
+    );
     // Its required input is missing: the step is marked, and the summary names it.
     expect(screen.getByTestId(`builder-step-${added}-invalid`)).toBeInTheDocument();
     const problems = screen.getByTestId("builder-problems");
-    expect(problems).toHaveTextContent('Update record: "id" is required');
+    expect(problems).toHaveTextContent('Update a record: "id" is required');
     expect(screen.getByTestId("builder-publish")).toBeDisabled();
     expect(screen.getByTestId("builder-test-run")).toBeDisabled();
 
@@ -532,12 +634,45 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("builder-publish")).toBeDisabled();
   });
 
+  it("offers only connected tools, and the Testkit only in the Sandbox", async () => {
+    const zoho = {
+      id: "zoho_crm.record.create",
+      description: "Create a record",
+      input: { type: "object" },
+      output: { type: "object" },
+      sideEffect: "external" as const,
+      verb: "create" as const,
+      source: "zoho_crm",
+      connector: "zoho_crm",
+    };
+    setup({
+      sandbox: false,
+      catalog: {
+        ...CATALOG,
+        tools: [...CATALOG.tools, zoho],
+        connectors: [...CATALOG.connectors, { id: "zoho_crm", name: "Zoho CRM", icon: null }],
+      },
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    // The client connected the Testkit, but it isn't the Sandbox; Zoho isn't connected at all.
+    await waitFor(() =>
+      expect(screen.queryByTestId("builder-palette-connector:testkit")).toBeNull(),
+    );
+    expect(screen.queryByTestId("builder-palette-connector:zoho_crm")).toBeNull();
+    expect(screen.getByTestId("builder-palette-connected")).toHaveTextContent(
+      "Only the tools this client has connected show here.",
+    );
+  });
+
   it("adds a library skill and the agent gains it; searching narrows the palette", async () => {
     const { sent } = setup();
     await ready();
     const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
     await user.type(screen.getByTestId("builder-palette-search"), "price");
-    expect(screen.queryByTestId("builder-palette-actions")).toBeNull();
+    expect(screen.queryByTestId("builder-palette-connector:testkit")).toBeNull();
     await user.click(screen.getByTestId("builder-palette-item-skill:custom:price-watch-add"));
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
     await user.click(screen.getByTestId("builder-save"));
@@ -615,11 +750,9 @@ describe("WorkflowBuilder", () => {
       expect(toggle).toBeEnabled();
       await user.click(toggle);
       expect(toggle).not.toBeChecked();
-      expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent(
-        "Runs automatically",
-      );
+      expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("On its own");
       expect(screen.getByTestId("builder-counts")).toHaveTextContent(
-        "1 change your tools · 0 need approval",
+        "1 changes a tool · 0 need approval",
       );
     });
 
@@ -672,7 +805,9 @@ describe("WorkflowBuilder", () => {
       setup({ bundle: off, update: "approval" });
       const { user, toggle } = await selectUpdate();
       expect(screen.getByTestId("builder-step-update-invalid")).toBeInTheDocument();
-      expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("Approval");
+      expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent(
+        "Needs approval",
+      );
       // Switching it back on is always allowed.
       expect(toggle).toBeEnabled();
       await user.click(toggle);
@@ -739,7 +874,9 @@ describe("WorkflowBuilder", () => {
     await user.click(screen.getByTestId("builder-publish"));
     await waitFor(() => expect(sent.map((s) => s.path)).toEqual([`publish ${V1}`]));
     expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Published v1.");
-    expect(screen.getByTestId("builder-publish")).toBeDisabled();
+    // Live with nothing new: the bar says Live and offers no publish.
+    expect(screen.queryByTestId("builder-publish")).toBeNull();
+    expect(screen.getByTestId("builder-version")).toHaveTextContent("Live · v1");
 
     await user.click(screen.getByTestId("builder-step-update-delete"));
     await user.click(screen.getByTestId("builder-publish"));
@@ -1008,7 +1145,7 @@ describe("WorkflowBuilder", () => {
       },
     });
     await ready();
-    expect(screen.getByTestId("builder-step-follow")).toHaveTextContent("polite-follow-up@2");
+    expect(screen.getByTestId("builder-step-follow")).toHaveTextContent("Polite follow-up · v2");
     await user.click(screen.getByTestId("builder-step-follow-select"));
     expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
     expect(screen.queryByTestId("builder-step-follow-invalid")).toBeNull();
@@ -1210,6 +1347,7 @@ describe("WorkflowBuilder with the Builder", () => {
     });
     await ready();
     const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
     await user.click(screen.getByTestId("builder-palette-item-automation:polite-follow-up@2-add"));
     expect(rootOrder()).toHaveLength(5);
     expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
@@ -1226,7 +1364,7 @@ describe("WorkflowBuilder with the Builder", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTestId("builder-step-find-select"));
     const select = await screen.findByTestId("builder-inspector-model");
-    await screen.findByText(/Fast · claude-haiku-4-5/);
+    await screen.findByText("Fast · $1.00 / $5.00");
     await user.selectOptions(select, "claude-haiku-4-5");
     await user.click(screen.getByTestId("builder-save"));
     await waitFor(() => expect(sent).toHaveLength(1));

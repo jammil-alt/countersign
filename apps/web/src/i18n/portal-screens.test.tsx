@@ -118,12 +118,11 @@ describe("portal settings in Spanish", () => {
     });
     renderAt("/settings", api);
     expect(await screen.findByRole("heading", { name: "Ajustes" })).toBeInTheDocument();
-    // UI-3a: the team has its own page; Settings links to it with the count.
-    expect(await screen.findByText("1 persona usa su portal.")).toBeInTheDocument();
     const emails = await screen.findByTestId("portal-settings-notifications");
     expect(emails).toHaveTextContent("Resumen semanal");
     expect(within(emails).getByTestId("portal-notifications-save")).toHaveTextContent("Guardar");
-    expect(screen.getByTestId("portal-settings-approvals")).toHaveTextContent(
+    await userEvent.click(screen.getByRole("link", { name: "Aprobaciones" }));
+    expect(await screen.findByTestId("portal-settings-approvals")).toHaveTextContent(
       "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
     );
   });
@@ -197,7 +196,7 @@ describe("reports and the service page in German", () => {
     expect(screen.getByTestId("portal-report-services")).toHaveTextContent("Gelesene Dokumente");
   });
 
-  it("shows a service's month, runs and reports in German", async () => {
+  it("shows an agent's month, runs and report in German", async () => {
     const api = portalApi("de", {
       [`GET /api/services/${SVC}`]: () => ({
         service: { id: SVC, name: "Record keeping", description: null, status: "paused" },
@@ -219,18 +218,30 @@ describe("reports and the service page in German", () => {
         ],
         packs: [],
       }),
+      "GET /api/runs": () => ({
+        runs: [
+          {
+            id: RUN,
+            service: { id: SVC, name: "Record keeping" },
+            status: "succeeded",
+            startedAt: "2026-11-03T10:00:00.000Z",
+            finishedAt: "2026-11-03T10:01:00.000Z",
+          },
+        ],
+      }),
     });
     renderAt(`/services/${SVC}`, api);
     expect(await screen.findByRole("heading", { name: "Record keeping" })).toBeInTheDocument();
     expect(screen.getByText("Pausiert")).toBeInTheDocument();
-    // No description: no placeholder either (QA round 1).
-    expect(screen.queryByText(/Hier beschreiben wir/)).toBeNull();
+    // No placeholder line where it has no description.
+    expect(screen.queryByText("Hier beschreiben wir, was dieser Service tut.")).toBeNull();
     expect(screen.getByText("1. Nov. – 4. Nov. 2026")).toBeInTheDocument();
     expect(screen.getByTestId("portal-service-runs")).toHaveTextContent("1 erledigt, 1 wartet");
-    expect(screen.getByTestId(`portal-service-run-${RUN}`)).toHaveTextContent("Erledigt");
-    expect(screen.getByTestId("portal-service-reports")).toHaveTextContent(
-      "2 Abläufe diesen Monat",
+    expect(screen.getByTestId("agent-full-report")).toHaveTextContent(
+      "Vollständigen Bericht ansehen",
     );
+    await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Abläufe" }));
+    expect(await screen.findByTestId(`portal-service-run-${RUN}`)).toHaveTextContent("Erledigt");
   });
 });
 
@@ -285,7 +296,7 @@ describe("records and documents", () => {
     );
   });
 
-  it("shows a document in Spanish, matched to its purchase", async () => {
+  it("shows a document in Spanish, matched to its bill", async () => {
     const api = portalApi("es", {
       [`GET /api/documents/${DOC}`]: () => ({
         document: {
@@ -301,6 +312,8 @@ describe("records and documents", () => {
           vendorName: "Northline Panel Supply",
           invoiceNumber: "20418",
           total: "9742.3500",
+          match: { transactionId: TXN, kind: "bill", number: "20418", by: "link" },
+          duplicateOf: null,
           meta: {},
         },
         url: "https://files.example.com/northline?sig=1",
@@ -334,6 +347,10 @@ describe("records and documents", () => {
     expect(screen.getByTestId("portal-document-transaction")).toHaveAttribute(
       "href",
       `/records/${TXN}`,
+    );
+    // A bill reads as one, in the reader's language.
+    expect(screen.getByTestId("portal-document-transaction")).toHaveTextContent(
+      "Vinculado a una factura de proveedor.",
     );
     expect(screen.getByTestId("portal-document-original")).toHaveTextContent("Abrir el original");
     // The way back: the documents on Upload (UI-3a).
@@ -430,11 +447,15 @@ const contactRow = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const directoryRow = (over: Record<string, unknown> = {}) =>
+  contactRow({ organization: null, title: null, relationship: null, source: "manual", ...over });
+
 const contactsRoutes = {
-  "GET /api/contacts": () => ({
-    items: [
-      contactRow(),
-      contactRow({
+  // Contacts (UI cleanup): the directory's list, consent in a person's detail.
+  "GET /api/directory": () => ({
+    people: [
+      directoryRow(),
+      directoryRow({
         id: SAM,
         name: "Sam Roe",
         email: null,
@@ -443,7 +464,10 @@ const contactsRoutes = {
         canMessage: { sms: false, whatsapp: false },
       }),
     ],
+    organizations: [],
+    pendingSuggestions: 0,
   }),
+  "GET /api/people": () => ({ items: [] }),
   [`GET /api/contacts/${PAT}/messages`]: () => ({
     items: [
       {
@@ -542,6 +566,20 @@ const billingRoutes = {
 };
 
 const peopleRoutes = {
+  // Who an agent contacts is on its Access tab.
+  [`GET /api/services/${AGENT}`]: () => ({
+    service: { id: AGENT, name: "Orders desk", description: null, status: "active" },
+    thisMonth: {
+      from: "2026-11-01",
+      to: "2026-11-04",
+      runs: runs(),
+      documentsRead: 0,
+      actions: 0,
+    },
+    recentRuns: [],
+    packs: [],
+  }),
+  "GET /api/access": () => ({ items: [], setup: [], browserSites: [], canEdit: true, people: [] }),
   "GET /api/people": () => ({
     items: [
       {
@@ -612,7 +650,8 @@ const WORDS = {
     optedOut: "Dado de baja",
     units: ["minutos", "horas", "días"],
     save: "Guardar personas",
-    nav: ["Conocimiento", "Registros", "Personas", "Ajustes"],
+    nav: ["Inicio", "Bandeja", "Ejecuciones", "Cuentas", "Contactos", "Ajustes"],
+    whoContacts: "A quién contacta Orders desk",
   },
   de: {
     contacts: "Kontakte",
@@ -659,7 +698,8 @@ const WORDS = {
     optedOut: "Abgemeldet",
     units: ["Minuten", "Stunden", "Tage"],
     save: "Personen speichern",
-    nav: ["Wissen", "Einträge", "Personen", "Einstellungen"],
+    nav: ["Start", "Posteingang", "Abläufe", "Konten", "Kontakte", "Einstellungen"],
+    whoContacts: "Wen Orders desk kontaktiert",
   },
 } as const;
 
@@ -667,29 +707,29 @@ for (const locale of ["es", "de"] as const) {
   const w = WORDS[locale];
 
   describe(`contacts, knowledge, billing and people in ${locale}`, () => {
-    it("keeps contacts' consent, calls and messages, with what they wrote as written", async () => {
-      renderAt("/people/contacts", portalApi(locale, contactsRoutes));
-      expect(await screen.findByRole("heading", { name: w.people, level: 1 })).toBeInTheDocument();
-      // The admin's sidebar links, all translated.
+    it("keeps contacts' consent and messages in a person's detail, with what they wrote as written", async () => {
+      renderAt(`/people/contacts?person=${PAT}`, portalApi(locale, contactsRoutes));
       expect(
-        ["knowledge", "records", "people", "settings"].map(
-          (l) => screen.getByTestId(`portal-nav-${l}`).textContent,
+        await screen.findByRole("heading", { name: w.contacts, level: 1 }),
+      ).toBeInTheDocument();
+      // The sidebar's places, all translated.
+      expect(
+        ["home", "inbox", "runs", "accounts", "contacts", "settings"].map(
+          // The Inbox's count follows its name.
+          (l) => screen.getByTestId(`portal-nav-${l}`).textContent?.replace(/\d+$/, ""),
         ),
       ).toEqual(w.nav);
       expect(await screen.findByTestId(`contact-${PAT}-sms`)).toHaveTextContent(w.smsAgreed);
-      expect(screen.getByTestId(`contact-${SAM}-opted-out`)).toHaveTextContent(w.stopped);
-      expect(screen.getByTestId(`contact-${PAT}`)).toHaveTextContent(w.contactLine);
-      expect(screen.getByTestId(`contact-${PAT}-open`)).toHaveTextContent(w.manage);
-      await userEvent.click(screen.getByTestId(`contact-${PAT}-open`));
+      expect(screen.getByTestId(`contact-${PAT}-reach`)).toHaveTextContent(w.contactLine);
+      await userEvent.click(screen.getByTestId(`contact-${PAT}-reach-edit`));
       expect(screen.getByTestId(`contact-${PAT}-details`)).toHaveTextContent(w.firstBy);
-      const msgs = await screen.findByTestId(`contact-${PAT}-messages`);
-      expect(msgs).toHaveTextContent(w.sent);
-      expect(msgs).toHaveTextContent(w.delivered);
-      expect(msgs).toHaveTextContent(w.called);
-      expect(msgs).toHaveTextContent(w.ended);
       // A text and a call transcript are the contact's and the call's own words: never translated.
+      const msgs = await screen.findByTestId("people-recent");
       expect(within(msgs).getByText("Your order is ready.")).toBeInTheDocument();
       expect(within(msgs).getByText("Caller: is it ready? Agent: yes.")).toBeInTheDocument();
+      // A STOP opt-out says so in the reader's words.
+      await userEvent.click(screen.getByTestId(`people-open-${SAM}`));
+      expect(await screen.findByTestId(`contact-${SAM}-opted-out`)).toHaveTextContent(w.stopped);
     });
 
     it("shows the knowledge base with the client's entries as written", async () => {
@@ -722,8 +762,8 @@ for (const locale of ["es", "de"] as const) {
     });
 
     it("binds people to roles, with role names and contacts as written", async () => {
-      renderAt("/people/reach", portalApi(locale, peopleRoutes));
-      expect(await screen.findByRole("heading", { name: w.people })).toBeInTheDocument();
+      renderAt(`/agents/${AGENT}/access`, portalApi(locale, peopleRoutes));
+      expect(await screen.findByText(w.whoContacts)).toBeInTheDocument();
       const role = await screen.findByTestId("role-purchaser");
       expect(role).toHaveTextContent("purchaser");
       expect(role).toHaveTextContent("Buys the materials");

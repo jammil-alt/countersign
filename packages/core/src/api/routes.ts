@@ -58,6 +58,9 @@ import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { runControlRoutes } from "./run-controls";
+// UI cleanup (stream A)
+import { RunWait } from "./run-state";
+import { RunSubject } from "./run-subject";
 import {
   OpsRunsQuery,
   PortalRunsQuery,
@@ -75,7 +78,7 @@ import { testbenchRoutes } from "./testbench";
 import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
 import { triggerRoutes } from "./triggers";
-import { AgentRunsNow, usageRoutes } from "./usage";
+import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
 // v0.14 W4-B
@@ -176,7 +179,13 @@ export const ClientSummary = z.object({
   timezone: z.string(),
   createdAt: Timestamp,
   agents: z.number().int(),
+  /** Open inbox items, for anyone (us or the client). */
   openInbox: z.number().int(),
+  // UI cleanup (stream A): what the back office counts per client, from one source.
+  /** Needs us at this client: the command center's escalations (`GET /api/ops/needs-us`). */
+  needsUs: z.number().int().optional(),
+  /** Its runs waiting for approval now (on anyone: the client or us). */
+  waitingRuns: z.number().int().optional(),
   /** The Sandbox client (`tenant.settings.sandbox`): fixture data for building and test runs. */
   sandbox: z.boolean().optional(),
 });
@@ -199,9 +208,28 @@ export const AgentSummary = z.object({
   approver: z.string().nullable(),
   /** A template's test copy in the Sandbox client: it only test-runs. */
   testCopy: z.boolean(),
+  // UI cleanup (design pass): a client agent's go-live stage, so "live" is counted one way
+  // (isLiveAgent); null for templates; optional so older answers still parse.
+  stage: z.string().nullable().optional(),
   createdAt: Timestamp,
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
+
+/**
+ * UI cleanup (design pass): a client agent's work at a glance, for the client page's Overview: its
+ * live runs in the last 7 days, how many wait for approval now, its last run, and its runs each day
+ * (KPI_DAYS, UTC, oldest first).
+ */
+export const OpsAgentActivity = z.object({
+  agentId: z.string(),
+  runs7d: z.number().int(),
+  waitingRuns: z.number().int(),
+  lastRun: z
+    .object({ id: z.string(), status: z.string(), at: Timestamp, waiting: z.boolean() })
+    .nullable(),
+  perDay: z.array(DayRuns),
+});
+export type OpsAgentActivity = z.infer<typeof OpsAgentActivity>;
 
 export const VersionSummary = z.object({
   id: z.string(),
@@ -232,6 +260,11 @@ export const OpsConnection = z.object({
   config: z.record(z.string(), z.unknown()),
   permissions: ConnectionMatrix,
   lastSyncAt: NullableTimestamp,
+  /**
+   * Its last activity: the last sync, or for a built-in source (upload and email forwarding) the
+   * last document that came through it. Absent where a route doesn't work it out.
+   */
+  lastActivityAt: NullableTimestamp.optional(),
   connectedBy: z.string().nullable(),
   createdAt: Timestamp,
 });
@@ -250,6 +283,16 @@ export const OpsRun = z.object({
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
   createdAt: Timestamp,
+  // UI cleanup (stream A): a run waiting on a person is "waiting for approval" whatever its stored
+  // status; who it waits on and since when (null when it waits on nobody). Absent where a route
+  // doesn't read it.
+  waiting: RunWait.nullable().optional(),
+  /** The workflow's name in the run's version (null when the version has no such workflow). */
+  workflowName: z.string().nullable().optional(),
+  /** A failed run: the name of the step it failed at, from the run's version. */
+  errorStep: z.string().nullable().optional(),
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
 
 export const OpsStep = z.object({
@@ -424,7 +467,12 @@ export const PortalRunSummary = z.object({
   // and how long it has waited on the client in all, kept out of its working time.
   waitingOnYou: z.boolean().optional(),
   waitedMs: z.number().int().nonnegative().optional(),
+  /** What the run is about, for its title: see RunSubject. */
+  subject: RunSubject.optional(),
 });
+
+/** Record names by id, for the receipts a run's steps cite (never "Record ·3f9a1c"). */
+export const SourceNames = z.record(z.string(), z.string());
 
 export const TimelineStep = z.object({
   id: z.string(),
@@ -497,6 +545,8 @@ export const PortalConnection = z.object({
        */
       accountName: z.string().nullable(),
       lastSyncAt: NullableTimestamp,
+      /** The last sync, or for upload and forwarding the last document that came through. */
+      lastActivityAt: NullableTimestamp.optional(),
       permissions: ConnectionMatrix,
       access: z.array(ToolAccessSchema),
       usedBy: z.array(z.object({ id: z.string(), name: z.string() })),
@@ -721,8 +771,13 @@ export const SkillListItem = z.object({
   outputs: z.array(z.string()),
   tools: z.array(z.string()),
   connectors: z.array(z.string()),
-  /** Agents (templates and client agents) whose live, else latest, version uses it. */
+  /**
+   * Client agents whose live, else latest, version uses it: a template and its test copies are
+   * not uses (the owner's review: "used by 2 agents" when one exists).
+   */
   usedBy: z.number().int(),
+  /** Those client agents, "Bill clerk · Demo client", for the library's hover and list. */
+  usedByNames: z.array(z.string()).optional(),
 });
 export type SkillListItem = z.infer<typeof SkillListItem>;
 
@@ -875,6 +930,8 @@ export const opsRoutes = {
           role: Role,
         }),
       ),
+      /** UI cleanup (design pass): each client agent's work at a glance (test copies left out). */
+      activity: z.array(OpsAgentActivity).optional(),
     }),
   }),
   opsClientConnections: defineRoute({
@@ -1378,6 +1435,11 @@ export const opsRoutes = {
           /** The payload's JSON Schema: what `{{trigger.…}}` can reference. */
           payload: JsonSchema,
           sample: z.unknown(),
+          /**
+           * The connector that emits it (`zoho_crm`), so the builder offers it only where that
+           * connector is connected; null or absent for the platform's own events.
+           */
+          connector: z.string().nullable().optional(),
         }),
       ),
     }),
@@ -1427,6 +1489,8 @@ export const opsRoutes = {
         .nullable(),
       // v0.13 W2-I: the run's oversight decisions, oldest first (ARCHITECTURE §10.11).
       oversight: z.array(OversightDecisionView).optional(),
+      /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
+      sourceNames: SourceNames.optional(),
     }),
   }),
   opsInbox: defineRoute({
@@ -1649,6 +1713,8 @@ export const portalRoutes = {
     response: z.object({
       run: PortalRunSummary,
       steps: z.array(TimelineStep),
+      /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
+      sourceNames: SourceNames.optional(),
       approvals: z.array(
         z.object({
           id: z.string(),

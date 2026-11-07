@@ -59,7 +59,7 @@ export function ChangeTables({
         </p>
       ) : null}
       {lists.map((f) => (
-        <ListField key={f.key} field={f} create={model.create} />
+        <ListField key={f.key} field={f} create={model.create} fold={!model.create && f.changed} />
       ))}
       {unchanged.length > 0 ? (
         <p className="text-sm text-ink-muted" data-testid="change-unchanged">
@@ -123,6 +123,14 @@ function FieldsTable({ fields, create }: { fields: ChangeField[]; create: boolea
   );
 }
 
+/** A list side with only the given items; the lines' total stays the whole list's unless dropped. */
+function only(value: ChangeValue, keep: (item: ItemView) => boolean, total = true): ChangeValue {
+  if (value.type === "lines") {
+    return { ...value, items: value.items.filter(keep), total: total ? value.total : null };
+  }
+  return value.type === "files" ? { ...value, items: value.items.filter(keep) } : value;
+}
+
 /** A date-only value ("2026-10-28") read at local noon, so no time zone moves it a day. */
 function dateText(value: string, fmt: Formatters): string {
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value;
@@ -149,9 +157,24 @@ export function valueText(v: ChangeValue, fmt: Formatters): string {
   }
 }
 
-/** A list field (lines, files, records): its own now and after tables, stacked. */
-function ListField({ field, create }: { field: ChangeField; create: boolean }) {
+/**
+ * A list field (lines, files, records): its own now and after tables, stacked. With `fold`, only
+ * the lines the change removes (now) and adds (after) show; the lines it keeps fold beneath.
+ */
+function ListField({
+  field,
+  create,
+  fold,
+}: {
+  field: ChangeField;
+  create: boolean;
+  fold: boolean;
+}) {
   const { t } = useI18n();
+  const marked = (i: ItemView) => i.marked;
+  const kept = fold ? only(field.after, (i) => !i.marked, false) : null;
+  const keptCount =
+    kept && (kept.type === "lines" || kept.type === "files") ? kept.items.length : 0;
   return (
     <section
       data-testid={`change-${field.key}`}
@@ -162,17 +185,33 @@ function ListField({ field, create }: { field: ChangeField; create: boolean }) {
       <ListSide
         testId={`change-${field.key}-now`}
         title={t("change.now")}
-        value={create ? { type: "none" } : field.now}
+        value={create ? { type: "none" } : fold ? only(field.now, marked) : field.now}
         side="now"
         empty={create ? t("change.createsIt") : t("change.noneYet")}
       />
       <ListSide
         testId={`change-${field.key}-after`}
         title={t("change.after")}
-        value={field.after}
+        value={fold ? only(field.after, marked) : field.after}
         side="after"
         empty={t("change.noneYet")}
       />
+      {kept && keptCount > 0 ? (
+        <details data-testid={`change-${field.key}-unchanged`} className="text-sm">
+          <summary className="cursor-pointer text-ink-muted">
+            {t("change.linesUnchanged", { count: keptCount })}
+          </summary>
+          <div className="mt-2">
+            <ListSide
+              testId={`change-${field.key}-kept`}
+              title={field.label}
+              value={kept}
+              side="after"
+              empty={t("change.noneYet")}
+            />
+          </div>
+        </details>
+      ) : null}
     </section>
   );
 }

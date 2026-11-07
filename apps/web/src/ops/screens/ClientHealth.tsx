@@ -8,7 +8,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { shortTime } from "../../runs/format";
 import { Section } from "../../ui/page";
-import { Badge, Button, Card, EmptyState, ErrorNotice, Tag } from "../../ui/primitives";
+import { Badge, Button, Card, ErrorNotice, Tag } from "../../ui/primitives";
 
 const AUDIENCE: Record<OpsFinding["audience"], string> = {
   client_admin: "Client admin",
@@ -33,6 +33,17 @@ function detailLines(details: Record<string, unknown> | null): [string, string][
     const v = details[key];
     return v === null || v === undefined || v === "" ? [] : [[label, String(v)]];
   });
+}
+
+/**
+ * What the supervisor does, reading well whatever it is called: "The supervisor checks …", or
+ * "Ana, the supervisor, checks …" when it has a name of its own.
+ */
+export function supervisorLine(name: string): string {
+  const who = /^\s*(the\s+)?supervisor\s*$/i.test(name)
+    ? "The supervisor"
+    : `${name}, the supervisor,`;
+  return `${who} checks this client's runs, connections, logins, codes and waiting items every day. It changes nothing.`;
 }
 
 export function ClientHealthSection({
@@ -71,6 +82,11 @@ export function ClientHealthSection({
   return (
     <Section
       title="Health"
+      meta={
+        data.findings.length > 0
+          ? `${data.findings.length} ${data.findings.length === 1 ? "finding" : "findings"} open`
+          : undefined
+      }
       testId="ops-client-health"
       action={
         data.supervisor ? (
@@ -86,8 +102,8 @@ export function ClientHealthSection({
       <Card className="flex flex-col gap-3 p-5">
         {data.supervisor ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-ink">
-              {data.supervisor.name} watches runs, connections, logins, codes and waiting items.
+            <p className="text-ink" data-testid="ops-client-supervisor-line">
+              {supervisorLine(data.supervisor.name)}
             </p>
             <Badge
               tone={data.supervisor.runStatus === "active" ? "positive" : "neutral"}
@@ -101,8 +117,8 @@ export function ClientHealthSection({
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-ink">
-              No supervisor yet. It watches this client's account and tells the client admin and us
-              what needs a person. It changes nothing itself.
+              No supervisor yet. A supervisor is an agent that checks this client's account each day
+              and tells the client admin and us what needs a person. It changes nothing itself.
             </p>
             <Button
               variant="secondary"
@@ -124,13 +140,21 @@ export function ClientHealthSection({
         ) : null}
       </Card>
 
-      <div className="flex flex-col gap-3" data-testid="ops-client-findings">
-        {data.findings.length === 0 ? (
-          <EmptyState>Nothing open.</EmptyState>
-        ) : (
-          data.findings.map((f) => <FindingCard key={f.id} finding={f} />)
-        )}
-      </div>
+      {/* Findings: what the supervisor found that needs a person. None open: nothing to show. */}
+      {data.findings.length > 0 ? (
+        <div className="flex flex-col gap-3" data-testid="ops-client-findings">
+          <p className="text-sm text-ink-muted">
+            Findings are what the supervisor found that needs a person, ours or the client admin's.
+          </p>
+          {data.findings.map((f) => (
+            <FindingCard key={f.id} finding={f} />
+          ))}
+        </div>
+      ) : data.supervisor ? (
+        <p className="text-sm text-ink-muted" data-testid="ops-client-findings">
+          No findings open: nothing it checks needs a person.
+        </p>
+      ) : null}
     </Section>
   );
 }

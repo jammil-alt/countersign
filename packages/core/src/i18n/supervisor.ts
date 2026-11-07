@@ -70,7 +70,7 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         p.count === 1
           ? "1 item is still waiting for you"
           : `${p.count ?? 0} items are still waiting for you`,
-      steps: () => ["Go to Your Desk.", "Approve, answer or decline each one."],
+      steps: () => ["Go to your Inbox.", "Approve, answer or decline each one."],
     },
   },
   es: {
@@ -116,7 +116,7 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         p.count === 1
           ? "1 elemento sigue esperándole"
           : `${p.count ?? 0} elementos siguen esperándole`,
-      steps: () => ["Vaya a Su escritorio.", "Apruebe, responda o rechace cada uno."],
+      steps: () => ["Vaya a la Bandeja.", "Apruebe, responda o rechace cada uno."],
     },
   },
   fr: {
@@ -162,7 +162,7 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         (p.count ?? 0) <= 1
           ? `${p.count ?? 0} élément vous attend toujours`
           : `${p.count} éléments vous attendent toujours`,
-      steps: () => ["Allez dans Votre bureau.", "Approuvez, répondez ou refusez chacun."],
+      steps: () => ["Allez dans la Boîte de réception.", "Approuvez, répondez ou refusez chacun."],
     },
   },
   "pt-BR": {
@@ -208,7 +208,7 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         p.count === 1
           ? "1 item ainda espera por você"
           : `${p.count ?? 0} itens ainda esperam por você`,
-      steps: () => ["Vá para Sua mesa.", "Aprove, responda ou recuse cada um."],
+      steps: () => ["Vá para a Caixa de entrada.", "Aprove, responda ou recuse cada um."],
     },
   },
   it: {
@@ -254,7 +254,7 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         p.count === 1
           ? "1 elemento ti sta ancora aspettando"
           : `${p.count ?? 0} elementi ti stanno ancora aspettando`,
-      steps: () => ["Vai nella tua scrivania.", "Approva, rispondi o rifiuta ciascuno."],
+      steps: () => ["Vai nella Posta in arrivo.", "Approva, rispondi o rifiuta ciascuno."],
     },
   },
   de: {
@@ -301,7 +301,7 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
           ? "1 Eintrag wartet noch auf Sie"
           : `${p.count ?? 0} Einträge warten noch auf Sie`,
       steps: () => [
-        "Gehen Sie zu Ihrem Schreibtisch.",
+        "Gehen Sie zum Posteingang.",
         "Genehmigen, beantworten oder lehnen Sie jeden ab.",
       ],
     },

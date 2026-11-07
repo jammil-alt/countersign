@@ -69,7 +69,7 @@ export const es: Messages = {
   "shell.noClient": "Sin cliente",
   "shell.search": "Buscar",
   "shell.searchPlaceholder": "Busque sus agentes, ejecuciones, registros y personas",
-  "shell.desk": "Su escritorio",
+  "shell.desk": "Bandeja", // fluent review
   "shell.menu": "Menú",
   "shell.closeMenu": "Cerrar el menú",
   "shell.switchAgent": "Cambiar de agente",
@@ -132,9 +132,9 @@ export const es: Messages = {
   "overview.subtitle": "Sus agentes, lo que hicieron y lo que le espera.",
   "overview.services": "Sus agentes",
   "overview.noServices": "Aún no hay agentes. Los configuramos con usted y aparecen aquí.",
-  "overview.openInbox": "Abrir su escritorio",
+  "overview.openInbox": "Abrir la bandeja",
   "overview.needsYou": "Le necesita",
-  "overview.inboxItems": { one: "elemento en su escritorio", other: "elementos en su escritorio" },
+  "overview.inboxItems": { one: "elemento en su bandeja", other: "elementos en su bandeja" },
   "overview.changesWait": "Los cambios en sus herramientas esperan su aprobación",
   "overview.questionsWait": "Las preguntas esperan su respuesta",
   "overview.health": "Revisión de la cuenta",
@@ -156,7 +156,6 @@ export const es: Messages = {
   },
   "overview.findings": "Lo que le necesita ahora",
   "overview.findingReminder": "Recordatorio",
-  "overview.findingMarkDone": "Cuando lo haya hecho, márquelo como hecho en su escritorio.",
   // ── The Table and the agent page (UI-1a) ──
   "table.greeting.morning": "Buenos días, {name}",
   "table.greeting.afternoon": "Buenas tardes, {name}",
@@ -183,7 +182,6 @@ export const es: Messages = {
   "table.thisWeek": "Esta semana",
   "table.stat.runs": "Ejecuciones hechas",
   "table.stat.changes": "Cambios en sus herramientas",
-  "table.stat.changesNote": "{automatic} automáticos, {signed} aprobados por usted",
   "table.stat.onYourDesk": "En su escritorio",
   "table.latest": "Lo último de sus agentes",
   "table.seeAllRuns": "Ver todas las ejecuciones",
@@ -235,7 +233,7 @@ export const es: Messages = {
   "agent.reachChange": "Cambiar",
   "agent.reachNone": "{name} aún no accede a ninguna de sus cuentas.",
   "agent.revoked": "Sin acceso",
-  "agent.level.auto": "{verb}: por su cuenta",
+  "agent.level.auto": "{verb}: por su cuenta", // fluent review
   "agent.level.approval": "{verb}: necesita su aprobación",
   "agent.level.off": "{verb}: desactivado",
   "agent.verb.read": "Leer",
@@ -247,7 +245,7 @@ export const es: Messages = {
   "agent.runStarted": "{name} empezó.",
 
   // ── Inbox ──
-  "inbox.title": "Su escritorio",
+  "inbox.title": "Bandeja",
   "inbox.subtitle":
     "Cambios que sus agentes quieren hacer y preguntas que necesitan respuesta. Nada cambia en sus herramientas hasta que alguien de su equipo diga que sí.",
   "inbox.emptyOpen": "Nada le espera ahora.",
@@ -287,17 +285,17 @@ export const es: Messages = {
   "inbox.findingDone": "Hecho",
   "inbox.signAndUpdate": "Aprobar y actualizar {tool}",
   // ── Your Desk (UI-1b) ──
-  "desk.title": "Su escritorio",
-  "desk.subtitle": "Lo que sus agentes necesitan de usted y todo lo que han hecho.",
+  "desk.title": "Bandeja", // fluent review
+  "desk.subtitle": "Lo que sus agentes necesitan de usted y lo que han hecho.", // fluent review
   "desk.filter.agent": "Agente",
   "desk.filter.allAgents": "Todos los agentes",
-  "desk.view.label": "Vista del escritorio",
+  "desk.view.label": "Vista de la bandeja", // fluent review
   "desk.view.questions": "Preguntas",
   "desk.view.later": "Ahora no",
   "desk.view.done": "Hecho",
   "desk.empty.waiting": "Ahora mismo nada le espera.",
   "desk.empty.questions": "Ahora mismo no hay preguntas para usted.",
-  "desk.empty.later": "Nada apartado. Lo que deje con «Ahora no» espera aquí.",
+  "desk.empty.later": "Nada apartado. Lo que deje con «Ahora no» aparece aquí.", // fluent review
   "desk.empty.done": "Todavía no hay nada hecho.",
   "desk.day.today": "Hoy",
   "desk.day.yesterday": "Ayer",
@@ -328,7 +326,7 @@ export const es: Messages = {
   "desk.band.later": "Apartado para más tarde",
   "desk.band.resolvedAt": "Hecho a las {time}",
   "desk.viewer": "Puede verlo, pero no aprueba por su equipo.",
-  "desk.snoozedUntil": "Apartado hasta {time}. Entonces vuelve a «Le espera a usted».",
+  "desk.snoozedUntil": "Apartado hasta {time}. Entonces vuelve a «En espera».", // fluent review
   "desk.notNow": "Ahora no",
   "desk.openRequests": "Abrir solicitudes",
   "desk.edit": "Editar",
@@ -419,7 +417,7 @@ export const es: Messages = {
   "run.noChanges": "Esta ejecución no hizo cambios en sus herramientas.",
   "run.approvals": "Aprobaciones",
   "run.noApprovals": "Esta ejecución no tuvo aprobaciones.",
-  "run.openInbox": "Abrir su escritorio",
+  "run.openInbox": "Abrir su bandeja",
   "action.status.proposed": "Esperando aprobación",
   "action.status.approved": "Aprobado",
   "action.status.executing": "En proceso",
@@ -436,7 +434,7 @@ export const es: Messages = {
   "connections.connectBelow": "Conecte una abajo.",
   "connections.adminConnects": "Su administrador las conecta.",
   "connections.matrixNote":
-    "Aprobación significa que el cambio espera en su escritorio hasta que alguien diga que sí.",
+    "Aprobación significa que el cambio espera en su bandeja hasta que alguien diga que sí.",
   "connections.available": "Disponibles",
   "connections.synced": "sincronizado {time}",
   "connections.live": "en vivo",
@@ -490,9 +488,9 @@ export const es: Messages = {
   "matrix.verb.create": "crear",
   "matrix.verb.update": "actualizar",
   "matrix.verb.delete": "eliminar",
-  "matrix.level.auto": "Automático",
-  "matrix.level.approval": "Aprobación",
-  "matrix.level.off": "Desactivado",
+  "matrix.level.auto": "Por su cuenta", // fluent review
+  "matrix.level.approval": "Necesita aprobación", // fluent review
+  "matrix.level.off": "Desactivado", // fluent review
   "matrix.tightenNote": "Usted puede restringirlos. Solo nosotros podemos volver a ampliarlos.",
   "matrix.operatorNote": "Los cambios se aplican en la próxima llamada y quedan registrados.",
   "matrix.discard": "Descartar",
@@ -596,7 +594,7 @@ export const es: Messages = {
   "webhook.makeHook": "Crear hook",
   "webhook.outTitle": "Desde Mezonas",
   "webhook.outHelp":
-    'Pegue la URL "Catch Hook" de su Zap. Cada evento espera aprobación en su escritorio, salvo que sus permisos dejen que un paso se ejecute sin preguntar.',
+    'Pegue la URL "Catch Hook" de su Zap. Cada evento espera aprobación en su bandeja, salvo que sus permisos dejen que un paso se ejecute sin preguntar.',
   "webhook.sendTo": "Enviar eventos a (https)",
   "webhook.sendingTo": "Enviando a {host}.",
   "webhook.sendingToSince": "Enviando a {host} desde {time}.",
@@ -622,6 +620,8 @@ export const es: Messages = {
   "upload.rowsSkipped": { one: "{count} fila omitida", other: "{count} filas omitidas" },
   "upload.received": "Recibido",
   "upload.duplicate": "Ya estaba: guardamos una sola copia.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "upload.duplicateOf": "Es la misma factura que {filename}: no la procesaremos de nuevo.",
   "upload.sameFile": "El mismo archivo que el recibido ({time}). Guardamos una sola copia.",
   "forwarding.title": "Reenviar facturas por correo",
   "forwarding.uploadInRecords": "Suba archivos usted mismo en Registros",
@@ -652,6 +652,8 @@ export const es: Messages = {
   "documents.col.total": "Total",
   "documents.col.status": "Estado",
   "documents.col.received": "Recibido",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "documents.duplicate": "Duplicado",
   "documents.invoiceNumber": "Factura {number}",
   "documents.sameInvoice": "La misma factura que la recibida ({time})",
   "document.status.stored": "Recibido",
@@ -679,6 +681,11 @@ export const es: Messages = {
   "document.po": "Pedido u obra",
   "document.pages": "Páginas",
   "document.matched": "Vinculado a una compra.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "document.matchedBill": "Vinculado a una factura de proveedor.",
+  "document.matchedVendorCredit": "Vinculado a un crédito de proveedor.",
+  "document.duplicateOf":
+    "Es la misma factura que {filename}, que llegó primero. La leímos y no hicimos nada más con ella.",
   "document.totals": "Totales",
   "document.lines": "Líneas",
   "document.subtotal": "Subtotal",
@@ -804,7 +811,7 @@ export const es: Messages = {
   "people.role": "Rol",
   "people.invite": "Invitar",
   "people.rolesHelp":
-    "Los administradores conectan herramientas, aprueban cambios e invitan a personas. Los usuarios ven los elementos del escritorio que se les asignan, las ejecuciones y los informes.",
+    "Los administradores conectan herramientas, aprueban cambios e invitan a personas. Los usuarios ven los elementos de la bandeja que se les asignan, las ejecuciones y los informes.",
   "people.invite.sent": "Enviamos una invitación a {email}.",
   "people.invite.signedUpBefore":
     "Agregamos a {email}. Ya inició sesión antes, así que no hacía falta enviar un correo.",
@@ -954,9 +961,6 @@ export const es: Messages = {
   "approvers.addRule": "Agregar regla",
   "approvers.updateRule": "Actualizar regla",
   "approvers.remove": "Quitar",
-  "approvers.why": "¿Por qué este cambio?",
-  "approvers.reasonNeeded":
-    "Indique el motivo, para que el registro de cambios se entienda después.",
   "approvers.save": "Guardar reglas",
   "approvers.tightenNote":
     "Usted puede hacer las aprobaciones más estrictas. Solo nosotros podemos volver a flexibilizarlas.",
@@ -1451,7 +1455,7 @@ export const es: Messages = {
   // ── UI-1c: Accounts and vault, People ──
   "accounts.title": "Cuentas",
   "accounts.subtitle":
-    "Las herramientas y los accesos que usan sus agentes. Usted decide qué puede hacer cada agente en cada una.",
+    "Las herramientas y los accesos que usan sus agentes. Abra una herramienta para ver qué pueden hacer los agentes en ella.", // fluent review
   "accounts.addLogin": "Añadir un acceso a la bóveda",
   "accounts.connectAccount": "Conectar una cuenta",
   "accounts.stat.connected": "Conectadas",
@@ -1471,7 +1475,7 @@ export const es: Messages = {
   "accounts.stat.nothingWaits": "Nada le espera",
   "accounts.tools.title": "Sus herramientas",
   "accounts.tools.connectRight": "Conecte una a la derecha.",
-  "accounts.card.agentsMay": "Lo que los agentes pueden hacer aquí",
+  "accounts.card.agentsMay": "Qué pueden hacer los agentes", // fluent review
   "accounts.card.hide": "Ocultar",
   "accounts.card.matrixNote":
     "Puede restringir cualquiera de estos al instante. Solo nosotros podemos ampliarlos. Eliminar siempre está desactivado.",
@@ -1500,6 +1504,7 @@ export const es: Messages = {
   "peoplePage.subtitle":
     "Todas las personas a las que sus agentes pueden contactar, quiénes son para usted y cómo prefieren que les contacten.",
   "peoplePage.add": "Añadir una persona",
+  "peoplePage.import": "Importar personas",
   "peoplePage.adminOnly": "Su administrador gestiona esta parte de Personas.",
   "peoplePage.tab.people": "Personas",
   "peoplePage.tab.organizations": "Organizaciones",
@@ -1518,8 +1523,8 @@ export const es: Messages = {
   "peoplePage.filter.vendor": "Proveedores",
   "peoplePage.filter.partner": "Socios",
   "peoplePage.filter.other": "Otros",
-  "peoplePage.level.auto": "Por su cuenta",
-  "peoplePage.level.approval": "Con su aprobación",
+  "peoplePage.level.auto": "Por su cuenta", // fluent review
+  "peoplePage.level.approval": "Necesita aprobación", // fluent review
   "peoplePage.level.off": "Desactivado",
   "peoplePage.level.unset": "Sin límite adicional",
   "peoplePage.search": "Buscar personas",
@@ -1544,7 +1549,7 @@ export const es: Messages = {
   "peoplePage.fromThem": "De esta persona · {channel}",
   "peoplePage.toThem": "A esta persona · {channel}",
   "peoplePage.levelNote":
-    "Puede hacer un canal más estricto: que le pregunten antes, o nunca. Solo nosotros podemos ampliarlo de nuevo.",
+    "Puede hacer un canal más estricto: que necesite aprobación, o desactivarlo. Solo nosotros podemos ampliarlo de nuevo.", // fluent review
   "peoplePage.tighten": "Hacer más estricto",
   "peoplePage.voice.title": "Muestras de estilo",
   "peoplePage.voice.subtitle":
@@ -1561,12 +1566,12 @@ export const es: Messages = {
   "peoplePage.voice.textHint":
     "Pegue un correo o mensaje que haya escrito. Las respuestas citadas se quitan.",
   "accounts.signoff": "Quién aprueba cada cambio, y hasta qué importe, está en",
-  "accounts.signoffLink": "Ajustes",
+  "accounts.signoffLink": "Configuración, en Aprobaciones", // fluent review
   // UI-1d: Runs, a run's page, the Weekly Table, Settings and Sloan (docs/ui-plan.md C6–C10).
   "nav.weekly": "Mesa semanal",
   "nav.sloan": "Sloan",
   "nav.sloanLine": "Su agente de cuenta. Pregúntele lo que quiera.",
-  "shell.askSloan": "Preguntar a Sloan: {q}",
+  "shell.askSloan": "Preguntar a Sloan, su agente de cuenta: {q}", // fluent review
   "runsPage.subtitle":
     "Cada vez que un agente trabajó para usted: cuándo empezó, cada paso, qué cambió y quién aprobó.",
   "runsPage.tab.all": "Todas",
@@ -1667,10 +1672,9 @@ export const es: Messages = {
   "weekly.details": "Detalles",
   "weekly.nextWeek": "La semana que viene",
   "settingsPage.subtitle": "Su empresa, quién aprueba, cómo paga y cómo le contactamos.",
-  "settingsPage.subtitleMember": "Cómo le contactamos y el idioma en que lee.",
+  "settingsPage.subtitleMember": "Cómo le contactamos, el idioma en que lee y quién aprueba qué.", // fluent review
   "settingsPage.billing": "Facturación",
   "settingsPage.team": "Equipo",
-  "settingsPage.signoff": "Aprobaciones",
   "settingsPage.notifications": "Avisos",
   "settingsPage.language": "Idioma",
   "settingsPage.languageBody": "Cada elección se guarda al momento.",
@@ -1725,7 +1729,6 @@ export const es: Messages = {
 
   // ── UI-3a: registros, subir, equipo, exportaciones ──
   "records.lastSync": "Última sincronización {time}.",
-  "records.upload": "Subir documentos",
   "records.fromAccount": "De {account}",
   "records.found": { one: "{count} registro", other: "{count} registros" },
   "records.kind.receivables": "Cuentas por cobrar",
@@ -1773,14 +1776,93 @@ export const es: Messages = {
   "exports.problem.order": "El primer día debe ser anterior al último.",
   "exports.problem.long": "Un periodo tiene como máximo {days} días.",
   "settingsPage.teamLink": "Equipo",
-  "settingsPage.teamLinkHelp": "Quién usa su portal, qué aprueba cada persona, e invitaciones.",
   "settingsPage.exportsLink": "Exportaciones",
   "settingsPage.exportsLinkHelp": "La exportación para su contador y su registro de auditoría.",
-  "settingsPage.seeTeam": "Ver quién aprueba qué en su equipo",
   "knowledge.adminOnly":
     "Solo su administrador puede ver y cambiar lo que los agentes saben de su empresa.",
   "sloan.requests": "Sus solicitudes a nosotros",
   "sloan.mode.change": "Pedir un cambio",
   "signin.needAccess":
     "¿Necesita acceso? Pregunte a su administrador o a su responsable en Mezonas.",
+  "nav.upload": "Subir",
+  // UI cleanup (run pages and changes): new strings, and the runDetail approval words above
+  // (approve, not sign). Needs a fluent speaker's review.
+  "run.subject.invoice": "Factura {number}",
+  "runDetail.waitingSince": "Le espera desde {time}",
+  "runDetail.waitingItems": {
+    one: "{count} elemento espera su aprobación.",
+    other: "{count} elementos esperan su aprobación.",
+  },
+  "change.linesUnchanged": {
+    one: "{count} línea sin cambios",
+    other: "{count} líneas sin cambios",
+  },
+
+  // UI cleanup, stream E: the portal's new structure (Home, Inbox, Contacts, the agent page's
+  // tabs, Settings sections). Needs a fluent speaker's review, as do the lines marked above.
+  "nav.home": "Inicio",
+  "nav.inbox": "Bandeja",
+  "home.addDocuments": "Añadir documentos",
+  "home.agents": "Sus agentes",
+  "home.needsYou": "Le necesita",
+  "home.openInbox": "Abrir su bandeja",
+  "home.moreInInbox": { one: "{count} más en su bandeja", other: "{count} más en su bandeja" },
+  "home.card.now": "Ahora: {step}",
+  "home.card.lastRun": "Última ejecución {time}",
+  "home.card.waitingSince": "Le espera desde {time}",
+  "home.weekly.title": "Su resumen semanal",
+  "home.weekly.open": "Leer el resumen",
+  "home.weekly.ready": "Su responsable envió el resumen de esta semana.",
+  "agent.tab.overview": "Resumen",
+  "agent.tab.runs": "Ejecuciones",
+  "agent.tab.access": "Acceso",
+  "agent.documents": "Documentos",
+  "agent.documentsAll": "Todos los documentos",
+  "agent.fullReport": "Ver el informe completo",
+  "agent.contacts": "A quién contacta {name}",
+  "agent.contactsHelp":
+    "Las personas a las que puede contactar en cada uno de sus roles, y cuándo. El consentimiento sigue en cada contacto.",
+  "inbox.askUs": "Pregúntenos",
+  "inbox.askUsPrompt": "Quiero pedir a Mezonas: ",
+  "inbox.showLater": {
+    one: "Mostrar {count} apartado con «Ahora no»",
+    other: "Mostrar {count} apartados con «Ahora no»",
+  },
+  "accounts.add.askPrompt": "Por favor, añadan esta herramienta para que mis agentes la usen: ",
+  "matrix.recordTypes": { one: "{count} tipo de registro", other: "{count} tipos de registro" },
+  "contactsPage.backToList": "Volver a sus contactos",
+  "contactsPage.consent": "Consentimiento y cómo prefiere que le contacten",
+  "contacts.prefers": "Prefiere, en orden: {channels}",
+  "contacts.quietLine": "Sin contacto de {start} a {end}",
+  "contacts.timezoneLine": "Su zona horaria: {zone}",
+  "contacts.consentEdit": "Registrar o cambiar el consentimiento",
+  "contacts.reachEdit": "Editar cómo contactarle",
+  "settingsPage.general": "General",
+  "settingsPage.approvals": "Aprobaciones",
+  "settingsPage.exports": "Exportaciones",
+  "settingsPage.conversations": "Conversaciones",
+  "settingsPage.voice": "Muestras de estilo",
+  "settingsPage.sloanBody":
+    "Sloan es su agente de cuenta. Pregúntele por el trabajo de sus agentes, o pídale que pause uno: use «Preguntar a Sloan» arriba, o el buscador. Sloan nunca afloja una regla.",
+  "settingsPage.sloanOpen": "Abrir Sloan",
+
+  // UI cleanup (design pass): Home's figures, each agent's figures, and Ask Sloan in the top bar.
+  // Needs a fluent speaker's review.
+  "home.kpi.runsDone": "Ejecuciones hechas · esta semana",
+  "home.kpi.changes": "Cambios en herramientas · esta semana",
+  "home.kpi.changesNote": "{automatic} por su cuenta · {approved} aprobados por usted",
+  "home.kpi.waiting": "Le espera a usted",
+  "home.kpi.waitingNote": "Aprobaciones y preguntas",
+  "home.kpi.documents": "Documentos leídos · esta semana",
+  "home.kpi.up": "{count} más que la semana pasada",
+  "home.kpi.down": "{count} menos que la semana pasada",
+  "home.kpi.same": "Igual que la semana pasada",
+  "kpi.runsDays": {
+    one: "{count} ejecución en los últimos {days} días",
+    other: "{count} ejecuciones en los últimos {days} días",
+  },
+  "home.card.runsWeek": { one: "ejecución esta semana", other: "ejecuciones esta semana" },
+  "home.card.changes": { one: "cambio en sus herramientas", other: "cambios en sus herramientas" },
+  "shell.askSloanButton": "Preguntar a Sloan",
+  "shell.askSloanHint": "Su agente de cuenta: pregúntele por el trabajo de sus agentes",
 };

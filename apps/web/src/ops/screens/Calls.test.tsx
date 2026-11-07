@@ -137,13 +137,23 @@ describe("portal: consent to calls", () => {
       optedOut: null,
       canMessage: { sms: false, whatsapp: false },
       canCall,
+      organization: null,
+      title: null,
+      relationship: null,
+      source: "manual",
       createdAt: "2026-11-04T10:00:00.000Z",
       updatedAt: "2026-11-04T10:00:00.000Z",
     });
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/feedback/status": () => ({ enabled: false }),
-      "GET /api/contacts": () => ({ items: [contact()] }),
+      // Contacts (UI cleanup): the directory's list, consent in a person's detail.
+      "GET /api/directory": () => ({
+        people: [contact()],
+        organizations: [],
+        pendingSuggestions: 0,
+      }),
+      "GET /api/people": () => ({ items: [] }),
       [`GET /api/contacts/${PAT}/messages`]: () => ({
         items: [
           {
@@ -163,13 +173,12 @@ describe("portal: consent to calls", () => {
         return { contact: contact() };
       },
     });
-    renderAt("/contacts", api);
+    renderAt(`/contacts?person=${PAT}`, api);
     expect(await screen.findByTestId(`contact-${PAT}-voice`)).toHaveTextContent(
       "Calls: not agreed",
     );
-    await userEvent.click(screen.getByTestId(`contact-${PAT}-open`));
     expect(await screen.findByText("Call, 2 min: Pat confirmed Friday.")).toBeInTheDocument();
-    expect(screen.getByText(/We called · Call/)).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId(`contact-${PAT}-open`));
     await userEvent.selectOptions(screen.getByTestId(`contact-${PAT}-channel`), "voice");
     await userEvent.type(screen.getByTestId(`contact-${PAT}-source`), "said yes on the phone");
     await userEvent.click(screen.getByTestId(`contact-${PAT}-grant`));

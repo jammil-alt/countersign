@@ -5,7 +5,9 @@ import {
   DEFAULT_TRIAL_MIN_DAYS,
   DEFAULT_TRIAL_MIN_RUNS,
   effectiveMode,
+  goLiveCounts,
   goLiveItem,
+  isLiveAgent,
   nextStage,
   readStageState,
   stageMove,
@@ -154,5 +156,28 @@ describe("stage state", () => {
       expect(w.text).toContain("26");
       expect(w.ask.length).toBeGreaterThan(10);
     }
+  });
+});
+
+describe("live, one meaning (design pass)", () => {
+  it("is switched on and at the live stage; trial, sign-off and the bench are not live", () => {
+    expect(isLiveAgent({ runStatus: "active", stage: "live" })).toBe(true);
+    expect(isLiveAgent({ runStatus: "active", stage: "trial" })).toBe(false);
+    expect(isLiveAgent({ runStatus: "active", stage: "bench" })).toBe(false);
+    expect(isLiveAgent({ runStatus: "paused", stage: "live" })).toBe(false);
+    expect(isLiveAgent({ runStatus: "active", stage: null })).toBe(false);
+  });
+
+  it("counts switched-on agents by stage, no stage as the bench", () => {
+    expect(
+      goLiveCounts([
+        { runStatus: "active", stage: "live" },
+        { runStatus: "active", stage: "trial" },
+        { runStatus: "active", stage: "trial" },
+        { runStatus: "active", stage: null },
+        { runStatus: "draft", stage: "bench" },
+        { runStatus: "paused", stage: "live" },
+      ]),
+    ).toEqual({ bench: 1, trial: 2, signoff: 0, live: 1 });
   });
 });

@@ -222,6 +222,13 @@ describe.skipIf(!h)("API", () => {
       });
       expect(again.status).toBe(409);
       const vid = j(v2.json).version.id;
+      // The page reads the live and latest bundles only; the list of versions carries none.
+      const page = j((await H.call(OPERATOR, "GET", `/api/ops/agents/${templateId}`)).json);
+      expect(page.versions.map((v: object) => "bundle" in v)).toEqual([false, false]);
+      expect(page.latest).toMatchObject({ id: vid, version: 2 });
+      expect(page.latest.bundle.definition.identity.name).toBe("Records clerk v2");
+      expect(page.live).toMatchObject({ id: templateV1, version: 1 });
+      expect(page.live.bundle.definition.identity.name).toBe("Records clerk");
       const pub = await H.call(
         OPERATOR,
         "POST",
@@ -305,6 +312,16 @@ describe.skipIf(!h)("API", () => {
       expect(j(events.json).events.map((e: { type: string }) => e.type)).toContain(
         "inbox.resolved",
       );
+      // UI cleanup: each says which connector emits it, so the builder offers only connected ones.
+      const byType = new Map(
+        j(events.json).events.map((e: { type: string; connector: string | null }) => [
+          e.type,
+          e.connector,
+        ]),
+      );
+      // The harness registers no connector with events: every event is the platform's.
+      expect(byType.get("inbox.resolved")).toBeNull();
+      expect([...byType.values()].every((c) => c === null)).toBe(true);
     });
 
     // v0.13 W2-H (docs/plan.md §1.53): the models a step may name, checked the way the builder does.

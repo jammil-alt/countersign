@@ -5,6 +5,7 @@
 // document that started a run as read by that agent.
 
 import { createHash } from "node:crypto";
+import { KPI_DAYS } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -257,6 +258,23 @@ describe.skipIf(!h)("a run as the client sees it", () => {
     expect(table.figures.runs).toMatchObject({ waiting: inWeek ? 1 : 0 });
     expect(clerk.runs).toMatchObject({ waiting: inWeek ? 1 : 0, going: 1 });
     expect(clerk.runsDone).toBe(clerk.runs.succeeded);
+    // Design pass: its runs each day for the small chart, 14 days in the client's days, the same
+    // three runs the runs-per-day route counts; its week's changes and documents as Reports counts.
+    const days = clerk.perDay as { runs: number; failed: number }[];
+    expect(days).toHaveLength(KPI_DAYS);
+    expect(days.reduce((n, d) => n + d.runs, 0)).toBe(3);
+    expect(table.figures.perDay).toHaveLength(KPI_DAYS);
+    expect(typeof clerk.changes).toBe("number");
+    expect(table.figures.documentsRead).toBeGreaterThanOrEqual(clerk.documentsRead);
+    expect(table.figures.lastWeek).toEqual({
+      runsDone: expect.any(Number),
+      changes: expect.any(Number),
+      documentsRead: expect.any(Number),
+    });
+    // UI cleanup: an agent built for this client alone has no template; the page knows whether
+    // it reads documents (upload on its page).
+    expect(svc.template).toBeNull();
+    expect(typeof svc.readsDocuments).toBe("boolean");
     // The month (agent page) and Reports count the same way.
     expect(svc.thisMonth.runs).toEqual(report.services[0].runs);
     expect(svc.thisMonth.runs).toMatchObject({ waiting: inMonth ? 1 : 0, going: 1 });

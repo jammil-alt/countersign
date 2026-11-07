@@ -1,4 +1,4 @@
-// The client page's billing section (docs/plan.md §1.32): set the client up (its Stripe customer),
+// The client settings' Billing section (docs/plan.md §1.32): set the client up (its Stripe customer),
 // each agent's price and where it comes from, the month so far with what it cost us, and the
 // statements with Stripe's links. Prices are changed on each agent's Settings tab.
 import { useState } from "react";
@@ -7,7 +7,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { CreditMeter, price, StatementLines } from "../../billing/parts";
 import { Field, TextInput } from "../../ui/forms";
-import { Button, Card, ErrorNotice, SectionLabel } from "../../ui/primitives";
+import { Button, Card, ErrorNotice, Loading } from "../../ui/primitives";
 import { cost, count, periodLabel } from "../../usage/format";
 import { Notice, useAction } from "../agents/ui";
 import { SOURCE_LABEL } from "./Billing";
@@ -18,15 +18,8 @@ export function ClientBillingSection({ clientId }: { clientId: string }) {
   const action = useAction();
   const [email, setEmail] = useState("");
 
-  if (error) {
-    return (
-      <section className="mt-8">
-        <SectionLabel>Billing</SectionLabel>
-        <ErrorNotice error={error} onRetry={reload} />
-      </section>
-    );
-  }
-  if (!data) return null;
+  if (error) return <ErrorNotice error={error} onRetry={reload} />;
+  if (!data) return <Loading />;
   const c = data.client;
   const m = c.monthSoFar;
 
@@ -39,16 +32,7 @@ export function ClientBillingSection({ clientId }: { clientId: string }) {
   }
 
   return (
-    <section className="mt-8" data-testid="ops-client-billing">
-      <SectionLabel
-        action={
-          <Link to="/ops/billing" className="ds-btn ds-btn--link text-sm">
-            Billing settings
-          </Link>
-        }
-      >
-        Billing
-      </SectionLabel>
+    <section data-testid="ops-client-billing">
       <div className="flex flex-col gap-4">
         <Card className="flex flex-col gap-4 p-5">
           {c.setUp ? (

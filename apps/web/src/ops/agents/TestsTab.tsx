@@ -636,7 +636,8 @@ function TestRunsCard({
                   {shortTime(r.startedAt ?? r.createdAt)}
                 </span>
                 <Link to={`/ops/runs/${r.id}`} className="truncate text-ink hover:underline">
-                  {r.workflowSlug}
+                  {liveBundle?.workflows.find((w) => w.slug === r.workflowSlug)?.name ??
+                    r.workflowSlug.replace(/[-_]+/g, " ")}
                 </Link>
               </span>
               <Badge tone={runStatusTone(r.status)}>{runStatusLabel(r.status)}</Badge>

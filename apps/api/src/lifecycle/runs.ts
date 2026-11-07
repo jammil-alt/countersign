@@ -28,7 +28,7 @@ async function clientAgent(tx: Tx, tenantId: string, agentId: string): Promise<A
   return row;
 }
 
-async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
+export async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
   if (!row.liveVersionId) return null;
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })
@@ -151,6 +151,17 @@ function clientRunnable(bundle: AgentBundle | null): RunForm[] {
     out.push({ workflow: w.slug, label: on.client.label ?? w.name, input: on.input });
   }
   return out;
+}
+
+/**
+ * The agent starts from documents: an enabled workflow of its live bundle has a `document.*` event
+ * trigger (an invoice read, a file uploaded). The portal's agent page offers upload for it.
+ */
+export function readsDocuments(bundle: AgentBundle | null): boolean {
+  return (bundle?.workflows ?? []).some((w) => {
+    const on = w.workflow.trigger.on;
+    return w.enabled && on.type === "event" && on.event.startsWith("document.");
+  });
 }
 
 /** Run now's forms: none unless the agent runs live (trial, signoff or live, and active). */

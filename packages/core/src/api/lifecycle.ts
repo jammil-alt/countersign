@@ -30,8 +30,15 @@ export const StageReason = z.string().trim().min(1).max(500);
 /** Where a client agent is on its way live, for the back office's agent page. */
 export const GoLive = z.object({
   stage: AgentStage.nullable(),
-  /** Whether its live version writes to a client's tool (no writes: bench goes straight to live). */
+  /**
+   * Whether its live version (the latest while none is live) writes to a client's tool (no
+   * writes: bench goes straight to live).
+   */
   writes: z.boolean(),
+  // UI cleanup (design pass): with no live version, `writes` is read from the latest version, and
+  // this says so ("No live version yet"); optional so older answers still parse.
+  /** Whether it has a live version. */
+  liveVersion: z.boolean().optional(),
   trial: z
     .object({
       startedAt: z.string(),

@@ -184,6 +184,27 @@ describe("skill and action steps", () => {
     }
   });
 
+  it("names a waiting or rejected write by what it does, not by the done label", async () => {
+    const labelled = action({ client: { visible: true, label: "Updated the record" } });
+    const waiting = new Harness();
+    waiting.handlers.write = () => ({
+      kind: "approval",
+      pending: { inboxItemId: waiting.approvalItem() },
+    });
+    await executeWorkflow(
+      new FakeStepRunner({ onWait: "timeout" }),
+      waiting.context(),
+      wf([labelled]),
+      {
+        what: "x",
+      },
+    );
+    expect(waiting.row("write")?.updates.map((u) => u.summary)).toContain(
+      "Update the record: waiting for approval",
+    );
+    expect(waiting.row("write")?.summary).toBe("Update the record: not approved");
+  });
+
   it("treats an approval that times out as not approved and expires the item", async () => {
     const h = new Harness();
     const item = h.approvalItem();

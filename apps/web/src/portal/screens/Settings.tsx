@@ -1,56 +1,87 @@
-// `/settings` (C7, docs/ui-plan.md): your company's settings in one place, with a section list
-// beside them. Everyone: their own notifications and language, and Approvals: who approves what,
-// the undo window and the approval rules (read-only unless the admin tightens them; moved here
-// from the Desk in QA round 1). The client admin also: billing (this month's
-// credits, with statements on `/settings/billing`), what happens when credits run out, the people
-// who use the portal and invites, and the team's emails. Never what the work cost us (invariant 11).
+// `/settings` (C7, docs/ui-plan.md; Review 1): your settings, one section at a time, with the
+// section list beside it (each section has its own address, so nothing is one long scroll).
+// - General (`/settings`): your own notifications and language, the team's emails (the admin), and
+//   what Sloan is.
+// - Approvals (`/settings/approvals`): who approves changes to your tools, who approves what on
+//   your team, the undo window, and the approver rules (read-only unless the admin tightens them).
+// - Team (`/settings/team`): who uses the portal, and invites (the admin).
+// The client admin also has Billing (credits, statements, what happens when credits run out),
+// Exports, Conversations (WhatsApp capture) and Voice samples. Never what the work cost us
+// (invariant 11).
 import type { MyNotifications, NotificationSettings, OnCreditsOut } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi, useApiClient } from "../../api/useApi";
 import { PortalTeamApprovals } from "../../approvals/TeamApprovals";
-import { CreditMeter } from "../../billing/parts";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { LanguageMenu } from "../../i18n/LanguageMenu";
 import { useSession } from "../../session/session";
-import { Icon } from "../../ui/icons";
+import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, Section } from "../../ui/page";
-import { Badge, Button, buttonClass, Card, ErrorNotice, PageHeader } from "../../ui/primitives";
+import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { PORTAL_PATHS } from "../paths";
 import { PortalApproverRules } from "./ApproverRules";
+import { PortalBillingScreen } from "./Billing";
+import { PortalConversationsScreen } from "./Conversations";
+import { PortalExportsScreen } from "./Exports";
+import { PortalTeamScreen } from "./Team";
+import { VoiceSamples } from "./VoiceSamples";
 
-type SectionId = "billing" | "team" | "approvals" | "notifications" | "language";
+export type SettingsSection =
+  | "general"
+  | "approvals"
+  | "team"
+  | "billing"
+  | "exports"
+  | "conversations"
+  | "voice";
 
-const SECTION_WORDS: Record<SectionId, PlainKey> = {
-  billing: "settingsPage.billing",
+const SECTION_WORDS: Record<SettingsSection, PlainKey> = {
+  general: "settingsPage.general",
+  approvals: "settingsPage.approvals",
   team: "settingsPage.team",
-  approvals: "settingsPage.signoff",
-  notifications: "settingsPage.notifications",
-  language: "settingsPage.language",
+  billing: "settingsPage.billing",
+  exports: "settingsPage.exports",
+  conversations: "settingsPage.conversations",
+  voice: "settingsPage.voice",
 };
 
-export function PortalSettingsScreen() {
+const SECTION_PATH: Record<SettingsSection, string> = {
+  general: PORTAL_PATHS.settings,
+  approvals: PORTAL_PATHS.approvals,
+  team: PORTAL_PATHS.team,
+  billing: PORTAL_PATHS.billing,
+  exports: PORTAL_PATHS.exports,
+  conversations: PORTAL_PATHS.conversations,
+  voice: PORTAL_PATHS.voice,
+};
+
+/** The sections everyone has; the client admin has the rest too. */
+const EVERYONE: readonly SettingsSection[] = ["general", "approvals", "team"];
+const ADMIN: readonly SettingsSection[] = [
+  "general",
+  "approvals",
+  "team",
+  "billing",
+  "exports",
+  "conversations",
+  "voice",
+];
+
+/** What a client user reads on an admin's section, where the section has words of its own. */
+const ADMIN_ONLY: Partial<Record<SettingsSection, PlainKey>> = {
+  exports: "exports.adminOnly",
+  conversations: "conversations.adminOnly",
+};
+
+export function PortalSettingsScreen({ section = "general" }: { section?: SettingsSection }) {
   const { t } = useI18n();
   const session = useSession();
   const role = session.tenants.find((x) => x.id === session.activeTenantId)?.role;
   const isAdmin = role === "client_admin";
-  // DECISION (QA round 1): Notifications stays hidden until we send these emails (`emailsOn`), so
-  // no "we don't send these yet" and no Save for nothing. Language saves as it is chosen.
-  const mine = useApi(apiRoutes.portalMyNotifications);
-  const emailsOn = mine.data?.emailsOn === true;
-  const sections = (
-    isAdmin
-      ? (["billing", "team", "approvals", "notifications", "language"] as const)
-      : (["approvals", "notifications", "language"] as const)
-  ).filter((s): s is SectionId => s !== "notifications" || emailsOn);
-  // A link to a section (the Desk's "Approval settings": `/settings#approvals`) opens at it.
-  const { hash } = useLocation();
-  useEffect(() => {
-    if (!hash) return;
-    document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: "start" });
-  }, [hash]);
+  const sections = isAdmin ? ADMIN : EVERYONE;
 
   return (
     <Page testId="portal-settings">
@@ -61,120 +92,126 @@ export function PortalSettingsScreen() {
       <div className="ui-settings">
         <nav className="ui-settings__nav" aria-label={t("common.sections")}>
           {sections.map((s) => (
-            <a key={s} href={`#${s}`} className="ds-navitem ui-navitem">
+            <NavLink
+              key={s}
+              to={SECTION_PATH[s]}
+              end
+              className="ds-navitem ui-navitem"
+              data-testid={`portal-settings-nav-${s}`}
+            >
               {t(SECTION_WORDS[s])}
-            </a>
+            </NavLink>
           ))}
         </nav>
-        <div className="ui-settings__body">
-          {isAdmin ? (
-            <>
-              <Anchor id="billing" title={t("settingsPage.billing")}>
-                <Plan />
-                <CreditsOut />
-              </Anchor>
-              <Anchor id="team" title={t("settingsPage.team")}>
-                <Team />
-              </Anchor>
-            </>
+        <div className="ui-settings__body" data-testid={`portal-settings-section-${section}`}>
+          {!sections.includes(section) ? (
+            <EmptyState>{t(ADMIN_ONLY[section] ?? "settings.adminOnly")}</EmptyState>
           ) : (
-            <p className="text-sm text-ink-muted" data-testid="portal-settings-admin-only">
-              {t("settings.adminOnly")}
-            </p>
+            <Body section={section} isAdmin={isAdmin} />
           )}
-          <Anchor id="approvals" title={t("settingsPage.signoff")}>
-            {isAdmin ? (
-              <WhoApproves />
-            ) : (
-              <Card pad testId="portal-settings-approvals-member">
-                <p className="text-sm text-ink-muted">{t("settings.approvals.askAdmin")}</p>
-                <div className="mt-2">
-                  <TeamLink />
-                </div>
-              </Card>
-            )}
-            <PortalTeamApprovals isAdmin={isAdmin} />
-            <PortalApproverRules />
-          </Anchor>
-          {emailsOn ? (
-            <Anchor id="notifications" title={t("settingsPage.notifications")}>
-              <MyNotificationsCard state={mine} />
-              {isAdmin ? <TeamNotifications /> : null}
-            </Anchor>
-          ) : null}
-          <Anchor id="language" title={t("settingsPage.language")}>
-            <Card pad testId="portal-settings-language">
-              <p className="text-sm text-ink-muted">{t("settingsPage.languageBody")}</p>
-              <LanguageMenu />
-            </Card>
-          </Anchor>
         </div>
       </div>
     </Page>
   );
 }
 
-function Anchor({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean }) {
+  const { t } = useI18n();
+  const title = t(SECTION_WORDS[section]);
+  switch (section) {
+    case "general":
+      return (
+        <Part title={title}>
+          <NotificationsPart isAdmin={isAdmin} />
+          <Card pad testId="portal-settings-language" title={t("settingsPage.language")}>
+            <p className="text-sm text-ink-muted">{t("settingsPage.languageBody")}</p>
+            <LanguageMenu />
+          </Card>
+          <SloanCard />
+        </Part>
+      );
+    case "approvals":
+      return (
+        <Part title={title}>
+          {isAdmin ? (
+            <WhoApproves />
+          ) : (
+            <Card pad testId="portal-settings-approvals-member">
+              <p className="text-sm text-ink-muted">{t("settings.approvals.askAdmin")}</p>
+            </Card>
+          )}
+          <PortalTeamApprovals isAdmin={isAdmin} />
+          <PortalApproverRules />
+        </Part>
+      );
+    case "team":
+      return (
+        <Part title={title}>
+          <PortalTeamScreen embedded />
+        </Part>
+      );
+    case "billing":
+      return (
+        <Part title={title}>
+          <CreditsOut />
+          <PortalBillingScreen embedded />
+        </Part>
+      );
+    case "exports":
+      return (
+        <Part title={title} subtitle={t("exports.subtitle")}>
+          <PortalExportsScreen embedded />
+        </Part>
+      );
+    case "conversations":
+      return (
+        <Part title={title} subtitle={t("conversations.subtitle")}>
+          <PortalConversationsScreen embedded />
+        </Part>
+      );
+    case "voice":
+      return (
+        <Part title={title}>
+          <VoiceSamples />
+        </Part>
+      );
+  }
+}
+
+function Part({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
   return (
-    <div id={id} className="scroll-mt-6">
-      <Section title={title}>{children}</Section>
-    </div>
+    <Section title={title}>
+      {subtitle ? <p className="text-sm text-ink-muted">{subtitle}</p> : null}
+      {children}
+    </Section>
   );
 }
 
-/** This month's credits, with the statements a click away. */
-function Plan() {
-  const { t, fmt } = useI18n();
-  const state = useApi(apiRoutes.portalBilling);
+/** What Sloan is, where it is offered: the search box's "Ask Sloan". */
+function SloanCard() {
+  const { t } = useI18n();
   return (
-    <Card
-      title={t("settingsPage.plan")}
-      meta={
-        <Link
-          to={PORTAL_PATHS.billing}
-          className={buttonClass("secondary", undefined, "sm")}
-          data-testid="portal-settings-statements"
-        >
-          {t("settingsPage.statements")}
-        </Link>
-      }
-      testId="portal-settings-plan"
-    >
-      <div className="ui-card__body">
-        <Loaded state={state}>
-          {(data) =>
-            data.setUp && data.monthSoFar ? (
-              <div className="flex flex-col gap-3">
-                {data.paymentProblem ? (
-                  <div role="alert" className="ds-banner">
-                    <span>{t("billing.paymentProblem")}</span>
-                  </div>
-                ) : null}
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-medium text-ink">{t("settingsPage.creditsThisMonth")}</span>
-                  <span className="text-sm text-ink figures">
-                    {t("settingsPage.creditsUsed", {
-                      used: fmt.number(data.monthSoFar.creditsUsed),
-                      included: fmt.number(data.monthSoFar.creditsIncluded),
-                    })}
-                  </span>
-                </div>
-                <CreditMeter
-                  used={data.monthSoFar.creditsUsed}
-                  allowance={data.monthSoFar.creditsIncluded}
-                  testId="portal-settings-meter"
-                />
-                {/* creditsIncluded is the month so far: each agent's credits × days billed ÷ days
-                    in the month (core buildStatement), so it grows through the month. */}
-                <p className="text-sm text-ink-muted" data-testid="portal-settings-credits-help">
-                  {t("settingsPage.creditsIncludedHelp")}
-                </p>
-              </div>
-            ) : (
-              <p className="text-ink-muted">{t("billing.notSetUp")}</p>
-            )
-          }
-        </Loaded>
+    <Card pad testId="portal-settings-sloan" title={t("nav.sloan")}>
+      <div className="flex items-start gap-3">
+        <AgentBadge name="Sloan" size="sm" />
+        <div className="flex min-w-0 flex-col gap-2">
+          <p className="text-sm text-ink">{t("settingsPage.sloanBody")}</p>
+          <Link
+            to={PORTAL_PATHS.sloan}
+            className="text-sm text-link hover:underline"
+            data-testid="portal-settings-sloan-open"
+          >
+            {t("settingsPage.sloanOpen")}
+          </Link>
+        </div>
       </div>
     </Card>
   );
@@ -261,66 +298,6 @@ function CreditsOut() {
   );
 }
 
-/**
- * UI-3a: the team and the exports have pages of their own (`/settings/team`, `/settings/exports`);
- * Settings links to them, with how many people use the portal.
- */
-function Team() {
-  const { t } = useI18n();
-  const users = useApi(apiRoutes.portalUsers);
-  const rows = [
-    {
-      to: PORTAL_PATHS.team,
-      title: t("settingsPage.teamLink"),
-      line: users.data
-        ? t("settings.peopleCount", { count: users.data.users.length })
-        : t("settingsPage.teamLinkHelp"),
-      testId: "portal-settings-team-link",
-    },
-    {
-      to: PORTAL_PATHS.exports,
-      title: t("settingsPage.exportsLink"),
-      line: t("settingsPage.exportsLinkHelp"),
-      testId: "portal-settings-exports-link",
-    },
-  ];
-  return (
-    <Card testId="portal-settings-people">
-      <ul>
-        {rows.map((r) => (
-          <li key={r.to} className="border-b border-line last:border-b-0">
-            <Link
-              to={r.to}
-              data-testid={r.testId}
-              className="flex items-center justify-between gap-3 px-6 py-4 hover:bg-surface-subtle max-sm:px-4"
-            >
-              <span className="min-w-0">
-                <span className="block font-medium text-ink">{r.title}</span>
-                <span className="block text-sm text-ink-muted">{r.line}</span>
-              </span>
-              <Icon name="chevron-right" className="text-ink-muted" />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
-/** A client user reads the team (who approves what); the admin reaches it from Team above. */
-function TeamLink() {
-  const { t } = useI18n();
-  return (
-    <Link
-      to={PORTAL_PATHS.team}
-      className="text-sm text-link hover:underline"
-      data-testid="portal-settings-team-link"
-    >
-      {t("settingsPage.seeTeam")}
-    </Link>
-  );
-}
-
 /** Who approves changes to your tools: us or you (Mezonas sets it). */
 function WhoApproves() {
   const { t } = useI18n();
@@ -341,6 +318,22 @@ function WhoApproves() {
         </Link>
       </p>
     </Card>
+  );
+}
+
+/**
+ * Your notifications and, for the admin, the team's emails.
+ */
+// DECISION (QA round 1): hidden until we send these emails (`emailsOn`), so no "we don't send these
+// yet" and no Save for nothing.
+function NotificationsPart({ isAdmin }: { isAdmin: boolean }) {
+  const mine = useApi(apiRoutes.portalMyNotifications);
+  if (mine.data?.emailsOn !== true) return null;
+  return (
+    <>
+      <MyNotificationsCard state={mine} />
+      {isAdmin ? <TeamNotifications /> : null}
+    </>
   );
 }
 

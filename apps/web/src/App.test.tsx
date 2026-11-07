@@ -107,11 +107,14 @@ describe("app", () => {
     await user.click(operator);
     expect(api.signedInAs()).toBe("operator@example.com");
 
-    // Operators land in the back office's command center; a client opens from the sidebar.
+    // Operators land in the back office's command center; a client opens from the top bar's
+    // client picker.
     expect(await screen.findByTestId("ops-command")).toBeInTheDocument();
-    await user.click(
-      await screen.findByTestId("ops-nav-client-00000000-0000-4000-8000-00000000a001"),
+    const picker = await screen.findByTestId("ops-client-switcher");
+    await waitFor(() =>
+      expect(within(picker).getByRole("option", { name: "Sandbox" })).toBeInTheDocument(),
     );
+    await user.selectOptions(picker, "00000000-0000-4000-8000-00000000a001");
     // The client page opens on its Overview; its agents are on the Agents tab.
     await user.click(
       within(await screen.findByTestId("ops-client-tabs")).getByRole("link", { name: "Agents" }),
@@ -128,7 +131,7 @@ describe("app", () => {
       within(tabs)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Triggers", "Runs", "Versions2", "Tests", "Settings"]);
+    ).toEqual(["Overview", "Workflow", "Runs", "Versions2", "Settings"]);
     expect(screen.getByText(/How it works · 5 steps, 1 fork$/)).toBeInTheDocument();
 
     await user.click(within(tabs).getByRole("link", { name: /^Versions/ }));
@@ -177,18 +180,18 @@ describe("app", () => {
 
   it("sends an old portal address on to its new home after sign-in", async () => {
     const api = backend();
-    renderApp(api, "/inbox?status=open");
+    renderApp(api, "/desk?status=open");
     const user = userEvent.setup();
     await user.type(
       await screen.findByTestId("signin-email-input"),
       "admin@demo-client.example.com",
     );
     await user.click(screen.getByTestId("signin-email-submit"));
-    // `/inbox` is now Your Desk: the sidebar's Desk (its one link) is the current page.
+    // `/desk` is now the Inbox: the top bar's Inbox and the sidebar's are the current page.
     await waitFor(() =>
-      expect(screen.getByTestId("portal-nav-desk")).toHaveAttribute("aria-current", "page"),
+      expect(screen.getByTestId("portal-nav-inbox")).toHaveAttribute("aria-current", "page"),
     );
-    expect(screen.queryByTestId("shell-inbox")).toBeNull();
+    expect(screen.getByTestId("shell-inbox")).toHaveAttribute("aria-current", "page");
   });
 
   it("says when a version's bundle does not match the schema", async () => {

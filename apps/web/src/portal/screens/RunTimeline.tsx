@@ -1,9 +1,10 @@
-// `/runs/:id` (C10, docs/ui-plan.md): a run as the client sees it (ARCHITECTURE §10.6): its
-// client-visible steps on a timeline, with their summaries, oversight lines and the records they
-// cite; the changes to the client's tools, with before and after for those still waiting on a
-// signature; who signed; and the run's audit trail (who opened it or its items, who signed). No
-// costs, no instructions, no internal steps: the API sends none, and this screen renders only the
-// fields the contracts name. Polls while the run is going.
+// `/runs/:id` (C10, docs/ui-plan.md): a run as the client sees it (ARCHITECTURE §10.6), titled by
+// what it is about (its invoice or its first change). When it waits on the reader, a call to action
+// at the top opens the item in the Inbox. Its client-visible steps on a timeline, with their
+// summaries, oversight lines and the records they cite; the changes to the client's tools, with
+// before and after for those still waiting for approval; who approved; and the run's audit trail
+// (who opened it or its items, who approved). No costs, no instructions, no internal steps: the API
+// sends none, and this screen renders only the fields the contracts name. Polls while it goes.
 import { pickLocalized, type RunAuditEntry, shortRunId } from "@countersign/core";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -15,6 +16,7 @@ import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeHeading, connectorName, connectorOf } from "../../inbox/change";
 import { SourceLinks } from "../../records/SourceLinks";
 import { shortTime, stepStatusLabel } from "../../runs/format";
+import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
@@ -34,7 +36,7 @@ import {
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { PORTAL_PATHS } from "../paths";
-import { runChip, runOpen, workedMs } from "../status";
+import { runChip, runOpen, runState, workedMs } from "../status";
 import { msDuration, TookCell } from "./runsParts";
 
 const ACTION_WORDS: Record<string, PlainKey> = {
@@ -103,6 +105,14 @@ function RunPage({ data }: { data: RunData }) {
   const short = shortRunId(run.id);
   const openApprovals = data.approvals.filter((a) => a.status === "open");
   const [copied, setCopied] = useState(false);
+  // What waits on the reader: their own open Inbox items for this run (the Inbox's filter).
+  const waits = runState(run) === "waiting" || openApprovals.length > 0;
+  const inbox = useApi(apiRoutes.portalInbox, waits ? { query: { status: "open" } } : null);
+  const mine = (inbox.data?.items ?? [])
+    .filter((i) => i.runId === run.id)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const first = mine[0];
+  const title = subjectTitle(run.subject, i18n);
 
   const steps: StepItem[] = data.steps.map((s) => ({
     key: s.id,
@@ -123,6 +133,7 @@ function RunPage({ data }: { data: RunData }) {
           ids={s.sources}
           href={(rid) => `/records/${rid}`}
           testId="portal-run-step-sources"
+          names={data.sourceNames}
         />
       </>
     ),
@@ -146,14 +157,15 @@ function RunPage({ data }: { data: RunData }) {
         {` / ${short}`}
       </p>
       <PageHeader
-        leading={<AgentBadge name={run.service.name} size="lg" />}
-        title={run.service.name}
+        leading={<AgentBadge name={run.service.name} seed={run.service.id} size="lg" />}
+        title={title ?? run.service.name}
         badge={
           <StatusChip state={runChip(run, t).state} testId="portal-run-status">
             {runChip(run, t).label}
           </StatusChip>
         }
         subtitle={[
+          title ? run.service.name : null,
           t("runDetail.run", { id: short }),
           run.startedAt ? t("run.started", { time: time(run.startedAt) }) : t("run.notStarted"),
           // QA round 1: the time it worked, without the time it waited on you.
@@ -167,22 +179,32 @@ function RunPage({ data }: { data: RunData }) {
           .filter(Boolean)
           .join(" · ")}
         actions={
-          <>
-            <Button onClick={() => void copyLink()} data-testid="portal-run-copy">
-              {copied ? t("common.copied") : t("runDetail.copyLink")}
-            </Button>
-            {openApprovals.length > 0 ? (
-              <Link
-                to={PORTAL_PATHS.desk}
-                className={buttonClass("primary")}
-                data-testid="portal-run-review"
-              >
-                {t("runDetail.review")}
-              </Link>
-            ) : null}
-          </>
+          <Button onClick={() => void copyLink()} data-testid="portal-run-copy">
+            {copied ? t("common.copied") : t("runDetail.copyLink")}
+          </Button>
         }
       />
+      {first ? (
+        <Card pad testId="portal-run-approve">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium text-ink">
+                {t("runDetail.waitingSince", { time: time(first.createdAt) })}
+              </p>
+              <p className="text-sm text-ink-muted">
+                {t("runDetail.waitingItems", { count: mine.length })}
+              </p>
+            </div>
+            <Link
+              to={`${PORTAL_PATHS.desk}?item=${first.id}`}
+              className={buttonClass("primary")}
+              data-testid="portal-run-review"
+            >
+              {t("runDetail.review")}
+            </Link>
+          </div>
+        </Card>
+      ) : null}
       <PageGrid
         rail={
           <>
@@ -221,7 +243,7 @@ function RunPage({ data }: { data: RunData }) {
           )}
         </Card>
 
-        <WaitingChanges runId={run.id} open={openApprovals.length > 0} />
+        <WaitingChanges items={mine.filter((i) => i.kind === "external_action")} />
 
         <Card title={t("run.changes")} meta={data.actions.length || null}>
           {data.actions.length === 0 ? (
@@ -401,23 +423,27 @@ function OtherRuns({
   );
 }
 
+type InboxItem = NonNullable<
+  ReturnType<typeof useApi<typeof apiRoutes.portalInbox>>["data"]
+>["items"][number];
+
 /**
- * Changes of this run still waiting on a signature, with their before and after: the Desk's items
- * for this run (`GET /api/inbox`), signed on the Desk.
+ * Changes of this run waiting for the reader's approval, with their before and after: their Inbox
+ * items for this run (`GET /api/inbox`), approved in the Inbox.
  */
-function WaitingChanges({ runId, open }: { runId: string; open: boolean }) {
+function WaitingChanges({ items }: { items: InboxItem[] }) {
   const { t, locale } = useI18n();
-  const state = useApi(apiRoutes.portalInbox, open ? { query: { status: "open" } } : null);
-  const items = (state.data?.items ?? []).filter(
-    (i) => i.runId === runId && i.kind === "external_action",
-  );
-  if (!open || items.length === 0) return null;
+  const first = items[0];
+  if (!first) return null;
   return (
     <Card
       title={t("runDetail.waitingChanges")}
       meta={<StatusChip state="waiting">{t("common.waitingOnYou")}</StatusChip>}
       footer={
-        <Link to={PORTAL_PATHS.desk} className={buttonClass("primary", undefined, "sm")}>
+        <Link
+          to={`${PORTAL_PATHS.desk}?item=${first.id}`}
+          className={buttonClass("primary", undefined, "sm")}
+        >
           {t("runDetail.review")}
         </Link>
       }

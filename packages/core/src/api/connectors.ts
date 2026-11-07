@@ -58,8 +58,15 @@ export const CatalogConnector = z
     description: z.string(),
     icon: z.string(),
     auth: z.enum(["oauth2", "api_key", "none"]),
-    /** The operator's status; null until they set one. */
+    /**
+     * Its status: the operator's when they set one, else what this deployment shows (`live` when
+     * a client can sign in to it here); null when it isn't set up here and nobody set one.
+     */
     status: ConnectorStatus.nullable(),
+    /** Where `status` comes from: the operator's setting, or this deployment. */
+    statusSource: z.enum(["operator", "deployment"]),
+    /** A connector for tests only (the testkit): never offered to a real client. */
+    testOnly: z.boolean(),
     note: z.string(),
     /** Whether a client can sign in to it on this deployment. */
     available: z.boolean(),

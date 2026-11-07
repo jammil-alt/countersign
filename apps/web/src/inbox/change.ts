@@ -19,6 +19,8 @@ import {
   pickLocalized,
   type ToolDisplay,
 } from "@countersign/core";
+import { EN, type I18n } from "../i18n/i18n";
+import { money, moneyShape } from "../runs/format";
 
 /** One line of a `lines` list, or one file of a `files` list, as text. */
 export interface ItemView {
@@ -101,20 +103,23 @@ function refName(v: unknown): string | null {
  * A value as text: scalars as they are, refs by name, lists joined, objects as "Label: value"
  * pairs. Never JSON.
  */
-export function formatValue(v: unknown): string {
+export function formatValue(v: unknown, i18n: Pick<I18n, "fmt"> = EN): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   if (Array.isArray(v)) {
     if (v.length === 0) return "—";
-    return v.map((x) => formatValue(x)).join(isPlainObject(v[0]) ? "; " : ", ");
+    return v.map((x) => formatValue(x, i18n)).join(isPlainObject(v[0]) ? "; " : ", ");
   }
   if (isPlainObject(v)) {
+    // `{ amount: "9742.3500", currency: "USD" }` reads "$9,742.35", never "9742.3500 USD".
+    const m = moneyShape(v);
+    if (m) return money(m.amount, m.currency, i18n);
     const name = refName(v);
     if (name !== null) return name;
     const pairs = Object.entries(v).filter(([k, x]) => !HIDDEN.test(k) && x !== undefined);
     if (pairs.length === 0) return "—";
-    return pairs.map(([k, x]) => `${fieldLabel(k)}: ${formatValue(x)}`).join(", ");
+    return pairs.map(([k, x]) => `${fieldLabel(k)}: ${formatValue(x, i18n)}`).join(", ");
   }
   return String(v);
 }
@@ -331,8 +336,16 @@ function declaredField(
 
 // ── The fallback: the record's own fields ───────────────────────────────────────────────────────
 
-function genericValue(v: unknown): ChangeValue {
+/** Fields a record keeps money in, as decimal strings beside its `currency`. */
+const MONEY_FIELD = /^(total|amount|subtotal|balance|tax|price|unitPrice|cost)$|(Total|Amount)$/;
+
+function genericValue(v: unknown, field = "", currency: string | null = null): ChangeValue {
   if (v === null || v === undefined || v === "") return NONE;
+  if (currency && MONEY_FIELD.test(field) && typeof v === "string" && DECIMAL.test(v)) {
+    return { type: "money", amount: v, currency };
+  }
+  const m = moneyShape(v);
+  if (m) return { type: "money", amount: m.amount, currency: m.currency };
   if (Array.isArray(v) && v.length > 0 && v.every(isPlainObject)) {
     const rows = v as Record<string, unknown>[];
     const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter(
@@ -357,11 +370,14 @@ function genericFields(before: unknown, input: unknown): ChangeField[] {
   const fields = [...new Set([...Object.keys(now ?? {}), ...Object.keys(set)])].filter(
     (f) => !HIDDEN.test(f),
   );
+  const code = [set.currency, now?.currency].find(
+    (c): c is string => typeof c === "string" && /^[A-Z]{3}$/.test(c),
+  );
   return fields.map((field) => {
     const was = now ? now[field] : undefined;
     const after = Object.hasOwn(set, field) ? set[field] : was;
-    const nowValue = genericValue(was);
-    const afterValue = genericValue(after);
+    const nowValue = genericValue(was, field, code ?? null);
+    const afterValue = genericValue(after, field, code ?? null);
     return {
       key: field,
       label: fieldLabel(field),

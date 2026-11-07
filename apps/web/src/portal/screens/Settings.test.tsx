@@ -1,5 +1,7 @@
-// The portal's Settings: links to a client admin's team and exports, the stored email choices (emails start
-// later), and who approves; a client user is told only the admin changes settings.
+// The portal's Settings, one section at a time (Review 1): General (your notifications and
+// language, the team's emails, what Sloan is), Approvals (who approves, who approves what, the undo
+// window), Team, and the admin's Billing, Exports, Conversations and Voice samples. A client user has
+// General, Approvals and Team.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -26,44 +28,12 @@ const overview = {
   recentRuns: [],
 };
 
-const person = (email: string, role: string) => ({
-  userId: `u-${email}`,
-  email,
-  name: null,
-  role,
-  signedIn: null,
-});
-
 describe("portal settings", () => {
-  // QA round 1: no "we don't send these yet" and no Save for nothing; Language stays.
-  it("hides Notifications until we send these emails", async () => {
-    const api = fakeApi({
-      "GET /api/session": () => CLIENT_SESSION,
-      "GET /api/overview": () => overview,
-      "GET /api/users": () => ({ users: [person("admin@demo.example.com", "client_admin")] }),
-      "GET /api/settings/my-notifications": () => ({
-        email: true,
-        sms: false,
-        canText: false,
-        emailsOn: false,
-      }),
-    });
-    renderAt("/settings", api);
-    expect(await screen.findByText("1 person uses your portal.")).toBeInTheDocument();
-    await waitFor(() => expect(api.calls).toContain("GET /api/settings/my-notifications"));
-    expect(screen.queryByTestId("portal-settings-notifications")).toBeNull();
-    expect(screen.queryByTestId("portal-settings-mine")).toBeNull();
-    expect(screen.queryByRole("link", { name: "Notifications" })).toBeNull();
-    expect(screen.getByTestId("portal-settings-language")).toBeInTheDocument();
-  });
-
-  it("links the team and exports, saves email choices and says who approves", async () => {
-    const users = [person("admin@demo.example.com", "client_admin")];
+  it("lists its sections, saves email choices, and says who approves under Approvals", async () => {
     const patches: unknown[] = [];
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview,
-      "GET /api/users": () => ({ users }),
       "GET /api/settings": () => ({
         client: { id: DEMO, name: "Demo client", timezone: "UTC" },
         approvals: "operator",
@@ -81,21 +51,50 @@ describe("portal settings", () => {
         patches.push(body);
         return { notifications: body };
       },
+      "GET /api/team": () => ({
+        members: [
+          {
+            userId: "u1",
+            email: "admin@demo.example.com",
+            name: "Dana Kim",
+            role: "client_admin",
+            canSign: true,
+            signs: ["Every change no rule sends to someone else."],
+          },
+        ],
+        settings: { undoSeconds: 60 },
+      }),
+      "GET /api/approver-rules": () => ({
+        rules: [],
+        revision: 1,
+        canTighten: true,
+        people: [],
+        services: [],
+        connectors: [],
+        history: [],
+      }),
     });
     renderAt("/settings", api);
-    expect(await screen.findByText("1 person uses your portal.")).toBeInTheDocument();
-    // UI-3a: the team and the exports have their own pages.
-    expect(screen.getByTestId("portal-settings-team-link")).toHaveAttribute(
-      "href",
-      "/settings/team",
-    );
-    expect(screen.getByTestId("portal-settings-exports-link")).toHaveAttribute(
-      "href",
-      "/settings/exports",
+    const nav = await screen.findByRole("navigation", { name: "Sections" });
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((l) => [l.textContent, l.getAttribute("href")]),
+    ).toEqual([
+      ["General", "/settings"],
+      ["Approvals", "/settings/approvals"],
+      ["Team", "/settings/team"],
+      ["Billing", "/settings/billing"],
+      ["Exports", "/settings/exports"],
+      ["Conversations", "/settings/conversations"],
+      ["Voice samples", "/settings/voice"],
+    ]);
+    // Sloan, in a few words, where it is offered.
+    expect(screen.getByTestId("portal-settings-sloan")).toHaveTextContent(
+      "Sloan is your account agent.",
     );
 
     const emails = await screen.findByTestId("portal-settings-notifications");
-    expect(within(emails).queryByTestId("portal-notifications-off")).toBeNull();
     const save = within(emails).getByTestId("portal-notifications-save");
     expect(save).toBeDisabled();
     await userEvent.click(within(emails).getByTestId("portal-notifications-weeklyDigest"));
@@ -103,15 +102,14 @@ describe("portal settings", () => {
     expect(await within(emails).findByText("Saved.")).toBeInTheDocument();
     expect(patches).toEqual([{ itemsWaiting: true, weeklyDigest: false }]);
 
-    const approvals = screen.getByTestId("portal-settings-approvals");
-    expect(approvals).toHaveTextContent("We approve changes to your tools on your behalf.");
-    // The admin adds rules here; the matrix is on Accounts. Never "ask us" or "Connections".
-    expect(approvals).toHaveTextContent("Add a rule below to choose who approves.");
-    expect(approvals).not.toHaveTextContent("Connections");
-    expect(within(approvals).getByRole("link", { name: "Accounts." })).toHaveAttribute(
-      "href",
-      "/accounts",
+    // Approvals: who approves, who approves what, and the undo window (moved from the Inbox).
+    await userEvent.click(within(nav).getByRole("link", { name: "Approvals" }));
+    expect(await screen.findByTestId("portal-settings-approvals")).toHaveTextContent(
+      "We approve changes to your tools on your behalf.",
     );
+    const team = await screen.findByTestId("desk-team");
+    expect(team).toHaveTextContent("Who approves what");
+    expect(within(team).getByTestId("desk-undo-window")).toHaveValue("60");
   });
 
   it("gives a client user their own notifications and language, and loads nothing of the admin's", async () => {
@@ -135,16 +133,20 @@ describe("portal settings", () => {
       },
     });
     renderAt("/settings", api);
-    expect(await screen.findByTestId("portal-settings-admin-only")).toHaveTextContent(
-      "Only your admin can change settings.",
-    );
+    const nav = await screen.findByRole("navigation", { name: "Sections" });
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["General", "Approvals", "Team"]);
     const mine = await screen.findByTestId("portal-settings-mine");
     // No phone with consent: texts can't be turned on.
     expect(within(mine).getByTestId("portal-mine-sms")).toBeDisabled();
     await userEvent.click(within(mine).getByTestId("portal-mine-email"));
     await waitFor(() => expect(puts).toEqual([{ email: false, sms: false }]));
     expect(screen.getByTestId("portal-settings-language")).toBeInTheDocument();
-    expect(screen.getByTestId("portal-settings-approvals-member")).toHaveTextContent(
+    await userEvent.click(within(nav).getByRole("link", { name: "Approvals" }));
+    expect(await screen.findByTestId("portal-settings-approvals-member")).toHaveTextContent(
       "To change who approves, ask your admin.",
     );
     expect(api.calls).not.toContain("GET /api/users");
@@ -152,52 +154,7 @@ describe("portal settings", () => {
     expect(api.calls).not.toContain("GET /api/billing");
   });
 
-  it("holds Approvals: who approves what, and the undo window the admin sets", async () => {
-    const saved: unknown[] = [];
-    let undoSeconds = 60;
-    const member = (id: string, name: string, role: string, canSign: boolean, signs: string[]) => ({
-      userId: id,
-      name,
-      email: `${id}@demo.example.com`,
-      role,
-      canSign,
-      signs,
-    });
-    const api = fakeApi({
-      "GET /api/session": () => CLIENT_SESSION,
-      "GET /api/overview": () => overview,
-      "GET /api/team": () => ({
-        members: [
-          member("ana", "Ana Diaz", "client_admin", true, [
-            "Every change no rule sends to someone else.",
-          ]),
-          member("bo", "Bo Lee", "client_user", false, ["Sees everything, approves nothing."]),
-        ],
-        settings: { undoSeconds },
-      }),
-      "PUT /api/desk/settings": ({ init }) => {
-        const body = JSON.parse(String(init.body));
-        saved.push(body);
-        undoSeconds = body.undoSeconds;
-        return { settings: { undoSeconds } };
-      },
-    });
-    renderAt("/settings#approvals", api);
-    const team = await screen.findByTestId("desk-team");
-    expect(team).toHaveTextContent("Who approves what");
-    expect(team).toHaveTextContent("Bo Lee");
-    expect(team).toHaveTextContent("Sees everything, approves nothing.");
-    expect(screen.getByRole("link", { name: "Approvals" })).toHaveAttribute("href", "#approvals");
-    await userEvent.selectOptions(within(team).getByTestId("desk-undo-window"), "120");
-    expect(saved).toEqual([{ undoSeconds: 120 }]);
-    await waitFor(() =>
-      expect(within(screen.getByTestId("desk-team")).getByTestId("desk-undo-window")).toHaveValue(
-        "120",
-      ),
-    );
-  });
-
-  it("shows the admin this month's credits and saves what happens when they run out", async () => {
+  it("shows the admin this month's credits and saves what happens when they run out, in Billing", async () => {
     const puts: unknown[] = [];
     let onCreditsOut = "continue";
     const api = fakeApi({
@@ -230,17 +187,9 @@ describe("portal settings", () => {
         return { onCreditsOut, creditBlock: 2500, pausedForCredits: [] };
       },
     });
-    renderAt("/settings", api);
-    const plan = await screen.findByTestId("portal-settings-plan");
-    // Used and included say what they count: included is the month so far, and grows.
-    await waitFor(() => expect(plan).toHaveTextContent("6,240 used of 10,000 included so far"));
-    expect(within(plan).getByTestId("portal-settings-credits-help")).toHaveTextContent(
-      "the included number grows through the month",
-    );
-    expect(within(plan).getByTestId("portal-settings-statements")).toHaveAttribute(
-      "href",
-      "/settings/billing",
-    );
+    renderAt("/settings/billing", api);
+    // Billing: what happens when credits run out, then the month so far and statements.
+    expect(await screen.findByTestId("portal-billing-meter")).toBeInTheDocument();
     const out = screen.getByTestId("portal-settings-credits-out");
     expect(await within(out).findByTestId("portal-credits-out-continue")).toHaveAttribute(
       "aria-checked",

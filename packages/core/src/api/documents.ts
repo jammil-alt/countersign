@@ -20,14 +20,21 @@ export const DocumentSummary = z.object({
   invoiceNumber: z.string().nullable(),
   total: z.string().nullable(),
   /**
-   * An earlier document of the client that is the same invoice (same vendor and invoice number
-   * in their latest readings): a second copy of a file already here. Null for the first one, and
-   * where the API doesn't look (an upload's own result).
+   * The record it is matched to: the transaction it is linked to (`link`), else the bill a live
+   * run matched it to (`run`, the Bill clerk's match). Its kind names it: a bill, a purchase or a
+   * vendor credit, never "a purchase" for all of them.
    */
-  sameInvoiceAs: z
-    .object({ id: z.string(), filename: z.string(), source: z.string(), receivedAt: Timestamp })
+  match: z
+    .object({
+      transactionId: z.string(),
+      kind: z.string(),
+      number: z.string().nullable(),
+      by: z.enum(["link", "run"]),
+    })
     .nullable()
     .default(null),
+  /** The document this one repeats (the same vendor and invoice number): it started nothing. */
+  duplicateOf: z.object({ documentId: z.string(), filename: z.string() }).nullable().default(null),
 });
 
 export const DocumentExtractionView = z.object({

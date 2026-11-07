@@ -100,6 +100,7 @@ const BUILTIN = {
   inputs: ["document"],
   outputs: ["invoice"],
   usedBy: 12,
+  usedByNames: ["Bill clerk · Demo client", "Material costs · Harbor Millwork"],
 };
 
 const LIBRARY = { skills: [ITEM, BUILTIN], tools: [], connectors: [] };
@@ -281,7 +282,13 @@ describe("skills and automations library", () => {
       `/ops/skills/${SKILL_ID}`,
     );
     const builtin = screen.getByTestId("skills-card-docs.extract");
-    expect(within(builtin).getByText("12 agents")).toBeInTheDocument();
+    // Client agents only, as the API counts them.
+    expect(within(builtin).getByText("Used by 12 client agents")).toBeInTheDocument();
+    // Named on hover.
+    expect(within(builtin).getByTestId("skills-card-docs.extract-used-by")).toHaveAttribute(
+      "title",
+      "Bill clerk · Demo client\nMaterial costs · Harbor Millwork",
+    );
     expect(within(builtin).queryByRole("link")).toBeNull();
 
     // The Documents tab shows only that category, without automations.
