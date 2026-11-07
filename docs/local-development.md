@@ -76,8 +76,9 @@ curl -s localhost:8787/cdn-cgi/local/scheduled            # fire the cron once
 
 Or open http://localhost:8787 and pick a user on the sign-in screen. The seed has one operator
 (`operator@example.com`, serving Sandbox and Demo client), one client admin
-(`admin@demo-client.example.com`) and the platform templates. To start from an empty database, drop
-`countersign` and run `scripts/setup-postgres.sh` again.
+(`admin@demo-client.example.com`) and the platform templates; the demo seed below adds Harbor
+Millwork's two people. To start from an empty database, drop `countersign` and run
+`scripts/setup-postgres.sh` again.
 
 ### The end-to-end seed (SEED_E2E=1)
 
@@ -100,6 +101,47 @@ pnpm --filter @countersign/web sweep          # the route sweep, then the walkth
 ```
 
 Without it, the walkthroughs skip "Sign and undo" with a note.
+
+### The demo seed (SEED_DEMO=1)
+
+For looking at the portal and the back office with weeks of work in them, `SEED_DEMO=1` adds a
+third client, **Harbor Millwork** (a millwork shop in America/Chicago), served by
+`operator@example.com`, who is also its Mezonas lead. It is never part of the default seed: it is
+for local runs, and for a staging demo only when the owner chooses to run it there.
+
+```bash
+SEED_DEMO=1 DIRECT_DATABASE_URL=postgresql://cs_owner:cs_owner@localhost:5432/countersign \
+  pnpm db:seed          # with SEED_E2E=1 too, if you also want the Demo client's Desk item
+```
+
+Sign in on the dev sign-in screen as:
+
+| Email | Who |
+|---|---|
+| `dana@harbor-millwork.example.com` | Dana Reyes, client admin: signs the changes |
+| `luis@harbor-millwork.example.com` | Luis Ortega, client user (the bookkeeper) |
+| `operator@example.com` | The operator: Harbor Millwork is one of the clients they serve |
+
+What it holds (`packages/db/src/seed-demo.ts`):
+
+- Four client agents with their versions: the **Bill clerk** (live, a client v2 that writes the
+  bill memo without a signature), the **Document clerk** (live, a client v2 that looks for the
+  document behind each new bill or purchase), the **Supervisor** (live) and the **Records clerk**
+  (in trial, on the testkit). The first three are forks of the platform templates.
+- Connections: QuickBooks (connected, for show: no credentials), uploads and the testkit.
+- About 110 runs over the last 21 days: invoices read, bills itemized, filed and noted, documents
+  looked for, daily checks, three failures and the supervisor's reports on them. Three changes wait
+  for Dana (one for over a day), one question waits for her, one change she turned down.
+- 34 vendor invoices from five vendors, read, one of them a duplicate; the bills and card purchases
+  they belong to; 12 contacts at the shop and its vendors, with consent; three knowledge entries;
+  30 days of usage; last week's Weekly Table, sent; two open findings and the latest health check.
+
+Running it again changes nothing: ids are fixed and every time is counted from the first run. The
+Demo client and the Sandbox are left as they are. The runs have no Workflow instances, so signing a
+waiting change writes nothing. With QuickBooks set up in `.env`, a cron tick at a QuickBooks sync
+minute (4, 19, 34 or 49) finds the QuickBooks connection has no credentials and marks it as
+needing a sign-in; the same happens on a deployed server, where the cron runs every minute. To
+take it out again, drop `countersign` and run `scripts/setup-postgres.sh`.
 
 `wrangler dev` reads the root `.env` (`--env-file ../../.env`), which gives it
 `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`; without it the Worker cannot reach the
