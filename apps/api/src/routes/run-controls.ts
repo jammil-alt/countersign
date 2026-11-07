@@ -38,6 +38,7 @@ import { csvFile } from "../exports/csv";
 import { type AppEnv, ensureClient, HttpError, iso, mount, mountFile, notFound } from "../http";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
+import { opsStatusWhere } from "../runs/run-wait";
 
 // ── RunFilter as SQL ────────────────────────────────────────────────────────────────────────────
 
@@ -154,7 +155,8 @@ export function runFilterWhere(
       sql`exists (select 1 from ${agent} where ${agent.id} = ${run.agentId} and ${agent.tenantId} = ${run.tenantId} and ${agent.templateId} in (${textList(f.templates)}))`,
     );
   }
-  if (f.statuses?.length) where.push(inArray(run.status, f.statuses));
+  // UI cleanup (stream A): a run waiting on a person is "waiting", never "running".
+  where.push(...opsStatusWhere(f.statuses));
   if (f.mode) where.push(eq(run.mode, f.mode));
   if (f.since) where.push(gte(run.createdAt, new Date(f.since)));
   if (f.until) where.push(lt(run.createdAt, new Date(f.until)));

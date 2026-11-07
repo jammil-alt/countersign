@@ -391,28 +391,38 @@ describe.skipIf(!h)("command center, search and questions", () => {
     expect(Date.parse(cc.waitingOnClients.oldestSince)).toBeCloseTo(hoursAgo(10).getTime(), -3);
     // Escalations: A's operator item, r3, A's broken connection, A's background reading, B's
     // reading under its 0.97 threshold; the test run's item, r5 (retried), B's unused broken
-    // connection and everything of C are not.
+    // connection and everything of C are not. UI cleanup (stream A): with the dev sign-in and no
+    // email sender nobody was told of the clients' three open approvals, so they need us too.
     const kinds = cc.escalations.map((e: { kind: string; client: { name: string } }) => [
       e.kind,
       e.client.name,
     ]);
-    expect(kinds).toHaveLength(5);
-    expect(kinds[0]).toEqual(["item", "Client A"]);
-    expect(kinds.slice(1).sort()).toEqual(
+    expect(kinds).toHaveLength(8);
+    expect(kinds[0]).toEqual(["approval", "Client B"]);
+    expect(kinds[1]).toEqual(["item", "Client A"]);
+    expect(kinds.slice(2).sort()).toEqual(
       [
+        ["approval", "Client A"],
+        ["approval", "Client A"],
         ["connection", "Client A"],
         ["failed_run", "Client A"],
         ["low_confidence", "Client A"],
         ["low_confidence", "Client B"],
       ].sort(),
     );
+    expect(cc.escalations[0].wait).toMatchObject({
+      on: "client_team",
+      nobodyToAct: "no_email",
+      emailOff: true,
+      items: 1,
+    });
     const failed = cc.escalations.find((e: { kind: string }) => e.kind === "failed_run");
     expect(failed).toMatchObject({
       id: ids.r3,
       title: "QuickBooks said 401",
       agent: { id: ids.irisA },
     });
-    expect(cc.needUs).toEqual({ count: 5, blockedLong: 1 });
+    expect(cc.needUs).toEqual({ count: 8, blockedLong: 2 });
     expect(JSON.stringify(cc)).not.toContain(H.C.tenantId);
 
     // Low confidence, by client agent and template version (null for background reading).
@@ -442,14 +452,14 @@ describe.skipIf(!h)("command center, search and questions", () => {
       runs: 6,
       cleanShare: 0.3333,
       medianResponseHours: 13,
-      openEscalations: 4,
+      openEscalations: 6,
     });
     expect(health["Client B"]).toMatchObject({
       status: "watch",
       runs: 1,
       cleanShare: 1,
       medianResponseHours: 2,
-      openEscalations: 1,
+      openEscalations: 2,
     });
 
     // The agents table: state now, last runs (test runs too), cost over 7 days.
@@ -469,7 +479,7 @@ describe.skipIf(!h)("command center, search and questions", () => {
     const one = await H.call(OPERATOR, "GET", `/api/ops/command-center?client=${H.B.tenantId}`);
     expect(one.status).toBe(200);
     expect(j(one.json).runsToday).toEqual({ runs: 1, clean: 1, cleanShare: 1 });
-    expect(j(one.json).escalations).toHaveLength(1);
+    expect(j(one.json).escalations).toHaveLength(2);
     // A client not served is refused by the session's scope before the route runs.
     const other = await H.call(OPERATOR, "GET", `/api/ops/command-center?client=${H.C.tenantId}`);
     expect(other.status).toBe(403);

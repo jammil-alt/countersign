@@ -5,6 +5,7 @@ import type { Approver } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
 import {
   complianceOf,
+  findStep,
   parseCoveredProcessors,
   processingRefusal,
   processorsForOffer,
@@ -29,11 +30,13 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+import { type AppEnv, ensureClient, HttpError, mount, notFound, type Services } from "../http";
 import { resolveInboxItem } from "../inbox";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
+import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
+import { needsUs } from "./command-center";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
 import {
@@ -122,7 +125,11 @@ function validTimezone(tz: string): boolean {
   }
 }
 
-async function clientSummaries(tx: Tx, ids: readonly string[]) {
+async function clientSummaries(
+  tx: Tx,
+  ids: readonly string[],
+  services: Pick<Services, "auth" | "env">,
+) {
   if (ids.length === 0) return [];
   const rows = await tx
     .select()
@@ -141,6 +148,16 @@ async function clientSummaries(tx: Tx, ids: readonly string[]) {
     .from(inboxItem)
     .where(and(inArray(inboxItem.tenantId, [...ids]), eq(inboxItem.status, "open")))
     .groupBy(inboxItem.tenantId);
+  // UI cleanup (stream A): Needs us and runs waiting for approval, per client, from the same
+  // definitions the command center and the runs list use, so every count agrees.
+  const escalations = await needsUs(tx, ids, new Date(), reachContext(services));
+  const waiting = await tx
+    .select({ tenantId: run.tenantId, n: count() })
+    .from(run)
+    .where(
+      and(inArray(run.tenantId, [...ids]), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])),
+    )
+    .groupBy(run.tenantId);
   return rows.map((t) => ({
     id: t.id,
     name: t.name,
@@ -148,6 +165,8 @@ async function clientSummaries(tx: Tx, ids: readonly string[]) {
     createdAt: t.createdAt.toISOString(),
     agents: agents.find((a) => a.tenantId === t.id)?.n ?? 0,
     openInbox: open.find((o) => o.tenantId === t.id)?.n ?? 0,
+    needsUs: escalations.filter((e) => e.client.id === t.id).length,
+    waitingRuns: waiting.find((w) => w.tenantId === t.id)?.n ?? 0,
     sandbox: isSandbox(t.settings as Record<string, unknown>),
   }));
 }
@@ -169,6 +188,47 @@ async function agentRefs(tx: Tx, tenantIds: readonly string[], ids: (string | nu
   }));
 }
 
+/**
+ * Runs as the back office lists them (UI cleanup, stream A): each with its wait (who a run waiting
+ * for approval waits on, since when), its workflow's name and, failed, the name of the step it
+ * failed at, both read from the run's version.
+ */
+export async function opsRunViews(
+  tx: Tx,
+  rows: (typeof run.$inferSelect)[],
+  services: Pick<Services, "auth" | "env">,
+) {
+  const waits = await runWaits(tx, rows, reachContext(services));
+  const versionIds = [...new Set(rows.map((r) => r.agentVersionId))];
+  const versions = versionIds.length
+    ? await tx
+        .select({
+          id: agentVersion.id,
+          tenantId: agentVersion.tenantId,
+          bundle: agentVersion.bundle,
+        })
+        .from(agentVersion)
+        .where(inArray(agentVersion.id, versionIds))
+    : [];
+  const bundles = new Map(versions.map((v) => [v.id, v.bundle]));
+  return rows.map((r) => {
+    const wf = bundles.get(r.agentVersionId)?.workflows.find((w) => w.slug === r.workflowSlug);
+    const nodeId =
+      r.status === "failed" && r.error && typeof r.error === "object"
+        ? (r.error as { nodeId?: unknown }).nodeId
+        : undefined;
+    // A step in a loop runs as `<loop>:<index>:<step>`: its own id is the last part.
+    const stepId = typeof nodeId === "string" ? (nodeId.split(":").at(-1) ?? nodeId) : null;
+    const step = wf && stepId ? findStep(wf.workflow, stepId)?.step : undefined;
+    return {
+      ...opsRun(r),
+      waiting: waits.get(r.id) ?? null,
+      workflowName: wf?.name ?? null,
+      errorStep: step ? step.name : null,
+    };
+  });
+}
+
 async function connectionInScope(tx: Tx, tenantIds: readonly string[], id: string) {
   const [row] = await tx
     .select()
@@ -180,7 +240,7 @@ async function connectionInScope(tx: Tx, tenantIds: readonly string[], id: strin
 
 export function opsClientRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsClients, async (ctx) => ({
-    clients: await clientSummaries(ctx.tx, ctx.tenantIds),
+    clients: await clientSummaries(ctx.tx, ctx.tenantIds, ctx.services),
   }));
 
   mount(app, routes.opsCreateClient, async (ctx) => {
@@ -235,7 +295,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         platform: services.platform,
       });
     }
-    const [summary] = await clientSummaries(tx, [row.id]);
+    const [summary] = await clientSummaries(tx, [row.id], services);
     if (!summary) throw new Error("the new client is not visible");
     return { client: summary, admin: invited };
   });
@@ -447,7 +507,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .limit(query.limit);
     const groups = query.groupBy === "error" ? await runErrorGroups(tx, where) : undefined;
     return {
-      runs: rows.map(opsRun),
+      runs: await opsRunViews(tx, rows, ctx.services),
       agents: await agentRefs(tx, ctx.tenantIds, [
         ...rows.map((r) => r.agentId),
         ...(groups ?? []).flatMap((g) => g.agents),
@@ -512,8 +572,9 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
     const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
     const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
+    const [view] = await opsRunViews(tx, [r], services);
     return {
-      run: opsRun(r),
+      run: view ?? opsRun(r),
       steps: steps.map((s) => ({ ...opsStep(s), models: modelsByStep.get(s.id) ?? [] })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),

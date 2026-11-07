@@ -58,6 +58,8 @@ import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 import { runControlRoutes } from "./run-controls";
+// UI cleanup (stream A)
+import { RunWait } from "./run-state";
 import {
   OpsRunsQuery,
   PortalRunsQuery,
@@ -176,7 +178,13 @@ export const ClientSummary = z.object({
   timezone: z.string(),
   createdAt: Timestamp,
   agents: z.number().int(),
+  /** Open inbox items, for anyone (us or the client). */
   openInbox: z.number().int(),
+  // UI cleanup (stream A): what the back office counts per client, from one source.
+  /** Needs us at this client: the command center's escalations (`GET /api/ops/needs-us`). */
+  needsUs: z.number().int().optional(),
+  /** Its runs waiting for approval now (on anyone: the client or us). */
+  waitingRuns: z.number().int().optional(),
   /** The Sandbox client (`tenant.settings.sandbox`): fixture data for building and test runs. */
   sandbox: z.boolean().optional(),
 });
@@ -250,6 +258,14 @@ export const OpsRun = z.object({
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
   createdAt: Timestamp,
+  // UI cleanup (stream A): a run waiting on a person is "waiting for approval" whatever its stored
+  // status; who it waits on and since when (null when it waits on nobody). Absent where a route
+  // doesn't read it.
+  waiting: RunWait.nullable().optional(),
+  /** The workflow's name in the run's version (null when the version has no such workflow). */
+  workflowName: z.string().nullable().optional(),
+  /** A failed run: the name of the step it failed at, from the run's version. */
+  errorStep: z.string().nullable().optional(),
 });
 
 export const OpsStep = z.object({
