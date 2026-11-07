@@ -40,7 +40,7 @@ import { Columns, Loaded, Page, PageGrid, Section } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
-import { UploadSection } from "./Upload";
+import { ForwardingSection } from "./Upload";
 // v0.14 W4-A
 import { WHATSAPP_META_SIGNUP_PATH } from "./WhatsappMetaSignup";
 
@@ -48,7 +48,8 @@ type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][num
 type Vault = ResponseOf<typeof apiRoutes.portalAccess>;
 
 // Website logins are connections of the browser connector (packages/connectors/src/browser): one
-// per site, so they live in the vault, never as a tool card. Upload is built in (its own section).
+// per site, so they live in the vault, never as a tool card. Upload is built in: Records uploads,
+// and the forwarding address has its own section here.
 const BROWSER_CONNECTOR = "browser";
 const UPLOAD_CONNECTOR = "upload";
 
@@ -317,7 +318,7 @@ export function AccountsScreen() {
             </p>
           ) : null}
         </Section>
-        <UploadSection isAdmin={isAdmin} />
+        <ForwardingSection isAdmin={isAdmin} />
       </PageGrid>
     </Page>
   );

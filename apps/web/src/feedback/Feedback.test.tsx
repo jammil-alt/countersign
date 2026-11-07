@@ -74,6 +74,10 @@ describe("Feedback button", () => {
     const { api, sent } = portal(true);
     // The old address redirects to the Desk, query kept.
     renderAt("/inbox?status=open", api);
+    // QA round 1: it is for problems with the app; Sloan takes every other ask.
+    expect(await screen.findByTestId("feedback-button")).toHaveAccessibleName(
+      "Report a problem with the app",
+    );
     await userEvent.click(await screen.findByTestId("feedback-button"));
     await userEvent.click(screen.getByTestId("feedback-pick-area"));
     expect(await screen.findByTestId("feedback-composer")).toBeInTheDocument();

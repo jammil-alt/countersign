@@ -4,6 +4,8 @@
 // on the client admin's signature here and on the Desk; signing applies them through the portal's
 // own code (`/api/account-changes/:id/resolve`). Sloan sees only what the portal shows and never
 // loosens a rule (invariant 11): this page shows what the thread routes return and nothing else.
+// Sloan is the one place to ask (QA round 1): "Ask for a change" (`?mode=change`) holds the
+// requests to us that had their own page (`/requests` redirects there).
 import type { PortalMessage, PortalThread } from "@countersign/core";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -20,10 +22,11 @@ import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Select, TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Page, PageGrid, Section } from "../../ui/page";
-import { Button, Card, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { Button, Card, ErrorNotice, Loading, PageHeader, Tabs } from "../../ui/primitives";
 import { StatusChip, serviceChipState } from "../../ui/status";
 import { useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
+import { ChangeRequests } from "./Requests";
 
 /** How often an open conversation looks for Sloan's answer while it waits for one. */
 const ANSWER_POLL_MS = 3_000;
@@ -59,6 +62,8 @@ function newest(threads: readonly PortalThread[]): PortalThread | null {
 export function PortalSloanScreen() {
   const { t, fmt } = useI18n();
   const { id } = useParams();
+  const [params] = useSearchParams();
+  const changeMode = params.get("mode") === "change";
   const navigate = useNavigate();
   const api = useApiClient();
   const threads = useApi(apiRoutes.portalThreads, { query: { subject: "account" } });
@@ -91,56 +96,76 @@ export function PortalSloanScreen() {
         title={t("sloan.title")}
         subtitle={t("sloan.subtitle")}
         actions={
-          <>
-            {list.length > 1 ? (
-              <Select
-                aria-label={t("sloan.past")}
-                data-testid="portal-sloan-past"
-                className="w-auto"
-                value={current ?? ""}
-                onChange={(e) => navigate(`${PORTAL_PATHS.sloan}/${e.target.value}`)}
+          changeMode ? null : (
+            <>
+              {list.length > 1 ? (
+                <Select
+                  aria-label={t("sloan.past")}
+                  data-testid="portal-sloan-past"
+                  className="w-auto"
+                  value={current ?? ""}
+                  onChange={(e) => navigate(`${PORTAL_PATHS.sloan}/${e.target.value}`)}
+                >
+                  {[...list]
+                    .sort(
+                      (a, b) =>
+                        Date.parse(b.lastMessageAt ?? b.createdAt) -
+                        Date.parse(a.lastMessageAt ?? a.createdAt),
+                    )
+                    .map((th) => (
+                      <option key={th.id} value={th.id}>
+                        {t("sloan.pastItem", { date: fmt.date(th.createdAt) })}
+                      </option>
+                    ))}
+                </Select>
+              ) : null}
+              <Button
+                disabled={starting}
+                data-testid="portal-sloan-new"
+                onClick={() =>
+                  void start().then((tid) => {
+                    if (tid) navigate(`${PORTAL_PATHS.sloan}/${tid}`);
+                  })
+                }
               >
-                {[...list]
-                  .sort(
-                    (a, b) =>
-                      Date.parse(b.lastMessageAt ?? b.createdAt) -
-                      Date.parse(a.lastMessageAt ?? a.createdAt),
-                  )
-                  .map((th) => (
-                    <option key={th.id} value={th.id}>
-                      {t("sloan.pastItem", { date: fmt.date(th.createdAt) })}
-                    </option>
-                  ))}
-              </Select>
-            ) : null}
-            <Button
-              disabled={starting}
-              data-testid="portal-sloan-new"
-              onClick={() =>
-                void start().then((tid) => {
-                  if (tid) navigate(`${PORTAL_PATHS.sloan}/${tid}`);
-                })
-              }
-            >
-              {t("sloan.new")}
-            </Button>
-          </>
+                {t("sloan.new")}
+              </Button>
+            </>
+          )
         }
       />
-      {error ? <ErrorNotice error={error} /> : null}
-      {threads.error ? <ErrorNotice error={threads.error} onRetry={threads.reload} /> : null}
-      <PageGrid rail={<SloanRail />}>
-        {threads.loading && !threads.data ? (
-          <Loading />
-        ) : (
-          <Conversation
-            key={current ?? "new"}
-            threadId={current}
-            start={start}
-            onStarted={(tid) => navigate(`${PORTAL_PATHS.sloan}/${tid}`, { replace: true })}
-          />
-        )}
-      </PageGrid>
+      <div className="overflow-x-auto" data-testid="portal-sloan-modes">
+        <Tabs
+          items={[
+            {
+              to: current ? `${PORTAL_PATHS.sloan}/${current}` : PORTAL_PATHS.sloan,
+              label: t("table.askSloan"),
+              active: !changeMode,
+            },
+            { to: PORTAL_PATHS.requests, label: t("sloan.mode.change"), active: changeMode },
+          ]}
+        />
+      </div>
+      {changeMode ? (
+        <ChangeRequests />
+      ) : (
+        <>
+          {error ? <ErrorNotice error={error} /> : null}
+          {threads.error ? <ErrorNotice error={threads.error} onRetry={threads.reload} /> : null}
+          <PageGrid rail={<SloanRail />}>
+            {threads.loading && !threads.data ? (
+              <Loading />
+            ) : (
+              <Conversation
+                key={current ?? "new"}
+                threadId={current}
+                start={start}
+                onStarted={(tid) => navigate(`${PORTAL_PATHS.sloan}/${tid}`, { replace: true })}
+              />
+            )}
+          </PageGrid>
+        </>
+      )}
     </Page>
   );
 }
@@ -340,7 +365,7 @@ function SloanRail() {
       <Section
         title={t("sloan.canTitle")}
         action={
-          // UI-3a: what Sloan passes to us lands on Requests, with our answers.
+          // What Sloan passes to us lands under "Ask for a change", with our answers.
           <Link
             to={PORTAL_PATHS.requests}
             className="text-sm text-link hover:underline"

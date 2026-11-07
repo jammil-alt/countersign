@@ -122,7 +122,6 @@ export const de: Messages = {
   "nav.contacts": "Kontakte",
   // v0.14 capture
   "nav.conversations": "Unterhaltungen",
-  "nav.billing": "Abrechnung",
   "nav.people": "Personen",
   "nav.access": "Zugriff",
   "nav.directory": "Verzeichnis",
@@ -181,7 +180,7 @@ export const de: Messages = {
     other: "{count} Sachen warten auf Sie.",
   },
   "table.waitNone": "Nichts wartet auf Sie.",
-  "table.openWeekly": "Wochentisch öffnen",
+  "table.view.today": "Heute",
   "table.askSloan": "Sloan fragen",
   "table.workingNow": "Gerade bei der Arbeit",
   "table.meta.running": { one: "{count} läuft", other: "{count} laufen" },
@@ -624,7 +623,7 @@ export const de: Messages = {
   "webhook.noOutbound": "Noch keine Ziel-URL: Agenten können keine Ereignisse senden.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Hochladen und Weiterleiten · integriert",
+  "forwarding.section": "Weiterleitung",
   "upload.title": "Hochladen",
   "upload.help":
     "Rechnungen und Belege (PDF oder Bild), oder eine CSV mit Einkäufen mit Datum, Lieferant und Betrag.",
@@ -644,6 +643,7 @@ export const de: Messages = {
   "upload.received": "Erhalten",
   "upload.duplicate": "Schon vorhanden: Wir behalten eine Kopie.",
   "forwarding.title": "Rechnungen per E-Mail weiterleiten",
+  "forwarding.uploadInRecords": "Dateien selbst unter Einträge hochladen",
   "forwarding.off":
     "Die Weiterleitung ist noch nicht eingeschaltet. Ihre private Adresse erscheint hier.",
   "forwarding.help":
@@ -717,7 +717,6 @@ export const de: Messages = {
   "document.col.page": "Seite",
 
   // ── Requests ──
-  "requests.title": "Anfragen",
   "requests.subtitle":
     "Bitten Sie uns um eine Änderung an einem Ihrer Services oder um etwas Neues. Wir antworten hier.",
   "requests.which": "Welche Anfragen",
@@ -774,7 +773,7 @@ export const de: Messages = {
   "signin.error.default": "Die Anmeldung wurde nicht abgeschlossen. Beginnen Sie neu.",
 
   // ── Feedback ──
-  "feedback.button": "Feedback",
+  "feedback.button": "Problem mit der App melden",
   "feedback.tapWhere": "Tippen Sie auf die Stelle mit dem Problem",
   "feedback.noSpot": "Keine bestimmte Stelle",
   "feedback.capturing": "Bild wird aufgenommen…",
@@ -1532,7 +1531,6 @@ export const de: Messages = {
   "peoplePage.title": "Personen",
   "peoplePage.subtitle":
     "Alle, die Ihre Agenten kontaktieren dürfen, wer sie für Sie sind und wie sie erreicht werden möchten.",
-  "peoplePage.import": "Personen importieren",
   "peoplePage.add": "Person hinzufügen",
   "peoplePage.adminOnly": "Diesen Teil von Personen pflegt Ihr Administrator.",
   "peoplePage.tab.people": "Personen",
@@ -1820,6 +1818,6 @@ export const de: Messages = {
   "knowledge.adminOnly":
     "Nur Ihr Admin kann sehen und ändern, was die Agenten über Ihr Unternehmen wissen.",
   "sloan.requests": "Ihre Anfragen an uns",
+  "sloan.mode.change": "Änderung anfragen",
   "signin.needAccess": "Kein Zugang? Fragen Sie Ihren Admin oder Ihre Ansprechperson bei Mezonas.",
-  "nav.upload": "Hochladen",
 };

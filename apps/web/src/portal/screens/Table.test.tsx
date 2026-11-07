@@ -190,10 +190,8 @@ describe("The Table", () => {
     expect(screen.getByTestId("table-week-line")).toHaveTextContent(
       "Your agents finished 38 runs this week. 5 things wait on you.",
     );
-    expect(screen.getByRole("link", { name: "Open the Weekly Table" })).toHaveAttribute(
-      "href",
-      "/weekly",
-    );
+    // No week sent yet: no Weekly Table tab (QA round 1).
+    expect(screen.queryByTestId("table-views")).toBeNull();
     expect(screen.getByRole("link", { name: "Ask Sloan" })).toHaveAttribute("href", "/sloan");
 
     const working = screen.getByTestId("table-working");
@@ -408,7 +406,6 @@ describe("the Table's account check", () => {
     expect(screen.getByText("Recordatorio")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Revisar y firmar" })).toBeInTheDocument();
     expect(screen.getByText("Trabajando ahora")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Abrir la Mesa semanal" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Preguntar a Sloan" })).toBeInTheDocument();
   });
 

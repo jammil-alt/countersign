@@ -156,7 +156,6 @@ describe("Sloan", () => {
   it("is in the sidebar, and the search box asks Sloan", async () => {
     setup();
     expect(await screen.findByTestId("portal-nav-sloan")).toHaveAttribute("href", "/sloan");
-    expect(screen.getByTestId("portal-nav-weekly")).toHaveAttribute("href", "/weekly");
     await userEvent.click(screen.getByTestId("shell-search"));
     await userEvent.type(screen.getByTestId("search-input"), "why is Cole waiting");
     const ask = await screen.findByTestId("search-ask");

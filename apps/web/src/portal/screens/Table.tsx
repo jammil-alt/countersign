@@ -5,7 +5,7 @@
 // instruction, a prompt or a cost (invariant 11).
 import type { PortalAccessView, PortalFinding, PortalHealth, TableView } from "@countersign/core";
 import { type FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
@@ -26,12 +26,14 @@ import {
   EmptyState,
   ErrorNotice,
   PageHeader,
+  Tabs,
   Tag,
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { agentChip, isGoing, longDay, partOfDay, sameDay, stageWord } from "../agentState";
 import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
+import { WeeklyView } from "./Weekly";
 
 type Service = TableView["services"][number];
 type DeskItem = TableView["desk"]["top"][number];
@@ -49,10 +51,39 @@ const KIND_LABEL: Record<string, PlainKey> = {
 const SIGNED = new Set(["external_action", "approval", "change_request"]);
 
 export function TableScreen() {
-  const table = useApi(apiRoutes.portalTable);
-  usePoll(table.reload, true, INBOX_COUNT_POLL_MS, table.loading);
+  const { t } = useI18n();
+  const [params] = useSearchParams();
+  const weeklyView = params.get("view") === "weekly";
+  const week = params.get("week");
+  const table = useApi(apiRoutes.portalTable, weeklyView ? null : {});
+  usePoll(table.reload, !weeklyView, INBOX_COUNT_POLL_MS, table.loading);
+  // DECISION (QA round 1): the Weekly Table is a view of The Table (`/?view=weekly`; `/weekly`
+  // redirects there). Its tab is its one button, shown only once a week was sent (or while the
+  // view is open, so an old link still lands on a page that says none was sent yet).
+  const weekly = useApi(apiRoutes.portalWeekly, { query: week ? { week } : {} });
+  const hasWeek = (weekly.data?.weeks.length ?? 0) > 0;
+  const tabs =
+    hasWeek || weeklyView ? (
+      <div className="overflow-x-auto" data-testid="table-views">
+        <Tabs
+          items={[
+            { to: PORTAL_PATHS.table, label: t("table.view.today"), active: !weeklyView },
+            { to: PORTAL_PATHS.weekly, label: t("nav.weekly"), active: weeklyView },
+          ]}
+        />
+      </div>
+    ) : null;
+  if (weeklyView) {
+    return (
+      <Page width="narrow" testId="portal-weekly">
+        {tabs}
+        <WeeklyView state={weekly} />
+      </Page>
+    );
+  }
   return (
     <Page testId="portal-table">
+      {tabs}
       <Loaded state={table}>{(data) => <TheTable data={data} reload={table.reload} />}</Loaded>
     </Page>
   );
@@ -83,7 +114,7 @@ function TheTable({ data, reload }: { data: TableView; reload: () => void }) {
             {waiting === 0 ? t("table.waitNone") : t("table.waitLine", { count: waiting })}
           </span>
         }
-        actions={<WeeklyAndSloan />}
+        actions={<AskSloan />}
       />
       <PageGrid
         rail={
@@ -132,24 +163,19 @@ function TheTable({ data, reload }: { data: TableView; reload: () => void }) {
 }
 
 /**
- * "Open the Weekly Table" and "Ask Sloan": the Table's header actions, and an agent page's, where
- * pausing is the main action and Sloan's link is `quiet` (secondary).
+ * "Ask Sloan": the Table's header action, and an agent page's, where pausing is the main action
+ * and Sloan's link is `quiet` (secondary).
  */
-export function WeeklyAndSloan({ quiet = false }: { quiet?: boolean }) {
+export function AskSloan({ quiet = false }: { quiet?: boolean }) {
   const { t } = useI18n();
   return (
-    <>
-      <Link to={PORTAL_PATHS.weekly} className={buttonClass("secondary")} data-testid="open-weekly">
-        {t("table.openWeekly")}
-      </Link>
-      <Link
-        to={PORTAL_PATHS.sloan}
-        className={buttonClass(quiet ? "secondary" : "primary")}
-        data-testid="ask-sloan"
-      >
-        {t("table.askSloan")}
-      </Link>
-    </>
+    <Link
+      to={PORTAL_PATHS.sloan}
+      className={buttonClass(quiet ? "secondary" : "primary")}
+      data-testid="ask-sloan"
+    >
+      {t("table.askSloan")}
+    </Link>
   );
 }
 

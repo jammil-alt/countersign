@@ -119,7 +119,6 @@ export const ptBR: Messages = {
   "nav.contacts": "Contatos",
   // v0.14 capture
   "nav.conversations": "Conversas",
-  "nav.billing": "Faturamento",
   "nav.people": "Pessoas",
   "nav.access": "Acessos",
   "nav.directory": "Diretório",
@@ -174,7 +173,7 @@ export const ptBR: Messages = {
   },
   "table.waitLine": { one: "{count} item aguarda você.", other: "{count} itens aguardam você." },
   "table.waitNone": "Nada aguarda você.",
-  "table.openWeekly": "Abrir a Mesa da semana",
+  "table.view.today": "Hoje",
   "table.askSloan": "Perguntar ao Sloan",
   "table.workingNow": "Trabalhando agora",
   "table.meta.running": { one: "{count} em andamento", other: "{count} em andamento" },
@@ -606,7 +605,7 @@ export const ptBR: Messages = {
   "webhook.noOutbound": "Ainda não há URL de saída: os agentes não podem enviar eventos.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Envio e encaminhamento · incluído",
+  "forwarding.section": "Encaminhamento",
   "upload.title": "Enviar",
   "upload.help":
     "Notas fiscais e recibos (PDF ou imagem), ou um CSV de compras com data, fornecedor e valor.",
@@ -623,6 +622,7 @@ export const ptBR: Messages = {
   "upload.received": "Recebido",
   "upload.duplicate": "Já estava aqui: guardamos uma só cópia.",
   "forwarding.title": "Encaminhar notas por e-mail",
+  "forwarding.uploadInRecords": "Envie arquivos você mesmo em Registros",
   "forwarding.off":
     "O encaminhamento ainda não está ativado. Seu endereço privado vai aparecer aqui.",
   "forwarding.help":
@@ -693,7 +693,6 @@ export const ptBR: Messages = {
   "document.col.page": "Página",
 
   // ── Requests ──
-  "requests.title": "Solicitações",
   "requests.subtitle": "Peça uma mudança em um dos seus serviços, ou algo novo. Respondemos aqui.",
   "requests.which": "Quais solicitações",
   "requests.filter.all": "Todas",
@@ -748,7 +747,7 @@ export const ptBR: Messages = {
   "signin.error.default": "A entrada não terminou. Comece de novo.",
 
   // ── Feedback ──
-  "feedback.button": "Feedback",
+  "feedback.button": "Relatar um problema no app",
   "feedback.tapWhere": "Toque onde está o problema",
   "feedback.noSpot": "Nenhum lugar específico",
   "feedback.capturing": "Capturando a imagem…",
@@ -1495,7 +1494,6 @@ export const ptBR: Messages = {
   "peoplePage.title": "Pessoas",
   "peoplePage.subtitle":
     "Todas as pessoas que seus agentes podem contatar, quem são para você e como preferem ser contatadas.",
-  "peoplePage.import": "Importar pessoas",
   "peoplePage.add": "Adicionar uma pessoa",
   "peoplePage.adminOnly": "Seu administrador cuida desta parte de Pessoas.",
   "peoplePage.tab.people": "Pessoas",
@@ -1779,7 +1777,7 @@ export const ptBR: Messages = {
   "knowledge.adminOnly":
     "Só o seu administrador pode ver e mudar o que os agentes sabem da sua empresa.",
   "sloan.requests": "Seus pedidos para nós",
+  "sloan.mode.change": "Pedir uma mudança",
   "signin.needAccess":
     "Precisa de acesso? Peça ao seu administrador ou ao seu responsável na Mezonas.",
-  "nav.upload": "Enviar",
 };

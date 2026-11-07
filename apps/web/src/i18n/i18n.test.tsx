@@ -218,7 +218,14 @@ describe("the portal in the session's language", () => {
     renderAt("/", api);
     expect(await screen.findByRole("heading", { name: "Trabajando ahora" })).toBeInTheDocument();
     const nav = screen.getByRole("complementary", { name: "Navegación" });
-    for (const label of ["Su escritorio", "Ejecuciones", "Cuentas", "Solicitudes", "Ajustes"]) {
+    for (const label of [
+      "Su escritorio",
+      "Ejecuciones",
+      "Cuentas",
+      "Personas",
+      "Ajustes",
+      "Registros",
+    ]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
     }
     expect(screen.getByTestId("table-week-line")).toHaveTextContent("3 cosas le esperan.");
@@ -248,7 +255,7 @@ describe("the portal in the session's language", () => {
     expect(within(table).getByText("Dauer")).toBeInTheDocument();
     expect(within(table).getByText("Wartet auf Sie")).toBeInTheDocument();
     expect(within(table).getByText(/3\. Nov\., \d{2}:00/)).toBeInTheDocument();
-    expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Ihr Schreibtisch");
+    expect(screen.getByTestId("portal-nav-desk")).toHaveTextContent("Ihr Schreibtisch");
   });
 });
 

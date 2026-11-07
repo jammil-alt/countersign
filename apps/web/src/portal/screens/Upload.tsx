@@ -1,7 +1,8 @@
-// Upload and forwarding (ARCHITECTURE §6.3, §6.5), built in on every client's Accounts page and on
-// `/upload` (UploadPage.tsx): drop invoices, receipts or a purchases CSV; see the private forwarding
-// address and who may forward to it (the client admin edits the list); and the documents that
-// arrived.
+// Upload and forwarding (ARCHITECTURE §6.3, §6.5) on `/upload` (UploadPage.tsx, Records' "Upload
+// documents"): drop invoices, receipts or a purchases CSV; see the private forwarding address and
+// who may forward to it (the client admin edits the list); and the documents that arrived. The
+// Accounts page keeps only the forwarding address, with a link to Records (QA round 1: one place
+// to upload).
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -22,23 +23,27 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { documentStatus, dropReason, money, sourceLabel } from "../documents";
+import { PORTAL_PATHS } from "../paths";
 
 type Result = UploadResponse["results"][number];
 type Shown = Result & { key: string };
 
-export function UploadSection({ isAdmin }: { isAdmin: boolean }) {
+/** Accounts' forwarding address, and where to upload files by hand (Records). */
+export function ForwardingSection({ isAdmin }: { isAdmin: boolean }) {
   const { t } = useI18n();
-  const documents = useApi(apiRoutes.portalDocuments, { query: { limit: 20 } });
   return (
-    <section data-testid="portal-upload">
-      <SectionLabel>{t("upload.section")}</SectionLabel>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <DropZone onUploaded={documents.reload} />
-        <Forwarding isAdmin={isAdmin} />
-      </div>
-      <div className="mt-4">
-        <RecentDocuments state={documents} />
-      </div>
+    <section data-testid="portal-forwarding-section" className="flex flex-col gap-3">
+      <SectionLabel>{t("forwarding.section")}</SectionLabel>
+      <Forwarding isAdmin={isAdmin} />
+      <p className="text-sm">
+        <Link
+          className="text-link hover:underline"
+          to={PORTAL_PATHS.records}
+          data-testid="portal-forwarding-records"
+        >
+          {t("forwarding.uploadInRecords")}
+        </Link>
+      </p>
     </section>
   );
 }

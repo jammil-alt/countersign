@@ -205,7 +205,7 @@ describe("back office layout", () => {
 });
 
 describe("portal layout", () => {
-  it("shows the client's name, the Desk count, no switcher, and the prototype's sidebar", async () => {
+  it("shows the client's name, the Desk count once, no switcher, and the short sidebar", async () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview([service(SERVICE, "Material costs")], 3),
@@ -225,9 +225,11 @@ describe("portal layout", () => {
     expect(screen.getByTestId("shell-search")).toHaveTextContent(
       "Search your agents, runs, records and people",
     );
-    const desk = screen.getByTestId("shell-inbox");
-    expect(desk).toHaveAttribute("href", "/desk");
-    await waitFor(() => expect(desk).toHaveTextContent("Your Desk3"));
+    // QA round 1: Your Desk appears once, in the sidebar; the phone's menu button carries the count.
+    expect(screen.queryByTestId("shell-inbox")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId("shell-menu")).toHaveAccessibleName("Menu · Your Desk (3)"),
+    );
     // The signed-in client is the self avatar (ink), not the lead's copper.
     expect(screen.getByTestId("shell-avatar")).toHaveClass("ds-avatar--self");
 
@@ -240,12 +242,9 @@ describe("portal layout", () => {
         "accounts",
         "people",
         "settings",
-        "reports",
         "records",
-        "requests",
         "knowledge",
         "conversations",
-        "billing",
       ].map((k) => [k, within(nav).getByTestId(`portal-nav-${k}`).getAttribute("href")]),
     );
     expect(hrefs).toEqual({
@@ -255,13 +254,15 @@ describe("portal layout", () => {
       accounts: "/accounts",
       people: "/people",
       settings: "/settings",
-      reports: "/reports",
       records: "/records",
-      requests: "/requests",
       knowledge: "/knowledge",
       conversations: "/conversations",
-      billing: "/settings/billing",
     });
+    // Each has one home now: Upload in Records, Reports on the agent page, Billing in Settings,
+    // requests in Sloan, the Weekly Table on The Table.
+    for (const gone of ["upload", "reports", "requests", "billing", "weekly"]) {
+      expect(within(nav).queryByTestId(`portal-nav-${gone}`)).toBeNull();
+    }
     expect(within(nav).getByTestId("portal-nav-table")).toHaveAttribute("aria-current", "page");
     expect(within(nav).getByTestId("portal-nav-desk")).toHaveTextContent("Your Desk3");
     // Your agents: one row each, with its status.

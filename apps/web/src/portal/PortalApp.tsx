@@ -86,6 +86,8 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           to: PORTAL_PATHS.desk,
           label: t("shell.desk"),
           count: overview.data?.needsYou.inbox,
+          // QA round 1: Your Desk appears once, in the sidebar.
+          inHeader: false,
         }}
         pageBar={
           agentMatch?.params.id ? (
@@ -142,12 +144,6 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             </SidebarSection>
             <SidebarSection label={t("nav.yourBusiness")}>
               <SidebarLink
-                to={PORTAL_PATHS.weekly}
-                icon="weekly-table"
-                label={t("nav.weekly")}
-                testId="portal-nav-weekly"
-              />
-              <SidebarLink
                 to={PORTAL_PATHS.accounts}
                 icon="bank"
                 label={t("nav.accounts")}
@@ -168,29 +164,16 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                 testId="portal-nav-settings"
               />
             </SidebarSection>
+            {/* QA round 1: More keeps only Records, Knowledge and Conversations. Upload is
+                Records' "Upload documents"; Reports open from each agent's page; Billing is in
+                Settings; requests are Sloan's "Ask for a change"; the Weekly Table is a view of
+                The Table. Their old addresses still work. */}
             <SidebarMore label={t("nav.more")} testId="portal-nav-more">
-              {/* UI-3a */}
-              <SidebarLink
-                to={PORTAL_PATHS.upload}
-                label={t("nav.upload")}
-                testId="portal-nav-upload"
-              />
-              <SidebarLink
-                to={PORTAL_PATHS.reports}
-                label={t("nav.reports")}
-                testId="portal-nav-reports"
-              />
               <SidebarLink
                 to={PORTAL_PATHS.records}
                 label={t("nav.records")}
                 testId="portal-nav-records"
               />
-              <SidebarLink
-                to={PORTAL_PATHS.requests}
-                label={t("nav.requests")}
-                testId="portal-nav-requests"
-              />
-              {/* The vault, the directory and contacts live on Accounts and People (UI-1c). */}
               {isAdmin ? (
                 <>
                   <SidebarLink
@@ -203,11 +186,6 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                     to={PORTAL_PATHS.conversations}
                     label={t("nav.conversations")}
                     testId="portal-nav-conversations"
-                  />
-                  <SidebarLink
-                    to={PORTAL_PATHS.billing}
-                    label={t("nav.billing")}
-                    testId="portal-nav-billing"
                   />
                 </>
               ) : null}

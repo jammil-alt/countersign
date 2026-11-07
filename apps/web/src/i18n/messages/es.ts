@@ -120,7 +120,6 @@ export const es: Messages = {
   "nav.contacts": "Contactos",
   // v0.14 capture
   "nav.conversations": "Conversaciones",
-  "nav.billing": "Facturación",
   "nav.people": "Personas",
   "nav.access": "Accesos",
   "nav.directory": "Directorio",
@@ -171,7 +170,7 @@ export const es: Messages = {
   },
   "table.waitLine": { one: "{count} cosa le espera.", other: "{count} cosas le esperan." },
   "table.waitNone": "Nada le espera.",
-  "table.openWeekly": "Abrir la Mesa semanal",
+  "table.view.today": "Hoy",
   "table.askSloan": "Preguntar a Sloan",
   "table.workingNow": "Trabajando ahora",
   "table.meta.running": { one: "{count} en curso", other: "{count} en curso" },
@@ -605,7 +604,7 @@ export const es: Messages = {
   "webhook.noOutbound": "Aún no hay URL de salida: los agentes no pueden enviar eventos.",
 
   // ── Upload and forwarding ──
-  "upload.section": "Subida y reenvío · incluido",
+  "forwarding.section": "Reenvío",
   "upload.title": "Subir",
   "upload.help":
     "Facturas y recibos (PDF o imagen), o un CSV de compras con fecha, proveedor e importe.",
@@ -622,6 +621,7 @@ export const es: Messages = {
   "upload.received": "Recibido",
   "upload.duplicate": "Ya estaba: guardamos una sola copia.",
   "forwarding.title": "Reenviar facturas por correo",
+  "forwarding.uploadInRecords": "Suba archivos usted mismo en Registros",
   "forwarding.off": "El reenvío aún no está activado. Su dirección privada aparecerá aquí.",
   "forwarding.help":
     "Cree una regla de reenvío en su correo (por ejemplo, desde la bandeja de cuentas por pagar) hacia esta dirección privada. Guardamos los adjuntos, nunca el texto del mensaje.",
@@ -691,7 +691,6 @@ export const es: Messages = {
   "document.col.page": "Página",
 
   // ── Requests ──
-  "requests.title": "Solicitudes",
   "requests.subtitle":
     "Pídanos un cambio en uno de sus servicios, o algo nuevo. Le respondemos aquí.",
   "requests.which": "Qué solicitudes",
@@ -747,7 +746,7 @@ export const es: Messages = {
   "signin.error.default": "El inicio de sesión no terminó. Empiece de nuevo.",
 
   // ── Feedback ──
-  "feedback.button": "Comentarios",
+  "feedback.button": "Informar de un problema con la app",
   "feedback.tapWhere": "Toque donde está el problema",
   "feedback.noSpot": "Ningún sitio en concreto",
   "feedback.capturing": "Tomando la imagen…",
@@ -1502,7 +1501,6 @@ export const es: Messages = {
   "peoplePage.title": "Personas",
   "peoplePage.subtitle":
     "Todas las personas a las que sus agentes pueden contactar, quiénes son para usted y cómo prefieren que les contacten.",
-  "peoplePage.import": "Importar personas",
   "peoplePage.add": "Añadir una persona",
   "peoplePage.adminOnly": "Su administrador gestiona esta parte de Personas.",
   "peoplePage.tab.people": "Personas",
@@ -1785,7 +1783,7 @@ export const es: Messages = {
   "knowledge.adminOnly":
     "Solo su administrador puede ver y cambiar lo que los agentes saben de su empresa.",
   "sloan.requests": "Sus solicitudes a nosotros",
+  "sloan.mode.change": "Pedir un cambio",
   "signin.needAccess":
     "¿Necesita acceso? Pregunte a su administrador o a su responsable en Mezonas.",
-  "nav.upload": "Subir",
 };
