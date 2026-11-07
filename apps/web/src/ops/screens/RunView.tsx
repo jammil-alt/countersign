@@ -111,7 +111,7 @@ export function OpsRunScreen() {
   // Who it waits on and since when come from the API's `run.waiting` (core's run state).
   const wait = going ? runWaiting(data.inbox, run.waiting) : null;
   const clientName = session.tenants.find((t) => t.id === run.tenantId)?.name ?? "Client";
-  const name = agent?.name ?? "Agent";
+  const name = agent?.serviceName ?? agent?.name ?? "Agent";
   const short = shortRunId(run.id);
   const error = runErrorParts(run.error);
   const failedRow =
@@ -154,7 +154,7 @@ export function OpsRunScreen() {
       </nav>
       <div>
         <PageHeader
-          leading={<AgentBadge name={name} size="lg" />}
+          leading={<AgentBadge name={name} seed={agent?.id} size="lg" />}
           title={opsRunTitle(run.subject, workflowName)}
           badge={
             <span className="flex flex-wrap items-center gap-1.5">

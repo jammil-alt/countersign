@@ -193,7 +193,7 @@ function WeeklyTable({
           {stats.agents.map((a) => (
             <ActivityRow
               key={a.id}
-              badge={<AgentBadge name={a.name} size="sm" />}
+              badge={<AgentBadge name={a.name} seed={a.id} size="sm" />}
               end={
                 <Link to={PORTAL_PATHS.agent(a.id)} className="text-sm text-link hover:underline">
                   {t("weekly.details")}

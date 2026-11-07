@@ -4,15 +4,24 @@
 // sidebar that lists places only: Home (the command center), Escalations, Runs, Clients, Build and
 // Business, with the business pages the prototype leaves out folded under More. A client's own
 // pages are tabs on its page; an agent's are tabs on the agent's page.
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
+import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { INBOX_COUNT_POLL_MS } from "../portal/inboxCount";
 import { usePoll } from "../runs/usePoll";
 import { useSession } from "../session/session";
-import { AgentSwitcher } from "../shell/AgentSwitcher";
+import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
 import { AppShell, SidebarLink, SidebarMore, SidebarSection } from "../shell/Shell";
 import { opsSearchGroups } from "../shell/searchGroups";
@@ -23,6 +32,16 @@ import { PickedClientProvider, usePickedClient, useRouteClientId } from "./picke
 
 /** `/ops/clients/:clientId/...`, except the "new client" page. */
 export const useSelectedClientId = useRouteClientId;
+
+type ClientSummaryRow = ResponseOf<typeof apiRoutes.opsClients>["clients"][number];
+
+/** The clients list the frame polls (Needs us, waiting runs per client); null until it loads. */
+const OpsClientsContext = createContext<readonly ClientSummaryRow[] | null>(null);
+
+/** One client's row of the frame's clients list: its Needs us and runs waiting for approval. */
+export function useClientSummary(clientId: string): ClientSummaryRow | null {
+  return useContext(OpsClientsContext)?.find((c) => c.id === clientId) ?? null;
+}
 
 export function OpsLayout({ children }: { children: ReactNode }) {
   return (
@@ -70,6 +89,16 @@ function OpsFrame({ children }: { children: ReactNode }) {
     clientId && agentSlug ? { params: { id: clientId } } : null,
   );
   useAgentsChanged(client.reload);
+  // The client's agents by the name the client knows (fix 1 of the design pass): the service
+  // name, the bundle's own name only where it has none.
+  const switchAgents =
+    clientId && client.data
+      ? client.data.agents.map((a) => ({
+          key: a.slug,
+          name: a.serviceName ?? a.name,
+          href: `/ops/clients/${clientId}/agents/${a.slug}`,
+        }))
+      : [];
 
   const search: SearchRun = useCallback(
     async (q, signal) =>
@@ -95,16 +124,9 @@ function OpsFrame({ children }: { children: ReactNode }) {
         }
         search={{ placeholder: "Find a client, agent, run or record", run: search }}
         desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: needsUs }}
-        pageBar={
-          clientId && agentSlug && client.data ? (
-            <AgentSwitcher
-              current={agentSlug}
-              agents={client.data.agents.map((a) => ({
-                key: a.slug,
-                name: a.name,
-                href: `/ops/clients/${clientId}/agents/${a.slug}`,
-              }))}
-            />
+        switcher={
+          agentSlug && canSwitch(agentSlug, switchAgents) ? (
+            <AgentSwitcher current={agentSlug} agents={switchAgents} />
           ) : null
         }
         sidebar={
@@ -179,7 +201,9 @@ function OpsFrame({ children }: { children: ReactNode }) {
           </nav>
         }
       >
-        {children}
+        <OpsClientsContext.Provider value={clientsState.data?.clients ?? null}>
+          {children}
+        </OpsClientsContext.Provider>
       </AppShell>
       {/* The back office always has the Feedback button. */}
       <FeedbackButton surface="ops" />

@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import {
+  AGENT_DETAIL,
   CLIENT_SESSION,
   fakeApi,
   OPERATOR_SESSION,
@@ -40,6 +41,20 @@ const service = (id: string, name: string, status = "active") => ({
   name,
   description: "Keeps bills itemized.",
   status,
+});
+
+/** `GET /api/services/:id`: what the agent page's header needs. */
+const serviceDetail = (id: string, name: string) => ({
+  service: { id, name, description: null, status: "active" },
+  thisMonth: {
+    from: "2026-11-01",
+    to: "2026-11-07",
+    runs: { total: 0, succeeded: 0, failed: 0, cancelled: 0, waiting: 0, going: 0 },
+    documentsRead: 0,
+    actions: 0,
+  },
+  recentRuns: [],
+  packs: [],
 });
 
 const clientRow = (id: string, name: string, needsUs = 0) => ({
@@ -186,13 +201,19 @@ describe("back office layout", () => {
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${SANDBOX}`]: () => ({
         ...SANDBOX_DETAIL,
-        agents: [...SANDBOX_DETAIL.agents, second],
+        agents: [...SANDBOX_DETAIL.agents, { ...second, serviceName: "Bills" }],
       }),
+      [`GET /api/ops/clients/${SANDBOX}/agents`]: () => ({ agents: SANDBOX_DETAIL.agents }),
+      [`GET /api/ops/agents/${AGENT_DETAIL.agent.id}`]: () => AGENT_DETAIL,
+      [`GET /api/ops/agents/${AGENT_DETAIL.agent.id}/skills`]: () => ({ skills: [] }),
     });
     renderAt(`/ops/clients/${SANDBOX}/agents/material-costs`, api);
-    const switcher = (await screen.findByTestId("agent-switcher")) as HTMLSelectElement;
+    // The switcher is in the agent's own header, after its client, not on a bar of its own.
+    const crumbs = await screen.findByTestId("agent-bar-crumbs");
+    const switcher = (await within(crumbs).findByTestId("agent-switcher")) as HTMLSelectElement;
     expect(switcher.value).toBe("material-costs");
-    expect([...switcher.options].map((o) => o.text)).toEqual(["Material costs", "Bill clerk"]);
+    // Each agent by the name the client knows it by.
+    expect([...switcher.options].map((o) => o.text)).toEqual(["Material costs", "Bills"]);
   });
 
   it("sends a client user who opens /ops to the portal, without loading the back office", async () => {
@@ -323,14 +344,35 @@ describe("portal layout", () => {
     expect(await screen.findByText(/No agents yet/)).toBeInTheDocument();
   });
 
+  it("offers Ask Sloan beside the Inbox, saying what Sloan is", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview(),
+    });
+    renderAt("/", api);
+    const ask = await screen.findByTestId("shell-ask-sloan");
+    expect(ask).toHaveAttribute("href", "/sloan");
+    expect(ask).toHaveTextContent("Ask Sloan");
+    expect(ask).toHaveAttribute("title", "Your account agent: ask about your agents' work");
+    // Its name starts with the words it shows, so it reads the same with the badge alone.
+    expect(ask.getAttribute("aria-label")).toMatch(/^Ask Sloan\. /);
+    // It sits in the top bar, before the Inbox.
+    const inbox = screen.getByTestId("shell-inbox");
+    expect(ask.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("switches between agents from an agent's page", async () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () =>
         overview([service(SERVICE, "Material costs"), service(SERVICE_2, "Bill clerk")]),
+      [`GET /api/services/${SERVICE}`]: () => serviceDetail(SERVICE, "Material costs"),
+      [`GET /api/services/${SERVICE_2}`]: () => serviceDetail(SERVICE_2, "Bill clerk"),
     });
     renderAt(`/agents/${SERVICE}`, api);
+    // The switcher is in the agent page's header, after its eyebrow, like a breadcrumb.
     const switcher = (await screen.findByTestId("agent-switcher")) as HTMLSelectElement;
+    expect(switcher.closest(".ui-crumbs")).not.toBeNull();
     expect(switcher.value).toBe(SERVICE);
     await userEvent.selectOptions(switcher, SERVICE_2);
     await waitFor(() =>

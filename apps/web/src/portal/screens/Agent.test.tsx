@@ -276,23 +276,28 @@ describe("the agent page", () => {
       latest.textContent?.indexOf("Looked for the bill") ?? -1,
     );
 
-    // Its own view comes first: by default this month's activity, with its KPIs, and the full
-    // report a click away.
-    const own = screen.getByTestId("agent-own-view");
-    expect(own.compareDocumentPosition(screen.getByTestId("agent-now"))).toBe(
+    // Its own figures come first: this month's, as a strip of tiles with its template's KPIs,
+    // and the full report a click away. No pack reports: no empty block of its own.
+    expect(screen.queryByTestId("agent-own-view")).toBeNull();
+    const month = screen.getByTestId("agent-month");
+    expect(month.compareDocumentPosition(screen.getByTestId("agent-now"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(within(own).getByTestId("agent-full-report")).toHaveAttribute(
+    expect(within(month).getByTestId("agent-full-report")).toHaveAttribute(
       "href",
       `/reports?service=${SVC}`,
     );
     expect(await screen.findByTestId("agent-kpi-k1")).toHaveTextContent(
-      "$3,940.00Overcharges caught",
+      "Overcharges caught$3,940.00",
     );
-    expect(screen.getByTestId("portal-service-runs")).toHaveTextContent(
-      "2Runs1 done, 1 waiting on you",
-    );
-    expect(screen.getByTestId("portal-service-documents")).toHaveTextContent("3");
+    const runsTile = screen.getByTestId("portal-service-runs");
+    expect(runsTile).toHaveTextContent("Runs21 done, 1 waiting on you");
+    expect(runsTile).toHaveAttribute("href", `/agents/${SVC}/runs`);
+    // A run done this month: its accent is positive, beside its words.
+    expect(runsTile).toHaveAttribute("data-tone", "positive");
+    expect(screen.getByTestId("portal-service-documents")).toHaveTextContent("Documents read3");
+    // Nothing waits on you from it, and it changed nothing: those tiles are left out.
+    expect(screen.queryByTestId("agent-kpi-waiting")).toBeNull();
     expect(screen.queryByTestId("agent-reach")).toBeNull();
 
     // Runs: its runs, the list filtered to it.

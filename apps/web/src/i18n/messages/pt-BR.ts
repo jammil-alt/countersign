@@ -1792,10 +1792,6 @@ export const ptBR: Messages = {
   // tabs, Settings sections). Needs a fluent speaker's review, as do the lines marked above.
   "nav.home": "Início",
   "nav.inbox": "Caixa de entrada",
-  "home.week": {
-    one: "{count} execução concluída esta semana.",
-    other: "{count} execuções concluídas esta semana.",
-  },
   "home.addDocuments": "Adicionar documentos",
   "home.agents": "Seus agentes",
   "home.needsYou": "Precisa de você",
@@ -1840,6 +1836,29 @@ export const ptBR: Messages = {
   "settingsPage.conversations": "Conversas",
   "settingsPage.voice": "Exemplos de estilo",
   "settingsPage.sloanBody":
-    "Sloan é o seu agente de conta. Pergunte a ele sobre o trabalho dos seus agentes, ou peça para pausar um, na busca no topo. Sloan nunca afrouxa uma regra.",
+    "Sloan é o seu agente de conta. Pergunte a ele sobre o trabalho dos seus agentes, ou peça para pausar um: use “Perguntar ao Sloan” no topo, ou a busca. Sloan nunca afrouxa uma regra.",
+
+  // UI cleanup (design pass): Home's figures, each agent's figures, and Ask Sloan in the top bar.
+  // Needs a fluent speaker's review.
+  "home.kpi.runsDone": "Execuções concluídas · esta semana",
+  "home.kpi.changes": "Mudanças nas ferramentas · esta semana",
+  "home.kpi.changesNote": "{automatic} por conta própria · {approved} aprovadas por você",
+  "home.kpi.waiting": "Aguarda você",
+  "home.kpi.waitingNote": "Aprovações e perguntas",
+  "home.kpi.documents": "Documentos lidos · esta semana",
+  "home.kpi.up": "{count} a mais que a semana passada",
+  "home.kpi.down": "{count} a menos que a semana passada",
+  "home.kpi.same": "Igual à semana passada",
+  "kpi.runsDays": {
+    one: "{count} execução nos últimos {days} dias",
+    other: "{count} execuções nos últimos {days} dias",
+  },
+  "home.card.runsWeek": { one: "execução esta semana", other: "execuções esta semana" },
+  "home.card.changes": {
+    one: "mudança nas suas ferramentas",
+    other: "mudanças nas suas ferramentas",
+  },
+  "shell.askSloanButton": "Perguntar ao Sloan",
+  "shell.askSloanHint": "Seu agente de conta: pergunte sobre o trabalho dos seus agentes",
   "settingsPage.sloanOpen": "Abrir o Sloan",
 };

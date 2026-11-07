@@ -120,16 +120,26 @@ const center = (over: Record<string, unknown> = {}) => ({
         { id: "r2", status: "running", mode: "live", createdAt: hoursAgo(1) },
         { id: "r1", status: "failed", mode: "live", createdAt: hoursAgo(2) },
       ],
+      perDay: [
+        ...Array.from({ length: 12 }, () => ({ runs: 0, failed: 0 })),
+        { runs: 2, failed: 1 },
+        { runs: 2, failed: 0 },
+      ],
     }),
     agent({
       id: AGENT2,
       name: "Iris",
+      serviceName: null,
       client: other,
       template: null,
       status: "paused",
       cost7dUsd: "6.1000",
     }),
   ],
+  perDay: Array.from({ length: 14 }, (_, i) => ({
+    runs: i === 13 ? 18 : 24,
+    failed: i === 13 ? 2 : 0,
+  })),
   ...over,
 });
 
@@ -238,13 +248,25 @@ describe("command center", () => {
     const waiting = within(figures).getByTestId("ops-command-waiting");
     expect(waiting).toHaveTextContent("Waiting for approval1Nobody can approve 1");
     expect(waiting).toHaveAttribute("href", "/ops/runs?statuses=waiting&mode=live");
-    const running = within(figures).getByTestId("ops-command-running");
-    expect(running).toHaveTextContent("Running now13 steps in flight");
+    // Today's live runs, always shown, with its 14 days and what runs now.
+    const runs = within(figures).getByTestId("ops-command-runs-today");
+    expect(runs).toHaveTextContent("Live runs today312");
+    expect(runs).toHaveTextContent("1 run running now, 3 steps in flight");
+    expect(runs).toHaveAttribute("data-tone", "slate");
     expect(
-      new URL(running.getAttribute("href") ?? "", "http://x").searchParams.get("statuses"),
-    ).toBe("queued,running");
+      within(runs).getByRole("img", {
+        name: "Live runs each day, last 14 days: 330 in all, 2 failed",
+      }),
+    ).toBeInTheDocument();
+    expect(new URL(runs.getAttribute("href") ?? "", "http://x").searchParams.get("statuses")).toBe(
+      "queued,running",
+    );
+    // Each figure in its state colour: Needs us risk, waiting gold, failed risk.
+    expect(need).toHaveAttribute("data-tone", "risk");
+    expect(waiting).toHaveAttribute("data-tone", "signal");
     const failed = within(figures).getByTestId("ops-command-failed");
     expect(failed).toHaveTextContent("Failed today2");
+    expect(failed).toHaveAttribute("data-tone", "risk");
     const failedQuery = new URL(failed.getAttribute("href") ?? "", "http://x").searchParams;
     expect(Object.fromEntries(failedQuery)).toEqual({
       statuses: "failed",
@@ -252,10 +274,9 @@ describe("command center", () => {
       since: now.toISOString(),
     });
     expect(figures.querySelectorAll("a")).toHaveLength(4);
-    // Today's runs and spend sit under the title, not in tiles.
-    expect(
-      screen.getByText("312 runs today, 98.1% clean · $41.80 model spend · 2 agents live"),
-    ).toBeInTheDocument();
+    // Spend and the agents live sit under the title; today's runs are the figure, said once.
+    // "Live" is switched on and at the live stage: the paused one isn't counted.
+    expect(screen.getByText("$41.80 model spend today · 1 agent live")).toBeInTheDocument();
 
     // An approval stuck at a client: what waits, on whom, how long, why, and its run.
     const stuck = screen.getByTestId(`ops-needs-${WAITING_RUN}`);
@@ -289,8 +310,18 @@ describe("command center", () => {
     expect(pia).toHaveTextContent("1 run running");
     expect(pia).toHaveTextContent("1 version behind");
     expect(pia).toHaveTextContent("$8.40");
-    expect(within(pia).getByRole("img", { name: "Last 2 runs: 1 failed" })).toBeInTheDocument();
+    // The name the client knows (its service name), not the bundle's own.
+    expect(pia).toHaveTextContent("Material costs");
+    expect(pia).not.toHaveTextContent("Pia");
+    // Its runs each day for 14 days, failed days marked.
+    expect(
+      within(pia).getByRole("img", { name: "Runs each day, last 14 days: 4 in all, 1 failed" }),
+    ).toBeInTheDocument();
     expect(within(agents).getByTestId(`ops-agent-${AGENT2}`)).toHaveTextContent("Paused");
+    // Without the days (an older API), the last runs as bars.
+    expect(
+      within(within(agents).getByTestId(`ops-agent-${AGENT2}`)).getByText("No runs"),
+    ).toBeInTheDocument();
 
     // By status groups them by what their chips say.
     await userEvent.click(within(agents).getByTestId("ops-agents-by-status"));

@@ -78,7 +78,7 @@ import { testbenchRoutes } from "./testbench";
 import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
 import { triggerRoutes } from "./triggers";
-import { AgentRunsNow, usageRoutes } from "./usage";
+import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
 // v0.14 W4-B
@@ -208,9 +208,28 @@ export const AgentSummary = z.object({
   approver: z.string().nullable(),
   /** A template's test copy in the Sandbox client: it only test-runs. */
   testCopy: z.boolean(),
+  // UI cleanup (design pass): a client agent's go-live stage, so "live" is counted one way
+  // (isLiveAgent); null for templates; optional so older answers still parse.
+  stage: z.string().nullable().optional(),
   createdAt: Timestamp,
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
+
+/**
+ * UI cleanup (design pass): a client agent's work at a glance, for the client page's Overview: its
+ * live runs in the last 7 days, how many wait for approval now, its last run, and its runs each day
+ * (KPI_DAYS, UTC, oldest first).
+ */
+export const OpsAgentActivity = z.object({
+  agentId: z.string(),
+  runs7d: z.number().int(),
+  waitingRuns: z.number().int(),
+  lastRun: z
+    .object({ id: z.string(), status: z.string(), at: Timestamp, waiting: z.boolean() })
+    .nullable(),
+  perDay: z.array(DayRuns),
+});
+export type OpsAgentActivity = z.infer<typeof OpsAgentActivity>;
 
 export const VersionSummary = z.object({
   id: z.string(),
@@ -901,6 +920,8 @@ export const opsRoutes = {
           role: Role,
         }),
       ),
+      /** UI cleanup (design pass): each client agent's work at a glance (test copies left out). */
+      activity: z.array(OpsAgentActivity).optional(),
     }),
   }),
   opsClientConnections: defineRoute({

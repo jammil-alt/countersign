@@ -667,7 +667,7 @@ async function clientTimezone(tx: Tx, tenantId: string): Promise<string> {
 // DECISION: the portal's figures are counted from the rows, not from usage_daily: the rollup is the
 // operator's ledger (UTC days, test runs included), while a client's report is its own days and
 // live work only. Documents read by a test run still count as read: the document was read.
-async function activity(
+export async function activity(
   tx: Tx,
   platform: Platform,
   input: { tenantId: string; timezone: string; from: string; to: string; service?: string },

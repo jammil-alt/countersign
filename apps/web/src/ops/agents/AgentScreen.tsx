@@ -23,6 +23,7 @@ import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
 import { OpsChannelsSection, OpsPeopleSection } from "../../people/PeoplePanel";
+import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
 import {
   Badge,
@@ -37,6 +38,7 @@ import {
 } from "../../ui/primitives";
 import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
+import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
 import { workflowStats } from "../workflow/describe";
@@ -482,8 +484,12 @@ function AgentBar({
   const stats = bundle ? workflowStats(bundle) : null;
   const status = view.runStatus ?? "draft";
   const kind = agentKindBadge(view);
+  // Fix 1 of the design pass: the title is the name the client knows (the service name); the
+  // bundle's own name, where it differs, is in the line under it, the one place it matters.
+  const title = view.serviceName ?? view.name;
+  const ownName = view.serviceName && view.serviceName !== view.name ? view.name : null;
   const line = [
-    view.kind === "client" ? clientName : null,
+    ownName ? `Its definition calls it ${ownName}` : null,
     view.role,
     bundle && bundle.workflows.length > 1 ? plural(bundle.workflows.length, "workflow") : null,
     stats ? plural(stats.steps, "step") : null,
@@ -492,16 +498,27 @@ function AgentBar({
       ? plural(bundle.definition.skills.length, "skill")
       : null,
   ].filter(Boolean);
-  const title =
-    view.serviceName && view.serviceName !== view.name
-      ? `${view.name} · ${view.serviceName}`
-      : view.name;
   return (
     <Card testId="agent-bar">
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-6 pt-5 pb-1">
         <div className="flex min-w-0 items-start gap-4">
-          <AgentBadge name={view.name} size="lg" />
+          <AgentBadge name={title} seed={view.id} size="lg" />
           <div className="min-w-0">
+            {/* Where it is (its client, or the lab) and the switcher to the client's others. */}
+            <div className="ui-crumbs mb-1.5" data-testid="agent-bar-crumbs">
+              <p className="eyebrow text-ink-muted">
+                {view.kind === "client" && view.tenantId ? (
+                  <Link to={OPS_PATHS.client(view.tenantId)} className="hover:underline">
+                    {clientName ?? "Client"}
+                  </Link>
+                ) : (
+                  <Link to={OPS_PATHS.lab} className="hover:underline">
+                    Agent lab
+                  </Link>
+                )}
+              </p>
+              <HeaderSwitcher />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="type-heading text-ink">{title}</h1>
               <span className="flex flex-wrap gap-1.5" data-testid="agent-version-badges">

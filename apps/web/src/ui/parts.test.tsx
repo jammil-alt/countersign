@@ -6,8 +6,8 @@ import { I18nProvider } from "../i18n/i18n";
 import { fillPath, redirectTarget } from "../shell/Redirect";
 import { applyTheme, storedTheme } from "../shell/theme";
 import { ActivityRow, BeforeAfter } from "./activity";
-import { AgentBadge, PersonBadge } from "./badges";
-import { ProgressBar, Sparkbars, StatTile } from "./figures";
+import { AGENT_HUES, AgentBadge, agentHue, PersonBadge } from "./badges";
+import { Delta, hasRuns, ProgressBar, Sparkbars, Sparkline, StatTile } from "./figures";
 import { CHIP_STATES, CHIP_TONE, runChipState, StatusChip, serviceChipState } from "./status";
 import { StepList } from "./steps";
 
@@ -110,6 +110,79 @@ describe("figures", () => {
     expect(spark.children).toHaveLength(3);
     expect(spark.children[1]).toHaveClass("is-failed");
     expect(spark.children[1]).toHaveStyle({ height: "100%" });
+  });
+
+  it("gives a tile its state colour, a mark and a link", () => {
+    render(
+      <MemoryRouter>
+        <StatTile label="Waiting on you" value="5" tone="signal" to="/inbox" testId="w" />
+        <StatTile
+          label="Runs"
+          value="12"
+          tone="positive"
+          mark={
+            <Sparkline days={[{ runs: 1 }, { runs: 3, failed: 1 }, { runs: 2 }]} label="6 runs" />
+          }
+          testId="r"
+        />
+      </MemoryRouter>,
+    );
+    const waiting = screen.getByTestId("w");
+    expect(waiting.tagName).toBe("A");
+    expect(waiting).toHaveAttribute("href", "/inbox");
+    expect(waiting).toHaveAttribute("data-tone", "signal");
+    expect(waiting).toHaveClass("ui-accent", "ui-stat--signal");
+    const spark = within(screen.getByTestId("r")).getByRole("img", { name: "6 runs" });
+    expect(spark).toHaveClass("dt-spark");
+    // One point per day, today's dot, and a risk dot on the day a run failed.
+    expect(spark.querySelector("polyline")?.getAttribute("points")?.split(" ")).toHaveLength(3);
+    expect(spark.querySelectorAll(".ui-sparkline__failed")).toHaveLength(1);
+    expect(spark.querySelectorAll(".dot")).toHaveLength(1);
+  });
+
+  it("leaves a chart out when nothing ran, and says a change in words", () => {
+    expect(hasRuns(undefined)).toBe(false);
+    expect(hasRuns([{ runs: 0 }, { runs: 0 }])).toBe(false);
+    expect(hasRuns([{ runs: 0 }, { runs: 2 }])).toBe(true);
+    const words = (d: "up" | "down" | "same", by: number) =>
+      d === "same" ? "Same as last week" : `${d === "up" ? "Up" : "Down"} ${by} on last week`;
+    render(
+      <>
+        <Delta now={64} before={50} words={words} testId="up" />
+        <Delta now={31} before={34} words={words} testId="down" />
+        <Delta now={3} before={3} words={words} testId="same" />
+      </>,
+    );
+    expect(screen.getByTestId("up")).toHaveTextContent("Up 14 on last week");
+    expect(screen.getByTestId("up").querySelector(".up")).not.toBeNull();
+    expect(screen.getByTestId("down")).toHaveTextContent("Down 3 on last week");
+    expect(screen.getByTestId("down").querySelector(".down")).not.toBeNull();
+    expect(screen.getByTestId("same")).toHaveTextContent("Same as last week");
+  });
+});
+
+describe("an agent's colour", () => {
+  it("is the same for the same agent, from the slate ramp, wherever it shows", () => {
+    const id = "00000000-0000-4000-8000-00000000b001";
+    expect(agentHue(id)).toBe(agentHue(id));
+    const hues = new Set(
+      Array.from({ length: 50 }, (_, i) => agentHue(`agent-${i}`)).filter(
+        (h) => h >= 1 && h <= AGENT_HUES,
+      ),
+    );
+    // Every colour gets used across agents, and none falls outside the ramp.
+    expect(hues.size).toBe(AGENT_HUES);
+    render(
+      <>
+        <AgentBadge name="Pia" seed={id} testId="a" />
+        <AgentBadge name="Material costs" seed={id} size="sm" testId="b" />
+        <AgentBadge name="Sloan" testId="c" />
+      </>,
+    );
+    // By its id, whatever name it shows; without an id, its name picks it.
+    expect(screen.getByTestId("a").dataset.hue).toBe(String(agentHue(id)));
+    expect(screen.getByTestId("b").dataset.hue).toBe(String(agentHue(id)));
+    expect(screen.getByTestId("c").dataset.hue).toBe(String(agentHue("Sloan")));
   });
 });
 

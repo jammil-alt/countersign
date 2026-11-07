@@ -9,9 +9,12 @@ import {
   APPROVAL_OVERDUE_HOURS,
   BLOCKED_LONG_HOURS,
   type CommandCenter,
+  type DayRuns,
   type Escalation,
   type FeedItem,
+  goLiveCounts,
   HEALTH_DAYS,
+  KPI_DAYS,
   newestFeed,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -22,14 +25,14 @@ import { shortTime, usd } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
-import { Sparkbars, StatTile } from "../../ui/figures";
+import { hasRuns, Sparkbars, Sparkline, StatTile } from "../../ui/figures";
 import { Columns, Loaded, Page } from "../../ui/page";
 import { Button, buttonClass, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { OPS_PATHS } from "../paths";
-import { failedRunsSince, RUNNING_RUNS, WAITING_RUNS } from "../run/links";
+import { failedRunsSince, RUNNING_RUNS, runsLink, WAITING_RUNS } from "../run/links";
 import { age, oversightLine, percent, plural } from "../run/words";
-import { escalationAction, escalationChip, escalationLine } from "./escalations";
+import { escalationAction, escalationChip, escalationLine, escalationTone } from "./escalations";
 
 /** How often the figures reload, and the feed asks for what's new. */
 export const COMMAND_POLL_MS = 30_000;
@@ -91,21 +94,35 @@ export function CommandCenterScreen() {
 
 // ── Figures ──
 
-/** "312 runs today, 98.1% clean · $41.80 model spend · 2 agents live": under the title. */
+/**
+ * "$41.80 model spend today · 2 agents live · 1 in trial": under the title. Today's runs are the
+ * first figure, so they aren't repeated here. "Live" is core's `isLiveAgent` (switched on, at the
+ * live stage); trial and sign-off are named as such.
+ */
 export function todayLine(data: CommandCenter): string {
-  const clean = percent(data.runsToday.cleanShare);
-  return [
-    data.runsToday.runs > 0
-      ? `${plural(data.runsToday.runs, "run", "runs")} today${clean ? `, ${clean} clean` : ""}`
-      : "No runs yet today",
-    `${usd(data.spendToday.costUsd)} model spend`,
-    `${plural(data.agentsLive.count, "agent", "agents")} live`,
-  ].join(" · ");
+  return [`${usd(data.spendToday.costUsd)} model spend today`, liveWords(data.agents)].join(" · ");
 }
 
+/** "2 agents live · 1 in trial · 1 in sign-off", from the agents' go-live stages. */
+export function liveWords(agents: readonly Pick<Agent, "status" | "stage">[]): string {
+  const n = goLiveCounts(agents.map((a) => ({ runStatus: a.status, stage: a.stage })));
+  return [
+    `${plural(n.live, "agent", "agents")} live`,
+    n.trial > 0 ? `${n.trial} in trial` : null,
+    n.signoff > 0 ? `${n.signoff} in sign-off` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** A day's failed runs as a sparkline's points. */
+const failedDays = (days: readonly DayRuns[]) => days.map((d) => ({ runs: d.failed }));
+
 /**
- * Four figures, each a link to its list filtered (UI cleanup, stream A): Needs us (Escalations),
- * waiting for approval, running now and failed today (Runs). A figure at 0 is left out.
+ * Up to four figures, each a link to its list filtered (UI cleanup, stream A), in its state colour
+ * (design pass): Needs us (risk, Escalations), waiting for approval (signal), runs today (slate,
+ * with live runs each day for 14 days; always shown) and failed today (risk). Needs us, waiting
+ * and failed are left out at 0.
  */
 function Figures({ data }: { data: CommandCenter }) {
   const waiting = data.waitingForApproval ?? {
@@ -115,13 +132,21 @@ function Figures({ data }: { data: CommandCenter }) {
     nobodyToAct: 0,
   };
   const failed = data.failedToday?.runs ?? 0;
-  const tiles = [
-    data.needUs.count > 0 ? (
-      <FigureLink key="need" to={OPS_PATHS.escalations} testId="ops-command-need-us">
+  const days = data.perDay;
+  const runs14 = (days ?? []).reduce((n, d) => n + d.runs, 0);
+  const failed14 = (days ?? []).reduce((n, d) => n + d.failed, 0);
+  const clean = percent(data.runsToday.cleanShare);
+  const running = data.runningNow.runs;
+  return (
+    <div className="ops-tiles" data-testid="ops-command-figures">
+      {data.needUs.count > 0 ? (
         <StatTile
+          testId="ops-command-need-us"
+          to={OPS_PATHS.escalations}
           label="Needs us"
           value={data.needUs.count}
           alert
+          tone="risk"
           note={
             data.needUs.blockedLong > 0
               ? `${data.needUs.blockedLong} blocked over ${BLOCKED_LONG_HOURS} h`
@@ -129,13 +154,14 @@ function Figures({ data }: { data: CommandCenter }) {
           }
           {...(data.needUs.blockedLong > 0 ? { noteTone: "risk" as const } : {})}
         />
-      </FigureLink>
-    ) : null,
-    waiting.runs > 0 ? (
-      <FigureLink key="waiting" to={WAITING_RUNS} testId="ops-command-waiting">
+      ) : null}
+      {waiting.runs > 0 ? (
         <StatTile
+          testId="ops-command-waiting"
+          to={WAITING_RUNS}
           label="Waiting for approval"
           value={waiting.runs}
+          tone="signal"
           note={
             waiting.nobodyToAct > 0
               ? `Nobody can approve ${waiting.nobodyToAct}`
@@ -143,38 +169,52 @@ function Figures({ data }: { data: CommandCenter }) {
                 ? `${waiting.overdue} over ${APPROVAL_OVERDUE_HOURS} h`
                 : `Oldest ${age(waiting.oldestSince)}`
           }
-          noteTone={waiting.nobodyToAct > 0 ? "risk" : "signal"}
+          {...(waiting.nobodyToAct > 0 ? { noteTone: "risk" as const } : {})}
         />
-      </FigureLink>
-    ) : null,
-    data.runningNow.runs > 0 ? (
-      <FigureLink key="running" to={RUNNING_RUNS} testId="ops-command-running">
+      ) : null}
+      <StatTile
+        testId="ops-command-runs-today"
+        to={running > 0 ? RUNNING_RUNS : runsLink({ mode: "live", since: data.today })}
+        label="Live runs today"
+        value={data.runsToday.runs}
+        tone="slate"
+        mark={
+          hasRuns(days) ? (
+            <Sparkline
+              days={days}
+              label={`Live runs each day, last ${days.length} days: ${runs14} in all, ${failed14} failed`}
+              testId="ops-command-runs-spark"
+            />
+          ) : undefined
+        }
+        note={
+          running > 0
+            ? `${plural(running, "run", "runs")} running now, ${plural(data.runningNow.steps, "step", "steps")} in flight`
+            : clean
+              ? `${clean} clean`
+              : "None yet today"
+        }
+      />
+      {failed > 0 ? (
         <StatTile
-          label="Running now"
-          value={data.runningNow.runs}
-          note={`${plural(data.runningNow.steps, "step", "steps")} in flight`}
+          testId="ops-command-failed"
+          to={failedRunsSince(data.today)}
+          label="Failed today"
+          value={failed}
+          tone="risk"
+          mark={
+            days && failed14 > 0 ? (
+              <Sparkline
+                days={failedDays(days)}
+                label={`Failed live runs each day, last ${days.length} days: ${failed14} in all`}
+              />
+            ) : undefined
+          }
+          note="Live runs"
+          noteTone="risk"
         />
-      </FigureLink>
-    ) : null,
-    failed > 0 ? (
-      <FigureLink key="failed" to={failedRunsSince(data.today)} testId="ops-command-failed">
-        <StatTile label="Failed today" value={failed} note="Live runs" noteTone="risk" />
-      </FigureLink>
-    ) : null,
-  ].filter(Boolean);
-  if (tiles.length === 0) return null;
-  return (
-    <div className="ops-tiles" data-testid="ops-command-figures">
-      {tiles}
+      ) : null}
     </div>
-  );
-}
-
-function FigureLink({ to, testId, children }: { to: string; testId: string; children: ReactNode }) {
-  return (
-    <Link to={to} className="ops-pick" data-testid={testId}>
-      {children}
-    </Link>
   );
 }
 
@@ -216,9 +256,14 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
           const action = escalationAction(e);
           const who = e.agent ? (e.agent.serviceName ?? e.agent.name) : null;
           return (
-            <div key={`${e.kind}:${e.id}`} className="ops-row" data-testid={`ops-needs-${e.id}`}>
+            <div
+              key={`${e.kind}:${e.id}`}
+              className="ops-row ui-accent ui-accent--left"
+              data-tone={escalationTone(chip.state)}
+              data-testid={`ops-needs-${e.id}`}
+            >
               <StatusChip state={chip.state}>{chip.words}</StatusChip>
-              {who ? <AgentBadge name={e.agent?.name ?? who} size="sm" /> : null}
+              {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : null}
               <span className="ops-row__text">
                 <span className="font-medium text-ink">
                   {[who, e.client.name].filter(Boolean).join(" · ")}
@@ -338,7 +383,7 @@ function AllAgents({ agents, behind }: { agents: Agent[]; behind: Map<string, nu
                 <th>Template</th>
                 <th>Status</th>
                 <th>Now</th>
-                <th>Last runs</th>
+                <th>Runs, {KPI_DAYS} days</th>
                 <th className="text-right">Cost 7d</th>
               </tr>
             </thead>
@@ -386,6 +431,12 @@ function AgentGroup({
         const runs = [...a.recentRuns].reverse();
         const failed = runs.filter((r) => r.status === "failed").length;
         const late = behind.get(a.id);
+        // Fix 1 of the design pass: the name the client knows (the service name); the bundle's
+        // own name is on the agent page, under its title.
+        const name = a.serviceName ?? a.name;
+        const days = a.perDay;
+        const days14 = (days ?? []).reduce((n, d) => n + d.runs, 0);
+        const failed14 = (days ?? []).reduce((n, d) => n + d.failed, 0);
         return (
           <tr key={a.id} data-testid={`ops-agent-${a.id}`}>
             <td>
@@ -393,9 +444,9 @@ function AgentGroup({
                 to={`/ops/agents/${a.id}`}
                 className="flex items-center gap-2 font-medium text-ink hover:underline"
               >
-                <AgentBadge name={a.name} size="sm" />
+                <AgentBadge name={name} seed={a.id} size="sm" />
                 <span>
-                  {a.name}
+                  {name}
                   {showClient ? (
                     <span className="block text-xs font-normal text-ink-muted">
                       {a.client.name}
@@ -417,7 +468,17 @@ function AgentGroup({
             </td>
             <td className="whitespace-nowrap text-sm text-ink">{agentNow(a)}</td>
             <td>
-              {runs.length > 0 ? (
+              {days ? (
+                hasRuns(days) ? (
+                  <Sparkline
+                    days={days}
+                    label={`Runs each day, last ${days.length} days: ${days14} in all, ${failed14} failed`}
+                    testId={`ops-agent-spark-${a.id}`}
+                  />
+                ) : (
+                  <span className="text-sm text-ink-muted">No runs</span>
+                )
+              ) : runs.length > 0 ? (
                 <Sparkbars
                   values={runs.map((r) => ({ value: 1, failed: r.status === "failed" }))}
                   label={`Last ${runs.length} runs: ${failed} failed`}

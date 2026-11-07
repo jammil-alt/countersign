@@ -225,7 +225,7 @@ function TemplateCard({
       )}
     >
       <span className="flex items-center gap-2">
-        <AgentBadge name={a.name} size="sm" />
+        <AgentBadge name={a.name} seed={a.id} size="sm" />
         <b className="min-w-0 flex-1 truncate font-medium text-ink">{a.name}</b>
         {a.liveVersion !== null ? (
           <span className="reference text-ink-muted">v{a.liveVersion}</span>
@@ -275,7 +275,7 @@ function ClientOnlyList({ agents }: { agents: LabResponse["clientOnly"] }) {
           className="ds-card flex flex-col gap-2 p-4 hover:border-line-strong"
         >
           <span className="flex items-center gap-2">
-            <AgentBadge name={agent.name} size="sm" />
+            <AgentBadge name={agent.name} seed={agent.id} size="sm" />
             <b className="min-w-0 flex-1 truncate font-medium text-ink">{agent.name}</b>
             {agent.liveVersion !== null ? (
               <span className="reference text-ink-muted">v{agent.liveVersion}</span>
@@ -320,7 +320,7 @@ function TemplateDetail({
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-5">
           <div className="flex min-w-0 items-start gap-3">
-            <AgentBadge name={a.name} size="lg" />
+            <AgentBadge name={a.name} seed={a.id} size="lg" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="type-heading text-ink">{a.name}</h2>
@@ -511,7 +511,7 @@ function WhereItRuns({ templateId }: { templateId: string }) {
               className="flex items-start gap-3 px-6 py-4"
               data-testid={`lab-used-by-${u.agent.id}`}
             >
-              <AgentBadge name={u.agent.name} size="sm" />
+              <AgentBadge name={u.agent.name} seed={u.agent.id} size="sm" />
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <Link
                   to={`/ops/clients/${u.client.id}/agents/${u.agent.slug}`}

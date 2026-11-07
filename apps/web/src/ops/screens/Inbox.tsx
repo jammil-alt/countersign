@@ -25,7 +25,12 @@ import { Icon } from "../../ui/icons";
 import { Loaded, Page, Section } from "../../ui/page";
 import { buttonClass, Card, EmptyState, PageHeader } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
-import { escalationAction, escalationChip, escalationLine } from "../command/escalations";
+import {
+  escalationAction,
+  escalationChip,
+  escalationLine,
+  escalationTone,
+} from "../command/escalations";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
 
 type Item = ResponseOf<typeof apiRoutes.opsInbox>["items"][number];
@@ -259,11 +264,12 @@ function NeedsUsRows({ rows }: { rows: Escalation[] }) {
         return (
           <div
             key={`${e.kind}:${e.id}`}
-            className="ops-row"
+            className="ops-row ui-accent ui-accent--left"
+            data-tone={escalationTone(chip.state)}
             data-testid={`ops-inbox-needs-${e.id}`}
           >
             <StatusChip state={chip.state}>{chip.words}</StatusChip>
-            {who ? <AgentBadge name={e.agent?.name ?? who} size="sm" /> : null}
+            {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : null}
             <span className="ops-row__text">
               <span className="font-medium text-ink">
                 {[who, e.client.name].filter(Boolean).join(" · ")}

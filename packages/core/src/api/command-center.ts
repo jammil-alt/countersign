@@ -10,6 +10,7 @@ import { defineRoute } from "./contract";
 import { RunWait } from "./run-state";
 import { runsAskRoutes } from "./runs-ask";
 import { searchRoutes } from "./search";
+import { DayRuns } from "./usage";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
@@ -254,8 +255,14 @@ export const CommandCenter = z.object({
         }),
       ),
       cost7dUsd: Usd,
+      // UI cleanup (design pass): its runs each day, test runs included (the back office sees all
+      // of an agent's work), the last KPI_DAYS days in UTC, oldest first.
+      perDay: z.array(DayRuns).optional(),
     }),
   ),
+  // UI cleanup (design pass): live runs each day across the clients served, the last KPI_DAYS
+  // days in UTC, oldest first, for the figures' small charts.
+  perDay: z.array(DayRuns).optional(),
 });
 export type CommandCenter = z.infer<typeof CommandCenter>;
 

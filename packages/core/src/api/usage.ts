@@ -131,6 +131,18 @@ export const UsageReport = z.object({
 });
 export type UsageReport = z.infer<typeof UsageReport>;
 
+// ── Small charts (both sides) ────────────────────────────────────────────────────────────────────
+
+/** How many days the small run charts (sparklines) cover, on both sides. */
+export const KPI_DAYS = 14;
+
+/** One day's runs for a small chart: how many started, and how many of them failed. */
+export const DayRuns = z.object({
+  runs: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+export type DayRuns = z.infer<typeof DayRuns>;
+
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
 /**

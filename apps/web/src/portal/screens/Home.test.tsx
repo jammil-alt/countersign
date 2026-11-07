@@ -45,6 +45,9 @@ const overview = (health?: unknown) => ({
   ...(health === undefined ? {} : { health }),
 });
 
+/** Runs each day for the small charts, oldest first. */
+const days = (runs: number[]) => runs.map((n) => ({ runs: n, failed: 0 }));
+
 const TABLE = tableView({
   services: [
     tableService(PIA, "Pia", {
@@ -58,6 +61,9 @@ const TABLE = tableView({
       },
       runsDone: 9,
       runs: { total: 10, succeeded: 9, failed: 0, cancelled: 0, waiting: 0, going: 1 },
+      perDay: days([0, 0, 1, 2, 0, 3, 1, 0, 0, 2, 4, 1, 2, 1]),
+      changes: 7,
+      documentsRead: 9,
     }),
     tableService(COLE, "Cole", {
       now: {
@@ -78,6 +84,9 @@ const TABLE = tableView({
     runsDone: 38,
     runs: { total: 41, succeeded: 38, failed: 0, cancelled: 0, waiting: 1, going: 2 },
     changes: { automatic: 52, signed: 12 },
+    documentsRead: 31,
+    perDay: days([2, 3, 4, 5, 2, 3, 6, 5, 4, 7, 8, 6, 5, 6]),
+    lastWeek: { runsDone: 31, changes: 50, documentsRead: 34 },
   },
   recent: [
     {
@@ -221,13 +230,29 @@ describe("Home", () => {
     expect(
       await screen.findByRole("heading", { name: /^Good (morning|afternoon|evening), Dana$/ }),
     ).toBeInTheDocument();
-    // One short line; what waits on you is said once, in "Needs you".
-    expect(screen.getByTestId("home-week-line")).toHaveTextContent("38 runs finished this week.");
-    expect(screen.getByTestId("home-week-line")).not.toHaveTextContent(/wait/);
-    // No Weekly Table or Sloan buttons, no stat tiles; Add documents goes to upload.
+    // The week's figures, four at most, each a link to its list; no line under the title
+    // repeats them.
+    expect(screen.queryByTestId("home-week-line")).toBeNull();
+    const figures = screen.getByTestId("home-figures");
+    const runs = within(figures).getByTestId("home-kpi-runs");
+    expect(runs).toHaveAttribute("href", "/runs");
+    expect(runs).toHaveTextContent("Runs done · this week38");
+    expect(within(runs).getByRole("img", { name: "66 runs in the last 14 days" })).toBeVisible();
+    const changes = within(figures).getByTestId("home-kpi-changes");
+    expect(changes).toHaveTextContent("64");
+    expect(changes).toHaveTextContent("52 on their own · 12 approved by you");
+    expect(changes).toHaveTextContent("Up 14 on last week");
+    // What waits on you is in gold, with its words, and opens the Inbox.
+    const waiting = within(figures).getByTestId("home-kpi-waiting");
+    expect(waiting).toHaveAttribute("href", "/inbox");
+    expect(waiting).toHaveAttribute("data-tone", "signal");
+    expect(waiting).toHaveTextContent("Waiting on you5Approvals and questions");
+    const documents = within(figures).getByTestId("home-kpi-documents");
+    expect(documents).toHaveTextContent("Documents read · this week31");
+    expect(documents).toHaveTextContent("Down 3 on last week");
+    // No Weekly Table button on the page (Ask Sloan is the top bar's); Add documents uploads.
     expect(screen.queryByRole("link", { name: "Open the Weekly Table" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Ask Sloan" })).toBeNull();
-    expect(screen.queryByTestId("table-stat-waiting")).toBeNull();
+    expect(within(screen.getByTestId("portal-home")).queryByText("Ask Sloan")).toBeNull();
     expect(screen.getByTestId("home-add-documents")).toHaveAttribute("href", "/upload");
 
     const agents = screen.getByTestId("home-agents");
@@ -239,6 +264,14 @@ describe("Home", () => {
     );
     // Its tools are the connections it is granted.
     expect(await within(pia).findByText("QuickBooks Online")).toBeInTheDocument();
+    // Its own week: runs (with its 14 days) and changes, in its colour, working fine (positive).
+    const piaFigures = within(pia).getByTestId(`home-agent-figures-${PIA}`);
+    expect(piaFigures).toHaveTextContent("10runs this week");
+    expect(piaFigures).toHaveTextContent("7changes to your tools");
+    expect(
+      within(piaFigures).getByRole("img", { name: "17 runs in the last 14 days" }),
+    ).toBeVisible();
+    expect(pia).toHaveAttribute("data-tone", "positive");
 
     const cole = within(agents).getByTestId(`portal-service-${COLE}`);
     expect(within(cole).getByTestId(`table-agent-state-${COLE}`)).toHaveAttribute(
@@ -248,7 +281,13 @@ describe("Home", () => {
     expect(within(cole).getByTestId(`table-agent-now-${COLE}`)).toHaveTextContent(
       /^Waiting on you since .+ · Overdue: \$18,420\.00$/,
     );
+    // Waiting on you: the card's accent is gold, beside its chip.
+    expect(cole).toHaveAttribute("data-tone", "signal");
     expect(within(agents).getByText("Setting up")).toBeInTheDocument();
+    // An agent still setting up, with no runs: no figures and no accent.
+    const remy = within(agents).getByTestId("portal-service-00000000-0000-4000-8000-00000000b003");
+    expect(remy).not.toHaveAttribute("data-tone");
+    expect(within(remy).queryByTestId(/home-agent-figures/)).toBeNull();
 
     const latest = screen.getByTestId(`table-latest-${RUN}`);
     expect(within(latest).getByRole("link")).toHaveAttribute("href", `/runs/${RUN}`);
@@ -256,6 +295,8 @@ describe("Home", () => {
 
     const needs = screen.getByTestId("table-desk");
     expect(needs).toHaveTextContent("Needs you");
+    // Its count is the figure above: not said twice.
+    expect(within(needs).queryByText("5")).toBeNull();
     const first = within(needs).getByTestId(`table-desk-item-${ITEM}`);
     expect(first).toHaveTextContent("Due today");
     // Home never approves: its main action opens the item in the Inbox.

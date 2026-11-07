@@ -38,7 +38,8 @@ describe("AgentPage", () => {
     const api = setup(PATH);
     const bar = await screen.findByTestId("agent-bar");
     expect(within(bar).getByRole("heading", { name: "Material costs" })).toBeInTheDocument();
-    expect(await within(bar).findByTestId("agent-bar-line")).toHaveTextContent("Sandbox");
+    // Its client is the first step of the bar's breadcrumb (the agent switcher follows it).
+    expect(await within(bar).findByTestId("agent-bar-crumbs")).toHaveTextContent("Sandbox");
     expect(api.calls).toContain(`GET /api/ops/clients/${CLIENT}/agents`);
   });
 

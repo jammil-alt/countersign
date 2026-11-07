@@ -184,9 +184,12 @@ export function PageHeader({
   leading,
   badge,
   eyebrow,
+  beside,
 }: {
   /** "THURSDAY, NOVEMBER 5", "RUNS / R-2287": a kicker above the title. */
   eyebrow?: ReactNode;
+  /** After the eyebrow, as the next step of a breadcrumb (the agent switcher). */
+  beside?: ReactNode;
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
@@ -198,7 +201,14 @@ export function PageHeader({
       <div className="flex min-w-0 items-start gap-4">
         {leading}
         <div className="min-w-0">
-          {eyebrow ? <p className="eyebrow mb-2 text-ink-muted">{eyebrow}</p> : null}
+          {eyebrow && beside ? (
+            <div className="ui-crumbs mb-2">
+              <p className="eyebrow text-ink-muted">{eyebrow}</p>
+              {beside}
+            </div>
+          ) : eyebrow ? (
+            <p className="eyebrow mb-2 text-ink-muted">{eyebrow}</p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="type-title text-ink">{title}</h1>
             {badge}

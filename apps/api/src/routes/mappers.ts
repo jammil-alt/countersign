@@ -46,6 +46,7 @@ export function agentSummary(a: AgentRow) {
     bindings: a.bindings,
     approver: a.approver,
     testCopy: a.testCopy,
+    stage: a.stage ?? null,
     createdAt: a.createdAt.toISOString(),
   };
 }

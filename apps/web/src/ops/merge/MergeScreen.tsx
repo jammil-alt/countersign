@@ -180,7 +180,7 @@ function Header({ agent, mode }: { agent: AgentSummary; mode: Mode }) {
           <span>{mode === "update" ? "Update merge" : "Promotion"}</span>
         </span>
       }
-      leading={<AgentBadge name={agent.name} size="lg" />}
+      leading={<AgentBadge name={agent.name} seed={agent.id} size="lg" />}
       title={
         mode === "update"
           ? `Update ${agent.serviceName ?? agent.name}`

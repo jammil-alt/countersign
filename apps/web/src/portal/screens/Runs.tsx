@@ -296,7 +296,7 @@ export function PortalRunsScreen() {
                           </td>
                           <td>
                             <span className="flex items-center gap-2.5 text-ink">
-                              <AgentBadge name={r.service.name} size="sm" />
+                              <AgentBadge name={r.service.name} seed={r.service.id} size="sm" />
                               {r.service.name}
                             </span>
                           </td>

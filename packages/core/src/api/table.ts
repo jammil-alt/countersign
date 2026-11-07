@@ -8,7 +8,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { WeeklyEditBody, WeeklyTableView, WeekStartParam } from "../weekly/schemas";
 import { defineRoute } from "./contract";
-import { ActivityRuns, AgentRunsNow } from "./usage";
+import { ActivityRuns, AgentRunsNow, DayRuns } from "./usage";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
@@ -42,6 +42,14 @@ export const TableService = z.object({
   runs: ActivityRuns.optional(),
   // QA round 1: what it has going now, for its state (Working, Waiting on you).
   runsNow: AgentRunsNow.optional(),
+  // UI cleanup (design pass): each agent's own figures for its card, optional so older answers
+  // still parse. Counted as Reports counts them (one definition).
+  /** Live runs started each day, the last KPI_DAYS days in the client's time zone, oldest first. */
+  perDay: z.array(DayRuns).optional(),
+  /** Changes it made to your tools this week. */
+  changes: z.number().int().optional(),
+  /** Documents it read this week. */
+  documentsRead: z.number().int().optional(),
   // DECISION: KPIs come from W2-G (docs/plan.md §1.50); until it merges every list is empty.
   // v0.12 W2-G: this week's KPIs of the service, each with the records it counted.
   kpis: z.array(
@@ -64,6 +72,19 @@ export const TableView = z.object({
     // QA round 1: this week's live runs by how they stand (finished, waiting on you, …).
     runs: ActivityRuns.optional(),
     changes: z.object({ automatic: z.number().int(), signed: z.number().int() }),
+    // UI cleanup (design pass): Home's KPI strip.
+    /** Documents read this week (extracted, or worked on by a live run), as Reports counts them. */
+    documentsRead: z.number().int().optional(),
+    /** Live runs started each day, the last KPI_DAYS days in the client's time zone, oldest first. */
+    perDay: z.array(DayRuns).optional(),
+    /** Last week's figures, for the change from last week. */
+    lastWeek: z
+      .object({
+        runsDone: z.number().int(),
+        changes: z.number().int(),
+        documentsRead: z.number().int(),
+      })
+      .optional(),
   }),
   /** The latest client-visible step summaries across services. */
   recent: z.array(

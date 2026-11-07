@@ -98,7 +98,10 @@ describe("AgentScreen", () => {
     expect(within(bar).getByTestId("agent-version-badges")).toHaveTextContent("Draft · v2");
     // An agent's own status, never a run's word.
     expect(within(bar).getByTestId("agent-bar-status")).toHaveTextContent("Active");
-    expect(within(bar).getByTestId("agent-bar-line")).toHaveTextContent("Harbor Millwork");
+    // Its client starts the bar's breadcrumb, a link to the client's page.
+    expect(within(within(bar).getByTestId("agent-bar-crumbs")).getByRole("link")).toHaveTextContent(
+      "Harbor Millwork",
+    );
     expect(within(bar).getByTestId("agent-kind")).toHaveTextContent("Client agent");
     expect(within(bar).getByTestId("agent-lineage-line")).toHaveTextContent(
       "Written for Harbor Millwork from no template.",
