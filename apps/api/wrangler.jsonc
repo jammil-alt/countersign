@@ -136,6 +136,10 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "AUTH_PROVIDER": "workos",
+        // Email forwarding and agents' own addresses (docs/operations.md, "Email forwarding"):
+        // Cloudflare Email Routing sends this subdomain's catch-all to this Worker. Until that
+        // routing exists no mail arrives, and nothing else changes.
+        "EMAIL_FORWARDING_DOMAIN": "in.staging.mezonas.com",
         // WorkOS "Mezonas Staging" app, Staging environment. Client ids are not secrets.
         "WORKOS_CLIENT_ID": "client_01M6HNS5BGAXTK0TK2A1RRGWGP",
         // The Staging environment's AuthKit domain, with Dynamic Client Registration and Client ID
