@@ -250,7 +250,11 @@ export function OpsRunScreen() {
             >
               <Loaded state={calls}>
                 {(c) => (
-                  <ModelCalls calls={c.modelCalls} names={stepNameById as Map<string, string>} />
+                  <ModelCalls
+                    calls={c.modelCalls}
+                    unrecorded={c.unrecorded}
+                    names={stepNameById as Map<string, string>}
+                  />
                 )}
               </Loaded>
             </Section>
