@@ -44,25 +44,25 @@ export function OpsLayout({ children }: { children: ReactNode }) {
     [clientsState.data, session.tenants],
   );
 
-  // Escalations: the operator's open items, counted in all and per client. Reloads on each page
+  // Escalations: what needs us (UI cleanup, stream A), in all and per client, from the clients
+  // list's `needsUs`, the count the Clients page and the command center show. Reloads on each page
   // change and every 20 s, as the portal's Desk count does.
-  const inbox = useApi(apiRoutes.opsInbox, { query: { status: "open", assigned: "operator" } });
   const { pathname } = useLocation();
-  const { reload: reloadInbox } = inbox;
+  const { reload: reloadClients } = clientsState;
   const firstPath = useRef(pathname);
   useEffect(() => {
     if (pathname === firstPath.current) return;
     firstPath.current = pathname;
-    reloadInbox();
-  }, [pathname, reloadInbox]);
-  usePoll(reloadInbox, true, INBOX_COUNT_POLL_MS, inbox.loading);
-  const perClient = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of inbox.data?.items ?? []) {
-      counts.set(item.tenantId, (counts.get(item.tenantId) ?? 0) + 1);
-    }
-    return counts;
-  }, [inbox.data]);
+    reloadClients();
+  }, [pathname, reloadClients]);
+  usePoll(reloadClients, true, INBOX_COUNT_POLL_MS, clientsState.loading);
+  const perClient = useMemo(
+    () => new Map((clientsState.data?.clients ?? []).map((c) => [c.id, c.needsUs ?? 0])),
+    [clientsState.data],
+  );
+  const needsUs = clientsState.data
+    ? [...perClient.values()].reduce((a, b) => a + b, 0)
+    : undefined;
 
   // The selected client's agents: its sidebar rows and the agent switcher.
   const client = useApi(apiRoutes.opsClient, clientId ? { params: { id: clientId } } : null);
@@ -92,7 +92,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
           </>
         }
         search={{ placeholder: "Find a client, agent, run or record", run: search }}
-        desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: inbox.data?.items.length }}
+        desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: needsUs }}
         pageBar={
           clientId && agentSlug && client.data ? (
             <AgentSwitcher
@@ -119,7 +119,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                 to={OPS_PATHS.escalations}
                 icon="desk"
                 label="Escalations"
-                count={inbox.data?.items.length}
+                count={needsUs}
                 testId="ops-nav-inbox"
               />
               <SidebarLink
@@ -146,7 +146,7 @@ export function OpsLayout({ children }: { children: ReactNode }) {
                   to={OPS_PATHS.client(c.id)}
                   label={c.name}
                   end
-                  count={inbox.data ? (perClient.get(c.id) ?? 0) : undefined}
+                  count={clientsState.data ? (perClient.get(c.id) ?? 0) : undefined}
                   testId={`ops-nav-client-${c.id}`}
                 />
               ))}

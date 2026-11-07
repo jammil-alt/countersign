@@ -7,6 +7,7 @@
 //
 // An agent is Paused, Setting up (not live yet), Waiting on you (any of its runs waits on the
 // client), Working (a run is going) or Ready (live and idle).
+import { runState as sharedRunState } from "@countersign/core";
 import type { Translate } from "../i18n/catalog";
 import type { ChipState } from "../ui/status";
 
@@ -18,21 +19,13 @@ export interface RunFields {
   waitingOnYou?: boolean | undefined;
 }
 
-/** A run's state for the client. */
+/**
+ * A run's state for the client: core's one run state (the back office's too), read with
+ * `waitingOnYou`; queued reads as running here.
+ */
 export function runState(r: RunFields): RunState {
-  switch (r.status) {
-    case "succeeded":
-      return "done";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "stopped";
-    case "waiting":
-      return "waiting";
-    default:
-      // queued or running: waiting when someone of the client must act.
-      return r.waitingOnYou ? "waiting" : "running";
-  }
+  const s = sharedRunState({ status: r.status, waiting: r.waitingOnYou });
+  return s === "queued" ? "running" : s;
 }
 
 const RUN_CHIP: Record<RunState, ChipState> = {

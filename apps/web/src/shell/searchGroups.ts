@@ -2,6 +2,9 @@
 // Pure, so the links each hit opens are tested on their own.
 import type { OpsSearchResult, PortalSearchResult } from "@countersign/core";
 import type { Translate } from "../i18n/catalog";
+import type { Formatters } from "../i18n/format";
+import { EN } from "../i18n/i18n";
+import { runChip } from "../ops/run/words";
 import type { SearchGroup } from "./Search";
 
 const dot = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(" · ");
@@ -21,8 +24,28 @@ function runStatus(t: Translate, status: string): string {
     : status;
 }
 
+/** A record's amount with its currency ("$9,742.35"), never the stored "9742.3500 USD". */
+function money(fmt: Pick<Formatters, "money">, amount: string | null, currency: string | null) {
+  return amount ? fmt.money(amount, currency ?? undefined) : null;
+}
+
+const GOING = new Set(["queued", "running", "waiting"]);
+
+/** An agent's status in words (the back office). */
+const AGENT_STATUS_WORDS: Record<string, string> = {
+  active: "Active",
+  paused: "Paused",
+  draft: "Draft",
+  testing: "Testing",
+  retired: "Retired",
+};
+
 /** The portal: its own client's hits. Receivables have no page of their own yet: their list. */
-export function portalSearchGroups(r: PortalSearchResult, t: Translate): SearchGroup[] {
+export function portalSearchGroups(
+  r: PortalSearchResult,
+  t: Translate,
+  fmt: Pick<Formatters, "money"> = EN.fmt,
+): SearchGroup[] {
   return [
     {
       label: t("search.group.agents"),
@@ -34,7 +57,9 @@ export function portalSearchGroups(r: PortalSearchResult, t: Translate): SearchG
         key: `r:${x.id}`,
         href: `/runs/${x.id}`,
         title: dot(x.shortId, x.service.name),
-        meta: runStatus(t, x.status),
+        // A run waiting on the client reads as it does on Runs (UI cleanup, stream A).
+        meta:
+          x.waitingOnYou && GOING.has(x.status) ? t("common.waitingOnYou") : runStatus(t, x.status),
       })),
     },
     {
@@ -43,7 +68,7 @@ export function portalSearchGroups(r: PortalSearchResult, t: Translate): SearchG
         key: `rec:${x.id}`,
         href: x.kind === "receivable" ? "/records?kind=receivables" : `/records/${x.id}`,
         title: x.label,
-        meta: dot(x.number, x.date, x.amount && dot(x.amount, x.currency)),
+        meta: dot(x.number, x.date, money(fmt, x.amount, x.currency)),
       })),
     },
     {
@@ -101,7 +126,10 @@ export function opsSearchGroups(
         // The agent page is addressed by slug; `/ops/agents/:id` finds it.
         href: `/ops/agents/${a.id}`,
         title: a.serviceName && a.serviceName !== a.name ? dot(a.name, a.serviceName) : a.name,
-        meta: a.kind === "template" ? "Template" : dot(a.client?.name, a.status),
+        meta:
+          a.kind === "template"
+            ? "Template"
+            : dot(a.client?.name, a.status ? (AGENT_STATUS_WORDS[a.status] ?? a.status) : null),
       })),
     },
     {
@@ -110,7 +138,13 @@ export function opsSearchGroups(
         key: `r:${x.id}`,
         href: `/ops/runs/${x.id}`,
         title: dot(x.shortId, x.service.name),
-        meta: dot(x.client.name, x.status, x.mode === "live" ? null : x.mode, x.summary),
+        // "Waiting for approval · client admin", never "running" (UI cleanup, stream A).
+        meta: dot(
+          x.client.name,
+          runChip({ status: x.status, waiting: x.waiting ?? null }).words,
+          x.mode === "live" ? null : "Test run",
+          x.summary,
+        ),
       })),
     },
     {
@@ -122,7 +156,7 @@ export function opsSearchGroups(
             ? `${base(x.client)}/records?kind=receivables`
             : `${base(x.client)}/records/${x.id}`,
         title: x.label,
-        meta: dot(x.client.name, x.number, x.date, x.amount && dot(x.amount, x.currency)),
+        meta: dot(x.client.name, x.number, x.date, money(EN.fmt, x.amount, x.currency)),
       })),
     },
     {

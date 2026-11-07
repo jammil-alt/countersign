@@ -4,17 +4,11 @@ import type { AgentBundle, SkillOption } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
-import { runStatusLabel, runStatusTone, shortTime } from "../../runs/format";
+import { shortTime } from "../../runs/format";
 import { Icon } from "../../ui/icons";
-import {
-  Badge,
-  Card,
-  ErrorNotice,
-  Loading,
-  SectionLabel,
-  StepKindTag,
-  Tag,
-} from "../../ui/primitives";
+import { Card, ErrorNotice, Loading, SectionLabel, StepKindTag, Tag } from "../../ui/primitives";
+import { StatusChip } from "../../ui/status";
+import { runChip } from "../run/words";
 import { KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { plural } from "./ui";
@@ -139,7 +133,10 @@ function Chips({ items, empty, testId }: { items: string[]; empty: string; testI
   );
 }
 
-/** The agent's runs, newest first (live and test). */
+/**
+ * The agent's runs, newest first (live and test), each with its state as the runs list shows it: a
+ * run waiting on a person is "Waiting for approval" and says on whom (UI cleanup, stream A).
+ */
 export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: number }) {
   const runs = useApi(apiRoutes.opsRuns, { query: { agent: agentId, limit } });
   return (
@@ -158,11 +155,13 @@ export function LatestRuns({ agentId, limit = 5 }: { agentId: string; limit?: nu
                   {shortTime(r.startedAt ?? r.createdAt)}
                 </span>
                 <Link to={`/ops/runs/${r.id}`} className="truncate text-ink hover:underline">
-                  {r.workflowSlug}
+                  {r.workflowName ?? "Run"}
                 </Link>
                 {r.mode === "test" ? <Tag>Test</Tag> : null}
               </span>
-              <Badge tone={runStatusTone(r.status)}>{runStatusLabel(r.status)}</Badge>
+              <StatusChip state={runChip(r).state} testId={`agent-run-${r.id}-status`}>
+                {runChip(r).words}
+              </StatusChip>
             </li>
           ))}
         </ul>

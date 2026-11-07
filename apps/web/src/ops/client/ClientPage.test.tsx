@@ -311,6 +311,8 @@ describe("the clients list", () => {
             createdAt: "2026-03-01T00:00:00.000Z",
             agents: 3,
             openInbox: 2,
+            needsUs: 1,
+            waitingRuns: 1,
           },
           {
             id: "00000000-0000-4000-8000-00000000a002",
@@ -326,13 +328,27 @@ describe("the clients list", () => {
     });
     renderAt("/ops/clients", api);
     const page = await screen.findByTestId("ops-clients-page", {}, { timeout: 10_000 });
-    expect(await within(page).findByText("2 clients · 4 agents · 2 open items")).toBeVisible();
+    // One count per meaning, the same the sidebar's badges and the command center read.
+    expect(
+      await within(page).findByText(
+        "2 clients · 4 agents · 1 needs us · 1 run waiting for approval",
+      ),
+    ).toBeVisible();
     const table = within(page).getByTestId("ops-clients-table");
     expect(within(table).getByTestId(`ops-client-${CLIENT}`)).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}`,
     );
-    expect(within(table).getByTestId(`ops-client-open-${CLIENT}`)).toHaveTextContent("2");
+    const needs = within(table).getByTestId(`ops-client-needs-${CLIENT}`);
+    expect(within(needs).getByRole("link", { name: "1" })).toHaveAttribute(
+      "href",
+      `/ops/inbox?client=${CLIENT}`,
+    );
+    const waiting = within(table).getByTestId(`ops-client-waiting-${CLIENT}`);
+    expect(within(waiting).getByRole("link", { name: "1" })).toHaveAttribute(
+      "href",
+      `/ops/runs?clients=${CLIENT}&statuses=waiting&mode=live`,
+    );
     expect(within(table).getByText("Sandbox", { selector: "span" })).toBeInTheDocument();
     expect(within(page).getByTestId("ops-new-client")).toHaveAttribute("href", "/ops/clients/new");
   });

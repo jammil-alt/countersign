@@ -1,5 +1,12 @@
 // Words and times the back office's command center, runs list and run page share (English only).
-import type { OversightDecisionView } from "@countersign/core";
+import {
+  type NobodyToAct,
+  type OversightDecisionView,
+  type RunState,
+  type RunStateFields,
+  type RunWait,
+  runState,
+} from "@countersign/core";
 import { type ChipState, runChipState } from "../../ui/status";
 
 /** "under an hour", "14 h", "3 days": how long since `iso`, at `now`. */
@@ -32,15 +39,91 @@ export function plural(n: number, one: string, many: string): string {
 export const RUN_STATUS_WORDS: Record<string, string> = {
   queued: "Queued",
   running: "Running",
-  waiting: "Waiting",
+  waiting: "Waiting for approval",
   succeeded: "Done",
   failed: "Failed",
   cancelled: "Cancelled",
 };
 
-/** A run's status as a chip: its state and its words. */
-export function runChip(status: string): { state: ChipState; words: string } {
-  return { state: runChipState(status), words: RUN_STATUS_WORDS[status] ?? status };
+const STATE_WORDS: Record<RunState, string> = {
+  queued: "Queued",
+  running: "Running",
+  waiting: "Waiting for approval",
+  done: "Done",
+  failed: "Failed",
+  stopped: "Cancelled",
+};
+
+const STATE_CHIP: Record<RunState, ChipState> = {
+  queued: "idle",
+  running: "running",
+  waiting: "waiting",
+  done: "done",
+  failed: "failed",
+  stopped: "idle",
+};
+
+/** Who a run waits on, in a few words: "client admin", "Ana Ruiz", "us". */
+export function waitOnWords(w: Pick<RunWait, "on" | "person">): string {
+  switch (w.on) {
+    case "client_admin":
+      return "client admin";
+    case "client_team":
+      return "client's team";
+    case "person":
+      return w.person ?? "a named person";
+    case "operator":
+      return "us";
+  }
+}
+
+/** Why nobody can act on an approval, as a sentence. */
+export const NOBODY_TO_ACT_WORDS: Record<NobodyToAct, string> = {
+  no_approver: "Nobody at the client may approve it.",
+  not_signed_in: "Everyone who may approve it is still invited and hasn't signed in.",
+  no_email: "We aren't sending emails, so nobody was told.",
+};
+
+/**
+ * A run's status as a chip (UI cleanup, stream A): its state and its words, from the run itself so a
+ * run waiting on a person reads "Waiting for approval · client admin", never "Running". Takes any
+ * back-office run shape (`status` and `waiting`); a bare status still works.
+ */
+export function runChip(run: string | RunStateFields): { state: ChipState; words: string } {
+  if (typeof run === "string") {
+    return { state: runChipState(run), words: RUN_STATUS_WORDS[run] ?? run };
+  }
+  const state = runState(run);
+  const wait = typeof run.waiting === "object" && run.waiting ? run.waiting : null;
+  const words =
+    state === "waiting" && wait
+      ? `${STATE_WORDS.waiting} · ${waitOnWords(wait)}`
+      : STATE_WORDS[state];
+  return { state: STATE_CHIP[state], words };
+}
+
+/** "Waiting for approval · client admin · 39 h", with why nobody can act when that's so. */
+export function waitLine(w: RunWait, now: Date = new Date()): string {
+  return `${STATE_WORDS.waiting} · ${waitOnWords(w)} · ${age(w.since, now)}`;
+}
+
+const ERROR_REASON_WORDS: Record<string, string> = {
+  timeout: "Timed out waiting",
+  rejected: "Turned down",
+  stop: "Stopped by the workflow",
+};
+
+/**
+ * A failed run's error in plain words: its reason's first line (a known code in words), then the
+ * step it failed at by name: "QuickBooks said 401 · at Match the bill".
+ */
+export function runErrorLine(error: unknown, stepName?: string | null): string {
+  const parts = runErrorParts(error);
+  const first = parts.reason?.split("\n")[0]?.trim() ?? "";
+  const reason = first
+    ? (ERROR_REASON_WORDS[first] ?? (first.length > 120 ? `${first.slice(0, 119)}…` : first))
+    : "Failed without a reason";
+  return stepName ? `${reason} · at ${stepName}` : reason;
 }
 
 // ── Run oversight (ARCHITECTURE §10.11) ──
