@@ -205,8 +205,8 @@ describe("back office layout", () => {
 });
 
 describe("portal layout", () => {
-  // QA round 1: nothing pops in late. The agents' rows and the Desk's count keep their place.
-  it("holds the agents' rows and the Desk count's place while they load", async () => {
+  // QA round 1: nothing pops in late. The Inbox's count keeps its place while it loads.
+  it("holds the Inbox count's place while it loads", async () => {
     let answer: (v: unknown) => void = () => {};
     const later = new Promise((resolve) => {
       answer = resolve;
@@ -218,33 +218,21 @@ describe("portal layout", () => {
     });
     renderAt("/runs", api);
     const nav = await screen.findByRole("complementary", { name: "Navigation" });
-    expect(within(nav).getAllByTestId("sidebar-agent-skeleton").length).toBeGreaterThan(0);
     expect(
-      within(within(nav).getByTestId("portal-nav-desk")).getByTestId("count-slot"),
+      within(within(nav).getByTestId("portal-nav-inbox")).getByTestId("count-slot"),
     ).toBeTruthy();
     expect(within(screen.getByTestId("shell-inbox")).getByTestId("count-slot")).toBeTruthy();
 
-    answer({
-      ...overview([{ ...service(SERVICE, "Material costs"), stage: "live" }], 1),
-      services: [
-        {
-          ...service(SERVICE, "Material costs"),
-          stage: "live",
-          runsNow: { running: 0, waitingOnYou: 1 },
-        },
-      ],
-    });
-    const row = await within(nav).findByTestId(`portal-nav-agent-${SERVICE}`);
-    // The sidebar uses the status model: a run waits on you, so the agent does.
-    expect(row).toHaveTextContent("Waiting on you");
-    expect(within(nav).queryByTestId("sidebar-agent-skeleton")).toBeNull();
-    expect(
-      within(within(nav).getByTestId("portal-nav-desk")).queryByTestId("count-slot"),
-    ).toBeNull();
-    expect(within(nav).getByTestId("portal-nav-desk")).toHaveTextContent("1");
+    answer(overview([{ ...service(SERVICE, "Material costs"), stage: "live" }], 1));
+    await waitFor(() =>
+      expect(
+        within(within(nav).getByTestId("portal-nav-inbox")).queryByTestId("count-slot"),
+      ).toBeNull(),
+    );
+    expect(within(nav).getByTestId("portal-nav-inbox")).toHaveTextContent("1");
   });
 
-  it("shows the client's name, the Desk count, no switcher, and the prototype's sidebar", async () => {
+  it("shows the client's name, the Inbox count, no switcher, and places only in the sidebar", async () => {
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/overview": () => overview([service(SERVICE, "Material costs")], 3),
@@ -264,72 +252,57 @@ describe("portal layout", () => {
     expect(screen.getByTestId("shell-search")).toHaveTextContent(
       "Search your agents, runs, records and people",
     );
-    const desk = screen.getByTestId("shell-inbox");
-    expect(desk).toHaveAttribute("href", "/desk");
-    await waitFor(() => expect(desk).toHaveTextContent("Your Desk3"));
+    const inbox = screen.getByTestId("shell-inbox");
+    expect(inbox).toHaveAttribute("href", "/inbox");
+    await waitFor(() => expect(inbox).toHaveTextContent("Inbox3"));
     // The signed-in client is the self avatar (ink), not the lead's copper.
     expect(screen.getByTestId("shell-avatar")).toHaveClass("ds-avatar--self");
 
+    // Review 1: the sidebar lists places (Home, Inbox, Runs, Accounts, Contacts), Settings at its
+    // foot; no agents, no "Your business", no "More", no Sloan card.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
-    const hrefs = Object.fromEntries(
-      [
-        "table",
-        "desk",
-        "runs",
-        "accounts",
-        "people",
-        "settings",
-        "reports",
-        "records",
-        "requests",
-        "knowledge",
-        "conversations",
-        "billing",
-      ].map((k) => [k, within(nav).getByTestId(`portal-nav-${k}`).getAttribute("href")]),
-    );
-    expect(hrefs).toEqual({
-      table: "/",
-      desk: "/desk",
-      runs: "/runs",
-      accounts: "/accounts",
-      people: "/people",
-      settings: "/settings",
-      reports: "/reports",
-      records: "/records",
-      requests: "/requests",
-      knowledge: "/knowledge",
-      conversations: "/conversations",
-      billing: "/settings/billing",
-    });
-    expect(within(nav).getByTestId("portal-nav-table")).toHaveAttribute("aria-current", "page");
-    expect(within(nav).getByTestId("portal-nav-desk")).toHaveTextContent("Your Desk3");
-    // Your agents: one row each, with its status.
-    const agent = await within(nav).findByTestId(`portal-nav-agent-${SERVICE}`);
-    expect(agent).toHaveAttribute("href", `/agents/${SERVICE}`);
-    expect(agent).toHaveTextContent("Material costs");
-    // Its state in the status model: live and idle is Ready (never "Active").
-    expect(agent).toHaveTextContent("Ready");
+    const links = within(nav)
+      .getAllByRole("link")
+      .map((a) => [a.getAttribute("data-testid"), a.getAttribute("href")]);
+    expect(links).toEqual([
+      ["portal-nav-home", "/"],
+      ["portal-nav-inbox", "/inbox"],
+      ["portal-nav-runs", "/runs"],
+      ["portal-nav-accounts", "/accounts"],
+      ["portal-nav-contacts", "/contacts"],
+      ["portal-nav-settings", "/settings"],
+    ]);
+    expect(within(nav).getByTestId("portal-nav-home")).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByTestId("portal-nav-inbox")).toHaveTextContent("Inbox3");
+    expect(within(nav).queryByTestId("portal-nav-sloan")).toBeNull();
+    expect(within(nav).queryByTestId(`portal-nav-agent-${SERVICE}`)).toBeNull();
     // No lead set: no lead row.
     expect(screen.queryByTestId("portal-lead")).toBeNull();
 
+    // The agents are on Home.
     const card = await screen.findByTestId(`portal-service-${SERVICE}`);
     expect(within(card).getByText("Keeps bills itemized.")).toBeInTheDocument();
-    expect(screen.getByTestId("table-stat-waiting")).toHaveTextContent("3");
+    // Its state in the status model: live and idle is Ready (never "Active").
+    expect(within(card).getByText("Ready")).toBeInTheDocument();
   });
 
-  it("names the client's Mezonas lead in copper", async () => {
+  it("names the client's Mezonas lead in copper, once: in the avatar menu with Settings", async () => {
     const api = fakeApi({
       "GET /api/session": () => ({ ...CLIENT_SESSION, lead: { name: "Ana Ruiz" } }),
       "GET /api/overview": () => overview(),
     });
     renderAt("/", api);
-    const lead = await screen.findByTestId("portal-lead");
+    await userEvent.click(await screen.findByTestId("shell-avatar"));
+    const menu = screen.getByTestId("shell-user-menu");
+    const lead = within(menu).getByTestId("portal-lead");
     expect(lead).toHaveTextContent("Ana Ruiz");
     expect(lead).toHaveTextContent("Your Mezonas lead");
     expect(lead.querySelector(".mz-lead")).toHaveTextContent("AR");
+    expect(screen.getAllByTestId("portal-lead")).toHaveLength(1);
+    expect(within(menu).getByTestId("shell-menu-settings")).toHaveAttribute("href", "/settings");
   });
 
-  it("hides the admin pages from a client user, and keeps their own settings", async () => {
+  it("gives a client user the same places, and keeps their own settings", async () => {
     const api = fakeApi({
       "GET /api/session": () => ({
         ...CLIENT_SESSION,
@@ -340,12 +313,11 @@ describe("portal layout", () => {
     });
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
-    // Settings holds everyone's own notifications and language (UI-1d); the company's are the admin's.
+    // Settings holds everyone's own notifications and language; the company's are the admin's.
     expect(screen.getByTestId("portal-nav-settings")).toHaveAttribute("href", "/settings");
-    expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
-    // Client users read People too (its people and organizations).
-    expect(screen.getByTestId("portal-nav-people")).toHaveAttribute("href", "/people");
-    expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
+    // Client users read Contacts too (its people and organizations).
+    expect(screen.getByTestId("portal-nav-contacts")).toHaveAttribute("href", "/contacts");
+    expect(await screen.findByText(/No agents yet/)).toBeInTheDocument();
   });
 
   it("switches between agents from an agent's page", async () => {
@@ -360,10 +332,6 @@ describe("portal layout", () => {
     await userEvent.selectOptions(switcher, SERVICE_2);
     await waitFor(() =>
       expect((screen.getByTestId("agent-switcher") as HTMLSelectElement).value).toBe(SERVICE_2),
-    );
-    expect(screen.getByTestId(`portal-nav-agent-${SERVICE_2}`)).toHaveAttribute(
-      "aria-current",
-      "page",
     );
   });
 

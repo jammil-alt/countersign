@@ -213,7 +213,7 @@ describe("portal run timeline", () => {
     const waiting = await screen.findByTestId("portal-run-waiting");
     expect(within(waiting).getByTestId("change-now")).toHaveTextContent("Oak board");
     expect(within(waiting).getByTestId("change-after")).toHaveTextContent("Oak board, 3/4 in");
-    expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", "/desk");
+    expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", "/inbox");
     expect(screen.getByTestId("portal-run-status")).toHaveTextContent("Waiting on you");
     expect(screen.getByTestId("portal-run-status")).not.toHaveTextContent("Running");
     expect(screen.getByTestId("portal-run-took")).toHaveTextContent("—Waited 21 h on you");

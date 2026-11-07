@@ -1,9 +1,11 @@
-// Your Desk (`/desk`, docs/ui-plan.md C3): the list by day and the open item. A QuickBooks change
-// reads like the record (the bill's number and vendor, its lines with totals, money in the reader's
-// language), never a tool id or a raw object, and signs with the tool's name; the signature can be
-// undone inside its window. One step's batch is signed in part; "Not now" snoozes; a question takes
-// an answer; a change's editable fields are edited before signing; a viewer sees and never signs.
-// The shell's Desk count follows every action. `/inbox` lands here.
+// The Inbox (`/inbox`, was Your Desk; docs/ui-plan.md C3, Review 1): Waiting and Done, the list by
+// day and the open item. A QuickBooks change reads like the record (the bill's number and vendor,
+// its lines with totals, money in the reader's language), never a tool id or a raw object, and is
+// approved with the tool's name; the approval can be undone inside its window. One step's batch is
+// approved in part; "Not now" snoozes, and the set-aside items show under Waiting when asked for;
+// a question waits with the rest and takes an answer; a change's editable fields are edited before
+// approving; a viewer sees and never approves. Who approves what is in Settings. The shell's Inbox
+// count follows every action. `/desk` lands here.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -72,8 +74,8 @@ const base = {
   "GET /api/team": () => team(),
 };
 
-describe("Your Desk: a QuickBooks change", () => {
-  it("shows the bill as the client knows it, signs with the tool's name, and undoes in the window", async () => {
+describe("The Inbox: a QuickBooks change", () => {
+  it("shows the bill as the client knows it, approves with the tool's name, and undoes in the window", async () => {
     let open = true;
     const resolved: unknown[] = [];
     let undone = 0;
@@ -110,13 +112,19 @@ describe("Your Desk: a QuickBooks change", () => {
         };
       },
     });
-    // The old address lands on the Desk.
-    renderAt("/inbox", api);
+    // The old address lands on the Inbox.
+    renderAt("/desk", api);
 
     const entry = await screen.findByTestId(`desk-entry-${ITEM.id}`);
     expect(entry).toHaveTextContent("Pia");
-    expect(screen.getByTestId("desk-requests")).toHaveAttribute("href", "/requests");
-    expect(entry).toHaveTextContent("Sign");
+    // Asking us for something is a question to Sloan, ready to send.
+    expect(screen.getByTestId("inbox-ask-us")).toHaveAttribute(
+      "href",
+      `/sloan?ask=${encodeURIComponent("I'd like to ask Mezonas for: ")}`,
+    );
+    expect(screen.queryByTestId("desk-team")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Inbox");
+    expect(entry).toHaveTextContent("Approve");
     expect(entry).toHaveTextContent("QuickBooks bill 20418 · Northline Panel Supply");
 
     const card = await screen.findByTestId("desk-detail");
@@ -150,11 +158,11 @@ describe("Your Desk: a QuickBooks change", () => {
     await waitFor(() => expect(count).toHaveTextContent("1"));
 
     const sign = within(card).getByTestId("desk-sign");
-    expect(sign).toHaveTextContent("Sign and update QuickBooks Online");
+    expect(sign).toHaveTextContent("Approve and update QuickBooks Online");
     await userEvent.click(sign);
     expect(resolved).toEqual([{ decision: "approve" }]);
-    // Signed: the card stays, in copper, with Undo while the window lasts; the count follows.
-    expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Signed by you");
+    // Approved: the card stays, in copper, with Undo while the window lasts; the count follows.
+    expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Approved by you");
     expect(within(card).getByTestId("desk-undo-left")).toHaveTextContent(/seconds to undo/);
     await waitFor(() => expect(count).toHaveTextContent("0"));
 
@@ -181,14 +189,14 @@ describe("Your Desk: a QuickBooks change", () => {
     );
     expect(within(card).getByTestId("change-now-row-total")).toHaveTextContent("9742,35");
     expect(within(card).getByTestId("desk-sign")).toHaveTextContent(
-      "Firmar y actualizar QuickBooks Online",
+      "Aprobar y actualizar QuickBooks Online",
     );
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Su escritorio");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bandeja");
   });
 });
 
-describe("Your Desk: batches, not now, questions, edits", () => {
-  it("signs part of one step's batch", async () => {
+describe("The Inbox: batches, not now, questions, edits", () => {
+  it("approves part of one step's batch", async () => {
     const key = `${ITEM.runId}:send`;
     const one = { ...ITEM, id: "00000000-0000-4000-8000-0000000b0001", batchKey: key };
     const two = { ...ITEM, id: "00000000-0000-4000-8000-0000000b0002", batchKey: key };
@@ -221,9 +229,9 @@ describe("Your Desk: batches, not now, questions, edits", () => {
 
     const card = await screen.findByTestId("desk-detail");
     const sign = within(card).getByTestId("desk-sign");
-    expect(sign).toHaveTextContent("Sign all 2");
+    expect(sign).toHaveTextContent("Approve all 2");
     await userEvent.click(within(card).getByTestId(`desk-batch-tick-${two.id}`));
-    expect(sign).toHaveTextContent("Sign 1 of 2");
+    expect(sign).toHaveTextContent("Approve 1 of 2");
     await userEvent.click(sign);
     expect(bodies).toEqual([{ batchKey: key, approve: [one.id], reject: [] }]);
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("1 of 2 done by you");
@@ -261,7 +269,7 @@ describe("Your Desk: batches, not now, questions, edits", () => {
     expect(await within(card).findByTestId("desk-band")).toHaveTextContent("Set aside for later");
   });
 
-  it("answers a question, and lists it under Questions", async () => {
+  it("answers a question, which waits with the rest", async () => {
     const question = {
       ...ITEM,
       id: "00000000-0000-4000-8000-0000000c0001",
@@ -281,12 +289,11 @@ describe("Your Desk: batches, not now, questions, edits", () => {
       },
     });
     renderAt("/desk", api);
-    // The list is in before the view changes, so the count is there.
-    await screen.findByTestId(`desk-entry-${question.id}`);
-    await userEvent.click(screen.getByTestId("desk-view-questions"));
-    expect(screen.getByTestId("desk-view-questions")).toHaveTextContent("Questions · 1");
-    expect(screen.queryByTestId(`desk-entry-${ITEM.id}`)).toBeNull();
-    // The view opens its first item.
+    // Two views only: the question is in Waiting, with the change.
+    expect(screen.queryByTestId("desk-view-questions")).toBeNull();
+    await userEvent.click(await screen.findByTestId(`desk-entry-${question.id}`));
+    expect(screen.getByTestId(`desk-entry-${ITEM.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId("desk-view-waiting")).toHaveTextContent("Waiting · 2");
     await waitFor(() =>
       expect(screen.getByTestId("desk-band")).toHaveTextContent("Waiting on your answer"),
     );
@@ -297,7 +304,7 @@ describe("Your Desk: batches, not now, questions, edits", () => {
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Answered by you");
   });
 
-  it("edits a change's editable fields before signing", async () => {
+  it("edits a change's editable fields before approving", async () => {
     const mail = {
       ...ITEM,
       id: "00000000-0000-4000-8000-0000000d0001",
@@ -370,9 +377,46 @@ describe("Your Desk: batches, not now, questions, edits", () => {
     });
     renderAt("/desk", api);
     const card = await screen.findByTestId("desk-detail");
-    expect(await within(card).findByText(/you don't sign for your team/)).toBeInTheDocument();
+    expect(await within(card).findByText(/you don't approve for your team/)).toBeInTheDocument();
     expect(within(card).queryByTestId("desk-sign")).toBeNull();
-    expect(screen.getByTestId("desk-team")).toHaveTextContent("Sees everything, signs nothing.");
+  });
+
+  it("shows what was set aside with Not now under Waiting, when asked", async () => {
+    const later = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000c0002",
+      snoozedUntil: new Date(Date.now() + 3_600_000).toISOString(),
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(1),
+      "GET /api/inbox": inbox(() => ({ open: [ITEM], snoozed: [later] })),
+    });
+    renderAt("/inbox", api);
+    await screen.findByTestId(`desk-entry-${ITEM.id}`);
+    expect(screen.queryByTestId(`desk-entry-${later.id}`)).toBeNull();
+    const toggle = await screen.findByTestId("desk-show-later");
+    expect(toggle.closest("label")).toHaveTextContent("Show 1 set aside with Not now");
+    await userEvent.click(toggle);
+    expect(await screen.findByTestId("desk-later")).toContainElement(
+      screen.getByTestId(`desk-entry-${later.id}`),
+    );
+  });
+
+  it("opens the old Not now view as Waiting with the set-aside items shown", async () => {
+    const later = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000c0003",
+      snoozedUntil: new Date(Date.now() + 3_600_000).toISOString(),
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(0),
+      "GET /api/inbox": inbox(() => ({ snoozed: [later] })),
+    });
+    renderAt("/inbox?view=later", api);
+    expect(await screen.findByTestId(`desk-entry-${later.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId("desk-view-waiting")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("says so when nothing waits", async () => {
@@ -388,7 +432,7 @@ describe("Your Desk: batches, not now, questions, edits", () => {
   });
 });
 
-describe("portal header: the Desk count", () => {
+describe("portal header: the Inbox count", () => {
   it("counts an approval that opened after the portal loaded, on the next page", async () => {
     let count = 0;
     const api = fakeApi({
@@ -402,7 +446,7 @@ describe("portal header: the Desk count", () => {
 
     // The Bill clerk proposes the change while the client has the portal open.
     count = 1;
-    await userEvent.click(screen.getByTestId("portal-nav-desk"));
+    await userEvent.click(screen.getByTestId("portal-nav-inbox"));
     await screen.findByTestId(`desk-entry-${ITEM.id}`);
     await waitFor(() => expect(desk).toHaveTextContent("1"));
   });

@@ -172,6 +172,12 @@ export const ServiceDetail = z.object({
   thisMonth: ActivityService.omit({ id: true, name: true }).extend({ from: IsoDay, to: IsoDay }),
   recentRuns: z.array(PortalRun),
   packs: z.array(z.string()),
+  // UI cleanup: what the portal's agent page mounts its own view by (apps/web/src/agents/views.ts).
+  // The slug of the template it was forked from (a name, never the template's bundle: invariant
+  // 11), null for an agent built for this client alone; optional so older answers still parse.
+  template: z.string().nullable().optional(),
+  /** It starts from documents (a `document.*` event trigger): its page offers upload. */
+  readsDocuments: z.boolean().optional(),
 });
 export type ServiceDetail = z.infer<typeof ServiceDetail>;
 

@@ -101,6 +101,8 @@ describe("Gmail on the Connections page", () => {
   it("lets the person who connected it disconnect it", async () => {
     renderAs("client_user", "en", [gmail({ connectedByYou: true })]);
     const mine = await screen.findByTestId("portal-connection-gmail");
+    // Disconnect is with the rest of the tool, in its open row.
+    await userEvent.click(within(mine).getByTestId("portal-connection-permissions-toggle"));
     expect(within(mine).getByTestId("portal-connection-disconnect-start")).toBeTruthy();
   });
 });
@@ -114,6 +116,7 @@ describe("Send a test email on the Gmail card", () => {
       return { to: "pat.lee@gmail.test", sentAt: "2026-11-05T10:00:00.000Z" };
     });
     const card = await screen.findByTestId("portal-connection-gmail");
+    await userEvent.click(within(card).getByTestId("portal-connection-permissions-toggle"));
     const button = within(card).getByTestId("portal-gmail-test-send");
     expect(button.textContent).toBe("Send a test email");
     expect(button.className).toContain("ds-btn--secondary");
@@ -139,6 +142,7 @@ describe("Send a test email on the Gmail card", () => {
         }),
     );
     const card = await screen.findByTestId("portal-connection-gmail");
+    await userEvent.click(within(card).getByTestId("portal-connection-permissions-toggle"));
     const button = within(card).getByTestId("portal-gmail-test-send");
     expect(button.textContent).toBe("Enviar un correo de prueba");
     await userEvent.click(button);

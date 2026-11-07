@@ -90,7 +90,8 @@ describe("ops connectors catalog", () => {
     expect(within(panel).getAllByText("Client signs")).toHaveLength(2);
     expect(panel).toHaveTextContent("Platform defaults");
     expect(within(panel).getByText("update invoice")).toBeInTheDocument();
-    // The default access shows the connector's entities under it.
+    // The default access shows the connector's entities under it, on demand.
+    await userEvent.click(screen.getByTestId("matrix-entities-toggle-qbo"));
     expect(screen.getByTestId("matrix-entity-qbo-invoice")).toHaveTextContent("Invoices");
 
     // Filter by status; the rail follows the selection.
@@ -118,6 +119,7 @@ describe("ops connectors catalog", () => {
     const panel = await screen.findByTestId("connector-panel");
     await userEvent.selectOptions(within(panel).getByTestId("connector-qbo-status"), "beta");
     await waitFor(() => expect(puts).toEqual([{ status: "beta" }]));
+    await userEvent.click(screen.getByTestId("matrix-entities-toggle-qbo"));
     await userEvent.selectOptions(
       screen.getByTestId("matrix-entity-invoice-scope-select"),
       "notes_only",

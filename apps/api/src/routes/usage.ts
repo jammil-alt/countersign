@@ -39,6 +39,7 @@ import {
 } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
+import { liveBundleOf, readsDocuments } from "../lifecycle/runs";
 import type { Platform } from "../platform";
 import { noRuns, runCounts } from "../runs/client-status";
 import { runSummaries } from "./portal";
@@ -599,6 +600,11 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
       service: a.id,
     });
     const mine = report.services.find((s) => s.id === a.id);
+    // UI cleanup: the template's slug (a name, never its bundle) keys the page's own view.
+    // DECISION: it is the slug the client agent carries: a fork takes its template's slug unless
+    // the operator names another (opsFork), and template rows are not readable under the client's
+    // RLS (tenant_id null is the operator's alone), so no lookup of the template row is made.
+    const template = a.templateId ? a.slug : null;
     return {
       service: {
         id: a.id,
@@ -615,6 +621,8 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
       },
       recentRuns: await runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10),
       packs: report.packs,
+      template,
+      readsDocuments: readsDocuments(await liveBundleOf(tx, a)),
     };
   });
 }

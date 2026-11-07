@@ -70,8 +70,8 @@ describe("MatrixTable", () => {
   it("shows a client user the matrix read-only", () => {
     render(<MatrixTable editor="viewer" rows={[ROW]} />);
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.getByTestId("matrix-update-level")).toHaveTextContent("Auto");
-    expect(screen.getByTestId("matrix-create-level")).toHaveTextContent("Approval");
+    expect(screen.getByTestId("matrix-update-level")).toHaveTextContent("On its own");
+    expect(screen.getByTestId("matrix-create-level")).toHaveTextContent("Needs approval");
   });
 
   it("lets the operator loosen and set the scope, and shows a refused save", async () => {
@@ -126,6 +126,11 @@ describe("MatrixTable entity rows", () => {
         onSave={onSave}
       />,
     );
+    // The tool's own row shows first; its record types open on demand.
+    expect(screen.queryByTestId(`matrix-entity-${ROW.id}-bill`)).toBeNull();
+    const toggle = screen.getByTestId(`matrix-entities-toggle-${ROW.id}`);
+    expect(toggle).toHaveTextContent("2 record types");
+    await userEvent.click(toggle);
     const bills = screen.getByTestId(`matrix-entity-${ROW.id}-bill`);
     expect(bills).toHaveTextContent("Bills");
     expect(within(bills).getByTestId("matrix-entity-bill-create-level")).toHaveTextContent("Off");
@@ -154,7 +159,7 @@ describe("MatrixTable entity rows", () => {
     });
   });
 
-  it("doesn't let a client drop a scope set before", () => {
+  it("doesn't let a client drop a scope set before", async () => {
     render(
       <MatrixTable
         editor="client_admin"
@@ -170,6 +175,7 @@ describe("MatrixTable entity rows", () => {
         onSave={vi.fn()}
       />,
     );
+    await userEvent.click(screen.getByTestId(`matrix-entities-toggle-${ROW.id}`));
     expect(screen.queryByTestId("matrix-entity-invoice-scope-select")).toBeNull();
     expect(screen.getByTestId("matrix-entity-invoice-scope")).toHaveTextContent("Notes only");
   });

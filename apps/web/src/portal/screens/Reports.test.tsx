@@ -76,7 +76,7 @@ describe("portal reports", () => {
     expect(await screen.findByTestId("portal-report-runs")).toHaveTextContent(
       "31 done, 1 failed, 1 waiting on you",
     );
-    expect(screen.getByText("What your services did, Nov 1 – Nov 3, 2026.")).toBeInTheDocument();
+    expect(screen.getByText("What your agents did, Nov 1 – Nov 3, 2026.")).toBeInTheDocument();
     expect(screen.getByTestId("portal-report-documents")).toHaveTextContent("34 documents came in");
     expect(screen.getByTestId("portal-report-actions")).toHaveTextContent("QuickBooks Online 2");
     const row = screen.getByTestId(`portal-report-service-${SVC}`);
@@ -141,6 +141,6 @@ describe("portal reports", () => {
       "GET /api/reports/activity": () => ({ ...LEAKY_REPORT, services: [] }),
     });
     renderAt("/reports", api);
-    expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No agents yet/)).toBeInTheDocument();
   });
 });

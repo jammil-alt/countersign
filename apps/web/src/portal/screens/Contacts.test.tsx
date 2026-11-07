@@ -1,6 +1,7 @@
-// C5 People (docs/ui-plan.md): the people table with relationship filters and one person's
-// details (what agents should know, how they may reach them, the agents in touch); the client
-// admin adds a person and makes a channel stricter (never looser); voice samples on their tab.
+// C5 Contacts (was People, six tabs; docs/ui-plan.md, Review 1): one list with relationship
+// filters and Organizations as a filter, and one person's details (what agents should know, their
+// consent, how agents may reach them, the agents in touch); the client admin adds a person, imports
+// from the list's header and makes a channel stricter (never looser). Voice samples are in Settings.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -107,10 +108,13 @@ function renderAt(
   return api;
 }
 
-describe("C5 People", () => {
+describe("C5 Contacts", () => {
   it("lists people by relationship and shows one person's details", async () => {
-    renderAt("/people", "client_admin");
-    expect(await screen.findByRole("heading", { name: "People", level: 1 })).toBeVisible();
+    renderAt("/contacts", "client_admin");
+    expect(await screen.findByRole("heading", { name: "Contacts", level: 1 })).toBeVisible();
+    // One list: no tabs, and import is an action on it.
+    expect(screen.queryByRole("navigation", { name: "Sections" })).toBeNull();
+    expect(screen.getByTestId("people-import")).toHaveAttribute("href", "/contacts?import=1");
     const marco = await screen.findByTestId(`people-row-${MARCO}`);
     expect(marco).toHaveTextContent("Rugby Architectural");
     expect(marco).toHaveTextContent("Email and Text");
@@ -130,7 +134,14 @@ describe("C5 People", () => {
     expect(within(detail).getByTestId("people-reach-email-state")).toHaveTextContent(
       "No extra limit",
     );
-    expect(within(detail).getByTestId("people-reach-sms-state")).toHaveTextContent("Your sign");
+    expect(within(detail).getByTestId("people-reach-sms-state")).toHaveTextContent(
+      "Needs approval",
+    );
+    // Consent shows in the person's detail.
+    expect(within(detail).getByTestId(`contact-${MARCO}-sms`)).toHaveTextContent("Texts: agreed");
+    expect(within(detail).getByTestId(`contact-${MARCO}-reach`)).toHaveTextContent(
+      "Prefers, in order: Email and Texts",
+    );
     // Calls: a number, but no consent to call yet.
     expect(within(detail).getByTestId("people-reach-voice-state")).toHaveTextContent(
       "No consent yet",
@@ -143,7 +154,7 @@ describe("C5 People", () => {
 
   it("makes a channel stricter for a person: never looser, the rest kept", async () => {
     const puts: unknown[] = [];
-    renderAt(`/people?person=${MARCO}`, "client_admin", {
+    renderAt(`/contacts?person=${MARCO}`, "client_admin", {
       [`PUT /api/contacts/${MARCO}/autonomy`]: ({ init }) => {
         puts.push(JSON.parse(String(init.body)));
         return { contact: contact({}) };
@@ -156,13 +167,13 @@ describe("C5 People", () => {
       within(sms)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["Your sign", "Off"]);
+    ).toEqual(["Needs approval", "Off"]);
     const email = within(detail).getByTestId("people-reach-email-level");
     expect(
       within(email)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["No extra limit", "Your sign", "Off"]);
+    ).toEqual(["No extra limit", "Needs approval", "Off"]);
     await userEvent.selectOptions(email, "off");
     await userEvent.click(within(detail).getByTestId("people-reach-save"));
     await waitFor(() => expect(puts).toEqual([{ autonomy: { email: "off", sms: "approval" } }]));
@@ -170,7 +181,7 @@ describe("C5 People", () => {
 
   it("adds a person from the header", async () => {
     const posts: unknown[] = [];
-    renderAt("/people", "client_admin", {
+    renderAt("/contacts", "client_admin", {
       "POST /api/contacts": ({ init }) => {
         posts.push(JSON.parse(String(init.body)));
         return { contact: contact({ id: "00000000-0000-4000-8000-0000000c0b03", name: "Rosa" }) };
@@ -191,14 +202,63 @@ describe("C5 People", () => {
   });
 
   it("a client user reads people, without the admin's columns or actions", async () => {
-    const api = renderAt(`/people?person=${MARCO}`, "client_user");
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_user");
     const detail = await screen.findByTestId(`people-detail-${MARCO}`);
     expect(within(detail).queryByTestId("people-reach-tighten")).toBeNull();
+    // Consent reads, without its buttons.
+    expect(within(detail).getByTestId(`contact-${MARCO}-sms`)).toBeInTheDocument();
+    expect(within(detail).queryByTestId(`contact-${MARCO}-open`)).toBeNull();
+    expect(screen.queryByTestId("people-import")).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Agents in touch" })).toBeNull();
     expect(api.calls).not.toContain(`GET /api/contacts/${MARCO}/messages`);
   });
 
-  it("adds a voice sample for one of your people", async () => {
+  it("lists organizations as a filter of the list", async () => {
+    renderAt("/people/organizations", "client_admin", {
+      "GET /api/directory": () => ({
+        people: [contact({}), LISA_ROW],
+        organizations: [
+          {
+            id: "00000000-0000-4000-8000-0000000e0b01",
+            name: "Rugby Architectural",
+            kinds: ["vendor"],
+            website: null,
+            email: null,
+            phone: null,
+            address: null,
+            notes: null,
+            language: null,
+            languageUsed: { language: "en", from: "client" },
+            externalRefs: {},
+            vendor: null,
+            source: "manual",
+            people: 1,
+            createdAt: "2026-11-05T10:00:00.000Z",
+            updatedAt: "2026-11-05T10:00:00.000Z",
+          },
+        ],
+        pendingSuggestions: 0,
+      }),
+    });
+    // The old address lands on Contacts, filtered to organizations.
+    const filter = await screen.findByTestId("people-filter-organizations");
+    expect(filter).toHaveAttribute("aria-pressed", "true");
+    expect(filter).toHaveTextContent("Organizations · 1");
+    expect(await screen.findByText("Rugby Architectural")).toBeInTheDocument();
+    expect(screen.queryByTestId("people-table")).toBeNull();
+    await userEvent.click(screen.getByTestId("people-filter-all"));
+    expect(await screen.findByTestId("people-table")).toBeInTheDocument();
+  });
+
+  it("imports from an action on the list", async () => {
+    renderAt("/contacts", "client_admin");
+    await userEvent.click(await screen.findByTestId("people-import"));
+    expect(await screen.findByTestId("contacts-import")).toBeInTheDocument();
+    expect(screen.getByTestId("directory-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("people-table")).toBeNull();
+  });
+
+  it("adds a voice sample for one of your people, in Settings", async () => {
     const posts: unknown[] = [];
     renderAt("/people/voice", "client_admin", {
       "GET /api/knowledge/voice-samples": () => ({ samples: [] }),

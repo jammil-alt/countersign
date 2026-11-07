@@ -87,7 +87,8 @@ describe("portal knowledge", () => {
     renderAt("/knowledge", api);
     const card = await screen.findByTestId(`portal-knowledge-entry-${ENTRY}`);
     expect(card).toHaveTextContent("Version 1 · us");
-    expect(screen.getByTestId("portal-nav-knowledge")).toBeInTheDocument();
+    // Knowledge belongs to the back office: the page keeps its address, off the nav.
+    expect(screen.queryByTestId("portal-nav-knowledge")).toBeNull();
 
     const save = screen.getByTestId("portal-knowledge-new-save");
     expect(save).toBeDisabled();
@@ -143,7 +144,7 @@ describe("portal knowledge", () => {
       }),
     });
     renderAt("/", api);
-    await screen.findByTestId("portal-nav-table");
+    await screen.findByTestId("portal-nav-home");
     expect(screen.queryByTestId("portal-nav-knowledge")).toBeNull();
   });
 });

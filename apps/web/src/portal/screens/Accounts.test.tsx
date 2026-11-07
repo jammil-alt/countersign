@@ -195,18 +195,18 @@ function renderAs(
 }
 
 describe("C4 Accounts and vault", () => {
-  it("shows the numbers, each tool with its agents, the vault and the tools to add", async () => {
+  it("shows each tool as a row with its agents, the vault and the tools to add; no tiles", async () => {
     renderAs("client_admin");
     expect(await screen.findByRole("heading", { name: "Accounts", level: 1 })).toBeVisible();
-    const connected = await screen.findByTestId("accounts-stat-connected");
-    expect(connected).toHaveTextContent("1");
-    expect(connected).toHaveTextContent("1 stopped working");
-    await waitFor(() =>
-      expect(screen.getByTestId("accounts-stat-logins")).toHaveTextContent("1 needs a login"),
-    );
-    expect(screen.getByTestId("accounts-stat-waiting")).toHaveTextContent("2");
+    // Connections and the vault only (Review 1): no stat tiles, no upload or documents here.
+    expect(screen.queryByTestId("accounts-stat-connected")).toBeNull();
+    expect(screen.queryByTestId("portal-upload")).toBeNull();
+    expect(screen.queryByTestId("portal-recent-documents")).toBeNull();
 
-    const qbo = screen.getByTestId("portal-connection-qbo");
+    const qbo = await screen.findByTestId("portal-connection-qbo");
+    expect(screen.getByTestId("portal-connections-list")).toContainElement(qbo);
+    // Folded: what agents may do opens from the row.
+    expect(within(qbo).queryByTestId("matrix")).toBeNull();
     expect(qbo).toHaveTextContent("Harbor Millwork LLC");
     expect(within(qbo).getByTestId("portal-connection-status")).toHaveTextContent("Connected");
     expect(qbo).toHaveTextContent("Pia");
@@ -226,10 +226,12 @@ describe("C4 Accounts and vault", () => {
     expect(site).toHaveTextContent("Agent login · agent-abc@agents.mezonas.com");
     expect(screen.queryByTestId("vault-add-panel")).toBeNull();
 
-    // Sign-off limits are in Settings: a link, not a second copy here.
+    // Who approves what is in Settings, under Approvals: a link, not a second copy here.
     expect(
-      within(screen.getByTestId("accounts-signoff")).getByRole("link", { name: "Settings" }),
-    ).toHaveAttribute("href", "/settings");
+      within(screen.getByTestId("accounts-signoff")).getByRole("link", {
+        name: "Settings, under Approvals",
+      }),
+    ).toHaveAttribute("href", "/settings/approvals");
 
     const add = screen.getByTestId("portal-connections-available");
     expect(within(add).getByTestId("portal-connection-zoho_crm")).toHaveTextContent("Zoho CRM");
@@ -252,7 +254,7 @@ describe("C4 Accounts and vault", () => {
       within(create)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["Approval", "Off"]);
+    ).toEqual(["Needs approval", "Off"]);
     await userEvent.selectOptions(create, "off");
     await userEvent.click(within(qbo).getByTestId("matrix-changes-save"));
     await waitFor(() => expect(patches).toEqual([{ create: "off" }]));
@@ -298,7 +300,7 @@ describe("C4 Accounts and vault", () => {
     expect(screen.queryByTestId("accounts-connect")).toBeNull();
     await userEvent.click(within(qbo).getByTestId("portal-connection-permissions-toggle"));
     expect(within(qbo).queryByTestId("matrix-create-select")).toBeNull();
-    expect(within(qbo).getByTestId("matrix-create-level")).toHaveTextContent("Approval");
+    expect(within(qbo).getByTestId("matrix-create-level")).toHaveTextContent("Needs approval");
     expect(within(qbo).queryByTestId("portal-connection-disconnect-start")).toBeNull();
     const site = await screen.findByTestId("vault-item-browser-hafele");
     expect(within(site).queryByTestId("vault-replace")).toBeNull();

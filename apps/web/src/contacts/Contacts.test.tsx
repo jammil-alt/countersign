@@ -1,6 +1,6 @@
-// Contacts and texting setup: the client admin keeps contacts and their consent at /contacts (a
-// STOP opt-out has no lift button); the operator makes the client's Twilio subaccount and buys a
-// number at /ops/clients/:id/messaging.
+// Contacts and texting setup: the client admin keeps a person's consent in their detail on
+// /contacts (a STOP opt-out has no lift button); the operator makes the client's Twilio subaccount
+// and buys a number at /ops/clients/:id/messaging.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -47,19 +47,25 @@ const portalBase = {
   }),
 };
 
-describe("portal contacts", () => {
-  it("adds a contact with consent, then opts them out", async () => {
-    const items: ReturnType<typeof contact>[] = [];
+/** A person as the directory lists them (Contacts, `GET /api/directory`). */
+const person = (over: Record<string, unknown> = {}) => ({
+  ...contact(),
+  email: null,
+  organization: null,
+  title: null,
+  relationship: null,
+  source: "manual",
+  ...over,
+});
+
+describe("portal contacts: consent in a person's detail", () => {
+  it("shows consent, records more, and opts a person out", async () => {
+    let row = person();
     const sent: unknown[] = [];
     const api = fakeApi({
       ...portalBase,
-      "GET /api/contacts": () => ({ items }),
-      "POST /api/contacts": ({ init }) => {
-        sent.push(JSON.parse(String(init.body)));
-        const c = contact();
-        items.push(c);
-        return { contact: c };
-      },
+      "GET /api/directory": () => ({ people: [row], organizations: [], pendingSuggestions: 0 }),
+      "GET /api/people": () => ({ items: [] }),
       [`GET /api/contacts/${PAT}/messages`]: () => ({
         items: [
           {
@@ -75,37 +81,23 @@ describe("portal contacts", () => {
       }),
       [`POST /api/contacts/${PAT}/consent`]: ({ init }) => {
         sent.push(JSON.parse(String(init.body)));
-        items[0] = contact({
+        row = person({
           optedOut: { at: "2026-11-04T12:00:00.000Z", source: "client" },
           canMessage: { sms: false, whatsapp: false },
         });
-        return { contact: items[0] };
+        return { contact: row };
       },
     });
-    renderAt("/contacts", api);
-    expect(await screen.findByText(/No contacts yet/)).toBeInTheDocument();
-    // Consent and messages are a tab of People (C5).
-    expect(screen.getByTestId("portal-people")).toBeInTheDocument();
-    const save = screen.getByTestId("contact-add-save");
-    await userEvent.type(screen.getByTestId("contact-add-name"), "Pat Lee");
-    await userEvent.type(screen.getByTestId("contact-add-phone"), "+1 555 555 0100");
-    await userEvent.click(screen.getByTestId("contact-add-agreed"));
-    expect(save).toBeDisabled();
-    await userEvent.type(screen.getByTestId("contact-add-source"), "signed the agreement");
-    await userEvent.click(save);
-    expect(sent[0]).toEqual({
-      name: "Pat Lee",
-      phone: "+1 555 555 0100",
-      consent: { channels: ["sms"], source: "signed the agreement" },
-    });
-    expect(await screen.findByTestId(`contact-${PAT}-sms`)).toHaveTextContent("Texts: agreed");
-
-    await userEvent.click(screen.getByTestId(`contact-${PAT}-open`));
+    renderAt(`/contacts?person=${PAT}`, api);
+    // Consent shows in the person's detail, not on a tab of its own.
+    const consent = await screen.findByTestId(`contact-${PAT}-consent`);
+    expect(within(consent).getByTestId(`contact-${PAT}-sms`)).toHaveTextContent("Texts: agreed");
     // Their words show as text, never as markup.
-    const msgs = await screen.findByTestId(`contact-${PAT}-messages`);
-    expect(within(msgs).getByText("<b>Is it ready?</b>")).toBeInTheDocument();
+    expect(await screen.findByText("<b>Is it ready?</b>")).toBeInTheDocument();
+
+    await userEvent.click(within(consent).getByTestId(`contact-${PAT}-open`));
     await userEvent.click(screen.getByTestId(`contact-${PAT}-opt-out`));
-    expect(sent[1]).toEqual({ action: "opt_out" });
+    expect(sent).toEqual([{ action: "opt_out" }]);
     expect(await screen.findByTestId(`contact-${PAT}-opted-out`)).toHaveTextContent("Opted out");
     expect(await screen.findByTestId(`contact-${PAT}-lift`)).toBeInTheDocument();
   });
@@ -113,19 +105,22 @@ describe("portal contacts", () => {
   it("offers no lift for a contact who texted STOP", async () => {
     const api = fakeApi({
       ...portalBase,
-      "GET /api/contacts": () => ({
-        items: [
-          contact({
+      "GET /api/directory": () => ({
+        people: [
+          person({
             id: SAM,
             name: "Sam Ortiz",
             optedOut: { at: "2026-11-04T12:00:00.000Z", source: "keyword:STOP" },
             canMessage: { sms: false, whatsapp: false },
           }),
         ],
+        organizations: [],
+        pendingSuggestions: 0,
       }),
+      "GET /api/people": () => ({ items: [] }),
       [`GET /api/contacts/${SAM}/messages`]: () => ({ items: [] }),
     });
-    renderAt("/contacts", api);
+    renderAt(`/contacts?person=${SAM}`, api);
     await userEvent.click(await screen.findByTestId(`contact-${SAM}-open`));
     expect(
       await screen.findByText(/Only they can opt back in, by texting START/),
