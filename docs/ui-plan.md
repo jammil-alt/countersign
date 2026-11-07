@@ -74,13 +74,16 @@ Sidebar:
 
 ### Back office
 
-Sidebar:
-- Command center
+Sidebar (after the UI cleanup; places only, no client or agent rows):
+- Home (the command center)
 - Escalations (count)
 - Runs
-- Clients (one row each, with count)
+- Clients
 - Build: Agent lab, Skills and automations, Connectors
-- Business: Usage and billing, Feedback
+- Business: Usage and billing; More: Feedback, Audit log, Requests, Website logins
+
+The client picker in the top bar is the one way to choose a client, and it keeps the client of the
+page you're on (a run, a merge) or the last one picked in this tab.
 
 | # | Screen (prototype id) | Route | Replaces today | Main APIs |
 |---|---|---|---|---|
@@ -174,9 +177,8 @@ UI-0 to UI-3 are merged to `main` (staging). No migrations; one small contract c
 
 - Open question 1: Requests is its own page (`/requests`), linked from Sloan.
 - Open question 2: each connection's permission matrix sits on Accounts, folded, one per tool; approver rules, who approves what and the undo window live in Settings, under Approvals.
-- Open question 3: the back-office agent page is one page with tabs (Overview, Workflow, Triggers, Runs, Versions, Tests, Settings).
+- Open question 3: the back-office agent page is one page with tabs (Overview, Workflow, Runs, Versions, Settings). Triggers sit at the top of Workflow, tests inside Versions, and Settings is split into Access (applies at once) and Definition (a new draft).
 - Portal agent addresses are `/agents/:id` (service id); the service route names the template's slug only to pick the agent's own view.
-- Portal agent addresses are `/agents/:id` (service id): no portal route serves a slug.
 - Theme (light, dark, system) is kept per browser.
 - Client users see Settings: General (their own notifications and language), Approvals and Team; company sections (Billing, Exports, Conversations, Voice samples) stay admin-only.
 - The matrix says On its own, Needs approval and Off (decision 2 of the UI cleanup), in the same colours: gold is kept for "waiting on you".
@@ -204,6 +206,29 @@ Stream E rebuilt the portal's structure as above, with one contract change: the 
 route (`GET /api/services/:id`) names the agent's template slug (the slug the client agent carries;
 template rows aren't readable under the client's RLS) and whether it reads documents (a `document.*`
 event trigger). Neither is a bundle or a prompt (invariant 11).
+
+### UI cleanup (Review 1 and 2, the back office)
+
+- **Run status:** a run waiting on a person is "Waiting for approval · <who>" everywhere, derived
+  from its open items (`packages/core/src/api/run-state.ts`, no migration).
+  - Needs us also lists approvals waiting over 24 hours and approvals nobody can act on.
+  - The Clients list, the sidebar badge and Escalations read the same count.
+- **Command center:** at most four tiles, each a link to its filtered list.
+- **Client page:** five tabs: Overview, Agents, Data (Documents, Records), Setup (Connections,
+  Messaging, Directory, Knowledge) and Settings. Settings shows one section at a time. Old
+  addresses keep working.
+- **Run page:** Timeline, Changes and Details (model calls, oversight, raw data). The waiting block
+  sits at the top.
+  - Runs are titled by what they're about (a derived `subject`).
+  - Changes show only what differs.
+- **Builder:** the palette is a side-panel tab listing only connected tools, by name. Triggers are
+  grouped into seven kinds, and forks keep a readable width.
+- **Usage:** day, week, month-to-date and custom periods; a cost chart; cost by vendor and model;
+  empty rows hidden.
+- **Labels:** event, tool and skill names come from one place (`apps/web/src/runs/labels.ts`). No
+  ids show to people.
+- **Reasons:** no reason is asked to switch HIPAA mode or Feedback, retire a client, export, or
+  change approver rules. Pausing an agent still takes a note, because the pause notice shows it.
 
 ### Translations to review
 

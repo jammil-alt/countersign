@@ -2,10 +2,10 @@
 // stream adds or replaces its own line. New routes point at today's screens until their stream
 // rebuilds them; every old address redirects to its new home (params, query and hash kept).
 //
-// The agent page (UI-2b) serves everything under `agents/:slug/*` with its tabs: Overview,
-// `workflow` (and `workflows/:workflow`, the builder), `triggers`, `runs`, `versions`, `tests` and
-// `settings`. UI-2c: the Workflow tab is the O6 Workflow builder (ops/builder) and the Triggers tab
-// the O7 Triggers screen (ops/triggers). The sidebar lists places only, no client or agent pages.
+// The agent page serves everything under `agents/:slug/*` with its tabs (UI cleanup): Overview,
+// Workflow (`workflows/:workflow`, the builder, with the agent's triggers at its top), Runs,
+// Versions (with the test bench) and Settings (`settings/access`, `settings/definition`); the old
+// `triggers` and `tests` addresses redirect. The sidebar lists places only, no client or agent pages.
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
