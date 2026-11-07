@@ -281,7 +281,7 @@ describe("records and documents", () => {
     );
   });
 
-  it("shows a document in Spanish, matched to its purchase", async () => {
+  it("shows a document in Spanish, matched to its bill", async () => {
     const api = portalApi("es", {
       [`GET /api/documents/${DOC}`]: () => ({
         document: {
@@ -297,6 +297,8 @@ describe("records and documents", () => {
           vendorName: "Northline Panel Supply",
           invoiceNumber: "20418",
           total: "9742.3500",
+          match: { transactionId: TXN, kind: "bill", number: "20418", by: "link" },
+          duplicateOf: null,
           meta: {},
         },
         url: "https://files.example.com/northline?sig=1",
@@ -330,6 +332,10 @@ describe("records and documents", () => {
     expect(screen.getByTestId("portal-document-transaction")).toHaveAttribute(
       "href",
       `/records/${TXN}`,
+    );
+    // A bill reads as one, in the reader's language.
+    expect(screen.getByTestId("portal-document-transaction")).toHaveTextContent(
+      "Vinculado a una factura de proveedor.",
     );
     expect(screen.getByTestId("portal-document-original")).toHaveTextContent("Abrir el original");
     // The way back: the documents on Upload (UI-3a).

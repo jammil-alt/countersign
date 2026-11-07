@@ -20,13 +20,18 @@ const SUMMARY = {
   sizeBytes: 48_000,
   status: "needs_review",
   pageCount: 1,
-  transactionId: TXN,
   receivedAt: "2026-10-29T10:00:00.000Z",
   vendorName: "Northline Panel Supply",
   invoiceNumber: "20418",
   total: "9742.3500",
   // A bill in QuickBooks: named as one, never "a purchase".
-  match: { transactionId: TXN, kind: "bill", number: "20418", by: "link" },
+  match: { transactionId: TXN, kind: "bill", number: "20418", by: "link" } as {
+    transactionId: string;
+    kind: string;
+    number: string | null;
+    by: "link" | "run";
+  } | null,
+  transactionId: TXN as string | null,
   duplicateOf: null as { documentId: string; filename: string } | null,
 };
 
