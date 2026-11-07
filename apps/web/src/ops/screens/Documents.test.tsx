@@ -98,7 +98,7 @@ describe("back-office documents", () => {
     expect(row).toHaveTextContent("$9,742.35");
     expect(row).toHaveTextContent("Needs review");
     expect(screen.getByText("1 document, newest first")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-nav-documents")).toHaveAttribute(
+    expect(screen.getByTestId("ops-client-page-documents")).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/documents`,
     );

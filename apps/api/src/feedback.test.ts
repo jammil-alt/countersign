@@ -52,10 +52,8 @@ describe.skipIf(!h)("feedback", () => {
     expect((sent.json as { error: { code: string } }).error.code).toBe("feedback_off");
   });
 
-  it("needs a reason to switch it, logs who and why, and refuses a no-op", async () => {
+  it("switches it with or without a reason, logs who and why, and refuses a no-op", async () => {
     const path = `/api/ops/clients/${harness.A.tenantId}/feedback`;
-    expect((await call(OPERATOR, "PUT", path, { enabled: true, reason: " " })).status).toBe(400);
-    expect((await call(OPERATOR, "PUT", path, { enabled: true })).status).toBe(400);
     const on = await call(OPERATOR, "PUT", path, { enabled: true, reason: "Beta with Demo" });
     expect(on.status).toBe(200);
     const body = on.json as { enabled: boolean; changes: { reason: string; enabled: boolean }[] };
@@ -64,11 +62,19 @@ describe.skipIf(!h)("feedback", () => {
     expect((await call(OPERATOR, "PUT", path, { enabled: true, reason: "again" })).status).toBe(
       409,
     );
+    // Without a reason (the back office asks for none), the log says what changed.
+    const off = await call(OPERATOR, "PUT", path, { enabled: false });
+    expect(off.status).toBe(200);
+    expect((off.json as typeof body).changes[0]).toMatchObject({
+      enabled: false,
+      reason: "Feedback button switched off",
+    });
+    expect((await call(OPERATOR, "PUT", path, { enabled: true, reason: " " })).status).toBe(200);
     const logged = await harness.t.db
       .select()
       .from(tenantChange)
       .where(eq(tenantChange.tenantId, harness.A.tenantId));
-    expect(logged).toHaveLength(1);
+    expect(logged).toHaveLength(3);
     expect(logged[0]?.actorId).toBe(harness.operator);
     // A client can't change it, and an operator who doesn't serve the client can't either.
     expect((await call(admin("a"), "PUT", path, { enabled: false, reason: "x" })).status).toBe(403);
@@ -216,6 +222,8 @@ describe.skipIf(!h)("feedback", () => {
     const off = await call(OPERATOR, "PUT", path, { enabled: false, reason: "Beta over" });
     expect((off.json as { changes: unknown[] }).changes).toMatchObject([
       { enabled: false, reason: "Beta over", by: { email: OPERATOR } },
+      { enabled: true, reason: "Feedback button switched on" },
+      { enabled: false, reason: "Feedback button switched off" },
       { enabled: true, reason: "Beta with Demo" },
     ]);
     expect((await call(admin("a"), "GET", "/api/feedback/status")).json).toEqual({

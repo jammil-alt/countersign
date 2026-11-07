@@ -1,18 +1,19 @@
-// The client page's switch for the portal's Feedback button: off by default; the operator turns it
-// on or off with a reason, and the page shows who changed it and why. Clients can't change it.
-import { FEEDBACK_REASON_MAX } from "@countersign/core";
+// The client settings' switch for the portal's Feedback button: off by default; the operator turns
+// it on or off, and the card shows who changed it and when. No reason is asked for. Clients can't
+// change it.
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import { Field, TextInput } from "../../ui/forms";
-import { Badge, Button, Card, ErrorNotice, SectionLabel } from "../../ui/primitives";
+import { Badge, Button, Card, ErrorNotice } from "../../ui/primitives";
+
+/** The log's own words, which say no more than the line they'd follow. */
+const DEFAULT_REASONS = new Set(["Feedback button switched on", "Feedback button switched off"]);
 
 export function ClientFeedbackSetting({ clientId }: { clientId: string }) {
   const client = useApiClient();
   const { data, error, reload } = useApi(apiRoutes.opsClientFeedback, {
     params: { id: clientId },
   });
-  const [reason, setReason] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,19 +22,13 @@ export function ClientFeedbackSetting({ clientId }: { clientId: string }) {
   const next = !data.enabled;
 
   async function save() {
-    const text = reason.trim();
-    if (!text) {
-      setProblem("Give a reason.");
-      return;
-    }
     setBusy(true);
     setProblem(null);
     try {
       await client.call(apiRoutes.opsSetClientFeedback, {
         params: { id: clientId },
-        body: { enabled: next, reason: text },
+        body: { enabled: next },
       });
-      setReason("");
       reload();
     } catch {
       setProblem("We couldn't save that. Try again.");
@@ -43,34 +38,17 @@ export function ClientFeedbackSetting({ clientId }: { clientId: string }) {
   }
 
   return (
-    <section className="mt-8" data-testid="ops-client-feedback">
-      <SectionLabel>Feedback button</SectionLabel>
-      <Card className="p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-ink">
-            {data.enabled
-              ? "The portal shows the Feedback button. What they send shows in Feedback."
-              : "The portal has no Feedback button."}
-          </p>
+    <Card title="Feedback button" pad testId="ops-client-feedback">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-ink">
+          {data.enabled
+            ? "The portal shows the Feedback button. What they send shows in Feedback."
+            : "The portal has no Feedback button."}
+        </p>
+        <div className="flex items-center gap-3">
           <Badge tone={data.enabled ? "positive" : "neutral"} testId="ops-client-feedback-state">
             {data.enabled ? "On" : "Off"}
           </Badge>
-        </div>
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <Field
-            label={next ? "Why switch it on?" : "Why switch it off?"}
-            error={problem ?? undefined}
-            className="min-w-64 flex-1"
-            testId="ops-client-feedback-reason"
-          >
-            <TextInput
-              data-testid="ops-client-feedback-reason"
-              value={reason}
-              maxLength={FEEDBACK_REASON_MAX}
-              invalid={!!problem}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
           <Button
             variant={next ? "primary" : "secondary"}
             data-testid="ops-client-feedback-toggle"
@@ -80,22 +58,33 @@ export function ClientFeedbackSetting({ clientId }: { clientId: string }) {
             {next ? "Switch on" : "Switch off"}
           </Button>
         </div>
-        {data.changes.length > 0 ? (
-          <ul
-            className="mt-4 flex flex-col gap-1 text-sm text-ink-muted"
-            data-testid="ops-client-feedback-history"
-          >
-            {data.changes.map((c) => (
-              <li key={c.id}>
-                {c.enabled ? "Switched on" : "Switched off"} by{" "}
-                {c.by?.name ?? c.by?.email ?? "someone"} on{" "}
-                {new Date(c.createdAt).toLocaleDateString()}:{" "}
-                <span className="text-ink">{c.reason}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </Card>
-    </section>
+      </div>
+      {problem ? (
+        <p role="alert" className="ds-error mt-2 text-sm" data-testid="ops-client-feedback-error">
+          {problem}
+        </p>
+      ) : null}
+      {data.changes.length > 0 ? (
+        <ul
+          className="mt-4 flex flex-col gap-1 text-sm text-ink-muted"
+          data-testid="ops-client-feedback-history"
+        >
+          {data.changes.map((c) => (
+            <li key={c.id}>
+              {c.enabled ? "Switched on" : "Switched off"} by{" "}
+              {c.by?.name ?? c.by?.email ?? "someone"} on{" "}
+              {new Date(c.createdAt).toLocaleDateString()}
+              {c.reason && !DEFAULT_REASONS.has(c.reason) ? (
+                <>
+                  : <span className="text-ink">{c.reason}</span>
+                </>
+              ) : (
+                "."
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </Card>
   );
 }

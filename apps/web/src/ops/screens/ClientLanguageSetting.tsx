@@ -6,7 +6,7 @@ import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
 import { Field, Select } from "../../ui/forms";
-import { Card, ErrorNotice, SectionLabel } from "../../ui/primitives";
+import { Card, ErrorNotice } from "../../ui/primitives";
 
 export function ClientLanguageSetting({
   clientId,
@@ -41,9 +41,8 @@ export function ClientLanguageSetting({
   }
 
   return (
-    <section className="mt-8" data-testid="ops-client-language">
-      <SectionLabel>Language</SectionLabel>
-      <Card className="flex flex-col gap-3 p-5">
+    <Card title="Language" pad testId="ops-client-language">
+      <div className="flex flex-col gap-3">
         <Field
           label="The client's language"
           hint="Their portal and what their agents write for them. People there can still choose their own."
@@ -68,7 +67,7 @@ export function ClientLanguageSetting({
           </Select>
         </Field>
         {error ? <ErrorNotice error={error} /> : null}
-      </Card>
-    </section>
+      </div>
+    </Card>
   );
 }

@@ -1,5 +1,6 @@
-// The back-office client page (UI-3b): its frame and tabs, the Overview (figures, go-live stages,
-// the lead and threads), the Agents tab, the Exports tab, and the clients list.
+// The back-office client page: its frame and five tabs (Data and Setup with a switch between
+// their pages), the Overview (what waits, go-live stages, runs, the lead and threads), the Agents
+// tab, Settings' Exports section, every old address, and the clients list.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -7,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { AGENT_SUMMARY, fakeApi, OPERATOR_SESSION, SANDBOX_DETAIL } from "../../test/fixtures";
 import { lastMonth } from "./ClientExports";
+import { clientPageOf } from "./ClientFrame";
 
 const CLIENT = SANDBOX_DETAIL.client.id;
 const AGENT = AGENT_SUMMARY.id;
@@ -77,7 +79,7 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
 }
 
 describe("the client page", () => {
-  it("opens on the Overview: figures, go-live stages, threads, and sets the lead", async () => {
+  it("opens on the Overview: what waits, go-live stages, threads, and sets the lead", async () => {
     const leads: unknown[] = [];
     let lead: { userId: string; name: string; email: string } | null = null;
     const api = fakeApi({
@@ -164,26 +166,28 @@ describe("the client page", () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Overview",
       "Agents",
-      "Connections",
-      "Messaging",
-      "Knowledge",
-      "Directory",
-      "Documents",
-      "Records",
+      "Data",
+      "Setup",
       "Settings",
-      "Exports",
     ]);
+    expect(tabs.map((t) => t.getAttribute("href"))).toEqual([
+      `/ops/clients/${CLIENT}`,
+      `/ops/clients/${CLIENT}/agents`,
+      `/ops/clients/${CLIENT}/documents`,
+      `/ops/clients/${CLIENT}/connections`,
+      `/ops/clients/${CLIENT}/settings`,
+    ]);
+    // The client's runs: the Runs page filtered to it, from the Overview.
     expect(screen.getByTestId("ops-client-runs")).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/runs`,
     );
-
-    expect(screen.getByTestId("ops-client-stat-live")).toHaveTextContent("1");
-    expect(screen.getByTestId("ops-client-stat-connections")).toHaveTextContent("All connected");
-    await waitFor(() =>
-      expect(screen.getByTestId("ops-client-stat-waiting")).toHaveTextContent("Open escalations"),
-    );
-    expect(screen.getByTestId("ops-client-waiting")).toHaveTextContent("Baltic birch 3/4");
+    // No figure tiles: the summary opens short.
+    expect(screen.queryByTestId("ops-client-stat-live")).toBeNull();
+    expect(await screen.findByTestId("ops-client-waiting")).toHaveTextContent("Baltic birch 3/4");
+    expect(screen.getByTestId("ops-client-go-live")).toHaveTextContent("1 of 2 live");
+    // Billing is in Settings.
+    expect(screen.queryByTestId("ops-client-billing")).toBeNull();
 
     const trial = await screen.findByTestId("ops-client-stage-material-costs");
     expect(await within(trial).findByText("Day 3 of 14 · 12 of 20 live runs")).toBeVisible();
@@ -210,12 +214,27 @@ describe("the client page", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${CLIENT}`]: () => DETAIL,
+      "GET /api/connectors": () => ({
+        connectors: [
+          {
+            id: "qbo",
+            name: "QuickBooks Online",
+            description: "",
+            icon: "qbo",
+            auth: "oauth2",
+            entities: [],
+            tools: [],
+          },
+        ],
+      }),
     });
     renderAt(`/ops/clients/${CLIENT}/agents`, api);
     const list = await screen.findByTestId("ops-client-agents", {}, { timeout: 10_000 });
     const live = within(list).getByTestId("ops-agent-card-material-costs");
     expect(live).toHaveTextContent("Running");
-    expect(live).toHaveTextContent("qbo");
+    // Its tools by name, never the connector's id.
+    expect(await within(live).findByText("QuickBooks Online")).toBeInTheDocument();
+    expect(live).not.toHaveTextContent("qbo");
     expect(within(live).getByRole("link", { name: /Material costs/ })).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/agents/material-costs`,
@@ -230,7 +249,7 @@ describe("the client page", () => {
     );
   });
 
-  it("starts a data export with a reason, and downloads the accountant export", async () => {
+  it("starts a data export from Settings (no reason asked for), and downloads the accountant export", async () => {
     const started: unknown[] = [];
     const exports = [
       {
@@ -263,9 +282,14 @@ describe("the client page", () => {
         return { ...exports[0], id: "00000000-0000-4000-8000-00000000e102", status: "running" };
       },
     });
+    // The old Exports tab's address opens the Exports section of Settings.
     renderAt(`/ops/clients/${CLIENT}/exports`, api);
 
     const table = await screen.findByTestId("ops-client-exports-table", {}, { timeout: 10_000 });
+    expect(
+      within(screen.getByTestId("ops-client-settings-nav")).getByRole("link", { name: "Exports" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(table).not.toHaveTextContent("Asked for by the client");
     const row = within(table).getByTestId(`ops-client-export-${EXPORT}`);
     expect(row).toHaveTextContent("Ready");
     expect(row).toHaveTextContent("2.3 MB");
@@ -274,9 +298,9 @@ describe("the client page", () => {
       "https://files.example.com/export.zip",
     );
 
-    await userEvent.type(screen.getByTestId("ops-client-export-reason"), "Leaving us");
+    expect(screen.queryByTestId("ops-client-export-reason")).toBeNull();
     await userEvent.click(screen.getByTestId("ops-client-export-start"));
-    await waitFor(() => expect(started).toEqual([{ reason: "Leaving us" }]));
+    await waitFor(() => expect(started).toEqual([{}]));
 
     const { from, to } = lastMonth();
     const download = screen.getByTestId("ops-client-accountant-download");
@@ -295,6 +319,56 @@ describe("the client page", () => {
       "The first day comes after the last.",
     );
     expect(screen.queryByTestId("ops-client-accountant-download")).toBeNull();
+  });
+});
+
+describe("the client page's tabs and addresses", () => {
+  it("knows which tab and page an address is on", () => {
+    const at = (rest: string) => clientPageOf(`/ops/clients/${CLIENT}${rest}`, CLIENT);
+    expect(at("")).toEqual({ tab: "overview", page: "" });
+    expect(at("/agents")).toEqual({ tab: "agents", page: "agents" });
+    expect(at("/records/abc")).toEqual({ tab: "data", page: "records" });
+    expect(at("/documents")).toEqual({ tab: "data", page: "documents" });
+    expect(at("/knowledge")).toEqual({ tab: "setup", page: "knowledge" });
+    expect(at("/settings/people")).toEqual({ tab: "settings", page: "settings" });
+    expect(at("/exports")).toEqual({ tab: "settings", page: "settings" });
+  });
+
+  it("shows Setup's switch on each of its pages, the page's own current", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${CLIENT}`]: () => DETAIL,
+    });
+    renderAt(`/ops/clients/${CLIENT}/directory`, api);
+    const pages = await screen.findByTestId("ops-client-setup-pages", {}, { timeout: 10_000 });
+    expect(
+      within(pages)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["Connections", "Messaging", "Directory", "Knowledge"]);
+    expect(within(pages).getByRole("link", { name: "Directory" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    const tabs = within(screen.getByTestId("ops-client-tabs")).getAllByRole("link");
+    expect(tabs.find((t) => t.textContent === "Setup")?.className).toContain("border-slate");
+    expect(screen.queryByTestId("ops-client-data-pages")).toBeNull();
+  });
+
+  it.each([
+    ["data", "ops-client-data-pages", "Documents"],
+    ["setup", "ops-client-setup-pages", "Connections"],
+  ])("sends /%s to its first page", async (old, pagesId, first) => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${CLIENT}`]: () => DETAIL,
+    });
+    renderAt(`/ops/clients/${CLIENT}/${old}`, api);
+    const pages = await screen.findByTestId(pagesId, {}, { timeout: 10_000 });
+    expect(within(pages).getByRole("link", { name: first })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 });
 

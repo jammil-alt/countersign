@@ -1,10 +1,11 @@
-// The client page's "Who approves" section (docs/plan.md §1.20): the operator sets the client's
-// ordered approver rules, with a reason, and tries a sample change against them.
+// The client settings' "Who approves" rules (docs/plan.md §1.20): the operator sets the client's
+// ordered approver rules, with a reason, and tries a sample change against them. The editor is its
+// own card, titled "Who approves".
 
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ApproverRules } from "../../approvals/ApproverRules";
-import { ErrorNotice, SectionLabel } from "../../ui/primitives";
+import { ErrorNotice } from "../../ui/primitives";
 
 export function ClientApproverRules({ clientId }: { clientId: string }) {
   const client = useApiClient();
@@ -12,8 +13,7 @@ export function ClientApproverRules({ clientId }: { clientId: string }) {
     params: { id: clientId },
   });
   return (
-    <section className="mt-8" data-testid="ops-client-approvers">
-      <SectionLabel>Who approves</SectionLabel>
+    <div data-testid="ops-client-approvers">
       {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
       {data ? (
         <ApproverRules
@@ -27,6 +27,6 @@ export function ClientApproverRules({ clientId }: { clientId: string }) {
           }}
         />
       ) : null}
-    </section>
+    </div>
   );
 }

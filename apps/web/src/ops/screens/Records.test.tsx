@@ -133,7 +133,7 @@ describe("back-office records", () => {
     const cells = within(row).getAllByRole("cell");
     expect(cells[6]).toHaveTextContent(/^1$/);
     expect(cells[7]).toHaveTextContent(/^2$/);
-    expect(screen.getByTestId("ops-nav-records")).toHaveAttribute(
+    expect(screen.getByTestId("ops-client-page-records")).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/records`,
     );
