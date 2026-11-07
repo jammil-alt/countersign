@@ -108,6 +108,7 @@ function chipValue(key: string, value: string): string {
       .map((s) => RUN_STATUS_WORDS[s] ?? s)
       .join(", ");
   }
+  if (key === "mode") return value === "test" ? "test runs" : "live runs";
   return value;
 }
 
