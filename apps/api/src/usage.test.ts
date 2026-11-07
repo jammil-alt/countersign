@@ -18,6 +18,7 @@ import {
   docExtraction,
   document,
   externalAction,
+  modelCall,
   run,
   stepRun,
   tenant,
@@ -479,6 +480,115 @@ describe.skipIf(!h)("usage and reports", () => {
     for (const who of [admin("a"), user("a")]) {
       expect((await call(who, "GET", "/api/ops/usage")).status).toBe(403);
     }
+  });
+
+  it("splits cost by day, by model and by vendor, from the rows already kept", async () => {
+    // Two model calls in client A's waiting run, and the messages and call seconds its day counts.
+    const A = H.A.tenantId;
+    const [step] = await db.select().from(stepRun).where(eq(stepRun.runId, ids.r2));
+    if (!step) throw new Error("no step");
+    const callRow = (n: number, provider: string, model: string, cost: string) => ({
+      tenantId: A,
+      runId: ids.r2,
+      stepRunId: step.id,
+      provider,
+      model,
+      tokensIn: 100 * n,
+      tokensOut: 10 * n,
+      costUsd: cost,
+      durationMs: 10,
+      stopReason: "end_turn",
+      bodyKey: `tenants/${A}/model-calls/split-${n}.json`,
+      createdAt: new Date("2026-11-02T14:05:00Z"),
+    });
+    await db
+      .insert(modelCall)
+      .values([
+        callRow(1, "anthropic", "claude-opus-5-5", "0.0200"),
+        callRow(2, "anthropic", "claude-opus-5-5", "0.0100"),
+        callRow(3, "openai", "openai:gpt-6", "0.0050"),
+      ]);
+    await db
+      .update(usageDaily)
+      .set({ messages: 12, callSeconds: 90 })
+      .where(
+        and(
+          eq(usageDaily.tenantId, A),
+          eq(usageDaily.agentId, ids.aA),
+          eq(usageDaily.day, "2026-11-02"),
+        ),
+      );
+
+    const u = j(
+      (await call(OPERATOR, "GET", `/api/ops/usage?from=2026-11-01&to=2026-11-03&client=${A}`))
+        .json,
+    );
+    // Every day of a short range, for the chart: the agents' cost and the background reading.
+    expect(u.byDay.map((d: { day: string }) => d.day)).toEqual([
+      "2026-11-01",
+      "2026-11-02",
+      "2026-11-03",
+    ]);
+    expect(u.byDay[1].figures.costUsd).toBe("0.0628");
+    // By model: the runs' calls and the background reading's model (the fixture's "replay").
+    expect(u.byModel).toEqual([
+      {
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        calls: 2,
+        tokensIn: 300,
+        tokensOut: 30,
+        costUsd: "0.0300",
+      },
+      {
+        provider: "anthropic",
+        model: "replay",
+        calls: 1,
+        tokensIn: 1200,
+        tokensOut: 300,
+        costUsd: "0.0125",
+      },
+      {
+        provider: "openai",
+        model: "openai:gpt-6",
+        calls: 1,
+        tokensIn: 300,
+        tokensOut: 30,
+        costUsd: "0.0050",
+      },
+    ]);
+    // By vendor: the providers, then texts and calls at our unit costs (0.0083 a message, 0.10 a
+    // minute).
+    expect(u.byVendor).toEqual([
+      expect.objectContaining({ id: "anthropic", name: "Anthropic", costUsd: "0.0425", calls: 3 }),
+      expect.objectContaining({ id: "openai", name: "OpenAI", costUsd: "0.0050", calls: 1 }),
+      {
+        id: "twilio",
+        name: "Twilio (texts and WhatsApp)",
+        costUsd: "0.0996",
+        estimated: true,
+        messages: 12,
+      },
+      {
+        id: "calls",
+        name: "Twilio and ElevenLabs (calls)",
+        costUsd: "0.1500",
+        estimated: true,
+        callSeconds: 90,
+      },
+    ]);
+    // Narrowed to an agent: its own calls only, no background reading.
+    const one = j(
+      (await call(OPERATOR, "GET", `/api/ops/usage?from=2026-11-01&to=2026-11-03&agent=${ids.aA2}`))
+        .json,
+    );
+    expect(one.byModel).toEqual([]);
+    // A long range has no day split.
+    const long = j(
+      (await call(OPERATOR, "GET", "/api/ops/usage?from=2026-01-01&to=2026-11-03")).json,
+    );
+    expect(long.byDay).toBeUndefined();
+    await rollupAll();
   });
 
   it("checks the range", async () => {

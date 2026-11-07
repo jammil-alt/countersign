@@ -74,6 +74,42 @@ export const UsageTemplateRow = z.object({
   ...UsageSeries,
 });
 
+/** The longest range the report also splits by day (for the period's chart). */
+export const USAGE_DAILY_MAX_DAYS = 92;
+
+/**
+ * UI cleanup: model cost by model, from the model calls in the range (runs' calls, and the clients'
+ * background reading when the report isn't narrowed to an agent or a template).
+ */
+export const UsageModelRow = z.object({
+  /** `anthropic` | `openai`. */
+  provider: z.string(),
+  model: z.string(),
+  calls: z.number().int(),
+  tokensIn: z.number().int(),
+  tokensOut: z.number().int(),
+  costUsd: UsdAmount,
+});
+export type UsageModelRow = z.infer<typeof UsageModelRow>;
+
+/**
+ * UI cleanup: what the work cost by vendor: each model provider from its model calls, and Twilio
+ * and ElevenLabs from the messages and call seconds usage_daily counts, priced at our unit costs
+ * (`estimated`); `costUsd` null when no unit cost is set for that measure.
+ */
+export const UsageVendorRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  costUsd: UsdAmount.nullable(),
+  estimated: z.boolean(),
+  calls: z.number().int().optional(),
+  tokensIn: z.number().int().optional(),
+  tokensOut: z.number().int().optional(),
+  messages: z.number().int().optional(),
+  callSeconds: z.number().int().optional(),
+});
+export type UsageVendorRow = z.infer<typeof UsageVendorRow>;
+
 export const UsageReport = z.object({
   from: IsoDay,
   to: IsoDay,
@@ -82,6 +118,10 @@ export const UsageReport = z.object({
   clients: z.array(UsageClientRow),
   agents: z.array(UsageAgentRow),
   templates: z.array(UsageTemplateRow),
+  /** Every day of the range, oldest first, when it spans at most USAGE_DAILY_MAX_DAYS days. */
+  byDay: z.array(z.object({ day: IsoDay, figures: UsageFigures })).optional(),
+  byModel: z.array(UsageModelRow).optional(),
+  byVendor: z.array(UsageVendorRow).optional(),
   /**
    * v0.12 W1-H (ARCHITECTURE §13): reading no agent asked for (uploads, forwarded mail), the
    * clients' own usage from usage_platform_daily. It is in the total and each client's row, never
