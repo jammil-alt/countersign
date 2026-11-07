@@ -16,6 +16,7 @@ import {
   FEED_LIMIT,
   type FeedItem,
   HEALTH_DAYS,
+  isPlainObject,
   LOW_CONFIDENCE_DEFAULT,
   lowConfidenceThreshold,
   newestFeed,
@@ -40,7 +41,7 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, gt, gte, inArray, isNotNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, mount } from "../http";
+import { type AppEnv, ensureClient, mount, type Services } from "../http";
 // UI cleanup (stream A)
 import {
   clientMembers,
@@ -119,6 +120,19 @@ async function namesFor(tx: Tx, ids: readonly string[], agentIds: Iterable<strin
 
 const clientRef = (names: Names, id: string) => ({ id, name: names.clients.get(id) ?? "" });
 const agentRef = (names: Names, id: string | null) => (id ? (names.agents.get(id) ?? null) : null);
+
+/** What Needs us reads of the deployment: who can be reached, and connectors' names. */
+export interface NeedsUsContext extends ReachContext {
+  /** A connector's name from its manifest ("QuickBooks Online"), never its id. */
+  connectorName: (id: string) => string;
+}
+
+export function needsUsContext(services: Pick<Services, "auth" | "env" | "platform">) {
+  return {
+    ...reachContext(services),
+    connectorName: (id: string) => services.platform.connectors.get(id)?.manifest.name ?? id,
+  } satisfies NeedsUsContext;
+}
 
 /** The low-confidence threshold of each client, as SQL over `doc_extraction.tenant_id`. */
 function thresholdSql(thresholds: ReadonlyMap<string, string>): SQL {
@@ -206,7 +220,7 @@ async function needsUsParts(
   tx: Tx,
   ids: readonly string[],
   now: Date,
-  reach: ReachContext,
+  reach: NeedsUsContext,
 ): Promise<NeedsUsParts> {
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const failedSince = new Date(now.getTime() - FAILED_RUN_ESCALATION_DAYS * DAY_MS);
@@ -215,6 +229,15 @@ async function needsUsParts(
     ...clientAgents.map((a) => a.id),
     ...clientAgents.map((a) => a.templateId),
   ]);
+
+  // The Sandbox has no client people: the operator resolves every item there, so all of its items
+  // are items for us (as Escalations lists them), never a client's approval.
+  const sandboxes = clients
+    .filter((c) => isPlainObject(c.settings) && c.settings.sandbox === true)
+    .map((c) => c.id);
+  const ours = sandboxes.length
+    ? (or(eq(inboxItem.assigneeRole, "operator"), inArray(inboxItem.tenantId, sandboxes)) as SQL)
+    : eq(inboxItem.assigneeRole, "operator");
 
   type Pending = Omit<Escalation, "agent"> & { agentId: string | null };
   const escalations: Pending[] = [];
@@ -225,7 +248,7 @@ async function needsUsParts(
       and(
         inArray(inboxItem.tenantId, [...ids]),
         eq(inboxItem.status, "open"),
-        eq(inboxItem.assigneeRole, "operator"),
+        ours,
         // DECISION: a test run's items (always the operator's) block no client: left out.
         sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
       ),
@@ -283,7 +306,7 @@ async function needsUsParts(
       client: clientRef(names, c.tenantId),
       agentId: users[0]?.id ?? null,
       runId: null,
-      title: c.connector,
+      title: reach.connectorName(c.connector),
       blockedSince: c.updatedAt.toISOString(),
     });
   }
@@ -309,10 +332,11 @@ async function needsUsParts(
 
   // Approvals on the client: one per run (or per item without a run), when the oldest has waited
   // over a day or nobody can act on it. A test run's items are ours, so never here.
-  const clientItems = await openItems(tx, ids, [
-    clientAssigned,
-    sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
-  ]);
+  const clientItems = await openItems(
+    tx,
+    ids.filter((id) => !sandboxes.includes(id)),
+    [clientAssigned, sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`],
+  );
   if (clientItems.length > 0) {
     const members = await clientMembers(tx, ids, reach);
     const groups = new Map<string, OpenItemRow[]>();
@@ -362,7 +386,7 @@ export async function needsUs(
   tx: Tx,
   ids: readonly string[],
   now: Date,
-  reach: ReachContext,
+  reach: NeedsUsContext,
 ): Promise<Escalation[]> {
   if (ids.length === 0) return [];
   return (await needsUsParts(tx, ids, now, reach)).escalations;
@@ -374,7 +398,7 @@ async function commandCenter(
   tx: Tx,
   ids: string[],
   now: Date,
-  reach: ReachContext,
+  reach: NeedsUsContext,
 ): Promise<CommandCenter> {
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const weekAgo = new Date(now.getTime() - HEALTH_DAYS * DAY_MS);
@@ -868,7 +892,12 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
 
 export function commandCenterRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsCommandCenter, async (ctx) =>
-    commandCenter(ctx.tx, scopeIds(ctx, ctx.query.client), new Date(), reachContext(ctx.services)),
+    commandCenter(
+      ctx.tx,
+      scopeIds(ctx, ctx.query.client),
+      new Date(),
+      needsUsContext(ctx.services),
+    ),
   );
 
   // UI cleanup (stream A): Needs us alone (Escalations).
@@ -877,7 +906,7 @@ export function commandCenterRoutes(app: Hono<AppEnv>): void {
       ctx.tx,
       scopeIds(ctx, ctx.query.client),
       new Date(),
-      reachContext(ctx.services),
+      needsUsContext(ctx.services),
     );
     return { count: escalations.length, escalations: escalations.slice(0, ESCALATION_LIST_MAX) };
   });

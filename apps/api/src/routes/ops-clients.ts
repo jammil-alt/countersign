@@ -36,7 +36,7 @@ import { resolveInboxItem } from "../inbox";
 import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
 import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
-import { needsUs } from "./command-center";
+import { needsUs, needsUsContext } from "./command-center";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
 import {
@@ -128,7 +128,7 @@ function validTimezone(tz: string): boolean {
 async function clientSummaries(
   tx: Tx,
   ids: readonly string[],
-  services: Pick<Services, "auth" | "env">,
+  services: Pick<Services, "auth" | "env" | "platform">,
 ) {
   if (ids.length === 0) return [];
   const rows = await tx
@@ -150,7 +150,7 @@ async function clientSummaries(
     .groupBy(inboxItem.tenantId);
   // UI cleanup (stream A): Needs us and runs waiting for approval, per client, from the same
   // definitions the command center and the runs list use, so every count agrees.
-  const escalations = await needsUs(tx, ids, new Date(), reachContext(services));
+  const escalations = await needsUs(tx, ids, new Date(), needsUsContext(services));
   const waiting = await tx
     .select({ tenantId: run.tenantId, n: count() })
     .from(run)
