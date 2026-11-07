@@ -541,7 +541,7 @@ function Actions({
         disabled={busy}
         onClick={() => onResolve({ decision: "approve" })}
       >
-        {/* Approving an action is always "Sign" (brand book). */}
+        {/* Approving an action is always "Approve" (QA round 1 words). */}
         {kind === "external_action" && toolName
           ? t("inbox.signAndUpdate", { tool: toolName })
           : t("inbox.sign")}

@@ -347,7 +347,7 @@ describe("portal layout", () => {
     expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
     // Client users read People too (its people and organizations).
     expect(screen.getByTestId("portal-nav-people")).toHaveAttribute("href", "/people");
-    expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No agents yet\. We set them up/)).toBeInTheDocument();
   });
 
   it("switches between agents from an agent's page", async () => {

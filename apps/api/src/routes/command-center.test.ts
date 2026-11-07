@@ -264,7 +264,7 @@ describe.skipIf(!h)("command center, search and questions", () => {
       agentId: ids.sloanA,
       subjectType: "account_change",
       assigneeRole: "client_admin",
-      title: "Add Lisa as a signer",
+      title: "Add Lisa as an approver",
       createdAt: recent,
     });
     await addItem({ tenantId: H.C.tenantId, assigneeRole: "operator", createdAt: hoursAgo(20) });
@@ -486,7 +486,7 @@ describe.skipIf(!h)("command center, search and questions", () => {
     const items = j(res.json).items as { kind: string; text: string; client: { name: string } }[];
     expect(items.map((i) => [i.kind, i.text]).sort()).toEqual(
       [
-        ["draft", "Add Lisa as a signer"],
+        ["draft", "Add Lisa as an approver"],
         ["failure", "QuickBooks said 401"],
         ["signature", "An item"],
         ["signature", "Approve the bill"],

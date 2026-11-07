@@ -145,11 +145,11 @@ describe("InboxCard: a change Sloan drafted", () => {
       item: {
         ...CHANGE,
         kind: "approval",
-        title: "Add Lisa as a signer",
+        title: "Add Lisa as an approver",
         payload: {
           accountChange: {
             now: ["Lisa is not on your team."],
-            after: ["Lisa joins your team and signs.", "Changes in Testkit → Lisa"],
+            after: ["Lisa joins your team and approves changes.", "Changes in Testkit → Lisa"],
           },
           sources: [],
         },

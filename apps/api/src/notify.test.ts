@@ -300,7 +300,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
         .where(eq(connection.id, H.C.connectionId));
       await pass(C, at(3, "10:00"));
       expect(emailsTo(admin("c")).map((e) => e.subject)).toEqual([
-        "A connection needs you to sign in again",
+        "An account needs you to sign in again",
       ]);
       expect(emailsTo(admin("c"))[0]?.text).toContain(`${ORIGIN}/connections`);
       await pass(C, at(3, "10:05"));
@@ -424,7 +424,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       // The same pass also tells them an item waits; rows of one pass share their time, so the
       // two emails may go in either order. The sign-off email goes exactly once.
       const told = emailsTo(admin("b")).filter(
-        (e) => e.subject === "An agent waits for your sign-off to go live",
+        (e) => e.subject === "An agent waits for your approval to go live",
       );
       expect(told).toHaveLength(1);
       expect(told[0]?.text).toContain(`${ORIGIN}/inbox`);
@@ -701,8 +701,8 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       const text = pdfText(bytes);
       expect(text).toContain("Weekly summary");
       expect(text).toContain("Runs done: 2 (+1 on last week)");
-      expect(text).toContain("Changes to your tools: 2 (1 automatic, 1 signed)");
-      expect(text).toContain("Signatures given: 1");
+      expect(text).toContain("Changes to your tools: 2 (1 automatic, 1 approved)");
+      expect(text).toContain("Approvals given: 1");
       expect(text).toContain("Documents read: 1");
       expect(text).toContain(NOTE);
       expect(text).toContain("Switch supplier now?");

@@ -321,7 +321,7 @@ async function applyAccountChange(
         body: {
           revision: current.revision,
           rules: signerRules(current.rules, change.rules, invited.member.userId),
-          reason: `${change.name} added as a signer through Sloan`,
+          reason: `${change.name} added as an approver through Sloan`,
         },
         side: "client",
         actorId,

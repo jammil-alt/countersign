@@ -13,7 +13,7 @@ export interface DeskRuleParts {
   verb: WriteVerb | null;
   /** "USD 2000.00", or null. */
   amount: string | null;
-  /** The agent's service name, or null for any agent. */
+  /** The agent's name as the client sees it, or null for any agent. */
   agent: string | null;
 }
 
@@ -21,10 +21,10 @@ export interface DeskWords {
   /** One short line per reason a change waits. */
   why: Record<Exclude<WhyCode, "stage">, string>;
   stage: { trial: string; signoff: string };
-  /** The approver rules chose who signs. */
+  /** The approver rules chose who approves. */
   byRule: string;
   team: {
-    /** A viewer: sees, signs nothing. */
+    /** A viewer: sees, approves nothing. */
     viewer: string;
     /** The client admin: what no rule sends elsewhere. */
     everythingElse: string;
@@ -44,7 +44,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
     },
     stage: {
       trial: "The agent is in its trial: every change needs approval.",
-      signoff: "The agent is waiting for your go-ahead: every change needs approval.",
+      signoff: "The agent is waiting for your approval to go live: every change needs approval.",
     },
     byRule: "Your approval rules send it to you.",
     team: {
@@ -77,7 +77,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
     },
     stage: {
       trial: "El agente está en su prueba: cada cambio necesita aprobación.",
-      signoff: "El agente espera su visto bueno: cada cambio necesita aprobación.",
+      signoff: "El agente espera su aprobación para empezar: cada cambio necesita aprobación.",
     },
     byRule: "Sus reglas de aprobación se lo envían a usted.",
     team: {
@@ -110,7 +110,8 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
     },
     stage: {
       trial: "L'agent est en période d'essai : chaque changement demande une approbation.",
-      signoff: "L'agent attend votre feu vert : chaque changement demande une approbation.",
+      signoff:
+        "L'agent attend votre approbation pour démarrer : chaque changement demande une approbation.",
     },
     byRule: "Vos règles d'approbation vous l'envoient.",
     team: {
@@ -143,7 +144,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
     },
     stage: {
       trial: "O agente está em teste: cada mudança precisa de aprovação.",
-      signoff: "O agente aguarda seu sinal verde: cada mudança precisa de aprovação.",
+      signoff: "O agente aguarda sua aprovação para começar: cada mudança precisa de aprovação.",
     },
     byRule: "Suas regras de aprovação enviam isto para você.",
     team: {
@@ -176,7 +177,8 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
     },
     stage: {
       trial: "L'agente è in prova: ogni modifica richiede un'approvazione.",
-      signoff: "L'agente attende il suo via libera: ogni modifica richiede un'approvazione.",
+      signoff:
+        "L'agente aspetta la tua approvazione per partire: ogni modifica richiede un'approvazione.",
     },
     byRule: "Le sue regole di approvazione lo inviano a lei.",
     team: {
@@ -209,7 +211,8 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
     },
     stage: {
       trial: "Der Agent ist in der Probephase: Jede Änderung braucht eine Freigabe.",
-      signoff: "Der Agent wartet auf Ihr Okay: Jede Änderung braucht eine Freigabe.",
+      signoff:
+        "Der Agent wartet auf Ihre Freigabe für den Start: Jede Änderung braucht eine Freigabe.",
     },
     byRule: "Ihre Freigaberegeln senden es an Sie.",
     team: {

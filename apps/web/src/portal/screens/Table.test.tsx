@@ -21,7 +21,7 @@ const FINDING = {
   id: "00000000-0000-4000-8000-0000000fd001",
   kind: "connection_signin",
   title: "Zoho CRM needs you to sign in again",
-  steps: ["Go to Connections.", "Find Zoho CRM.", "Choose Reconnect and follow the steps."],
+  steps: ["Go to Accounts.", "Find Zoho CRM.", "Choose Reconnect and follow the steps."],
   createdAt: "2026-11-05T08:00:00.000Z",
   remindedAt: "2026-11-06T08:00:00.000Z",
 };
@@ -224,7 +224,7 @@ describe("The Table", () => {
     expect(screen.getByTestId("table-stat-runs")).toHaveTextContent("38");
     expect(screen.getByTestId("table-stat-runs")).toHaveTextContent("1 waiting on you · 2 running");
     expect(screen.getByTestId("table-stat-changes")).toHaveTextContent(
-      "6452 automatic, 12 signed by you",
+      "6452 automatic, 12 approved by you",
     );
     expect(screen.getByTestId("table-stat-waiting")).toHaveTextContent("5On your Desk");
 
@@ -236,7 +236,7 @@ describe("The Table", () => {
     const first = within(desk).getByTestId(`table-desk-item-${ITEM}`);
     expect(first).toHaveTextContent("Due today");
     // The Table never signs: its main action opens the Desk.
-    expect(within(first).getByRole("link", { name: "Review and sign" })).toHaveAttribute(
+    expect(within(first).getByRole("link", { name: "Review and approve" })).toHaveAttribute(
       "href",
       "/desk",
     );
@@ -376,7 +376,7 @@ describe("The Table", () => {
       "GET /api/table": () => tableView(),
     });
     renderAt("/", api);
-    expect(await screen.findByText(/No services yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No agents yet\. We set them up/)).toBeInTheDocument();
     expect(screen.getByTestId("table-week-line")).toHaveTextContent("Nothing waits on you.");
     expect(screen.getByTestId("table-latest")).toHaveTextContent("Nothing yet this week.");
     expect(screen.queryByTestId("table-lead")).toBeNull();
@@ -405,7 +405,7 @@ describe("the Table's account check", () => {
     const health = screen.getByTestId("portal-health");
     expect(within(health).getByTestId("portal-health-state")).toHaveTextContent("Needs a look");
     expect(health).toHaveTextContent("12 runs in the last day · 1 did not finish");
-    expect(health).toHaveTextContent("1 connection needs you");
+    expect(health).toHaveTextContent("1 account needs you");
     expect(health).toHaveTextContent("2 items wait for you");
   });
 
@@ -453,7 +453,7 @@ describe("the Table's account check", () => {
     expect(screen.getByText("Revisión de la cuenta")).toBeInTheDocument();
     expect(screen.getByTestId("portal-health-state")).toHaveTextContent("Necesita atención");
     expect(screen.getByText("Recordatorio")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Revisar y firmar" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Revisar y aprobar" })).toBeInTheDocument();
     expect(screen.getByText("Trabajando ahora")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Preguntar a Sloan" })).toBeInTheDocument();
   });
