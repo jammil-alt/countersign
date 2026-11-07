@@ -1673,12 +1673,11 @@ and kept off main (§3 "Millwork and Pia"). v0.15 brings it in as the first **bu
 | Source | `claude/m8b-pia` (12 commits, both halves) is the source. It is 375 commits behind main, so it is re-applied file by file onto today's platform, not merged. The branches stay as they are for reference. The branch's §1.12 and §1.13 decisions carry over unless this section says otherwise. |
 | Three PRs | (1) The docs (`claude/p1-business-areas-docs`): ARCHITECTURE v0.15, this section, M34, CLAUDE.md. (2) Migration 0032 alone (`claude/p1-materials-migration`). (3) The pack, its registration and screens (`claude/p1-materials`). Merge commits, in that order. |
 | Migration 0032 | One migration for what the branch did in 0006 and 0007: `catalog_item`, `item_alias`, `item_match`, `price_observation` and the shared `alert` (§5.2). Forced RLS, grants as §1.12 decided (no DELETE anywhere; `item_match` insert-only), journal and snapshot, fixtures in the RLS, purge and migration test loops. `tenant_pack` is already on main. The `embedding vector(1024)` column stays, nullable (pgvector is enabled since 0000). Additive only: the previous Worker never reads these tables. |
-| Platform changes since the branch | Fit, don't redesign: skill modes (`tool`, `task`, `agent`; Materials' model-backed skills become `task` where they need no agent memory, recorded fixtures re-recorded where the request changes), per-entity permissions (Materials' internal tools declare their entity), automations, the test bench (the golden matching set also runs as skill cases), oversight, go-live stages, the run controls. |
-| Registration | `apps/api` registers the pack (tools, skills, events, routes); the platform never imports it (invariant 2); `pnpm lint:deps` holds. Enabling for a client inserts `tenant_pack`, which puts the pack's tools and skills in that client's builder palette. |
-| Ingredients only | The pack ships **no agent template** (ARCHITECTURE §12.0 "Ingredients and the lab"): tools, fixed-logic skills (`materials.match-lines`, `materials.record-prices`, the price alert rules), events, tables, routes and screens. Pia and the invoice agent are built by the operator in the Agent lab. The branch's model-written skills (`price-check` narrative, `vendor-compare`, `weekly-digest`) are ported only where they need code; the rest are operator skills made in the lab. // DECISION: owner, 2026-11-07. |
+| Platform changes since the branch | Fit, don't redesign: skill modes (`tool`, `task`, `agent`; Materials' model-backed skills become `task` where they need no agent memory, recorded fixtures re-recorded where the request changes), per-entity permissions (Materials' internal tools declare their entity), automations, the test bench (the golden matching set also runs as skill cases), oversight (on Pia's template as `failures`), go-live stages, the run controls. |
+| Registration | `apps/api` registers the pack (tools, skills, events, routes); the platform never imports it (invariant 2); `pnpm lint:deps` holds. Enabling for a client inserts `tenant_pack`; Pia's template is installed once, as v1, like the seed's platform templates. |
 | Screens | Price watch, Catalog and the match review card, fitted to the cleaned-up portal (Reports) and back office. The UI session owns the portal's screens and nav: P-1 tells it before changing them. |
 | Categories and embeddings | Millwork categories as built (sheet goods, hardwood, mouldings, hardware, finishes, other). Embeddings off: the column stays empty and candidates come from key attributes and `pg_trgm`. Both are open for the owner (ARCHITECTURE §20). |
-| With the invoice agent | In the lab, the invoice agent may add the "Match invoice lines" and "Record prices" steps after a bill is created, so every intake feeds the master list. Pia's `purchase-intake` (ARCHITECTURE §12.2) is the design the operator builds her from. |
+| With the invoice agent | Iris (invoice intake) may add `materials.match-lines` and `materials.record-prices` after a bill is created, so every intake feeds the master list. Pia's `purchase-intake` stays as designed. |
 
 ---
 
@@ -2299,8 +2298,8 @@ Three PRs in order: the docs (`claude/p1-business-areas-docs`); migration 0032 a
 
 Work: the pack's schema, catalog (normalise, category parsers, key attributes), matching (alias,
 candidates, the model's choice, the hard-rule veto), pricing (observations, standard units, the six
-alert rules), its tools, skills and events registered by `apps/api`; enabling for a client (its steps then in
-that client's builder palette); no agent template; the packs routes; Price watch, Catalog, the match review card and the
+alert rules), its tools, skills and events registered by `apps/api`; enabling for a client; the Pia
+template installed once; the packs routes; Price watch, Catalog, the match review card and the
 back office's catalog merge, fitted to today's screens; `docs/operations.md` "Adding the Materials
 pack to a client".
 
@@ -2310,10 +2309,9 @@ without a conversion; aliases learned from a person's decision; one client's cat
 another (RLS and the routes); no portal answer carries a bundle, prompt or cost; the migration
 loops; the branch's done-when test (every invoice line settled by the rules, all six priced).
 
-**Done when**, on staging, the pack is enabled for the Sandbox; an agent the operator builds in the
-Agent lab, with the "Match invoice lines" and "Record prices" steps, matches three invoices from
-different vendors for the same sheet good to one catalog item (the second and third by alias or rules,
-not the model); Price watch shows that item's price per vendor and date; and the golden set passes.
+**Done when**, on staging, the pack is enabled for the Sandbox; three invoices from different vendors
+for the same sheet good are matched to one catalog item (the second and third by alias or rules, not
+the model); Price watch shows that item's price per vendor and date; and the golden set passes.
 
 ---
 
