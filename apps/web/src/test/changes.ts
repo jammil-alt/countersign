@@ -32,8 +32,8 @@ export const BILL_LINES_DISPLAY: ToolDisplay = {
         unitPrice: "unitPrice",
         amount: "amount",
         refs: [
-          { key: "item" },
-          { key: "account" },
+          { key: "item", names: "items" },
+          { key: "account", names: "accounts" },
           { key: "itemId", names: "items" },
           { key: "accountId", names: "accounts" },
         ],

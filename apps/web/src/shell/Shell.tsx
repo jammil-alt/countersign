@@ -5,6 +5,7 @@
 // At phone width the sidebar folds behind a menu button and the top bar compacts.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
+import { useFeedbackStarter } from "../feedback/Feedback";
 import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { LanguageMenu } from "../i18n/LanguageMenu";
@@ -146,6 +147,7 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
   const session = useSession();
   const { signOut } = useSessionState();
   const [theme, setTheme] = useTheme();
+  const startFeedback = useFeedbackStarter();
   // The operator is Mezonas staff, a person on the client's account: copper, like the lead. A
   // client user is the signed-in self: ink.
   const operator = session.operator;
@@ -208,6 +210,20 @@ function UserMenu({ surface }: { surface: "ops" | "portal" }) {
           </div>
           {/* The back office stays in English (plan §1.18): only the portal offers languages. */}
           {surface === "portal" ? <LanguageMenu /> : null}
+          {startFeedback ? (
+            <button
+              type="button"
+              data-testid="feedback-button"
+              onClick={() => {
+                setOpen(false);
+                startFeedback();
+              }}
+              className="ds-btn ds-btn--link mt-3 flex items-center gap-1.5"
+            >
+              <Icon name="message" size={16} />
+              {t("feedback.button")}
+            </button>
+          ) : null}
           <button
             type="button"
             data-testid="shell-sign-out"

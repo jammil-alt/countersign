@@ -228,8 +228,8 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(j(calls[0]?.output)).toMatchObject({
       item: { id: itemId, title: "Update Oak board" },
       reasons: [
-        { code: "step", words: "This step asks for a signature." },
-        { code: "stage", words: "The agent is in its trial: every change is signed." },
+        { code: "step", words: "This step needs your approval." },
+        { code: "stage", words: "The agent is in its trial: every change needs approval." },
       ],
       stage: "trial",
       sources: [itemId],

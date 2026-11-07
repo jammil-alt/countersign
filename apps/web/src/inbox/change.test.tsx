@@ -71,7 +71,7 @@ describe("the change model, through a tool's display", () => {
     expect(model.fields[0]?.now).toEqual({ type: "date", value: "2026-10-28" });
   });
 
-  it("keeps the lines a change does not replace, and names unknown ids by id", () => {
+  it("keeps the lines a change does not replace; unknown ids read only in the back office", () => {
     const before = {
       ...BILL_BEFORE,
       names: undefined,
@@ -80,14 +80,21 @@ describe("the change model, through a tool's display", () => {
         { ...BILL_BEFORE.lines[0], id: "2", description: "Freight", amount: "120.00" },
       ],
     };
-    const model = changeModel(BILL_LINES_DISPLAY, before, BILL_INPUT);
-    const after = model.fields.find((f) => f.key === "lines")?.after;
-    expect(
-      after?.type === "lines" && after.items.map((l) => [l.description, l.ref, l.marked]),
-    ).toEqual([
+    const refs = (showIds: boolean) => {
+      const model = changeModel(BILL_LINES_DISPLAY, before, BILL_INPUT, "en", { showIds });
+      const after = model.fields.find((f) => f.key === "lines")?.after;
+      return after?.type === "lines" && after.items.map((l) => [l.description, l.ref, l.marked]);
+    };
+    expect(refs(true)).toEqual([
       ["Freight", "Job Materials", false],
       ["Baltic birch 3/4 4x8 B/BB", "#31", true],
       ["Edgebanding oak 7/8 x 500'", "#32", true],
+    ]);
+    // QA round 1: a client never reads a bare id.
+    expect(refs(false)).toEqual([
+      ["Freight", "Job Materials", false],
+      ["Baltic birch 3/4 4x8 B/BB", null, true],
+      ["Edgebanding oak 7/8 x 500'", null, true],
     ]);
   });
 
@@ -194,12 +201,57 @@ describe("the change tables", () => {
     );
   });
 
-  it("show the record now in full: the total and the date, formatted, on both sides", () => {
+  it("set out only what changes, and what stays the same on one line", () => {
     renderTables({ before: BILL_BEFORE, input: BILL_INPUT, display: BILL_LINES_DISPLAY });
-    expect(screen.getByTestId("change-now-row-total")).toHaveTextContent("Total$9,742.35");
-    expect(screen.getByTestId("change-after-row-total")).toHaveTextContent("Total$9,742.35");
-    expect(screen.getByTestId("change-after-row-total")).not.toHaveAttribute("data-changed");
-    expect(screen.getByTestId("change-now-row-txnDate")).toHaveTextContent("Oct 28, 2026");
+    // QA round 1: the date and total are the same before and after, so no table repeats them.
+    expect(screen.queryByTestId("change-fields")).toBeNull();
+    expect(screen.getByTestId("change-unchanged")).toHaveTextContent(
+      "Unchanged: Date Oct 28, 2026 · Total $9,742.35",
+    );
+  });
+
+  it("put a changed field's now and after side by side in one row", () => {
+    renderTables({
+      before: { ...BILL_BEFORE, memo: "old" },
+      input: { memo: "new" },
+      display: {
+        name: { en: "QuickBooks bill" },
+        fields: [
+          { label: { en: "Memo" }, kind: "text", now: "before.memo", after: "input.memo" },
+          {
+            label: { en: "Total" },
+            kind: "money",
+            now: "before.total",
+            currencyPath: "before.currency",
+          },
+        ],
+      },
+    });
+    expect(screen.getByTestId("change-row-memo-now")).toHaveTextContent("old");
+    expect(screen.getByTestId("change-row-memo-after")).toHaveTextContent("new");
+    expect(screen.queryByTestId("change-row-total")).toBeNull();
+    expect(screen.getByTestId("change-unchanged-total")).toHaveTextContent("Total $9,742.35");
+  });
+
+  it("name an account the before state leaves unnamed from the server's names, never as #20", () => {
+    const before = {
+      ...BILL_BEFORE,
+      lines: [{ ...BILL_BEFORE.lines[0], account: { id: "20" } }],
+      names: { items: BILL_BEFORE.names.items, accounts: {} },
+    };
+    const { unmount } = renderTables({ before, input: BILL_INPUT, display: BILL_LINES_DISPLAY });
+    // Nobody names it: the client reads nothing rather than a bare id.
+    expect(screen.getByTestId("change-lines-now-item-0")).not.toHaveTextContent("#20");
+    unmount();
+    renderTables({
+      before,
+      input: BILL_INPUT,
+      display: BILL_LINES_DISPLAY,
+      names: { accounts: { "20": "Job Expenses:Job Materials" } },
+    });
+    expect(screen.getByTestId("change-lines-now-item-0")).toHaveTextContent(
+      "Job Expenses:Job Materials",
+    );
   });
 
   it("hide ids, sync tokens and the write's guards", () => {
@@ -227,7 +279,7 @@ describe("the change tables", () => {
     renderTables({ before: BILL_BEFORE, input: BILL_INPUT, display: BILL_LINES_DISPLAY }, "es");
     expect(screen.getByTestId("change-lines")).toHaveAccessibleName("Líneas");
     // Spanish groups thousands with a dot and decimals with a comma.
-    expect(screen.getByTestId("change-now-row-total")).toHaveTextContent("9742,35");
+    expect(screen.getByTestId("change-unchanged-total")).toHaveTextContent("9742,35");
     expect(screen.getByTestId("change-lines-after-item-0")).toHaveTextContent("8550,00");
   });
 
@@ -250,11 +302,14 @@ describe("the change tables", () => {
     });
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/[{}[\]"]/);
-    expect(screen.getByTestId("change-now-row-vendor")).toHaveTextContent("Northline Panel Supply");
-    expect(screen.getByTestId("change-now-row-address")).toHaveTextContent(
+    expect(screen.getByTestId("change-unchanged-vendor")).toHaveTextContent(
+      "Northline Panel Supply",
+    );
+    expect(screen.getByTestId("change-unchanged-address")).toHaveTextContent(
       "City: Tacoma, State: WA",
     );
-    expect(screen.getByTestId("change-after-row-status")).toHaveAttribute("data-changed", "true");
+    expect(screen.getByTestId("change-row-status-now")).toHaveTextContent("open");
+    expect(screen.getByTestId("change-row-status-after")).toHaveTextContent("closed");
     // A list of records reads as a small table, ids left out.
     const after = screen.getByTestId("change-lines-after");
     expect(within(after).getByRole("table")).toHaveTextContent("AmountDescription");
@@ -297,7 +352,7 @@ describe("InboxCard: a declared change, for a client", () => {
     expect(card.textContent).not.toContain("qbo.bill.update_lines");
     expect(card.textContent).not.toContain("Qbo");
     expect(within(card).getByTestId("inbox-item-approve")).toHaveTextContent(
-      "Sign and update QuickBooks Online",
+      "Approve and update QuickBooks Online",
     );
   });
 });

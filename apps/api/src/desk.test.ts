@@ -547,7 +547,7 @@ describe.skipIf(!h)("the Desk", () => {
     expect(forbiddenKeys(team.json)).toEqual([]);
     const members = j(team.json).members as { userId: string; canSign: boolean; signs: string[] }[];
     const viewer = members.find((m) => m.userId === H.A.user);
-    expect(viewer).toMatchObject({ canSign: false, signs: ["Sees everything, signs nothing."] });
+    expect(viewer).toMatchObject({ canSign: false, signs: ["Sees everything, approves nothing."] });
     const boss = members.find((m) => m.userId === H.A.admin);
     expect(boss?.signs).toEqual(["Every change no rule sends to someone else."]);
     expect(j(team.json).settings).toEqual({ undoSeconds: 60 });

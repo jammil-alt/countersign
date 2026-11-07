@@ -380,6 +380,21 @@ export interface Connector {
    * `wamid.`). Absent: every input. Used only to choose among connectors an agent is bound to.
    */
   handlesInput?(toolId: string, input: unknown): boolean;
+  /**
+   * Where the connection's synced records (raw_record) name an id an approval card shows, for ids
+   * the change's before state leaves unnamed (a line's account or item). `list` is the tool
+   * display's names list ("accounts", "items"). Each lookup is a synced record type, a shape a
+   * record naming the id contains (jsonb `@>`), and how to read the name from that record. Absent
+   * or empty: the card has no name for the id.
+   */
+  syncedNames?(list: string, id: string): readonly SyncedNameLookup[];
+}
+
+/** One place a synced record may name an id (see `Connector.syncedNames`). */
+export interface SyncedNameLookup {
+  entityType: string;
+  contains: JsonObject;
+  name(payload: unknown): string | null;
 }
 
 /**

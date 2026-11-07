@@ -138,9 +138,10 @@ export function DeskList({
                       on ? "bg-slate-tint" : "hover:bg-surface-subtle",
                     )}
                   >
-                    <span className="flex w-full items-center gap-2">
+                    {/* The chip wraps below when the agent and time need the room. */}
+                    <span className="flex w-full flex-wrap items-center gap-2">
                       {agent ? <AgentBadge name={agent} size="sm" /> : null}
-                      <span className="min-w-0 flex-1 truncate text-sm text-ink-muted">
+                      <span className="min-w-32 flex-1 truncate text-sm text-ink-muted">
                         {meta.join(" · ")}
                       </span>
                       <Chip item={lead} now={now} />

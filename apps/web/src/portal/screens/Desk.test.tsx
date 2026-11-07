@@ -1,8 +1,9 @@
 // Your Desk (`/desk`, docs/ui-plan.md C3): the list by day and the open item. A QuickBooks change
 // reads like the record (the bill's number and vendor, its lines with totals, money in the reader's
-// language), never a tool id or a raw object, and signs with the tool's name; the signature can be
-// undone inside its window. One step's batch is signed in part; "Not now" snoozes; a question takes
-// an answer; a change's editable fields are edited before signing; a viewer sees and never signs.
+// language), never a tool id or a raw object, only what changes, and is approved with the tool's
+// name; the approval can be undone inside its window. One step's batch is approved in part; "Not
+// now" snoozes; a question takes an answer; a change's editable fields are edited before
+// approving; a viewer sees and never approves. Who approves what lives in Settings (QA round 1).
 // The shell's Desk count follows every action. `/inbox` lands here.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -36,7 +37,7 @@ function team(canSign = true) {
         canSign,
         signs: canSign
           ? ["Every change no rule sends to someone else."]
-          : ["Sees everything, signs nothing."],
+          : ["Sees everything, approves nothing."],
       },
     ],
     settings: { undoSeconds: 60 },
@@ -116,7 +117,7 @@ describe("Your Desk: a QuickBooks change", () => {
     const entry = await screen.findByTestId(`desk-entry-${ITEM.id}`);
     expect(entry).toHaveTextContent("Pia");
     expect(screen.getByTestId("desk-requests")).toHaveAttribute("href", "/requests");
-    expect(entry).toHaveTextContent("Sign");
+    expect(entry).toHaveTextContent("Needs your approval");
     expect(entry).toHaveTextContent("QuickBooks bill 20418 · Northline Panel Supply");
 
     const card = await screen.findByTestId("desk-detail");
@@ -127,7 +128,10 @@ describe("Your Desk: a QuickBooks change", () => {
     expect(within(card).getByTestId("desk-description")).toHaveTextContent(
       "Replace the bill's lines with the items on the vendor's invoice. The total stays the same.",
     );
-    expect(within(card).getByTestId("change-now-row-total")).toHaveTextContent("$9,742.35");
+    // QA round 1: the date and total don't change, so they are one line, not two tables.
+    expect(within(card).getByTestId("change-unchanged")).toHaveTextContent(
+      "Unchanged: Date Oct 28, 2026 · Total $9,742.35",
+    );
     const after = within(card).getByTestId("change-lines-after");
     expect(within(after).getByTestId("change-lines-after-item-0")).toHaveTextContent(
       "Baltic birch 3/4 4x8",
@@ -150,11 +154,11 @@ describe("Your Desk: a QuickBooks change", () => {
     await waitFor(() => expect(count).toHaveTextContent("1"));
 
     const sign = within(card).getByTestId("desk-sign");
-    expect(sign).toHaveTextContent("Sign and update QuickBooks Online");
+    expect(sign).toHaveTextContent("Approve and update QuickBooks Online");
     await userEvent.click(sign);
     expect(resolved).toEqual([{ decision: "approve" }]);
-    // Signed: the card stays, in copper, with Undo while the window lasts; the count follows.
-    expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Signed by you");
+    // Approved: the card stays, in copper, with Undo while the window lasts; the count follows.
+    expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Approved by you");
     expect(within(card).getByTestId("desk-undo-left")).toHaveTextContent(/seconds to undo/);
     await waitFor(() => expect(count).toHaveTextContent("0"));
 
@@ -179,9 +183,9 @@ describe("Your Desk: a QuickBooks change", () => {
     expect(within(card).getByRole("heading", { level: 2 })).toHaveTextContent(
       "Factura de QuickBooks 20418 · Northline Panel Supply",
     );
-    expect(within(card).getByTestId("change-now-row-total")).toHaveTextContent("9742,35");
+    expect(within(card).getByTestId("change-unchanged-total")).toHaveTextContent("9742,35");
     expect(within(card).getByTestId("desk-sign")).toHaveTextContent(
-      "Firmar y actualizar QuickBooks Online",
+      "Aprobar y actualizar QuickBooks Online",
     );
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Su escritorio");
   });
@@ -221,9 +225,9 @@ describe("Your Desk: batches, not now, questions, edits", () => {
 
     const card = await screen.findByTestId("desk-detail");
     const sign = within(card).getByTestId("desk-sign");
-    expect(sign).toHaveTextContent("Sign all 2");
+    expect(sign).toHaveTextContent("Approve all 2");
     await userEvent.click(within(card).getByTestId(`desk-batch-tick-${two.id}`));
-    expect(sign).toHaveTextContent("Sign 1 of 2");
+    expect(sign).toHaveTextContent("Approve 1 of 2");
     await userEvent.click(sign);
     expect(bodies).toEqual([{ batchKey: key, approve: [one.id], reject: [] }]);
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("1 of 2 done by you");
@@ -370,9 +374,14 @@ describe("Your Desk: batches, not now, questions, edits", () => {
     });
     renderAt("/desk", api);
     const card = await screen.findByTestId("desk-detail");
-    expect(await within(card).findByText(/you don't sign for your team/)).toBeInTheDocument();
+    expect(await within(card).findByText(/you don't approve for your team/)).toBeInTheDocument();
     expect(within(card).queryByTestId("desk-sign")).toBeNull();
-    expect(screen.getByTestId("desk-team")).toHaveTextContent("Sees everything, signs nothing.");
+    // Who approves what moved to Settings, Approvals; the Desk links there.
+    expect(screen.queryByTestId("desk-team")).toBeNull();
+    expect(screen.getByTestId("desk-approval-settings")).toHaveAttribute(
+      "href",
+      "/settings#approvals",
+    );
   });
 
   it("says so when nothing waits", async () => {

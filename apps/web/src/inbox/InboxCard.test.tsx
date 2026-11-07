@@ -69,20 +69,15 @@ describe("InboxCard: external action", () => {
     );
     expect(within(card).getByTestId("inbox-item-status")).toHaveTextContent("Needs approval");
 
-    const now = screen.getByTestId("change-now");
-    const after = screen.getByTestId("change-after");
-    expect(within(now).getByTestId("change-now-row-amount")).toHaveTextContent("Amount10.00");
-    expect(within(after).getByTestId("change-after-row-amount")).toHaveTextContent("Amount12.00");
-    expect(within(after).getByTestId("change-after-row-amount")).toHaveAttribute(
-      "data-changed",
-      "true",
-    );
-    // An unchanged field reads the same on both sides and is not marked.
-    expect(within(after).getByTestId("change-after-row-name")).toHaveTextContent("Oak board");
-    expect(within(after).getByTestId("change-after-row-name")).not.toHaveAttribute("data-changed");
+    // Only what changes is set out, now and after in one row; the rest is one line.
+    expect(screen.getByTestId("change-row-amount")).toHaveTextContent("Amount10.0012.00");
+    expect(screen.getByTestId("change-row-amount-after")).toHaveAttribute("data-changed", "true");
+    expect(screen.queryByTestId("change-row-name")).toBeNull();
+    expect(screen.getByTestId("change-unchanged-name")).toHaveTextContent("Oak board");
     // Identity and concurrency fields are not part of the change.
     expect(within(card).queryByText("Sync token")).toBeNull();
-    expect(within(now).queryByTestId("change-now-row-id")).toBeNull();
+    expect(screen.queryByTestId("change-row-id")).toBeNull();
+    expect(screen.queryByTestId("change-unchanged-id")).toBeNull();
   });
 
   it("names the tool by its id in the back office", () => {
@@ -94,15 +89,15 @@ describe("InboxCard: external action", () => {
     renderCard({
       item: { ...CHANGE, payload: { ...CHANGE.payload, before: null, input: { name: "Walnut" } } },
     });
-    expect(screen.getByTestId("change-now")).toHaveTextContent("Not there yet");
-    expect(screen.getByTestId("change-after-row-name")).toHaveTextContent("Walnut");
+    expect(screen.getByTestId("change-creates")).toHaveTextContent("Not there yet");
+    expect(screen.getByTestId("change-row-name-after")).toHaveTextContent("Walnut");
   });
 
   it("approves or rejects through the resolve callback, and shows its error", async () => {
     const onResolve = vi.fn().mockResolvedValueOnce(undefined);
     renderCard({ onResolve });
     const approve = screen.getByTestId("inbox-item-approve");
-    expect(approve).toHaveTextContent("Sign and update Testkit");
+    expect(approve).toHaveTextContent("Approve and update Testkit");
     await userEvent.click(approve);
     expect(onResolve).toHaveBeenCalledWith({ decision: "approve" });
 

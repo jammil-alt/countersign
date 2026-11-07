@@ -204,8 +204,8 @@ describe("portal run timeline", () => {
     expect(audit).toHaveTextContent("2 times");
     expect(audit).toHaveTextContent("Demo admin signed");
     const waiting = await screen.findByTestId("portal-run-waiting");
-    expect(within(waiting).getByTestId("change-now")).toHaveTextContent("Oak board");
-    expect(within(waiting).getByTestId("change-after")).toHaveTextContent("Oak board, 3/4 in");
+    expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board");
+    expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board, 3/4 in");
     expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", "/desk");
     expect(screen.getByTestId("portal-run-status")).toHaveTextContent("Waiting on you");
     expect(within(screen.getByTestId("portal-run-ask-sloan")).getByRole("link")).toHaveAttribute(

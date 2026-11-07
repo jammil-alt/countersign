@@ -165,9 +165,11 @@ export function updateLinesDisplay(entity: "Bill" | "Purchase"): ToolDisplay {
           qty: "qty",
           unitPrice: "unitPrice",
           amount: "amount",
+          // DECISION: a ref without its name (QuickBooks sometimes leaves it off) reads through the
+          // same names lists as the ids, which the server fills from synced records if need be.
           refs: [
-            { key: "item" },
-            { key: "account" },
+            { key: "item", names: "items" },
+            { key: "account", names: "accounts" },
             { key: "itemId", names: "items" },
             { key: "accountId", names: "accounts" },
           ],

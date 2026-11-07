@@ -1,13 +1,15 @@
 // `/settings` (C7, docs/ui-plan.md): your company's settings in one place, with a section list
-// beside them. Everyone: their own notifications and language, and who signs what (the approver
-// rules, read-only unless the admin tightens them). The client admin also: billing (this month's
+// beside them. Everyone: their own notifications and language, and Approvals: who approves what,
+// the undo window and the approval rules (read-only unless the admin tightens them; moved here
+// from the Desk in QA round 1). The client admin also: billing (this month's
 // credits, with statements on `/settings/billing`), what happens when credits run out, the people
 // who use the portal and invites, and the team's emails. Never what the work cost us (invariant 11).
 import type { MyNotifications, NotificationSettings, OnCreditsOut } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { PortalTeamApprovals } from "../../approvals/TeamApprovals";
 import { CreditMeter } from "../../billing/parts";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
@@ -19,12 +21,12 @@ import { Badge, Button, buttonClass, Card, ErrorNotice, PageHeader } from "../..
 import { PORTAL_PATHS } from "../paths";
 import { PortalApproverRules } from "./ApproverRules";
 
-type SectionId = "billing" | "team" | "signoff" | "notifications" | "language";
+type SectionId = "billing" | "team" | "approvals" | "notifications" | "language";
 
 const SECTION_WORDS: Record<SectionId, PlainKey> = {
   billing: "settingsPage.billing",
   team: "settingsPage.team",
-  signoff: "settingsPage.signoff",
+  approvals: "settingsPage.signoff",
   notifications: "settingsPage.notifications",
   language: "settingsPage.language",
 };
@@ -35,8 +37,14 @@ export function PortalSettingsScreen() {
   const role = session.tenants.find((x) => x.id === session.activeTenantId)?.role;
   const isAdmin = role === "client_admin";
   const sections: SectionId[] = isAdmin
-    ? ["billing", "team", "signoff", "notifications", "language"]
-    : ["signoff", "notifications", "language"];
+    ? ["billing", "team", "approvals", "notifications", "language"]
+    : ["approvals", "notifications", "language"];
+  // A link to a section (the Desk's "Approval settings": `/settings#approvals`) opens at it.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: "start" });
+  }, [hash]);
 
   return (
     <Page testId="portal-settings">
@@ -68,8 +76,9 @@ export function PortalSettingsScreen() {
               {t("settings.adminOnly")}
             </p>
           )}
-          <Anchor id="signoff" title={t("settingsPage.signoff")}>
+          <Anchor id="approvals" title={t("settingsPage.signoff")}>
             {isAdmin ? <WhoApproves /> : <TeamLink />}
+            <PortalTeamApprovals isAdmin={isAdmin} />
             <PortalApproverRules />
           </Anchor>
           <Anchor id="notifications" title={t("settingsPage.notifications")}>
