@@ -148,6 +148,7 @@ export function OpsDocumentScreen() {
           surface="ops"
           onOpenOriginal={() => void openOriginal()}
           transactionHref={(t) => `${base}/records/${t}`}
+          documentHref={(d) => `${base}/documents/${d}`}
         />
       ) : null}
     </div>

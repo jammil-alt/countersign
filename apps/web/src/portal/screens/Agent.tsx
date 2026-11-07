@@ -88,7 +88,7 @@ function AgentPage({ id, detail, reload }: { id: string; detail: Detail; reload:
               {stage ? <Tag>{stage}</Tag> : null}
             </span>
           }
-          subtitle={service.description ?? t("service.noDescription")}
+          {...(service.description ? { subtitle: service.description } : {})}
           actions={
             <>
               <WeeklyAndSloan quiet />
@@ -508,8 +508,9 @@ function Reach({ id, name }: { id: string; name: string }) {
             >
               <span className="font-medium text-ink">
                 {item.name}
-                {item.externalAccountId ? (
-                  <span className="font-normal text-ink-muted"> · {item.externalAccountId}</span>
+                {/* The account by its name in the tool, never its id there (a QuickBooks realm id). */}
+                {item.accountName ? (
+                  <span className="font-normal text-ink-muted"> · {item.accountName}</span>
                 ) : null}
               </span>
               {grant.revoked ? (

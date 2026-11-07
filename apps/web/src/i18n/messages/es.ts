@@ -621,6 +621,7 @@ export const es: Messages = {
   "upload.rowsSkipped": { one: "{count} fila omitida", other: "{count} filas omitidas" },
   "upload.received": "Recibido",
   "upload.duplicate": "Ya estaba: guardamos una sola copia.",
+  "upload.sameFile": "El mismo archivo que el recibido ({time}). Guardamos una sola copia.",
   "forwarding.title": "Reenviar facturas por correo",
   "forwarding.off": "El reenvío aún no está activado. Su dirección privada aparecerá aquí.",
   "forwarding.help":
@@ -650,6 +651,7 @@ export const es: Messages = {
   "documents.col.status": "Estado",
   "documents.col.received": "Recibido",
   "documents.invoiceNumber": "Factura {number}",
+  "documents.sameInvoice": "La misma factura que la recibida ({time})",
   "document.status.stored": "Recibido",
   "document.status.extracting": "Leyendo",
   "document.status.extracted": "Leído",
@@ -776,7 +778,9 @@ export const es: Messages = {
     "Nosotros aprobamos los cambios en sus herramientas en su nombre. Usted sigue viendo cada cambio en sus ejecuciones.",
   "settings.approvals.byYou": "Usted aprueba los cambios en sus herramientas antes de que ocurran.",
   "settings.approvals.howToChange":
-    "Para cambiar quién aprueba, pídanoslo. También puede limitar lo que pueden hacer los agentes en Conexiones.",
+    "Añada una regla abajo para elegir quién aprueba. Puede hacer las aprobaciones más estrictas; solo nosotros las relajamos. Para limitar lo que los agentes pueden hacer en una herramienta, vaya a",
+  "settings.approvals.accountsLink": "Cuentas.",
+  "settings.approvals.askAdmin": "Para cambiar quién aprueba, pregunte a su administrador.",
   "settings.emails": "Correos",
   "settings.emailsSoon": "Los correos llegarán pronto",
   "settings.email.itemsWaiting": "Algo le espera",
@@ -855,7 +859,6 @@ export const es: Messages = {
   "reports.seeActivity": "Ver su actividad",
 
   // ── Service page ──
-  "service.noDescription": "Aquí describiremos lo que hace este servicio.",
   "service.thisMonth": "Este mes",
   "service.nothingRan": "Aún no se ejecutó nada este mes",
   "service.allRuns": "Todas las ejecuciones",
@@ -933,7 +936,7 @@ export const es: Messages = {
   // ── Who approves ──
   "approvers.title": "Quién aprueba",
   "approvers.intro":
-    "Decide la primera regla que corresponde a un cambio. Si ninguna corresponde, aprueba su administrador, salvo que el servicio indique a otra persona.",
+    "Decide la primera regla que corresponde a un cambio. Si ninguna corresponde, aprueba su administrador, salvo que el agente indique a otra persona.",
   "approvers.empty": "Aún no hay reglas. Su administrador aprueba cada cambio.",
   "approvers.who.admin": "Su administrador",
   "approvers.who.team": "Cualquiera de su equipo",
@@ -1674,22 +1677,24 @@ export const es: Messages = {
   },
   "weekly.details": "Detalles",
   "weekly.nextWeek": "La semana que viene",
-  "settingsPage.subtitle": "Su empresa, quién puede firmar, cómo paga y cómo le contactamos.",
+  "settingsPage.subtitle": "Su empresa, quién aprueba, cómo paga y cómo le contactamos.",
   "settingsPage.subtitleMember": "Cómo le contactamos y el idioma en que lee.",
   "settingsPage.billing": "Facturación",
   "settingsPage.team": "Equipo",
-  "settingsPage.signoff": "Firmas",
+  "settingsPage.signoff": "Aprobaciones",
   "settingsPage.notifications": "Avisos",
   "settingsPage.language": "Idioma",
   "settingsPage.languageBody": "Cada elección se guarda al momento.",
   "settingsPage.plan": "Este mes",
   "settingsPage.statements": "Extractos y uso",
   "settingsPage.creditsThisMonth": "Créditos este mes",
-  "settingsPage.creditsUsed": "{used} de {included} usados",
+  "settingsPage.creditsUsed": "{used} usados de {included} incluidos hasta hoy",
+  "settingsPage.creditsIncludedHelp":
+    "Cada agente suma sus créditos incluidos día a día, así que la cifra de incluidos crece a lo largo del mes.",
   "settingsPage.creditsOut": "Si se acaban los créditos",
   "settingsPage.creditsOut.continue": "Seguir trabajando y añadir créditos",
   "settingsPage.creditsOut.continueHelp":
-    "Le avisamos cada vez que se usen otros {block} créditos.",
+    "Los créditos que pasen de los incluidos van en su próxima factura. Le escribimos cada vez que se usen otros {block} créditos extra.",
   "settingsPage.creditsOut.pause": "Pausar los agentes hasta el mes que viene",
   "settingsPage.creditsOut.pauseHelp":
     "Los agentes paran cuando se usan los créditos del mes. Sloan sigue activo.",
@@ -1732,6 +1737,7 @@ export const es: Messages = {
   // ── UI-3a: registros, subir, equipo, exportaciones ──
   "records.lastSync": "Última sincronización {time}.",
   "records.upload": "Subir documentos",
+  "records.fromAccount": "De {account}",
   "records.found": { one: "{count} registro", other: "{count} registros" },
   "records.kind.receivables": "Cuentas por cobrar",
   "records.col.customer": "Cliente",
@@ -1781,7 +1787,7 @@ export const es: Messages = {
   "settingsPage.teamLinkHelp": "Quién usa su portal, qué firma cada persona, e invitaciones.",
   "settingsPage.exportsLink": "Exportaciones",
   "settingsPage.exportsLinkHelp": "La exportación para su contador y su registro de auditoría.",
-  "settingsPage.seeTeam": "Ver quién firma qué en su equipo",
+  "settingsPage.seeTeam": "Ver quién aprueba qué en su equipo",
   "knowledge.adminOnly":
     "Solo su administrador puede ver y cambiar lo que los agentes saben de su empresa.",
   "sloan.requests": "Sus solicitudes a nosotros",

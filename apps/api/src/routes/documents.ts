@@ -38,7 +38,7 @@ import {
 } from "@countersign/documents";
 import { createLlmClient } from "@countersign/llm";
 import { collectEmitted, EmittedEvents, type EventRow, emit } from "@countersign/senses";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { guardModels, profileReader } from "../compliance/policy";
 import {
@@ -212,9 +212,11 @@ export async function documentDetail(
   const header = (x?.header ?? {}) as Partial<ExtractedHeader>;
   // Only what was printed and the checks on it: model names and costs stay out of the portal.
   const meta = view.document.meta as { email?: Record<string, unknown> };
+  const same = await sameInvoices(tx, tenantId, [{ document: view.document, extraction: x }]);
   return {
     document: {
       ...documentSummary(view.document, x),
+      sameInvoiceAs: same.get(view.document.id) ?? null,
       meta: meta.email
         ? { email: { from: meta.email.from, subject: meta.email.subject, date: meta.email.date } }
         : {},
@@ -256,7 +258,95 @@ export async function recentDocuments(tx: Tx, tenantId: string, limit: number) {
     tenantId,
     docs.map((d) => d.id),
   );
-  return docs.map((d) => documentSummary(d, latest.get(d.id) ?? null));
+  const same = await sameInvoices(
+    tx,
+    tenantId,
+    docs.map((d) => ({ document: d, extraction: latest.get(d.id) ?? null })),
+  );
+  return docs.map((d) => ({
+    ...documentSummary(d, latest.get(d.id) ?? null),
+    sameInvoiceAs: same.get(d.id) ?? null,
+  }));
+}
+
+type SameInvoice = { id: string; filename: string; source: string; receivedAt: string };
+
+/** Vendor and invoice number as printed, compared without case or extra spaces. */
+function invoiceOf(x: ExtractionRow | null): { key: string; number: string } | null {
+  const header = (x?.header ?? null) as Partial<ExtractedHeader> | null;
+  const norm = (v: unknown) =>
+    typeof v === "string" ? v.trim().toLowerCase().split(/\s+/).join(" ") : "";
+  const vendor = norm(header?.vendorName);
+  const number = norm(header?.invoiceNumber);
+  return vendor && number ? { key: JSON.stringify([vendor, number]), number } : null;
+}
+
+/**
+ * For each document, the client's earliest other document that is the same invoice (QA round 1:
+ * invoice 20418 uploaded twice). The same bytes are already one document (one per client and
+ * sha256), so a second copy is a different file of the same invoice: its latest reading names the
+ * same vendor and invoice number as an earlier document's. Documents not read yet have no match.
+ */
+// DECISION: compared when documents are listed, over each document's latest reading, not stored:
+// the reading comes after the upload, and a re-reading may change it. Vendor and number both
+// count, since different vendors reuse invoice numbers.
+export async function sameInvoices(
+  tx: Tx,
+  tenantId: string,
+  docs: readonly { document: DocumentRow; extraction: ExtractionRow | null }[],
+): Promise<Map<string, SameInvoice>> {
+  const out = new Map<string, SameInvoice>();
+  const keyed = docs.flatMap((d) => {
+    const invoice = invoiceOf(d.extraction);
+    return invoice ? [{ ...d, ...invoice }] : [];
+  });
+  if (keyed.length === 0) return out;
+  const numbers = [...new Set(keyed.map((d) => d.number))];
+  // Every reading of this client that may name one of these invoices, newest first.
+  const rows = await tx
+    .select({ x: docExtraction, d: document })
+    .from(docExtraction)
+    .innerJoin(
+      document,
+      and(eq(document.id, docExtraction.documentId), eq(document.tenantId, docExtraction.tenantId)),
+    )
+    .where(
+      and(
+        eq(docExtraction.tenantId, tenantId),
+        // The same normalizing as invoiceOf: no case, single spaces.
+        inArray(
+          sql`regexp_replace(lower(trim(${docExtraction.header}->>'invoiceNumber')), '\\s+', ' ', 'g')`,
+          numbers,
+        ),
+      ),
+    )
+    .orderBy(desc(docExtraction.createdAt), desc(docExtraction.id));
+  // Each document's latest reading only.
+  const seen = new Set<string>();
+  const byKey = new Map<string, DocumentRow[]>();
+  for (const { x, d } of rows) {
+    if (seen.has(d.id)) continue;
+    seen.add(d.id);
+    const key = invoiceOf(x)?.key;
+    if (!key) continue;
+    byKey.set(key, [...(byKey.get(key) ?? []), d]);
+  }
+  const earlier = (a: DocumentRow, b: DocumentRow) =>
+    a.receivedAt.getTime() - b.receivedAt.getTime() || a.id.localeCompare(b.id);
+  for (const { document: d, key } of keyed) {
+    const first = (byKey.get(key) ?? [])
+      .filter((o) => o.id !== d.id && earlier(o, d) < 0)
+      .sort(earlier)[0];
+    if (first) {
+      out.set(d.id, {
+        id: first.id,
+        filename: first.filename,
+        source: first.source,
+        receivedAt: first.receivedAt.toISOString(),
+      });
+    }
+  }
+  return out;
 }
 
 /**

@@ -126,7 +126,9 @@ const ACCESS = {
       name: "QuickBooks Online",
       kind: "oauth",
       status: "active",
-      externalAccountId: null,
+      // A QuickBooks realm id: never shown to the client; the company name is.
+      externalAccountId: "9341455130122716",
+      accountName: "Harbor Millwork",
       secret: { set: true, fields: [], updatedAt: null },
       credentialForm: false,
       matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
@@ -248,6 +250,8 @@ describe("the agent page", () => {
 
     // What it can reach, verb by verb; changes are made on the vault page.
     const reach = await screen.findByTestId(`agent-reach-${QBO}`);
+    expect(reach).toHaveTextContent("QuickBooks Online · Harbor Millwork");
+    expect(reach).not.toHaveTextContent("9341455130122716");
     expect(within(reach).getByTestId(`agent-reach-${QBO}-read`)).toHaveTextContent(
       "Read: on its own",
     );

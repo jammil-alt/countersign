@@ -407,7 +407,8 @@ function ConnectionCard({
   if (!conn) return null;
   const vaultItem = vault?.items.find((i) => i.connectionId === conn.id);
   const connected = conn.status === "connected";
-  const account = conn.accountName ?? conn.externalAccountId ?? descriptionOf(item, i18n);
+  // The account by its name in the tool, never its id there (a QuickBooks realm id).
+  const account = conn.accountName ?? descriptionOf(item, i18n);
   const synced = connected
     ? conn.lastSyncAt
       ? t("connections.synced", { time: shortTime(conn.lastSyncAt, undefined, i18n) })

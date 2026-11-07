@@ -15,7 +15,7 @@ import {
 } from "@countersign/connectors";
 import {
   clientLabel,
-  connectionAccountName,
+  connectionLabel,
   findStep,
   isClientVisible,
   isPlainObject,
@@ -44,13 +44,14 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { changeDisplay, itemDisplay, plainTitle } from "../change-display";
+import { changeDisplay, clientTitles, itemDisplay, plainTitle } from "../change-display";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
 import { dispatchEvents } from "../runs/dispatch";
+import { clientDescription } from "../weekly/stats";
 import { matrixEdit } from "./mappers";
 import { runFilterWhere, runsPerDay } from "./run-controls";
 import { latestHealthSummary, portalFindings } from "./supervisor";
@@ -117,10 +118,11 @@ export async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) 
     rows.map((r) => r.resolvedBy),
   );
   const services = await serviceRefs(tx, rows);
+  const titles = await clientTitles(tx, rows, platform);
   return rows.map((i) => ({
     id: i.id,
     kind: i.kind,
-    title: plainTitle(i),
+    title: titles.get(i.id) ?? plainTitle(i),
     payload: scrubForPortal(i.payload) as Record<string, unknown>,
     display: itemDisplay(platform, i),
     status: i.status,
@@ -277,7 +279,8 @@ export async function portalConnections(
         id: c.id,
         status: c.status,
         externalAccountId: c.externalAccountId,
-        accountName: connectionAccountName(c.config),
+        // QA round 1: a name the client knows, never a bare id (a QuickBooks realm id).
+        accountName: connectionLabel(c.config, c.externalAccountId),
         lastSyncAt: iso(c.lastSyncAt),
         permissions: normalizeMatrix(c.permissions),
         access: manifest ? describeAccess(manifest, c.permissions) : [],
@@ -359,6 +362,7 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
     tx,
     items.map((i) => i.resolvedBy),
   );
+  const titles = await clientTitles(tx, items, platform);
   const approvals = items.map((i) => {
     const res = (i.resolution ?? {}) as { approved?: unknown; decision?: unknown };
     const approved =
@@ -369,7 +373,7 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
           : res.decision === "approve";
     return {
       id: i.id,
-      title: plainTitle(i),
+      title: titles.get(i.id) ?? plainTitle(i),
       status: i.status,
       approved: i.status === "resolved" ? approved : null,
       by: i.resolvedBy ? { id: i.resolvedBy, name: names.get(i.resolvedBy) ?? null } : null,
@@ -433,7 +437,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       services: services.map((a) => ({
         id: a.id,
         name: serviceName(a),
-        description: a.serviceDescription,
+        description: clientDescription(a),
         status: a.runStatus ?? "draft",
       })),
       needsYou: { inbox: open.length },

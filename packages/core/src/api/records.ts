@@ -119,6 +119,20 @@ export function connectionAccountName(config: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null;
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+$/;
+
+/**
+ * What a client knows an account by (QA round 1): the name the connector set, else the address of
+ * a mail account (Gmail, Outlook: its id there is the address). Never a bare id such as a
+ * QuickBooks realm id: null then, and the screen names the tool alone.
+ */
+export function connectionLabel(config: unknown, externalAccountId: string | null): string | null {
+  const name = connectionAccountName(config);
+  if (name) return name;
+  const id = externalAccountId?.trim() ?? "";
+  return id.length <= 254 && EMAIL.test(id) ? id : null;
+}
+
 // The back office's Records page: what a client's connections brought in, by kind. Transactions,
 // vendors and receivables are the shared records sync maps into; items are the tool's own
 // (QuickBooks keeps them as raw records), so an item row's id is its latest raw record's.

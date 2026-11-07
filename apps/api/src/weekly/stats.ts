@@ -35,6 +35,16 @@ type AgentRow = typeof agent.$inferSelect;
 const cap = (ids: string[]) => ids.slice(0, WEEKLY_SOURCES_MAX);
 export const serviceName = (a: Pick<AgentRow, "serviceName" | "name">) => a.serviceName ?? a.name;
 
+/**
+ * What a client agent does, in one line for its client: the operator's own description of it,
+ * else its role as its template states it (copied to the agent when it was forked), else none,
+ * and the portal shows nothing (QA round 1: never a placeholder).
+ */
+// DECISION: the template's role line ("Matches vendor invoices to bills in QuickBooks and fills
+// the bills in") is the template's client-facing description; templates have no other one.
+export const clientDescription = (a: Pick<AgentRow, "serviceDescription" | "role">) =>
+  a.serviceDescription?.trim() || a.role?.trim() || null;
+
 /** Live runs that finished `succeeded` between the bounds, newest first. */
 export async function runsDone(
   tx: Tx,
