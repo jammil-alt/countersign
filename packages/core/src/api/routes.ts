@@ -75,7 +75,7 @@ import { testbenchRoutes } from "./testbench";
 import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
 import { triggerRoutes } from "./triggers";
-import { usageRoutes } from "./usage";
+import { AgentRunsNow, usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
 // v0.14 W4-B
@@ -408,6 +408,9 @@ export const ServiceSummary = z.object({
   name: z.string(),
   description: z.string().nullable(),
   status: z.string(),
+  // QA round 1: its go-live stage and what it has going now, for its state in the sidebar.
+  stage: z.string().nullable().optional(),
+  runsNow: AgentRunsNow.optional(),
 });
 export type ServiceSummary = z.infer<typeof ServiceSummary>;
 
@@ -417,6 +420,10 @@ export const PortalRunSummary = z.object({
   status: RunStatusSchema,
   startedAt: NullableTimestamp,
   finishedAt: NullableTimestamp,
+  // QA round 1: the run waits on someone of the client now (its stored status stays running),
+  // and how long it has waited on the client in all, kept out of its working time.
+  waitingOnYou: z.boolean().optional(),
+  waitedMs: z.number().int().nonnegative().optional(),
 });
 
 export const TimelineStep = z.object({

@@ -51,9 +51,16 @@ import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
+import {
+  clientRunsPerDay,
+  clientStatusWhere,
+  clientWaits,
+  OPEN_RUN,
+  openRunsByAgent,
+} from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
 import { matrixEdit } from "./mappers";
-import { runFilterWhere, runsPerDay } from "./run-controls";
+import { runFilterWhere } from "./run-controls";
 import { latestHealthSummary, portalFindings } from "./supervisor";
 // v0.12 W1-C
 import { leadFirstName } from "./threads";
@@ -158,13 +165,25 @@ export async function runSummaries(tx: Tx, tenantId: string, where: SQL[], limit
     .where(and(eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where))
     .orderBy(desc(run.createdAt))
     .limit(limit);
-  return rows.map(({ r, a }) => ({
-    id: r.id,
-    service: { id: a.id, name: serviceName(a) },
-    status: r.status,
-    startedAt: iso(r.startedAt),
-    finishedAt: iso(r.finishedAt),
-  }));
+  // QA round 1: whether each run waits on the client now, and how long it waited on the client.
+  const waits = await clientWaits(
+    tx,
+    tenantId,
+    rows.map(({ r }) => r.id),
+  );
+  return rows.map(({ r, a }) => {
+    const w = waits.get(r.id);
+    const going = (OPEN_RUN as readonly string[]).includes(r.status);
+    return {
+      id: r.id,
+      service: { id: a.id, name: serviceName(a) },
+      status: r.status,
+      startedAt: iso(r.startedAt),
+      finishedAt: iso(r.finishedAt),
+      waitingOnYou: going && (r.status === "waiting" || (w?.waitingOnYou ?? false)),
+      waitedMs: Math.round(w?.waitedMs ?? 0),
+    };
+  });
 }
 
 /** A step_run's node id names its step: the id, or `${loop}:${index}:${childId}` in a loop. */
@@ -425,6 +444,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         ),
       )
       .orderBy(agent.slug);
+    const going = await openRunsByAgent(tx, tenantId);
     const open = await tx
       .select({ id: inboxItem.id })
       .from(inboxItem)
@@ -443,6 +463,9 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         name: serviceName(a),
         description: a.serviceDescription,
         status: a.runStatus ?? "draft",
+        // QA round 1: for its state in the sidebar (Working, Waiting on you, Ready, …).
+        stage: a.stage,
+        runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
       })),
       needsYou: { inbox: open.length },
       recentRuns: await runSummaries(tx, tenantId, [], 5),
@@ -513,14 +536,21 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     // v0.12 W1-E: RunFilter without the back office's keys (refused by the query schema), the
     // client's own live runs only.
     const tenantId = tenantIds[0] as string;
-    const where = runFilterWhere(
-      portalRunFilter(query.filter),
-      services.platform.ctx.tools.specs(),
-    );
+    // QA round 1: statuses are the client's (a run waiting on the client is "waiting" whatever
+    // its stored status), so the filter, the list and the chart agree.
+    const { statuses, ...filter } = portalRunFilter(query.filter);
+    const where = [
+      ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
+      ...clientStatusWhere(statuses),
+    ];
     const runs = await runSummaries(tx, tenantId, where, query.limit);
     if (!query.perDay) return { runs };
     const scope = [eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where];
-    return { runs, perDay: await runsPerDay(tx, scope) };
+    const [t] = await tx
+      .select({ timezone: tenant.timezone })
+      .from(tenant)
+      .where(eq(tenant.id, tenantId));
+    return { runs, perDay: await clientRunsPerDay(tx, scope, t?.timezone ?? "UTC") };
   });
 
   mount(app, routes.portalRun, async ({ tx, tenantIds, params, services }) =>

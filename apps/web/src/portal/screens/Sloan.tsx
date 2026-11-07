@@ -21,9 +21,10 @@ import { Select, TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Page, PageGrid, Section } from "../../ui/page";
 import { Button, Card, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
-import { StatusChip, serviceChipState } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import { useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
+import { agentChip } from "../status";
 
 /** How often an open conversation looks for Sloan's answer while it waits for one. */
 const ANSWER_POLL_MS = 3_000;
@@ -43,13 +44,6 @@ const STARTERS: PlainKey[] = [
   "sloan.starter.waiting",
   "sloan.starter.newAgent",
 ];
-
-const SERVICE_WORDS: Record<string, PlainKey> = {
-  active: "service.status.active",
-  paused: "service.status.paused",
-  draft: "service.status.draft",
-  retired: "service.status.retired",
-};
 
 function newest(threads: readonly PortalThread[]): PortalThread | null {
   const at = (x: PortalThread) => Date.parse(x.lastMessageAt ?? x.createdAt);
@@ -370,13 +364,7 @@ function SloanRail() {
                 key={s.id}
                 badge={<AgentBadge name={s.name} size="sm" />}
                 to={PORTAL_PATHS.agent(s.id)}
-                end={
-                  <StatusChip state={serviceChipState(s.status)}>
-                    {Object.hasOwn(SERVICE_WORDS, s.status)
-                      ? t(SERVICE_WORDS[s.status] as PlainKey)
-                      : s.status}
-                  </StatusChip>
-                }
+                end={<StatusChip state={agentChip(s, t).state}>{agentChip(s, t).label}</StatusChip>}
               >
                 {s.name}
               </ActivityRow>

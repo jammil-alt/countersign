@@ -8,6 +8,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { WeeklyEditBody, WeeklyTableView, WeekStartParam } from "../weekly/schemas";
 import { defineRoute } from "./contract";
+import { ActivityRuns, AgentRunsNow } from "./usage";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
@@ -23,7 +24,7 @@ export const ServiceNow = z.object({
     .nullable(),
   /** When the run started, or when it began waiting. */
   since: z.string().nullable(),
-  /** It waits on someone of the client (an open Desk item of this run). */
+  /** It waits on someone of the client (an open Desk item of this run for anyone of the client). */
   waitingOnYou: z.boolean(),
 });
 
@@ -35,8 +36,12 @@ export const TableService = z.object({
   /** bench, trial, signoff or live (null before go-live stages). */
   stage: z.string().nullable(),
   now: ServiceNow.nullable(),
-  /** Live runs done this week. */
+  /** Live runs started this week that finished well (`runs.succeeded`). */
   runsDone: z.number().int(),
+  // QA round 1: this week's live runs by how they stand, counted as Reports counts them.
+  runs: ActivityRuns.optional(),
+  // QA round 1: what it has going now, for its state (Working, Waiting on you).
+  runsNow: AgentRunsNow.optional(),
   // DECISION: KPIs come from W2-G (docs/plan.md §1.50); until it merges every list is empty.
   // v0.12 W2-G: this week's KPIs of the service, each with the records it counted.
   kpis: z.array(
@@ -54,7 +59,10 @@ export const TableView = z.object({
   week: z.object({ weekStart: z.string(), from: z.string(), to: z.string() }),
   services: z.array(TableService),
   figures: z.object({
+    /** Live runs started this week that finished well (`runs.succeeded`). */
     runsDone: z.number().int(),
+    // QA round 1: this week's live runs by how they stand (finished, waiting on you, …).
+    runs: ActivityRuns.optional(),
     changes: z.object({ automatic: z.number().int(), signed: z.number().int() }),
   }),
   /** The latest client-visible step summaries across services. */

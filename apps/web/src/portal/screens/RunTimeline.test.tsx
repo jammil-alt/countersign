@@ -143,7 +143,14 @@ describe("portal run timeline", () => {
     renderTimeline(
       {
         ...LEAKY_TIMELINE,
-        run: { ...LEAKY_TIMELINE.run, status: "waiting", finishedAt: null },
+        // QA round 1: as the API answers a workflow run held by an approval.
+        run: {
+          ...LEAKY_TIMELINE.run,
+          status: "running",
+          finishedAt: null,
+          waitingOnYou: true,
+          waitedMs: 21 * 3_600_000,
+        },
         approvals: [
           {
             id: ITEM,
@@ -208,6 +215,8 @@ describe("portal run timeline", () => {
     expect(within(waiting).getByTestId("change-fields")).toHaveTextContent("Oak board, 3/4 in");
     expect(screen.getByTestId("portal-run-review")).toHaveAttribute("href", "/desk");
     expect(screen.getByTestId("portal-run-status")).toHaveTextContent("Waiting on you");
+    expect(screen.getByTestId("portal-run-status")).not.toHaveTextContent("Running");
+    expect(screen.getByTestId("portal-run-took")).toHaveTextContent("—Waited 21 h on you");
     expect(within(screen.getByTestId("portal-run-ask-sloan")).getByRole("link")).toHaveAttribute(
       "href",
       `/sloan?ask=${encodeURIComponent("About run R-0f1001: ")}`,
