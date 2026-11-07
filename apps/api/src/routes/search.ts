@@ -60,16 +60,19 @@ async function clientNames(tx: Tx, ids: readonly string[]) {
 }
 
 /** Every kind's hits, each one query. */
+// DECISION: the kinds are asked at once, in the request's one transaction: the driver pipelines
+// them on its connection, so a search costs about one round trip to the database instead of ten
+// in a row (it took about 4 seconds on staging). Each query still names its clients (RLS too).
 async function searchAll(tx: Tx, scope: SearchScope, q: string) {
   const text = readSearchText(q);
-  const [agents, runs, records, people, organizations, documents] = [
-    await searchAgents(tx, scope, text),
-    await searchRuns(tx, scope, text),
-    await searchRecords(tx, scope, text),
-    await searchPeople(tx, scope, text),
-    await searchOrganizations(tx, scope, text),
-    await searchDocuments(tx, scope, text),
-  ];
+  const [agents, runs, records, people, organizations, documents] = await Promise.all([
+    searchAgents(tx, scope, text),
+    searchRuns(tx, scope, text),
+    searchRecords(tx, scope, text),
+    searchPeople(tx, scope, text),
+    searchOrganizations(tx, scope, text),
+    searchDocuments(tx, scope, text),
+  ]);
   return {
     agents,
     runs,

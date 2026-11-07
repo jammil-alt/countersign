@@ -14,9 +14,10 @@ import {
   fork,
   getAgent,
   getVersion,
+  latestVersion,
   listClientAgents,
   listTemplates,
-  listVersions,
+  listVersionHeads,
   type OperationalPatch,
   pause,
   publish,
@@ -224,9 +225,17 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsAgent, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    const versions = await listVersions(ctx.tx, row.id);
-    const live = versions.find((v) => v.id === row.liveVersionId) ?? null;
-    const latest = versions[0] ?? null;
+    // DECISION: the list of versions comes without bundles, and only the live and latest bundles
+    // are read: every agent page (and the /ops/agents/:id redirect) read every version's whole
+    // bundle, which made agent pages take seconds as versions piled up.
+    const versions = await listVersionHeads(ctx.tx, row.id);
+    const latestId = versions[0]?.id ?? null;
+    const [live, latest] = await Promise.all([
+      row.liveVersionId ? getVersion(ctx.tx, row.liveVersionId) : Promise.resolve(null),
+      latestId && latestId !== row.liveVersionId
+        ? getVersion(ctx.tx, latestId)
+        : Promise.resolve(null),
+    ]);
     let update = null;
     if (row.kind === "client" && row.templateId) {
       const info = await updateInfo(ctx.tx, { agentId: row.id });
@@ -242,7 +251,11 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       agent: agentSummary(row),
       versions: versions.map(versionSummary),
       live: live ? versionDetail(live) : null,
-      latest: latest ? versionDetail(latest) : null,
+      latest: latest
+        ? versionDetail(latest)
+        : live && live.id === latestId
+          ? versionDetail(live)
+          : null,
       update,
     };
   });
@@ -436,7 +449,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     let agentDef: AgentBundle["definition"] | undefined;
     if (body.agentId) {
       const row = await agentInScope(ctx, body.agentId);
-      const [latest] = await listVersions(tx, row.id);
+      const latest = await latestVersion(tx, row.id);
       const v = row.liveVersionId ? await getVersion(tx, row.liveVersionId) : latest;
       if (v) {
         const bundle = AgentBundleSchema.parse(v.bundle);

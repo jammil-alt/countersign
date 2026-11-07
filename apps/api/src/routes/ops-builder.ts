@@ -27,9 +27,9 @@ import {
   getVersion,
   guardBundle,
   labelledChanges,
+  latestVersion,
   listClientAgents,
   listTemplates,
-  listVersions,
   readCommand,
   reviseAgent,
   SkillDraft,
@@ -287,7 +287,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
     const row = await agentInScope(ctx, ctx.params.id);
     const from = body.fromVersionId
       ? await getVersion(tx, body.fromVersionId)
-      : (await listVersions(tx, row.id))[0];
+      : ((await latestVersion(tx, row.id)) ?? undefined);
     if (!from || from.agentId !== row.id) throw notFound("version");
 
     // A client's change request handed over as the instruction (ARCHITECTURE §9.6).
@@ -534,7 +534,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         }
         const from = body.fromVersionId
           ? await getVersion(tx, body.fromVersionId)
-          : (await listVersions(tx, row.id))[0];
+          : ((await latestVersion(tx, row.id)) ?? undefined);
         if (!from || from.agentId !== row.id) throw notFound("version");
         tenantId = row.tenantId;
         agentId = row.id;

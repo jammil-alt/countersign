@@ -20,12 +20,22 @@ const SUMMARY = {
   sizeBytes: 48_000,
   status: "needs_review",
   pageCount: 1,
-  transactionId: TXN,
   receivedAt: "2026-10-29T10:00:00.000Z",
   vendorName: "Northline Panel Supply",
   invoiceNumber: "20418",
   total: "9742.3500",
+  // A bill in QuickBooks: named as one, never "a purchase".
+  match: { transactionId: TXN, kind: "bill", number: "20418", by: "link" } as {
+    transactionId: string;
+    kind: string;
+    number: string | null;
+    by: "link" | "run";
+  } | null,
+  transactionId: TXN as string | null,
+  duplicateOf: null as { documentId: string; filename: string } | null,
 };
+
+const COPY = "00000000-0000-4000-8000-0000000a8009";
 
 const DETAIL = {
   document: { ...SUMMARY, meta: { email: { from: "ap@shop.example.com" } } },
@@ -65,10 +75,26 @@ const DETAIL = {
 
 function renderAt(path: string, sandbox = false) {
   let documents = [SUMMARY];
+  let copyReads = 0;
   const api = fakeApi({
     "GET /api/session": () => OPERATOR_SESSION,
     [`GET /api/ops/clients/${CLIENT}/documents`]: () => ({ documents, sandbox }),
     [`GET /api/ops/clients/${CLIENT}/documents/${DOC}`]: () => DETAIL,
+    // A copy of the invoice: being read, then read as the same invoice as the first.
+    [`GET /api/ops/clients/${CLIENT}/documents/${COPY}`]: () => {
+      copyReads += 1;
+      return {
+        ...DETAIL,
+        document: {
+          ...DETAIL.document,
+          id: COPY,
+          filename: "northline-20418 copy.pdf",
+          status: copyReads > 1 ? "extracted" : "extracting",
+          match: null,
+          duplicateOf: copyReads > 1 ? { documentId: DOC, filename: "northline-20418.pdf" } : null,
+        },
+      };
+    },
   });
   render(
     <MemoryRouter initialEntries={[path]}>
@@ -102,7 +128,7 @@ describe("back-office documents", () => {
       "href",
       `/ops/clients/${CLIENT}/documents`,
     );
-    expect(within(row).getByRole("link", { name: "Purchase" })).toHaveAttribute(
+    expect(within(row).getByRole("link", { name: "Bill 20418" })).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/records/${TXN}`,
     );
@@ -111,6 +137,69 @@ describe("back-office documents", () => {
     await userEvent.setup().click(within(row).getByRole("link", { name: "Invoice 20418" }));
     expect(await screen.findByTestId("ops-document-status")).toHaveTextContent("Needs review");
   }, 20_000);
+
+  it("marks a copy of an invoice already here as a duplicate, and a document with no match", async () => {
+    const api = renderAt(`/ops/clients/${CLIENT}/documents`);
+    api.setDocuments([
+      {
+        ...SUMMARY,
+        id: COPY,
+        filename: "northline-20418 copy.pdf",
+        match: null,
+        duplicateOf: { documentId: DOC, filename: "northline-20418.pdf" },
+      },
+      { ...SUMMARY, match: null, transactionId: null },
+    ]);
+    const copy = await screen.findByTestId(`ops-document-match-${COPY}`, {}, { timeout: 10_000 });
+    expect(
+      within(copy).getByRole("link", { name: "Duplicate of northline-20418.pdf" }),
+    ).toHaveAttribute("href", `/ops/clients/${CLIENT}/documents/${DOC}`);
+    expect(screen.getByTestId(`ops-document-match-${DOC}`)).toHaveTextContent("Not yet");
+    expect(screen.queryByText("Purchase")).toBeNull();
+  }, 20_000);
+
+  it("warns on upload once a new document reads as a copy of one already here", async () => {
+    const api = renderAt(`/ops/clients/${CLIENT}/documents`, true);
+    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json({
+        results: [
+          {
+            filename: "northline-20418 copy.pdf",
+            kind: "document",
+            document: {
+              ...SUMMARY,
+              id: COPY,
+              source: "upload",
+              status: "stored",
+              filename: "northline-20418 copy.pdf",
+              match: null,
+            },
+            created: true,
+            purchases: null,
+            error: null,
+          },
+        ],
+      }),
+    );
+    await screen.findByTestId("ops-sandbox-upload", {}, { timeout: 10_000 });
+    await userEvent
+      .setup()
+      .upload(screen.getByTestId("ops-upload-input"), [
+        new File(["%PDF"], "northline-20418 copy.pdf", { type: "application/pdf" }),
+      ]);
+    const results = await screen.findByTestId("ops-upload-results");
+    expect(results).toHaveTextContent("Received");
+    // Read a few seconds later: the same invoice as the first.
+    expect(
+      await within(results).findByText(
+        "Same invoice as northline-20418.pdf: we won't process it again.",
+        {},
+        { timeout: 12_000 },
+      ),
+    ).toBeInTheDocument();
+    expect(api.calls).toContain(`GET /api/ops/clients/${CLIENT}/documents/${COPY}`);
+    fetched.mockRestore();
+  }, 30_000);
 
   it("uploads the Sandbox's documents through the back office's route, and lists them", async () => {
     const api = renderAt(`/ops/clients/${CLIENT}/documents`, true);
@@ -175,6 +264,8 @@ describe("back-office documents", () => {
       "href",
       `/ops/clients/${CLIENT}/records/${TXN}`,
     );
+    expect(screen.getByTestId("ops-document-transaction")).toHaveTextContent("Matched to a bill.");
+    expect(screen.queryByTestId("ops-document-duplicate")).toBeNull();
     const before = api.calls.filter((c) => c.endsWith(`/documents/${DOC}`)).length;
     await userEvent.setup().click(screen.getByTestId("ops-document-original"));
     expect(opened).toHaveBeenCalledWith(DETAIL.url, "_blank", "noopener,noreferrer");

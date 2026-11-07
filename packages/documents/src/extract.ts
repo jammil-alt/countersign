@@ -18,6 +18,7 @@ import { type Db, docExtraction, docLine, document, inboxItem, withTenant } from
 import { DEFAULT_MODELS, type LlmCallRecord, type LlmClient } from "@countersign/llm";
 import { type EmittedEvents, emit } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
+import { type DuplicateOf, findDuplicate, markDuplicate } from "./duplicates";
 // v0.14 W4-B: long PDFs are read in parts.
 import {
   mergeExtractions,
@@ -134,6 +135,8 @@ export interface ExtractResult {
   extraction: InvoiceExtraction;
   inboxItemId: string | null;
   record: LlmCallRecord;
+  /** The document this one repeats (same vendor and invoice number); it then started nothing. */
+  duplicateOf: DuplicateOf | null;
 }
 
 async function loadForExtraction(deps: DocumentsDeps, input: ExtractInput): Promise<DocumentRow> {
@@ -347,8 +350,14 @@ export async function extractDocument(
       .update(document)
       .set({ status, pageCount: doc.pageCount ?? x.header.pageCount })
       .where(and(eq(document.id, doc.id), eq(document.tenantId, input.tenantId)));
+    // The same invoice again (another copy of a document already here): marked, and it starts
+    // nothing, no review and no run (a test run's reading marks nothing).
+    const duplicateOf = input.testRun
+      ? null
+      : await findDuplicate(tx, input.tenantId, doc, x.header);
+    if (duplicateOf) await markDuplicate(tx, input.tenantId, doc, duplicateOf);
     let inboxItemId: string | null = null;
-    if (!check.ok) {
+    if (!check.ok && !duplicateOf) {
       const [item] = await tx
         .insert(inboxItem)
         .values({
@@ -370,24 +379,26 @@ export async function extractDocument(
         .returning({ id: inboxItem.id });
       inboxItemId = item?.id ?? null;
     }
-    await emit(
-      tx,
-      {
-        tenantId: input.tenantId,
-        type: "document.extracted",
-        subjectId: doc.id,
-        payload: {
-          documentId: doc.id,
-          extractionId: row.id,
-          lineCount: x.lines.length,
-          totalsValid: check.ok,
+    if (!duplicateOf) {
+      await emit(
+        tx,
+        {
+          tenantId: input.tenantId,
+          type: "document.extracted",
+          subjectId: doc.id,
+          payload: {
+            documentId: doc.id,
+            extractionId: row.id,
+            lineCount: x.lines.length,
+            totalsValid: check.ok,
+          },
         },
-      },
-      {
-        testRun: input.testRun === true,
-        ...(input.collect ? { collect: input.collect } : {}),
-      },
-    );
+        {
+          testRun: input.testRun === true,
+          ...(input.collect ? { collect: input.collect } : {}),
+        },
+      );
+    }
     return {
       documentId: doc.id,
       extractionId: row.id,
@@ -399,6 +410,7 @@ export async function extractDocument(
       extraction: x,
       inboxItemId,
       record: answer.record,
+      duplicateOf,
     };
   });
 }

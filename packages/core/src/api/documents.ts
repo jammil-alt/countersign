@@ -19,6 +19,22 @@ export const DocumentSummary = z.object({
   vendorName: z.string().nullable(),
   invoiceNumber: z.string().nullable(),
   total: z.string().nullable(),
+  /**
+   * The record it is matched to: the transaction it is linked to (`link`), else the bill a live
+   * run matched it to (`run`, the Bill clerk's match). Its kind names it: a bill, a purchase or a
+   * vendor credit, never "a purchase" for all of them.
+   */
+  match: z
+    .object({
+      transactionId: z.string(),
+      kind: z.string(),
+      number: z.string().nullable(),
+      by: z.enum(["link", "run"]),
+    })
+    .nullable()
+    .default(null),
+  /** The document this one repeats (the same vendor and invoice number): it started nothing. */
+  duplicateOf: z.object({ documentId: z.string(), filename: z.string() }).nullable().default(null),
 });
 
 export const DocumentExtractionView = z.object({

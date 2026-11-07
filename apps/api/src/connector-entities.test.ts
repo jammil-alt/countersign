@@ -145,8 +145,11 @@ describe.skipIf(!h)("the connectors catalog", () => {
     const list = j(res.json).connectors;
     expect(list.map((c: { id: string }) => c.id).sort()).toEqual(["testkit", "upload", "webhook"]);
     const testkit = list.find((c: { id: string }) => c.id === "testkit");
+    // Nobody set a status: a connector clients can connect here reads as live (never "Not set").
     expect(testkit).toMatchObject({
-      status: null,
+      status: "live",
+      statusSource: "deployment",
+      testOnly: true,
       note: "",
       available: true,
       permissionEntities: [{ id: "record" }],
@@ -216,6 +219,8 @@ describe.skipIf(!h)("the connectors catalog", () => {
     expect(j(res.json).connector).toMatchObject({
       id: "webhook",
       status: "beta",
+      // The operator's status wins over the deployment's.
+      statusSource: "operator",
       note: "Zapier only for now",
       defaultAccess: { source: "operator", matrix: { entities: { event: { create: "off" } } } },
     });

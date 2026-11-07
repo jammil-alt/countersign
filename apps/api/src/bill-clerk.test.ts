@@ -16,10 +16,11 @@ import {
   QBO_TOOLS,
 } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { type Step, validateBundle, walkSteps } from "@countersign/core";
+import { RECORD_INVOICE_TOOL, type Step, validateBundle, walkSteps } from "@countersign/core";
 import {
   agent,
   docExtraction,
+  document,
   event,
   externalAction,
   inboxItem,
@@ -454,6 +455,23 @@ describe.skipIf(!h)("the Bill clerk", () => {
     expect(await executeRun(runDeps(model), params, cloudflareStepRunner(step))).toEqual({
       status: "succeeded",
     });
+    // The mapping step's model calls are the run's, and account for all the tokens it spent.
+    const calls = j(
+      (await H.call(OPERATOR, "GET", `/api/ops/runs/${params.runId}/model-calls`)).json,
+    );
+    const [mapStep] = await H.t.db
+      .select()
+      .from(stepRun)
+      .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "map")));
+    expect(mapStep?.tokensIn).toBeGreaterThan(0);
+    const mapCalls = calls.modelCalls.filter(
+      (c: { stepRunId: string }) => c.stepRunId === mapStep?.id,
+    );
+    expect(mapCalls).toHaveLength(2);
+    expect(mapCalls.reduce((n: number, c: { tokensIn: number }) => n + c.tokensIn, 0)).toBe(
+      mapStep?.tokensIn,
+    );
+    expect(calls.unrecorded).toEqual([]);
 
     // The cards the client admin signed: each change named as the client knows the record, the
     // tool's display from the registry, the before state in full, no tool id in any title.
@@ -605,6 +623,121 @@ describe.skipIf(!h)("the Bill clerk", () => {
     expect(await actionsOf(params.runId)).toEqual([]);
     const notes = await H.t.db.select().from(message).where(eq(message.tenantId, H.A.tenantId));
     expect(notes.some((m) => j(m.body).nodeId === "nothing")).toBe(true);
+  });
+
+  it("lists the invoice as matched to its bill, as the run found it", async () => {
+    type Listed = {
+      id: string;
+      match: { transactionId: string; kind: string; number: string | null; by: string } | null;
+    };
+    const listed = async () =>
+      j((await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/documents`)).json)
+        .documents as Listed[];
+    const bill150 = (await txnOf("Bill:150"))?.id;
+    // Linked when it was read: a bill, never "a purchase".
+    expect((await listed()).find((d) => d.id === docs.northline)?.match).toEqual({
+      transactionId: bill150,
+      kind: "bill",
+      number: "20418",
+      by: "link",
+    });
+    // With no link (another document held the bill), the run's own match still shows.
+    const [held] = await H.t.db
+      .update(document)
+      .set({ transactionId: null })
+      .where(eq(document.id, docs.northline))
+      .returning({ transactionId: document.transactionId });
+    expect(held?.transactionId).toBeNull();
+    expect((await listed()).find((d) => d.id === docs.northline)?.match).toEqual({
+      transactionId: bill150,
+      kind: "bill",
+      number: "20418",
+      by: "run",
+    });
+    const detail = await H.call(
+      OPERATOR,
+      "GET",
+      `/api/ops/clients/${H.A.tenantId}/documents/${docs.northline}`,
+    );
+    expect(j(detail.json).document.match).toMatchObject({ kind: "bill", by: "run" });
+    await H.t.db
+      .update(document)
+      .set({ transactionId: bill150 ?? null })
+      .where(eq(document.id, docs.northline));
+  });
+
+  it("reads a copy of an invoice already here as a duplicate, and starts no run", async () => {
+    const original = new Uint8Array(readFileSync(resolve(INVOICES, "northline-20418.pdf")));
+    // Saved again: other bytes (a new trailer), the same invoice.
+    const copy = new Uint8Array([...original, ...new TextEncoder().encode("\n% copy\n")]);
+    const stored = await withTenant(H.db, H.A.tenantId, (tx) =>
+      storeDocument(tx, new ContentStore(H.objects), {
+        tenantId: H.A.tenantId,
+        source: "upload",
+        connectionId: null,
+        bytes: copy,
+        filename: "northline-20418 copy.pdf",
+        mimeType: "application/pdf",
+      }),
+    );
+    expect(stored.created).toBe(true);
+    const copyId = stored.document.id;
+    const expected = JSON.parse(
+      readFileSync(resolve(INVOICES, "northline-20418.expected.json"), "utf8"),
+    );
+    const before = H.extraction.transport;
+    H.extraction.transport = new FakeModel([
+      { toolUse: { name: RECORD_INVOICE_TOOL, input: expected } },
+    ]);
+    try {
+      await extractInBackground(
+        {
+          db: H.db,
+          env: H.env,
+          deps: {
+            ...defaultDeps,
+            objects: () => H.objects,
+            extractionTransport: () => H.extraction.transport,
+          },
+        },
+        H.A.tenantId,
+        [copyId],
+      );
+    } finally {
+      H.extraction.transport = before;
+    }
+    const [row] = await H.t.db.select().from(document).where(eq(document.id, copyId));
+    expect(row?.status).toBe("extracted");
+    expect(j(row?.meta).duplicateOf).toEqual({
+      documentId: docs.northline,
+      filename: "northline-20418.pdf",
+    });
+    // No event, so no run, and no link: the original holds the bill.
+    expect(
+      await H.t.db
+        .select()
+        .from(event)
+        .where(and(eq(event.type, "document.extracted"), eq(event.subjectId, copyId))),
+    ).toEqual([]);
+    expect(await dispatchExtracted(copyId)).toEqual([]);
+    expect(row?.transactionId).toBeNull();
+    // The lists say so, on both surfaces.
+    const ops = j(
+      (await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/documents`)).json,
+    );
+    expect(ops.documents.find((d: { id: string }) => d.id === copyId)).toMatchObject({
+      duplicateOf: { documentId: docs.northline, filename: "northline-20418.pdf" },
+      match: null,
+    });
+    const portal = j((await H.call(admin("a"), "GET", "/api/documents")).json);
+    expect(portal.documents.find((d: { id: string }) => d.id === copyId).duplicateOf).toEqual({
+      documentId: docs.northline,
+      filename: "northline-20418.pdf",
+    });
+    // The original is not a duplicate of its copy.
+    expect(ops.documents.find((d: { id: string }) => d.id === docs.northline).duplicateOf).toBe(
+      null,
+    );
   });
 
   it("a different total or two equal bills write nothing and ask the client admin", async () => {

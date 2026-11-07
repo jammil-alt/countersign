@@ -641,6 +641,8 @@ export const de: Messages = {
   },
   "upload.received": "Erhalten",
   "upload.duplicate": "Schon vorhanden: Wir behalten eine Kopie.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "upload.duplicateOf": "Dieselbe Rechnung wie {filename}: Wir verarbeiten sie nicht noch einmal.",
   "forwarding.title": "Rechnungen per E-Mail weiterleiten",
   "forwarding.off":
     "Die Weiterleitung ist noch nicht eingeschaltet. Ihre private Adresse erscheint hier.",
@@ -672,6 +674,8 @@ export const de: Messages = {
   "documents.col.total": "Summe",
   "documents.col.status": "Status",
   "documents.col.received": "Erhalten",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "documents.duplicate": "Duplikat",
   "documents.invoiceNumber": "Rechnung {number}",
   "document.status.stored": "Erhalten",
   "document.status.extracting": "Wird gelesen",
@@ -699,6 +703,11 @@ export const de: Messages = {
   "document.po": "Bestellung oder Projekt",
   "document.pages": "Seiten",
   "document.matched": "Einem Einkauf zugeordnet.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "document.matchedBill": "Einer Eingangsrechnung zugeordnet.",
+  "document.matchedVendorCredit": "Einer Lieferantengutschrift zugeordnet.",
+  "document.duplicateOf":
+    "Dieselbe Rechnung wie {filename}, die zuerst kam. Wir haben sie gelesen und nichts weiter damit getan.",
   "document.totals": "Summen",
   "document.lines": "Positionen",
   "document.subtotal": "Zwischensumme",

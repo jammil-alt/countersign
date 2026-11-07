@@ -139,7 +139,8 @@ export async function searchRecords(
   const p = likeContaining(q.text);
   const amount = q.amount;
 
-  const txns = await tx
+  // Asked at once, pipelined on the transaction's connection (routes/search.ts).
+  const txnsQuery = tx
     .select({
       id: transaction.id,
       tenantId: transaction.tenantId,
@@ -169,7 +170,7 @@ export async function searchRecords(
     .orderBy(sql`${transaction.txnDate} desc nulls last`, desc(transaction.createdAt))
     .limit(N);
 
-  const recvs = await tx
+  const recvsQuery = tx
     .select({
       id: receivable.id,
       tenantId: receivable.tenantId,
@@ -200,7 +201,7 @@ export async function searchRecords(
     .orderBy(desc(receivable.txnDate), desc(receivable.createdAt))
     .limit(N);
 
-  const vendors = await tx
+  const vendorsQuery = tx
     .select({ id: vendor.id, tenantId: vendor.tenantId, name: vendor.name })
     .from(vendor)
     .where(
@@ -211,6 +212,7 @@ export async function searchRecords(
     )
     .orderBy(asc(vendor.name), asc(vendor.id))
     .limit(N);
+  const [txns, recvs, vendors] = await Promise.all([txnsQuery, recvsQuery, vendorsQuery]);
 
   return interleave<RecordRow>(
     [

@@ -222,6 +222,20 @@ function GmailTestSend({ clientId }: { clientId: string }) {
   );
 }
 
+/** Upload and email forwarding: built in, nothing syncs; documents come through them. */
+// DECISION: named here as the portal's Accounts names it; the API says which is built in by its
+// last activity (the last document), so only the words differ.
+const BUILT_IN_SOURCES = new Set(["upload"]);
+
+/** "synced 2 h ago", or for upload and forwarding "last document 2 h ago" (never "never synced"). */
+function activityWords(c: Data["connections"][number]): string {
+  const at = c.lastActivityAt === undefined ? c.lastSyncAt : c.lastActivityAt;
+  if (BUILT_IN_SOURCES.has(c.connector)) {
+    return at ? `last document ${shortTime(at)}` : "no documents yet";
+  }
+  return at ? `synced ${shortTime(at)}` : "never synced";
+}
+
 function ConnectionCard({
   connection: c,
   name,
@@ -307,7 +321,7 @@ function ConnectionCard({
         <Badge tone={c.status === "connected" ? "positive" : "warning"}>
           {connectionStatusLabel(c.status)}
         </Badge>
-        {c.lastSyncAt ? `synced ${shortTime(c.lastSyncAt)}` : "never synced"}
+        {activityWords(c)}
       </p>
       <p className="mt-2 text-sm text-ink-muted">
         {usedBy.length === 0

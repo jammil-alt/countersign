@@ -1,12 +1,20 @@
 // One document as both surfaces show it: what was printed (vendor, invoice number, dates, PO), the
-// lines and the totals, whether the totals add up, the purchase it is matched to, and a button for
+// lines and the totals, whether the totals add up, the record it is matched to (a bill, a purchase
+// or a vendor credit, as its kind says), whether it repeats an earlier copy, and a button for
 // the 5-minute link to the original. No model, cost or prompt reaches it (invariant 11). The portal
 // (`/documents/:id`) and the back office (`/ops/clients/:id/documents/:documentId`) wrap it. It reads
 // in the portal reader's language (useI18n), and in English in the back office.
 import type { DocumentDetail } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { useI18n } from "../i18n/i18n";
-import { bytes, documentStatus, figure, money, sourceLabel } from "../portal/documents";
+import {
+  bytes,
+  documentStatus,
+  figure,
+  matchedWords,
+  money,
+  sourceLabel,
+} from "../portal/documents";
 import { shortTime } from "../runs/format";
 import { Badge, Button, Card, EmptyState, PageHeader, SectionLabel } from "../ui/primitives";
 
@@ -14,12 +22,15 @@ export function DocumentDetailView({
   data,
   onOpenOriginal,
   transactionHref,
+  documentHref,
   surface,
 }: {
   data: DocumentDetail;
   onOpenOriginal(): void;
   /** The record page of the purchase it is matched to, in this surface. */
   transactionHref(id: string): string;
+  /** Another document's page in this surface (the original a duplicate repeats). */
+  documentHref?: (id: string) => string;
   surface: "portal" | "ops";
 }) {
   const i18n = useI18n();
@@ -60,6 +71,22 @@ export function DocumentDetailView({
           </Button>
         }
       />
+      {doc.duplicateOf ? (
+        // Waiting on nobody, but worth a look: signal, with its words (brand book).
+        <div
+          role="status"
+          data-testid={`${testPrefix}-duplicate`}
+          className="mb-6 rounded-sm border border-signal-tint bg-signal-tint px-3.5 py-3 text-sm text-signal-ink"
+        >
+          {documentHref ? (
+            <Link to={documentHref(doc.duplicateOf.documentId)} className="underline">
+              {t("document.duplicateOf", { filename: doc.duplicateOf.filename })}
+            </Link>
+          ) : (
+            t("document.duplicateOf", { filename: doc.duplicateOf.filename })
+          )}
+        </div>
+      ) : null}
       {!x ? (
         <EmptyState>
           {reading
@@ -102,15 +129,15 @@ export function DocumentDetailView({
                   value={doc.pageCount ? fmt.number(doc.pageCount) : "–"}
                 />
               </dl>
-              {doc.transactionId ? (
+              {doc.match ? (
                 <p className="mt-3 text-sm">
                   {/* The whole sentence is the link: word order differs between languages. */}
                   <Link
-                    to={transactionHref(doc.transactionId)}
+                    to={transactionHref(doc.match.transactionId)}
                     className="text-link underline"
                     data-testid={`${testPrefix}-transaction`}
                   >
-                    {t("document.matched")}
+                    {matchedWords(doc.match.kind, i18n)}
                   </Link>
                 </p>
               ) : null}

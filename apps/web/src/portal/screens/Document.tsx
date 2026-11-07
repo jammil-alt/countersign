@@ -40,6 +40,7 @@ export function PortalDocumentScreen() {
             surface="portal"
             onOpenOriginal={() => void openOriginal()}
             transactionHref={(t) => `/records/${t}`}
+            documentHref={(d) => `/documents/${d}`}
           />
         ) : null}
       </div>
