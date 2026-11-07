@@ -619,6 +619,8 @@ export const es: Messages = {
   "upload.rowsSkipped": { one: "{count} fila omitida", other: "{count} filas omitidas" },
   "upload.received": "Recibido",
   "upload.duplicate": "Ya estaba: guardamos una sola copia.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "upload.duplicateOf": "Es la misma factura que {filename}: no la procesaremos de nuevo.",
   "forwarding.title": "Reenviar facturas por correo",
   "forwarding.off": "El reenvío aún no está activado. Su dirección privada aparecerá aquí.",
   "forwarding.help":
@@ -647,6 +649,8 @@ export const es: Messages = {
   "documents.col.total": "Total",
   "documents.col.status": "Estado",
   "documents.col.received": "Recibido",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "documents.duplicate": "Duplicado",
   "documents.invoiceNumber": "Factura {number}",
   "document.status.stored": "Recibido",
   "document.status.extracting": "Leyendo",
@@ -673,6 +677,11 @@ export const es: Messages = {
   "document.po": "Pedido u obra",
   "document.pages": "Páginas",
   "document.matched": "Vinculado a una compra.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "document.matchedBill": "Vinculado a una factura de proveedor.",
+  "document.matchedVendorCredit": "Vinculado a un crédito de proveedor.",
+  "document.duplicateOf":
+    "Es la misma factura que {filename}, que llegó primero. La leímos y no hicimos nada más con ella.",
   "document.totals": "Totales",
   "document.lines": "Líneas",
   "document.subtotal": "Subtotal",

@@ -2,7 +2,7 @@
 // `/upload` (UploadPage.tsx): drop invoices, receipts or a purchases CSV; see the private forwarding
 // address and who may forward to it (the client admin edits the list); and the documents that
 // arrived.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { type UploadResponse, uploadFiles } from "../../api/upload";
@@ -25,6 +25,11 @@ import { documentStatus, dropReason, money, sourceLabel } from "../documents";
 
 type Result = UploadResponse["results"][number];
 type Shown = Result & { key: string };
+type Summary = NonNullable<Result["document"]>;
+
+/** How often, and how many times, an upload's new documents are checked until they are read. */
+const READ_POLL_MS = 3_000;
+const READ_POLL_TRIES = 40;
 
 export function UploadSection({ isAdmin }: { isAdmin: boolean }) {
   const { t } = useI18n();
@@ -46,7 +51,7 @@ export function UploadSection({ isAdmin }: { isAdmin: boolean }) {
 function resultLine(
   r: Result,
   { t, locale }: Pick<I18n, "t" | "locale">,
-): { text: string; tone: "positive" | "neutral" | "risk" } {
+): { text: string; tone: "positive" | "neutral" | "risk" | "warning" } {
   // The server's reason is English: other languages show their own word for a refusal.
   if (r.kind === "refused") {
     return {
@@ -61,6 +66,13 @@ function resultLine(
     if (p.errors.length > 0) parts.push(t("upload.rowsSkipped", { count: p.errors.length }));
     return { text: parts.join(" · "), tone: p.errors.length > 0 ? "neutral" : "positive" };
   }
+  // Read since: the same invoice as one already here (a copy with other bytes).
+  if (r.document?.duplicateOf) {
+    return {
+      text: t("upload.duplicateOf", { filename: r.document.duplicateOf.filename }),
+      tone: "warning",
+    };
+  }
   return r.created
     ? { text: t("upload.received"), tone: "positive" }
     : { text: t("upload.duplicate"), tone: "neutral" };
@@ -74,20 +86,58 @@ export function DropZone({
   onUploaded,
   upload = uploadFiles,
   documentHref = (id) => `/documents/${id}`,
+  readDocument,
   testId = "portal-upload",
 }: {
   onUploaded: () => void;
   upload?: (files: File[]) => Promise<UploadResponse>;
   documentHref?: (documentId: string) => string;
+  /** A document as its surface reads it, to learn once it is read whether it repeats another. */
+  readDocument?: (documentId: string) => Promise<Summary>;
   testId?: string;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
+  const api = useApiClient();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [results, setResults] = useState<Shown[]>([]);
+  const read =
+    readDocument ??
+    (async (id: string) =>
+      (await api.call(apiRoutes.portalDocument, { params: { id } })).document as Summary);
+
+  // A copy of an invoice already here is known only once read (by its vendor and number), after
+  // the upload answered: new documents are checked until read, so the warning shows here too.
+  const unread = results.filter(
+    (r) => r.created && r.document && ["stored", "extracting"].includes(r.document.status),
+  );
+  const waiting = unread.map((r) => r.key).join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-armed when the set of unread documents changes.
+  useEffect(() => {
+    if (!waiting) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (tries > READ_POLL_TRIES) {
+        clearInterval(timer);
+        return;
+      }
+      for (const r of unread) {
+        const id = r.document?.id;
+        if (!id) continue;
+        read(id)
+          .then((fresh) => {
+            if (fresh.status === r.document?.status && !fresh.duplicateOf) return;
+            setResults((all) => all.map((x) => (x.key === r.key ? { ...x, document: fresh } : x)));
+          })
+          .catch(() => undefined);
+      }
+    }, READ_POLL_MS);
+    return () => clearInterval(timer);
+  }, [waiting]);
 
   async function send(list: FileList | null) {
     const files = list ? [...list] : [];
@@ -168,7 +218,11 @@ export function DropZone({
                 <span
                   className={cx(
                     "shrink-0 text-right",
-                    line.tone === "risk" ? "text-risk-ink" : "text-ink-muted",
+                    line.tone === "risk"
+                      ? "text-risk-ink"
+                      : line.tone === "warning"
+                        ? "text-signal-ink"
+                        : "text-ink-muted",
                   )}
                 >
                   {line.text}
@@ -370,7 +424,14 @@ export function RecentDocuments({
                     <td className="text-ink">{d.vendorName ?? "–"}</td>
                     <td className="n text-ink figures">{money(d.total, "USD", i18n)}</td>
                     <td>
-                      <Badge tone={s.tone}>{s.label}</Badge>
+                      <span className="flex flex-wrap gap-1.5">
+                        <Badge tone={s.tone}>{s.label}</Badge>
+                        {d.duplicateOf ? (
+                          <Badge tone="warning" testId={`portal-document-${d.id}-duplicate`}>
+                            {t("documents.duplicate")}
+                          </Badge>
+                        ) : null}
+                      </span>
                     </td>
                     <td className="text-ink figures">{shortTime(d.receivedAt, undefined, i18n)}</td>
                   </tr>

@@ -597,6 +597,7 @@ export const en = {
   "upload.rowsSkipped": { one: "{count} row skipped", other: "{count} rows skipped" },
   "upload.received": "Received",
   "upload.duplicate": "Already here: we keep one copy.",
+  "upload.duplicateOf": "Same invoice as {filename}: we won't process it again.",
   "forwarding.title": "Forward invoices by email",
   "forwarding.off": "Forwarding isn't switched on yet. Your private address will appear here.",
   "forwarding.help":
@@ -624,6 +625,7 @@ export const en = {
   "documents.col.total": "Total",
   "documents.col.status": "Status",
   "documents.col.received": "Received",
+  "documents.duplicate": "Duplicate",
   "documents.invoiceNumber": "Invoice {number}",
   "document.status.stored": "Received",
   "document.status.extracting": "Reading",
@@ -650,6 +652,10 @@ export const en = {
   "document.po": "PO or job",
   "document.pages": "Pages",
   "document.matched": "Matched to a purchase.",
+  "document.matchedBill": "Matched to a bill.",
+  "document.matchedVendorCredit": "Matched to a vendor credit.",
+  "document.duplicateOf":
+    "Same invoice as {filename}, which came first. We read it and did nothing more with it.",
   "document.totals": "Totals",
   "document.lines": "Lines",
   "document.subtotal": "Subtotal",

@@ -620,6 +620,8 @@ export const ptBR: Messages = {
   "upload.rowsSkipped": { one: "{count} linha ignorada", other: "{count} linhas ignoradas" },
   "upload.received": "Recebido",
   "upload.duplicate": "Já estava aqui: guardamos uma só cópia.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "upload.duplicateOf": "Mesma fatura que {filename}: não vamos processá-la de novo.",
   "forwarding.title": "Encaminhar notas por e-mail",
   "forwarding.off":
     "O encaminhamento ainda não está ativado. Seu endereço privado vai aparecer aqui.",
@@ -649,6 +651,8 @@ export const ptBR: Messages = {
   "documents.col.total": "Total",
   "documents.col.status": "Status",
   "documents.col.received": "Recebido",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "documents.duplicate": "Duplicado",
   "documents.invoiceNumber": "Nota {number}",
   "document.status.stored": "Recebido",
   "document.status.extracting": "Lendo",
@@ -675,6 +679,11 @@ export const ptBR: Messages = {
   "document.po": "Pedido ou obra",
   "document.pages": "Páginas",
   "document.matched": "Vinculado a uma compra.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "document.matchedBill": "Vinculado a uma conta a pagar.",
+  "document.matchedVendorCredit": "Vinculado a um crédito de fornecedor.",
+  "document.duplicateOf":
+    "Mesma fatura que {filename}, que chegou antes. Nós a lemos e não fizemos mais nada com ela.",
   "document.totals": "Totais",
   "document.lines": "Linhas",
   "document.subtotal": "Subtotal",

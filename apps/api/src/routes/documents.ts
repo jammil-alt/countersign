@@ -29,13 +29,18 @@ import {
   docExtraction,
   document,
   narrowToTenant,
+  run,
+  stepRun,
   type Tx,
   tenant,
+  toolCall,
+  transaction,
   withTenant,
 } from "@countersign/db";
 import {
   DocumentError,
   type DocumentRow,
+  duplicateOfMeta,
   extractDocument,
   getDocument,
   linkToTransaction,
@@ -43,7 +48,7 @@ import {
 } from "@countersign/documents";
 import { createLlmClient } from "@countersign/llm";
 import { collectEmitted, EmittedEvents, type EventRow, emit } from "@countersign/senses";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { guardModels, profileReader } from "../compliance/policy";
 import {
@@ -72,7 +77,19 @@ function isCsv(file: File): boolean {
   return t === "text/csv" || t === "application/csv" || file.name.toLowerCase().endsWith(".csv");
 }
 
-export function documentSummary(d: DocumentRow, x: ExtractionRow | null) {
+/** What a document is matched to, as the documents lists show it (DocumentSummary.match). */
+export interface DocumentMatch {
+  transactionId: string;
+  kind: string;
+  number: string | null;
+  by: "link" | "run";
+}
+
+export function documentSummary(
+  d: DocumentRow,
+  x: ExtractionRow | null,
+  match: DocumentMatch | null = null,
+) {
   const header = (x?.header ?? null) as Partial<ExtractedHeader> | null;
   return {
     id: d.id,
@@ -87,7 +104,99 @@ export function documentSummary(d: DocumentRow, x: ExtractionRow | null) {
     vendorName: header?.vendorName ?? null,
     invoiceNumber: header?.invoiceNumber ?? null,
     total: x?.total ?? null,
+    match,
+    duplicateOf: duplicateOfMeta(d.meta),
   };
+}
+
+/** The tool that matches an invoice to its bill in a run (the Bill clerk's `docs.match-bill`). */
+const MATCH_BILL_TOOL = "docs.match_bill";
+
+/** The tool's document number of a transaction (`ext.<connector>.docNumber`), when it has one. */
+function txnNumber(t: { connector: string; ext: unknown }): string | null {
+  const own = (t.ext as Record<string, unknown> | null)?.[t.connector] as
+    | { docNumber?: unknown }
+    | undefined;
+  return typeof own?.docNumber === "string" && own.docNumber.trim() ? own.docNumber : null;
+}
+
+/**
+ * What each document is matched to: the transaction it is linked to, else the bill a live run's
+ * `docs.match_bill` last matched it to. Before, the lists read only the link and called every
+ * linked record "a purchase": a bill showed as a Purchase, and a copy whose link was taken (the
+ * bill already had a document) read "Not yet" while its run said "matched".
+ */
+// DECISION: the run's match is read from its tool call (the tool only reads, ARCHITECTURE §7), so
+// the lists agree with the run without the run writing a link; test runs don't count.
+export async function documentMatches(
+  tx: Tx,
+  tenantId: string,
+  docs: readonly Pick<DocumentRow, "id" | "transactionId" | "meta">[],
+): Promise<Map<string, DocumentMatch>> {
+  const out = new Map<string, DocumentMatch>();
+  if (docs.length === 0) return out;
+  const unlinked = docs
+    .filter((d) => !d.transactionId && !duplicateOfMeta(d.meta))
+    .map((d) => d.id);
+  const found = unlinked.length
+    ? await tx
+        .select({
+          documentId: sql<string>`${toolCall.input}->>'documentId'`,
+          transactionId: sql<string | null>`${toolCall.output}->'bill'->>'transactionId'`,
+        })
+        .from(toolCall)
+        .innerJoin(
+          stepRun,
+          and(eq(stepRun.id, toolCall.stepRunId), eq(stepRun.tenantId, toolCall.tenantId)),
+        )
+        .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+        .where(
+          and(
+            eq(toolCall.tenantId, tenantId),
+            eq(toolCall.tool, MATCH_BILL_TOOL),
+            eq(toolCall.status, "succeeded"),
+            eq(run.mode, "live"),
+            sql`${toolCall.output}->>'status' = 'matched'`,
+            inArray(sql`${toolCall.input}->>'documentId'`, unlinked),
+          ),
+        )
+        .orderBy(desc(toolCall.createdAt), desc(toolCall.id))
+    : [];
+  const byRun = new Map<string, string>();
+  for (const f of found) {
+    if (f.transactionId && !byRun.has(f.documentId)) byRun.set(f.documentId, f.transactionId);
+  }
+  const txnIds = [
+    ...new Set([
+      ...docs.flatMap((d) => (d.transactionId ? [d.transactionId] : [])),
+      ...byRun.values(),
+    ]),
+  ];
+  const txns = txnIds.length
+    ? await tx
+        .select({
+          id: transaction.id,
+          kind: transaction.kind,
+          connector: transaction.connector,
+          ext: transaction.ext,
+        })
+        .from(transaction)
+        .where(and(eq(transaction.tenantId, tenantId), inArray(transaction.id, txnIds)))
+    : [];
+  const byId = new Map(txns.map((t) => [t.id, t]));
+  for (const d of docs) {
+    const linked = d.transactionId ? byId.get(d.transactionId) : undefined;
+    const ran = byRun.get(d.id);
+    const t = linked ?? (ran ? byId.get(ran) : undefined);
+    if (!t) continue;
+    out.set(d.id, {
+      transactionId: t.id,
+      kind: t.kind,
+      number: txnNumber(t),
+      by: linked ? "link" : "run",
+    });
+  }
+  return out;
 }
 
 async function latestExtractions(tx: Tx, tenantId: string, ids: string[]) {
@@ -140,10 +249,15 @@ export async function extractInBackground(
   for (const documentId of documentIds) {
     const collect = new EmittedEvents();
     try {
-      await extractDocument({ db: services.db, content, llm }, { tenantId, documentId, collect });
-      await withTenant(services.db, tenantId, (tx) => {
+      const read = await extractDocument(
+        { db: services.db, content, llm },
+        { tenantId, documentId, collect },
+      );
+      // A duplicate (the same invoice again) starts nothing and links to nothing: its original
+      // holds the link.
+      await withTenant(services.db, tenantId, async (tx) => {
         collectEmitted(tx, collect);
-        return linkToTransaction(tx, tenantId, documentId);
+        if (!read.duplicateOf) await linkToTransaction(tx, tenantId, documentId);
       });
     } catch (error) {
       reportHandled("extracting a document failed", error, { kind: "extraction" });
@@ -217,9 +331,10 @@ export async function documentDetail(
   const header = (x?.header ?? {}) as Partial<ExtractedHeader>;
   // Only what was printed and the checks on it: model names and costs stay out of the portal.
   const meta = view.document.meta as { email?: Record<string, unknown> };
+  const matches = await documentMatches(tx, tenantId, [view.document]);
   return {
     document: {
-      ...documentSummary(view.document, x),
+      ...documentSummary(view.document, x, matches.get(view.document.id) ?? null),
       meta: meta.email
         ? { email: { from: meta.email.from, subject: meta.email.subject, date: meta.email.date } }
         : {},
@@ -256,12 +371,15 @@ export async function recentDocuments(tx: Tx, tenantId: string, limit: number) {
     .where(eq(document.tenantId, tenantId))
     .orderBy(desc(document.receivedAt))
     .limit(limit);
-  const latest = await latestExtractions(
-    tx,
-    tenantId,
-    docs.map((d) => d.id),
-  );
-  return docs.map((d) => documentSummary(d, latest.get(d.id) ?? null));
+  const [latest, matches] = await Promise.all([
+    latestExtractions(
+      tx,
+      tenantId,
+      docs.map((d) => d.id),
+    ),
+    documentMatches(tx, tenantId, docs),
+  ]);
+  return docs.map((d) => documentSummary(d, latest.get(d.id) ?? null, matches.get(d.id) ?? null));
 }
 
 /**

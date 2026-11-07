@@ -619,6 +619,8 @@ export const it: Messages = {
   "upload.rowsSkipped": { one: "{count} riga saltata", other: "{count} righe saltate" },
   "upload.received": "Ricevuto",
   "upload.duplicate": "Già presente: ne teniamo una sola copia.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "upload.duplicateOf": "Stessa fattura di {filename}: non la elaboreremo di nuovo.",
   "forwarding.title": "Inoltra le fatture per email",
   "forwarding.off": "L'inoltro non è ancora attivo. Il tuo indirizzo privato comparirà qui.",
   "forwarding.help":
@@ -648,6 +650,8 @@ export const it: Messages = {
   "documents.col.total": "Totale",
   "documents.col.status": "Stato",
   "documents.col.received": "Ricevuto",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "documents.duplicate": "Duplicato",
   "documents.invoiceNumber": "Fattura {number}",
   "document.status.stored": "Ricevuto",
   "document.status.extracting": "In lettura",
@@ -675,6 +679,11 @@ export const it: Messages = {
   "document.po": "Ordine o commessa",
   "document.pages": "Pagine",
   "document.matched": "Abbinato a un acquisto.",
+  // UI cleanup (duplicates and matches): needs a fluent speaker's review.
+  "document.matchedBill": "Abbinato a una fattura fornitore.",
+  "document.matchedVendorCredit": "Abbinato a una nota di credito fornitore.",
+  "document.duplicateOf":
+    "Stessa fattura di {filename}, arrivata prima. L'abbiamo letta e non abbiamo fatto altro.",
   "document.totals": "Totali",
   "document.lines": "Righe",
   "document.subtotal": "Subtotale",

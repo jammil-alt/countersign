@@ -45,6 +45,24 @@ export function sourceLabel(source: string, { t }: Pick<I18n, "t"> = EN): string
   return key ? t(key) : source;
 }
 
+const MATCHED: Record<string, PlainKey> = {
+  bill: "document.matchedBill",
+  purchase: "document.matched",
+  vendor_credit: "document.matchedVendorCredit",
+};
+
+/** "Matched to a bill." by the matched record's kind (never "a purchase" for a bill). */
+export function matchedWords(kind: string, { t }: Pick<I18n, "t"> = EN): string {
+  return t(MATCHED[kind] ?? "document.matched");
+}
+
+/** The record's kind as a short noun for a list's Matched column (back office, English). */
+export const MATCH_KIND_LABEL: Record<string, string> = {
+  bill: "Bill",
+  purchase: "Purchase",
+  vendor_credit: "Vendor credit",
+};
+
 export function bytes(n: number, { fmt }: Pick<I18n, "fmt"> = EN): string {
   return fmt.bytes(n);
 }
