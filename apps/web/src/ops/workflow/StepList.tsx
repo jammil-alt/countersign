@@ -14,6 +14,7 @@ import {
   triggerDetail,
   triggerTitle,
 } from "./describe";
+import { forkGridColumns, forkMinWidth, listMinWidth, stepMinWidth } from "./layout";
 
 /** The workflow's step names, for fork rules that cite an earlier step's output. */
 const Names = createContext<StepNames | undefined>(undefined);
@@ -56,24 +57,31 @@ function MarkBadges({ id }: { id: string }) {
 }
 
 function StepListItems({ workflow }: { workflow: Workflow }) {
+  // Wide forks scroll sideways inside the list's own box, never the page.
   return (
-    <ol data-testid="step-list" className="flex flex-col items-center">
-      <Item>
-        <StepCard
-          testId={`step-${workflow.trigger.id}`}
-          number={1}
-          kind={KIND_LABEL.trigger}
-          kindId="trigger"
-          title={triggerTitle(workflow.trigger)}
-          detail={triggerDetail(workflow.trigger)}
-        />
-      </Item>
-      {workflow.steps.map((step, i) => (
-        <Item key={step.id} connector>
-          <StepNode step={step} number={i + 2} />
+    <div className="overflow-x-auto">
+      <ol
+        data-testid="step-list"
+        className="flex flex-col items-center"
+        style={{ minWidth: listMinWidth(workflow.steps) }}
+      >
+        <Item>
+          <StepCard
+            testId={`step-${workflow.trigger.id}`}
+            number={1}
+            kind={KIND_LABEL.trigger}
+            kindId="trigger"
+            title={triggerTitle(workflow.trigger)}
+            detail={triggerDetail(workflow.trigger)}
+          />
         </Item>
-      ))}
-    </ol>
+        {workflow.steps.map((step, i) => (
+          <Item key={step.id} connector>
+            <StepNode step={step} number={i + 2} />
+          </Item>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -203,13 +211,16 @@ function NestedNode({ step }: { step: Step }) {
 
 function Fork({ step }: { step: ForkStep }) {
   const names = useContext(Names);
-  const columns = step.paths.length + 1;
   return (
-    <div data-testid={`fork-${step.id}`} className="flex w-full flex-col items-center">
+    <div
+      data-testid={`fork-${step.id}`}
+      className="flex w-full flex-col items-center"
+      style={{ minWidth: forkMinWidth(step) }}
+    >
       <span aria-hidden className="h-4 border-l border-line-strong" />
       <div
         className="grid w-full gap-3 rounded-lg border border-dashed border-line-strong p-3"
-        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: forkGridColumns(step) }}
       >
         {step.paths.map((path, i) => (
           <section
@@ -246,6 +257,7 @@ function Loop({ step }: { step: ForEachStep }) {
     <div
       data-testid={`loop-${step.id}`}
       className="flex w-full max-w-[560px] flex-col items-center"
+      style={{ minWidth: stepMinWidth(step) }}
     >
       <span aria-hidden className="h-4 border-l border-line-strong" />
       <div className="w-full rounded-lg border border-dashed border-line-strong p-3">

@@ -197,7 +197,7 @@ describe("new agent by conversation", () => {
     expect(screen.getByTestId("builder-questions")).toHaveTextContent(/contractors/);
     expect(screen.getByTestId("builder-turn-gaps")).toHaveTextContent(/card feed/);
     expect(screen.getAllByTestId("new-agent-plan-step")).toHaveLength(5);
-    expect(screen.getByTestId("new-agent-starts")).toHaveTextContent("When bill.created");
+    expect(screen.getByTestId("new-agent-starts")).toHaveTextContent("When bill created");
     expect(screen.getByTestId("new-agent-access-qbo")).toHaveTextContent("qbo.bill.update_lines");
     expect(screen.getByTestId("new-agent-closest")).toHaveTextContent("62% alike");
 

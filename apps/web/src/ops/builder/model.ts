@@ -26,6 +26,7 @@ import {
   type Workflow,
   walkSteps,
 } from "@countersign/core";
+import { toolLabel } from "../workflow/labels";
 
 /** `root`, `path:<path id>`, `otherwise:<otherwise id>` or `loop:<for-each step id>`. */
 export type ContainerId = string;
@@ -234,13 +235,9 @@ export type PaletteItem =
   | { type: "person"; key: string; title: string; detail: string; mode: "approve" | "ask" }
   | { type: "logic"; key: string; title: string; detail: string; logic: LogicKind };
 
-/** "testkit.record.update" → "Update record". */
+/** "testkit.record.update" → "Update a record": the tool's label (workflow/labels.ts). */
 export function toolTitle(tool: Pick<ToolSpec, "id">): string {
-  const parts = tool.id.split(".");
-  const verb = parts.at(-1) ?? tool.id;
-  const thing = parts.slice(1, -1).join(" ").replace(/[_-]/g, " ");
-  const words = `${verb.replace(/[_-]/g, " ")}${thing ? ` ${thing}` : ""}`;
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return toolLabel(tool.id);
 }
 
 export function newPath(n: number, newId: NewId = uuidv7): ForkPath {

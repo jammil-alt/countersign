@@ -9,6 +9,7 @@ import {
   type Trigger,
   type Workflow,
 } from "@countersign/core";
+import { cronText, roleLabel, toolLabel, whenEvent } from "./labels";
 
 export const KIND_LABEL: Record<StepKind | "trigger", string> = {
   trigger: "Trigger",
@@ -39,7 +40,7 @@ export function triggerTitle(trigger: Trigger): string {
   const on = trigger.on;
   switch (on.type) {
     case "event":
-      return `When ${on.event}`;
+      return whenEvent(on.event);
     case "schedule":
       return "On a schedule";
     case "manual":
@@ -60,54 +61,97 @@ export function triggerDetail(trigger: Trigger): string | null {
   const on = trigger.on;
   switch (on.type) {
     case "event":
-      return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : "Event";
+      return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : null;
     case "schedule":
-      return [on.cron, on.tz, on.skipHolidays ? "skips holidays" : null]
+      return [cronText(on.cron), on.tz, on.skipHolidays ? "skips holidays" : null]
         .filter(Boolean)
         .join(" · ");
     case "manual":
-      return "Manual";
+      return null;
     case "command":
-      return "Thread command";
+      return "Typed in a thread";
     // v0.12 W2-E
     case "webhook":
-      return [
-        on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : "Webhook",
-        on.rateLimit ? `at most ${on.rateLimit.max} a ${on.rateLimit.per}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+      return (
+        [
+          on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : null,
+          on.rateLimit ? `at most ${on.rateLimit.max} a ${on.rateLimit.per}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null
+      );
     case "message":
-      return on.channels.join(", ");
+      return on.channels.map((c) => CHANNEL_LABEL[c] ?? c).join(", ");
     case "handoff":
-      return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : "Handoff";
+      return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : null;
   }
 }
 
-/** The second line under a step's name. */
-export function stepDetail(step: Step): string | null {
+const CHANNEL_LABEL: Record<string, string> = {
+  sms: "Text",
+  whatsapp: "WhatsApp",
+  email: "Email",
+  call: "Call",
+  voice: "Call",
+  thread: "The run's thread",
+  digest: "The daily digest",
+};
+
+const STOP_LABEL: Record<string, string> = {
+  succeeded: "Ends the run as done",
+  failed: "Ends the run as failed",
+  cancelled: "Ends the run as stopped",
+};
+
+/**
+ * Names a step's second line can use instead of ids, from the builder's catalog: a skill's name by
+ * its reference, an automation's, the connector a tool acts through, a person's name by user id.
+ */
+export interface StepLabels {
+  skill?(ref: string): string | undefined;
+  automation?(ref: string): string | undefined;
+  connector?(toolId: string): string | undefined;
+  person?(id: string): string | undefined;
+}
+
+/** The second line under a step's name: what it does in words, never its ids. */
+export function stepDetail(step: Step, labels: StepLabels = {}): string | null {
   switch (step.kind) {
-    case "skill":
-      return step.agent ? `${step.skill} · by ${step.agent}` : step.skill;
+    case "skill": {
+      const name = labels.skill?.(step.skill);
+      const what = name && name !== step.name ? name : null;
+      return [what, step.agent ? `by ${step.agent}` : null].filter(Boolean).join(" · ") || null;
+    }
     case "action":
-      return `${step.tool} · ${
-        step.approval.required === "required" ? "needs approval" : "no approval"
-      }`;
+      return [
+        labels.connector?.(step.tool),
+        toolLabel(step.tool),
+        step.approval.required === "required" ? "needs approval" : "on its own",
+      ]
+        .filter(Boolean)
+        .join(" · ");
     case "person":
-      return `${step.mode === "approve" ? "Approve" : "Ask"} · ${step.assignee} · ${step.timeout}`;
+      return `${step.mode === "approve" ? "Approve" : "Ask"} · ${
+        labels.person?.(step.assignee) ?? roleLabel(step.assignee)
+      } · ${step.timeout}`;
     case "fork":
       return `${step.paths.length} ${step.paths.length === 1 ? "path" : "paths"}`;
     case "for_each":
-      return `over ${step.over}`;
+      return `over ${fieldText(step.over)}`;
     case "wait":
       return `for ${step.for}`;
     case "notify":
-      return step.to ? `${step.channel} · ${step.to}` : step.channel;
+      return [CHANNEL_LABEL[step.channel] ?? step.channel, step.to ? fieldText(step.to) : null]
+        .filter(Boolean)
+        .join(" · ");
     case "stop":
-      return step.status;
-    // v0.12 W2-B: the pinned version, e.g. polite-follow-up@2.
-    case "use_automation":
-      return step.automation;
+      return STOP_LABEL[step.status] ?? step.status;
+    // v0.12 W2-B: the pinned automation by name and version, e.g. "Polite follow-up · v2".
+    case "use_automation": {
+      const [slug = step.automation, v] = step.automation.split("@");
+      const name = labels.automation?.(step.automation) ?? slug.replace(/[-_]+/g, " ");
+      return v ? `${name} · v${v}` : name;
+    }
   }
 }
 

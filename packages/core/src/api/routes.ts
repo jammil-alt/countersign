@@ -1368,6 +1368,11 @@ export const opsRoutes = {
           /** The payload's JSON Schema: what `{{trigger.…}}` can reference. */
           payload: JsonSchema,
           sample: z.unknown(),
+          /**
+           * The connector that emits it (`zoho_crm`), so the builder offers it only where that
+           * connector is connected; null or absent for the platform's own events.
+           */
+          connector: z.string().nullable().optional(),
         }),
       ),
     }),
