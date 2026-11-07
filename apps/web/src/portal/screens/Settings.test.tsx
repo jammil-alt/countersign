@@ -103,8 +103,14 @@ describe("portal settings", () => {
     expect(await within(emails).findByText("Saved.")).toBeInTheDocument();
     expect(patches).toEqual([{ itemsWaiting: true, weeklyDigest: false }]);
 
-    expect(screen.getByTestId("portal-settings-approvals")).toHaveTextContent(
-      "We approve changes to your tools on your behalf.",
+    const approvals = screen.getByTestId("portal-settings-approvals");
+    expect(approvals).toHaveTextContent("We approve changes to your tools on your behalf.");
+    // The admin adds rules here; the matrix is on Accounts. Never "ask us" or "Connections".
+    expect(approvals).toHaveTextContent("Add a rule below to choose who approves.");
+    expect(approvals).not.toHaveTextContent("Connections");
+    expect(within(approvals).getByRole("link", { name: "Accounts." })).toHaveAttribute(
+      "href",
+      "/accounts",
     );
   });
 
@@ -138,6 +144,9 @@ describe("portal settings", () => {
     await userEvent.click(within(mine).getByTestId("portal-mine-email"));
     await waitFor(() => expect(puts).toEqual([{ email: false, sms: false }]));
     expect(screen.getByTestId("portal-settings-language")).toBeInTheDocument();
+    expect(screen.getByTestId("portal-settings-approvals-member")).toHaveTextContent(
+      "To change who approves, ask your admin.",
+    );
     expect(api.calls).not.toContain("GET /api/users");
     expect(api.calls).not.toContain("GET /api/settings");
     expect(api.calls).not.toContain("GET /api/billing");
@@ -178,7 +187,11 @@ describe("portal settings", () => {
     });
     renderAt("/settings", api);
     const plan = await screen.findByTestId("portal-settings-plan");
-    await waitFor(() => expect(plan).toHaveTextContent("6,240 of 10,000 used"));
+    // Used and included say what they count: included is the month so far, and grows.
+    await waitFor(() => expect(plan).toHaveTextContent("6,240 used of 10,000 included so far"));
+    expect(within(plan).getByTestId("portal-settings-credits-help")).toHaveTextContent(
+      "the included number grows through the month",
+    );
     expect(within(plan).getByTestId("portal-settings-statements")).toHaveAttribute(
       "href",
       "/settings/billing",
@@ -188,7 +201,9 @@ describe("portal settings", () => {
       "aria-checked",
       "true",
     );
-    expect(out).toHaveTextContent("another 2,500 credits");
+    // The block counts extra credits, past the included ones.
+    expect(out).toHaveTextContent("Credits past the included ones go on your next invoice.");
+    expect(out).toHaveTextContent("another 2,500 extra credits");
     await userEvent.click(within(out).getByTestId("portal-credits-out-pause"));
     expect(puts).toEqual([{ onCreditsOut: "pause" }]);
     await waitFor(() =>

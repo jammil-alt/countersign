@@ -75,7 +75,16 @@ export function PortalSettingsScreen() {
             </p>
           )}
           <Anchor id="signoff" title={t("settingsPage.signoff")}>
-            {isAdmin ? <WhoApproves /> : <TeamLink />}
+            {isAdmin ? (
+              <WhoApproves />
+            ) : (
+              <Card pad testId="portal-settings-approvals-member">
+                <p className="text-sm text-ink-muted">{t("settings.approvals.askAdmin")}</p>
+                <div className="mt-2">
+                  <TeamLink />
+                </div>
+              </Card>
+            )}
             <PortalApproverRules />
           </Anchor>
           {emailsOn ? (
@@ -146,6 +155,11 @@ function Plan() {
                   allowance={data.monthSoFar.creditsIncluded}
                   testId="portal-settings-meter"
                 />
+                {/* creditsIncluded is the month so far: each agent's credits × days billed ÷ days
+                    in the month (core buildStatement), so it grows through the month. */}
+                <p className="text-sm text-ink-muted" data-testid="portal-settings-credits-help">
+                  {t("settingsPage.creditsIncludedHelp")}
+                </p>
               </div>
             ) : (
               <p className="text-ink-muted">{t("billing.notSetUp")}</p>
@@ -284,7 +298,7 @@ function Team() {
   );
 }
 
-/** A client user reads the team (who signs what); the admin reaches it from Team above. */
+/** A client user reads the team (who approves what); the admin reaches it from Team above. */
 function TeamLink() {
   const { t } = useI18n();
   return (
@@ -311,7 +325,12 @@ function WhoApproves() {
           ? t("settings.approvals.byUs")
           : t("settings.approvals.byYou")}
       </p>
-      <p className="mt-1 text-sm text-ink-muted">{t("settings.approvals.howToChange")}</p>
+      <p className="mt-1 text-sm text-ink-muted">
+        {t("settings.approvals.howToChange")}{" "}
+        <Link to={PORTAL_PATHS.accounts} className="text-link hover:underline">
+          {t("settings.approvals.accountsLink")}
+        </Link>
+      </p>
     </Card>
   );
 }

@@ -619,6 +619,7 @@ export const ptBR: Messages = {
   "upload.rowsSkipped": { one: "{count} linha ignorada", other: "{count} linhas ignoradas" },
   "upload.received": "Recebido",
   "upload.duplicate": "Já estava aqui: guardamos uma só cópia.",
+  "upload.sameFile": "O mesmo arquivo que o recebido ({time}). Guardamos uma só cópia.",
   "forwarding.title": "Encaminhar notas por e-mail",
   "forwarding.uploadInRecords": "Envie arquivos você mesmo em Registros",
   "forwarding.off":
@@ -650,6 +651,7 @@ export const ptBR: Messages = {
   "documents.col.status": "Status",
   "documents.col.received": "Recebido",
   "documents.invoiceNumber": "Nota {number}",
+  "documents.sameInvoice": "A mesma nota que a recebida ({time})",
   "document.status.stored": "Recebido",
   "document.status.extracting": "Lendo",
   "document.status.extracted": "Lido",
@@ -774,7 +776,9 @@ export const ptBR: Messages = {
     "Nós aprovamos as mudanças nas suas ferramentas em seu nome. Você continua vendo cada mudança nas suas execuções.",
   "settings.approvals.byYou": "Você aprova as mudanças nas suas ferramentas antes que aconteçam.",
   "settings.approvals.howToChange":
-    "Para mudar quem aprova, fale com a gente. Você também pode restringir o que os agentes podem fazer em Conexões.",
+    "Adicione uma regra abaixo para escolher quem aprova. Você pode deixar as aprovações mais rígidas; só nós as afrouxamos. Para limitar o que os agentes podem fazer em uma ferramenta, vá para",
+  "settings.approvals.accountsLink": "Contas.",
+  "settings.approvals.askAdmin": "Para mudar quem aprova, fale com o seu administrador.",
   "settings.emails": "E-mails",
   "settings.emailsSoon": "Os e-mails começam em breve",
   "settings.email.itemsWaiting": "Algo espera por você",
@@ -848,7 +852,6 @@ export const ptBR: Messages = {
   "reports.seeActivity": "Ver a sua atividade",
 
   // ── Service page ──
-  "service.noDescription": "Vamos descrever aqui o que este serviço faz.",
   "service.thisMonth": "Este mês",
   "service.nothingRan": "Nada foi executado ainda este mês",
   "service.allRuns": "Todas as execuções",
@@ -925,7 +928,7 @@ export const ptBR: Messages = {
   // ── Who approves ──
   "approvers.title": "Quem aprova",
   "approvers.intro":
-    "A primeira regra que se aplica a uma mudança decide. Se nenhuma se aplicar, o seu administrador aprova, a menos que o serviço indique alguém.",
+    "A primeira regra que se aplica a uma mudança decide. Se nenhuma se aplicar, o seu administrador aprova, a menos que o agente indique alguém.",
   "approvers.empty": "Ainda não há regras. O seu administrador aprova cada mudança.",
   "approvers.who.admin": "O seu administrador",
   "approvers.who.team": "Qualquer pessoa da sua equipe",
@@ -1654,23 +1657,24 @@ export const ptBR: Messages = {
   },
   "weekly.details": "Detalhes",
   "weekly.nextWeek": "Próxima semana",
-  "settingsPage.subtitle":
-    "Sua empresa, quem pode assinar, como você paga e como falamos com você.",
+  "settingsPage.subtitle": "Sua empresa, quem aprova, como você paga e como falamos com você.",
   "settingsPage.subtitleMember": "Como falamos com você e o idioma em que você lê.",
   "settingsPage.billing": "Cobrança",
   "settingsPage.team": "Equipe",
-  "settingsPage.signoff": "Assinaturas",
+  "settingsPage.signoff": "Aprovações",
   "settingsPage.notifications": "Notificações",
   "settingsPage.language": "Idioma",
   "settingsPage.languageBody": "Cada escolha é salva na hora.",
   "settingsPage.plan": "Este mês",
   "settingsPage.statements": "Faturas e uso",
   "settingsPage.creditsThisMonth": "Créditos este mês",
-  "settingsPage.creditsUsed": "{used} de {included} usados",
+  "settingsPage.creditsUsed": "{used} usados de {included} incluídos até agora",
+  "settingsPage.creditsIncludedHelp":
+    "Cada agente soma os seus créditos incluídos dia a dia, então o número de incluídos cresce ao longo do mês.",
   "settingsPage.creditsOut": "Se os créditos acabarem",
   "settingsPage.creditsOut.continue": "Continuar trabalhando e adicionar créditos",
   "settingsPage.creditsOut.continueHelp":
-    "Avisamos você cada vez que mais {block} créditos forem usados.",
+    "Os créditos além dos incluídos vão para a sua próxima fatura. Avisamos você por e-mail cada vez que mais {block} créditos extras forem usados.",
   "settingsPage.creditsOut.pause": "Pausar os agentes até o próximo mês",
   "settingsPage.creditsOut.pauseHelp":
     "Os agentes param quando os créditos do mês acabam. O Sloan continua ativo.",
@@ -1713,6 +1717,7 @@ export const ptBR: Messages = {
   // ── UI-3a: registros, envio, equipe, exportações ──
   "records.lastSync": "Última sincronização {time}.",
   "records.upload": "Enviar documentos",
+  "records.fromAccount": "De {account}",
   "records.found": { one: "{count} registro", other: "{count} registros" },
   "records.kind.receivables": "Contas a receber",
   "records.col.customer": "Cliente",
@@ -1762,7 +1767,7 @@ export const ptBR: Messages = {
   "settingsPage.teamLinkHelp": "Quem usa seu portal, o que cada pessoa assina, e convites.",
   "settingsPage.exportsLink": "Exportações",
   "settingsPage.exportsLinkHelp": "A exportação para o contador e seu registro de auditoria.",
-  "settingsPage.seeTeam": "Ver quem assina o quê na sua equipe",
+  "settingsPage.seeTeam": "Ver quem aprova o quê na sua equipe",
   "knowledge.adminOnly":
     "Só o seu administrador pode ver e mudar o que os agentes sabem da sua empresa.",
   "sloan.requests": "Seus pedidos para nós",

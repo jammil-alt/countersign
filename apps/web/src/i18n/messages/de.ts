@@ -640,6 +640,7 @@ export const de: Messages = {
   },
   "upload.received": "Erhalten",
   "upload.duplicate": "Schon vorhanden: Wir behalten eine Kopie.",
+  "upload.sameFile": "Dieselbe Datei wie die bereits erhaltene ({time}). Wir behalten eine Kopie.",
   "forwarding.title": "Rechnungen per E-Mail weiterleiten",
   "forwarding.uploadInRecords": "Dateien selbst unter Einträge hochladen",
   "forwarding.off":
@@ -673,6 +674,7 @@ export const de: Messages = {
   "documents.col.status": "Status",
   "documents.col.received": "Erhalten",
   "documents.invoiceNumber": "Rechnung {number}",
+  "documents.sameInvoice": "Dieselbe Rechnung wie die bereits erhaltene ({time})",
   "document.status.stored": "Erhalten",
   "document.status.extracting": "Wird gelesen",
   "document.status.extracted": "Gelesen",
@@ -801,7 +803,9 @@ export const de: Messages = {
     "Wir geben Änderungen an Ihren Tools in Ihrem Namen frei. Sie sehen trotzdem jede Änderung in Ihren Abläufen.",
   "settings.approvals.byYou": "Sie geben Änderungen an Ihren Tools frei, bevor sie passieren.",
   "settings.approvals.howToChange":
-    "Wenn jemand anderes freigeben soll, sagen Sie es uns. Unter Verbindungen können Sie auch einschränken, was Agenten dürfen.",
+    "Fügen Sie unten eine Regel hinzu, um festzulegen, wer freigibt. Sie können Freigaben strenger machen; nur wir lockern sie. Was Agenten in einem Tool dürfen, schränken Sie ein unter",
+  "settings.approvals.accountsLink": "Konten.",
+  "settings.approvals.askAdmin": "Wenn jemand anderes freigeben soll, fragen Sie Ihren Admin.",
   "settings.emails": "E-Mails",
   "settings.emailsSoon": "E-Mails kommen bald",
   "settings.email.itemsWaiting": "Etwas wartet auf Sie",
@@ -875,7 +879,6 @@ export const de: Messages = {
   "reports.seeActivity": "Ihre Aktivität ansehen",
 
   // ── Service page ──
-  "service.noDescription": "Hier beschreiben wir, was dieser Service tut.",
   "service.thisMonth": "Dieser Monat",
   "service.nothingRan": "Diesen Monat ist noch nichts gelaufen",
   "service.allRuns": "Alle Abläufe",
@@ -952,7 +955,7 @@ export const de: Messages = {
   // ── Who approves ──
   "approvers.title": "Wer freigibt",
   "approvers.intro":
-    "Die erste Regel, die auf eine Änderung passt, entscheidet. Passt keine, gibt Ihr Admin frei, außer der Service nennt jemanden.",
+    "Die erste Regel, die auf eine Änderung passt, entscheidet. Passt keine, gibt Ihr Admin frei, außer der Agent nennt jemanden.",
   "approvers.empty": "Noch keine Regeln. Ihr Admin gibt jede Änderung frei.",
   "approvers.who.admin": "Ihr Admin",
   "approvers.who.team": "Jemand aus Ihrem Team",
@@ -1692,22 +1695,24 @@ export const de: Messages = {
   "weekly.details": "Details",
   "weekly.nextWeek": "Nächste Woche",
   "settingsPage.subtitle":
-    "Ihr Unternehmen, wer unterschreiben darf, wie Sie zahlen und wie wir Sie erreichen.",
+    "Ihr Unternehmen, wer freigibt, wie Sie zahlen und wie wir Sie erreichen.",
   "settingsPage.subtitleMember": "Wie wir Sie erreichen und in welcher Sprache Sie lesen.",
   "settingsPage.billing": "Abrechnung",
   "settingsPage.team": "Team",
-  "settingsPage.signoff": "Unterschriften",
+  "settingsPage.signoff": "Freigaben",
   "settingsPage.notifications": "Benachrichtigungen",
   "settingsPage.language": "Sprache",
   "settingsPage.languageBody": "Jede Auswahl wird sofort gespeichert.",
   "settingsPage.plan": "Dieser Monat",
   "settingsPage.statements": "Abrechnungen und Nutzung",
   "settingsPage.creditsThisMonth": "Credits in diesem Monat",
-  "settingsPage.creditsUsed": "{used} von {included} verbraucht",
+  "settingsPage.creditsUsed": "{used} verbraucht von {included} bisher enthaltenen",
+  "settingsPage.creditsIncludedHelp":
+    "Jeder Agent bringt seine enthaltenen Credits Tag für Tag ein, daher wächst die Zahl der enthaltenen Credits im Lauf des Monats.",
   "settingsPage.creditsOut": "Wenn die Credits aufgebraucht sind",
   "settingsPage.creditsOut.continue": "Weiterarbeiten und Credits hinzufügen",
   "settingsPage.creditsOut.continueHelp":
-    "Wir sagen Ihnen jedes Mal Bescheid, wenn weitere {block} Credits verbraucht sind.",
+    "Credits über die enthaltenen hinaus stehen auf Ihrer nächsten Rechnung. Wir schreiben Ihnen jedes Mal, wenn weitere {block} zusätzliche Credits verbraucht sind.",
   "settingsPage.creditsOut.pause": "Agenten bis nächsten Monat pausieren",
   "settingsPage.creditsOut.pauseHelp":
     "Die Agenten halten an, wenn die Credits des Monats verbraucht sind. Sloan bleibt an.",
@@ -1753,6 +1758,7 @@ export const de: Messages = {
   // ── UI-3a: Einträge, Hochladen, Team, Exporte ──
   "records.lastSync": "Zuletzt abgeglichen {time}.",
   "records.upload": "Dokumente hochladen",
+  "records.fromAccount": "Aus {account}",
   "records.found": { one: "{count} Eintrag", other: "{count} Einträge" },
   "records.kind.receivables": "Forderungen",
   "records.col.customer": "Kunde",
@@ -1803,7 +1809,7 @@ export const de: Messages = {
     "Wer Ihr Portal nutzt, was jede Person unterschreibt, und Einladungen.",
   "settingsPage.exportsLink": "Exporte",
   "settingsPage.exportsLinkHelp": "Der Export für die Buchhaltung und Ihr Prüfprotokoll.",
-  "settingsPage.seeTeam": "Sehen, wer in Ihrem Team was unterschreibt",
+  "settingsPage.seeTeam": "Sehen, wer in Ihrem Team was freigibt",
   "knowledge.adminOnly":
     "Nur Ihr Admin kann sehen und ändern, was die Agenten über Ihr Unternehmen wissen.",
   "sloan.requests": "Ihre Anfragen an uns",

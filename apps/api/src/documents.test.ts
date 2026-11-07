@@ -5,7 +5,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEV_USER_HEADER } from "@countersign/auth";
+import { docExtraction, document } from "@countersign/db";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, user } from "./api.test-helper";
 import { handleEmail } from "./email";
@@ -155,6 +157,62 @@ describe.skipIf(!h)("documents API", () => {
     );
     const other = await harness.call(admin("b"), "GET", `/api/documents/${ids["northline-20418"]}`);
     expect(other.status).toBe(404);
+    expect(((await harness.call(admin("b"), "GET", "/api/documents")).json as J).documents).toEqual(
+      [],
+    );
+  });
+
+  it("marks a second copy of an invoice already here, in the list and on its page", async () => {
+    const first = ids["northline-20418"] as string;
+    const [x] = await harness.t.db
+      .select()
+      .from(docExtraction)
+      .where(eq(docExtraction.documentId, first))
+      .orderBy(desc(docExtraction.createdAt))
+      .limit(1);
+    if (!x) throw new Error("the golden invoice was not read");
+    // A scan of the same invoice: other bytes (another sha256), read the same way. Its reading
+    // writes the vendor and number with other case and spacing, which still count as the same.
+    const [copy] = await harness.t.db
+      .insert(document)
+      .values({
+        tenantId: harness.A.tenantId,
+        source: "upload",
+        storageKey: `tenants/${harness.A.tenantId.toLowerCase()}/content/cc/${"c".repeat(64)}`,
+        mimeType: "application/pdf",
+        filename: "northline-20418-scan.pdf",
+        sizeBytes: 10,
+        sha256: "c".repeat(64),
+        status: "extracted",
+        receivedAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    const header = x.header as Record<string, unknown>;
+    const { id: _id, createdAt: _at, documentId: _doc, ...reading } = x;
+    await harness.t.db.insert(docExtraction).values({
+      ...reading,
+      documentId: copy?.id as string,
+      header: {
+        ...header,
+        vendorName: String(header.vendorName).toUpperCase(),
+        invoiceNumber: ` ${String(header.invoiceNumber)} `,
+      },
+    });
+
+    const list = ((await harness.call(admin("a"), "GET", "/api/documents")).json as J).documents;
+    const second = list.find((d: J) => d.id === copy?.id);
+    expect(second.sameInvoiceAs).toMatchObject({
+      id: first,
+      filename: "northline-20418.pdf",
+      source: "upload",
+    });
+    // The first one is not a copy of the second.
+    expect(list.find((d: J) => d.id === first).sameInvoiceAs).toBeNull();
+    // Another invoice is nobody's copy.
+    expect(list.find((d: J) => d.id === ids["keystone-55102"]).sameInvoiceAs).toBeNull();
+    const page = await harness.call(user("a"), "GET", `/api/documents/${copy?.id}`);
+    expect((page.json as J).document.sameInvoiceAs.id).toBe(first);
+    // Client B never learns of client A's invoices.
     expect(((await harness.call(admin("b"), "GET", "/api/documents")).json as J).documents).toEqual(
       [],
     );

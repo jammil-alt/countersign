@@ -15,6 +15,7 @@ import {
   type BrowserVaultInfo,
   type ConnectorManifest,
   type CredentialField,
+  connectionLabel,
   effectiveMatrix,
   effectiveTier,
   entityProblems,
@@ -209,6 +210,7 @@ export async function vaultItems(
       kind: kindOf(manifest),
       status: row.status,
       externalAccountId: row.externalAccountId,
+      accountName: connectionLabel(row.config, row.externalAccountId),
       secret: {
         set: row.credentialsEncrypted !== null,
         fields: fieldsOf(manifest, row),
