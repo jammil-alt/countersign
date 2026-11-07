@@ -35,7 +35,7 @@ describe.skipIf(!h)("approver rules: who sets them", () => {
   const H = h as ApiHarness;
   const path = () => OPS_PATH(H.B.tenantId);
 
-  it("lets the operator set a served client's rules, with a reason, logged", async () => {
+  it("lets the operator set a served client's rules, logged with the reason given", async () => {
     const empty = await H.call(OPERATOR, "GET", path());
     expect(empty.status, JSON.stringify(empty.json)).toBe(200);
     expect(j(empty.json)).toMatchObject({
@@ -60,10 +60,7 @@ describe.skipIf(!h)("approver rules: who sets them", () => {
       },
       { match: { verb: "update" }, approver: { kind: "role", role: "client_user" } },
     ];
-    expect((await H.call(OPERATOR, "PUT", path(), { revision: 0, rules })).status).toBe(400);
-    expect(
-      (await H.call(OPERATOR, "PUT", path(), { revision: 0, rules, reason: "  " })).status,
-    ).toBe(400);
+    // The reason is optional (UI cleanup, decision 8); one given is kept in the log.
     const saved = await H.call(OPERATOR, "PUT", path(), {
       revision: 0,
       rules,
