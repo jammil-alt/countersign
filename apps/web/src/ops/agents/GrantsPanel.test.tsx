@@ -1,6 +1,7 @@
-// The back office's access section on a client agent: each bound connection with its grant, levels
-// offered only up to the connection's matrix, an optional tool subset, saved through the API; never
-// a secret, only whether one is stored.
+// The back office's access section on a client agent: each bound connection with its grant as one
+// compact row in the approval words, its limits on demand (levels offered only up to the
+// connection's matrix, an optional tool subset), saved through the API; never a secret, only
+// whether one is stored.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -65,13 +66,19 @@ describe("grants panel", () => {
     );
     const row = await screen.findByTestId("agent-grant-acme");
     expect(row).toHaveTextContent("Secret stored");
+    // The main row at once, in the approval words; the limits only on demand.
+    expect(within(row).getByTestId("agent-grant-acme-summary")).toHaveTextContent(
+      "ReadOn its ownCreateNeeds approvalUpdateNeeds approvalDeleteOff",
+    );
+    expect(within(row).queryByTestId("agent-grant-acme-create")).toBeNull();
+    await userEvent.click(within(row).getByTestId("agent-grant-acme-edit"));
     const create = within(row).getByTestId("agent-grant-acme-create");
-    // The matrix has create at approval: auto is not offered.
+    // The matrix has create at approval: on its own is not offered.
     expect(
       within(create)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["As the connection allows", "Approval", "Off"]);
+    ).toEqual(["As the connection allows", "Needs approval", "Off"]);
     const save = within(row).getByTestId("agent-grant-acme-save");
     expect(save).toBeDisabled();
     await userEvent.selectOptions(create, "off");
