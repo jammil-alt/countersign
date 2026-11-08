@@ -257,8 +257,7 @@ function browser(options: { dnt?: string; gpc?: boolean; beacon?: boolean } = {}
     Array,
     Uint8Array,
   };
-  const run = () =>
-    runInNewContext(scriptBody(measureScript(URL_ON)), context);
+  const run = () => runInNewContext(scriptBody(measureScript(URL_ON)), context);
   const fire = (type: string, event: unknown = {}) => {
     for (const fn of listeners[type] ?? []) fn(event);
   };
