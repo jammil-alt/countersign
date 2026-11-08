@@ -8,6 +8,13 @@
 import type { z } from "zod";
 import { SAMPLE_TRAFFIC_ACTION } from "../demo";
 import { type AreaModule, defineReport } from "../pack";
+import {
+  WEEKLY_REPORT,
+  WeeklyQuery,
+  weeklyCsv,
+  weeklyReport,
+  weeklyReports,
+} from "../portal/weekly";
 import { overview, overviewCsv } from "../reports";
 import { AddSiteInput, addSite, sitesReport, UpdateSiteInput, updateSite } from "../sites";
 import { AudienceQuery, audienceCsv, audienceReport } from "./audience";
@@ -22,10 +29,23 @@ export const AREA: AreaModule = {
   SKILLS: [],
   TEMPLATES: [],
   EVENTS: [],
+  // M50 (docs/plan.md §1.78): the client's portal reads these and only these (apps/api's
+  // `portalReports` comes from their routes): its website, its search figures and its weekly
+  // reports, read only. The area's other reports are the back office's.
   SCREENS: [
     {
       route: "/reports/marketing/overview",
       title: "Website",
+      roles: ["client_admin", "client_user"],
+    },
+    {
+      route: "/reports/marketing/search",
+      title: "Search",
+      roles: ["client_admin", "client_user"],
+    },
+    {
+      route: `/reports/marketing/${WEEKLY_REPORT}`,
+      title: "Weekly report",
       roles: ["client_admin", "client_user"],
     },
   ],
@@ -80,6 +100,14 @@ export const AREA: AreaModule = {
       query: VisitQuery,
       json: (tx, tenantId, today, q) => visitReport(tx, tenantId, today, q),
       csv: async (tx, tenantId, today, q) => visitCsv(await visitReport(tx, tenantId, today, q)),
+    }),
+    // M50: the weekly report as the portal reads it (../portal/weekly.ts), read only.
+    [WEEKLY_REPORT]: defineReport({
+      title: "Weekly report",
+      query: WeeklyQuery,
+      json: (tx, tenantId, _today, q) => weeklyReports(tx, tenantId, q),
+      csv: (tx, tenantId, _today, q) => weeklyCsv(tx, tenantId, q),
+      item: (tx, tenantId, id) => weeklyReport(tx, tenantId, id),
     }),
     sites: defineReport({
       title: "Sites",

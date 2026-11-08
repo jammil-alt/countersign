@@ -6,7 +6,7 @@
 // (send only), `slack` (posts to picked channels), `bankfeed` (bank and card feeds through Plaid,
 // read only), `gsheets` (Google Sheets, only the sheets the client picks), `gchat` (Google Chat, posts
 // to the spaces a client binds; v0.14 W4-E), `gsc` and `bing_webmaster` (search figures, read only;
-// M45), `website` (guides published to a client's own site; M46), `hackernews` (read only) and
+// M45; `gsc_oauth`, Search Console by Google sign-in, M50), `website` (guides published to a client's own site; M46), `hackernews` (read only) and
 // `linkedin` (company page posts, always signed; §1.77), and `testkit`, the test connector. Also
 // `stripe/`, Mezonas' own billing client (not a connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
@@ -33,6 +33,8 @@ export * from "./gmail/index";
 export * from "./gmail/mime";
 // M45: Google Search Console, read only, and the search records both share (docs/plan.md §1.75).
 export * from "./gsc/index";
+// M50: Search Console by Google sign-in, beside the service account (docs/plan.md §1.78).
+export * from "./gsc/oauth";
 // v0.14 W4-D: Google Sheets (picked sheets only).
 export * from "./gsheets/a1";
 export * from "./gsheets/index";

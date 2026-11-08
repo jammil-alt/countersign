@@ -3,6 +3,7 @@ import { luhnValid, redactCardNumbers, redactCardNumbersDeep } from "./card-numb
 import {
   complianceOf,
   hipaaReadiness,
+  inboundHeld,
   PROCESSORS,
   parseCoveredProcessors,
   processingRefusal,
@@ -86,6 +87,8 @@ describe("processors", () => {
       // M45: the client's own search accounts, read only.
       "gsc",
       "bing_webmaster",
+      // M50: the same Search Console account, by Google sign-in.
+      "gsc_oauth",
     ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }
@@ -148,5 +151,14 @@ describe("processors", () => {
     expect(hipaaReadiness(all, ["upload", "twilio"])).toEqual([
       "The twilio connector is offered and sends data to Twilio, WhatsApp (Meta), ElevenLabs, with no signed BAA. Withdraw it first.",
     ]);
+  });
+});
+
+describe("what HIPAA mode holds back (M50)", () => {
+  it("holds a pack's public inbound (website measurement) for a client in HIPAA mode only", () => {
+    expect(inboundHeld({ hipaa: true })).toBe(true);
+    expect(inboundHeld({ hipaa: false })).toBe(false);
+    expect(inboundHeld(complianceOf({ compliance: { hipaa: true } }))).toBe(true);
+    expect(inboundHeld(complianceOf(null))).toBe(false);
   });
 });

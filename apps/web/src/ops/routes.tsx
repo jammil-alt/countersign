@@ -176,6 +176,19 @@ export const opsRoutes = (
     <Route path="clients/:clientId/marketing/reports/:id" element={<MarketingReportScreen />} />
     <Route path="clients/:clientId/marketing/forum" element={<MarketingForumScreen />} />
     <Route path="clients/:clientId/marketing/sites" element={<MarketingSitesScreen />} />
+    {/* M50: the client page's pack links name the portal's reports; each opens its page here. */}
+    <Route
+      path="clients/:clientId/reports/marketing/overview"
+      element={<Redirect to="/ops/clients/:clientId/marketing/overview" />}
+    />
+    <Route
+      path="clients/:clientId/reports/marketing/search"
+      element={<Redirect to="/ops/clients/:clientId/marketing/search" />}
+    />
+    <Route
+      path="clients/:clientId/reports/marketing/weekly-report"
+      element={<Redirect to="/ops/clients/:clientId/marketing/reports" />}
+    />
     {/* ARCHITECTURE §15 screens not built yet */}
     <Route path="settings" element={<Placeholder title="Settings" />} />
 

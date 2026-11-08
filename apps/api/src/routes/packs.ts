@@ -103,17 +103,24 @@ async function installTemplates(
   return installed;
 }
 
-/** A pack's report for a client that has the pack on. */
+/**
+ * A pack's report for a client that has the pack on. M50: in the portal, only one the pack lets
+ * the portal read (`portalReports`); any other is 404 there, as a report that doesn't exist.
+ */
 async function reportHandler(
   tx: Tx,
   services: Services,
   tenantId: string,
   packId: string,
   name: string,
+  surface: "ops" | "portal" = "ops",
 ) {
   const pack = packOf(services, packId);
   const on = await enabledPacks(tx, tenantId);
   if (!on.some((e) => e.pack === packId)) throw notFound("report");
+  if (surface === "portal" && pack.portalReports && !pack.portalReports.includes(name)) {
+    throw notFound("report");
+  }
   const handler = pack.reports?.[name];
   if (!handler) throw notFound("report");
   return handler;
@@ -146,8 +153,9 @@ async function reportResponse(
   packId: string,
   name: string,
   query?: Readonly<Record<string, string>>,
+  surface: "ops" | "portal" = "ops",
 ) {
-  const handler = await reportHandler(tx, services, tenantId, packId, name);
+  const handler = await reportHandler(tx, services, tenantId, packId, name, surface);
   return { report: await handler.json(tx, tenantId, today(), reportQuery(handler, query)) };
 }
 
@@ -160,8 +168,9 @@ async function reportItem(
   name: string,
   itemId: string,
   query?: Readonly<Record<string, string>>,
+  surface: "ops" | "portal" = "ops",
 ) {
-  const handler = await reportHandler(tx, services, tenantId, packId, name);
+  const handler = await reportHandler(tx, services, tenantId, packId, name, surface);
   if (!handler.item) throw notFound("report item");
   const found = await handler.item(tx, tenantId, itemId, today(), reportQuery(handler, query));
   if (!found) throw notFound("report item");
@@ -176,8 +185,9 @@ async function reportCsv(
   packId: string,
   name: string,
   query?: Readonly<Record<string, string>>,
+  surface: "ops" | "portal" = "ops",
 ) {
-  const handler = await reportHandler(tx, services, tenantId, packId, name);
+  const handler = await reportHandler(tx, services, tenantId, packId, name, surface);
   const day = today();
   const q = reportQuery(handler, query);
   return {
@@ -413,15 +423,25 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
       params.report,
       params.itemId,
       query,
+      "portal",
     ),
   );
 
+  // M50: the portal reads only the reports a pack lets it (`portalReports`).
   mount(app, routes.portalPackReport, async ({ tx, tenantIds, params, services, query }) =>
-    reportResponse(tx, services, tenantIds[0] as string, params.pack, params.report, query),
+    reportResponse(
+      tx,
+      services,
+      tenantIds[0] as string,
+      params.pack,
+      params.report,
+      query,
+      "portal",
+    ),
   );
 
   mountFile(app, routes.portalPackReportCsv, async ({ tx, tenantIds, params, services, query }) =>
-    reportCsv(tx, services, tenantIds[0] as string, params.pack, params.report, query),
+    reportCsv(tx, services, tenantIds[0] as string, params.pack, params.report, query, "portal"),
   );
 
   async function portalItem(

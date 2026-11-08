@@ -4,6 +4,11 @@
 // connection holds the key and the property (entered by the client admin in the portal); the source
 // says which site that property's figures belong to, and keeps the import's state in our words.
 
+import {
+  GSC_OAUTH_CONNECTOR_ID,
+  GscOauthConfig,
+  gscPropertyForDomain,
+} from "@countersign/connectors";
 import { connection, type Db, type Tx, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -16,7 +21,7 @@ import {
   normaliseClient,
   normaliseSource,
   providerOfConnector,
-  SEARCH_CONNECTOR,
+  SEARCH_CONNECTORS,
 } from "./normalise";
 
 export interface SearchSourceRow {
@@ -60,6 +65,9 @@ const toRow = (r: typeof searchSource.$inferSelect): SearchSourceRow => ({
  * Bing. Never a secret: those fields are only ever `{ set: true }` there.
  */
 function propertyOf(config: unknown, provider: SearchProvider): string | null {
+  // M50: a Google sign-in connection keeps the property it reads in its config itself.
+  const own = (config as { property?: unknown } | null)?.property;
+  if (provider === "google" && typeof own === "string" && own.length <= 300) return own;
   const field = provider === "google" ? "property" : "siteUrl";
   const value = (config as { vault?: { fields?: Record<string, { value?: unknown }> } } | null)
     ?.vault?.fields?.[field]?.value;
@@ -99,7 +107,7 @@ export async function searchSources(
     .where(
       and(
         eq(connection.tenantId, tenantId),
-        inArray(connection.connector, Object.values(SEARCH_CONNECTOR)),
+        inArray(connection.connector, Object.values(SEARCH_CONNECTORS).flat()),
       ),
     )
     .orderBy(asc(connection.createdAt));
@@ -113,6 +121,40 @@ export async function searchSources(
         : [];
     }),
   };
+}
+
+/**
+ * M50 (docs/plan.md §1.78): a Google sign-in connection reads the property of the site it is
+ * pointed at, among those the account can read (`config.properties`, kept at sign-in): the
+ * site's Domain property, else its URL-prefix one. Refused when the account can't read the site.
+ */
+// DECISION: chosen from the site's domain when a person points the site at the connection, not
+// asked at sign-in, so the portal's connect page needs no extra field. One connection reads one
+// property: pointing a second site at it moves it, and the first site's figures stop growing.
+async function pickGscProperty(
+  tx: Tx,
+  tenantId: string,
+  connectionId: string,
+  rawConfig: unknown,
+  domain: string,
+): Promise<void> {
+  const parsed = GscOauthConfig.safeParse(rawConfig);
+  const properties = parsed.success ? parsed.data.properties : [];
+  const chosen = gscPropertyForDomain(properties, domain);
+  if (!chosen) {
+    throw new PackRefusal(
+      "property_not_readable",
+      properties.length > 0
+        ? `the Google account that connected can't read ${domain} in Search Console (it can read ${properties.slice(0, 5).join(", ")})`
+        : `the Google account that connected can't read ${domain} in Search Console`,
+    );
+  }
+  if (parsed.success && parsed.data.property === chosen) return;
+  const config = { ...((rawConfig as Record<string, unknown> | null) ?? {}), property: chosen };
+  await tx
+    .update(connection)
+    .set({ config, externalAccountId: chosen })
+    .where(and(eq(connection.tenantId, tenantId), eq(connection.id, connectionId)));
 }
 
 export const SetSearchSourceInput = z.strictObject({
@@ -135,13 +177,13 @@ export async function setSearchSource(
   const now = ctx.now ?? new Date();
   return withTenant(db, tenantId, async (tx) => {
     const [s] = await tx
-      .select({ id: site.id })
+      .select({ id: site.id, domain: site.domain })
       .from(site)
       .where(and(eq(site.tenantId, tenantId), eq(site.id, input.siteId)));
     if (!s) throw new PackRefusal("unknown_site", "no such site for this client");
     if (input.connectionId) {
       const [c] = await tx
-        .select({ connector: connection.connector })
+        .select({ connector: connection.connector, config: connection.config })
         .from(connection)
         .where(and(eq(connection.tenantId, tenantId), eq(connection.id, input.connectionId)));
       if (!c) throw new PackRefusal("unknown_connection", "no such connection for this client");
@@ -152,6 +194,9 @@ export async function setSearchSource(
             ? "that connection isn't a Search Console one"
             : "that connection isn't a Bing Webmaster Tools one",
         );
+      }
+      if (c.connector === GSC_OAUTH_CONNECTOR_ID) {
+        await pickGscProperty(tx, tenantId, input.connectionId, c.config, s.domain);
       }
     }
     const [existing] = await tx
