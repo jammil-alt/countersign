@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders } from "../../App";
+import { createI18n, EN } from "../../i18n/i18n";
 import { InboxCard } from "../../inbox/InboxCard";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
 import { packReportPath, packReportsFor } from "../registry";
@@ -159,6 +160,31 @@ describe("Price watch", () => {
     });
     expect(await screen.findByText(/No prices yet/)).toBeInTheDocument();
     expect(screen.getByText(/No open alerts/)).toBeInTheDocument();
+  });
+
+  it("reads in the client's language, with money, changes and days in its locale", async () => {
+    renderWith(
+      <PriceWatchView />,
+      { "GET /api/reports/materials/prices": () => ({ report: PRICES }) },
+      { ...CLIENT_SESSION, language: { effective: "de", user: "de", client: null } },
+    );
+    const table = await screen.findByTestId("materials-prices-table");
+    expect(screen.getByRole("heading", { name: "Preisbeobachtung" })).toBeInTheDocument();
+    const [first, second] = within(table).getAllByTestId("materials-price-row");
+    expect(first).toHaveTextContent("68,50 $");
+    expect(first).toHaveTextContent("/ Platte");
+    expect(first).toHaveTextContent("+9,6 %");
+    expect(first).toHaveTextContent("1 Hinweis");
+    expect(first).toHaveTextContent("Plattenware · 2 Käufe in 90 Tagen");
+    expect(first).toHaveTextContent("28. Okt. 2026");
+    expect(second).toHaveTextContent("Hartholz");
+    const alerts = screen.getByTestId("materials-alerts");
+    expect(alerts).toHaveTextContent("Preis gestiegen");
+    expect(alerts).toHaveTextContent("480,00 $ betroffen");
+    // The alert's own text is the pack's, as written.
+    expect(alerts).toHaveTextContent("Baltic birch plywood 3/4in 60x60in BB/BB up 9.6%");
+    expect(screen.getByTestId("materials-stat-items")).toHaveTextContent("2 Artikel");
+    expect(screen.getByTestId("materials-prices-csv")).toHaveTextContent("CSV herunterladen");
   });
 });
 
@@ -334,7 +360,9 @@ describe("the match review card", () => {
     const card = await screen.findByTestId("match-review");
     // The plain answer box is replaced by the card.
     expect(screen.queryByTestId("inbox-item-answer-input")).toBeNull();
-    expect(within(card).getByTestId("match-review-state")).toHaveTextContent("Needs you");
+    expect(within(card).getByTestId("match-review-state")).toHaveTextContent("Waiting on you");
+    expect(within(card).getByText(/10 SHT at \$64\.00/)).toBeInTheDocument();
+    expect(within(card).getByRole("option")).toHaveTextContent("(75% sure)");
     // Vetoed near-misses are not offered.
     const select = within(card).getByTestId("match-review-candidate");
     expect(within(select).getAllByRole("option")).toHaveLength(1);
@@ -449,10 +477,14 @@ describe("pack pages", () => {
 
   it("registers Price watch and Catalog as the portal's reports for clients with the pack on", () => {
     const reports = packReportsFor(["materials"]);
-    expect(reports.map((r) => [r.title, packReportPath(r)])).toEqual([
+    expect(reports.map((r) => [EN.t(r.titleKey), packReportPath(r)])).toEqual([
       ["Price watch", "/reports/materials/prices"],
       ["Catalog", "/reports/materials/catalog"],
     ]);
+    // Titles and descriptions are message keys, so the portal reads them in the client's language.
+    const de = createI18n("de");
+    expect(reports.map((r) => de.t(r.titleKey))).toEqual(["Preisbeobachtung", "Katalog"]);
+    expect(de.t("materials.catalog.description")).toMatch(/Lieferant/);
     expect(packReportsFor([])).toEqual([]);
   });
 });

@@ -2,26 +2,33 @@
 // matching skill wasn't sure of, each with the catalog items it weighed. Match (to one of them), New item or
 // Skip, line by line; a Match or New item is a person's decision and teaches the catalog the
 // vendor's name for it. Finish sends the review back to the waiting run.
+//
+// The client's Desk and the back office's Escalations both show it; its words come from the
+// message catalog (`materials.review.*`), in English outside the portal. Invoice lines and catalog
+// item names are data and show as written.
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { type I18n, useI18n } from "../../i18n/i18n";
 import type { ResolveInput } from "../../inbox/InboxCard";
-import { figure, money } from "../../portal/documents";
 import { Badge, Button, ErrorNotice, Loading } from "../../ui/primitives";
 import type { MatchReviewData, ReviewLine } from "./types";
 
 type Action = "match" | "new_item" | "skip";
 
+/** A line's state; an undecided one waits on whoever can decide it (the portal's status words). */
 function decisionWord(
   line: ReviewLine,
   skipped: boolean,
+  canDecide: boolean,
+  { t }: Pick<I18n, "t">,
 ): { label: string; tone: "person" | "neutral" | "warning" } {
   if (line.method === "human" && line.decision === "matched")
-    return { label: "Matched", tone: "person" };
+    return { label: t("materials.review.matched"), tone: "person" };
   if (line.method === "human" && line.decision === "new_item")
-    return { label: "New item", tone: "person" };
-  if (skipped) return { label: "Skipped", tone: "neutral" };
-  return { label: "Needs you", tone: "warning" };
+    return { label: t("materials.review.newItem"), tone: "person" };
+  if (skipped) return { label: t("materials.review.skipped"), tone: "neutral" };
+  return { label: t(canDecide ? "common.waitingOnYou" : "common.waiting"), tone: "warning" };
 }
 
 export function MatchReview({
@@ -36,6 +43,8 @@ export function MatchReview({
   /** Null when this person can't resolve the item. */
   onResolve: ((body: ResolveInput) => Promise<void>) | null;
 }) {
+  const i18n = useI18n();
+  const { t, fmt, intl } = i18n;
   const client = useApiClient();
   const route = surface === "ops" ? apiRoutes.opsPackReview : apiRoutes.portalPackReview;
   const decideRoute =
@@ -47,13 +56,14 @@ export function MatchReview({
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<unknown>(null);
 
-  if (loading && !data) return <Loading label="Loading the lines…" />;
+  if (loading && !data) return <Loading label={t("materials.review.loading")} />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!data) return null;
   const review = view ?? (data.data as unknown as MatchReviewData);
   const canDecide = data.canDecide && open;
   const done = (l: ReviewLine) => l.method === "human" || skipped.has(l.docLineId);
   const remaining = review.lines.filter((l) => !done(l)).length;
+  const sure = new Intl.NumberFormat(intl, { style: "percent", maximumFractionDigits: 0 });
 
   async function decide(line: ReviewLine, action: Action) {
     setBusy(line.docLineId);
@@ -86,7 +96,7 @@ export function MatchReview({
     <div className="flex flex-col gap-3" data-testid="match-review">
       <ul className="flex flex-col divide-y divide-line rounded-md border border-line">
         {review.lines.map((line) => {
-          const word = decisionWord(line, skipped.has(line.docLineId));
+          const word = decisionWord(line, skipped.has(line.docLineId), canDecide, i18n);
           const options = line.candidates.filter((c) => !c.vetoed);
           return (
             <li
@@ -98,13 +108,19 @@ export function MatchReview({
                 <div className="min-w-0">
                   <p className="font-medium text-ink">{line.description}</p>
                   <p className="text-sm text-ink-muted tabular-nums">
-                    {figure(line.qty)} {line.uom ?? ""} at {money(line.unitPrice)}
+                    {t("materials.review.line", {
+                      // The line's own unit, as the invoice printed it.
+                      qty: [fmt.figure(line.qty), line.uom].filter(Boolean).join(" "),
+                      price: fmt.unitPrice(line.unitPrice),
+                    })}
                     {line.vendorSku ? (
                       <span className="ml-2 reference">{line.vendorSku}</span>
                     ) : null}
                   </p>
                   {line.method === "human" && line.catalogItemName ? (
-                    <p className="text-sm text-ink">Now {line.catalogItemName}</p>
+                    <p className="text-sm text-ink">
+                      {t("materials.review.now", { item: line.catalogItemName })}
+                    </p>
                   ) : null}
                 </div>
                 <Badge tone={word.tone} testId="match-review-state">
@@ -116,7 +132,7 @@ export function MatchReview({
                   {options.length > 0 ? (
                     <select
                       className="ds-select min-w-64 flex-1"
-                      aria-label={`Catalog item for ${line.description}`}
+                      aria-label={t("materials.review.pick", { line: line.description })}
                       data-testid="match-review-candidate"
                       value={choice[line.docLineId] ?? options[0]?.catalogItemId}
                       onChange={(e) =>
@@ -125,7 +141,10 @@ export function MatchReview({
                     >
                       {options.map((c) => (
                         <option key={c.catalogItemId} value={c.catalogItemId}>
-                          {c.name} ({Math.round(c.confidence * 100)}% sure)
+                          {t("materials.review.candidate", {
+                            name: c.name,
+                            sure: sure.format(c.confidence),
+                          })}
                         </option>
                       ))}
                     </select>
@@ -138,7 +157,7 @@ export function MatchReview({
                       disabled={busy !== null}
                       onClick={() => void decide(line, "match")}
                     >
-                      Match
+                      {t("materials.review.match")}
                     </Button>
                   ) : null}
                   <Button
@@ -147,7 +166,7 @@ export function MatchReview({
                     disabled={busy !== null}
                     onClick={() => void decide(line, "new_item")}
                   >
-                    New item
+                    {t("materials.review.newItem")}
                   </Button>
                   <Button
                     size="sm"
@@ -156,7 +175,7 @@ export function MatchReview({
                     disabled={busy !== null || skipped.has(line.docLineId)}
                     onClick={() => void decide(line, "skip")}
                   >
-                    Skip
+                    {t("materials.review.skip")}
                   </Button>
                 </div>
               ) : null}
@@ -169,8 +188,8 @@ export function MatchReview({
         <div className="flex items-center justify-end gap-3">
           <span className="text-sm text-ink-muted">
             {remaining === 0
-              ? "Every line is decided."
-              : `${remaining} of ${review.lines.length} lines left.`}
+              ? t("materials.review.allDecided")
+              : t("materials.review.left", { left: remaining, count: review.lines.length })}
           </span>
           <Button
             variant="primary"
@@ -183,7 +202,7 @@ export function MatchReview({
               })
             }
           >
-            Finish review
+            {t("materials.review.finish")}
           </Button>
         </div>
       ) : null}

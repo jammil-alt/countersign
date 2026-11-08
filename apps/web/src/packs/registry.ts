@@ -3,6 +3,7 @@
 // `src/packs/<id>/` and register here; the Reports screen lists each one whose pack the client has
 // enabled (the activity report names them) and mounts it at its path.
 import type { ComponentType } from "react";
+import type { PlainKey } from "../i18n/catalog";
 import { PortalCatalogScreen, PortalPriceWatchScreen } from "./screens";
 
 export interface PackReport {
@@ -10,27 +11,29 @@ export interface PackReport {
   pack: string;
   /** The report's path segment, e.g. "prices". */
   slug: string;
-  title: string;
-  /** One plain line for the reports list. */
-  description: string;
+  /** Its title, as a message key: the portal shows it in the reader's language. */
+  titleKey: PlainKey;
+  /** One plain line for the reports list, as a message key. */
+  descriptionKey: PlainKey;
   Component: ComponentType;
 }
 
 // DECISION: pack reports are registered in the web app (the screens are code) and shown only for
-// packs the client has enabled, which the API names (`packs` on the activity report).
+// packs the client has enabled, which the API names (`packs` on the activity report). Their titles
+// and descriptions are message keys, so the portal reads them in the client's language.
 export const PACK_REPORTS: readonly PackReport[] = [
   {
     pack: "materials",
     slug: "prices",
-    title: "Price watch",
-    description: "What you pay for each material, by vendor, and the prices that moved.",
+    titleKey: "materials.prices.title",
+    descriptionKey: "materials.prices.description",
     Component: PortalPriceWatchScreen,
   },
   {
     pack: "materials",
     slug: "catalog",
-    title: "Catalog",
-    description: "The materials you buy, with each vendor's name for them.",
+    titleKey: "materials.catalog.title",
+    descriptionKey: "materials.catalog.description",
     Component: PortalCatalogScreen,
   },
 ];

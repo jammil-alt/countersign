@@ -185,6 +185,7 @@ function AgentPage({
  * reports and then this month's activity (the generic report, with a link to the full one).
  */
 function OwnView({ id, detail }: { id: string; detail: Detail }) {
+  const { t } = useI18n();
   const key: AgentViewKey = { template: detail.template, packs: detail.packs };
   const views = viewsFor(key);
   if (views.length > 0) {
@@ -205,10 +206,10 @@ function OwnView({ id, detail }: { id: string; detail: Detail }) {
       {reports.map((r) => (
         <Card
           key={packReportPath(r)}
-          title={r.title}
+          title={t(r.titleKey)}
           meta={
             <Link to={packReportPath(r)} className="text-sm text-link hover:underline">
-              {r.description}
+              {t(r.descriptionKey)}
             </Link>
           }
           testId={`agent-pack-report-${r.pack}-${r.slug}`}

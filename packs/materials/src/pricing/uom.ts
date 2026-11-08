@@ -78,7 +78,7 @@ const one = (rule: string, assumed = false): Conversion => ({
 
 /** `5 gallon` → 5 (gallons), `1 quart` → 0.25; null when the container isn't read. */
 function containerGallons(container: string | undefined): Decimal | null {
-  const m = /^(\d*\.?\d+)\s+(gallon|gal|quart|qt)/.exec(container ?? "");
+  const m = /^((?:\d+(?:\.\d+)?|\.\d+))\s+(gallon|gal|quart|qt)/.exec(container ?? "");
   if (!m?.[1] || !m[2]) return null;
   const n = dec(m[1]);
   return m[2].startsWith("q") ? n.dividedBy(4) : n;

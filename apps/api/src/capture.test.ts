@@ -46,6 +46,7 @@ import {
 import { captureDepsFor } from "./conversations/start";
 import { defaultDeps } from "./http";
 import { dbMessagingServices } from "./messaging/services";
+import { quietNever } from "./quiet-hours.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -166,7 +167,7 @@ describe.skipIf(!h)("WhatsApp passive capture", () => {
 
   beforeAll(async () => {
     const q = await H.call(OPERATOR, "PUT", ops("/messaging"), {
-      quietHours: { start: "03:00", end: "03:01" },
+      quietHours: quietNever(),
     });
     expect(q.status, JSON.stringify(q.json)).toBe(200);
     await H.call(OPERATOR, "POST", ops("/messaging/twilio"));
