@@ -41,6 +41,17 @@ export interface ToolInvocation {
   platform: PlatformStore;
   /** The documents capability (`docs.*` tools); absent where nothing provides it. */
   documents?: DocumentsPort | undefined;
+  // P-1: what a pack's tools need (docs/plan.md §1.63).
+  /**
+   * The settings of the skill this call runs under (its defaults under the agent's and the step's
+   * overrides), e.g. a matching threshold. Tools read thresholds here, never from the model's input.
+   */
+  settings?: Readonly<Record<string, unknown>> | undefined;
+  /**
+   * What apps/api hands a pack's tools (the run's database and model transport), opaque here: the
+   * platform never imports a pack, and a pack never imports packages/agents (invariant 2).
+   */
+  packServices?: Readonly<Record<string, unknown>> | undefined;
   /** The client's knowledge base (`knowledge.search`); absent where nothing provides it. */
   knowledge?: KnowledgePort | undefined;
   /** The client's directory (`directory.*`); absent where nothing provides it. */

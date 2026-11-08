@@ -1,0 +1,23 @@
+// Inbox cards that packs add (ARCHITECTURE §11, §12.2): an inbox item whose payload names a
+// `review` gets that pack's card in place of the plain question. The inbox itself names no pack.
+import type { ReactNode } from "react";
+import type { ResolveInput } from "../inbox/InboxCard";
+import { MatchReview } from "./materials/MatchReview";
+import { MATCH_REVIEW } from "./materials/types";
+
+interface ReviewCardProps {
+  itemId: string;
+  surface: "portal" | "ops";
+  open: boolean;
+  onResolve: ((body: ResolveInput) => Promise<void>) | null;
+}
+
+const CARDS: Record<string, (props: ReviewCardProps) => ReactNode> = {
+  [MATCH_REVIEW]: (p) => <MatchReview {...p} />,
+};
+
+/** The pack card for an item's payload, or null for a plain item. */
+export function packReviewCard(payload: Record<string, unknown>) {
+  const key = typeof payload.review === "string" ? payload.review : null;
+  return key ? (CARDS[key] ?? null) : null;
+}

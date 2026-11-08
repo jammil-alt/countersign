@@ -11,6 +11,7 @@ import {
   agentChange,
   agentGrant,
   agentVersion,
+  alert,
   appUser,
   auditEvent,
   automation,
@@ -676,6 +677,20 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       before: cv.capture,
       after: { ...cv.capture, attachments: "documents" },
     },
+  });
+
+  // P-1 (0032): an alert on the client's document line, raised by its run.
+  await db.insert(alert).values({
+    tenantId,
+    kind: "price_jump",
+    subjectType: "document",
+    subjectId: d.id,
+    severity: "warning",
+    title: "Price up",
+    body: "A price went up.",
+    evidence: [dl?.id ?? d.id],
+    raisedByRunId: r.id,
+    agentVersionId: av.id,
   });
 
   await db.insert(auditEvent).values({

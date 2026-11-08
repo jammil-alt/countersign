@@ -51,6 +51,7 @@ import {
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
+import { quietNever } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -298,7 +299,7 @@ describe.skipIf(!h)("human release through the API", () => {
 
   beforeAll(async () => {
     // Texting: a subaccount, a number, A2P approved, and quiet hours that never fall now.
-    await call(OPERATOR, "PUT", msg(), { quietHours: { start: "03:00", end: "03:01" } });
+    await call(OPERATOR, "PUT", msg(), { quietHours: quietNever() });
     setup = j((await call(OPERATOR, "POST", msg("/twilio"))).json).setup;
     setup = j(
       (await call(OPERATOR, "POST", msg("/numbers"), { phoneNumber: "+15125550101" })).json,

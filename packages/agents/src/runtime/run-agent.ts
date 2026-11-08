@@ -381,6 +381,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     mode,
     approval: input.approval,
     threadId: input.threadId,
+    // P-1: the skill's resolved settings, for its tools (a pack's thresholds).
+    settings,
     externalIndex: { next: 0 },
     language: input.language,
     readOnly: asked !== undefined,

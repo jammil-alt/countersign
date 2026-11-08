@@ -216,6 +216,7 @@ describe("the client page", () => {
       "Agents",
       "Data",
       "Setup",
+      "Packs",
       "Settings",
     ]);
     expect(tabs.map((t) => t.getAttribute("href"))).toEqual([
@@ -223,6 +224,7 @@ describe("the client page", () => {
       `/ops/clients/${CLIENT}/agents`,
       `/ops/clients/${CLIENT}/documents`,
       `/ops/clients/${CLIENT}/connections`,
+      `/ops/clients/${CLIENT}/packs`,
       `/ops/clients/${CLIENT}/settings`,
     ]);
     // The client's runs: the Runs page filtered to it, from the Overview.

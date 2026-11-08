@@ -35,6 +35,8 @@ export interface RuntimeDeps {
    * reason to refuse this tool call for this client, or null. Absent: nothing is refused.
    */
   policy?: ToolPolicy;
+  // P-1: passed through to pack tools as `ToolInvocation.packServices` (apps/api: db, transport).
+  packServices?: Readonly<Record<string, unknown>>;
 }
 
 export interface ToolPolicy {
@@ -64,6 +66,8 @@ export interface StepContext {
    */
   literalInput?: unknown;
   threadId?: string | undefined;
+  // P-1: the resolved settings of the skill the step runs, handed to its tools.
+  settings?: Readonly<Record<string, unknown>> | undefined;
   /** Counts external calls in this step, for `<run id>:<step id>:<index>` keys. */
   externalIndex: { next: number };
   /**

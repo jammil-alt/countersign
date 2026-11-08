@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isApiError } from "../api/client";
 import { uploadFiles } from "../api/upload";
-import { documentStatus, figure, money } from "./documents";
+import { createTranslator } from "../i18n/catalog";
+import { documentStatus, figure, money, sourceLabel } from "./documents";
 
 describe("document figures", () => {
   it("formats money from decimal strings with separators, never floats", () => {
@@ -66,5 +67,13 @@ describe("uploadFiles", () => {
       (e: unknown) => e,
     );
     expect(isApiError(err) && err.code).toBe("invalid_response");
+  });
+});
+
+describe("document sources", () => {
+  it("names every source a document can come from, never the raw word", () => {
+    expect(sourceLabel("upload")).toBe("Uploaded");
+    expect(sourceLabel("message")).toBe("From a message");
+    expect(sourceLabel("message", { t: createTranslator("es") })).toBe("De un mensaje");
   });
 });

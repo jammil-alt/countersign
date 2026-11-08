@@ -271,6 +271,8 @@ export function runtimeFor(
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,
     transport: deps.transport,
+    // P-1: pack tools reach the client's data through the run's database (packs.ts).
+    packServices: { db, transport: deps.transport },
     ...(deps.covered ? { policy: hipaaToolPolicy(profileReader(db), deps.covered) } : {}),
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
     ...(deps.now ? { now: deps.now } : {}),

@@ -185,6 +185,9 @@ async function dispatch(
       threadId: step.threadId,
       platform: deps.ports.platform,
       documents: deps.ports.documents,
+      // P-1: a pack tool's settings and services (docs/plan.md §1.63).
+      settings: step.settings ?? {},
+      ...(deps.packServices ? { packServices: deps.packServices } : {}),
       knowledge: deps.ports.knowledge,
       directory: deps.ports.directory,
       health: deps.ports.health,

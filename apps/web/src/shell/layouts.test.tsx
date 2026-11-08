@@ -124,6 +124,7 @@ describe("back office layout", () => {
       "Agent lab",
       "Skills",
       "Connectors",
+      "Packs",
       "Usage and billing",
       // Under More.
       "Feedback",
