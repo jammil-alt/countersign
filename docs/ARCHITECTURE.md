@@ -325,6 +325,14 @@ In:
   **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
   agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
   sending a text or placing a call is an external action behind approval (`docs/plan.md` §1.19)
+  - **US texting registration** (A2P 10DLC, P-8): US texts go out only once the client's brand and
+    one campaign are registered. The client admin gives the business's details in the portal (the
+    EIN write-only, in the client's vault); the operator reviews them, sees Twilio's fees and
+    submits; Mezonas registers the secondary customer profile, trust product, brand, Messaging
+    Service and campaign by Twilio's API in the client's subaccount, follows their status on the
+    cron, and sends through the Messaging Service once the campaign is verified. The campaign is the
+    company's own non-marketing texts (team, vendors, customer care); Twilio's fees are the
+    client's usage, in credits (`docs/plan.md` §1.70)
 - **Reach out** (v0.9): agents know the people they work with and contact them by email, text,
   WhatsApp or call, in their language, under conditions, through channels each agent is given (a
   mailbox of its own, Mezonas' sending service or a person's Gmail; the client's numbers). Sending

@@ -4,6 +4,8 @@ import { DIRECTORY_TITLE_MAX, Relationship } from "../directory/kinds";
 import { LanguageUsed } from "../directory/language";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
+// P-8: US texting registration by API
+import { A2pCampaignText, A2pRegistrationState } from "../messaging/a2p";
 import {
   CONSENT_SOURCE_MAX,
   ConsentChannel,
@@ -14,6 +16,7 @@ import {
 import { ReachChannel, RoleName } from "../reach/rules";
 // P-7
 import { ContactTranslation, OpsTranslationView, TranslationView } from "../translate/settings";
+import { A2pRegistrationView } from "./a2p";
 import { defineRoute } from "./contract";
 
 // Texts and WhatsApp through Twilio (docs/plan.md §1.19, §1.22): a client's contacts and their
@@ -220,6 +223,9 @@ export const A2pRegistration = z.object({
   campaignStatus: z.string().nullable(),
   status: A2pStatus,
   checkedAt: z.string().nullable(),
+  // P-8: the registration by API, when Mezonas registers it (docs/plan.md §1.70); absent for a
+  // client registered by hand in Twilio's console.
+  registration: A2pRegistrationState.optional(),
 });
 export type A2pRegistration = z.infer<typeof A2pRegistration>;
 
@@ -244,6 +250,8 @@ export const MessagingSetup = z.object({
       subaccountSid: z.string(),
       numbers: z.array(TwilioNumber),
       a2p: A2pRegistration,
+      // P-8: the registration by API, as the operator reviews it.
+      registration: A2pRegistrationView.nullable().optional(),
     })
     .nullable(),
   /** Where Twilio sends inbound messages and delivery status for this client. */
@@ -452,6 +460,23 @@ export const messagingRoutes = {
         .string()
         .regex(/^MG[0-9a-fA-F]{32}$/)
         .nullable(),
+    }),
+    response: SetupResponse,
+  }),
+  // P-8: submit the client's details to Twilio (docs/plan.md §1.70).
+  opsA2pSubmit: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/messaging/a2p/submit",
+    auth: "session",
+    roles: OPS,
+    summary: "Submit (or resubmit) the client's US texting registration to Twilio, fees confirmed",
+    params: ClientParams,
+    body: z.strictObject({
+      reason: z.string().trim().min(3).max(500),
+      /** The operator read the fees shown for this submit. */
+      confirmFees: z.literal(true),
+      /** The campaign's words, if the operator edited them. */
+      campaign: A2pCampaignText.optional(),
     }),
     response: SetupResponse,
   }),

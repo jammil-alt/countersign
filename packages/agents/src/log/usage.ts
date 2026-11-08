@@ -2,6 +2,8 @@
 // office's usage screens and future billing. Recomputed from the rows, so running it twice for the
 // same day gives the same answer. Cost is summed by Postgres as numeric, never as a JS number.
 
+// P-8
+import { PROVIDER_FEE_ENTITY } from "@countersign/core";
 import { run, type Tx, usageDaily, usagePlatformDaily } from "@countersign/db";
 import { and, eq, sql } from "drizzle-orm";
 
@@ -140,6 +142,7 @@ export async function rollupUsageDaily(
  * usage_platform_daily. A day with no such reading writes no row.
  * P-7: and the translations no agent made (the background job, a person's own text), with their
  * tokens and cost; a day with neither writes no row.
+ * P-8: and the providers' fees passed on to the client (`ProviderFee` raw records), in its cost.
  */
 // DECISION: a background reading that fails writes no doc_extraction row, so its model call (if it
 // got that far) is not counted: rows are immutable and only a reading has one. Failures are rare,
@@ -175,14 +178,23 @@ export async function rollupPlatformDaily(
       from message_translation mt, d
       where mt.tenant_id = ${t} and mt.agent_version_id is null and mt.model is not null
         and mt.created_at >= d.lo and mt.created_at < d.hi
+    ),
+    -- P-8 (docs/plan.md §1.70): providers' fees passed on to the client (raw records
+    -- ProviderFee, e.g. Twilio's A2P 10DLC fees), on the day they were recorded.
+    fees as (
+      select coalesce(sum((rr.payload->>'amountUsd')::numeric), 0) as cost_usd,
+             count(*)::int as n
+      from raw_record rr, d
+      where rr.tenant_id = ${t} and rr.entity_type = ${PROVIDER_FEE_ENTITY}
+        and rr.synced_at >= d.lo and rr.synced_at < d.hi
     )
     insert into usage_platform_daily
       (tenant_id, day, documents, translations, tokens_in, tokens_out, cost_usd)
     select ${t}::uuid, d.day, reads.documents, tr.translations,
            reads.tokens_in + tr.tokens_in, reads.tokens_out + tr.tokens_out,
-           reads.cost_usd + tr.cost_usd
-    from d, reads, tr
-    where reads.n > 0 or tr.translations > 0
+           reads.cost_usd + tr.cost_usd + fees.cost_usd
+    from d, reads, tr, fees
+    where reads.n > 0 or tr.translations > 0 or fees.n > 0
     on conflict (tenant_id, day) do update set
       documents = excluded.documents, translations = excluded.translations,
       tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,

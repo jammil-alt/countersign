@@ -7,7 +7,9 @@
 import type { FetchLike, HttpRequestInit, HttpResponseLike } from "../http";
 import { formDecode, parseUrl } from "../http";
 import { fromBase64, fromUtf8 } from "../runtime";
+import { TWILIO_TRUSTHUB_API } from "./a2p";
 import { TWILIO_API, TWILIO_MESSAGING_API, twilioSignature } from "./api";
+import { fakeA2p } from "./fake-a2p";
 
 export interface FakeTwilioRequest {
   url: string;
@@ -34,6 +36,8 @@ interface FakeMessage {
   num_media: string;
   error_code: number | null;
   content_sid?: string;
+  // P-8
+  messaging_service_sid?: string;
 }
 
 interface FakeNumber {
@@ -146,6 +150,8 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
   const media = new Map<string, FakeMedia>();
   const brands = new Map<string, string>();
   const campaigns = new Map<string, string>();
+  // P-8: Trust Hub, brands, Messaging Services and campaigns by API (docs/plan.md §1.70).
+  const a2p = fakeA2p(next);
   const requests: FakeTwilioRequest[] = [];
   const forSale = ["+15125550101", "+15125550102", "+17375550103"];
 
@@ -225,6 +231,22 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
         ),
     );
 
+    // P-8: Trust Hub and the A2P resources answer first; anything else falls through.
+    if (url.startsWith(TWILIO_TRUSTHUB_API)) {
+      return a2p.trustHub(caller, method, u.pathname.replace(/^\/v1/, ""), form);
+    }
+    if (url.startsWith(TWILIO_MESSAGING_API)) {
+      const handled = a2p.messaging(
+        caller,
+        method,
+        u.pathname.replace(/^\/v1/, ""),
+        form,
+        query,
+        init.body ?? "",
+        { brands, campaigns, numbers },
+      );
+      if (handled) return handled;
+    }
     if (url.startsWith(TWILIO_MESSAGING_API)) {
       const path = u.pathname.replace(/^\/v1/, "");
       const brand = path.match(/^\/a2p\/BrandRegistrations\/(BN[0-9a-f]{32})$/);
@@ -274,6 +296,9 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
     const [, account, rest] = m;
     if (!mayActOn(caller, account)) return json(403, { code: 20003, message: "forbidden" });
 
+    // P-8: the business's address (Trust Hub's supporting document points at it).
+    const address = a2p.addresses(account, method, rest, form);
+    if (address) return address;
     const avail = rest.match(/^\/AvailablePhoneNumbers\/([A-Z]{2})\/Local\.json$/);
     if (avail && method === "GET") {
       const list = forSale
@@ -363,14 +388,28 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
           message: `The 'To' number ${to} is not a valid phone number.`,
         });
       }
+      // P-8: through a Messaging Service, the sender must be in that service's pool.
+      if (form.MessagingServiceSid) {
+        const svc = a2p.services.get(form.MessagingServiceSid);
+        const pn = [...numbers.values()].find(
+          (n) => n.account_sid === account && n.phone_number === form.From,
+        );
+        if (!svc || svc.account !== account || !pn || !svc.numbers.has(pn.sid)) {
+          return json(400, {
+            code: 21703,
+            message: "The From phone number is not in the Messaging Service's sender pool",
+          });
+        }
+      }
       const msg = addMessage({
         account_sid: account,
         from: form.From ?? "",
         to,
         body: form.Body ?? "",
-        status: "queued",
+        status: form.MessagingServiceSid ? "accepted" : "queued",
         direction: "outbound-api",
         ...(form.ContentSid ? { content_sid: form.ContentSid } : {}),
+        ...(form.MessagingServiceSid ? { messaging_service_sid: form.MessagingServiceSid } : {}),
       });
       return json(201, msg);
     }
@@ -517,8 +556,19 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
     setBrand(sid: string, status: string) {
       brands.set(sid, status);
     },
-    setCampaign(serviceSid: string, status: string) {
+    setCampaign(serviceSid: string, status: string, errors?: unknown[]) {
       campaigns.set(serviceSid, status);
+      // P-8: a campaign made by API keeps its record and Twilio's reasons.
+      const c = a2p.campaignRecords.get(serviceSid);
+      if (c) c.errors = errors ?? [];
+    },
+    // P-8: the A2P resources by API (docs/plan.md §1.70).
+    a2p,
+    /** A brand's status, with Twilio's reasons when it failed. */
+    setBrandResult(sid: string, status: string, errors: unknown[] = []) {
+      brands.set(sid, status);
+      const b = a2p.brandRecords.get(sid);
+      if (b) b.errors = errors;
     },
     /**
      * A message from `from` to one of the account's numbers, as Twilio would POST it to the

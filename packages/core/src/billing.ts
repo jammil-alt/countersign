@@ -378,3 +378,23 @@ export function readTenantBilling(settings: unknown): TenantBilling | null {
   const parsed = TenantBilling.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
+
+// P-8: a provider's pass-through fee (Twilio's A2P 10DLC registration, docs/plan.md §1.70).
+
+/**
+ * A raw record of this entity type (on the connection whose provider charged it, external id =
+ * the fee's own key, so it is recorded once) is a fee we paid for the client. The platform rollup
+ * adds its amount to the client's own usage (`usage_platform_daily.cost_usd`) on the UTC day it
+ * was recorded, and billing turns that into credits like any other cost.
+ */
+// DECISION: one entity type for every connector's pass-through fee, so no new column, rule or
+// measure is needed, and the raw record's uniqueness keeps each fee to one charge (plan §1.70).
+export const PROVIDER_FEE_ENTITY = "ProviderFee";
+
+export const ProviderFeePayload = z.object({
+  kind: z.string().min(1).max(40),
+  description: z.string().min(1).max(200),
+  amountUsd: DecimalString.refine((v) => !v.startsWith("-"), "not negative"),
+  currency: z.literal("USD"),
+});
+export type ProviderFeePayload = z.infer<typeof ProviderFeePayload>;

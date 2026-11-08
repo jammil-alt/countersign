@@ -1,7 +1,7 @@
 // The Hono app: every /api route, built from injectable dependencies so the same app runs in the
 // Worker and in Node tests (with a test database and in-memory Workflow instances).
 
-import { credentialKeysFromEnv } from "@countersign/connectors";
+import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import { Hono } from "hono";
 import { bankfeedCron } from "./bankfeed/sync";
@@ -23,6 +23,8 @@ import {
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
+// P-8: US texting registration
+import { a2pCronTick } from "./messaging/a2p";
 // v0.12 W2-G
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
@@ -32,6 +34,7 @@ import { reportHandled } from "./observability/report";
 // v0.12 W3-B
 import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
+import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
@@ -222,6 +225,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   whatsappMetaRoutes(app);
   // P-6: the client runs it, we step in (docs/plan.md §1.68)
   stepInRouteHandlers(app);
+  // P-8: US texting registration, the client admin's details (docs/plan.md §1.70)
+  a2pRoutes(app);
   // P-7: message translation's settings (docs/plan.md §1.69)
   translationRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
@@ -300,6 +305,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         reportHandled("zoho sync tick failed", error, { job: "zoho_sync" }),
       );
     }
+    // P-8: US texting registrations Twilio has, hourly (docs/plan.md §1.70).
+    await a2pCronTick(db, { env, fetch: deps.fetch?.(env) ?? globalFetch() }, scheduledTime).catch(
+      (error: unknown) => reportHandled("a2p status tick failed", error, { job: "a2p" }),
+    );
     // v0.14 capture: captures left pending start again (every 10 minutes, docs/plan.md §1.55).
     if (scheduledTime.getUTCMinutes() % 10 === CAPTURE_CRON_MINUTE) {
       const capture = captureDepsFor({ db, env, deps, platform });

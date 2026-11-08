@@ -80,7 +80,7 @@ export const FORBIDDEN_PORTAL_FIELD =
 // a stored secret's value in every response; the webhook setup's `signingSecret` (Mezonas' own
 // signing key, shown to the client who pastes it into Zapier) predates it and is left as it is.
 export const FORBIDDEN_SECRET_FIELD =
-  /^(credentials|credentialsEncrypted|credentials_encrypted|wrappedKey|wrapped_key|password|apiKey|api_key|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|otpauthUri|cookies|sessionCookies|codeHash|code_hash|releaseCode)$/i;
+  /^(credentials|credentialsEncrypted|credentials_encrypted|wrappedKey|wrapped_key|password|apiKey|api_key|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|otpauthUri|cookies|sessionCookies|codeHash|code_hash|releaseCode|ein|taxId|tax_id|businessRegistrationNumber|business_registration_number)$/i;
 
 /** Property names anywhere in a schema that match `pattern`. */
 function fieldsMatching(schema: z.ZodType, pattern: RegExp): string[] {
