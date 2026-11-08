@@ -126,6 +126,9 @@ describe("the Marketing entry", () => {
   });
 });
 
+/** Screens no longer stubs (each has its own test file). */
+const BUILT = new Set<string>(["content", "claims"]);
+
 describe("a client's Marketing pages", () => {
   it.each(MARKETING_NAV.map((s) => s.id))("%s has its frame and sub-navigation", async (id) => {
     renderAt(MARKETING_PATHS[id](OURS), [row(OURS, "Mezonas", true)], [OURS]);
@@ -134,7 +137,8 @@ describe("a client's Marketing pages", () => {
     expect(links.map((l) => l.textContent)).toEqual(MARKETING_NAV.map((s) => s.label));
     const current = links.find((l) => l.getAttribute("href") === MARKETING_PATHS[id](OURS));
     expect(current?.className).toContain("border-slate");
-    expect(await screen.findByText(/^Coming in M4\d$/)).toBeInTheDocument();
+    // A stub until its builder replaces it; built screens have their own tests.
+    if (!BUILT.has(id)) expect(await screen.findByText(/^Coming in M4\d$/)).toBeInTheDocument();
   });
 
   it("sends the area's own address to its overview", async () => {

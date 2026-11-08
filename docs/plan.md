@@ -2059,10 +2059,26 @@ Decisions for M45 (the search builder) go here.
 
 ### 1.76 M46: content and publishing
 
-Decisions for M46 (the content and site builders) go here.
+Decisions for M46 (the content and site builders) go here. The content builder's: the pack's
+content area (`packs/marketing/src/content/`), the `website` connector, person-signed writes and
+preview links in apps/api, the Content, guide and Claims screens, and `docs/marketing/claims.md`
+with its JSON (`fixtures/marketing/mezonas-claims.json`).
 
 | Topic | Decision |
 |---|---|
+| A guide's address | Fixed when the guide is created, not when it is first published: 0038 lets `content_page` change only its status and live version. A guide that must move is a new guide and a redirect (`add-redirect`, refused while the old address is live). // DECISION |
+| Checks | Ported from Plenary Labs (`content/{checks,markdown,html}.ts`): title ≤ 60 and description ≤ 155 characters, no `#` heading in the body (the title is the page's one `h1`), something to read, links that resolve, unsafe links taken out (refused), and the claims lint; a `refuse` blocks publishing, a `check` is shown. The same function answers the editor's live check (the `check` action), `marketing.content.check` and `publish`. |
+| Where a link may point | The site's front page, the paths measurement has counted for that site (`site_daily_page`), its live guides, its redirects and the guide itself. The pack keeps no list of a client's own pages; a page nobody has visited yet is the one false refusal. // DECISION |
+| The claims list | Per client, in `claims_version` (newest wins), as data: approved claims, conditions with the phrases that bring them up (`check`), and "never" entries with the phrases that refuse (`refuse`). Phrases are matched as whole words, case-blind, any spaces between words; never regular expressions (people enter them, and a pattern could match everything or hang). Every list also keeps the house rules: no "!", never "AI-powered". `save-claims` adds a version; `seed-claims` loads the first from a JSON body and refuses once there is one. // DECISION |
+| Mezonas's list | A first draft in `docs/marketing/claims.md`, taken from mezonas.com's pages and the code's invariants, marked a draft for the owner; the JSON the operator loads is `fixtures/marketing/mezonas-claims.json` (a test checks it parses and that the site's own words pass it). |
+| Agents' drafts | `marketing.content.draft` (internal) adds a version with the agent version and run, never a publish; `why` and at least one source are required. `content_version` has no sources column, so the sources are kept at the end of `why` ("Sources:", one per line), where the editor shows them. // DECISION (a `sources` column would be cleaner: for the lead) |
+| Publishing is a person's signed write | `publish` and `unpublish` are the person's own act in the back office: they press Publish, read what goes where, and sign. The platform hands every pack action a `signedWrite` (`apps/api/src/signed-writes.ts`): it records an `external_action` approved by that person (no run, no agent, its key `signed:<the pack's key>`) and runs it once through `executeAction`, which captures the before state and records the result; the connection's matrix still applies. Only once it is done does the pack record `content_publish` and the live version. Nothing in the platform names a pack or a connector. // DECISION: signed at the action rather than proposed to the inbox, because an external action with no run has nothing to resume it once approved; an agent never publishes. |
+| The `website` connector | No sign-in. The operator points the client's connection at one of its sites (`set-website`, which sets `connection.config.domain` from the client's own `site`); the connector writes only under `site/<that domain>/` and takes no domain from its input, so an agent's input can never aim it at another client's site. `website.publish` (publish or unpublish) and `website.meta` are external, `update` (every version is kept; delete stays off), `approval: 'always'`. // DECISION |
+| The bucket and the flags | `SITE_CONTENT` (an R2 binding, optional in apps/api's env, not in wrangler.jsonc) and `INDEXNOW_KEY` (a secret). Without the binding both tools refuse with "publishing isn't set up" and the external action is recorded as failed; without the key nobody is pinged. A ping never fails a publish. `website.meta` on one of the site's own pages writes nothing: it is recorded (`applied: false`) for a person to make by pull request. |
+| Redirects | `site/<domain>/redirects.json` is written in full with every publish and unpublish, from `content_redirect`: a redirect reaches the site with the next one. // DECISION |
+| Preview links | Generic: a pack lists the reports whose items are previews (`RegisteredPack.previews`; Marketing's `content-preview`, a checked fragment). `POST /api/ops/clients/:id/packs/:pack/previews` signs a link for 24 hours (an HMAC with a key derived from ENCRYPTION_KEY under its own label, as document links are); `GET /api/preview/:token` renders it, noindex (`X-Robots-Tag` and the meta tag), a strict CSP, no session read, 404 for anything else. // DECISION |
+| Screens | Content (guides with their state, a new guide, where publishing goes, redirects), a guide (editor with counters, fixed address, Markdown body, target queries with 28 days of search figures, live check, the page in a sandboxed frame, the search result, preview link, versions with restore, Publish with the signing card) and Claims (the list in force, its versions, a new version saved as JSON). |
+| Not in this step | The `marketing.content.published` event (the pack would need `@countersign/senses`); the site Worker serving the guides (the site builder's, behind `SITE_GUIDES=on`); a portal screen (M50). |
 
 ### 1.77 M47–M49: the agent set
 
@@ -2964,6 +2980,13 @@ published guide is in R2 with its sitemap; unpublish removes it; with the flags 
 written and the site is static.
 
 **Done when** a guide written in the back office is live on mezonas.com after the owner signs it.
+
+Built (content side, `claude/marketing-content`): the content area, the claims list and its
+draft for Mezonas, the `website` connector, person-signed writes, preview links and the three
+screens (§1.76). Waiting on the owner: the bucket and its `SITE_CONTENT` binding on apps/api (and
+the site), `INDEXNOW_KEY` once the site serves its key file, reading `docs/marketing/claims.md`
+and loading it for the Mezonas client (`seed-claims`), and pointing Mezonas's Website connection
+at mezonas.com.
 
 ### M47: Agents 1 (§1.77)
 
