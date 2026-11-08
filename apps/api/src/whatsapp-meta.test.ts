@@ -54,6 +54,7 @@ import {
 } from "./api.test-helper";
 import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
 import { fileSafeId } from "./conversations/media";
+import { quietNever } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -269,7 +270,7 @@ describe.skipIf(!h)("WhatsApp through Meta through the API", () => {
     const ops = (path: string) => `/api/ops/clients/${A()}${path}`;
     // Quiet hours out of the way (a minute at 3 a.m.), Twilio's WhatsApp sender for the comparison.
     await call(OPERATOR, "PUT", ops("/messaging"), {
-      quietHours: { start: "03:00", end: "03:01" },
+      quietHours: quietNever(),
     });
     await call(OPERATOR, "POST", ops("/messaging/twilio"));
     const bought = await call(OPERATOR, "POST", ops("/messaging/numbers"), {
