@@ -79,7 +79,7 @@ const Redirect = z.object({ from: Path, to: Path });
 // DECISION: a pattern check here rather than a second sanitiser: the connector refuses what the
 // pack's renderer can never produce, so a write that didn't come through the checks fails loudly.
 const UNSAFE_HTML =
-  /<\s*\/?\s*(?:script|style|iframe|object|embed|form|input|button|link|meta|base|img|svg|math|template)\b|\son[a-z]+\s*=|javascript:|data:text\/html|<h1\b/i;
+  /<[\s/]*(?:script|style|iframe|object|embed|form|input|button|link|meta|base|img|svg|math|template)\b|\son[a-z]+\s*=|javascript:|data:text\/html|<h1\b/i;
 export function unsafeHtml(html: string): boolean {
   return UNSAFE_HTML.test(html);
 }

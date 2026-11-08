@@ -119,7 +119,7 @@ function SearchResult({ domain, path, draft }: { domain: string; path: string; d
     <div className="flex flex-col gap-1" data-testid="marketing-content-page-serp">
       <span className="text-sm text-ink-muted">
         {domain}
-        {path.replace(/\//g, " › ").replace(/^ › /, " › ")}
+        {path.replace(/\//g, " › ")}
       </span>
       <span className="font-medium text-ink">{cut(draft.title, TITLE_MAX) || "Untitled"}</span>
       <span className="text-sm text-ink-muted">{cut(draft.description, DESCRIPTION_MAX)}</span>

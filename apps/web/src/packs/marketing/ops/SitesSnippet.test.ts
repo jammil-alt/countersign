@@ -40,13 +40,15 @@ describe("the site snippet", () => {
     expect(beaconUrl("https://app.mezonas.com/", CLIENT, SITE)).toBe(
       `https://app.mezonas.com/api/in/marketing/${CLIENT}/${SITE}`,
     );
-    expect(s.match(/<script>/g)).toHaveLength(1);
-    expect(s.match(/<\/script>/g)).toHaveLength(1);
+    // Counted as text: the snippet writes its tags exactly so.
+    const count = (text: string, tag: string) => text.split(tag).length - 1;
+    expect(count(s, "<script>")).toBe(1);
+    expect(count(s, "</script>")).toBe(1);
     expect(s).toContain(`"https://app.mezonas.com/api/in/marketing/${CLIENT}/${SITE}"`);
     expect(s).not.toMatch(/document\.cookie|localStorage\.setItem/);
     // An origin with markup in it can't close the tag.
     const odd = siteSnippet({ origin: "https://x</script><b>", clientId: CLIENT, siteId: SITE });
-    expect(odd.match(/<\/script>/g)).toHaveLength(1);
+    expect(count(odd, "</script>")).toBe(1);
   });
 
   it("reports a view, then a tracked click, in the collector's shape", () => {

@@ -130,9 +130,13 @@ export function fakeHackerNews(items: readonly FakeHnItem[] = FAKE_HN_ITEMS): Fa
         }));
       return json(200, { hits, nbHits: hits.length, page: 0, hitsPerPage: per });
     }
-    const m = new RegExp(`^${HN_ITEM_API.replace(/[.]/g, "\\.")}/item/(\\d+)\\.json$`).exec(url);
-    if (m) {
-      const found = state.items.find((i) => String(i.id) === m[1]);
+    const itemPrefix = `${HN_ITEM_API}/item/`;
+    const itemId =
+      url.startsWith(itemPrefix) && url.endsWith(".json")
+        ? url.slice(itemPrefix.length, -".json".length)
+        : null;
+    if (itemId !== null && /^\d+$/.test(itemId)) {
+      const found = state.items.find((i) => String(i.id) === itemId);
       // The item API answers `null` for an id it has no item for.
       return json(200, found ?? null);
     }

@@ -65,12 +65,31 @@ export function hnText(html: string | null | undefined): string {
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*href="([^"]*)"[^>]*>[\s\S]*?<\/a>/gi, (_m, href: string) =>
       decodeEntities(href),
-    )
-    .replace(/<[^>]*>/g, "");
-  return dropControls(decodeEntities(text))
+    );
+  return dropControls(decodeEntities(dropTags(text)))
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/**
+ * Every `<…>` dropped, by scanning rather than a pattern. The result is plain text, never HTML:
+ * an entity such as `&lt;script&gt;` is decoded afterwards on purpose, as the words someone wrote,
+ * and reaches a model as data or a screen escaped by React.
+ */
+function dropTags(html: string): string {
+  let out = "";
+  let inTag = false;
+  for (const ch of html) {
+    if (inTag) {
+      if (ch === ">") inTag = false;
+    } else if (ch === "<") {
+      inTag = true;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 /** Control characters dropped, but line breaks and tabs. */
