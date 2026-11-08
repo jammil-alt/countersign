@@ -1,5 +1,5 @@
 {
-  "id": "babaa627-630f-4bf3-89db-40e1a5165f42",
+  "id": "3f25ce06-eeb9-4430-b8ad-8eb51dc0ed4c",
   "prevId": "60815a14-6bd4-4449-a5ea-7c2222658788",
   "version": "7",
   "dialect": "postgresql",
@@ -7168,6 +7168,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "account_type": {
           "name": "account_type",
           "type": "text",
@@ -7227,7 +7233,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "ledger_account_tenant_idx": {
+          "name": "ledger_account_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "ledger_account_tenant_id_tenant_id_fk": {
           "name": "ledger_account_tenant_id_tenant_id_fk",
@@ -7287,8 +7315,7 @@
           "name": "ledger_account_external_key",
           "nullsNotDistinct": false,
           "columns": [
-            "tenant_id",
-            "connector",
+            "connection_id",
             "external_id"
           ]
         }
@@ -7298,6 +7325,10 @@
         "ledger_account_classification_check": {
           "name": "ledger_account_classification_check",
           "value": "\"ledger_account\".\"classification\" is null or \"ledger_account\".\"classification\" in ('asset', 'liability', 'equity', 'revenue', 'expense')"
+        },
+        "ledger_account_kind_check": {
+          "name": "ledger_account_kind_check",
+          "value": "\"ledger_account\".\"kind\" in ('bank', 'card', 'receivable', 'payable', 'other_current_asset', 'fixed_asset', 'other_asset', 'other_current_liability', 'long_term_liability', 'equity', 'income', 'other_income', 'cost_of_goods', 'expense', 'other_expense', 'other')"
         }
       },
       "isRLSEnabled": false
@@ -7485,6 +7516,190 @@
         "ledger_account_note_author_check": {
           "name": "ledger_account_note_author_check",
           "value": "(\"ledger_account_note\".\"source\" = 'agent' and \"ledger_account_note\".\"agent_version_id\" is not null and jsonb_array_length(\"ledger_account_note\".\"sources\") > 0) or (\"ledger_account_note\".\"source\" <> 'agent' and \"ledger_account_note\".\"user_id\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.ledger_dimension": {
+      "name": "ledger_dimension",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connector": {
+          "name": "connector",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_external_id": {
+          "name": "parent_external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "raw_record_id": {
+          "name": "raw_record_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ledger_dimension_tenant_idx": {
+          "name": "ledger_dimension_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ledger_dimension_tenant_id_tenant_id_fk": {
+          "name": "ledger_dimension_tenant_id_tenant_id_fk",
+          "tableFrom": "ledger_dimension",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "ledger_dimension_connection_fk": {
+          "name": "ledger_dimension_connection_fk",
+          "tableFrom": "ledger_dimension",
+          "tableTo": "connection",
+          "columnsFrom": [
+            "connection_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "ledger_dimension_raw_record_fk": {
+          "name": "ledger_dimension_raw_record_fk",
+          "tableFrom": "ledger_dimension",
+          "tableTo": "raw_record",
+          "columnsFrom": [
+            "raw_record_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "ledger_dimension_id_tenant_key": {
+          "name": "ledger_dimension_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        },
+        "ledger_dimension_external_key": {
+          "name": "ledger_dimension_external_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "connection_id",
+            "kind",
+            "external_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "ledger_dimension_kind_check": {
+          "name": "ledger_dimension_kind_check",
+          "value": "\"ledger_dimension\".\"kind\" in ('class', 'location')"
         }
       },
       "isRLSEnabled": false

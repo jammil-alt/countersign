@@ -164,11 +164,11 @@ To verify (docs, then the sandbox company):
 
 Built against the fake; check against the sandbox company:
 
-1. `Account` is accepted in CDC's `entities` and comes back with `Active: false` (or as a deleted
-   row) when an account is made inactive in QuickBooks; `select * from Account` returns active
-   accounts only.
+1. `Account`, `Class` and `Department` are accepted in CDC's `entities` and come back with
+   `Active: false` (or as a deleted row) when made inactive in QuickBooks; `select * from …` returns
+   active ones only. Locations are QuickBooks' Department (named Location in some companies).
 2. `Classification` is on every Account (we fall back to the account type's classification).
-3. A connection already on CDC reads every account once (the cursor's `accounts` flag), then CDC.
+3. A connection already on CDC reads its whole ledger once (the cursor's `ledger` flag), then CDC.
 4. The payment account of a Purchase (`AccountRef`) is kept as `ext.qbo.accountId` for matching
    bank transactions.
 5. QuickBooks' own bank feed ("For review" in Banking) isn't in the Accounting API, as far as we

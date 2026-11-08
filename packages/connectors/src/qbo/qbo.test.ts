@@ -801,13 +801,13 @@ describe("qbo sync", () => {
     ]);
     const cdcCall = s.qbo.apiCalls("GET", "cdc").at(-1)?.url ?? "";
     expect(decodeURIComponent(cdcCall)).toContain(
-      "entities=Account,Vendor,Item,Customer,Purchase,Bill,VendorCredit,Invoice,Payment,Attachable",
+      "entities=Account,Class,Department,Vendor,Item,Customer,Purchase,Bill,VendorCredit,Invoice,Payment,Attachable",
     );
     expect(page.next).toEqual({
       v: 1,
       phase: "cdc",
       ar: true,
-      accounts: true,
+      ledger: true,
       changedSince: "2026-11-05T18:14:00.000Z",
     });
   });

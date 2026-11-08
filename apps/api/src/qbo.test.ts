@@ -28,6 +28,7 @@ import {
   externalAction,
   inboxItem,
   ledgerAccount,
+  ledgerDimension,
   rawRecord,
   transaction,
   transactionLine,
@@ -398,6 +399,28 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       ["90", "Sales Tax Payable", "Other Current Liability", "liability", true],
     ]);
     expect(accounts.every((a) => a.connectionId === connectionId && a.rawRecordId)).toBe(true);
+    // In the platform's words too, whatever the tool calls them.
+    expect(accounts.map((a) => a.kind)).toEqual([
+      "payable",
+      "cost_of_goods",
+      "cost_of_goods",
+      "expense",
+      "expense",
+      "other_current_liability",
+    ]);
+    // Its classes, per connection like the accounts.
+    const classes = await H.t.db
+      .select()
+      .from(ledgerDimension)
+      .where(eq(ledgerDimension.tenantId, H.A.tenantId))
+      .orderBy(asc(ledgerDimension.externalId));
+    // An inactive class is kept, marked inactive.
+    expect(classes.map((d) => [d.kind, d.name, d.active, d.connectionId])).toEqual([
+      ["class", "Shop", true, connectionId],
+      ["class", "Install", true, connectionId],
+      ["class", "Portland", true, connectionId],
+      ["class", "Old shop", false, connectionId],
+    ]);
     // Client B sees none of it.
     await withTenant(H.db, H.B.tenantId, async (tx) => {
       expect(await tx.select().from(ledgerAccount)).toEqual([]);

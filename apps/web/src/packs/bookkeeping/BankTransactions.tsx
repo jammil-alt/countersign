@@ -129,6 +129,9 @@ function useAction(clientId: string) {
     });
 }
 
+/** Ledger kinds an account on the bank feed may link to (as the pack's link action allows). */
+const LINKABLE_KINDS = ["bank", "card", "other_current_asset", "other_current_liability"];
+
 const MODE_WORDS = { off: "Off", suggest: "Suggest only", book: "Book in QuickBooks" } as const;
 
 /** Each bank or card account on the feed: its ledger account, and whether it books. */
@@ -148,11 +151,7 @@ function FeedAccounts({
   const [draft, setDraft] = useState<Record<string, Partial<FeedAccount>>>({});
   const money = (
     (chart.data?.report as { accounts?: ChartAccount[] } | undefined)?.accounts ?? []
-  ).filter(
-    (a) =>
-      a.active &&
-      ["Bank", "Credit Card", "Other Current Asset", "Other Current Liability"].includes(a.type),
-  );
+  ).filter((a) => a.active && LINKABLE_KINDS.includes(a.kind));
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     setProblem(null);

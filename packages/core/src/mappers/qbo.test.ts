@@ -236,6 +236,7 @@ describe("mapQboAccount (B-2, docs/plan.md §1.79)", () => {
       fullName: "Vehicles:Fuel",
       number: "6120",
       classification: "expense",
+      kind: "expense",
       accountType: "Expense",
       accountSubType: "Auto",
       parentExternalId: "96",
@@ -248,6 +249,11 @@ describe("mapQboAccount (B-2, docs/plan.md §1.79)", () => {
   it("works out the classification from the type when it is left out", () => {
     const of = (AccountType: string) => mapQboAccount({ Id: "1", Name: "A", AccountType });
     expect(of("Bank").classification).toBe("asset");
+    // And its kind in the platform's words, whatever QuickBooks calls it.
+    expect(of("Bank").kind).toBe("bank");
+    expect(of("Credit Card").kind).toBe("card");
+    expect(of("Cost of Goods Sold").kind).toBe("cost_of_goods");
+    expect(of("Something new").kind).toBe("other");
     expect(of("Credit Card").classification).toBe("liability");
     expect(of("Cost of Goods Sold").classification).toBe("expense");
     expect(of("Income").classification).toBe("revenue");

@@ -1179,17 +1179,48 @@ export const LEDGER_CLASSIFICATIONS = [
   "expense",
 ] as const;
 export type LedgerClassification = (typeof LEDGER_CLASSIFICATIONS)[number];
+/**
+ * What an account is, in the same words whatever the accounting tool (each connector's mapper sets
+ * it from the tool's own type, which `account_type` keeps as written): what agents and packs read.
+ */
+// DECISION (docs/plan.md §1.79): a closed list, so a pack asks "is this a card account" the same way
+// for QuickBooks and any later tool; a type a mapper doesn't know is `other`.
+export const LEDGER_KINDS = [
+  "bank",
+  "card",
+  "receivable",
+  "payable",
+  "other_current_asset",
+  "fixed_asset",
+  "other_asset",
+  "other_current_liability",
+  "long_term_liability",
+  "equity",
+  "income",
+  "other_income",
+  "cost_of_goods",
+  "expense",
+  "other_expense",
+  "other",
+] as const;
+export type LedgerKind = (typeof LEDGER_KINDS)[number];
+/** The ledger's dimensions besides accounts: classes and locations (QuickBooks' Department). */
+export const LEDGER_DIMENSION_KINDS = ["class", "location"] as const;
+export type LedgerDimensionKind = (typeof LEDGER_DIMENSION_KINDS)[number];
 export const LEDGER_NOTE_SOURCES = ["client", "operator", "agent"] as const;
 export type LedgerNoteSource = (typeof LEDGER_NOTE_SOURCES)[number];
 /** A note on an account is one or two sentences. */
 export const LEDGER_NOTE_MAX = 500;
 
 /**
- * A client's account in its accounting tool (connector level, like `vendor`): synced in place by
- * the connector, never deleted (an account gone or made inactive there is `active = false`).
+ * An account of a client's ledger in its accounting tool: synced in place by that connection's
+ * sync, never deleted (an account gone or made inactive there is `active = false`).
  */
 // DECISION: a platform table, not a pack's (docs/plan.md §1.79): accounts are the client's tool's
 // records, read by the Bill clerk, the buyer and the Bookkeeping area alike.
+// DECISION (owner, 2026-11-08): the ledger belongs to the accounting connection, one to one with
+// the general ledger there: an account is unique by connection and the tool's id, so a second
+// company (several entities) would bring its own chart beside the first, ids never colliding.
 export const ledgerAccount = pgTable(
   "ledger_account",
   {
@@ -1205,7 +1236,9 @@ export const ledgerAccount = pgTable(
     /** QuickBooks' AcctNum. */
     number: text("number"),
     classification: text("classification").$type<LedgerClassification>(),
-    /** QuickBooks' AccountType, e.g. `Bank`, `Credit Card`, `Expense`. */
+    /** What the account is, in the platform's words (`bank`, `card`, `expense`, …). */
+    kind: text("kind").$type<LedgerKind>().notNull(),
+    /** The tool's own type, as written there (QuickBooks' AccountType, e.g. `Credit Card`). */
     accountType: text("account_type").notNull(),
     accountSubType: text("account_sub_type"),
     parentExternalId: text("parent_external_id"),
@@ -1220,7 +1253,8 @@ export const ledgerAccount = pgTable(
   },
   (t) => [
     unique("ledger_account_id_tenant_key").on(t.id, t.tenantId),
-    unique("ledger_account_external_key").on(t.tenantId, t.connector, t.externalId),
+    unique("ledger_account_external_key").on(t.connectionId, t.externalId),
+    index("ledger_account_tenant_idx").on(t.tenantId, t.kind),
     foreignKey({
       name: "ledger_account_connection_fk",
       columns: [t.connectionId, t.tenantId],
@@ -1235,6 +1269,46 @@ export const ledgerAccount = pgTable(
       "ledger_account_classification_check",
       sql`${t.classification} is null or ${oneOf(t.classification, LEDGER_CLASSIFICATIONS)}`,
     ),
+    check("ledger_account_kind_check", oneOf(t.kind, LEDGER_KINDS)),
+  ],
+);
+
+/**
+ * The ledger's other dimensions in the accounting tool: classes and locations (QuickBooks'
+ * Department), per connection like the accounts, synced in place and never deleted.
+ */
+export const ledgerDimension = pgTable(
+  "ledger_dimension",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    connector: text("connector").notNull(),
+    kind: text("kind").$type<LedgerDimensionKind>().notNull(),
+    externalId: text("external_id").notNull(),
+    name: text("name").notNull(),
+    fullName: text("full_name").notNull(),
+    parentExternalId: text("parent_external_id"),
+    active: boolean("active").notNull().default(true),
+    rawRecordId: uuid("raw_record_id"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("ledger_dimension_id_tenant_key").on(t.id, t.tenantId),
+    unique("ledger_dimension_external_key").on(t.connectionId, t.kind, t.externalId),
+    index("ledger_dimension_tenant_idx").on(t.tenantId, t.kind),
+    foreignKey({
+      name: "ledger_dimension_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    foreignKey({
+      name: "ledger_dimension_raw_record_fk",
+      columns: [t.rawRecordId, t.tenantId],
+      foreignColumns: [rawRecord.id, rawRecord.tenantId],
+    }),
+    check("ledger_dimension_kind_check", oneOf(t.kind, LEDGER_DIMENSION_KINDS)),
   ],
 );
 
@@ -3597,6 +3671,7 @@ export const TENANT_TABLES = [
   // B-1 (0039): the chart of accounts and what each account is for (docs/plan.md §1.79).
   "ledger_account",
   "ledger_account_note",
+  "ledger_dimension",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

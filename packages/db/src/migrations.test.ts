@@ -307,8 +307,10 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     }
     // B-1 (0039): accounts sync in place and are never deleted; notes and booking lines are a
     // log; a booking changes only its outcome (the trigger), never deleted.
-    expect(await can("ledger_account", "UPDATE")).toBe(true);
-    expect(await can("ledger_account", "DELETE")).toBe(false);
+    for (const table of ["ledger_account", "ledger_dimension"]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
     for (const table of ["ledger_account_note", "booking_line"]) {
       expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(false);

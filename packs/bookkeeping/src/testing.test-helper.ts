@@ -10,6 +10,7 @@ import {
   appUser,
   connection,
   type Db,
+  type LedgerKind,
   ledgerAccount,
   membership,
   rawRecord,
@@ -74,16 +75,16 @@ export interface BooksFixture {
 
 let counter = 0;
 
-export const CHART: readonly [string, string, string, string | null][] = [
-  // QuickBooks id, name, type, classification
-  ["35", "Checking", "Bank", "asset"],
-  ["36", "Savings", "Bank", "asset"],
-  ["41", "Amex", "Credit Card", "liability"],
-  ["80", "Job Materials", "Cost of Goods Sold", "expense"],
-  ["84", "Shop Supplies", "Expense", "expense"],
-  ["86", "Fuel", "Expense", "expense"],
-  ["87", "Software", "Expense", "expense"],
-  ["400", "Sales", "Income", "revenue"],
+export const CHART: readonly [string, string, string, string, LedgerKind][] = [
+  // QuickBooks id, name, QuickBooks' type, classification, the platform's kind
+  ["35", "Checking", "Bank", "asset", "bank"],
+  ["36", "Savings", "Bank", "asset", "bank"],
+  ["41", "Amex", "Credit Card", "liability", "card"],
+  ["80", "Job Materials", "Cost of Goods Sold", "expense", "cost_of_goods"],
+  ["84", "Shop Supplies", "Expense", "expense", "expense"],
+  ["86", "Fuel", "Expense", "expense", "expense"],
+  ["87", "Software", "Expense", "expense", "expense"],
+  ["400", "Sales", "Income", "revenue", "income"],
 ];
 
 export async function insertBooks(db: Db, name: string): Promise<BooksFixture> {
@@ -122,7 +123,7 @@ export async function insertBooks(db: Db, name: string): Promise<BooksFixture> {
     .returning();
   if (!qbo || !feedConn) throw new Error("no connections");
   const accounts: Record<string, string> = {};
-  for (const [externalId, accountName, accountType, classification] of CHART) {
+  for (const [externalId, accountName, accountType, classification, kind] of CHART) {
     const [row] = await db
       .insert(ledgerAccount)
       .values({
@@ -133,6 +134,7 @@ export async function insertBooks(db: Db, name: string): Promise<BooksFixture> {
         name: accountName,
         fullName: accountName,
         accountType,
+        kind,
         classification: classification as "asset",
       })
       .returning();

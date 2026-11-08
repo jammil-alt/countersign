@@ -5,112 +5,57 @@
 
 import {
   LEDGER_NOTE_MAX,
-  type LedgerNoteSource,
+  type LedgerAccountView,
+  type LedgerKind,
   ledgerAccount,
   ledgerAccountNote,
+  ledgerChart,
   type Tx,
 } from "@countersign/db";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { PackRefusal } from "./pack";
 import { bankTxn, booking, bookingLine } from "./schema";
 
-/** At most this many notes and example payees per account in a listing. */
-export const NOTES_PER_ACCOUNT = 5;
+/** At most this many example payees per account in a listing. */
 export const EXAMPLES_PER_ACCOUNT = 5;
 /** At most this many accounts on one account-questions card. */
 export const QUESTIONS_MAX = 10;
 
-export interface AccountNoteView {
-  id: string;
-  note: string;
-  source: LedgerNoteSource;
-  createdAt: string;
-}
+export type AccountNoteView = LedgerAccountView["notes"][number];
 
-export interface AccountView {
-  id: string;
-  name: string;
-  fullName: string;
-  number: string | null;
-  classification: string | null;
-  type: string;
-  subType: string | null;
-  /** What the accounting tool says about it. */
-  description: string | null;
-  active: boolean;
-  /** The client's and the operator's notes first, then the agent's; newest first in each. */
-  notes: AccountNoteView[];
+/** An account as the platform's ledger lists it, with the payees most often booked there. */
+export interface AccountView extends LedgerAccountView {
   /** Payees most often booked here (approved or posted bookings), most first. */
   examples: { payee: string; times: number }[];
 }
-
-const PERSON_FIRST: Record<LedgerNoteSource, number> = { client: 0, operator: 1, agent: 2 };
 
 /** Which classifications a listing may ask for. */
 export type AccountKind = "expense" | "revenue" | "asset" | "liability" | "equity";
 
 /**
- * The client's accounts with their notes and examples. Inactive accounts only when asked: a
- * booking never goes to one.
+ * The client's accounts with their notes (the platform's `ledgerChart`) and the payees booked to
+ * each. Inactive accounts only when asked: a booking never goes to one.
  */
+// DECISION (docs/plan.md §1.79): the chart and its notes are the platform's read, shared with
+// `ledger.accounts.list`; the pack adds only what its own bookings show.
 export async function listAccounts(
   tx: Tx,
   tenantId: string,
   opts: {
     classifications?: readonly AccountKind[];
+    kinds?: readonly LedgerKind[];
     ids?: readonly string[];
     inactive?: boolean;
   } = {},
 ): Promise<AccountView[]> {
-  const where = [eq(ledgerAccount.tenantId, tenantId)];
-  if (!opts.inactive) where.push(eq(ledgerAccount.active, true));
-  if (opts.classifications?.length) {
-    where.push(inArray(ledgerAccount.classification, [...opts.classifications]));
-  }
-  if (opts.ids) {
-    if (opts.ids.length === 0) return [];
-    where.push(inArray(ledgerAccount.id, [...opts.ids]));
-  }
-  const accounts = await tx
-    .select()
-    .from(ledgerAccount)
-    .where(and(...where))
-    .orderBy(asc(ledgerAccount.fullName));
+  const accounts = await ledgerChart(tx, tenantId, opts);
   if (accounts.length === 0) return [];
-  const ids = accounts.map((a) => a.id);
-  const notes = await tx
-    .select()
-    .from(ledgerAccountNote)
-    .where(
-      and(
-        eq(ledgerAccountNote.tenantId, tenantId),
-        inArray(ledgerAccountNote.ledgerAccountId, ids),
-      ),
-    )
-    .orderBy(desc(ledgerAccountNote.createdAt), desc(ledgerAccountNote.id));
-  const examples = await accountExamples(tx, tenantId, ids);
-  return accounts.map((a) => ({
-    id: a.id,
-    name: a.name,
-    fullName: a.fullName,
-    number: a.number,
-    classification: a.classification,
-    type: a.accountType,
-    subType: a.accountSubType,
-    description: a.description,
-    active: a.active,
-    notes: notes
-      .filter((n) => n.ledgerAccountId === a.id)
-      .sort((x, y) => PERSON_FIRST[x.source] - PERSON_FIRST[y.source])
-      .slice(0, NOTES_PER_ACCOUNT)
-      .map((n) => ({
-        id: n.id,
-        note: n.note,
-        source: n.source,
-        createdAt: n.createdAt.toISOString(),
-      })),
-    examples: examples.get(a.id) ?? [],
-  }));
+  const examples = await accountExamples(
+    tx,
+    tenantId,
+    accounts.map((a) => a.id),
+  );
+  return accounts.map((a) => ({ ...a, examples: examples.get(a.id) ?? [] }));
 }
 
 /** The payees most often booked to each account, from approved and posted bookings. */

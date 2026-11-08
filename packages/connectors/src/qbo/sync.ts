@@ -39,15 +39,19 @@ export const QboSyncCursor = z.discriminatedUnion("phase", [
     changedSince: z.string(),
     /** v0.12: the accounts receivable entities have had their initial read. */
     ar: z.boolean().optional(),
-    /** B-2 (docs/plan.md §1.79): the chart of accounts has had its initial read. */
-    accounts: z.boolean().optional(),
+    /** B-2 (docs/plan.md §1.79): the ledger (accounts, classes, locations) has had its initial read. */
+    ledger: z.boolean().optional(),
   }),
 ]);
 
 /** The v0.12 entities a connection made before them reads once, from its CDC point. */
 export const QBO_AR_BACKFILL = ["Customer", "Invoice", "Payment"] as const satisfies QboEntity[];
-/** B-2: the chart of accounts, read once by a connection made before it was synced. */
-export const QBO_ACCOUNTS_BACKFILL = ["Account"] as const satisfies QboEntity[];
+/** B-2: the ledger, read once by a connection made before it was synced. */
+export const QBO_LEDGER_BACKFILL = [
+  "Account",
+  "Class",
+  "Department",
+] as const satisfies QboEntity[];
 export type QboSyncCursor = z.infer<typeof QboSyncCursor>;
 
 /** The stored cursor, or null when there is none or it can't be read (a fresh initial sync). */
@@ -167,7 +171,7 @@ export async function qboSyncPage(
     // Too long since the last read for CDC: read everything again (raw records dedupe it).
     c = startQboSync(opts);
   }
-  if (c.phase === "cdc" && (c.ar !== true || c.accounts !== true)) c = backfill(c, opts);
+  if (c.phase === "cdc" && (c.ar !== true || c.ledger !== true)) c = backfill(c, opts);
   if (c.phase === "initial") return initialPage(client, c, opts);
   return cdcPage(client, c, opts);
 }
@@ -194,12 +198,13 @@ async function initialPage(
   if (nextEntity) {
     return { records, next: { ...c, entity: nextEntity, start: 1 }, done: false, initial: true };
   }
-  // B-2: a read that walked the chart of accounts (a whole initial read, or a backfill that
-  // included it) has done it; an older backfill of the AR entities alone leaves it for the next.
-  const accounts = c.entities === undefined || c.entities.includes("Account");
+  // B-2: a read that walked the ledger (a whole initial read, or a backfill that included it) has
+  // done it; an older backfill of the AR entities alone leaves it for the next.
+  const ledger =
+    c.entities === undefined || QBO_LEDGER_BACKFILL.every((e) => c.entities?.includes(e));
   return {
     records,
-    next: { v: 1, phase: "cdc", changedSince: c.changedSince, ar: true, accounts },
+    next: { v: 1, phase: "cdc", changedSince: c.changedSince, ar: true, ledger },
     done: false,
     initial: true,
   };
@@ -211,13 +216,13 @@ async function initialPage(
  */
 // DECISION: the backfill keeps the stored CDC point, so changes to bills and purchases since then
 // still come by CDC with their events; only the AR entities' history is new.
-// B-2: the chart of accounts is read once the same way, after the AR entities if both are due.
+// B-2: the ledger is read once the same way, after the AR entities if both are due.
 function backfill(c: Extract<QboSyncCursor, { phase: "cdc" }>, opts: QboSyncOptions) {
   const start = startQboSync(opts);
   if (start.phase !== "initial") throw new Error("unreachable");
   const entities: QboEntity[] = [
     ...(c.ar === true ? [] : QBO_AR_BACKFILL),
-    ...(c.accounts === true ? [] : QBO_ACCOUNTS_BACKFILL),
+    ...(c.ledger === true ? [] : QBO_LEDGER_BACKFILL),
   ];
   const [first] = entities;
   if (!first) throw new Error("unreachable");
@@ -286,7 +291,7 @@ async function cdcPage(
           v: 1,
           phase: "cdc",
           ar: true,
-          accounts: true,
+          ledger: true,
           changedSince: new Date(startedAt.getTime() - OVERLAP_MS).toISOString(),
         },
         done: true,
@@ -299,7 +304,7 @@ async function cdcPage(
         v: 1,
         phase: "cdc",
         ar: true,
-        accounts: true,
+        ledger: true,
         changedSince: new Date(Date.parse(earliest)).toISOString(),
       },
       done: false,
@@ -312,7 +317,7 @@ async function cdcPage(
       v: 1,
       phase: "cdc",
       ar: true,
-      accounts: true,
+      ledger: true,
       changedSince: new Date(startedAt.getTime() - OVERLAP_MS).toISOString(),
     },
     done: true,

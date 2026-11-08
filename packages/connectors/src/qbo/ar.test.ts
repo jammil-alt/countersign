@@ -443,12 +443,12 @@ describe("qbo sync: customers, invoices and payments", () => {
       cursor = page.next;
       if (cursor.phase === "cdc") break;
     }
-    // B-2: the chart of accounts is read once too, after the AR entities.
-    expect([...new Set(seen)]).toEqual(["Customer", "Invoice", "Payment", "Account"]);
-    expect(cursor).toEqual({ ...old, ar: true, accounts: true });
+    // B-2: the ledger (accounts and classes; the fake has no locations) is read once too.
+    expect([...new Set(seen)]).toEqual(["Customer", "Invoice", "Payment", "Account", "Class"]);
+    expect(cursor).toEqual({ ...old, ar: true, ledger: true });
   });
 
-  it("B-2: reads the chart of accounts once for a connection already on CDC with its AR read", async () => {
+  it("B-2: reads the ledger once for a connection already on CDC with its AR read", async () => {
     const s = await setup();
     const client = await s.connector.client(s.ctx());
     const old = {
@@ -457,13 +457,21 @@ describe("qbo sync: customers, invoices and payments", () => {
       changedSince: "2026-11-05T17:00:00.000Z",
       ar: true,
     };
-    const page = await qboSyncPage(client, old, { now: NOW });
-    expect(page.initial).toBe(true);
-    expect(new Set(page.records.map((r) => r.entityType))).toEqual(new Set(["Account"]));
-    expect(page.next).toEqual({ ...old, accounts: true });
+    const seen = new Set<string>();
+    let cursor: Parameters<typeof qboSyncPage>[1] = old;
+    for (let i = 0; i < 10; i++) {
+      const page = await qboSyncPage(client, cursor, { now: NOW });
+      expect(page.initial).toBe(true);
+      for (const r of page.records) seen.add(r.entityType);
+      cursor = page.next;
+      if (cursor.phase === "cdc") break;
+    }
+    // Accounts and classes (the fake has no locations).
+    expect(seen).toEqual(new Set(["Account", "Class"]));
+    expect(cursor).toEqual({ ...old, ledger: true });
   });
 
-  it("B-2: an AR backfill stored before accounts were synced reads the accounts after it", async () => {
+  it("B-2: an AR backfill stored before accounts were synced reads the ledger after it", async () => {
     const s = await setup();
     const client = await s.connector.client(s.ctx());
     const inProgress = {
@@ -476,9 +484,15 @@ describe("qbo sync: customers, invoices and payments", () => {
       entities: ["Customer" as const, "Invoice" as const, "Payment" as const],
     };
     const end = await qboSyncPage(client, inProgress, { now: NOW });
-    expect(end.next).toMatchObject({ phase: "cdc", ar: true, accounts: false });
-    const next = await qboSyncPage(client, end.next, { now: NOW });
-    expect(new Set(next.records.map((r) => r.entityType))).toEqual(new Set(["Account"]));
-    expect(next.next).toMatchObject({ phase: "cdc", ar: true, accounts: true });
+    expect(end.next).toMatchObject({ phase: "cdc", ar: true, ledger: false });
+    const seen = new Set<string>();
+    let cursor = end.next;
+    for (let i = 0; i < 10 && !(cursor.phase === "cdc" && cursor.ledger === true); i++) {
+      const page = await qboSyncPage(client, cursor, { now: NOW });
+      for (const r of page.records) seen.add(r.entityType);
+      cursor = page.next;
+    }
+    expect(seen).toEqual(new Set(["Account", "Class"]));
+    expect(cursor).toMatchObject({ phase: "cdc", ar: true, ledger: true });
   });
 });

@@ -3,7 +3,15 @@
 // pack routes and does the sign-in, roles and client scope; these get one client's transaction or
 // database.
 
-import { type Db, ledgerAccount, type Tx, tenant, tenantPack, withTenant } from "@countersign/db";
+import {
+  type Db,
+  type LedgerKind,
+  ledgerAccount,
+  type Tx,
+  tenant,
+  tenantPack,
+  withTenant,
+} from "@countersign/db";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { activeAccount, addNote, listAccounts } from "./accounts";
@@ -210,7 +218,12 @@ export const BOOKKEEPING_REVIEWS: Readonly<Record<string, PackReviewHandler>> = 
 // ── The back office's actions ────────────────────────────────────────────────────────────────────
 
 /** Account types a bank or card account on the feed may book to. */
-const LINKABLE_TYPES = ["Bank", "Credit Card", "Other Current Asset", "Other Current Liability"];
+const LINKABLE_KINDS: readonly LedgerKind[] = [
+  "bank",
+  "card",
+  "other_current_asset",
+  "other_current_liability",
+];
 
 export const BOOKKEEPING_ACTIONS: Readonly<Record<string, PackActionHandler>> = {
   // Read the feed now rather than wait for the night.
@@ -242,7 +255,7 @@ export const BOOKKEEPING_ACTIONS: Readonly<Record<string, PackActionHandler>> = 
         }
         if (input.ledgerAccountId) {
           const a = await activeAccount(tx, ctx.tenantId, input.ledgerAccountId);
-          if (!LINKABLE_TYPES.includes(a.accountType)) {
+          if (!LINKABLE_KINDS.includes(a.kind)) {
             throw new PackRefusal(
               `${a.fullName} is a ${a.accountType} account, not a bank or card account`,
             );

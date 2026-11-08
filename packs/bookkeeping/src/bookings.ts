@@ -4,7 +4,7 @@
 // last. Every decision is a `booking` with its lines; nothing here writes to the accounting tool.
 
 import { dec, toNumeric } from "@countersign/core";
-import { ledgerAccount, type Tx, transaction } from "@countersign/db";
+import { type LedgerKind, ledgerAccount, type Tx, transaction } from "@countersign/db";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { activeAccount, addNote } from "./accounts";
 import { PackRefusal } from "./pack";
@@ -28,8 +28,8 @@ export const BOOK_CONFIDENCE_AUTO = 0.85;
 export const MATCH_DAYS = 3;
 /** Approvals of one payee to one account, with no other, that make a learned rule. */
 export const LEARN_AFTER = 2;
-/** Account types that are a bank or card account: a booking to one is a transfer. */
-export const MONEY_ACCOUNT_TYPES = ["Bank", "Credit Card"] as const;
+/** Ledger kinds that hold money (a bank or card account): a booking to one is a transfer. */
+export const MONEY_KINDS: readonly LedgerKind[] = ["bank", "card"];
 
 export interface Decider {
   tenantId: string;
@@ -59,8 +59,8 @@ const DECIDABLE: readonly BankTxnStatus[] = [
 ];
 
 /** The kind a booking to this account is, for money going this way. */
-export function kindFor(direction: Direction, accountType: string): BookingKind {
-  if ((MONEY_ACCOUNT_TYPES as readonly string[]).includes(accountType)) return "transfer";
+export function kindFor(direction: Direction, ledgerKind: LedgerKind): BookingKind {
+  if (MONEY_KINDS.includes(ledgerKind)) return "transfer";
   return direction === "out" ? "expense" : "deposit";
 }
 
@@ -116,15 +116,15 @@ async function checkLines(
   tenantId: string,
   t: TxnRow,
   lines: readonly LineInput[],
-): Promise<{ lines: (LineInput & { amount: string })[]; types: string[] }> {
+): Promise<{ lines: (LineInput & { amount: string })[]; types: LedgerKind[] }> {
   if (lines.length === 0) throw new PackRefusal("a booking has at least one line");
   if (lines.length > 20) throw new PackRefusal("a booking has at most 20 lines");
   const total = dec(t.amount);
   const out: (LineInput & { ledgerAccountId: string; amount: string })[] = [];
-  const types: string[] = [];
+  const types: LedgerKind[] = [];
   for (const l of lines) {
     const account = await activeAccount(tx, tenantId, l.ledgerAccountId);
-    types.push(account.accountType);
+    types.push(account.kind);
     const amount = l.amount ?? (lines.length === 1 ? t.amount : undefined);
     if (amount === undefined) throw new PackRefusal("each line of a split says its amount");
     const a = dec(amount);
@@ -518,7 +518,7 @@ async function applyRule(tx: Tx, who: Decider, t: TxnRow, testRun = false): Prom
     who.tenantId,
     t,
     {
-      kind: kindFor(t.direction, account.accountType),
+      kind: kindFor(t.direction, account.kind),
       status: "proposed",
       decidedBy: "rule",
       confidence: 1,
@@ -578,14 +578,11 @@ export async function propose(
   const { lines, types } = await checkLines(tx, who.tenantId, t, input.lines);
   const kind =
     lines.length === 1
-      ? kindFor(t.direction, types[0] ?? "")
+      ? kindFor(t.direction, types[0] ?? "other")
       : t.direction === "out"
         ? "expense"
         : "deposit";
-  if (
-    lines.length > 1 &&
-    types.some((ty) => (MONEY_ACCOUNT_TYPES as readonly string[]).includes(ty))
-  ) {
+  if (lines.length > 1 && types.some((ty) => MONEY_KINDS.includes(ty))) {
     throw new PackRefusal("a transfer has one line");
   }
   await supersede(tx, who.tenantId, t.id);
@@ -659,7 +656,7 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
   const { lines, types } = await checkLines(tx, who.tenantId, t, input.lines);
   const kind =
     lines.length === 1
-      ? kindFor(t.direction, types[0] ?? "")
+      ? kindFor(t.direction, types[0] ?? "other")
       : t.direction === "out"
         ? "expense"
         : "deposit";

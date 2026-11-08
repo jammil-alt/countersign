@@ -87,6 +87,10 @@ export interface AccountNote {
 
 export interface ChartAccount {
   id: string;
+  /** The accounting connection (a company) whose ledger it is. */
+  connectionId: string;
+  /** What it is in the platform's words (`bank`, `card`, `expense`, …). */
+  kind: string;
   name: string;
   fullName: string;
   number: string | null;

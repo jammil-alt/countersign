@@ -8,7 +8,7 @@ import { dec } from "@countersign/core";
 import { ledgerAccount, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { MONEY_ACCOUNT_TYPES } from "./bookings";
+import { MONEY_KINDS } from "./bookings";
 import { defineTool, PackRefusal, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn, booking, bookingLine } from "./schema";
 
@@ -170,7 +170,7 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
     ...(line.description ? { description: line.description } : {}),
     ...(line.classRef ? { classId: line.classRef } : {}),
   }));
-  const isCard = money.accountType === "Credit Card";
+  const isCard = money.kind === "card";
   // Money back onto a card (a refund) is a card credit in QuickBooks, not a deposit.
   if (b.kind === "expense" || (b.kind === "deposit" && isCard)) {
     let vendorId: string | undefined;
@@ -202,7 +202,7 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
       sources,
     };
   }
-  if ((MONEY_ACCOUNT_TYPES as readonly string[]).includes(money.accountType) === false) {
+  if (!MONEY_KINDS.includes(money.kind)) {
     throw new PackRefusal(`${money.fullName} can't take a deposit`);
   }
   return {

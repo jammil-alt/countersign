@@ -43,6 +43,7 @@ import {
   knowledgeEntryVersion,
   ledgerAccount,
   ledgerAccountNote,
+  ledgerDimension,
   membership,
   memoryNote,
   message,
@@ -730,11 +731,21 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       name: "Job materials",
       fullName: "Job materials",
       classification: "expense",
+      kind: "cost_of_goods",
       accountType: "Cost of Goods Sold",
       rawRecordId: rr?.id ?? null,
     })
     .returning();
   if (!la) throw new Error("no ledger account");
+  await db.insert(ledgerDimension).values({
+    tenantId,
+    connectionId: c.id,
+    connector: "qbo",
+    kind: "class",
+    externalId: "5000000000000301",
+    name: "Shop",
+    fullName: "Shop",
+  });
   await db.insert(ledgerAccountNote).values({
     tenantId,
     ledgerAccountId: la.id,

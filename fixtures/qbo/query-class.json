@@ -8,7 +8,11 @@
         "Name": "Shop",
         "FullyQualifiedName": "Shop",
         "SubClass": false,
-        "Active": true
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "5000000000000302",
@@ -17,7 +21,11 @@
         "Name": "Install",
         "FullyQualifiedName": "Install",
         "SubClass": false,
-        "Active": true
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "5000000000000303",
@@ -26,8 +34,14 @@
         "Name": "Portland",
         "FullyQualifiedName": "Install:Portland",
         "SubClass": true,
-        "ParentRef": { "value": "5000000000000302" },
-        "Active": true
+        "ParentRef": {
+          "value": "5000000000000302"
+        },
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "5000000000000304",
@@ -36,7 +50,11 @@
         "Name": "Old shop",
         "FullyQualifiedName": "Old shop",
         "SubClass": false,
-        "Active": false
+        "Active": false,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       }
     ],
     "startPosition": 1,
