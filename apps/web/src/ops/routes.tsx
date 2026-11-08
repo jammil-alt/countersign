@@ -29,6 +29,8 @@ import { MarketingSourcesScreen } from "../packs/marketing/ops/Sources";
 import { MarketingVisitScreen } from "../packs/marketing/ops/Visit";
 import { MarketingVisitsScreen } from "../packs/marketing/ops/Visits";
 import {
+  // B-6
+  OpsClientBankTransactionsScreen,
   OpsClientCatalogScreen,
   OpsClientPacksScreen,
   OpsClientPriceWatchScreen,
@@ -146,6 +148,11 @@ export const opsRoutes = (
     <Route
       path="clients/:clientId/reports/materials/requests/:id"
       element={<OpsClientRequestScreen />}
+    />
+    {/* B-6 (docs/plan.md §1.79): a client's bank transactions, account links, rules and chart */}
+    <Route
+      path="clients/:clientId/reports/bookkeeping/transactions"
+      element={<OpsClientBankTransactionsScreen />}
     />
     {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own
         client with the pack on; each of a client's marketing pages is one line. */}
