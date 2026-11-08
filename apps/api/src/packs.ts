@@ -4,6 +4,7 @@
 // database and model transport (`ToolInvocation.packServices`) and the step's skill settings.
 
 import type { InternalTool, PackToolSource } from "@countersign/agents";
+import type { ContentStore } from "@countersign/connectors";
 import type { PackManifest } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
@@ -51,6 +52,8 @@ function adapt(tool: PackTool): InternalTool {
       const db = ctx.packServices?.db as Db | undefined;
       if (!db) throw new Error(`${tool.spec.id} needs the run's database, which wasn't passed`);
       const transport = (ctx.packServices?.transport as LlmTransport | null | undefined) ?? null;
+      // P-5: the client's document storage, for a document a pack tool makes (a purchase order).
+      const content = (ctx.packServices?.content as ContentStore | null | undefined) ?? null;
       return tool.run(
         input,
         packToolContext({
@@ -62,6 +65,7 @@ function adapt(tool: PackTool): InternalTool {
           db,
           transport,
           recordUsage: ctx.recordUsage,
+          content,
         }),
       );
     },
