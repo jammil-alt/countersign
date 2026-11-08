@@ -2029,4 +2029,85 @@ export const fr: Messages = {
     other: "Lignes restantes : {left} sur {count}.",
   },
   "materials.review.finish": "Terminer la vérification",
+  // P-8: US texting registration (docs/plan.md §1.70)
+  "settingsPage.texting": "SMS aux États-Unis",
+  "texting.subtitle":
+    "Les opérateurs exigent que votre entreprise soit enregistrée avant que nous envoyions des SMS à des numéros américains pour vous. Décrivez-la une fois. Nous l'envoyons à Twilio et vous tenons informé.",
+  "texting.adminOnly":
+    "Votre administrateur fournit les informations de l'entreprise pour les SMS aux États-Unis.",
+  "texting.notAvailable":
+    "Les SMS ne sont pas encore configurés pour vous. Demandez-le-nous et nous les configurons.",
+  "texting.status": "Où en est-on",
+  "texting.stage.draft": "En attente de vos informations",
+  "texting.stage.submitted": "Chez Twilio",
+  "texting.stage.campaign": "En cours d'examen par les opérateurs",
+  "texting.stage.ready": "Les SMS sont prêts",
+  "texting.stage.needs_changes": "Twilio demande des modifications",
+  "texting.stage.suspended": "En pause",
+  "texting.stageHelp.draft":
+    "Remplissez le formulaire ci-dessous. Nous le vérifions et l'envoyons à Twilio.",
+  "texting.stageHelp.submitted":
+    "Twilio vérifie votre entreprise. Cela prend généralement quelques jours.",
+  "texting.stageHelp.campaign":
+    "Votre entreprise est approuvée. Les opérateurs examinent vos envois. Cela prend jusqu'à une semaine.",
+  "texting.stageHelp.ready":
+    "Vos agents peuvent envoyer des SMS à des numéros américains depuis votre numéro.",
+  "texting.stageHelp.needs_changes":
+    "Modifiez ci-dessous ce que Twilio a demandé et enregistrez. Nous le renvoyons.",
+  "texting.stageHelp.suspended":
+    "Nous travaillons avec le support de Twilio. Les SMS vers les numéros américains ne peuvent pas partir d'ici là.",
+  "texting.needs": "Ce que Twilio a demandé",
+  "texting.locked":
+    "Vos informations sont maintenant chez Twilio. Vous pourrez les modifier si Twilio le demande.",
+  "texting.business": "Votre entreprise",
+  "texting.legalName": "Raison sociale",
+  "texting.legalNameHelp": "Exactement comme sur votre lettre d'EIN (CP 575 ou 147C).",
+  "texting.businessType": "Forme juridique",
+  "texting.industry": "Secteur",
+  "texting.companyType": "Statut",
+  "texting.companyType.private": "Entreprise privée",
+  "texting.companyType.non-profit": "Association à but non lucratif",
+  "texting.companyType.government": "Administration publique",
+  "texting.website": "Site web",
+  "texting.websiteHelp":
+    "Il doit s'ouvrir sans connexion et correspondre au nom de votre entreprise.",
+  "texting.ein": "EIN",
+  "texting.einHelp": "Nous le gardons chiffré et ne l'affichons plus jamais.",
+  "texting.einSet": "Enregistré ({hint}). Saisissez-le à nouveau seulement pour le remplacer.",
+  "texting.address": "Adresse",
+  "texting.street": "Rue",
+  "texting.streetSecondary": "Bureau ou unité",
+  "texting.city": "Ville",
+  "texting.region": "État",
+  "texting.postalCode": "Code postal",
+  "texting.rep": "Qui peut parler au nom de l'entreprise",
+  "texting.firstName": "Prénom",
+  "texting.lastName": "Nom",
+  "texting.title": "Intitulé du poste",
+  "texting.position": "Fonction",
+  "texting.phone": "Téléphone",
+  "texting.phoneHelp": "Avec l'indicatif du pays, p. ex. +15125550199.",
+  "texting.email": "E-mail",
+  "texting.texts": "Vos SMS",
+  "texting.volume": "SMS par jour",
+  "texting.volume.low": "Moins de 6 000",
+  "texting.volume.standard": "6 000 ou plus",
+  "texting.uses": "À qui vous écrivez",
+  "texting.uses.team": "Votre équipe",
+  "texting.uses.vendors": "Vos fournisseurs",
+  "texting.uses.customer_care": "Vos clients, au sujet de leurs commandes",
+  "texting.noMarketing":
+    "Nous n'enregistrons que les SMS de votre entreprise, jamais de marketing.",
+  "texting.optIn": "Comment les personnes acceptent vos SMS",
+  "texting.optInHelp":
+    "Avec vos mots : où elles donnent leur numéro et ce qu'elles acceptent. Au moins 40 caractères.",
+  "texting.privacy": "Lien vers la politique de confidentialité",
+  "texting.terms": "Lien vers les conditions",
+  "texting.hasLinks": "Nos SMS contiennent des liens",
+  "texting.hasPhones": "Nos SMS contiennent des numéros de téléphone",
+  "texting.fees":
+    "Twilio facture des frais d'enregistrement uniques et des frais mensuels. Ils sont facturés en crédits.",
+  "texting.save": "Enregistrer les informations",
+  "texting.saved": "Enregistré. Nous vérifions vos informations et les envoyons à Twilio.",
+  "texting.problem": "Vérifiez les champs signalés ci-dessus.",
 };

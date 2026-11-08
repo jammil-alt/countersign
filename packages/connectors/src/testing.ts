@@ -401,6 +401,8 @@ export {
 } from "./slack/fake";
 export * from "./stripe/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";
+// P-8: the fake A2P 10DLC resources (Trust Hub, brands, services, campaigns)
+export { FAKE_PRIMARY_PROFILE, type FakeA2p } from "./twilio/fake-a2p";
 // v0.14 W4-A: WhatsApp through Meta (docs/plan.md §1.57).
 export {
   DEFAULT_FAKE_ACCOUNTS,

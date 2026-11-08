@@ -28,6 +28,16 @@ import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+// P-8: US texting registration by API (docs/plan.md §1.70)
+import {
+  a2pWithoutRegistration,
+  joinService,
+  opsView,
+  pollRegistration,
+  registrationOf,
+  rollupFees,
+  submitRegistration,
+} from "../messaging/a2p";
 import { messagingSettingsOf } from "../messaging/contacts";
 import { cipherFor, connectionCredentials } from "../secrets";
 import { newConnectionMatrix } from "./ops-connectors";
@@ -80,7 +90,9 @@ async function setupOf(
               status: row.status,
               subaccountSid: config.subaccountSid,
               numbers: config.numbers,
-              a2p: config.a2p,
+              // P-8: the stored registration stays out; its view is below.
+              a2p: a2pWithoutRegistration(config.a2p),
+              registration: opsView(config, env),
             }
           : null,
       webhooks: config?.webhooks ?? twilioWebhookUrls(originOf(c, env), tenantId),
@@ -275,17 +287,20 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
         now: new Date(),
       }),
     );
-    await saveConfig(
-      ctx.tx,
-      row,
-      { ...config, numbers: [...config.numbers, bought] },
-      ctx.session.user.id,
-      {
-        kind: "number_bought",
-        number: bought.phoneNumber,
-        sid: bought.sid,
-      },
+    // P-8: once the client's campaign is verified, a new number joins its Messaging Service.
+    const joined = await twilio(() =>
+      joinService(
+        fetchFor(ctx.services),
+        auth,
+        { ...config, numbers: [...config.numbers, bought] },
+        bought,
+      ),
     );
+    await saveConfig(ctx.tx, row, joined, ctx.session.user.id, {
+      kind: "number_bought",
+      number: bought.phoneNumber,
+      sid: bought.sid,
+    });
     return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
   });
 
@@ -299,7 +314,22 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
     await saveConfig(
       ctx.tx,
       row,
-      { ...config, numbers: config.numbers.filter((x) => x.sid !== n.sid) },
+      {
+        ...config,
+        numbers: config.numbers.filter((x) => x.sid !== n.sid),
+        // P-8: a released number leaves the Messaging Service with it.
+        ...(config.a2p.registration
+          ? {
+              a2p: {
+                ...config.a2p,
+                registration: {
+                  ...config.a2p.registration,
+                  serviceNumbers: config.a2p.registration.serviceNumbers.filter((x) => x !== n.sid),
+                },
+              },
+            }
+          : {}),
+      },
       ctx.session.user.id,
       { kind: "number_released", number: n.phoneNumber, sid: n.sid },
     );
@@ -332,6 +362,14 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
     const tenantId = ctx.params.id;
     ensureClient(ctx, tenantId);
     const { row, config } = await connected(ctx.tx, ctx.services.env, tenantId);
+    // P-8: a registration Mezonas submitted by API keeps its own SIDs.
+    if (registrationOf(config).stage !== "draft") {
+      throw new HttpError(
+        409,
+        "registered_by_api",
+        "this client's registration is Mezonas' own, by API",
+      );
+    }
     const { brandSid, messagingServiceSid } = ctx.body;
     const a2p = A2pRegistration.parse({
       brandSid,
@@ -340,6 +378,8 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
       campaignStatus: null,
       status: brandSid || messagingServiceSid ? "pending" : "not_started",
       checkedAt: null,
+      // P-8: the client's details (a draft) stay.
+      ...(config.a2p.registration ? { registration: config.a2p.registration } : {}),
     });
     await saveConfig(ctx.tx, row, { ...config, a2p }, ctx.session.user.id, {
       kind: "a2p",
@@ -353,6 +393,15 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
     const tenantId = ctx.params.id;
     ensureClient(ctx, tenantId);
     const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
+    // P-8: a registration by API: the cron's pass, now.
+    const polled = await pollRegistration(ctx.tx, ctx.services.env, {
+      row,
+      config,
+      auth,
+      fetch: fetchFor(ctx.services),
+      now: new Date(),
+    });
+    if (polled) return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
     if (!config.a2p.brandSid && !config.a2p.messagingServiceSid) {
       throw new HttpError(409, "a2p_not_started", "record the brand and Messaging Service first");
     }
@@ -365,6 +414,26 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
       brandStatus: a2p.brandStatus,
       campaignStatus: a2p.campaignStatus,
     });
+    return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+  });
+
+  // P-8: the operator submits the client's details to Twilio, fees confirmed (docs/plan.md §1.70).
+  mount(app, routes.opsA2pSubmit, async (ctx) => {
+    const tenantId = ctx.params.id;
+    ensureClient(ctx, tenantId);
+    const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
+    const now = new Date();
+    await submitRegistration(ctx.tx, ctx.services.env, {
+      row,
+      config,
+      auth,
+      fetch: fetchFor(ctx.services),
+      actor: { id: ctx.session.user.id, label: ctx.session.user.name ?? ctx.session.user.email },
+      reason: ctx.body.reason,
+      campaign: ctx.body.campaign,
+      now,
+    });
+    await rollupFees(ctx.tx, tenantId, now);
     return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
   });
 }
