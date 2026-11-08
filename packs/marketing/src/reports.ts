@@ -1,15 +1,32 @@
-// The pack's reports (`/api/reports/marketing/:report` for the portal, and per client in the back
-// office): built from the daily totals only, never from a visit, so a report says nothing about
-// any one visitor. Small samples and today's partial day are marked, not hidden.
+// The pack's overview report (`/api/reports/marketing/overview` for the portal from M50, and per
+// client in the back office): built from the daily totals only, never from a visit, so it says
+// nothing about any one visitor. One site at a time (the query's, else the client's first); the
+// last 28 finished days by default, against as many days before. Small samples and days the
+// nightly build hasn't reached are marked, not hidden. The other read reports are in ./measure.
 
 import type { Tx } from "@countersign/db";
 import { sql } from "drizzle-orm";
-import { listSites, type SiteRow } from "./sites";
+import {
+  DEFAULT_PERIOD_DAYS,
+  type MedianBand,
+  medianBand,
+  num,
+  type PeriodQuery,
+  rangeOut,
+  rate,
+  resolveRange,
+  SMALL_SAMPLE,
+  siteOf,
+  small,
+  sumArray,
+  toCsv,
+} from "./measure/range";
+import { ENGAGED_BANDS } from "./schema";
+import type { SiteRow } from "./sites";
 
-/** Fewer visits than this behind a figure: shown, and marked as a small sample. */
-export const SMALL_SAMPLE = 20;
-/** The overview's period: the last 28 finished days, against the 28 before. */
-export const PERIOD_DAYS = 28;
+export { SMALL_SAMPLE };
+/** The overview's default period: the last 28 finished days, against the 28 before. */
+export const PERIOD_DAYS = DEFAULT_PERIOD_DAYS;
 
 export interface PeriodTotals {
   visits: number;
@@ -20,64 +37,81 @@ export interface PeriodTotals {
   /** Goals ÷ visits, to 4 places, as a string; null with no visits. */
   goalRate: string | null;
   bounceRate: string | null;
+  /** The band a visit's median engaged time falls in. */
+  medianEngaged: MedianBand | null;
   smallSample: boolean;
 }
 
-export interface Overview {
+export interface Overview extends ReturnType<typeof rangeOut> {
   sites: SiteRow[];
   period: { from: string; to: string };
   previous: { from: string; to: string };
   totals: PeriodTotals;
   previousTotals: PeriodTotals;
-  daily: { day: string; visits: number; goals: number }[];
-  pages: { path: string; views: number; entries: number; goals: number }[];
-  sources: { source: string; visits: number; goals: number; smallSample: boolean }[];
+  /** Every day of the range; `built` false for a day the nightly build hasn't reached (today). */
+  daily: { day: string; visits: number; goals: number; built: boolean }[];
+  pages: { path: string; views: number; entries: number; goals: number; smallSample: boolean }[];
+  sources: {
+    source: string;
+    group: string;
+    name: string | null;
+    visits: number;
+    goals: number;
+    smallSample: boolean;
+  }[];
   /** Requests not counted as visits in the period (filtered by heuristics). */
   filtered: number;
 }
 
-const addDays = (day: string, n: number) =>
-  new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-
-const rate = (n: number, of: number) => (of > 0 ? (n / of).toFixed(4) : null);
-
 function totalsOf(row: Record<string, unknown> | undefined): PeriodTotals {
-  const visits = Number(row?.visits ?? 0);
-  const goals = Number(row?.goals ?? 0);
-  const bounces = Number(row?.bounces ?? 0);
+  const visits = num(row?.visits);
+  const goals = num(row?.goals);
+  const bounces = num(row?.bounces);
   return {
     visits,
-    views: Number(row?.views ?? 0),
+    views: num(row?.views),
     goals,
     bounces,
-    engagedMs: Number(row?.engaged_ms ?? 0),
+    engagedMs: num(row?.engaged_ms),
     goalRate: rate(goals, visits),
     bounceRate: rate(bounces, visits),
-    smallSample: visits < SMALL_SAMPLE,
+    medianEngaged: medianBand((row?.bands as number[] | undefined) ?? []),
+    smallSample: small(visits),
   };
 }
 
-/** The overview of every site of one client, for the period ending yesterday (UTC). */
-export async function overview(tx: Tx, tenantId: string, today: string): Promise<Overview> {
-  const to = addDays(today, -1);
-  const from = addDays(to, -(PERIOD_DAYS - 1));
-  const prevTo = addDays(from, -1);
-  const prevFrom = addDays(prevTo, -(PERIOD_DAYS - 1));
+/** The overview of one of a client's sites for a period (by default the 28 days to yesterday). */
+export async function overview(
+  tx: Tx,
+  tenantId: string,
+  today: string,
+  query: PeriodQuery = {},
+): Promise<Overview> {
+  const r = await resolveRange(tx, tenantId, today, query);
+  const siteId = siteOf(r);
+  const { from, to } = r;
   const sum = async (a: string, b: string) =>
     [
       ...(await tx.execute(sql`
         select coalesce(sum(visits), 0)::int as visits, coalesce(sum(views), 0)::int as views,
                coalesce(sum(goals), 0)::int as goals, coalesce(sum(bounces), 0)::int as bounces,
-               coalesce(sum(engaged_ms), 0)::bigint as engaged_ms
+               coalesce(sum(engaged_ms), 0)::bigint as engaged_ms,
+               ${sumArray("engaged_bands", ENGAGED_BANDS)} as bands
         from site_daily_total
-        where tenant_id = ${tenantId} and dimension = 'all' and day between ${a} and ${b}`)),
+        where tenant_id = ${tenantId} and site_id = ${siteId} and dimension = 'all'
+          and day between ${a} and ${b}`)),
     ][0] as Record<string, unknown> | undefined;
 
-  const daily = await tx.execute<{ day: string; visits: number; goals: number }>(sql`
-    select day::text as day, sum(visits)::int as visits, sum(goals)::int as goals
-    from site_daily_total
-    where tenant_id = ${tenantId} and dimension = 'all' and day between ${from} and ${to}
-    group by day order by day`);
+  const daily = await tx.execute<{ day: string; visits: number; goals: number; built: boolean }>(
+    sql`
+    select d::date::text as day, coalesce(t.visits, 0)::int as visits,
+           coalesce(t.goals, 0)::int as goals, t.day is not null as built
+    from generate_series(${from}::date, ${to}::date, interval '1 day') as d
+    left join site_daily_total t
+      on t.tenant_id = ${tenantId} and t.site_id = ${siteId} and t.dimension = 'all'
+     and t.day = d::date
+    order by 1`,
+  );
   const pages = await tx.execute<{
     path: string;
     views: number;
@@ -86,47 +120,56 @@ export async function overview(tx: Tx, tenantId: string, today: string): Promise
   }>(sql`
     select path, sum(views)::int as views, sum(entries)::int as entries, sum(goals)::int as goals
     from site_daily_page
-    where tenant_id = ${tenantId} and day between ${from} and ${to}
+    where tenant_id = ${tenantId} and site_id = ${siteId} and day between ${from} and ${to}
     group by path order by 2 desc, 1 limit 10`);
   const sources = await tx.execute<{ source: string; visits: number; goals: number }>(sql`
     select key as source, sum(visits)::int as visits, sum(goals)::int as goals
     from site_daily_total
-    where tenant_id = ${tenantId} and dimension = 'source' and day between ${from} and ${to}
+    where tenant_id = ${tenantId} and site_id = ${siteId} and dimension = 'source'
+      and day between ${from} and ${to}
     group by key order by 2 desc, 1 limit 10`);
   const [filtered] = await tx.execute<{ n: number }>(sql`
     select coalesce(sum(requests), 0)::int as n from site_bot_daily
-    where tenant_id = ${tenantId} and day between ${from} and ${to}`);
+    where tenant_id = ${tenantId} and site_id = ${siteId} and day between ${from} and ${to}`);
 
   return {
-    sites: await listSites(tx, tenantId),
+    ...rangeOut(r),
     period: { from, to },
-    previous: { from: prevFrom, to: prevTo },
+    previous: r.previous,
     totals: totalsOf(await sum(from, to)),
-    previousTotals: totalsOf(await sum(prevFrom, prevTo)),
-    daily: [...daily].map((r) => ({ day: r.day, visits: r.visits, goals: r.goals })),
-    pages: [...pages].map((r) => ({
-      path: r.path,
-      views: r.views,
-      entries: r.entries,
-      goals: r.goals,
+    previousTotals: totalsOf(await sum(r.previous.from, r.previous.to)),
+    daily: [...daily].map((d) => ({
+      day: d.day,
+      visits: num(d.visits),
+      goals: num(d.goals),
+      built: Boolean(d.built),
     })),
-    sources: [...sources].map((r) => ({
-      source: r.source,
-      visits: r.visits,
-      goals: r.goals,
-      smallSample: r.visits < SMALL_SAMPLE,
+    pages: [...pages].map((p) => ({
+      path: p.path,
+      views: num(p.views),
+      entries: num(p.entries),
+      goals: num(p.goals),
+      smallSample: small(num(p.views)),
     })),
-    filtered: filtered?.n ?? 0,
+    sources: [...sources].map((s) => {
+      const slash = s.source.indexOf("/");
+      return {
+        source: s.source,
+        group: slash < 0 ? s.source : s.source.slice(0, slash),
+        name: slash < 0 ? null : s.source.slice(slash + 1),
+        visits: num(s.visits),
+        goals: num(s.goals),
+        smallSample: small(num(s.visits)),
+      };
+    }),
+    filtered: num(filtered?.n),
   };
 }
 
-const csvCell = (v: string | number) => {
-  const s = String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
 /** The overview's days as CSV: one row per day. */
 export function overviewCsv(o: Overview): string {
-  const rows = [["day", "visits", "goals"], ...o.daily.map((d) => [d.day, d.visits, d.goals])];
-  return `${rows.map((r) => r.map(csvCell).join(",")).join("\n")}\n`;
+  return toCsv([
+    ["day", "visits", "goals", "built"],
+    ...o.daily.map((d) => [d.day, d.visits, d.goals, d.built ? "yes" : "no"]),
+  ]);
 }
