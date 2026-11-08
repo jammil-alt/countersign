@@ -22,6 +22,7 @@ import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, QBO_FIXTURES } from "../testi
 import {
   BANKING_TOOLS,
   createQboConnector,
+  LEDGER_WRITE_TOOLS,
   parseQboWebhook,
   QBO_TOOLS,
   QboStaleObjectError,
@@ -113,7 +114,7 @@ describe("qbo connector: manifest and sign-in", () => {
     }
   });
 
-  it("declares twelve reads and thirteen approval-gated writes, no delete", () => {
+  it("declares twelve reads and nineteen approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -146,7 +147,17 @@ describe("qbo connector: manifest and sign-in", () => {
       [BANKING_TOOLS.purchaseCreate, "external", "create"],
       [BANKING_TOOLS.depositCreate, "external", "create"],
       [BANKING_TOOLS.transferCreate, "external", "create"],
+      // The ledger's set-up, each always signed.
+      [LEDGER_WRITE_TOOLS.accountCreate, "external", "create"],
+      [LEDGER_WRITE_TOOLS.accountUpdate, "external", "update"],
+      [LEDGER_WRITE_TOOLS.classCreate, "external", "create"],
+      [LEDGER_WRITE_TOOLS.classUpdate, "external", "update"],
+      [LEDGER_WRITE_TOOLS.locationCreate, "external", "create"],
+      [LEDGER_WRITE_TOOLS.locationUpdate, "external", "update"],
     ]);
+    for (const id of Object.values(LEDGER_WRITE_TOOLS)) {
+      expect(connector.manifest.tools.find((t) => t.id === id)?.approval, id).toBe("always");
+    }
     // The record types the v0.12 tools name (ToolSpec.entity), for per-entity permissions.
     const entity = (id: string) => connector.manifest.tools.find((t) => t.id === id)?.entity;
     expect(entity(QBO_TOOLS.invoiceAddNote)).toBe("invoice");

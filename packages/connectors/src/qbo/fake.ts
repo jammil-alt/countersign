@@ -208,6 +208,7 @@ const ENTITY_PATHS: Record<string, string> = {
   // B-4 (docs/plan.md §1.79)
   deposit: "Deposit",
   transfer: "Transfer",
+  department: "Department",
 };
 
 export interface FakeQboOptions {
@@ -264,6 +265,8 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   let nextPoId = 800;
   // B-4: purchases, deposits and transfers made from bank transactions.
   let nextBankId = 600;
+  // The ledger's set-up: new accounts, classes and locations.
+  let nextLedgerId = 500;
   files.set("5000000000000401", utf8("%PDF-1.4\n% Cascade Hardwoods invoice 77812\n%%EOF\n"));
 
   const stamp = () => {
@@ -372,6 +375,14 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
         next.TotalAmt = Number(linesTotal(next));
         if (entity === "Bill") next.Balance = next.TotalAmt;
       }
+    }
+    // The ledger's set-up: a name or parent change moves the full name, and a sub-account made
+    // top level has no parent.
+    if (["Account", "Class", "Department"].includes(entity)) {
+      if (body.SubAccount === false || body.SubClass === false || body.SubDepartment === false) {
+        delete next.ParentRef;
+      }
+      next.FullyQualifiedName = fullName(entity, next);
     }
     next.SyncToken = String(Number(current.SyncToken ?? "0") + 1);
     touch(entity, next);
@@ -584,8 +595,51 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     return response(200, { Transfer: clone(row), time: now().toISOString() });
   }
 
+  // ── The ledger's set-up: accounts, classes and locations ──────────────────────────────────
+
+  /** QuickBooks' full name: the parent's, a colon, then the name. */
+  function fullName(entity: string, row: Entity): string {
+    const parent = row.ParentRef as { value?: string } | undefined;
+    const p = parent?.value ? table(entity).get(String(parent.value)) : undefined;
+    return p ? `${String(p.FullyQualifiedName ?? p.Name)}:${String(row.Name)}` : String(row.Name);
+  }
+
+  /** A new account, class or department: a name unique under its parent (6240 otherwise). */
+  function createLedger(entity: string, body: Entity): HttpResponseLike {
+    if (typeof body.Name !== "string" || body.Name.trim() === "") {
+      throw new FakeFault(400, "2020", "Required param missing, need to supply the required value");
+    }
+    if (entity === "Account" && typeof body.AccountType !== "string") {
+      throw new FakeFault(400, "2020", "Required param missing, need to supply the required value");
+    }
+    const parent = body.ParentRef as { value?: string } | undefined;
+    if (parent && !table(entity).has(String(parent.value))) throw invalidRef();
+    const name = String(body.Name).trim().toLowerCase();
+    const taken = [...table(entity).values()].some(
+      (r) =>
+        String(r.Name).trim().toLowerCase() === name &&
+        ((r.ParentRef as { value?: string } | undefined)?.value ?? null) ===
+          (parent?.value ?? null),
+    );
+    if (taken) throw new FakeFault(400, "6240", "Duplicate Name Exists Error");
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextLedgerId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      Active: true,
+    };
+    row.FullyQualifiedName = fullName(entity, row);
+    touch(entity, row, true);
+    return response(200, { [entity]: clone(row), time: now().toISOString() });
+  }
+
   /** POST /<entity> without an Id: the entities the fake can create. */
   function create(first: string, body: Entity): HttpResponseLike | null {
+    if (first === "account") return createLedger("Account", body);
+    if (first === "class") return createLedger("Class", body);
+    if (first === "department") return createLedger("Department", body);
     if (first === "purchase") return createPurchase(body);
     if (first === "deposit") return createDeposit(body);
     if (first === "transfer") return createTransfer(body);

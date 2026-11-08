@@ -187,3 +187,20 @@ Built against the fake; check against the sandbox company:
 5. The private note keeps our `[Mezonas bk-…]` mark as written (length, characters), so a retried
    write finds its own record.
 
+## The ledger's set-up (2026-11-08, docs/plan.md §1.79)
+
+`qbo.account.*`, `qbo.class.*`, `qbo.location.*` create and update, always signed. Built against the
+fake; check against the sandbox company:
+
+1. A name's limits (100 characters, no colon or double quote) and an account description's (100).
+2. `select * from Account|Class|Department where Name = '…' and Active in (true, false)`.
+3. Creating a sub-account (`SubAccount: true`, `ParentRef`) under a parent of the same type, a
+   sub-class (`SubClass`) and a sub-location (`SubDepartment`); and making one top level again by
+   sending the flag `false` with no `ParentRef` in a sparse update.
+4. Whether a sparse update needs `Name` (we send it unchanged) and `AccountType` (we send it only
+   when it changes).
+5. Changing an account's type once it has transactions: which changes QuickBooks refuses, and its
+   error code (we pass its words on).
+6. Duplicate names answer 6240; a repeated `requestid` answers the first result again.
+7. Departments are named "Location" in some companies' settings; the API entity stays Department.
+

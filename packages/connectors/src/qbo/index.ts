@@ -45,6 +45,7 @@ export * from "./ar";
 export * from "./banking";
 export * from "./bill-create";
 export * from "./ingredients";
+export * from "./ledger-writes";
 export * from "./purchase-order";
 export * from "./records";
 export * from "./skills";
@@ -127,8 +128,11 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
       { id: "payment", label: "Payments", verbs: ["read"] },
       { id: "attachment", label: "Attachments", verbs: ["read", "create"] },
       // P-2: QuickBooks ingredients (docs/plan.md §1.64).
-      { id: "account", label: "Accounts", verbs: ["read"] },
-      { id: "class", label: "Classes", verbs: ["read"] },
+      // The ledger's set-up (owner, 2026-11-08): accounts, classes and locations gain create and
+      // update, every one always signed by a person (`approval: "always"`).
+      { id: "account", label: "Accounts", verbs: ["read", "create", "update"] },
+      { id: "class", label: "Classes", verbs: ["read", "create", "update"] },
+      { id: "location", label: "Locations", verbs: ["read", "create", "update"] },
       { id: "purchase_order", label: "Purchase orders", verbs: ["read", "create"] },
       // B-4 (docs/plan.md §1.79): deposits and transfers booked from bank transactions.
       { id: "deposit", label: "Deposits", verbs: ["create"] },

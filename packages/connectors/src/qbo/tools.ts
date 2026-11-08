@@ -24,6 +24,7 @@ import {
   updatePurchaseCostDisplay,
 } from "./display";
 import { qboIngredientTools } from "./ingredients";
+import { ledgerWriteTools } from "./ledger-writes";
 import {
   QboAttachment,
   QboId,
@@ -688,5 +689,7 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     purchaseCreateTool(clientFor),
     depositCreateTool(clientFor),
     transferCreateTool(clientFor),
+    // The ledger's set-up (owner, 2026-11-08): accounts, classes and locations, always signed.
+    ...ledgerWriteTools(clientFor),
   ];
 }

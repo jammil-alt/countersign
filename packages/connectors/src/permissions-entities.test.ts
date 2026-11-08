@@ -96,11 +96,16 @@ describe("manifests", () => {
       // P-2
       "account",
       "class",
+      // The ledger's set-up
+      "location",
       "purchase_order",
       // B-4
       "deposit",
       "transfer",
     ]);
+    for (const id of ["account", "class", "location"]) {
+      expect(declared?.find((e) => e.id === id)?.verbs, id).toEqual(["read", "create", "update"]);
+    }
     // B-4: purchases can be created (a booked bank transaction).
     expect(declared?.find((e) => e.id === "purchase")?.verbs).toEqual(["read", "create", "update"]);
     // P-2: vendors can be created.
