@@ -125,8 +125,8 @@ describe("portal reports", () => {
     const prices: PackReport = {
       pack: "materials",
       slug: "prices",
-      title: "Price watch",
-      description: "What you pay per item, and what changed.",
+      titleKey: "materials.prices.title",
+      descriptionKey: "materials.prices.description",
       Component: () => null,
     };
     expect(packReportsFor(["materials"], [prices])).toEqual([prices]);

@@ -300,7 +300,7 @@ ARCHITECTURE §13–§15: usage and cost for the back office, the portal's activ
 |---|---|
 | Approver rules | Per client. The operator sets them; the client admin can only make them stricter (a stricter approver, never a looser one). A rule matches on any of: connector or tool, verb (`create`, `update`, …), an amount over a threshold, the client agent; it names the approver: the client admin, a named client user, a client role, or the operator on the client's behalf. Rules are ordered: the first match wins; with no match, the client admin approves. They decide *who* approves; whether a step needs approval at all stays per step and per matrix (invariant 8). A run snapshots the approver it used. |
 | Billing | Stripe. Each client is a Stripe customer. A monthly **base fee per active client agent** (not per user), which includes an allowance of **credits**; usage beyond the allowance is billed per credit (Stripe metered prices with the allowance as the free tier), counted from `usage_daily`. Keys are network secrets, never in the repo. **One credit is one cent of what the work cost us** (owner, 2026-11-04): model cost plus provider costs (SMS and WhatsApp messages, call minutes), converted from `usage_daily` with unit costs kept as operator settings, so every new tool is billable without a new rule; the markup is in the overage price. The allowance and the prices are open (§7). |
-| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. |
+| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. **Superseded (v0.15, 2026-11-07):** the Materials pack is ported onto main as the Purchasing area (§1.63, M34). |
 
 
 ### 1.18 Languages (owner, 2026-11-04; stream I)
@@ -1623,7 +1623,7 @@ number 1.60 leaves 1.55–1.59 to the other Wave 4 streams; the lead renumbers i
 | Inbound endpoint | `POST /api/hooks/gchat`, public. The bearer token is verified before the body is read: a JWT with `alg` RS256 and a `kid` among the x509 certificates Google publishes for `chat@system.gserviceaccount.com` (the official samples' URL; kept for Cache-Control's max-age, 1 h without it, 24 h at most; an unknown `kid` refetches at most once a minute), `iss` exactly that address, `aud` exactly `GOOGLE_CHAT_PROJECT_NUMBER` (the Chat API's audience set to Project Number), not expired (60 s skew). Anything else 401 with one fixed message. Body at most 64 KB. The answer is synchronous: `{"text": …}` (one fixed line in the space) or `{}`. Workspace add-on events are not supported. // DECISION |
 | Binding codes | `MZ-XXXX-XXXX-XXXX`: 12 symbols of Crockford base32 from the CSPRNG (60 bits), forgiving case, dashes, O/0 and I/L/1. Made by the client admin only (`POST /api/connections/:id/gchat/code`), shown once; kept as SHA-256 over `gchat-bind:v1:<client>:<connection>:<code>` inside the connection's encrypted credentials (never in `config`, so the operator's view and `connection_change` never hold it), 15 minutes, one pending per connection (a new code replaces it), at most 5 made per connection per hour (counted from `connection_change` rows of kind `gchat_code`, 429 after). Compared in constant time, before the expiry is looked at. // DECISION |
 | Binding a space | A `MESSAGE` (or an `ADDED_TO_SPACE` carrying the mention) from a person whose text after the mention holds a code: each client's Google Chat connection is looked at in its own `withTenant` (as QuickBooks' webhook finds a company; no table outside RLS learns which client uses which space); the code matches only the client and connection it was hashed for. Then, in that client's transaction under the connection's row lock, the code is checked again, spent, and the space added to `config.spaces` (`name`, `displayName`, `kind`, `boundAt`, `boundBy` = the person's Chat display name; at most 50), with a `connection_change` `gchat_space_bound` whose actor is the admin who made the code. A space bound to another client is refused ("already connected to another Mezonas account") and the code is kept; a space already this client's spends the code. DMs are refused (spaces and group chats only). Never by email domain. // DECISION |
-| Race | Two clients' valid codes posted in one space at the same instant could both bind it: there is no lock across clients without a table (and a migration, 0032). Both clients see the space in their portal, and either can disconnect it. Accepted as a follow-up if it is ever seen. // DECISION |
+| Race | Two clients' valid codes posted in one space at the same instant could both bind it: there is no lock across clients without a table (and a migration, the next free one: 0033). Both clients see the space in their portal, and either can disconnect it. Accepted as a follow-up if it is ever seen. // DECISION |
 | Wrong codes | Counted per space in the isolate (`BindAttemptLimiter`: 10 in 15 minutes, 1,000 spaces tracked), then "wait 15 minutes". No storage: a code is 60 bits and lives 15 minutes, so the limit is about load, not odds. Unknown, expired and used codes get the same answer. // DECISION |
 | Other messages | Not stored, not logged, not read beyond looking for a code. The app answers every mention with a fixed line (spaces deliver messages to an app only when it is mentioned): `ADDED_TO_SPACE` without a code gets the welcome line, any other message "I only post updates from Mezonas here. I can't read or answer messages." A bot's message is ignored. The lines are fixed English (events carry no reliable language for the space). // DECISION |
 | Unbinding | `REMOVED_FROM_SPACE` removes the space from whichever client has it (`gchat_space_unbound`, `by: google_chat`). The client admin disconnects a space in the portal (`DELETE /api/connections/:id/gchat/spaces/:spaceId`); the app stays a member until someone removes it. Disconnecting Google Chat drops every space (and, with the credentials, any pending code), so another client may bind them later. // DECISION |
@@ -1663,7 +1663,23 @@ data only, within the brand rules (`apps/web/src/ui/README.md`).
 | Agent colour | Owner (design pass 2): solid blocks as on the v1 screens, from existing tokens (slate, copper, positive, signal-ink, `data-seq-4`) with `surface` initials; picked by id and spread within a client so its first five agents differ. State keeps tinted pills and accent bars, so a solid block reads as identity. // DECISION |
 | Go-live view | `goLive.writes` reads the live version, else the latest (a draft that writes no longer reads "goes straight to live"); `liveVersion` says whether there is one. Stage moves still read the live version alone. // DECISION |
 
-### 1.67 Purchasing area v2 (P-5, M38; migration 0035)
+### 1.63 The Purchasing area: the Materials pack ported (P-1, M34; migration 0032; ARCHITECTURE v0.15 §12.0, §12.2–§12.4)
+
+The Materials pack was built on 2026-11-04 in streams M8a and M8b (§1.12, §1.13 on those branches)
+and kept off main (§3 "Millwork and Pia"). v0.15 brings it in as the first **business area**.
+
+| Topic | Decision |
+|---|---|
+| Source | `claude/m8b-pia` (12 commits, both halves) is the source. It is 375 commits behind main, so it is re-applied file by file onto today's platform, not merged. The branches stay as they are for reference. The branch's §1.12 and §1.13 decisions carry over unless this section says otherwise. |
+| Three PRs | (1) The docs (`claude/p1-business-areas-docs`): ARCHITECTURE v0.15, this section, M34, CLAUDE.md. (2) Migration 0032 alone (`claude/p1-materials-migration`). (3) The pack, its registration and screens (`claude/p1-materials`). Merge commits, in that order. |
+| Migration 0032 | One migration for what the branch did in 0006 and 0007: `catalog_item`, `item_alias`, `item_match`, `price_observation` and the shared `alert` (§5.2). Forced RLS, grants as §1.12 decided (no DELETE anywhere; `item_match` insert-only), journal and snapshot, fixtures in the RLS, purge and migration test loops. `tenant_pack` is already on main. The `embedding vector(1024)` column stays, nullable (pgvector is enabled since 0000). Additive only: the previous Worker never reads these tables. |
+| Platform changes since the branch | Fit, don't redesign: skill modes (`tool`, `task`, `agent`; Materials' model-backed skills become `task` where they need no agent memory, recorded fixtures re-recorded where the request changes), per-entity permissions (Materials' internal tools declare their entity), automations, the test bench (the golden matching set also runs as skill cases), oversight, go-live stages, the run controls. |
+| Registration | `apps/api` registers the pack (tools, skills, events, routes); the platform never imports it (invariant 2); `pnpm lint:deps` holds. Enabling for a client inserts `tenant_pack` and installs nothing: the pack ships no agent templates (owner, 2026-11-07), and Pia's template stays on the M8 branch. Agents on the area are built in the Agent lab from its skills. The API tests build their own purchasing agent (`apps/api/src/purchasing.test-helper.ts`). // DECISION |
+| Screens | Price watch, Catalog and the match review card, fitted to the cleaned-up portal (Reports) and back office. The UI session owns the portal's screens and nav: P-1 tells it before changing them. |
+| Categories and embeddings | Millwork categories as built (sheet goods, hardwood, mouldings, hardware, finishes, other). Embeddings off: the column stays empty and candidates come from key attributes and `pg_trgm`. Both are open for the owner (ARCHITECTURE §20). |
+| With the invoice agent | Iris (invoice intake) may add `materials.match-lines` and `materials.record-prices` after a bill is created, so every intake feeds the master list. |
+
+### 1.67 Purchasing area v2 (P-5, M38; migration 0033)
 
 The Materials pack's next version (0.2.0, same pack id `materials`) gives the Purchasing area what a
 purchasing agent needs: requests to buy, the vendors that sold an item, requests for quotes and
@@ -1673,7 +1689,7 @@ conversations (P-4) are other streams.
 
 | Topic | Decision |
 |---|---|
-| Migration | One migration, written as 0033 (the next free number on `claude/p1-materials`); the lead reserved 0035 and renumbers at merge (§8.1). Four tables, each with `tenant_id`, forced RLS, `cs_runtime` grants without DELETE, composite tenant foreign keys and the `pack:materials` comment: `purchase_request`, `purchase_request_line`, `quote_request`, `quote_line`. Additive only. |
+| Migration | One migration, 0033 (the lead reserved 0035; 0033 was still free when it merged, §8.1). Four tables, each with `tenant_id`, forced RLS, `cs_runtime` grants without DELETE, composite tenant foreign keys and the `pack:materials` comment: `purchase_request`, `purchase_request_line`, `quote_request`, `quote_line`. Additive only. |
 | Request | Who asked: a contact or a user, at most one, neither when an agent opened it. Channel `email`, `sms`, `whatsapp`, `portal` or `agent`; the raw record it came from; needed-by; `delivery` or `pickup` with where; the order's reference (connector and external id) once placed; run and agent version. A test run's request is written and marked (`ext.testRun`), and lists leave it out. // DECISION |
 | Status | `open`, `quoting`, `quoted`, `ordered`, `closed` only move forward (skipping is allowed); `cancelled` from any status before `ordered`. The first RFQ sent makes a request `quoting`; it is `quoted` once a quote is in and no RFQ sent is still waiting. An order's reference makes it `ordered`, once: a different reference is refused. Lines are added only while `open` or `quoting`. // DECISION |
 | Matching request lines | Deterministic only, through the catalog's own keys and rules: with no vendor, every vendor's description alias for the text, when they all name one item; then exactly one candidate equal on every key attribute. Anything else keeps up to five candidates and no item, never a guess. A request never creates a catalog item. A person's choice (`choices`) may name any live item, recorded as `chosen`. // DECISION |
@@ -2298,9 +2314,31 @@ if it has one.
 document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
 retried webhook makes nothing twice; the client admin toggles it and the change is logged.
 
+### M34: The Purchasing area (P-1, §1.63)
+
+Three PRs in order: the docs (`claude/p1-business-areas-docs`); migration 0032 alone
+(`claude/p1-materials-migration`); then the pack (`claude/p1-materials`).
+
+Work: the pack's schema, catalog (normalise, category parsers, key attributes), matching (alias,
+candidates, the model's choice, the hard-rule veto), pricing (observations, standard units, the six
+alert rules), its tools, skills and events registered by `apps/api`; enabling for a client (no templates); the
+packs routes; Price watch, Catalog, the match review card and the
+back office's catalog merge, fitted to today's screens; `docs/operations.md` "Switching on the
+Purchasing area".
+
+Tests: the golden matching set (`fixtures/matching`, ≥ 95% precision on "same" at the auto
+threshold); a key attribute that differs is never matched; prices are never compared across units
+without a conversion; aliases learned from a person's decision; one client's catalog never seen by
+another (RLS and the routes); no portal answer carries a bundle, prompt or cost; the migration
+loops; the branch's done-when test (every invoice line settled by the rules, all six priced).
+
+**Done when**, on staging, the pack is enabled for the Sandbox; three invoices from different vendors
+for the same sheet good are matched to one catalog item (the second and third by alias or rules, not
+the model); Price watch shows that item's price per vendor and date; and the golden set passes.
+
 ### M38: Purchasing area v2 (P-5, §1.67)
 
-Two PRs: the migration (0035, written as 0033 on its base), then the tools and skills on it.
+Two PRs: the migration (0033), then the tools and skills on it.
 
 - Migration: `purchase_request`, `purchase_request_line`, `quote_request`, `quote_line`;
   `price_observation.raw_record_id` and `raw_line_id`; document source `generated`.
@@ -2481,6 +2519,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
 | 0030 | W3-A | `builder_session`, `builder_turn` |
 | 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
+| 0032 | P-1 (M34, §1.63) | `catalog_item`, `item_alias`, `item_match`, `price_observation`, `alert` (ARCHITECTURE §12.2, §5.2) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -2491,7 +2530,7 @@ from 0030 to 0031.
 
 // DECISION (v0.14, 2026-11-06): 0031 is WhatsApp capture's, replacing the W3-B spare. W3-B built
 Drive and Outlook with no migration, and the bank-feed connector being built in parallel needs none.
-A later connector that needs a table takes 0032.
+A later connector that needs a table takes the next free number (0032 went to P-1, 2026-11-07).
 
 The exports (data export and accountant export, running outside the waves) needed no migration.
 
@@ -2524,9 +2563,10 @@ The exports (data export and accountant export, running outside the waves) neede
 | W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | none | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
 | **v0.14** | | | | |
 | v0.14 capture | WhatsApp passive capture (M33, §1.55): design, migration, build as three PRs | 0031 | `packages/connectors/src/twilio/` inbound media pieces, `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `core/src/api/conversations.ts`, `core/src/schemas/conversation.ts`; blocks marked `// v0.14 capture` in the hot spots | W2-E (inbound routing), W1-H (background reading) |
+| P-1 | The Purchasing area: the Materials pack ported (M34, §1.63): docs, migration, pack as three PRs | 0032 | `packs/materials/*`, `fixtures/matching/*`, the pack's registration in `apps/api/src/platform.ts` and `apps/api/src/routes/packs.ts`, `core/src/api/packs.ts`, `apps/web/src/packs/materials/*` (portal reports agreed with the UI session) | Wave 4 merged |
 | **Wave 4** (owner, 2026-11-06; after Wave 3) | | | | |
 | W4-A | WhatsApp through Meta (`whatsapp_meta`, §1.19) | none expected | `packages/connectors/src/whatsapp_meta/`, its webhook route, one line in `apps/api/src/platform.ts` | M33 (WhatsApp passive capture: `conversation`, media download) |
-| W4-B | Follow-ups from Waves 1–3 | none expected (0032 spare) | each item's own files, small marked blocks elsewhere | — |
+| W4-B | Follow-ups from Waves 1–3 | none expected (the next free number; 0032 went to P-1) | each item's own files, small marked blocks elsewhere | — |
 | W4-C | Slack (ARCHITECTURE §6.11, row 6; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/slack/`, one line in `apps/api/src/platform.ts` | W2-A (entities) |
 | W4-D | Google Sheets (ARCHITECTURE §6.11, row 7) | none expected | `packages/connectors/src/gsheets/`, one line in `apps/api/src/platform.ts` | W3-B's Drive (shared Google client) |
 | W4-E | Google Chat (ARCHITECTURE §6.11, row 8; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/gchat/`, its interaction route, one line in `apps/api/src/platform.ts` | W4-C's pattern (Slack) |
@@ -2665,7 +2705,7 @@ build); the build against the fake Twilio, extended with media. Stay out of the 
 and `platform.ts`. Done when M33's check holds.
 
 **Wave 4 (owner, 2026-11-06).** Plan §8 had no Wave 4; the owner added it. Migrations: 0031 belongs to
-WhatsApp passive capture (M33, §1.55); 0032 is Wave 4's spare. The bank and card feed (W3-B's row 5,
+WhatsApp passive capture (M33, §1.55); 0032 was Wave 4's spare and went to P-1 (2026-11-07: drizzle-kit numbers by journal position, which the journal test checks), so the gchat lock follow-up takes 0033. The bank and card feed (W3-B's row 5,
 vendor Plaid, owner 2026-11-06) is being built alongside and is not a Wave 4 stream.
 
 **W4-A: WhatsApp through Meta (§1.19).** The `whatsapp_meta` connector: the client connects its own

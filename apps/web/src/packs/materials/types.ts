@@ -1,6 +1,7 @@
 // The Materials pack's report and review shapes, as the API answers them (packs/materials reports.ts
 // and api.ts). The route contract types pack reports as objects (the platform names no pack); the
 // pack's screens declare what they read here.
+import type { PlainKey } from "../../i18n/catalog";
 
 export interface PriceWatchRow {
   catalogItemId: string;
@@ -81,29 +82,31 @@ export interface MatchReviewData {
 /** The review key the match review's inbox items carry (`payload.review`). */
 export const MATCH_REVIEW = "materials.match";
 
-export const UNIT_LABEL: Record<string, string> = {
-  sheet: "sheet",
-  board_foot: "board foot",
-  linear_foot: "linear foot",
-  each: "each",
-  gallon: "gallon",
-  quart: "quart",
+// Units, categories and alert kinds in the reader's words (../../i18n/messages); one the pack adds
+// later shows as the pack names it until it has words here.
+export const UNIT_LABEL: Record<string, PlainKey> = {
+  sheet: "materials.unit.sheet",
+  board_foot: "materials.unit.board_foot",
+  linear_foot: "materials.unit.linear_foot",
+  each: "materials.unit.each",
+  gallon: "materials.unit.gallon",
+  quart: "materials.unit.quart",
 };
 
-export const CATEGORY_LABEL: Record<string, string> = {
-  sheet_goods: "Sheet goods",
-  hardwood: "Hardwood",
-  mouldings: "Mouldings and edgebanding",
-  hardware: "Hardware",
-  finishes: "Finishes and adhesives",
-  other: "Other",
+export const CATEGORY_LABEL: Record<string, PlainKey> = {
+  sheet_goods: "materials.category.sheet_goods",
+  hardwood: "materials.category.hardwood",
+  mouldings: "materials.category.mouldings",
+  hardware: "materials.category.hardware",
+  finishes: "materials.category.finishes",
+  other: "materials.category.other",
 };
 
-export const ALERT_LABEL: Record<string, string> = {
-  price_jump: "Price up",
-  price_vs_avg: "Over average",
-  vendor_spread: "Cheaper elsewhere",
-  price_creep: "Creeping up",
-  new_fee: "New fee",
-  outlier: "Unusual",
+export const ALERT_LABEL: Record<string, PlainKey> = {
+  price_jump: "materials.alert.kind.price_jump",
+  price_vs_avg: "materials.alert.kind.price_vs_avg",
+  vendor_spread: "materials.alert.kind.vendor_spread",
+  price_creep: "materials.alert.kind.price_creep",
+  new_fee: "materials.alert.kind.new_fee",
+  outlier: "materials.alert.kind.outlier",
 };

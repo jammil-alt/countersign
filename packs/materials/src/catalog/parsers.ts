@@ -421,7 +421,7 @@ export const mouldings: CategorySpec = {
       else if (w("PVC|POLYSTYRENE").test(text)) a.material = "pvc";
       else if (species) a.material = species;
       const dims =
-        /(?:^|\s)((?:\d+-)?\d+\/\d+|\d*\.?\d+)(?:"|IN)?X((?:\d+-)?\d+\/\d+|\d*\.?\d+)(?:"|IN)?(?=\s|$)/.exec(
+        /(?:^|\s)((?:\d+-)?\d+\/\d+|(?:\d+(?:\.\d+)?|\.\d+))(?:"|IN)?X((?:\d+-)?\d+\/\d+|(?:\d+(?:\.\d+)?|\.\d+))(?:"|IN)?(?=\s|$)/.exec(
           text,
         );
       if (dims?.[1] && dims[2]) {
@@ -479,7 +479,7 @@ const SHEEN: Vocabulary = [
   [w("DULL"), "dull"],
 ];
 
-const CONTAINER = /(?:^|\s)(\d*\.?\d+)?(GALLON|QUART|PINT|OZ|LITER|L)(?=\s|$)/;
+const CONTAINER = /(?:^|\s)((?:\d+(?:\.\d+)?|\.\d+))?(GALLON|QUART|PINT|OZ|LITER|L)(?=\s|$)/;
 const ROMAN: Record<string, string> = { II: "2", III: "3", IV: "4" };
 /** Words that say what kind of thing it is, not which product line. */
 const FINISH_STOP = new Set([
