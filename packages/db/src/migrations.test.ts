@@ -153,6 +153,19 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "site_event",
         "site_salt",
         "site_visit",
+        // §1.73 (0038): the Marketing area's search, content, claims, reports and forum watch.
+        "claims_version",
+        "content_page",
+        "content_publish",
+        "content_redirect",
+        "content_version",
+        "forum_reply",
+        "forum_thread",
+        "marketing_report",
+        "marketing_report_action",
+        "search_page_daily",
+        "search_query_daily",
+        "search_source",
       ].sort(),
     );
     expect(
@@ -302,6 +315,29 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(false);
     }
     expect(await can("site_bot_daily", "UPDATE")).toBe(true);
+    // §1.73 (0038): an import replaces a day of search figures whole; nothing else is deleted;
+    // versions, the publish log and claims lists are insert only.
+    for (const table of ["search_query_daily", "search_page_daily"]) {
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(true);
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(false);
+    }
+    for (const table of [
+      "search_source",
+      "content_page",
+      "content_redirect",
+      "marketing_report",
+      "marketing_report_action",
+      "forum_thread",
+      "forum_reply",
+    ]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
+    for (const table of ["content_version", "content_publish", "claims_version"]) {
+      expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(false);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
     expect(await can("model_call", "UPDATE")).toBe(false);
     for (const table of [
       "usage_platform_daily",
