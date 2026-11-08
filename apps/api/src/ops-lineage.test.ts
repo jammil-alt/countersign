@@ -287,6 +287,9 @@ describe.skipIf(!h)("agent pages API", () => {
       expect(catalog.connectors).toEqual([
         expect.objectContaining({ id: "upload" }),
         expect.objectContaining({ id: "testkit" }),
+        expect.objectContaining({ id: "hackernews" }),
+        expect.objectContaining({ id: "website" }),
+        expect.objectContaining({ id: "linkedin" }),
       ]);
 
       // Triggers come from the event catalogue, now with each payload's schema.

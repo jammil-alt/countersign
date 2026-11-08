@@ -71,7 +71,7 @@ export const marketingManifest: PackManifest = PackManifest.parse({
   name: "Marketing",
   version: "0.1.0",
   description:
-    "Website measurement for the client's own site: visits, pages, sources and goals, counted without cookies and without keeping IP addresses. Search figures, content and the marketing agents come next.",
+    "The Marketing area for the client's own websites: measurement without cookies or kept IP addresses, search figures, the content of its guides, a weekly report, and agents that draft articles, posts and forum replies for a person to sign.",
   requiresConnectors: [],
   events: all((a) => a.EVENTS),
   tools: Object.values(MARKETING_HANDLERS).map((t) => t.spec),
