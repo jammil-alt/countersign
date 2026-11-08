@@ -19,6 +19,15 @@ and fake where they differ.
 - Rate limits (2 requests a second by default?) and the errors for a bad `from`, an unverified
   domain, or a key restricted to another domain (we assume 403).
 
+## Attachments (P-3, docs/plan.md §1.65)
+
+- `attachments: [{filename, content, content_type}]` in the `POST /emails` body, `content` as
+  base64. UNCHECKED: the field name `content_type` (some SDK pages show `contentType`), and whether
+  Resend takes the type from the file name when it is missing.
+- The limit: 40 MB per email after base64 encoding (from memory of Resend's docs, UNCHECKED). We
+  send at most 29 MB of files (`RESEND_ATTACHMENT_LIMITS`), at most five, PDFs and images only.
+- Whether `Idempotency-Key` still holds for a request this large (we assume so).
+
 ## Domains
 
 - `POST /domains {name}` answers `{id, name, status, records: [{record, name, type, ttl, status,
@@ -46,4 +55,5 @@ and fake where they differ.
 - Inbound email through Resend: replies come back through Cloudflare Email Routing to the
   client's forwarding address.
 - Bounces and complaints (Resend's webhooks) are not read. A bounce doesn't opt a contact out yet.
-- HTML email, attachments and open or click tracking. Agents send plain text only.
+- HTML email and open or click tracking. Agents send plain text, with PDFs and images
+  attached (P-3).

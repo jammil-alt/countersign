@@ -84,6 +84,8 @@ export * from "./api/whatsapp-meta";
 // v0.14 W4-B
 export * from "./api/zoho";
 export * from "./approvals/rules";
+// P-3: attachments both ways
+export * from "./attachments";
 export * from "./billing";
 export * from "./browser/site";
 export * from "./bundle/client-specific";
@@ -105,6 +107,8 @@ export * from "./canonical";
 export * from "./codes/service";
 export * from "./compliance/card-numbers";
 export * from "./compliance/processors";
+// P-4: conversations with people
+export * from "./converse";
 export * from "./desk/item";
 export * from "./desk/rules";
 export * from "./directory/autonomy";

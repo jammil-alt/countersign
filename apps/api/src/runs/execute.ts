@@ -75,6 +75,8 @@ import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import { codesFor } from "../codes/client";
 import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/policy";
+// P-4
+import { conversePort } from "../converse/service";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 // v0.13 W2-I
@@ -294,6 +296,8 @@ export function runtimeFor(
       ),
       db,
       deps.documents?.content,
+      // P-3: 5-minute links for the files Twilio and Meta fetch (docs/plan.md §1.65).
+      deps.documents?.signer ?? null,
     ),
   };
 }
@@ -303,12 +307,13 @@ function withDocuments(
   base: NonNullable<RuntimeDeps["services"]>,
   db: Db,
   content: ContentStore | undefined,
+  signer: UrlSigner | null = null,
 ): NonNullable<RuntimeDeps["services"]> {
   // v0.12 W1-F: what QuickBooks sync stored (duplicate bills, receivable ids), for the qbo tools.
   if (!content) return (conn) => ({ ...base(conn), records: dbSyncedRecords(db, conn) });
   return (conn) => ({
     ...base(conn),
-    documents: dbDocumentServices(db, conn, content),
+    documents: dbDocumentServices(db, conn, content, signer),
     records: dbSyncedRecords(db, conn),
   });
 }
@@ -493,6 +498,8 @@ export async function executeRun(
       runtime,
       reachPort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
       { db },
+      // P-4: conversations (docs/plan.md §1.66)
+      conversePort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
     ),
     inbox: dbInboxPort(db, info),
     notify: threadNotifyPort(runtime),

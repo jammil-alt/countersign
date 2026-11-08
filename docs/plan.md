@@ -1679,6 +1679,96 @@ and kept off main (§3 "Millwork and Pia"). v0.15 brings it in as the first **bu
 | Categories and embeddings | Millwork categories as built (sheet goods, hardwood, mouldings, hardware, finishes, other). Embeddings off: the column stays empty and candidates come from key attributes and `pg_trgm`. Both are open for the owner (ARCHITECTURE §20). |
 | With the invoice agent | Iris (invoice intake) may add `materials.match-lines` and `materials.record-prices` after a bill is created, so every intake feeds the master list. |
 
+### 1.64 QuickBooks ingredients (P-2, M35; no migration)
+
+Building blocks for agents the owner builds later in the agent lab. Tools only: no agent, template
+or workflow uses them yet. Built against the fake QuickBooks; what is unchecked is in
+`packages/connectors/src/qbo/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Reads | `qbo.account.query {types?, active = true, nameContains?, start, limit}` (entity `account`): id, name, full name, type, subtype, active, currency. `qbo.class.query {ids?, active = true, nameContains?, …}` (entity `class`). `qbo.purchaseorder.query {ids?, docNumber?, vendorId?, status? Open/Closed, from?, to?, …}` (entity `purchase_order`), with lines. Live queries like the other reads, so they also become built-in read skills (§1.9). `active` filters literally: false lists inactive records. // DECISION |
+| Class and customer on lines | `NewLine` gains `classId`, `customerId` and `billable` (only with a customer). They go out as `ClassRef`, `CustomerRef` and `BillableStatus` on both expense line details, for create bill, both `update_lines` tools and create purchase order. What a line names wins over what it inherits; a line with a customer always says `Billable` or `NotBillable` (not billable unless asked). An unknown or inactive class or customer is refused when proposed and again before writing. `qbo.bill.query`, `qbo.purchase.query` and the update tools' before state show each line's `class`, `customer` and `billable`. // DECISION |
+| Names on the card | The before state's `names` gains `classes` and `customers`, only when the new lines name any, so older before states read as they did. `ToolDisplay`'s line columns gain `tags`: refs shown by name under what a line is booked to (its job, its class); a client never reads a bare id, the back office reads `#id`. // DECISION |
+| `qbo.vendor.create` | Verb `create`, entity `vendor` (vendors' verbs become read and create). Input: display name, company name, email, phone, billing address, terms id. Refused when proposed and again before writing if a vendor (active or not) has the same name, compared with case and spacing set aside; every vendor is read (1,000 a page, at most 20 pages), not filtered by name. QuickBooks' own "duplicate name" (a customer or employee with the name) is the same refusal. Unknown or inactive terms are refused. The before state is `{existing: null, billingAddress, terms}`. Right before writing, a vendor with the name, company and email asked for is this action's own lost write: reported done with its id. Output: the new vendor's id for a later step. // DECISION |
+| `qbo.purchaseorder.create` | Verb `create`, entity `purchase_order`, `amount` = `expectedTotal`. The rules of `qbo.bill.create`: lines add up to the total (decimal.js), the total is more than zero, the vendor is the company's, `requestid` from the action's key. Number optional; with one, an order from the same vendor with the same number (letters and digits) is refused when proposed and before writing, read live from the vendor's orders (orders aren't synced). Without one, QuickBooks' `requestid` alone keeps a retry from writing twice. We send the one active A/P account in the order's currency when there is exactly one. The memo is `PrivateNote`; ship-to is `ShipAddr`; the expected date is `DueDate`. The card says we don't send the order to the vendor. Output: id, number, total, status. // DECISION |
+| Zero totals | decimal.js counts zero as positive, so create bill let a zero total through. Both creates now refuse a total that isn't more than zero. // DECISION |
+| Summaries | A stored amount like `1125.0000` read `1125.` in summaries; it now reads `1125.00` (core template). // DECISION |
+| Permissions | Manifest entities gain `account` (read), `class` (read) and `purchase_order` (read, create); `vendor` gains create. The matrix, grants, the catalog and publish-time `entity_off` know them from the manifest. Both writes wait for approval unless the connection's create is `auto`, the step is `not_required` and the agent acts (invariant 8). |
+| Fake | Serves Class, Term and PurchaseOrder from new fixtures, creates vendors (unique names across vendors and customers) and purchase orders (open, total from the lines), and refuses lines whose class or customer the company doesn't have. |
+| Not built | Linking a bill to the purchase order it receives, closing an order, sending it to the vendor, and reading the company's class-tracking setting (NOTES.md). |
+| Files | `packages/connectors/src/qbo/{ingredients,purchase-order}.ts` (new), P-2 blocks in `tool-kit.ts`, `records.ts`, `display.ts`, `fake.ts`, `index.ts`, `tools.ts`, `bill-create.ts`; `packages/core/src/schemas/tool-display.ts` (`tags`), `packages/core/src/template/template.ts` (one line); `apps/web/src/inbox/{change.ts,ChangePanel.tsx}` (tags), `apps/web/src/runs/labels.ts`; fixtures; tests. |
+
+### 1.65 Attachments both ways (P-3, M36; no migration)
+
+Ingredients for agents the owner builds in the Agent lab, such as a purchasing agent that emails a
+vendor a purchase order PDF and reads the quote PDF that comes back. Platform and connector pieces
+only: no agent, template or workflow. Built on `claude/p3-attachments` against the fakes. Facts we
+couldn't check are in each connector's `NOTES.md` (resend, gmail, outlook, twilio, whatsapp_meta).
+Hot-spot edits are blocks marked `// P-3`.
+
+| Topic | Decision |
+|---|---|
+| What can go | `attachments: [{documentId}]` on `email.send`, `gmail.send`, `outlook.send`, `sms.send` and `whatsapp.send` (both providers): stored documents of the call's own client, PDFs and images only, at most five, each once (core's `OutboundAttachments`). The name and type come from the document record, never the input. // DECISION |
+| Read for one send | The tool reads each file through `ctx.services.documents` (apps/api's `dbDocumentServices`, inside `withTenant` for the connection's client), so another client's id reads as unknown and is refused (`not_found`, the same answer as an unknown id). The bytes are read for that send only, and checked against the record's type (magic bytes): a mismatch is refused. Nothing is started or sent before the checks pass. // DECISION |
+| Size per provider | The files' total, as stored: Resend 29 MB (40 MB after base64), Gmail 18 MB (25 MB a message after base64), Outlook 3 MB (Graph's 4 MB request; larger files need an upload session on a draft and `Mail.ReadWrite`, which we don't ask for), MMS 5 MB, WhatsApp one file (Twilio 16 MB; Meta images 5 MB, documents 100 MB, a caption 1024 characters). A refusal names the limit in plain words (`AttachmentRefusedError`). // DECISION |
+| Gmail's MIME | `multipart/mixed` built in `gmail/mime.ts`: the text first, then each file `Content-Disposition: attachment`, everything base64 in 76-character lines, so the message stays 7-bit ASCII. The boundary starts `=_` (never in base64) and comes from the Message-ID. A plain ASCII name is quoted; any other as RFC 2231 `filename*=UTF-8''…` beside an RFC 2047 `name`. Quotes, backslashes and line breaks never reach a header; the type must be `type/subtype`. With files, the message goes as media to Gmail's upload URI (`message/rfc822`, up to 35 MB); without, as JSON `raw` as before. // DECISION |
+| Outlook's shape | Graph's `fileAttachment` in `message.attachments` of `sendMail`: `@odata.type`, `name`, `contentType`, `contentBytes` (base64). // DECISION |
+| Texts and WhatsApp | Twilio fetches each file from a 5-minute signed link (`MediaUrl`, repeated; the Worker's `/api/files/:token` or R2's presigned link, `SIGNED_URL_TTL_SECONDS`). Meta gets one file by `link` (a PDF as `document` with its file name, JPEG and PNG as `image`), the text as its caption: not Meta's media upload, since the connector's HTTP interface carries text bodies only (upload is the fallback if links prove unreliable). A WhatsApp template (outside the 24-hour window) carries no file, so that send is refused. Links are made in the tool for the one send and never stored. // DECISION |
+| Approval and records | The before state lists the files by name, type and size (`attachments` on each send's before schema), so the approval card shows them and `external_action.before` keeps them; the input keeps the ids and the output the same list. The thread line adds "Attached: PO-1042.pdf (12 KB)". Card-number redaction, consent, quiet hours, once-only sends and approval are unchanged. // DECISION |
+| Reach out | `ReachOutInput.attachments`: document ids from the step's own input (a fixed id, or an earlier step's output through a template), never written by a model. Checked when the plan is made (this client's, PDF or image; else `not_allowed` with the reason, nothing planned or sent), kept on the plan with names and sizes, shown on the plan's approval card, and sent with each attempt. // DECISION |
+| A channel that can't carry them | Left out of the plan with the reason "can't carry the attachments" (core's `cannot_carry_attachments` block): a call carries none, WhatsApp one, email and MMS five. Never sent without the files, and never with a line naming files the person didn't get. None left: `not_allowed`, nothing sent. A WhatsApp message composed for a file is at most 1000 characters (Meta's caption). // DECISION |
+| Email replies | `receiveReachOutReply` keeps the reply as a raw record (`ReachOutReply` on the client's upload connection, one per reach-out: headers, the reply's own words, each attachment's outcome) and its PDFs and images as `document(source='email')` with that raw record as their origin (`meta.rawRecordId`, `reachOutId`), in the reply's transaction. Then `document.received` is dispatched and the new documents read in the background, like forwarded mail. Checks as forwarded mail: types, inline images left out, magic bytes, 32 MB per document, at most 10 per reply. The reply's text is redacted for card numbers. A second delivery finds the reach-out ended and keeps nothing. // DECISION |
+| Text and WhatsApp replies | The webhook (Twilio's and Meta's) starts capture's job for a message whose sender has an open reach-out (reason `reply`): its PDFs and images only, at the conversation's size limit (20 MB by default), fetched as capture fetches (Twilio's origin and redirect list, Meta's two-step download), filed once per media (`MessageMedia`), `source: 'message'`, the message's raw record as origin, read in the background. A text (MMS) has no conversation; its files are `mms-<sid>-<index>.<ext>`. // DECISION |
+| Whatever the capture setting | A reply's PDFs and images are fetched even where the conversation keeps no attachments: the operator's reach-out asked this person for an answer. Nothing else of the setting changes, and other messages from them stay as the setting says. // DECISION |
+| The reply waits for its files | A text or WhatsApp reply ends the reach-out as `replied` at once (escalation and the timeout stop), with `reply.pending` while a file has no outcome. The step waits on the same event; the reply's job, the step and the minute cron each settle it once every file has an outcome; after 15 minutes (`REPLY_MEDIA_WAIT_MS`) it is settled with what was filed and the rest counted as `not_fetched`. The cron doesn't re-wake a pending reply's run. // DECISION |
+| The step's output | `ReachReply.documents`: the reply's documents' ids, for later steps (an empty list on replies stored before). `ReachReply.refused`: each attachment not kept, by type and reason (`type_not_allowed`, `too_large`, `type_mismatch`, `inline_image`, `too_many`, `not_fetched`): counted, never dropped silently. Text and files stay data (invariant 9): a document is read with `docs.*`. // DECISION |
+| Compliance | No new vendor: Resend, Google, Microsoft, Twilio and Meta already carry the messages these files go with. |
+| Not built | Files larger than Outlook's 3 MB (upload sessions). Meta's media upload. Media templates on WhatsApp. Attachments on a call. A reply's other types (audio, office files) as documents. Screens: the approval card shows `attachments` as it shows any before state; the owner's redesign gives them their own row. |
+
+### 1.66 Conversations (P-4, M37; no migration; ARCHITECTURE §10.12)
+
+Owner-approved 2026-11-07: an ingredient for agents the owner builds in the agent lab (the purchasing
+agent first). No agent, template or workflow is built here. Hot-spot edits are blocks headed `// P-4: …`.
+
+| Topic | Decision |
+|---|---|
+| Shape | Built-in skill `comms.converse` (`mode: 'tool'`, `reachesPeople`, handler `comms.converse` refusing to run outside a workflow step), routed by id in apps/api's agent port to `apps/api/src/converse/`, as `comms.reach-out` is. No new step kind and no executor change beyond one optional field: the executor's `waiting` and `approval` loop already lets a step wait and be approved any number of times. // DECISION |
+| Config | `ConverseInput` in `packages/core/src/converse/` (ARCHITECTURE §10.12): `to` (`role`, `contactId` or `userId`, templates allowed), `channel` (`whatsapp`, `sms`, `email` for contacts; `portal` for client users), `goal` (text), `result` (JSON Schema, an object), `confirm = true`, `opening` (text), `whatsappTemplate?`, `about` (record ids), `data` (record data, as data), `limits {maxMessages 6 (1–12), waitPerReply '1 day' (≤ 7 days), deadline '3 days' (≤ 14 days), maxCostUsd '0.50' (≤ 5)}`. Fixed inputs: `goal`, `result`, `opening`. // DECISION: caps keep a conversation bounded whatever the operator types. |
+| Validation | One function, `converseProblems`, in core's `workflow/validate.ts` (called from the entry point): the fixed inputs, the goal schema (an object with at least one property, at most 30), a channel that fits `to`, the limits. Template typing types `steps.<id>.output.result` from `result` (a skill may declare `resultFromInput: 'result'`; only built-ins do). // DECISION |
+| Turns | `packages/agents/src/runtime/converse.ts`: one model call per turn through `packages/llm`, the agent's prompt as an `agent` skill gets it (instructions, memory notes, the client's language) plus the conversation preamble, the goal and the brief; the transcript and data in a tool-result block of a `read_conversation` call already made; `tool_choice` forces `turn` (`ask`, `confirm`, `done`, `give_up`). The model resolves as for an agent skill step (`resolveModel`), so the step's `model` wins. The result is checked against `result` in code. // DECISION |
+| Confirmation | With `confirm`, `done` is accepted only after a `confirm` message has a reply and with `confirmed: true`; anything else fails the turn. Without it, `done` ends at once. // DECISION |
+| Sending | One `reach_out` row per message (subject `converse:<run>:<node>`, node `<node>:m<n>`, `plan.converse {turn, kind, model, costUsd}`, the text as the plan's fixed message in the contact's language, the one channel, `expectReply`, timeout = the wait per reply), sent by reach out's `attemptFrom`: every check reach out makes, quiet hours held by the cron, key `<run>:<node>:m<n>:reach:0`. The first message's checks are `planReachOut` with the channel pinned (`urgency.normal: [channel]`). The daily cap counts a conversation's first message only. // DECISION |
+| 24-hour window | Before a WhatsApp message, the contact's last inbound WhatsApp message is read: outside the window the opening goes as `whatsappTemplate` (`StoredPlan.whatsappTemplate`, sent as `whatsapp.send`'s `template`); a later message, or an opening without a template, ends the conversation (`not_allowed` before anything was sent, else a hand-over) with "outside WhatsApp's 24-hour window". // DECISION |
+| Approval | The step's approval signs the conversation once (an inbox item `kind: approval`, payload `converse {who, channel, goal, limits, first message}`, routed like a reach-out plan); unsigned only under the three conditions and with no `approval` autonomy on the channel. Later messages go under it (`runPlannedAction`), except with the person's channel autonomy at `approval` or the agent in trial or sign-off: each message is then its own card (`payload.converse {turn, message, transcript}`, title "Message 3 of up to 6 to Dana on WhatsApp"). Approving sends exactly that text; declining is a rejected write (`declined`, the step's `onReject`). // DECISION |
+| Replies | Reach out's matcher, unchanged except that it prefers an open conversation message on the reply's channel. One at a time per person: start refuses (`not_allowed`, "already waiting on them") while the person has an open reach-out or conversation, under an advisory lock on the contact; reach out's start does the same for someone in an open conversation. Between our messages, their texts (raw records on the channel's connection since the last one read) join the next turn; `routeInboundText` treats a conversation message awaiting approval as open, so no new run starts. // DECISION |
+| Portal | With a client user: messages in the agent's thread (`agentThread`), `audience: client`, body `converse {runId, nodeId, turn, userId}`. The dispatcher matches `thread.message_posted` from that user in that thread while the step waits and wakes the run (`converse-<step run id>`); the reply is their messages after ours. // DECISION |
+| Ending | `completed`, `opted_out`, `declined`, `not_allowed`, `handed_over`, `not_sent` (test runs). Limits (messages, a reply wait, the deadline, cost) and `give_up` hand over: an inbox item `kind: request`, subject `conversation_handover`, to whoever approves the conversation (the step's approver, the approver rules, the agent's, the client's setting, else the client admin; owner 2026-11-08: the client's team runs its agents day to day, the operator oversees; a test run's to the operator), with the goal, the last proposed result and the transcript (their words quoted). Answered → `handed_over` with the person's answer as `result` when it matches `result`; declined or timed out → the step's `onReject`. The executor's `PendingApproval` gains `waitingFor?: 'answer'` so the timeline says "waiting for an answer". // DECISION |
+| Output | `ConverseOutput`: outcome, `result`, `confirmed`, `who {kind, id, name}`, channel, `messages`, `replies`, `transcript [{direction, text, at, sourceId}]`, `sources` (`about`, each reply's raw record or message id, each message's reach-out id), `reason`, `costUsd` (string). // DECISION |
+| Durability | The opening turn in the step's own `do`; turn *n* in `…:wait:<k>:resume` or `…:approval:<k>:resume`. The answer is stored on the message row (insert, unique on run and node) before sending; a retried `do` finds it and sends under the same key. Oversight: a failed turn fails the step; `retry` runs the step again and the service picks the conversation up where it stopped (the conversation is keyed by `keyNode ?? nodeId`, so a `retry_with` starts afresh once the old one has no open message). // DECISION |
+| Storage | No migration: `reach_out`, the contact's thread lines, `message` rows in the agent's thread, `model_call` rows, the step's cost. // DECISION: every table that holds a conversation's parts already exists, with RLS and its rules. |
+| Visibility | `GET /api/ops/runs/:id`: a conversation step gains `conversation {channel, who, outcome, messages [{turn, direction, text, at, status, model?, costUsd?}]}`. `GET /api/runs/:id` (portal): `conversation {messages [{direction, text, at}]}` only; the contract test's forbidden-field check covers it. |
+| Builder | Palette "Talk with a person" (`comms.converse`); inspector: who, channel, what to find out (field list → `result`), the goal's words, the first message, the WhatsApp template, limits, and the model picker skill steps already have. |
+| Compliance | No new vendor: the model and the channels' providers are already named in `packages/core/src/compliance`. |
+| Not in this stream | Voice (calls stay with reach out and the voice agent); a person changing the message before approving it (W1-D's edit applies to external actions, not these cards); translating replies (§1.18); the client's lead (an operator) as `to` (open, owner). |
+
+Decisions made while building M37 (`claude/p4-conversation`, 2026-11-07; `// P-4` blocks):
+
+| Topic | Decision |
+|---|---|
+| Input shape | Flat, because a skill's fixed inputs are top-level fields: `goal` (text), `result` (the JSON Schema), `confirm`, `opening` (text), `whatsappTemplate`, beside `to`, `channel`, `about`, `data`, `limits`. Fixed: `goal`, `result`, `opening`. // DECISION |
+| Signed messages | Every message after the first is signed while the agent isn't live (bench, trial, sign-off), not only in trial and sign-off: a run of a bench agent is a person trying it, and model-written words to a real person get a look. // DECISION |
+| A step's model | Allowed on `comms.converse` although it runs as code: each turn is a model call in the agent's voice. The builder's model row shows for it. // DECISION |
+| Quiet hours | At the start, a conversation whose one channel is only blocked by quiet hours is held (the cron sends its first message when they end, and the reply wait starts then), not refused. // DECISION |
+| "YES" and "HELP" | Inside a conversation they are the person's answer (to "Is that right?") as well as Twilio's opt-in and help words; STOP still stops everything. Outside one, as before. // DECISION |
+| Daily cap | A conversation counts once (its first message) toward the person's cap, in both the conversation's start and reach out's. // DECISION |
+| Oversight | A failed turn is reviewed although the step's messages reached the client's tool: `retry` picks the conversation up where it stopped (sent messages are keyed and never resent); `retry_with` is not offered for it, since it would start over with the person. The finish tool offers `retry`, `ask`, `stop`. // DECISION |
+| The model and a crash | The turn's answer is stored on the message row it writes. A crash after the model call and before that insert calls the model again for that turn (a cost, never a second send). // DECISION |
+| Closing | `done.closing` is sent only when messages go under the conversation's signature; with each message signed, there is no closing message. // DECISION |
+| Hand-over item | `kind: request`, `subjectType: conversation_handover`, `payload.mode: ask`, the transcript with the person's lines marked `theirWords`; to whoever approves the conversation, so the client's team by default. Answered with a result that fits `result` → that result; answered otherwise → `handed_over` with no result; declined → the step's `onReject`. // DECISION |
+| Run pages | Each message's model and cost are kept on its row (`plan.converse`); a turn that wrote no message (`done`, `give_up`, a failure) adds its cost to the message it answered. The portal shows only messages that went and replies, never one awaiting a signature. The portal's lines read "Sent" and "Reply" (six languages; the five other than English need a fluent review). // DECISION |
+| Not built | The portal channel (a client user in the agent's thread): `start` answers `not_allowed`, "talking in the portal isn't built yet", and the builder offers only directory people and roles. Reading messages the person sends between ours (their texts while no message of ours is open) at the next turn. A reply arriving in the seconds between one turn and the next message isn't matched (it is kept in the contact's thread as any text). |
+
 ### 1.67 Purchasing area v2 (P-5, M38; migration 0033)
 
 The Materials pack's next version (0.2.0, same pack id `materials`) gives the Purchasing area what a
@@ -2336,6 +2426,81 @@ loops; the branch's done-when test (every invoice line settled by the rules, all
 for the same sheet good are matched to one catalog item (the second and third by alias or rules, not
 the model); Price watch shows that item's price per vendor and date; and the golden set passes.
 
+### M35: QuickBooks ingredients (P-2, §1.64)
+
+One PR (`claude/p2-qbo-ingredients`), no migration.
+
+Work: `qbo.account.query`, `qbo.class.query`, `qbo.purchaseorder.query`; class, customer and
+billable on `NewLine` for every tool that takes it, with names in the before state and `tags` on
+the card; `qbo.vendor.create` and `qbo.purchaseorder.create` behind approval; the manifest's
+entities; the fake's classes, terms, purchase orders and creates; tool labels; `NOTES.md`.
+
+Tests (against the fake QuickBooks): each read's filters and paging; class and customer sent,
+named and read back, refused when unknown or inactive, billable only with a customer, inherited
+unless a line names its own; vendor and purchase order inputs validated, duplicates refused when
+proposed and again before writing, a retry writing nothing twice, totals checked, before states;
+the gate per entity (a write waits unless the matrix, the step and the mode allow it; an entity
+off refuses it and leaves the others); through the API, a vendor and an order for it each written
+once after approval, an order on its own with create on `auto`, and refused when purchase orders
+are off.
+
+**Done when** an agent can list the chart of accounts and the classes, add a vendor and order from
+it in one run with each write approved and written once, code a bill line to a class and a
+billable job, and a duplicate vendor or order number is refused before anyone is asked.
+
+### M36: Attachments both ways (P-3, §1.65)
+
+One PR (`claude/p3-attachments`), no migration: documents, raw records and the reach-out's reply
+already hold everything.
+
+Work: core's outbound attachment schema, per-channel limits and `cannot_carry_attachments`;
+`ReachOutInput.attachments` and `ReachReply.documents`/`refused`/`pending`; the connectors'
+attachment checks (`describeOutbound`, `loadOutbound`, `linkOutbound`) and `DocumentServices`'
+`describe` and `signedUrl`; Gmail's multipart MIME and upload send; Graph's `fileAttachment`;
+Resend's base64 `attachments`; Twilio's repeated `MediaUrl`; Meta's media by link; the plan's
+attachments, approval card and attempts; the email reply's raw record and documents; the reply job
+on Twilio's and Meta's webhooks (capture's fetch, reason `reply`); settling a pending reply in the
+job, the step and the cron; `NOTES.md` for each connector.
+
+Tests (against the fakes): another client's document refused at the tool and at the plan; type,
+count, size and magic-byte refusals; the MIME parts read back by a real parser and a header that
+can't be broken by a file name; Graph's shape and Outlook's 3 MB limit; Resend's body; Meta's
+message and its limits; MMS and WhatsApp `MediaUrl` signed links that serve the file and expire
+after five minutes; the plan leaving out a call and, for two files, WhatsApp; an email reply's PDF
+filed, read and linked to the reply's raw record, its zip refused and counted, a second delivery
+keeping nothing; a text reply's photo and a WhatsApp reply's PDF filed (the chat keeping no
+attachments), a retried webhook making nothing twice; a pending reply settled by the cron after the
+wait; the step output carrying the ids; the portal's answers with no link, bundle or cost.
+
+**Done when** a reach-out emails a purchase order PDF from the step's input after one approval
+that names it, the vendor's reply PDF becomes a document of that client, read in the background
+and linked to the reply, and the next step gets its id; the same works by text and WhatsApp; a
+document of another client is never sent.
+
+---
+
+### M37: Conversations (P-4, §1.66)
+
+Two PRs: this design (`claude/p4-conversation-design`, docs only) and the build
+(`claude/p4-conversation`, stacked on it). No migration.
+
+Work: core's `ConverseInput` and `ConverseOutput`, the turn answer, `converseProblems` and result
+typing; `comms.converse` as a built-in skill; the turn in `packages/agents`; the conversation service
+in `apps/api/src/converse/` (start, approvals, waits, hand-over, the 24-hour window, the portal
+thread), reach out's matcher and start (one at a time per person), `routeInboundText`; the run pages
+for both surfaces; the builder's palette entry and inspector.
+
+Tests (FakeModel, the fake Twilio; no live model): a three-turn WhatsApp clarification ends with a
+validated, confirmed result; limits hand over to a person; a replay doesn't resend; a reply goes to the
+conversation and not to another reach-out; injected instructions in a reply are ignored; consent and
+quiet hours respected, and the 24-hour window outside it; a contact on "needs approval" makes each
+message wait; a per-step model; oversight on a failed turn; the portal never shows prompts, models or
+cost; client isolation.
+
+**Done when** a WhatsApp clarification of a purchase request runs three turns to a confirmed result
+that a later step reads as typed output, and a conversation that hits a limit lands with a person,
+transcript attached.
+
 ### M38: Purchasing area v2 (P-5, §1.67)
 
 Two PRs: the migration (0033), then the tools and skills on it.
@@ -2500,6 +2665,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | Senses event catalog | Append event types (W1-C, W1-F, W2-E) |
 | `apps/api/src/platform.ts` | One registration line per new connector (W3-B) |
 | `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
+| `packages/workflows/src/ports.ts`, `apps/api/src/runs/ports.ts`, `apps/api/src/reach/{service,replies}.ts`, `apps/api/src/triggers/inbound-text.ts`, `apps/api/src/runs/dispatch.ts` | P-4: `PendingApproval.waitingFor`; the `comms.converse` route; one at a time per person; the conversation-first reply match; a conversation awaiting approval counts as open; the portal reply match (one block each, `// P-4: …`) |
 
 ### 8.3 Reserved migrations
 

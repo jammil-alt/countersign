@@ -93,7 +93,13 @@ describe("manifests", () => {
       "customer",
       "payment",
       "attachment",
+      // P-2
+      "account",
+      "class",
+      "purchase_order",
     ]);
+    // P-2: vendors can be created.
+    expect(declared?.find((e) => e.id === "vendor")?.verbs).toEqual(["read", "create"]);
     expect(declared?.find((e) => e.id === "invoice")?.scopes).toEqual([
       { id: "notes_only", label: "Notes only", verb: "update", tools: [QBO_TOOLS.invoiceAddNote] },
     ]);

@@ -1,4 +1,10 @@
 import { z } from "zod";
+// P-3: attachments both ways
+import {
+  CHANNEL_ATTACHMENTS_MAX,
+  OUTBOUND_ATTACHMENTS_MAX,
+  ReplyAttachmentRefusal,
+} from "../attachments";
 import { CALL_LANGUAGES, type CallLanguage } from "../calls/rules";
 import { languageFor } from "../directory/language";
 import { Duration, parseDuration } from "../duration";
@@ -135,7 +141,9 @@ export type ChannelBlock =
   | "not_allowed_by_binding"
   | "not_allowed_for_role"
   | "autonomy_off"
-  | "quiet_hours";
+  | "quiet_hours"
+  // P-3: the channel can't carry the reach-out's attachments (docs/plan.md §1.65).
+  | "cannot_carry_attachments";
 
 /** The contact's address on a channel (calls and texts go to `phone`). */
 export function channelAddress(c: ReachContact, channel: ReachChannel): string | null {
@@ -215,6 +223,9 @@ export interface PlanInput {
   /** Reach-outs to this contact today (UTC), any agent of the client. */
   sentToday: number;
   now: Date;
+  // P-3
+  /** How many documents go with the message; a channel that can't carry them is left out. */
+  attachments?: number;
 }
 
 export interface ChannelCheck {
@@ -243,6 +254,8 @@ const BLOCK_WORDS: Record<ChannelBlock, string> = {
   not_allowed_for_role: "not allowed for this role",
   autonomy_off: "turned off for this person",
   quiet_hours: "quiet hours",
+  // P-3
+  cannot_carry_attachments: "can't carry the attachments",
 };
 
 /** "sms: no consent; voice: quiet hours". */
@@ -300,6 +313,9 @@ export function planReachOut(input: PlanInput): ReachPlan {
       block = "autonomy_off";
     } else if (!input.boundChannels.has(channel)) {
       block = "not_bound";
+    } else if ((input.attachments ?? 0) > CHANNEL_ATTACHMENTS_MAX[channel]) {
+      // P-3: a call can't carry a file, a WhatsApp message carries one.
+      block = "cannot_carry_attachments";
     } else {
       block =
         consentBlockFor(contact, channel) ??
@@ -463,6 +479,16 @@ export const ReachOutInput = z
     urgency: Urgency.default("normal"),
     expectReply: z.boolean().default(true),
     timeout: Duration.default(DEFAULT_REACH_TIMEOUT),
+    // P-3: attachments both ways (docs/plan.md §1.65)
+    /**
+     * Stored documents of this client (ids) sent with the message: the step's own input (a fixed
+     * id or an earlier step's output), never written by a model. PDFs and images, at most five.
+     */
+    attachments: z
+      .array(z.uuid())
+      .max(OUTBOUND_ATTACHMENTS_MAX)
+      .refine((ids) => new Set(ids).size === ids.length, { message: "each document at most once" })
+      .optional(),
   })
   .meta({ id: "ReachOutInput" });
 export type ReachOutInput = z.infer<typeof ReachOutInput>;
@@ -478,6 +504,13 @@ export const ReachReply = z.object({
   untrusted: z.literal(true),
   rawRecordId: z.string().nullable(),
   at: z.string(),
+  // P-3: attachments both ways (docs/plan.md §1.65)
+  /** The reply's PDFs and images, stored as this client's documents: ids for later steps. */
+  documents: z.array(z.string()).default([]),
+  /** Attachments not kept, and why (too large, not a PDF or an image, …): counted, not dropped. */
+  refused: z.array(ReplyAttachmentRefusal).optional(),
+  /** A text or WhatsApp reply whose attachments are still being fetched: the step waits. */
+  pending: z.boolean().optional(),
 });
 export type ReachReply = z.infer<typeof ReachReply>;
 

@@ -3,7 +3,13 @@
 // inputs and outputs here are provider-neutral, so a workflow keeps working when a client moves its
 // WhatsApp from Twilio to Meta; each provider supplies handlers behind them.
 
-import { AttachmentView, E164, MessagingChannel } from "@countersign/core";
+import {
+  AttachmentSummary,
+  AttachmentView,
+  E164,
+  MessagingChannel,
+  OutboundAttachments,
+} from "@countersign/core";
 import { z } from "zod";
 
 /** Namespaces messaging connectors share (ConnectorManifest.sharedNamespaces). */
@@ -24,6 +30,9 @@ export const SmsSendInput = z.object({
   /** The contact's phone, E.164. It must be a contact of this client who agreed to texts. */
   to: E164,
   text: z.string().trim().min(1).max(SMS_TEXT_MAX),
+  // P-3: attachments both ways (docs/plan.md §1.65)
+  /** Stored documents of this client sent as MMS media (Twilio fetches each by a 5-minute link). */
+  attachments: OutboundAttachments.optional(),
 });
 
 /**
@@ -53,6 +62,9 @@ export const WhatsAppSendInput = z
           .optional(),
       })
       .optional(),
+    // P-3: attachments both ways (docs/plan.md §1.65)
+    /** One stored document of this client, sent as the message with the text as its caption. */
+    attachments: OutboundAttachments.optional(),
   })
   .refine((v) => v.text !== undefined || v.template !== undefined, {
     message: "give the text, or a template outside the 24-hour window",
@@ -71,6 +83,9 @@ export const SendOutput = z.object({
   template: z.boolean(),
   /** Counted into usage_daily.messages. */
   usage: z.object({ messages: z.number().int() }),
+  // P-3
+  /** What went with it: names and sizes (recorded on the external action). */
+  attachments: z.array(AttachmentSummary).optional(),
 });
 
 /** The before state of a send: who it goes to. Nothing is replaced. */
@@ -78,6 +93,9 @@ export const SendBefore = z.object({
   contact: z.object({ id: z.string(), name: z.string() }),
   channel: MessagingChannel,
   to: z.string(),
+  // P-3
+  /** The attachments by name and size, as the approval card lists them. */
+  attachments: z.array(AttachmentSummary).optional(),
 });
 
 /** One message as tools return it. `text` is the sender's words: data, never instructions. */

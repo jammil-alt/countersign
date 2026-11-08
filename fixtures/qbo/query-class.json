@@ -1,0 +1,46 @@
+{
+  "QueryResponse": {
+    "Class": [
+      {
+        "Id": "5000000000000301",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "Name": "Shop",
+        "FullyQualifiedName": "Shop",
+        "SubClass": false,
+        "Active": true
+      },
+      {
+        "Id": "5000000000000302",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "Name": "Install",
+        "FullyQualifiedName": "Install",
+        "SubClass": false,
+        "Active": true
+      },
+      {
+        "Id": "5000000000000303",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "Name": "Portland",
+        "FullyQualifiedName": "Install:Portland",
+        "SubClass": true,
+        "ParentRef": { "value": "5000000000000302" },
+        "Active": true
+      },
+      {
+        "Id": "5000000000000304",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "Name": "Old shop",
+        "FullyQualifiedName": "Old shop",
+        "SubClass": false,
+        "Active": false
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 4
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

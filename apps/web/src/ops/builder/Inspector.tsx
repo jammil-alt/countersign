@@ -5,6 +5,8 @@
 // timeline label and visibility; steps that change a client's tool have the Approval control.
 import {
   type AgentBundle,
+  // P-4
+  CONVERSE_SKILL,
   clientLabel,
   type ForkPath,
   type ForkStep,
@@ -32,6 +34,8 @@ import { Icon } from "../../ui/icons";
 import { Badge, Button, cx } from "../../ui/primitives";
 import { KIND_LABEL } from "../workflow/describe";
 import { toolLabel, whenEvent } from "../workflow/labels";
+// P-4
+import { ConverseFields } from "./ConverseFields";
 import { type BuilderData, connectorName } from "./catalog";
 import {
   EventOptions,
@@ -288,8 +292,10 @@ function ModelRow({
   set: SetStep;
 }) {
   const skill = lookupSkill(step.skill, ctx);
-  const models = useApi(apiRoutes.opsModels, skill?.mode === "tool" ? null : {});
-  if (skill?.mode === "tool") return null;
+  // P-4: a conversation runs as code, but each turn is a model call in the agent's voice.
+  const noModel = skill?.mode === "tool" && parseSkillRef(step.skill).id !== CONVERSE_SKILL;
+  const models = useApi(apiRoutes.opsModels, noModel ? null : {});
+  if (noModel) return null;
   const options = models.data?.models ?? [];
   const current = step.model?.id ?? "";
   const fallback = skill?.mode === "task" ? "The skill's model" : "The agent's model";
@@ -358,6 +364,15 @@ function KindFields(
           <Section title="Input">
             {parseSkillRef(step.skill).id === REACH_OUT_SKILL ? (
               <ReachOutFields
+                step={step}
+                bundle={props.bundle}
+                paths={paths}
+                fieldErrors={fieldErrors}
+                set={set}
+              />
+            ) : // P-4: a conversation's own form (§1.66).
+            parseSkillRef(step.skill).id === CONVERSE_SKILL ? (
+              <ConverseFields
                 step={step}
                 bundle={props.bundle}
                 paths={paths}

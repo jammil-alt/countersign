@@ -86,6 +86,9 @@ const TOOLS: Record<string, string> = {
   "qbo.attachable.upload": "Attach a document",
   "qbo.invoice.add_note": "Add a note to a customer invoice",
   "qbo.bill.create": "Create a bill",
+  // P-2: QuickBooks ingredients (docs/plan.md §1.64).
+  "qbo.vendor.create": "Add a vendor",
+  "qbo.purchaseorder.create": "Create a purchase order",
   "webhook.event.send": "Send to the client's webhook",
   "zoho_crm.record.create": "Create a record",
   "zoho_crm.record.update": "Update a record",

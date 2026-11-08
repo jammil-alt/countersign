@@ -180,6 +180,35 @@ describe("builder model", () => {
     expect(toolTitle(UPDATE)).toBe("Update a record");
   });
 
+  // P-4: conversations (docs/plan.md §1.66).
+  it("starts a conversation step with approval on, a person from the trigger and one field", () => {
+    const step = createStep(
+      {
+        type: "skill",
+        key: "skill:comms.converse",
+        title: "Talk with a person",
+        detail: "",
+        ref: "comms.converse",
+        skill: { name: "Talk with a person" } as never,
+        own: false,
+      },
+      CTX,
+      () => "c1",
+    );
+    expect(step).toMatchObject({
+      id: "c1",
+      kind: "skill",
+      skill: "comms.converse",
+      approval: { required: "required" },
+      input: {
+        to: { contactId: "" },
+        channel: "whatsapp",
+        confirm: true,
+        result: { type: "object", properties: { answer: { type: "string" } } },
+      },
+    });
+  });
+
   it("keeps the trigger's id when what starts the workflow changes; adds workflows", () => {
     const w = setTrigger(WF, { type: "schedule", cron: "0 7 * * 1-5" });
     expect(w.trigger).toEqual({ id: "t1", on: { type: "schedule", cron: "0 7 * * 1-5" } });

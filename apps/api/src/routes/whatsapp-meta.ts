@@ -146,6 +146,8 @@ export function whatsappMetaRoutes(app: Hono<AppEnv>): void {
         );
         events.push(...got.events);
         if (got.capture) captures.push(got.capture);
+        // P-3: a reach-out reply's PDFs and images (docs/plan.md §1.65).
+        if (got.replyMedia) captures.push(got.replyMedia);
         if (got.replies.length) replies.push({ tenantId: route.tenantId, replies: got.replies });
       }
       for (const st of delivery.statuses) {

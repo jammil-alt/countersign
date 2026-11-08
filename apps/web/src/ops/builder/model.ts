@@ -8,6 +8,8 @@
 import {
   type AgentBundle,
   type BundleWorkflow,
+  // P-4
+  CONVERSE_SKILL,
   canonicalJson,
   DEFAULT_APPROVAL,
   type ForkPath,
@@ -250,6 +252,27 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
   switch (item.type) {
     case "skill": {
       const step: Step = { id, kind: "skill", name: item.skill.name, skill: item.ref, input: {} };
+      // P-4: a conversation starts with a person from the trigger, one field to find out, and
+      // approval on, like every step that reaches people (§1.66, invariant 8).
+      if (parseSkillRef(item.ref).id === CONVERSE_SKILL) {
+        return {
+          ...step,
+          input: {
+            to: { contactId: "" },
+            channel: "whatsapp",
+            goal: "",
+            result: {
+              type: "object",
+              properties: { answer: { type: "string" } },
+              required: ["answer"],
+            },
+            confirm: true,
+            opening: "",
+            about: [],
+          },
+          approval: { ...DEFAULT_APPROVAL },
+        };
+      }
       const writes = stepWrites(step, ctx);
       return writes && writes.length > 0 ? { ...step, approval: { ...DEFAULT_APPROVAL } } : step;
     }

@@ -22,7 +22,11 @@ export function captureInstanceId(params: CaptureParams, suffix?: string): strin
 export function captureJobs(binding: Workflow, suffix: () => string): CaptureJobs {
   return {
     async start(params) {
-      const id = captureInstanceId(params, params.reason === "inbound" ? undefined : suffix());
+      // P-3: a reply's job is one per message too (`…-reply`), beside its capture job.
+      const id = captureInstanceId(
+        params,
+        params.reason === "inbound" ? undefined : params.reason === "reply" ? "reply" : suffix(),
+      );
       try {
         await binding.create({ id, params });
         return "started";

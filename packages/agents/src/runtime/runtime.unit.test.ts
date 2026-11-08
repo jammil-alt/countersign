@@ -59,6 +59,8 @@ describe("tool registry", () => {
       "account.services",
       "account.waiting",
       "agents.ask",
+      // P-4
+      "comms.converse",
       "comms.reach_out",
       "demo.thing.find",
       "directory.get",

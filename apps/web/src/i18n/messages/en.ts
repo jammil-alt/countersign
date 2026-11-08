@@ -386,6 +386,9 @@ export const en = {
   "run.status.succeeded": "Done",
   "run.status.failed": "Failed",
   "run.status.cancelled": "Cancelled",
+  // P-4: a conversation on the run timeline
+  "run.conversation.sent": "Sent",
+  "run.conversation.reply": "Reply",
   "step.status.pending": "Not started",
   "step.status.running": "Running",
   "step.status.waiting": "Waiting",

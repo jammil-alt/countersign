@@ -396,6 +396,9 @@ export const ptBR: Messages = {
   "run.status.succeeded": "Concluído",
   "run.status.failed": "Falhou",
   "run.status.cancelled": "Cancelado",
+  // P-4: a conversation on the run timeline
+  "run.conversation.sent": "Enviado",
+  "run.conversation.reply": "Resposta",
   "step.status.pending": "Não iniciado",
   "step.status.running": "Em andamento",
   "step.status.waiting": "Aguardando",

@@ -1,4 +1,6 @@
 import type { z } from "zod";
+// P-4
+import { CONVERSE_SKILL, converseProblems } from "../converse";
 import { localizedVersions } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
@@ -110,7 +112,9 @@ export type ValidationCode =
   | "unknown_model"
   | "model_not_allowed"
   // v0.14 W4-B: an entity the client's connection or the agent's grant turned off.
-  | "entity_off";
+  | "entity_off"
+  // P-4: a conversation step's settings (docs/plan.md §1.66).
+  | "converse_invalid";
 
 export interface ValidationError {
   /** The step, fork path or trigger id; null for workflow- or bundle-level errors. */
@@ -592,7 +596,9 @@ function checkStepModel(
   skill: SkillDefinition | undefined,
 ) {
   if (step.model === undefined) return;
-  if (skill?.mode === "tool") {
+  // P-4: a conversation runs as code, but each of its turns is a model call in the agent's voice,
+  // which the step's model may choose (docs/plan.md §1.66).
+  if (skill?.mode === "tool" && skill.id !== CONVERSE_SKILL) {
     c.add(
       step.id,
       "model",
@@ -725,8 +731,19 @@ function semantic(workflow: Workflow, ctx: ValidationContext, slug?: string): Va
   const byStep = scopes(workflow, ctx);
   walkSteps(workflow, ({ step }) => {
     checkStep(c, step, byStep.get(step.id) as Scope, allowed);
+    // P-4
+    checkConverse(c, step);
   });
   return errors;
+}
+
+// P-4: conversations (ARCHITECTURE §10.12; docs/plan.md §1.66). What the input schema can't say:
+// the goal's result is an object with fields, the channel fits who it is with, limits within caps.
+function checkConverse(c: Checker, step: Step) {
+  if (step.kind !== "skill" || parseSkillRef(step.skill).id !== CONVERSE_SKILL) return;
+  for (const p of converseProblems(step.input)) {
+    c.add(step.id, `input.${p.field}`, "converse_invalid", p.message);
+  }
 }
 
 /** Validates one workflow. Schema errors stop semantic checks (they need a typed tree). */

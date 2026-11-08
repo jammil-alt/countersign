@@ -72,6 +72,12 @@ export const SkillDefinition = z
      * external action), so its step has an approval setting like a write.
      */
     reachesPeople: z.boolean().optional(),
+    // P-4: conversations (docs/plan.md §1.66)
+    /**
+     * Built-ins only: the output's `result` is typed by this input field, a JSON Schema the step
+     * writes (`comms.converse`'s `result`), so later steps read the answer typed.
+     */
+    resultFromInput: z.string().min(1).optional(),
   })
   .refine((s) => s.mode !== "tool" || s.handler !== undefined, {
     message: "a tool-mode skill needs a handler",

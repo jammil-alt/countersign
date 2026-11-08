@@ -22,6 +22,7 @@ import {
   updateMemoDisplay,
   updatePurchaseCostDisplay,
 } from "./display";
+import { qboIngredientTools } from "./ingredients";
 import {
   QboAttachment,
   QboId,
@@ -39,6 +40,7 @@ import {
 import {
   type ClientFor,
   IsoDate,
+  lineRefsProblem,
   NewLine,
   notFound,
   Page,
@@ -146,6 +148,9 @@ function alreadyItemized(current: QboTxn, input: UpdateLinesInput): boolean {
         : have.account?.id === want.accountId;
     return (
       sameRef &&
+      // P-2: a class or customer the line names is on it.
+      (want.classId === undefined || have.class?.id === want.classId) &&
+      (want.customerId === undefined || have.customer?.id === want.customerId) &&
       dec(have.amount).equals(dec(want.amount)) &&
       (want.qty === undefined || (have.qty !== null && dec(have.qty).equals(dec(want.qty)))) &&
       (want.unitPrice === undefined ||
@@ -238,6 +243,9 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
       if (txn.syncToken === input.syncToken) {
         const problem = itemizeProblem(txn, input);
         if (problem) throw problem;
+        // P-2: the new lines' classes and customers are the company's, and active.
+        const refs = await lineRefsProblem(client, input.lines);
+        if (refs) throw refs;
       }
       return { ...txn, names: await refNames(client, txn.lines, input.lines, ctx) };
     },
@@ -264,6 +272,8 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
       }
       const problem = itemizeProblem(txn, input);
       if (problem) throw problem;
+      const refs = await lineRefsProblem(client, input.lines);
+      if (refs) throw refs;
       const lines = rawLines(raw);
       const replaced = lines.filter((l) => input.replaceLineIds.includes(String(l.Id)));
       const inherit = inherited(replaced[0]);
@@ -671,5 +681,7 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     // v0.12 W1-F: accounts receivable reads, the invoice note, and create bill.
     ...qboArTools(clientFor),
     billCreateTool(clientFor),
+    // P-2: QuickBooks ingredients (docs/plan.md §1.64).
+    ...qboIngredientTools(clientFor),
   ];
 }

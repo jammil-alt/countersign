@@ -1,0 +1,92 @@
+{
+  "QueryResponse": {
+    "PurchaseOrder": [
+      {
+        "Id": "170",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-09-14T08:30:00-07:00",
+          "LastUpdatedTime": "2026-10-02T16:05:00-07:00"
+        },
+        "DocNumber": "PO-1000",
+        "TxnDate": "2026-09-14",
+        "DueDate": "2026-09-28",
+        "POStatus": "Closed",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "PrivateNote": "Sheet goods for the Henderson kitchen",
+        "VendorRef": { "value": "56", "name": "Northwest Plywood Supply" },
+        "APAccountRef": { "value": "33", "name": "Accounts Payable (A/P)" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "Baltic birch 18mm 5x5 B/BB",
+            "Amount": 1152,
+            "DetailType": "ItemBasedExpenseLineDetail",
+            "ItemBasedExpenseLineDetail": {
+              "ItemRef": { "value": "21", "name": "Baltic birch 3/4in 5x5" },
+              "UnitPrice": 64,
+              "Qty": 18,
+              "CustomerRef": { "value": "7", "name": "Henderson kitchen" },
+              "BillableStatus": "Billable",
+              "TaxCodeRef": { "value": "NON" }
+            }
+          }
+        ],
+        "TotalAmt": 1152
+      },
+      {
+        "Id": "171",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "sparse": false,
+        "MetaData": {
+          "CreateTime": "2026-11-02T09:00:00-08:00",
+          "LastUpdatedTime": "2026-11-02T09:00:00-08:00"
+        },
+        "DocNumber": "PO-1001",
+        "TxnDate": "2026-11-02",
+        "DueDate": "2026-11-16",
+        "POStatus": "Open",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "VendorRef": { "value": "57", "name": "Cascade Hardwoods" },
+        "APAccountRef": { "value": "33", "name": "Accounts Payable (A/P)" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Description": "White oak 4/4 FAS, 120 bf",
+            "Amount": 1050,
+            "DetailType": "ItemBasedExpenseLineDetail",
+            "ItemBasedExpenseLineDetail": {
+              "ItemRef": { "value": "22", "name": "White oak 4/4 FAS" },
+              "UnitPrice": 8.75,
+              "Qty": 120,
+              "ClassRef": { "value": "5000000000000301", "name": "Shop" },
+              "BillableStatus": "NotBillable",
+              "TaxCodeRef": { "value": "NON" }
+            }
+          },
+          {
+            "Id": "2",
+            "LineNum": 2,
+            "Description": "Delivery",
+            "Amount": 75,
+            "DetailType": "AccountBasedExpenseLineDetail",
+            "AccountBasedExpenseLineDetail": {
+              "AccountRef": { "value": "81", "name": "Freight In" },
+              "BillableStatus": "NotBillable",
+              "TaxCodeRef": { "value": "NON" }
+            }
+          }
+        ],
+        "TotalAmt": 1125
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 2
+  },
+  "time": "2026-11-05T10:00:00.000-08:00"
+}

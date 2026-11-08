@@ -48,6 +48,9 @@ export interface PendingApproval {
   inboxItemId: string;
   /** Whatever the agent port needs to resume (e.g. the external action id). Small JSON. */
   state?: unknown;
+  // P-4: conversations (docs/plan.md §1.66)
+  /** What the person is asked for: a signature (default), or an answer (a hand-over). */
+  waitingFor?: "approval" | "answer";
 }
 
 /** What a skill or action step came to. Small JSON: it is stored as a durable step result. */

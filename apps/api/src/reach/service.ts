@@ -20,6 +20,8 @@ import {
   type AgentMode,
   type ApprovalRequirement,
   type ApprovalSource,
+  // P-3: attachments both ways
+  type AttachmentSummary,
   channelAddress,
   channelTool,
   consentBlockFor,
@@ -30,7 +32,10 @@ import {
   explainWrite,
   fixedInputProblem,
   hoursBlock,
+  // P-4
+  isConverseSubject,
   isPlainObject,
+  isSendableType,
   type JsonObject,
   levelFor,
   type ModelChoice,
@@ -61,6 +66,7 @@ import {
   connection,
   contact,
   type Db,
+  document,
   inboxItem,
   message,
   reachOut,
@@ -85,6 +91,14 @@ import {
 } from "../messaging/contacts";
 import { reportHandled } from "../observability/report";
 import type { RunInstances } from "../runs/instances";
+// P-3: attachments both ways
+import {
+  pendingReplies,
+  REPLY_MEDIA_WAIT_MS,
+  replyOverdue,
+  replyPending,
+  settlePendingReply,
+} from "./reply-media";
 
 export type ReachOutRow = typeof reachOut.$inferSelect;
 
@@ -116,6 +130,12 @@ export interface StoredPlan {
   checks: { channel: ReachChannel; block: string | null }[];
   /** v0.13: the step's model override for composed messages (absent: the agent's). */
   model?: ModelChoice;
+  // P-4: conversations (docs/plan.md §1.66)
+  /** WhatsApp: an approved template, sent when the person hasn't written in 24 hours. */
+  whatsappTemplate?: { id: string; variables: Record<string, string> };
+  // P-3
+  /** The documents sent with each attempt, checked as this client's when the plan was made. */
+  attachments?: AttachmentSummary[];
 }
 
 export interface Attempt {
@@ -188,7 +208,9 @@ async function threadLine(
 function outputOf(row: ReachOutRow, who: { id: string; name: string } | null): ReachOutOutput {
   const attempts = attemptsOf(row);
   const sent = attempts.filter((a) => a.status === "sent");
-  const reply = (row.reply as ReachReply | null) ?? null;
+  // P-3: the reply's documents for later steps (none on replies stored before them).
+  const stored = (row.reply as ReachReply | null) ?? null;
+  const reply = stored ? replyForStep(stored) : null;
   return {
     outcome: row.outcome ?? "no_reply",
     channel: reply?.channel ?? sent.at(-1)?.channel ?? null,
@@ -199,6 +221,44 @@ function outputOf(row: ReachOutRow, who: { id: string; name: string } | null): R
     sources: row.sources ?? [],
     reachOutId: row.id,
   };
+}
+
+// P-3: the reply as a step's output: its documents always a list, never `pending`.
+function replyForStep(stored: ReachReply): ReachReply {
+  const { pending: _pending, ...rest } = stored;
+  return { ...rest, documents: stored.documents ?? [] };
+}
+
+/** P-3: the documents a reach-out sends, each this client's PDF or image; else why not. */
+async function attachmentsOf(
+  tx: Tx,
+  tenantId: string,
+  ids: readonly string[] | undefined,
+): Promise<AttachmentSummary[] | string> {
+  if (!ids?.length) return [];
+  const rows = await tx
+    .select({
+      id: document.id,
+      filename: document.filename,
+      mimeType: document.mimeType,
+      sizeBytes: document.sizeBytes,
+    })
+    .from(document)
+    .where(and(eq(document.tenantId, tenantId), inArray(document.id, [...ids])));
+  const out: AttachmentSummary[] = [];
+  for (const id of ids) {
+    const d = rows.find((r) => r.id === id);
+    // The same answer for an unknown id and another client's.
+    if (!d) return `document ${id} is not this client's`;
+    if (!isSendableType(d.mimeType)) return `${d.filename} is not a PDF or an image`;
+    out.push({
+      documentId: d.id,
+      filename: d.filename,
+      mimeType: d.mimeType,
+      sizeBytes: d.sizeBytes,
+    });
+  }
+  return out;
 }
 
 function notAllowed(
@@ -406,9 +466,28 @@ async function contactLoad(
         eq(reachOut.contactId, contactId),
         gte(reachOut.createdAt, day),
         sql`coalesce(${reachOut.outcome}, '') <> 'not_allowed'`,
+        // P-4: a conversation counts once toward the daily cap: its first message.
+        sql`(${reachOut.subject} not like 'converse:%' or ${reachOut.nodeId} like '%:m1')`,
       ),
     );
-  return { openForSubject: Boolean(open), sentToday: count?.n ?? 0 };
+  // P-4: one at a time per person (§1.66): someone in an open conversation isn't reached.
+  const [talking] = await tx
+    .select({ id: reachOut.id })
+    .from(reachOut)
+    .where(
+      and(
+        eq(reachOut.tenantId, tenantId),
+        eq(reachOut.contactId, contactId),
+        ne(reachOut.status, "ended"),
+        sql`${reachOut.subject} like 'converse:%'`,
+      ),
+    )
+    .limit(1);
+  return {
+    openForSubject: Boolean(open),
+    sentToday: count?.n ?? 0,
+    inConversation: Boolean(talking),
+  };
 }
 
 function hexId(id: string): string {
@@ -492,11 +571,36 @@ export function reachPort(deps: ReachDeps): ReachPort {
     return { kind: "done", output: outputOf(row, who) } satisfies StepOutcome;
   };
 
+  // P-3: a reply whose files are still coming (a text's or WhatsApp's): settled once each has an
+  // outcome, or after REPLY_MEDIA_WAIT_MS with what was filed; the step waits on the same event.
+  const finish = async (
+    row: ReachOutRow,
+    who: { id: string; name: string } | null,
+  ): Promise<StepOutcome> => {
+    if (!replyPending(row)) return done(row, who);
+    const settled = await withTenant(db, row.tenantId, (tx) =>
+      settlePendingReply(tx, row, replyOverdue(row, now())),
+    );
+    if (settled) return done(settled, who);
+    const again = await getRow(row.tenantId, row.id);
+    if (again.row && !replyPending(again.row)) return done(again.row, again.who);
+    const ends = (row.endedAt?.getTime() ?? now().getTime()) + REPLY_MEDIA_WAIT_MS;
+    const left = Math.max(60_000, ends - now().getTime());
+    return {
+      kind: "waiting",
+      wait: {
+        eventType: reachOutEventType(row.id),
+        timeout: `${Math.ceil(left / 60_000)} minutes`,
+        state: { reachOutId: row.id },
+      },
+    };
+  };
+
   /** What an open reach-out means for the step now. */
   const settleOpen = async (id: string, tenantId: string): Promise<StepOutcome> => {
     const { row, who } = await getRow(tenantId, id);
     if (!row) return { kind: "failed", error: "the reach-out is gone" };
-    if (row.status === "ended") return done(row, who);
+    if (row.status === "ended") return finish(row, who);
     const plan = planOf(row);
     if (!plan.expectReply && attemptsOf(row).some((a) => a.status === "sent")) {
       // DECISION: a reach-out that expects no reply ends at its first sent attempt, as no_reply
@@ -593,6 +697,11 @@ export function reachPort(deps: ReachDeps): ReachPort {
           return { kind: "refused" as const, output: notAllowed(loaded, null, input.about) };
         }
         const { tenantRow, conditions } = loaded;
+        // P-3: the documents it sends: this client's PDFs and images, named by the step's input.
+        const attachments = await attachmentsOf(tx, info.tenantId, input.attachments);
+        if (typeof attachments === "string") {
+          return { kind: "refused" as const, output: notAllowed(attachments, null, input.about) };
+        }
         if (loaded.candidates.length === 0) {
           return {
             kind: "refused" as const,
@@ -614,7 +723,26 @@ export function reachPort(deps: ReachDeps): ReachPort {
         // DECISION: a role's contacts are tried in the order they were bound; the first one with a
         // channel that passes is reached (one contact per reach-out).
         for (const who of loaded.candidates) {
-          const counts = await contactLoad(tx, info.tenantId, who.id, subject, t);
+          const { inConversation, ...counts } = await contactLoad(
+            tx,
+            info.tenantId,
+            who.id,
+            subject,
+            t,
+          );
+          // P-4: a person in an open conversation is not reached until it ends (§1.66).
+          if (inConversation) {
+            firstRefusal ??= {
+              who,
+              plan: {
+                ok: false,
+                outcome: "not_allowed",
+                reason: "they are in a conversation with an agent",
+                checks: [],
+              },
+            };
+            continue;
+          }
           const plan = planReachOut({
             contact: reachContactOf(who),
             conditions,
@@ -628,6 +756,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
             facts,
             ...counts,
             now: t,
+            // P-3: a channel that can't carry them is left out, with the reason.
+            attachments: attachments.length,
           });
           if (plan.ok) {
             chosen = { who, plan };
@@ -729,6 +859,7 @@ export function reachPort(deps: ReachDeps): ReachPort {
           data: truncateData({ about: input.about, trigger: loaded.trigger }),
           checks: plan.checks,
           ...(req.step.model ? { model: req.step.model } : {}),
+          ...(attachments.length ? { attachments } : {}),
         };
         let row: ReachOutRow | undefined;
         try {
@@ -828,6 +959,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
                   "template" in input.message
                     ? pickMessage(input.message.template, language)
                     : "Written for them when it is sent, from the purpose and the record",
+                // P-3: what goes with it, by name and size.
+                ...(attachments.length ? { attachments } : {}),
               },
               sources,
               // v0.12 W1-D: why the plan waits, with the reasons a tool proposal gives.
@@ -889,7 +1022,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
       const id = reachOutState(req.wait.state);
       if (!id) return true;
       const { row } = await getRow(req.run.tenantId, id);
-      return !row || row.status === "ended";
+      // P-3: a reply's files still coming keep the step waiting.
+      return !row || (row.status === "ended" && !replyPending(row));
     },
 
     async afterWait(req) {
@@ -897,7 +1031,7 @@ export function reachPort(deps: ReachDeps): ReachPort {
       if (!id) return { kind: "failed", error: "not a reach-out" };
       const { row, who } = await getRow(req.run.tenantId, id);
       if (!row) return { kind: "failed", error: "the reach-out is gone" };
-      if (row.status === "ended") return done(row, who);
+      if (row.status === "ended") return finish(row, who);
       if (req.timedOut || (row.dueAt && row.dueAt <= now())) {
         const ended = await withTenant(db, row.tenantId, async (tx) => {
           const e = await endReachOut(
@@ -922,7 +1056,7 @@ export function reachPort(deps: ReachDeps): ReachPort {
         });
         if (ended) return done(ended, who);
         const again = await getRow(row.tenantId, row.id);
-        return again.row ? done(again.row, again.who) : { kind: "failed", error: "gone" };
+        return again.row ? finish(again.row, again.who) : { kind: "failed", error: "gone" };
       }
       return settleOpen(row.id, row.tenantId);
     },
@@ -990,9 +1124,12 @@ export async function attemptFrom(
           direction: "out",
           channel: attempt.channel,
           text:
-            attempt.status === "sent"
-              ? `Reached out by ${CHANNEL_WORDS[attempt.channel]} (attempt ${attempt.index + 1} of ${plan.channels.length}): ${row.purpose}`
-              : `Couldn't reach by ${CHANNEL_WORDS[attempt.channel]}: ${attempt.error ?? "failed"}`,
+            // P-4: a conversation's line is the message itself (§1.66).
+            attempt.status === "sent" && isConverseSubject(row.subject)
+              ? `${"template" in plan.message ? pickMessage(plan.message.template, plan.language) : row.purpose}`
+              : attempt.status === "sent"
+                ? `Reached out by ${CHANNEL_WORDS[attempt.channel]} (attempt ${attempt.index + 1} of ${plan.channels.length}): ${row.purpose}`
+                : `Couldn't reach by ${CHANNEL_WORDS[attempt.channel]}: ${attempt.error ?? "failed"}`,
           status: attempt.status,
         });
       });
@@ -1096,7 +1233,15 @@ export async function attemptFrom(
               channel,
               contactName: who.name,
               clientName: state.t.name,
-              maxChars: channel === "sms" ? 320 : channel === "voice" ? 300 : 1500,
+              // P-3: a WhatsApp file's caption is at most 1024 characters.
+              maxChars:
+                channel === "sms"
+                  ? 320
+                  : channel === "voice"
+                    ? 300
+                    : channel === "whatsapp" && plan.attachments?.length
+                      ? 1000
+                      : 1500,
               model: plan.model,
             });
     } catch (error) {
@@ -1104,12 +1249,19 @@ export async function attemptFrom(
       continue;
     }
     const address = channelAddress(reach, channel) as string;
+    // P-3: the plan's documents go with the email, the text (MMS) or the WhatsApp message.
+    const files = plan.attachments?.length
+      ? { attachments: plan.attachments.map((a) => ({ documentId: a.documentId })) }
+      : {};
     const input =
       channel === "email"
-        ? { to: address, subject: plan.emailSubject, text, replyTag: plan.replyTag }
+        ? { to: address, subject: plan.emailSubject, text, replyTag: plan.replyTag, ...files }
         : channel === "voice"
           ? { to: address, purpose: row.purpose, tools: [] }
-          : { to: address, text };
+          : // P-4: a conversation's opening may carry a template for outside the 24-hour window.
+            channel === "whatsapp" && plan.whatsappTemplate
+            ? { to: address, text, template: plan.whatsappTemplate, ...files }
+            : { to: address, text, ...files };
     const r = await runPlannedAction(deps.runtime, step, {
       toolId,
       connectionId: conn.id,
@@ -1216,6 +1368,20 @@ export async function reachOutTick(
     }
   }
 
+  // P-3: replies whose files are in (or whose wait is over) are settled, and their runs woken.
+  const settled = await withTenant(db, tenantId, async (tx) => {
+    const out: ReachOutRow[] = [];
+    for (const row of await pendingReplies(tx, tenantId)) {
+      const s = await settlePendingReply(tx, row, replyOverdue(row, at));
+      if (s) out.push(s);
+    }
+    return out;
+  });
+  for (const row of settled) {
+    result.woken++;
+    await wake(deps, row);
+  }
+
   const pending = await withTenant(db, tenantId, (tx) =>
     tx
       .select({ id: reachOut.id, runId: reachOut.runId })
@@ -1229,6 +1395,8 @@ export async function reachOutTick(
           lte(reachOut.endedAt, new Date(at.getTime() - REDELIVER_AFTER_MS)),
           gte(reachOut.endedAt, new Date(at.getTime() - REDELIVER_WINDOW_MS)),
           inArray(run.status, ["queued", "running", "waiting"]),
+          // P-3: not while a reply's files are still coming (settled above when they are in).
+          sql`coalesce(${reachOut.reply}->>'pending', 'false') <> 'true'`,
         ),
       )
       .limit(200),

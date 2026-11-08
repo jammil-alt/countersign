@@ -1,4 +1,6 @@
 import { z } from "zod";
+// P-4
+import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
@@ -313,6 +315,8 @@ export const OpsStep = z.object({
   // v0.13 W2-H: the models the step's calls ran on, from its model calls (ARCHITECTURE §10.11).
   /** Distinct, in the order first called; absent where the route doesn't read model calls. */
   models: z.array(z.string()).optional(),
+  // P-4: a conversation step's transcript, with each turn's model and cost (§1.66).
+  conversation: ConverseOpsView.optional(),
 });
 
 export const OpsToolCall = z.object({
@@ -487,6 +491,8 @@ export const TimelineStep = z.object({
   // v0.13 W2-I: run oversight in the platform's words ("Corrected the vendor name and tried
   // again"), one line per decision, in the client's language; never the agent's note (§10.11).
   oversight: z.array(z.string()).optional(),
+  // P-4: the client's side of a conversation step; never a prompt, a model or a cost (§1.66).
+  conversation: ConversePortalView.optional(),
 });
 
 export const PortalInboxItem = z.object({

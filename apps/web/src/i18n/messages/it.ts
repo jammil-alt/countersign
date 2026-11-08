@@ -398,6 +398,9 @@ export const it: Messages = {
   "run.status.succeeded": "Fatto",
   "run.status.failed": "Non riuscito",
   "run.status.cancelled": "Annullato",
+  // P-4: a conversation on the run timeline
+  "run.conversation.sent": "Inviato",
+  "run.conversation.reply": "Risposta",
   "step.status.pending": "Non iniziato",
   "step.status.running": "In corso",
   "step.status.waiting": "In attesa",

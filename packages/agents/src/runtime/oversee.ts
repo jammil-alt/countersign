@@ -17,6 +17,8 @@
 
 import {
   type ActionStep,
+  // P-4
+  CONVERSE_SKILL,
   changedFields,
   clientLabel,
   DEFAULT_APPROVAL,
@@ -167,6 +169,9 @@ export interface OversightStore {
 }
 
 export const OVERSEE_FINISH_TOOL = "finish";
+
+// P-4: what a conversation's failed turn may decide (docs/plan.md §1.66).
+const CONVERSE_FAILED_ACTIONS: readonly OversightActionName[] = ["retry", "ask", "stop"];
 /** The step's context arrives as the result of this call, already made (no tool the agent calls). */
 export const OVERSEE_READ_TOOL = "read_step";
 /** How many characters of an error or an input the agent is shown. */
@@ -333,6 +338,11 @@ export async function overseeStep(
     // DECISION: a checkpoint that wrote is reviewed without `retry_with` (its write is done and
     // must not be made twice), rather than not reviewed at all (docs/plan.md §1.54).
     if (reached.length > 0 && req.cause === "checkpoint") allowed = CHECKPOINT_NO_RETRY;
+    // P-4: a conversation whose turn failed picks up where it stopped on a `retry`: each message
+    // it sent is keyed and never sent again, so its sends don't stop the review. Not `retry_with`,
+    // which would start the conversation over with the person (docs/plan.md §1.66).
+    // DECISION
+    else if (reached.length > 0 && def?.id === CONVERSE_SKILL) allowed = CONVERSE_FAILED_ACTIONS;
     else if (reached.length > 0) {
       const note =
         "A change this step made reached the client's tool before the step failed, so it is not tried again: its before state may no longer hold. A person should check what was written.";
