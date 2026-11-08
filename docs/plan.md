@@ -1726,6 +1726,32 @@ Hot-spot edits are blocks marked `// P-3`.
 | Compliance | No new vendor: Resend, Google, Microsoft, Twilio and Meta already carry the messages these files go with. |
 | Not built | Files larger than Outlook's 3 MB (upload sessions). Meta's media upload. Media templates on WhatsApp. Attachments on a call. A reply's other types (audio, office files) as documents. Screens: the approval card shows `attachments` as it shows any before state; the owner's redesign gives them their own row. |
 
+### 1.66 Conversations (P-4, M37; no migration; ARCHITECTURE §10.12)
+
+Owner-approved 2026-11-07: an ingredient for agents the owner builds in the agent lab (the purchasing
+agent first). No agent, template or workflow is built here. Hot-spot edits are blocks headed `// P-4: …`.
+
+| Topic | Decision |
+|---|---|
+| Shape | Built-in skill `comms.converse` (`mode: 'tool'`, `reachesPeople`, handler `comms.converse` refusing to run outside a workflow step), routed by id in apps/api's agent port to `apps/api/src/converse/`, as `comms.reach-out` is. No new step kind and no executor change beyond one optional field: the executor's `waiting` and `approval` loop already lets a step wait and be approved any number of times. // DECISION |
+| Config | `ConverseInput` in `packages/core/src/converse/` (ARCHITECTURE §10.12): `to` (`role`, `contactId` or `userId`, templates allowed), `channel` (`whatsapp`, `sms`, `email` for contacts; `portal` for client users), `goal {instructions, result (JSON Schema, an object), confirm = true}`, `opening {brief, whatsappTemplate?}`, `about` (record ids), `data` (record data, as data), `limits {maxMessages 6 (1–12), waitPerReply '1 day' (≤ 7 days), deadline '3 days' (≤ 14 days), maxCostUsd '0.50' (≤ 5)}`. Fixed inputs: `goal.instructions`, `goal.result`, `opening.brief`. // DECISION: caps keep a conversation bounded whatever the operator types. |
+| Validation | One function, `converseProblems`, in core's `workflow/validate.ts` (called from the entry point): the fixed inputs, the goal schema (an object with at least one property, at most 30), a channel that fits `to`, the limits. Template typing types `steps.<id>.output.result` from `goal.result` (a skill may declare `resultFromInput: 'goal.result'`; only built-ins do). // DECISION |
+| Turns | `packages/agents/src/runtime/converse.ts`: one model call per turn through `packages/llm`, the agent's prompt as an `agent` skill gets it (instructions, memory notes, the client's language) plus the conversation preamble, the goal and the brief; the transcript and data in a tool-result block of a `read_conversation` call already made; `tool_choice` forces `turn` (`ask`, `confirm`, `done`, `give_up`). The model resolves as for an agent skill step (`resolveModel`), so the step's `model` wins. The result is checked against `goal.result` in code. // DECISION |
+| Confirmation | With `goal.confirm`, `done` is accepted only after a `confirm` message has a reply and with `confirmed: true`; anything else fails the turn. Without it, `done` ends at once. // DECISION |
+| Sending | One `reach_out` row per message (subject `converse:<run>:<node>`, node `<node>:m<n>`, `plan.converse {turn, kind, model, costUsd}`, the text as the plan's fixed message in the contact's language, the one channel, `expectReply`, timeout = the wait per reply), sent by reach out's `attemptFrom`: every check reach out makes, quiet hours held by the cron, key `<run>:<node>:m<n>:reach:0`. The first message's checks are `planReachOut` with the channel pinned (`urgency.normal: [channel]`). The daily cap counts a conversation's first message only. // DECISION |
+| 24-hour window | Before a WhatsApp message, the contact's last inbound WhatsApp message is read: outside the window the opening goes as `whatsappTemplate` (`StoredPlan.whatsappTemplate`, sent as `whatsapp.send`'s `template`); a later message, or an opening without a template, ends the conversation (`not_allowed` before anything was sent, else a hand-over) with "outside WhatsApp's 24-hour window". // DECISION |
+| Approval | The step's approval signs the conversation once (an inbox item `kind: approval`, payload `converse {who, channel, goal, limits, first message}`, routed like a reach-out plan); unsigned only under the three conditions and with no `approval` autonomy on the channel. Later messages go under it (`runPlannedAction`), except with the person's channel autonomy at `approval` or the agent in trial or sign-off: each message is then its own card (`payload.converse {turn, message, transcript}`, title "Message 3 of up to 6 to Dana on WhatsApp"). Approving sends exactly that text; declining is a rejected write (`declined`, the step's `onReject`). // DECISION |
+| Replies | Reach out's matcher, unchanged except that it prefers an open conversation message on the reply's channel. One at a time per person: start refuses (`not_allowed`, "already waiting on them") while the person has an open reach-out or conversation, under an advisory lock on the contact; reach out's start does the same for someone in an open conversation. Between our messages, their texts (raw records on the channel's connection since the last one read) join the next turn; `routeInboundText` treats a conversation message awaiting approval as open, so no new run starts. // DECISION |
+| Portal | With a client user: messages in the agent's thread (`agentThread`), `audience: client`, body `converse {runId, nodeId, turn, userId}`. The dispatcher matches `thread.message_posted` from that user in that thread while the step waits and wakes the run (`converse-<step run id>`); the reply is their messages after ours. // DECISION |
+| Ending | `completed`, `opted_out`, `declined`, `not_allowed`, `handed_over`, `not_sent` (test runs). Limits (messages, a reply wait, the deadline, cost) and `give_up` hand over: an inbox item `kind: request`, subject `conversation_handover`, to the step's approver, else the lead, else the operator role (a test run's to the operator), with the goal, the last proposed result and the transcript (their words quoted). Answered → `handed_over` with the person's answer as `result` when it matches `goal.result`; declined or timed out → the step's `onReject`. The executor's `PendingApproval` gains `waitingFor?: 'answer'` so the timeline says "waiting for an answer". // DECISION |
+| Output | `ConverseOutput`: outcome, `result`, `confirmed`, `who {kind, id, name}`, channel, `messages`, `replies`, `transcript [{direction, text, at, sourceId}]`, `sources` (`about`, each reply's raw record or message id, each message's reach-out id), `reason`, `costUsd` (string). // DECISION |
+| Durability | The opening turn in the step's own `do`; turn *n* in `…:wait:<k>:resume` or `…:approval:<k>:resume`. The answer is stored on the message row (insert, unique on run and node) before sending; a retried `do` finds it and sends under the same key. Oversight: a failed turn fails the step; `retry` runs the step again and the service picks the conversation up where it stopped (the conversation is keyed by `keyNode ?? nodeId`, so a `retry_with` starts afresh once the old one has no open message). // DECISION |
+| Storage | No migration: `reach_out`, the contact's thread lines, `message` rows in the agent's thread, `model_call` rows, the step's cost. // DECISION: every table that holds a conversation's parts already exists, with RLS and its rules. |
+| Visibility | `GET /api/ops/runs/:id`: a conversation step gains `conversation {channel, who, outcome, messages [{turn, direction, text, at, status, model?, costUsd?}]}`. `GET /api/runs/:id` (portal): `conversation {messages [{direction, text, at}]}` only; the contract test's forbidden-field check covers it. |
+| Builder | Palette "Talk with a person" (`comms.converse`); inspector: who, channel, what to find out (field list → `goal.result`), the goal's words, the first message, the WhatsApp template, limits, and the model picker skill steps already have. |
+| Compliance | No new vendor: the model and the channels' providers are already named in `packages/core/src/compliance`. |
+| Not in this stream | Voice (calls stay with reach out and the voice agent); a person changing the message before approving it (W1-D's edit applies to external actions, not these cards); translating replies (§1.18); the client's lead (an operator) as `to` (open, owner). |
+
 ---
 
 ## 2. Package layering
@@ -2413,6 +2439,30 @@ document of another client is never sent.
 
 ---
 
+### M37: Conversations (P-4, §1.66)
+
+Two PRs: this design (`claude/p4-conversation-design`, docs only) and the build
+(`claude/p4-conversation`, stacked on it). No migration.
+
+Work: core's `ConverseInput` and `ConverseOutput`, the turn answer, `converseProblems` and result
+typing; `comms.converse` as a built-in skill; the turn in `packages/agents`; the conversation service
+in `apps/api/src/converse/` (start, approvals, waits, hand-over, the 24-hour window, the portal
+thread), reach out's matcher and start (one at a time per person), `routeInboundText`; the run pages
+for both surfaces; the builder's palette entry and inspector.
+
+Tests (FakeModel, the fake Twilio; no live model): a three-turn WhatsApp clarification ends with a
+validated, confirmed result; limits hand over to a person; a replay doesn't resend; a reply goes to the
+conversation and not to another reach-out; injected instructions in a reply are ignored; consent and
+quiet hours respected, and the 24-hour window outside it; a contact on "needs approval" makes each
+message wait; a per-step model; oversight on a failed turn; the portal never shows prompts, models or
+cost; client isolation.
+
+**Done when** a WhatsApp clarification of a purchase request runs three turns to a confirmed result
+that a later step reads as typed output, and a conversation that hits a limit lands with a person,
+transcript attached.
+
+---
+
 ## 5. Things to verify, not assume
 
 - Intuit API details (M9) and Google's Gmail and verification rules (M10), see those milestones.
@@ -2555,6 +2605,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | Senses event catalog | Append event types (W1-C, W1-F, W2-E) |
 | `apps/api/src/platform.ts` | One registration line per new connector (W3-B) |
 | `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
+| `packages/workflows/src/ports.ts`, `apps/api/src/runs/ports.ts`, `apps/api/src/reach/{service,replies}.ts`, `apps/api/src/triggers/inbound-text.ts`, `apps/api/src/runs/dispatch.ts` | P-4: `PendingApproval.waitingFor`; the `comms.converse` route; one at a time per person; the conversation-first reply match; a conversation awaiting approval counts as open; the portal reply match (one block each, `// P-4: …`) |
 
 ### 8.3 Reserved migrations
 
