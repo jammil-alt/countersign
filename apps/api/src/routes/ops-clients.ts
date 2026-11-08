@@ -32,6 +32,8 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+// P-4
+import { runConversations } from "../converse/views";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
 import { resolveInboxItem } from "../inbox";
 // v0.13 W2-I
@@ -684,9 +686,15 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const [view] = await opsRunViews(tx, [r], services);
     const subjects = await runSubjects(tx, [r.tenantId], [r], services.platform);
     const cited = steps.flatMap((s) => sourcesOf(s.output));
+    // P-4: each conversation step's transcript, with its turns' models and cost (§1.66).
+    const conversations = await runConversations(tx, r.tenantId, r.id);
     return {
       run: { ...(view ?? opsRun(r)), subject: subjects.get(r.id) },
-      steps: steps.map((s) => ({ ...opsStep(s), models: modelsByStep.get(s.id) ?? [] })),
+      steps: steps.map((s) => ({
+        ...opsStep(s),
+        models: modelsByStep.get(s.id) ?? [],
+        ...(conversations.has(s.id) ? { conversation: conversations.get(s.id) } : {}),
+      })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),
       inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId), services.platform)),

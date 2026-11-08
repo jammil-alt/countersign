@@ -12,7 +12,7 @@ import {
   sameAddress,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
-import type { ReachChannel, ReachReply } from "@countersign/core";
+import { isConverseSubject, type ReachChannel, type ReachReply } from "@countersign/core";
 import {
   connection,
   contact,
@@ -151,10 +151,20 @@ export async function matchRepliesIn(
         }
         continue;
       }
-      if (p.keyword) continue;
-      const row = open[0] as ReachOutRow;
+      const channel = (p.channel === "whatsapp" ? "whatsapp" : "sms") as ReachChannel;
+      // P-4: an open conversation message on the reply's channel takes it first (§1.66); else
+      // the most recently updated open reach-out, as before.
+      const talking = open.find(
+        (r) =>
+          isConverseSubject(r.subject) &&
+          ((r.plan as { channels?: string[] } | null)?.channels ?? [])[0] === channel,
+      );
+      // DECISION (P-4): in a conversation, "YES" (an opt-in word) or "HELP" is also their answer
+      // to the question asked; STOP still stops everything, above.
+      if (p.keyword && !talking) continue;
+      const row = (talking ?? open[0]) as ReachOutRow;
       const reply: ReachReply = {
-        channel: (p.channel === "whatsapp" ? "whatsapp" : "sms") as ReachChannel,
+        channel,
         text: await rawText(tx, tenantId, p.rawRecordId),
         untrusted: true,
         rawRecordId: typeof p.rawRecordId === "string" ? p.rawRecordId : null,

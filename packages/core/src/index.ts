@@ -104,6 +104,8 @@ export * from "./canonical";
 export * from "./codes/service";
 export * from "./compliance/card-numbers";
 export * from "./compliance/processors";
+// P-4: conversations with people
+export * from "./converse";
 export * from "./desk/item";
 export * from "./desk/rules";
 export * from "./directory/autonomy";

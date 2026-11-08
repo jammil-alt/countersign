@@ -75,6 +75,8 @@ import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import { codesFor } from "../codes/client";
 import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/policy";
+// P-4
+import { conversePort } from "../converse/service";
 import type { Bindings } from "../env";
 import { connectorServicesFor } from "../messaging/services";
 // v0.13 W2-I
@@ -486,6 +488,8 @@ export async function executeRun(
       runtime,
       reachPort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
       { db },
+      // P-4: conversations (docs/plan.md §1.66)
+      conversePort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
     ),
     inbox: dbInboxPort(db, info),
     notify: threadNotifyPort(runtime),

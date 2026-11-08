@@ -12,6 +12,8 @@ import {
   type StepContext,
 } from "@countersign/agents";
 import {
+  // P-4
+  CONVERSE_SKILL,
   DEFAULT_APPROVAL,
   isPlainObject,
   type JsonObject,
@@ -38,6 +40,8 @@ import {
   releaseWaitOutcome,
   stepInputOf,
 } from "../access/release";
+// P-4
+import { type ConversePort, converseState } from "../converse/service";
 import { toRunResolution } from "../inbox";
 import { type ReachPort, reachOutState } from "../reach/service";
 
@@ -135,6 +139,8 @@ export function agentPort(
   reach?: ReachPort,
   /** The database, for steps that wait on a person's release (docs/plan.md §1.26). */
   release?: { db: Db },
+  // P-4: conversations (docs/plan.md §1.66)
+  converse?: ConversePort,
 ): AgentPort {
   const now = () => deps.now?.() ?? new Date();
   const port: AgentPort = {
@@ -143,6 +149,11 @@ export function agentPort(
       if (parseSkillRef(step.skill).id === REACH_OUT_SKILL) {
         if (!reach) return { kind: "failed", error: "comms.reach-out needs the reach-out service" };
         return reach.start(request);
+      }
+      // P-4: the built-in conversation step goes to the conversation service (§1.66).
+      if (parseSkillRef(step.skill).id === CONVERSE_SKILL) {
+        if (!converse) return { kind: "failed", error: "comms.converse needs its service" };
+        return converse.start(request);
       }
       const r = await runAgent(deps, {
         tenantId: run.tenantId,
@@ -247,6 +258,8 @@ export function agentPort(
         if (!release) return true;
         return releaseWaitDone(release.db, request.run.tenantId, waiting, now());
       }
+      // P-4
+      if (converse && converseState(request.wait.state)) return converse.waitDone(request);
       if (!reach) return true;
       return reach.waitDone(request);
     },
@@ -268,12 +281,16 @@ export function agentPort(
           ? port.runSkill({ ...again, step, approval: step.approval ?? DEFAULT_APPROVAL })
           : port.runAction({ ...again, step, approval: step.approval });
       }
+      // P-4
+      if (converse && converseState(request.wait.state)) return converse.afterWait(request);
       if (!reach) return { kind: "failed", error: "nothing to wait for" };
       return reach.afterWait(request);
     },
 
     async resume(request) {
       const { run, step, pending, resolution } = request;
+      // P-4: a conversation's approvals and hand-over first: its state also names a reach-out.
+      if (converse && converseState(pending.state)) return converse.resume(request);
       if (reach && reachOutState(pending.state)) return reach.resume(request);
       const state = PendingState.parse(pending.state ?? { actions: [] });
       const index = state.actions.findIndex((a) => a.inboxItemId === pending.inboxItemId);

@@ -6,6 +6,8 @@ import { z } from "zod";
 // v0.12 W2-D
 import { ACCOUNT_TOOLS } from "./account";
 import { agentsAsk } from "./ask";
+// P-4
+import { converseTool } from "./converse";
 import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
 import { HEALTH_TOOLS } from "./health";
@@ -93,6 +95,8 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...KNOWLEDGE_TOOLS,
   ...DIRECTORY_TOOLS,
   reachOutTool,
+  // P-4: conversations
+  converseTool,
   ...HEALTH_TOOLS,
   agentsAsk,
   ...SUPERVISOR_TOOLS,

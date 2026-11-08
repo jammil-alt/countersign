@@ -48,6 +48,8 @@ export * from "./runtime/attention";
 export * from "./runtime/call-tool";
 export * from "./runtime/carry";
 export * from "./runtime/context";
+// P-4: conversations
+export * from "./runtime/converse";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";
 // v0.13 W2-I
@@ -60,6 +62,8 @@ export * from "./testbench/run-skill";
 // v0.12 W2-D
 export * from "./tools/account";
 export * from "./tools/ask";
+// P-4: conversations
+export * from "./tools/converse";
 export * from "./tools/directory";
 export * from "./tools/docs";
 export * from "./tools/health";

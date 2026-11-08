@@ -1,3 +1,5 @@
+// P-4
+import { typedResultOutput } from "../converse";
 import { isPlainObject } from "../json";
 import type { AutomationDefinition } from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
@@ -90,8 +92,13 @@ export function triggerOnSchema(on: TriggerOn, ctx: TypingContext): JsonSchema |
 
 export function outputSchemaOf(step: Step, ctx: TypingContext): JsonSchema | undefined {
   switch (step.kind) {
-    case "skill":
-      return lookupSkill(step.skill, ctx)?.output;
+    case "skill": {
+      const def = lookupSkill(step.skill, ctx);
+      // P-4: a conversation's `result` is typed by the step's own result schema (§1.66).
+      if (def?.resultFromInput)
+        return typedResultOutput(def.output, def.resultFromInput, step.input);
+      return def?.output;
+    }
     case "action":
       return ctx.tools?.[step.tool]?.output;
     case "person":

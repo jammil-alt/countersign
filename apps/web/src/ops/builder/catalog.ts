@@ -5,6 +5,8 @@ import {
   type AgentBundle,
   allSteps,
   type BuilderCatalog,
+  // P-4
+  CONVERSE_SKILL,
   type EventTypeSpec,
   lookupSkill,
   type OpsConnection,
@@ -277,6 +279,8 @@ export function paletteSections(
 
   const own = new Set(bundle.definition.skills.map((s) => parseSkillRef(s.skill).id));
   const platformSkills: PaletteItem[] = [];
+  // P-4
+  const peopleSkills: PaletteItem[] = [];
   const perConnector = new Map<string, PaletteItem[]>();
   const add = (connector: string, item: PaletteItem) =>
     perConnector.set(connector, [...(perConnector.get(connector) ?? []), item]);
@@ -297,7 +301,13 @@ export function paletteSections(
       own: mine,
     };
     const home = through[0];
-    if (home && through.length === 1) add(home, item);
+    // P-4: a conversation is offered with the people steps (§1.66).
+    if (parseSkillRef(s.ref).id === CONVERSE_SKILL) {
+      peopleSkills.push({
+        ...item,
+        detail: "Talk it through with someone until you have the answer, within limits",
+      });
+    } else if (home && through.length === 1) add(home, item);
     else platformSkills.push(item);
   }
   platformSkills.sort(
@@ -365,6 +375,8 @@ export function paletteSections(
           detail: "A person answers a question",
           mode: "ask",
         },
+        // P-4
+        ...peopleSkills,
       ],
     },
     {
