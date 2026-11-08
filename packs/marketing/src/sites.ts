@@ -19,6 +19,9 @@ export class SiteError extends Error {
   }
 }
 
+/** One DNS label: letters, digits and inner hyphens, at most 63 characters. */
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
 /** `https://www.Example.com/path` → `example.com`; null when it is not a domain. */
 export function normalizeDomain(input: string): string | null {
   let host = input.trim().toLowerCase();
@@ -27,13 +30,15 @@ export function normalizeDomain(input: string): string | null {
   } catch {
     return null;
   }
-  host = host
-    .replace(/\/.*$/, "")
-    .replace(/^www\./, "")
-    .replace(/\.$/, "");
-  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)
-    ? host
-    : null;
+  // No regular expression runs over the whole input (CodeQL: a backtracking pattern on a long
+  // string of slashes): cut at the first slash, then check each label on its own.
+  const slash = host.indexOf("/");
+  if (slash !== -1) host = host.slice(0, slash);
+  if (host.startsWith("www.")) host = host.slice(4);
+  if (host.endsWith(".")) host = host.slice(0, -1);
+  if (host.length === 0 || host.length > 253) return null;
+  const labels = host.split(".");
+  return labels.length >= 2 && labels.every((l) => DNS_LABEL.test(l)) ? host : null;
 }
 
 const Goals = z.array(z.string().regex(TRACK_NAME, "a data-track name")).max(20);
