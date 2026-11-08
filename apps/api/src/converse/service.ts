@@ -16,7 +16,6 @@ import {
   checkAgainst,
   converseMaxChars,
   converseTurn,
-  resolveApprover,
 } from "@countersign/agents";
 import {
   type AgentBundle,
@@ -65,7 +64,6 @@ import {
   tenant,
   withTenant,
 } from "@countersign/db";
-import { leadOf } from "@countersign/threads";
 import type {
   ResumeRequest,
   RunInfo,
@@ -280,9 +278,13 @@ export function conversePort(deps: ConverseDeps): ConversePort {
   };
 
   /**
-   * Hands the conversation to a person: the step's approver, else the client's lead, else the
-   * operator role (a test run's to the operator), with the goal and the transcript, the person's
-   * words quoted as theirs. The step waits for the answer like a person step.
+   * Hands the conversation to a person: whoever approves the conversation (the step's approver,
+   * the approver rules, the agent's, the client's setting, else the client admin; a test run's to
+   * the operator), with the goal and the transcript, the person's words quoted as theirs. The step
+   * waits for the answer like a person step.
+   *
+   * DECISION (owner, 2026-11-08): the client's team runs its agents day to day and the operator
+   * oversees, so a hand-over goes to the client's side unless the client's approvals are set to us.
    */
   const handOver = async (
     place: Place,
@@ -295,16 +297,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
     const { run: info } = place;
     const t = now();
     const itemId = await withTenant(db, info.tenantId, async (tx) => {
-      let assignee: {
-        assigneeRole: "operator" | "client_admin" | "client_user" | null;
-        assigneeUserId: string | null;
-      };
-      if (info.mode === "test") assignee = { assigneeRole: "operator", assigneeUserId: null };
-      else if (place.stepApprover) assignee = resolveApprover([place.stepApprover]);
-      else {
-        const lead = await leadOf(tx, info.tenantId);
-        assignee = { assigneeRole: "operator", assigneeUserId: lead?.userId ?? null };
-      }
+      const { assignee } = await approverFor(tx, place, setup);
       const transcript = transcriptOf(rows).map((l) => ({
         from: l.direction === "out" ? "agent" : "them",
         text: l.text,

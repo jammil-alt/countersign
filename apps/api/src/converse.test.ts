@@ -560,8 +560,9 @@ describe.skipIf(!h)("conversations through the API", () => {
         );
         if (item?.subjectType === "conversation_handover") {
           handover = item.id;
-          // No lead set: the operator role. The item carries the goal and the transcript.
-          expect(item).toMatchObject({ kind: "request", assigneeRole: "operator" });
+          // The client's team takes it (the client admin by default), not the operator. The
+          // item carries the goal and the transcript.
+          expect(item).toMatchObject({ kind: "request", assigneeRole: "client_admin" });
           expect(item.title).toContain("Take over the conversation with Sam Ortiz");
           expect(item.title).toContain("message limit");
           expect(j(item.payload).converse).toMatchObject({
@@ -574,7 +575,7 @@ describe.skipIf(!h)("conversations through the API", () => {
           });
           // Nothing more went out after the limit.
           expect(sentTo(SAM)).toHaveLength(1);
-          return resolveItem(type, { decision: "approve", answer }, OPERATOR);
+          return resolveItem(type, { decision: "approve", answer }, admin("a"));
         }
         return resolveItem(type);
       }
@@ -611,7 +612,7 @@ describe.skipIf(!h)("conversations through the API", () => {
         );
         if (item?.subjectType === "conversation_handover") {
           expect(item.title).toContain("no reply in time");
-          return resolveItem(type, { decision: "reject" }, OPERATOR);
+          return resolveItem(type, { decision: "reject" }, admin("a"));
         }
         return resolveItem(type);
       }
@@ -730,7 +731,7 @@ describe.skipIf(!h)("conversations through the API", () => {
           (i) => `inbox-${i.id.replace(/-/g, "")}` === type,
         );
         if (item?.subjectType === "conversation_handover") {
-          return resolveItem(type, { decision: "reject" }, OPERATOR);
+          return resolveItem(type, { decision: "reject" }, admin("a"));
         }
         return resolveItem(type);
       }
@@ -766,7 +767,7 @@ describe.skipIf(!h)("conversations through the API", () => {
           (i) => `inbox-${i.id.replace(/-/g, "")}` === type,
         );
         if (item?.subjectType === "conversation_handover") {
-          return resolveItem(type, { decision: "reject" }, OPERATOR);
+          return resolveItem(type, { decision: "reject" }, admin("a"));
         }
         return resolveItem(type);
       }
@@ -804,7 +805,7 @@ describe.skipIf(!h)("conversations through the API", () => {
         );
         cards.push(item?.title ?? "");
         if (item?.subjectType === "conversation_handover") {
-          return resolveItem(type, { decision: "approve" }, OPERATOR);
+          return resolveItem(type, { decision: "approve" }, admin("a"));
         }
         if (cards.length === 2) {
           // The second message waits: nothing more went out before its signature.

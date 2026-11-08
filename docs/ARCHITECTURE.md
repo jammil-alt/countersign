@@ -2166,7 +2166,8 @@ message in the agent's thread while the step waits on them is the reply.
 approver turned the conversation or a message down); `not_allowed` (it couldn't start: no consent, no
 channel, busy, outside the window). Every **limit** (messages, no reply in time, the deadline, cost) and
 `give_up` **hands over**, never fails silently: an inbox item of the kind a person step makes
-(`request`, subject `conversation_handover`) to the step's approver, else the client's lead, with the
+(`request`, subject `conversation_handover`) to whoever approves the conversation, the client's team
+by default (the operator only when the client's approvals are set to us), with the
 goal, what is known and the transcript; the step waits on it like a person step. The person answers
 with the result (checked against `result`) and the run goes on with `handed_over`; or drops it,
 which is the step's `onReject`.
