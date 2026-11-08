@@ -9,10 +9,14 @@
 // `email.send` is the provider-neutral email channel tool. Gmail (M10) sends with `gmail.send`, which
 // takes the same input. Facts about Resend we couldn't check are in NOTES.md.
 
+import { AttachmentSummary, OutboundAttachments } from "@countersign/core";
 import { z } from "zod";
+// P-3: attachments both ways
+import { type AttachmentLimits, describeOutbound, loadOutbound, summaries } from "../attachments";
 import { type Connector, defineConnector, defineWriteTool, type ToolContext } from "../connector";
 import { requireCredentials } from "../credentials-accessor";
 import { type FetchLike, globalFetch } from "../http";
+import { toBase64 } from "../runtime";
 
 export const RESEND_CONNECTOR_ID = "resend";
 export const RESEND_API = "https://api.resend.com";
@@ -39,6 +43,9 @@ export const EmailSendInput = z.object({
   text: z.string().trim().min(1).max(EMAIL_TEXT_MAX),
   /** Tags the reply-to address so a reply finds what it answers. */
   replyTag: ReplyTag.optional(),
+  // P-3: attachments both ways (docs/plan.md §1.65)
+  /** Stored documents of this client, PDFs and images, at most five; names come from the records. */
+  attachments: OutboundAttachments.optional(),
 });
 export type EmailSendInput = z.infer<typeof EmailSendInput>;
 
@@ -50,13 +57,27 @@ export const EmailSendOutput = z.object({
   replyTo: z.string().nullable(),
   contactName: z.string(),
   messageId: z.string(),
+  // P-3
+  /** What went with it: names and sizes (recorded on the external action). */
+  attachments: z.array(AttachmentSummary).optional(),
 });
 
 export const EmailSendBefore = z.object({
   contact: z.object({ id: z.string(), name: z.string() }),
   to: z.string(),
   from: z.string(),
+  // P-3
+  /** The attachments by name and size, as the approval card lists them. */
+  attachments: z.array(AttachmentSummary).optional(),
 });
+
+// P-3: Resend takes at most 40 MB per email after base64 encoding (NOTES.md): 29 MB of files,
+// leaving room for the encoding and the text.
+export const RESEND_ATTACHMENT_LIMITS: AttachmentLimits = {
+  provider: "Mezonas' email sending",
+  maxCount: 5,
+  maxTotalBytes: 29 * 1024 * 1024,
+};
 
 /** What the connection keeps in `connection.config`. */
 export const ResendConfig = z.object({
@@ -277,7 +298,17 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
           if (!check.ok || !check.contact) {
             throw new EmailBlockedError(check.message ?? "this contact can't be emailed");
           }
-          return { contact: check.contact, to: input.to, from: fromAddress(config).address };
+          const attachments = await describeOutbound(
+            ctx,
+            input.attachments,
+            RESEND_ATTACHMENT_LIMITS,
+          );
+          return {
+            contact: check.contact,
+            to: input.to,
+            from: fromAddress(config).address,
+            ...(attachments.length ? { attachments } : {}),
+          };
         },
         async run(input, ctx) {
           const services = emailServices(ctx);
@@ -289,6 +320,8 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
             throw new EmailBlockedError(check.message ?? "this contact can't be emailed");
           }
           const config = configOf(ctx);
+          // P-3: read from storage for this one send; refused before anything goes out.
+          const files = await loadOutbound(ctx, input.attachments, RESEND_ATTACHMENT_LIMITS);
           const creds = ResendCredentials.parse(await requireCredentials(ctx.credentials));
           const from = fromAddress(config);
           const replyTo = taggedReplyTo(config.replyTo, input.replyTag);
@@ -307,6 +340,16 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
                 text: input.text,
                 ...(replyTo ? { reply_to: replyTo } : {}),
                 headers: { "Message-ID": messageId },
+                // P-3: base64 content with the record's name and type (NOTES.md: `content_type`).
+                ...(files.length
+                  ? {
+                      attachments: files.map((f) => ({
+                        filename: f.filename,
+                        content: toBase64(f.bytes),
+                        content_type: f.mimeType,
+                      })),
+                    }
+                  : {}),
               },
               // DECISION: Resend's idempotency key is the external action's key, so a retried send
               // inside Resend's window is not sent twice (NOTES.md: the header's name and window).
@@ -320,6 +363,7 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
             replyTo,
             contactName: check.contact.name,
             messageId,
+            ...(files.length ? { attachments: summaries(files) } : {}),
           };
           await services.recordOutbound({
             connectionId: ctx.connection.id,

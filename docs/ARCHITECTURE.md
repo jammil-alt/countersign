@@ -312,7 +312,9 @@ In:
 - **Reach out** (v0.9): agents know the people they work with and contact them by email, text,
   WhatsApp or call, in their language, under conditions, through channels each agent is given (a
   mailbox of its own, Mezonas' sending service or a person's Gmail; the client's numbers). Sending
-  email from Gmail comes into v1, behind approval (`docs/plan.md` §1.25)
+  email from Gmail comes into v1, behind approval (`docs/plan.md` §1.25). A reach-out can carry the
+  client's PDFs and images (email, MMS, one on WhatsApp), and a reply's PDFs and images become
+  documents whose ids the step hands on (`docs/plan.md` §1.65)
 - **Languages** (v0.9): the portal and agents' client-facing text in English, Spanish, French,
   Portuguese (Brazil), Italian and German, per client with a per-user choice; the back office stays in
   English. Next: agents translating incoming and outgoing messages (`docs/plan.md` §1.18)
@@ -982,6 +984,9 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
   only. Tokens encrypted in the vault (§6.9).
 - **Tool, write** (`external`, approval required): `gmail.send` (reach out, §1.25 of the plan): sends a
   message the client's approver has seen, from that mailbox; replies come back through forwarding.
+  It may attach up to five of the client's stored PDFs and images, named by document id and listed
+  by name and size on the approval card; a reply's PDFs and images become the client's documents
+  (P-3, `docs/plan.md` §1.65).
 - Google's review needs a live homepage and privacy policy on mezonas.com (the Limited Use statement),
   domain verification (done 2026-11-05), a demo video and a reason for the scope.
 - **Confirmed (owner, 2026-11-06): still send-only, no CASA.** Reading mail is forwarding: the client

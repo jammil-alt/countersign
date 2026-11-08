@@ -66,10 +66,26 @@ export async function handleEmail(
     const reply = await receiveReachOutReply(
       db,
       { from: message.from, to: message.to, raw },
-      { domain, now: new Date(), forwardingAddress },
+      // P-3: the reply's PDFs and images become the client's documents (docs/plan.md §1.65).
+      { domain, now: new Date(), forwardingAddress, content: new ContentStore(deps.objects(env)) },
     );
     if (reply) {
       await wakeAll(deps.instances(env), reply.woken);
+      // P-3: then dispatched and read in the background, like forwarded mail.
+      if (reply.events.length > 0 || reply.fresh.length > 0) {
+        const services = { db, env, deps } as Pick<Services, "db" | "env" | "deps">;
+        closeLater = true;
+        waitUntil(
+          (async () => {
+            try {
+              await dispatchEvents({ db, instances: deps.instances(env) }, reply.events);
+              await extractInBackground(services, reply.tenantId, reply.fresh);
+            } finally {
+              await close();
+            }
+          })(),
+        );
+      }
       return { status: "dropped", tenantId: reply.tenantId, reason: "unknown_address" };
     }
     // v0.12 W1-G: mail to `<forwarding address>+voice` is a voice sample (docs/plan.md §1.42): its

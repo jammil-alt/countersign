@@ -54,6 +54,8 @@ import {
   markThreadStatus,
   type ThreadMessageBody,
 } from "../messaging/contacts";
+// P-3: attachments both ways
+import { replyMediaJob } from "../reach/reply-media";
 import { routeInboundText } from "../triggers/inbound-text";
 import type { InboundReply } from "../triggers/replies";
 
@@ -137,6 +139,8 @@ export interface InboundOutcome {
   events: EventRow[];
   capture: CaptureParams | null;
   replies: InboundReply[];
+  // P-3: a reach-out reply's PDFs and images, fetched after the commit (docs/plan.md §1.65).
+  replyMedia?: CaptureParams | null;
 }
 
 /** One inbound message, in its client's transaction. Nothing happens for one seen before. */
@@ -247,6 +251,19 @@ export async function receiveMetaMessage(
   const keyword = group ? null : keywordOf(msg.text);
   let contactRow = who;
   if (keyword) contactRow = await applyKeyword(tx, contactRow, keyword, "whatsapp", ctx.now);
+  // P-3: a direct reply to an open reach-out keeps its PDFs and images (docs/plan.md §1.65).
+  if (!group) {
+    out.replyMedia = await replyMediaJob(tx, {
+      tenantId,
+      connectionId,
+      rawRecordId: stored.id,
+      messageSid: msg.wamid,
+      contactId: contactRow.id,
+      channel: "whatsapp",
+      media: msg.media,
+      keyword,
+    });
+  }
 
   const threadId = await contactThread(tx, contactRow);
   const body: ThreadMessageBody = {

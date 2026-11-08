@@ -16,6 +16,8 @@ export interface FakeTwilioRequest {
   form: Record<string, string>;
   /** Whether the request carried an Authorization header (v0.14 capture). */
   authorized?: boolean;
+  /** P-3: the form as sent (a repeated field, such as MediaUrl, appears each time). */
+  body?: string;
 }
 
 interface FakeMessage {
@@ -196,6 +198,8 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
       method,
       account: caller,
       form,
+      // P-3: the raw body, for fields sent more than once (MediaUrl).
+      ...(init.body ? { body: init.body } : {}),
       authorized: Boolean(init.headers?.authorization),
     });
     const u = parseUrl(url);

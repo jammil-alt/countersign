@@ -13,8 +13,17 @@
 // recorded. Inbound messages, statuses and media come through apps/api's webhook (webhook.ts,
 // media.ts). Every Graph URL pins v26.0. Unchecked facts: ./NOTES.md.
 
-import { inWhatsAppWindow, type JsonObject } from "@countersign/core";
+import { type AttachmentSummary, inWhatsAppWindow, type JsonObject } from "@countersign/core";
 import { z } from "zod";
+// P-3: attachments both ways
+import {
+  type AttachmentLimits,
+  AttachmentRefusedError,
+  attachmentLine,
+  describeOutbound,
+  linkOutbound,
+  summaries,
+} from "../attachments";
 import {
   type Connector,
   defineConnector,
@@ -274,6 +283,16 @@ async function send(
   const creds = await credentialsOf(ctx);
   const template = useTemplate ? input.template : undefined;
   const parameters = template ? templateParameters(template.variables) : [];
+  // P-3: one file per WhatsApp message, the text as its caption, fetched by Meta from a 5-minute
+  // link; a template can't carry it, so that send is refused rather than sent without the file.
+  if (template && input.attachments?.length) {
+    throw new SendBlockedError(
+      "outside_window",
+      "outside the 24-hour window only an approved template can go, and it can't carry the attachments",
+    );
+  }
+  const [file] = await linkOutbound(ctx, input.attachments, META_WHATSAPP_LIMITS);
+  if (file) checkMetaMedia(file, input.text ?? "");
   const body: JsonObject = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -293,9 +312,13 @@ async function send(
               : {}),
           },
         }
-      : { type: "text", text: { preview_url: false, body: input.text ?? "" } }),
+      : file
+        ? metaMediaMessage(file, input.text ?? "")
+        : { type: "text", text: { preview_url: false, body: input.text ?? "" } }),
   };
-  const text = template ? `template ${template.id}` : (input.text ?? "");
+  const text = template
+    ? `template ${template.id}`
+    : [input.text ?? "", file ? attachmentLine([file]) : ""].filter(Boolean).join("\n\n");
   const templateId = template ? template.id : null;
   // DECISION: at most once. Meta's send takes no idempotency key (NOTES.md), so the attempt is
   // recorded before Meta is called, as Twilio's; a re-run finds it and never sends again.
@@ -353,10 +376,55 @@ async function send(
     contactName: contact.name,
     template: template !== undefined,
     usage: { messages: 1 },
+    ...(file ? { attachments: summaries([file]) } : {}),
   };
 }
 
-const before = async (ctx: ToolContext, to: string): Promise<z.input<typeof SendBefore>> => {
+// P-3: attachments both ways (docs/plan.md §1.65). Meta's limits (NOTES.md, to verify): a
+// document up to 100 MB, an image up to 5 MB, a caption up to 1024 characters.
+export const META_WHATSAPP_LIMITS: AttachmentLimits = {
+  provider: "WhatsApp",
+  maxCount: 1,
+  maxTotalBytes: 100 * 1024 * 1024,
+};
+const META_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const META_CAPTION_MAX = 1024;
+
+export function checkMetaMedia(file: AttachmentSummary, caption: string) {
+  if (file.mimeType.startsWith("image/") && file.sizeBytes > META_IMAGE_MAX_BYTES) {
+    throw new AttachmentRefusedError(
+      "too_large",
+      `${file.filename} is over 5 MB; WhatsApp takes images up to 5 MB`,
+    );
+  }
+  if (caption.length > META_CAPTION_MAX) {
+    throw new AttachmentRefusedError(
+      "too_large",
+      `with a file, WhatsApp takes at most ${META_CAPTION_MAX} characters of text`,
+    );
+  }
+}
+
+/** The message as a file: an image or a document (PDF) by link, the text as its caption. */
+export function metaMediaMessage(
+  file: AttachmentSummary & { url: string },
+  caption: string,
+): JsonObject {
+  const media = {
+    link: file.url,
+    ...(caption ? { caption } : {}),
+  };
+  // GIF and WebP go as documents: WhatsApp's image messages take JPEG and PNG (NOTES.md).
+  return file.mimeType === "image/jpeg" || file.mimeType === "image/png"
+    ? { type: "image", image: media }
+    : { type: "document", document: { ...media, filename: file.filename.slice(0, 240) } };
+}
+
+const before = async (
+  ctx: ToolContext,
+  to: string,
+  attachments?: { documentId: string }[],
+): Promise<z.input<typeof SendBefore>> => {
   // Executing (the action's key is set): a send already made or started is described as it was.
   const key = (ctx as Partial<WriteContext>).idempotencyKey;
   if (key) {
@@ -371,7 +439,14 @@ const before = async (ctx: ToolContext, to: string): Promise<z.input<typeof Send
     }
   }
   const { contact } = await checkSend(ctx, to, { forSending: false });
-  return { contact: { id: contact.id, name: contact.name }, channel: "whatsapp", to };
+  // P-3: the file by name and size, checked as the send will check it.
+  const files = await describeOutbound(ctx, attachments, META_WHATSAPP_LIMITS);
+  return {
+    contact: { id: contact.id, name: contact.name },
+    channel: "whatsapp",
+    to,
+    ...(files.length ? { attachments: files } : {}),
+  };
 };
 
 function storedReads(ctx: ToolContext) {
@@ -534,7 +609,7 @@ export function createWhatsappMetaConnector(options: WhatsappMetaConnectorOption
         input: WhatsAppSendInput,
         output: SendOutput,
         beforeSchema: SendBefore,
-        before: (input, ctx) => before(ctx, input.to),
+        before: (input, ctx) => before(ctx, input.to, input.attachments),
         run: (input, ctx) => send(doFetch(), ctx, input),
       }),
     ],

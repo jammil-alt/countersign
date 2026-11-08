@@ -17,6 +17,8 @@ export interface FakeResendEmail {
   reply_to?: string;
   headers?: Record<string, string>;
   idempotencyKey: string | null;
+  // P-3
+  attachments?: { filename: string; content: string; content_type?: string }[];
 }
 
 interface FakeDomain {
@@ -97,6 +99,9 @@ export function fakeResend(): FakeResend {
           ...(typeof body.reply_to === "string" ? { reply_to: body.reply_to } : {}),
           ...(body.headers ? { headers: body.headers as Record<string, string> } : {}),
           idempotencyKey: idem,
+          ...(Array.isArray(body.attachments)
+            ? { attachments: body.attachments as NonNullable<FakeResendEmail["attachments"]> }
+            : {}),
         });
         if (idem) byIdempotency.set(idem, id);
         return respond(200, { id });
