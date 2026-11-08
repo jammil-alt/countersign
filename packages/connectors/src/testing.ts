@@ -327,6 +327,14 @@ export {
   fakePlaidAccounts,
   fakePlaidTransaction,
 } from "./bankfeed/fake";
+// M45: Search Console and Bing Webmaster Tools (docs/plan.md §1.75).
+export {
+  bingDate,
+  FAKE_BING,
+  type FakeBing,
+  type FakeBingRow,
+  fakeBing,
+} from "./bing_webmaster/fake";
 export {
   FAKE_ELEVENLABS,
   type FakeElevenLabs,
@@ -355,6 +363,7 @@ export {
   fakeGoogle,
   readSentEmail,
 } from "./gmail/fake";
+export { FAKE_GSC, type FakeGscRow, type FakeSearchConsole, fakeSearchConsole } from "./gsc/fake";
 // v0.14 W4-D: Google Sheets.
 export {
   FAKE_GOOGLE_SHEETS,
@@ -362,6 +371,14 @@ export {
   type FakeSpreadsheet,
   fakeGoogleSheets,
 } from "./gsheets/fake";
+// §1.77: Hacker News (read only) and LinkedIn (company page posts).
+export {
+  FAKE_HN_ITEMS,
+  FAKE_HN_NOW,
+  type FakeHackerNews,
+  type FakeHnItem,
+  fakeHackerNews,
+} from "./hackernews/fake";
 // v0.12 W3-B: Ramp and HubSpot (docs/plan.md §1.52).
 export {
   FAKE_HUBSPOT,
@@ -369,6 +386,12 @@ export {
   type FakeHubspotObject,
   fakeHubspot,
 } from "./hubspot/fake";
+export {
+  FAKE_LINKEDIN,
+  type FakeLinkedIn,
+  type FakeLinkedInPost,
+  fakeLinkedIn,
+} from "./linkedin/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,

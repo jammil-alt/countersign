@@ -61,6 +61,17 @@ export const EnablePackResponse = z.object({
   installed: z.array(z.object({ slug: z.string(), templateId: z.string() })),
 });
 
+/**
+ * §1.73: a pack report's query parameters (e.g. `?site=…&from=…&to=…`), passed through as strings;
+ * the pack's report handler validates them with its own schema (a bad one is a 400). `client`
+ * is the session's active client and is never passed to the pack.
+ */
+export const PackReportQuery = z.record(
+  z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/, "a query parameter name"),
+  z.string().max(500),
+);
+export type PackReportQuery = z.infer<typeof PackReportQuery>;
+
 /** A pack report: the pack's own shape (see the pack's screens in apps/web). */
 export const PackReport = z.object({ report: z.record(z.string(), z.unknown()) });
 
@@ -125,6 +136,7 @@ export const packRoutes = {
     roles: OPS,
     summary: "A client's pack report, as the client sees it",
     params: z.object({ id: Id, pack: Slug, report: ReportName }),
+    query: PackReportQuery,
     response: PackReport,
   }),
   opsClientPackReportCsv: defineRoute({
@@ -134,6 +146,7 @@ export const packRoutes = {
     roles: OPS,
     summary: "A client's pack report as a CSV file",
     params: z.object({ id: Id, pack: Slug, report: ReportName }),
+    query: PackReportQuery,
     response: ExportFile,
   }),
   opsClientPackAction: defineRoute({
@@ -145,6 +158,28 @@ export const packRoutes = {
     params: z.object({ id: Id, pack: Slug, action: Slug }),
     body: z.record(z.string(), z.unknown()),
     response: z.object({ result: z.record(z.string(), z.unknown()) }),
+  }),
+  // M46 (docs/plan.md §1.76): a short-lived link to a page a pack renders for a person to read
+  // before it is public (a guide's draft): signed, noindex, and only for a report item the pack
+  // declares a preview.
+  opsClientPackPreview: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/packs/:pack/previews",
+    auth: "session",
+    roles: OPS,
+    summary: "A preview link for one of a pack's pages, before it is public (a guide's draft)",
+    params: z.object({ id: Id, pack: Slug }),
+    body: z.object({ report: ReportName, itemId: Id }),
+    response: z.object({ url: z.string(), expiresAt: z.string() }),
+  }),
+  packPreview: defineRoute({
+    method: "GET",
+    path: "/api/preview/:token",
+    auth: "public",
+    roles: [],
+    summary: "A preview link's page (HTML, noindex); 404 once it has expired",
+    params: z.object({ token: z.string() }),
+    response: z.string(),
   }),
   // M43 (docs/plan.md §1.72): what a pack takes from outside, with no session (a measured site's
   // beacon, for the Marketing pack). The platform checks the client has the pack on and caps the
@@ -175,6 +210,7 @@ export const packRoutes = {
     roles: CLIENT,
     summary: "One row of a pack report in full (e.g. materials/requests: one request)",
     params: ReportParams.extend({ itemId: Id }),
+    query: PackReportQuery,
     response: PackReport,
   }),
   opsClientPackReportItem: defineRoute({
@@ -184,6 +220,7 @@ export const packRoutes = {
     roles: OPS,
     summary: "One row of a client's pack report in full, as the client sees it",
     params: z.object({ id: Id, pack: Slug, report: ReportName, itemId: Id }),
+    query: PackReportQuery,
     response: PackReport,
   }),
   portalPackReport: defineRoute({
@@ -193,6 +230,7 @@ export const packRoutes = {
     roles: CLIENT,
     summary: "A pack report (e.g. materials/prices)",
     params: ReportParams,
+    query: PackReportQuery,
     response: PackReport,
   }),
   portalPackReportCsv: defineRoute({
@@ -202,6 +240,7 @@ export const packRoutes = {
     roles: CLIENT,
     summary: "A pack report as a CSV file",
     params: ReportParams,
+    query: PackReportQuery,
     response: ExportFile,
   }),
   portalPackReview: defineRoute({

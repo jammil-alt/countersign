@@ -140,10 +140,25 @@ export type AgentResult =
     })
   | (ResultBase & {
       status: "escalated";
-      reason: "max_steps" | "max_cost";
+      // §1.77: `max_monthly_cost`, the client agent's monthly cap.
+      reason: BudgetReason;
       inboxItemId: string;
     })
   | (ResultBase & { status: "failed"; error: string });
+
+/** Which budget stopped a step. */
+export type BudgetReason = "max_steps" | "max_cost" | "max_monthly_cost";
+
+const BUDGET_WORDS: Record<BudgetReason, string> = {
+  max_steps: "step",
+  max_cost: "cost",
+  max_monthly_cost: "monthly",
+};
+
+/** The first instant of `now`'s calendar month, UTC. */
+export function monthStart(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
 
 export const PLATFORM_PREAMBLE = [
   "You are an agent working for one client of a back-office service.",
@@ -575,12 +590,32 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     },
   ];
 
-  const escalate = async (reason: "max_steps" | "max_cost"): Promise<AgentResult> => {
+  // §1.77: the client agent's monthly cap. What its runs cost this month before this step, read
+  // once; this step's own calls are added as they return.
+  // DECISION: a calendar month in UTC, live and test runs together (both are spend); checked
+  // before every model call of an agent or task step, like the run's own cost budget.
+  const monthlyCap = definition.budgets.maxMonthlyCostUsd
+    ? new Decimal(definition.budgets.maxMonthlyCostUsd)
+    : null;
+  const spentBefore =
+    monthlyCap && store.agentCostSince
+      ? new Decimal(
+          await store.agentCostSince(
+            input.tenantId,
+            agent.agentId,
+            monthStart(deps.now?.() ?? new Date()),
+          ),
+        )
+      : null;
+  const overMonthly = () =>
+    monthlyCap ? (spentBefore?.plus(cost).gte(monthlyCap) ?? false) : false;
+
+  const escalate = async (reason: BudgetReason): Promise<AgentResult> => {
     // An ask that runs out of budget just has no answer: nothing is written for a person.
     if (asked) return fail(`budget reached: ${reason}`);
     const item = await platform.createInboxItem(input.tenantId, {
       kind: "review",
-      title: `${definition.identity.name} stopped: ${reason === "max_steps" ? "step" : "cost"} budget reached on ${def.name}`,
+      title: `${definition.identity.name} stopped: ${BUDGET_WORDS[reason]} budget reached on ${def.name}`,
       payload: {
         reason,
         escalated: true,
@@ -590,6 +625,9 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
         costUsd: cost.toFixed(6),
         maxSteps,
         maxCostUsd: definition.budgets.maxCostUsd,
+        ...(definition.budgets.maxMonthlyCostUsd
+          ? { maxMonthlyCostUsd: definition.budgets.maxMonthlyCostUsd }
+          : {}),
         ...(mode === "test" ? { testRunId: input.runId } : {}),
       },
       agentId: agent.agentId,
@@ -608,6 +646,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   for (;;) {
     if (modelCalls >= maxSteps) return escalate("max_steps");
     if (cost.gt(maxCost)) return escalate("max_cost");
+    if (overMonthly()) return escalate("max_monthly_cost");
     let response: LlmMessage;
     try {
       ({ message: response } = await llm.message(

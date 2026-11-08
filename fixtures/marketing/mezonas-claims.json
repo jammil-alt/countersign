@@ -1,0 +1,219 @@
+{
+  "title": "What Mezonas may claim in public (docs/marketing/claims.md)",
+  "status": "draft",
+  "approved": [
+    {
+      "id": "managed-service",
+      "text": "We build and run agents for your back office. Mezonas is a managed service: you don't build anything and you don't learn a new tool.",
+      "why": "The operator builds and runs agents per client; clients never edit agents (invariant 11)."
+    },
+    {
+      "id": "own-tools",
+      "text": "Your agents work in your own tools, like QuickBooks and Gmail.",
+      "why": "The connectors in packages/connectors."
+    },
+    {
+      "id": "approval-default",
+      "text": "Every change your agents want to make waits for your approval by default, unless you choose otherwise.",
+      "why": "Approval is on by default; every write is an external action behind the gate (invariant 8)."
+    },
+    {
+      "id": "before-after",
+      "text": "Each change is shown before and after, with the records behind it.",
+      "why": "external_action.before and evidence sources (invariants 8, 10)."
+    },
+    {
+      "id": "delete-off",
+      "text": "Deleting is switched off.",
+      "why": "Delete is off in every matrix (invariant 8)."
+    },
+    {
+      "id": "test-runs",
+      "text": "Test runs never change anything in your tools.",
+      "why": "Test runs never write (invariant 8)."
+    },
+    {
+      "id": "connect-yourself",
+      "text": "You connect your own tools from your portal, and can disconnect at any time.",
+      "why": "Clients sign in to their own tools (invariant 8)."
+    },
+    {
+      "id": "secrets",
+      "text": "Logins and keys you enter are encrypted with a key that belongs to your account alone, and can't be read back, not even by us; agents never see them.",
+      "why": "Secrets are encrypted with the client's own key, write-only, and never reach a model, a log or a screen (invariant 13)."
+    },
+    {
+      "id": "kept-apart",
+      "text": "Each client's data is kept apart, down to each row in our database; what your agents learn about your business is used only for you.",
+      "why": "Row-level security on every client table; memory per client (invariant 1)."
+    },
+    {
+      "id": "record-of-changes",
+      "text": "Each change keeps who proposed it, who approved it, what it was before and the records behind it.",
+      "why": "external_action and the audit log (invariants 10, 14)."
+    },
+    {
+      "id": "least-access",
+      "text": "An agent reaches only the tools it is given, within limits you can see and tighten on your Access page.",
+      "why": "Bindings and grants; clients tighten their matrix (invariants 8, 13)."
+    },
+    {
+      "id": "human-release",
+      "text": "You can require a named person to release a tool before an agent uses it, with a one-time code.",
+      "why": "Human release (docs/plan.md §1.26)."
+    },
+    {
+      "id": "portal",
+      "text": "Your portal shows reports, runs, approvals, requests and connections, in plain words.",
+      "why": "The client portal."
+    },
+    {
+      "id": "no-card-numbers",
+      "text": "We don't receive or store card numbers.",
+      "why": "Payments are made on Stripe's pages; card numbers are never stored (invariant 14)."
+    },
+    {
+      "id": "no-training",
+      "text": "We don't use client data to train AI models, we don't sell it, and we don't use it for advertising.",
+      "why": "Our providers' commercial API terms; no such use in the code."
+    },
+    {
+      "id": "gmail-send-only",
+      "text": "Gmail is used only to send messages a person at the client approved; we don't read, search or label your mailbox.",
+      "why": "Gmail is send only (invariant 12)."
+    },
+    {
+      "id": "data-not-instructions",
+      "text": "Text from documents, emails, messages and websites is passed to models as data, never as instructions.",
+      "why": "Invariant 9."
+    },
+    {
+      "id": "no-ad-cookies",
+      "text": "mezonas.com uses no advertising cookies.",
+      "why": "The site's own pages."
+    }
+  ],
+  "conditional": [
+    {
+      "id": "runs-on-its-own",
+      "text": "A routine change can run on its own.",
+      "condition": "say in the same passage that we set it up with you and you can switch it back at any time",
+      "phrases": ["on its own", "automatically", "without approval"]
+    },
+    {
+      "id": "no-analytics",
+      "text": "mezonas.com uses no analytics.",
+      "condition": "measurement is still off on mezonas.com; once it is on, say what we measure and that we keep no IP address and set no cookie",
+      "phrases": ["no analytics"]
+    },
+    {
+      "id": "named-tool",
+      "text": "A named tool we connect to.",
+      "condition": "its connector is built and offered; never a logo without the owner's approval, never partner without a written agreement",
+      "phrases": ["partner", "integration with", "integrates with"]
+    },
+    {
+      "id": "named-product",
+      "text": "A comparison that names another company's product.",
+      "condition": "the owner approves each one",
+      "phrases": ["Zapier", "Make.com", "UiPath", "Bill.com", "Dext", "Hubdoc", "ChatGPT"]
+    },
+    {
+      "id": "savings-figure",
+      "text": "A figure about time or money saved, or how much work agents do.",
+      "condition": "a source on record for each figure, with the client's written agreement",
+      "phrases": ["hours a week", "hours per week", "saves you", "save you", "% of"]
+    },
+    {
+      "id": "compliance",
+      "text": "HIPAA, SOC 2 or PCI.",
+      "condition": "only as docs/hipaa-plan.md says it stands, what is built and what is open",
+      "phrases": ["HIPAA", "SOC 2", "PCI"]
+    },
+    {
+      "id": "calls-and-texts",
+      "text": "Phone calls, texts and WhatsApp on the client's numbers.",
+      "condition": "the legal review of calls and texts is done, and consent and quiet hours are said as the text message terms say them",
+      "phrases": ["phone calls", "text messages", "texts your", "WhatsApp"]
+    }
+  ],
+  "never": [
+    {
+      "id": "autonomous",
+      "text": "That agents work without people or are fully autonomous, or that a person never needs to look.",
+      "phrases": [
+        "fully autonomous",
+        "autonomous agents",
+        "without human",
+        "no human",
+        "no humans",
+        "hands-off",
+        "set and forget"
+      ]
+    },
+    {
+      "id": "no-mistakes",
+      "text": "That agents never make mistakes, or an accuracy figure not published with its method.",
+      "phrases": [
+        "never make mistakes",
+        "never makes mistakes",
+        "error-free",
+        "error free",
+        "100% accurate",
+        "99% accurate",
+        "perfect accuracy"
+      ]
+    },
+    {
+      "id": "prices",
+      "text": "Prices, fees or free, until pricing is public.",
+      "phrases": ["per month", "a month", "free trial", "free plan", "for free", "pricing starts"]
+    },
+    {
+      "id": "customers",
+      "text": "Customer names, counts, quotes or logos, unless the customer agreed in writing.",
+      "phrases": [
+        "trusted by",
+        "our customers include",
+        "hundreds of businesses",
+        "thousands of businesses"
+      ]
+    },
+    {
+      "id": "certified",
+      "text": "That we are certified or compliant with HIPAA, SOC 2 or PCI, or bank-level security.",
+      "phrases": [
+        "certified",
+        "HIPAA compliant",
+        "HIPAA-compliant",
+        "SOC 2 compliant",
+        "PCI compliant",
+        "bank-level",
+        "bank-grade",
+        "military-grade"
+      ]
+    },
+    {
+      "id": "replaces-people",
+      "text": "That Mezonas replaces a bookkeeper, an accountant or anyone's job.",
+      "phrases": [
+        "replaces your bookkeeper",
+        "replace your bookkeeper",
+        "replaces your accountant",
+        "replace your accountant",
+        "replace your team",
+        "replaces your team"
+      ]
+    },
+    {
+      "id": "reads-secrets",
+      "text": "That anyone at Mezonas can read your logins or keys, or that agents see them.",
+      "phrases": ["we can see your password", "agents use your password"]
+    },
+    {
+      "id": "unlimited",
+      "text": "Unlimited anything.",
+      "phrases": ["unlimited"]
+    }
+  ]
+}

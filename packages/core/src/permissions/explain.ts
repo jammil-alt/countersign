@@ -22,9 +22,10 @@ import { type GrantLimits, grantLevel } from "./grants";
  * - `grant`: the agent's access to the connection allows it only with approval;
  * - `mode`: the agent only suggests;
  * - `stage`: the agent is in its trial or sign-off stage, where every write is signed;
- * - `person`: the person the change reaches asked to see it first (their autonomy).
+ * - `person`: the person the change reaches asked to see it first (their autonomy);
+ * - `always`: §1.73, the change is one a person always signs (publishing, posting).
  */
-export const WHY_CODES = ["step", "matrix", "grant", "mode", "stage", "person"] as const;
+export const WHY_CODES = ["step", "matrix", "grant", "mode", "stage", "person", "always"] as const;
 export const WhyCode = z.enum(WHY_CODES);
 export type WhyCode = z.infer<typeof WhyCode>;
 
@@ -77,6 +78,8 @@ export interface ExplainWriteInput {
   route?: { source: ApprovalSource; ruleId: string | null } | null | undefined;
   /** v0.12 W2-A: the entity the call works on (core `entityOfCall`), if any. */
   entity?: string | null | undefined;
+  /** §1.73: the tool always needs a person (core `isAlwaysSigned`). */
+  alwaysSigned?: boolean | undefined;
 }
 
 /**
@@ -104,6 +107,7 @@ export function explainWrite(input: ExplainWriteInput): WhyApproval {
   if (input.agentMode === "suggest_only" && !(stage && ownMode === "act")) reasons.push("mode");
   if (stage) reasons.push("stage");
   if (input.person === "approval") reasons.push("person");
+  if (input.alwaysSigned) reasons.push("always");
   return {
     reasons,
     ...(stage ? { stage } : {}),

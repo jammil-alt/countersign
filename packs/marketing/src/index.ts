@@ -1,13 +1,18 @@
 // @countersign/pack-marketing: the Marketing area (docs/marketing-plan.md; ARCHITECTURE §12.0),
 // built on the platform. M43: measuring a client's website (src/measure: the beacon, the visit
 // hash, sources, the nightly build and retention), its measured sites and the overview report.
-// apps/api registers it. May import core and db; never agents or workflows.
+// §1.73: the areas (measure, search, content, agents, forum), each an AreaModule (src/pack.ts)
+// that manifest.ts adds up; a builder exports new things from its area, not from here.
+// apps/api registers it. May import core, db and llm; never agents or workflows.
 
 export {
   MARKETING_ACTIONS,
+  MARKETING_AREAS,
+  MARKETING_HANDLERS,
   MARKETING_INBOUND,
   MARKETING_NIGHTLY,
   MARKETING_REPORTS,
+  MARKETING_SKILLS,
   marketingManifest,
   PACK_ID,
   type PackInboundRequest,
@@ -31,6 +36,7 @@ export {
   nightly,
   sweep,
 } from "./measure/rollup";
+export * from "./pack";
 export { type Overview, overview, overviewCsv, PERIOD_DAYS, SMALL_SAMPLE } from "./reports";
 export * from "./schema";
 export {

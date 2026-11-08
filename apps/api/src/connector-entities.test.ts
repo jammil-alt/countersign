@@ -143,7 +143,15 @@ describe.skipIf(!h)("the connectors catalog", () => {
     const res = await H.call(OPERATOR, "GET", "/api/ops/connectors");
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const list = j(res.json).connectors;
-    expect(list.map((c: { id: string }) => c.id).sort()).toEqual(["testkit", "upload", "webhook"]);
+    expect(list.map((c: { id: string }) => c.id).sort()).toEqual([
+      // The Marketing pack's connectors, registered on every platform (api.test-helper.ts).
+      "hackernews",
+      "linkedin",
+      "testkit",
+      "upload",
+      "webhook",
+      "website",
+    ]);
     const testkit = list.find((c: { id: string }) => c.id === "testkit");
     // Nobody set a status: a connector clients can connect here reads as live (never "Not set").
     expect(testkit).toMatchObject({

@@ -168,8 +168,14 @@ describe.skipIf(!h)("documents API", () => {
 
   it("lists connectors, and upload as built in on every client's Connections page", async () => {
     const c = await harness.call(user("b"), "GET", "/api/connectors");
-    // The testkit is for tests only: never in a client's connector list.
-    expect((c.json as J).connectors.map((x: J) => x.id)).toEqual(["upload"]);
+    // The testkit is for tests only: never in a client's connector list. The Marketing pack's
+    // connectors are registered on every platform (api.test-helper.ts).
+    expect((c.json as J).connectors.map((x: J) => x.id)).toEqual([
+      "upload",
+      "hackernews",
+      "website",
+      "linkedin",
+    ]);
     const conns = await harness.call(user("b"), "GET", "/api/connections");
     expect((conns.json as J).connections[0].connector).toBe("upload");
   });

@@ -145,6 +145,8 @@ export interface BundleOptions {
   instructions?: string;
   maxSteps?: number;
   maxCostUsd?: string;
+  /** §1.77: the client agent's monthly cap. */
+  maxMonthlyCostUsd?: string;
   skillSettings?: Record<string, unknown>;
   workflows?: AgentBundleInput["workflows"];
   skills?: AgentBundleInput["definition"]["skills"];
@@ -207,7 +209,12 @@ export function makeBundle(options: BundleOptions = {}): AgentBundle {
       extraTools: [],
       canCommand: [],
       permissions: { mode: options.mode ?? "suggest_only" },
-      budgets: { maxSteps: options.maxSteps ?? 6, maxCostUsd: options.maxCostUsd ?? "0.50" },
+      budgets: {
+        maxSteps: options.maxSteps ?? 6,
+        maxCostUsd: options.maxCostUsd ?? "0.50",
+        // §1.77
+        ...(options.maxMonthlyCostUsd ? { maxMonthlyCostUsd: options.maxMonthlyCostUsd } : {}),
+      },
       memory: { enabled: true },
     },
     workflows: options.workflows ?? defaultWorkflows(),

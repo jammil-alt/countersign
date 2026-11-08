@@ -24,7 +24,7 @@ import { parseSkillRef } from "../schemas/common";
 import type { PermissionEntity, PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
-import type { ToolSpec } from "../schemas/tool";
+import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import {
   type Step,
   type Trigger,
@@ -87,6 +87,8 @@ export type ValidationCode =
   | "connection_missing"
   | "verb_off"
   | "approval_required_by_connection"
+  // §1.73: a step can't run a verb a person always signs without approval.
+  | "approval_always"
   // v0.12 W1-D
   | "choices_not_ask"
   | "duplicate_choice"
@@ -493,6 +495,19 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
       "approval_not_write",
       "only steps that change a client's tool have an approval setting",
     );
+  }
+  // §1.73: a verb a person always signs can't be set to run without approval, whatever the
+  // connection allows.
+  if (approval?.required === "not_required") {
+    const always = (writes ?? []).find((t) => isAlwaysSigned(t));
+    if (always) {
+      c.add(
+        step.id,
+        "approval.required",
+        "approval_always",
+        `"${always.id}" always needs a person to sign it`,
+      );
+    }
   }
   if (step.kind === "skill") {
     // A built-in skill with its own fixed inputs (comms.reach-out's purpose) writes only from them:
@@ -903,6 +918,19 @@ function checkUseStep(c: Checker, step: UseAutomationStep, scope: Scope) {
         `approvals.${innerId}.required`,
         "approval_not_write",
         "only steps that change a client's tool have an approval setting",
+      );
+    }
+    // §1.73: as for a step of the agent's own.
+    const always =
+      approval.required === "not_required"
+        ? (writes ?? []).find((t) => isAlwaysSigned(t))
+        : undefined;
+    if (always) {
+      c.add(
+        step.id,
+        `approvals.${innerId}.required`,
+        "approval_always",
+        `"${always.id}" always needs a person to sign it`,
       );
     }
   }

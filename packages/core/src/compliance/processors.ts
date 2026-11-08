@@ -5,8 +5,16 @@
 // webhook endpoints, the sites of its browser logins, its Google Chat: v0.14 W4-E) are the
 // client's vendors, not ours: they are not processors here. Plaid, which carries the bank feed on
 // Mezonas' own account, is.
+// M46: the website connector (`website`) sends nothing to a new vendor: it writes guides to our own
+// bucket at Cloudflare (infrastructure), and tells IndexNow only the public address of a page the
+// client published (docs/plan.md §1.76).
 // v0.14 W4-D: Google Drive and Google Sheets (`gdrive`, `gsheets`) are not: the client's own Google
 // account, which only the client signs in to; we send its data nowhere else.
+// M45: Google Search Console and Bing Webmaster Tools (`gsc`, `bing_webmaster`) are not either: the
+// client's own accounts with Google and Microsoft, holding figures about the client's own site that
+// those vendors already have; we only read them, with a key the client enters, and send them
+// nothing (docs/plan.md §1.75). Mezonas has no contract with either for this. M50: `gsc_oauth`,
+// the same Search Console account by Google sign-in, is not a processor either (§1.78).
 
 import { z } from "zod";
 
@@ -25,6 +33,10 @@ export const PROCESSORS = [
   "resend",
   // v0.12 bankfeed: bank and card feeds (docs/plan.md §1.52).
   "plaid",
+  // §1.77: web research (`web.search`, `web.fetch`) through the model vendor's server-side tools,
+  // and Hacker News search (`hackernews.*`, Algolia's search and the official item API).
+  "anthropic_web",
+  "hackernews",
 ] as const;
 export type Processor = (typeof PROCESSORS)[number];
 
@@ -42,6 +54,9 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   elevenlabs: "ElevenLabs",
   resend: "Resend",
   plaid: "Plaid",
+  // §1.77
+  anthropic_web: "Anthropic web search and fetch",
+  hackernews: "Hacker News (Algolia and Firebase)",
 };
 
 /** `BAA_PROCESSORS`: comma- or space-separated processor ids; unknown words are ignored. */
@@ -76,6 +91,11 @@ const CONNECTOR_PROCESSORS: Record<string, readonly Processor[]> = {
   // the messages pass through Meta to us, as they do for Twilio's WhatsApp, so it is the same
   // processor (`meta_whatsapp`) a client in HIPAA mode needs covered.
   whatsapp_meta: ["meta_whatsapp"],
+  // DECISION (§1.77): Hacker News is a public service with no account, but an agent's search words
+  // go to Algolia (and item ids to Firebase), so a client in HIPAA mode is refused it like any
+  // vendor of ours without a BAA. LinkedIn is not here: it is the client's own company page, which
+  // only the client signs in to, like Slack.
+  hackernews: ["hackernews"],
 };
 
 /** The processors a connector sends a client's data to, whichever of its tools is used. */
@@ -88,6 +108,10 @@ export function processorsForTool(toolId: string, connectorId: string | null): P
   const out = new Set<Processor>(connectorId ? processorsForConnector(connectorId) : []);
   if (toolId.startsWith("whatsapp.")) out.add("meta_whatsapp");
   if (toolId.startsWith("call.")) out.add("elevenlabs");
+  // DECISION (§1.77): web research is its own processor, not `anthropic`: the vendor's search and
+  // fetch tools send the agent's words on to search and web providers, so a BAA that covers the
+  // model alone does not cover them.
+  if (toolId.startsWith("web.")) out.add("anthropic_web");
   return [...out];
 }
 
@@ -138,6 +162,23 @@ export function processingRefusal(
   const names = missing.map((p) => PROCESSOR_NAMES[p]).join(", ");
   const verb = missing.length === 1 ? "has" : "have";
   return `${what} sends data to ${names}, which ${verb} no signed BAA; this client is in HIPAA mode`;
+}
+
+// ── What HIPAA mode holds back, whoever the vendor ──────────────────────────────────────────────
+
+/**
+ * M50 (docs/plan.md §1.78): what a pack takes in from the public with no session (the inbound
+ * route, `POST /api/in/:pack/:tenantId/:target`: a measured website's beacons). Its vendors are
+ * only our infrastructure, so no processor is missing; but a visit to a health client's site can
+ * itself be health information (a page about a condition, a booking page), and we have not
+ * decided how to measure such a site. So for a client in HIPAA mode the route stores nothing and
+ * the pack is never called, until the owner decides; the answer is still 204.
+ */
+// DECISION: held for every pack's inbound, not only measurement: the route can't tell what a
+// pack's inbound keeps, and nothing else uses it yet. Turning HIPAA mode off resumes it; what was
+// stored before HIPAA mode was turned on stays (its retention limits still apply).
+export function inboundHeld(profile: ComplianceProfile): boolean {
+  return profile.hipaa;
 }
 
 /**

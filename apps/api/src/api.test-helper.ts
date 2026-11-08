@@ -6,8 +6,11 @@
 import { DEV_USER_HEADER, type WorkOSClient } from "@countersign/auth";
 import {
   type Connector,
+  createHackerNewsConnector,
+  createLinkedInConnector,
   createTestkitConnector,
   createUploadConnector,
+  createWebsiteConnector,
   type FetchLike,
   MemoryObjectStore,
   type StripeClient,
@@ -158,12 +161,23 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const backend = new TestkitBackend();
   backend.seed(A.connectionId, [{ id: "r1", name: "Oak board", amount: "10.00" }]);
   backend.seed(B.connectionId, [{ id: "r1", name: "Maple board", amount: "20.00" }]);
+  const extra = options.connectors?.(backend) ?? [];
+  // The Marketing pack is in every deployment, and its skills and templates name the Hacker News,
+  // website and LinkedIn tools (a skill catalog or a template refuses a tool no connector
+  // provides), so every test platform registers them too, as platform.ts does: Hacker News with
+  // no network, the website over memory, LinkedIn with no sign-in. A test that passes its own
+  // copy of one gets that one instead.
+  const marketing = [
+    createHackerNewsConnector({
+      fetch: async () => {
+        throw new Error("no network in tests");
+      },
+    }),
+    createWebsiteConnector({ store: new MemoryObjectStore() }),
+    createLinkedInConnector({}),
+  ].filter((c) => !extra.some((e) => e.manifest.id === c.manifest.id));
   const platform = createPlatform({
-    connectors: [
-      createUploadConnector(),
-      createTestkitConnector(backend),
-      ...(options.connectors?.(backend) ?? []),
-    ],
+    connectors: [createUploadConnector(), createTestkitConnector(backend), ...marketing, ...extra],
     ...(options.skills ? { skills: options.skills } : {}),
   });
   const instances = new MemoryInstances();

@@ -841,6 +841,55 @@ as it will a client's site. Once per environment (staging, then production):
 Figures are built nightly at 03:41 UTC; the report is under the client
 (`/ops/clients/<id>/reports/marketing/overview`).
 
+### Offering the Marketing area to a client (M50, `docs/plan.md` §1.78)
+
+For a client that wants its own website measured, its search figures and the marketing agents.
+Before the first client: the lawyer has read `docs/marketing/processor-terms-draft.md` and the
+terms carry the processor wording (we count the client's visitors for it). Not for a client in
+HIPAA mode: the platform stores nothing its site sends until the owner decides (§1.2 below).
+
+1. **Switch on the pack** for the client: Packs → Marketing → Switch on (or the client page's
+   Packs tab). It installs the pack's templates the first time any client gets it.
+2. **Add the site**: the client's Marketing pages (`/ops/clients/<id>/marketing`) → Sites (its
+   domain without `www.`, a name, and the goals: the `data-track` names of the clicks that count, such as
+   "Book a visit"). One client may have several sites.
+3. **Paste the snippet**: the site's row on Sites shows it. Send it to the client's web person:
+   it goes once before `</body>` on every page. Elements to count get `data-track="<name>"`.
+   Nothing else changes on their site: no cookies, no banner of ours. The client's own privacy
+   notice must say they count visits (the draft's §4 gives words to adapt). Figures show the
+   morning after the first visits (03:41 UTC).
+4. **Connect Search Console** (one of two ways), from the client's portal by its client admin
+   (never by us; invariant 8):
+   - **Google sign-in** ("Google Search Console (Google sign-in)"): offer it to the client, and the
+     client admin connects it with the Google account that has the site in Search Console. Needs
+     `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `OAUTH_STATE_SECRET` (as Gmail), the redirect
+     URI `<APP_ORIGIN>/connections/gsc_oauth/callback` on the Google OAuth client, and the scope
+     `webmasters.readonly` in Google's verification (until it is verified, a refresh token ends
+     after 7 days and the connection asks to be reconnected weekly).
+   - **A service account** ("Google Search Console"): the client adds a Google Cloud service
+     account to its property as a Restricted user and enters the property and the account's JSON
+     key in the portal.
+5. **Connect Bing**: offer "Bing Webmaster Tools"; the client admin enters the site URL and an API
+   key from Bing Webmaster Tools (Settings → API access).
+6. **Point the site's search figures** at the connections: the client's Marketing pages → Search
+   → the site's Google and Bing rows. With Google sign-in this also picks the property of that
+   site among those the account can read (its Domain property, else its URL-prefix one); if the
+   account can't read the site, it says so. The first import comes within the hour (16 months of
+   history), then nightly at 03:11 UTC.
+7. **Fork the templates** you want into the client (Agent lab, or the client's Agents → New agent
+   → from a template: Weekly site report, Titles and descriptions, Article drafts, Forum watch,
+   Social posts), as for any client. Each starts with approval on; publishing a guide and posting
+   are always signed by a person. Point their schedule and connections at the client's own.
+8. **Publishing guides** to a client's own site needs a CMS connection (WordPress, Webflow: not
+   built until a client asks). Until then article drafts stay drafts for the client to copy.
+
+**What the client sees**, in its portal under Reports, read only: **Website** (visits, goals,
+pages, sources; 7, 28 or 90 days), **Search** (Google and Bing: times shown, clicks, positions,
+top searches, close to page one) and **Weekly report** (each week's report and its three
+suggested actions with where each stands). It never sees visits one by one, content, the claims
+list or the forum watch: those stay in the back office. Approvals for its marketing agents reach
+its Desk like any other agent's.
+
 ## 1.2 Compliance: HIPAA mode, retiring a client, the audit log (`docs/plan.md` §1.35)
 
 **HIPAA mode.** A client whose records hold health information is put in HIPAA mode on its
@@ -849,7 +898,10 @@ would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCES
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
 `openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
-HIPAA client. `anthropic` is needed for agents and document reading.
+HIPAA client. `anthropic` is needed for agents and document reading. M50: website measurement is
+held for a client in HIPAA mode whatever is listed: its site's beacons are answered and nothing is
+stored, until the owner decides (`docs/marketing/processor-terms-draft.md` §6). Web research
+(`anthropic_web`) and Hacker News (`hackernews`) are refused to it until listed.
 
 **Retiring a client.** On the client's Settings page, Retire client (a reason, and the client's
 name typed again). Its users lose access at once, its agents are retired and its tools are

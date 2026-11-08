@@ -19,6 +19,7 @@ import {
   explainWrite,
   fixedInputProblem,
   grantAllowsTool,
+  isAlwaysSigned,
   type JsonObject,
   levelFor,
   pickLocalized,
@@ -200,6 +201,8 @@ async function dispatch(
       inbound: deps.ports.inbound,
       // P-7: message translation
       translation: deps.ports.translation,
+      // §1.77: web research
+      web: deps.ports.web,
       ask: step.ask,
       language: step.language,
       now: deps.now,
@@ -272,6 +275,8 @@ async function dispatch(
     ceilings: autonomy ? [autonomy] : undefined,
     // v0.12 W2-A: the entity and its scope, on the connection and the grant.
     entity: { tool: tool.spec, input, declared: tool.connector.manifest.permissionEntities },
+    // §1.73: publishing, posting: a person signs every one.
+    alwaysSigned: isAlwaysSigned(tool.spec),
   });
   // v0.12 W1-G: the person's own setting refuses before the matrix's words would.
   if (decision === "refused" && recipient && autonomy === "off") {
@@ -403,6 +408,8 @@ async function dispatch(
               route: { source: approver.source, ruleId: approver.ruleId },
               // v0.12 W2-A: the entity, named when its own setting asked.
               entity,
+              // §1.73
+              alwaysSigned: isAlwaysSigned(tool.spec),
             }) as JsonObject,
           },
           // v0.12 W1-D: the items one step proposes are signed together.

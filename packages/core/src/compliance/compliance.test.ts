@@ -3,6 +3,7 @@ import { luhnValid, redactCardNumbers, redactCardNumbersDeep } from "./card-numb
 import {
   complianceOf,
   hipaaReadiness,
+  inboundHeld,
   PROCESSORS,
   parseCoveredProcessors,
   processingRefusal,
@@ -83,6 +84,11 @@ describe("processors", () => {
       "gsheets",
       // v0.14 W4-C: the client's own workspace, not a processor of ours.
       "slack",
+      // M45: the client's own search accounts, read only.
+      "gsc",
+      "bing_webmaster",
+      // M50: the same Search Console account, by Google sign-in.
+      "gsc_oauth",
     ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }
@@ -94,6 +100,15 @@ describe("processors", () => {
     // v0.12 bankfeed: Plaid is Mezonas' processor, not the client's tool.
     expect(processorsForOffer("bankfeed")).toEqual(["plaid"]);
     expect(processorsForTool("bankfeed.transaction.query", "bankfeed")).toEqual(["plaid"]);
+    // §1.77: web research is its own processor; Hacker News is one; LinkedIn is the client's own.
+    expect(processorsForTool("web.search", null)).toEqual(["anthropic_web"]);
+    expect(processorsForTool("web.fetch", null)).toEqual(["anthropic_web"]);
+    expect(processorsForTool("hackernews.search", "hackernews")).toEqual(["hackernews"]);
+    expect(processorsForOffer("hackernews")).toEqual(["hackernews"]);
+    expect(processorsForOffer("linkedin")).toEqual([]);
+    expect(processingRefusal({ hipaa: true }, all, ["anthropic_web"], "web.search")).toBe(
+      "web.search sends data to Anthropic web search and fetch, which has no signed BAA; this client is in HIPAA mode",
+    );
   });
 
   it("lists exactly these processors", () => {
@@ -108,6 +123,8 @@ describe("processors", () => {
       "elevenlabs",
       "resend",
       "plaid",
+      "anthropic_web",
+      "hackernews",
     ]);
     expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
       "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",
@@ -134,5 +151,14 @@ describe("processors", () => {
     expect(hipaaReadiness(all, ["upload", "twilio"])).toEqual([
       "The twilio connector is offered and sends data to Twilio, WhatsApp (Meta), ElevenLabs, with no signed BAA. Withdraw it first.",
     ]);
+  });
+});
+
+describe("what HIPAA mode holds back (M50)", () => {
+  it("holds a pack's public inbound (website measurement) for a client in HIPAA mode only", () => {
+    expect(inboundHeld({ hipaa: true })).toBe(true);
+    expect(inboundHeld({ hipaa: false })).toBe(false);
+    expect(inboundHeld(complianceOf({ compliance: { hipaa: true } }))).toBe(true);
+    expect(inboundHeld(complianceOf(null))).toBe(false);
   });
 });

@@ -30,6 +30,8 @@ import type {
   PlatformStore,
   RunMode,
 } from "../tools/types";
+// §1.77
+import type { WebResearchPort } from "../tools/web";
 
 export interface PinnedAgent {
   agentId: string;
@@ -109,6 +111,13 @@ export interface RuntimeStore {
     tenantId: string,
     agentId: string,
   ): Promise<{ agentId: string; agentVersionId: string; name: string } | null>;
+  // §1.77: a monthly cap per client agent
+  /**
+   * What the client agent's runs (live and test) have cost since `since`, a decimal string. Read at
+   * the start of each model step against `budgets.maxMonthlyCostUsd`. Optional: a store without it
+   * caps nothing.
+   */
+  agentCostSince?(tenantId: string, agentId: string, since: Date): Promise<string>;
 }
 
 export type StepStatus = "running" | "waiting" | "succeeded" | "failed" | "cancelled";
@@ -359,6 +368,9 @@ export interface RuntimePorts {
   // P-7: message translation (docs/plan.md §1.69)
   /** The client's translations for `comms.translate`; absent: that tool fails with a reason. */
   translation?: TranslationPort;
+  // §1.77: web research
+  /** `web.search` and `web.fetch`; absent: research is off and they answer `off`. */
+  web?: WebResearchPort;
 }
 
 // ── v0.12 W1-E: carried approvals and model calls (ARCHITECTURE §10.10) ─────────────────────────

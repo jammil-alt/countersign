@@ -2,8 +2,9 @@
 // actions, `/api/ops/clients/:id/packs/marketing/actions/:action`), never by an agent. Each site's
 // snippet posts to the platform's inbound route with the client's and the site's ids.
 
-import { type Db, type Tx, withTenant } from "@countersign/db";
-import { and, asc, eq } from "drizzle-orm";
+import { complianceOf, inboundHeld } from "@countersign/core";
+import { type Db, type Tx, tenant, withTenant } from "@countersign/db";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { TRACK_NAME } from "./measure/events";
 import { SITE_STATUSES, site } from "./schema";
@@ -81,6 +82,60 @@ export async function listSites(tx: Tx, tenantId: string): Promise<SiteRow[]> {
     .where(eq(site.tenantId, tenantId))
     .orderBy(asc(site.createdAt));
   return rows.map(toRow);
+}
+
+export interface SiteStatusRow extends SiteRow {
+  /** The last day a beacon was stored (today's included); null before the first. */
+  lastEventDay: string | null;
+  /** The last day the nightly build finished; null before the first. */
+  dataThrough: string | null;
+  /** Visits in the seven finished days to yesterday. */
+  visitsLast7: number;
+}
+
+/**
+ * The Sites report (M44): each of the client's sites, and whether its figures are coming in.
+ * M50: `measurementHeld` when the client is in HIPAA mode, so the platform stores nothing its
+ * sites send (docs/plan.md §1.78).
+ */
+export async function sitesReport(
+  tx: Tx,
+  tenantId: string,
+  today: string,
+): Promise<{ sites: SiteStatusRow[]; measurementHeld: boolean }> {
+  const [client] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const measurementHeld = inboundHeld(
+    complianceOf(client?.settings as Record<string, unknown> | undefined),
+  );
+  const sites = await listSites(tx, tenantId);
+  const rows = await tx.execute<{
+    site_id: string;
+    last_event: string | null;
+    built: string | null;
+    visits: number;
+  }>(sql`
+    select s.id as site_id,
+           (select max(day)::text from site_event e
+             where e.tenant_id = s.tenant_id and e.site_id = s.id) as last_event,
+           (select max(day)::text from site_daily_total t
+             where t.tenant_id = s.tenant_id and t.site_id = s.id and t.dimension = 'all') as built,
+           (select coalesce(sum(visits), 0)::int from site_daily_total t
+             where t.tenant_id = s.tenant_id and t.site_id = s.id and t.dimension = 'all'
+               and t.day between ${today}::date - 7 and ${today}::date - 1) as visits
+    from site s where s.tenant_id = ${tenantId}`);
+  const by = new Map([...rows].map((r) => [r.site_id, r]));
+  return {
+    sites: sites.map((s) => ({
+      ...s,
+      lastEventDay: by.get(s.id)?.last_event ?? null,
+      dataThrough: by.get(s.id)?.built ?? null,
+      visitsLast7: Number(by.get(s.id)?.visits ?? 0),
+    })),
+    measurementHeld,
+  };
 }
 
 export async function addSite(

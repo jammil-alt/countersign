@@ -38,6 +38,11 @@ type ClientSummaryRow = ResponseOf<typeof apiRoutes.opsClients>["clients"][numbe
 /** The clients list the frame polls (Needs us, waiting runs per client); null until it loads. */
 const OpsClientsContext = createContext<readonly ClientSummaryRow[] | null>(null);
 
+/** §1.73: the frame's clients list (with `internal` and `sandbox`); null until it loads. */
+export function useOpsClients(): readonly ClientSummaryRow[] | null {
+  return useContext(OpsClientsContext);
+}
+
 /** One client's row of the frame's clients list: its Needs us and runs waiting for approval. */
 export function useClientSummary(clientId: string): ClientSummaryRow | null {
   return useContext(OpsClientsContext)?.find((c) => c.id === clientId) ?? null;
@@ -192,6 +197,13 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 icon="invoice"
                 label="Usage and billing"
                 testId="ops-nav-usage"
+              />
+              {/* §1.73: the Marketing area, opening our own client (Mezonas) with the pack on. */}
+              <SidebarLink
+                to={OPS_PATHS.marketing}
+                icon="message"
+                label="Marketing"
+                testId="ops-nav-marketing"
               />
             </SidebarSection>
             <SidebarMore label="More" testId="ops-nav-more">

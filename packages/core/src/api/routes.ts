@@ -197,6 +197,8 @@ export const ClientSummary = z.object({
   waitingRuns: z.number().int().optional(),
   /** The Sandbox client (`tenant.settings.sandbox`): fixture data for building and test runs. */
   sandbox: z.boolean().optional(),
+  /** §1.73: one of our own (`tenant.settings.internal`, Mezonas): the Marketing entry opens it. */
+  internal: z.boolean().optional(),
 });
 
 export const AgentSummary = z.object({

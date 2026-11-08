@@ -25,15 +25,23 @@ import {
   ConnectorRegistry,
   // v0.12 bankfeed
   createBankfeedConnector,
+  // M45 (docs/plan.md §1.75)
+  createBingWebmasterConnector,
   createBrowserConnector,
   // v0.14 W4-E
   createGchatConnector,
   createGdriveConnector,
   createGmailConnector,
+  // M45 (docs/plan.md §1.75)
+  createGscConnector,
+  createGscOauthConnector,
   // v0.14 W4-D
   createGsheetsConnector,
+  // §1.77
+  createHackerNewsConnector,
   // v0.12 W3-B
   createHubspotConnector,
+  createLinkedInConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -46,12 +54,15 @@ import {
   createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
+  // M46 (docs/plan.md §1.76)
+  createWebsiteConnector,
   // v0.14 W4-A
   createWhatsappMetaConnector,
   createZohoCrmConnector,
   plaidEnvironment,
   QBO_CONNECTOR_ID,
   QBO_SKILLS,
+  R2ObjectStore,
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -228,7 +239,13 @@ type OAuthEnvKey =
   // v0.12 bankfeed: Plaid.
   | "PLAID_CLIENT_ID"
   | "PLAID_SECRET"
-  | "PLAID_ENV";
+  | "PLAID_ENV"
+  // M46: the site content bucket and IndexNow's key.
+  | "SITE_CONTENT"
+  | "INDEXNOW_KEY"
+  // §1.77: our LinkedIn app.
+  | "LINKEDIN_CLIENT_ID"
+  | "LINKEDIN_CLIENT_SECRET";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -261,6 +278,12 @@ export function platformFor(
     env.PLAID_CLIENT_ID ?? "-",
     env.PLAID_SECRET ? "plaid-secret" : "-",
     plaidEnvironment(env.PLAID_ENV),
+    // M46: whether the bucket and the key are set (never the key).
+    env.SITE_CONTENT ? "site-content" : "-",
+    env.INDEXNOW_KEY ? "indexnow" : "-",
+    // §1.77: LinkedIn's app id, and whether its secret is set (never the secret).
+    env.LINKEDIN_CLIENT_ID ?? "-",
+    env.LINKEDIN_CLIENT_SECRET ? "linkedin" : "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -311,6 +334,12 @@ export function deploymentConnectors(
       webhookVerifier: env.QBO_WEBHOOK_VERIFIER,
     }),
     createWebhookConnector(),
+    // M46: guides on a client's own site (docs/plan.md §1.76): registered everywhere; it writes
+    // only where SITE_CONTENT is bound, and pings IndexNow only with INDEXNOW_KEY.
+    createWebsiteConnector({
+      store: env.SITE_CONTENT ? new R2ObjectStore(env.SITE_CONTENT) : null,
+      indexNowKey: env.INDEXNOW_KEY ?? null,
+    }),
     createZohoCrmConnector(
       zohoReady ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : {},
     ),
@@ -381,6 +410,21 @@ export function deploymentConnectors(
     // Website logins (docs/plan.md §1.26): registered everywhere, so sites can be offered and
     // built with; agents sign in only where Browser Run is bound (BROWSER).
     createBrowserConnector({ available: Boolean(env.BROWSER) }),
+    // M45: search figures, read only (docs/plan.md §1.75): registered everywhere; each reads only
+    // once the client admin has entered its key (nothing to configure for the deployment).
+    createGscConnector(),
+    // M50 (docs/plan.md §1.78): Search Console by Google sign-in (webmasters.readonly), on Gmail's
+    // Google client: registered everywhere, signing in once GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+    // and OAUTH_STATE_SECRET are set.
+    createGscOauthConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
+    createBingWebmasterConnector(),
+    // §1.77: Hacker News, read only and keyless (the forum watch), registered everywhere.
+    createHackerNewsConnector(),
+    // §1.77 (M49): LinkedIn company page posts, always signed; like Outlook, registered everywhere
+    // and signing in once LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
+    createLinkedInConnector(oauthClient(env.LINKEDIN_CLIENT_ID, env.LINKEDIN_CLIENT_SECRET, env)),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

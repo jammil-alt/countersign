@@ -50,6 +50,10 @@ export const AgentDefinition = z
         // DECISION: a decimal string, not a JS number as the sketch in ARCHITECTURE §9.1 has it,
         // because cost is money (CLAUDE.md invariant 6) and is compared with decimal.js.
         maxCostUsd: DecimalString.default("0.50"),
+        // §1.77: a client agent's spend on models in a calendar month (UTC), every run and step of
+        // it together. Optional with no default, so bundles without it parse and hash as they were;
+        // absent means no monthly cap.
+        maxMonthlyCostUsd: DecimalString.optional(),
       })
       .prefault({}),
     memory: z.object({ enabled: z.boolean().default(true) }).prefault({}),

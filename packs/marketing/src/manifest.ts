@@ -1,72 +1,84 @@
-// The Marketing pack's manifest (ARCHITECTURE §12.1; docs/marketing-plan.md §4.1). M43 brings
-// measurement only: the measured sites, the collector, the nightly build and the overview report.
-// Its tools, skills and the agent set (weekly report, titles, articles, forum watch) come with
-// M45–M48.
-// DECISION (owner, 2026-11-08): the pack will ship the agent set as templates, unlike Materials;
-// until those milestones there are none, so enabling it installs nothing.
+// The Marketing pack's manifest (ARCHITECTURE §12.1; docs/marketing-plan.md §4.1), added up from
+// its areas (§11, the wave contract): measure (M43–M44), search (M45), content (M46), the agent
+// set (M47–M49) and the forum watch (M48). Each area's index.ts exports one AreaModule; nothing
+// here changes when an area grows.
+// DECISION (owner, 2026-11-08): the pack ships the agent set as templates, unlike Materials; until
+// those milestones there are none, so enabling it installs nothing.
 
 import { PackManifest } from "@countersign/core";
-import type { Db, Tx } from "@countersign/db";
-import type { z } from "zod";
+import type { Db } from "@countersign/db";
+import { AREA as AGENTS } from "./agents";
+import { AREA as CONTENT } from "./content";
+import { AREA as FORUM } from "./forum";
 import { PACK_ID } from "./ids";
+import { AREA as MEASURE } from "./measure";
 import { type CollectOutcome, collect } from "./measure/collect";
 import { MAX_BEACON_BYTES } from "./measure/events";
 import { type NightlyResult, nightly } from "./measure/rollup";
-import { overview, overviewCsv } from "./reports";
-import { AddSiteInput, addSite, listSites, UpdateSiteInput, updateSite } from "./sites";
+import type { AreaModule, PackActionHandler, PackReportHandler, PackTool } from "./pack";
+import { AREA as SEARCH } from "./search";
+import { listSites } from "./sites";
 
 export { PACK_ID };
+
+/** The pack's areas, in the order their milestones come. */
+export const MARKETING_AREAS: Readonly<Record<string, AreaModule>> = {
+  measure: MEASURE,
+  search: SEARCH,
+  content: CONTENT,
+  agents: AGENTS,
+  forum: FORUM,
+};
+
+const areas = Object.entries(MARKETING_AREAS);
+
+/** Every area's named things in one record; a name two areas use is a mistake caught at load. */
+function merged<T>(pick: (a: AreaModule) => Readonly<Record<string, T>>, what: string) {
+  const out: Record<string, T> = {};
+  for (const [area, a] of areas) {
+    for (const [name, value] of Object.entries(pick(a))) {
+      if (name in out) throw new Error(`marketing: ${what} "${name}" is defined twice (${area})`);
+      out[name] = value;
+    }
+  }
+  return out;
+}
+
+const all = <T>(pick: (a: AreaModule) => readonly T[]) => areas.flatMap(([, a]) => pick(a));
+
+/** The pack's tool handlers by id, for apps/api to adapt into the tool registry. */
+export const MARKETING_HANDLERS: Readonly<Record<string, PackTool>> = merged(
+  (a) => Object.fromEntries(a.TOOLS.map((t) => [t.spec.id, t])),
+  "tool",
+);
+
+/** Its reports, in the shape apps/api's generic report routes take. */
+export const MARKETING_REPORTS: Readonly<Record<string, PackReportHandler>> = merged(
+  (a) => a.REPORTS,
+  "report",
+);
+
+/** People's actions on a client's marketing data in the back office. */
+export const MARKETING_ACTIONS: Readonly<Record<string, PackActionHandler>> = merged(
+  (a) => a.ACTIONS,
+  "action",
+);
+
+export const MARKETING_SKILLS = all((a) => a.SKILLS);
 
 export const marketingManifest: PackManifest = PackManifest.parse({
   id: PACK_ID,
   name: "Marketing",
   version: "0.1.0",
   description:
-    "Website measurement for the client's own site: visits, pages, sources and goals, counted without cookies and without keeping IP addresses. Search figures, content and the marketing agents come next.",
+    "The Marketing area for the client's own websites: measurement without cookies or kept IP addresses, search figures, the content of its guides, a weekly report, and agents that draft articles, posts and forum replies for a person to sign.",
   requiresConnectors: [],
-  events: [],
-  tools: [],
-  skills: [],
-  templates: [],
-  screens: [
-    {
-      route: "/reports/marketing/overview",
-      title: "Website",
-      roles: ["client_admin", "client_user"],
-    },
-  ],
+  events: all((a) => a.EVENTS),
+  tools: Object.values(MARKETING_HANDLERS).map((t) => t.spec),
+  skills: MARKETING_SKILLS,
+  templates: all((a) => a.TEMPLATES),
+  screens: all((a) => a.SCREENS),
 });
-
-/** Its reports, in the shape apps/api's generic report routes take. */
-export const MARKETING_REPORTS = {
-  overview: {
-    title: "Website",
-    json: async (tx: Tx, tenantId: string, today: string) => ({
-      ...(await overview(tx, tenantId, today)),
-    }),
-    csv: async (tx: Tx, tenantId: string, today: string) =>
-      overviewCsv(await overview(tx, tenantId, today)),
-  },
-} as const;
-
-/** People's actions in the back office: add a site, change one (its name, goals, on or off). */
-export const MARKETING_ACTIONS = {
-  "add-site": {
-    input: AddSiteInput as z.ZodType,
-    run: async (db: Db, ctx: { tenantId: string; userId: string; input: unknown }) => ({
-      site: await addSite(db, { ...ctx, input: ctx.input as z.infer<typeof AddSiteInput> }),
-    }),
-  },
-  "update-site": {
-    input: UpdateSiteInput as z.ZodType,
-    run: async (db: Db, ctx: { tenantId: string; userId: string; input: unknown }) => ({
-      site: await updateSite(db, {
-        tenantId: ctx.tenantId,
-        input: ctx.input as z.infer<typeof UpdateSiteInput>,
-      }),
-    }),
-  },
-} as const;
 
 /** What the platform's public inbound route hands a pack (`POST /api/in/:pack/:tenantId/:target`). */
 export interface PackInboundRequest {
@@ -103,8 +115,25 @@ export const MARKETING_NIGHTLY = {
   /** The hour (UTC) and minute it runs at. DECISION: 03:41, a minute no other pass uses. */
   hour: 3,
   minute: 41,
-  run: (db: Db, now: Date, onError?: (tenantId: string, error: unknown) => void) =>
-    nightly(db, now, onError) as Promise<NightlyResult>,
+  async run(
+    db: Db,
+    now: Date,
+    onError?: (tenantId: string, error: unknown) => void,
+  ): Promise<NightlyResult & { areas: Record<string, unknown> }> {
+    const measured = await nightly(db, now, onError);
+    const done: Record<string, unknown> = {};
+    for (const [name, area] of areas) {
+      if (!area.NIGHTLY) continue;
+      try {
+        done[name] = await area.NIGHTLY(db, now, onError);
+      } catch (error) {
+        // One area's failure never stops another's; no client in it, so no client is named.
+        onError?.("", error);
+        done[name] = { failed: true };
+      }
+    }
+    return { ...measured, areas: done };
+  },
 };
 
 export { listSites };

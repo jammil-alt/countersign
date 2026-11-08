@@ -4,6 +4,9 @@
 // enabled (the activity report names them) and mounts it at its path.
 import type { ComponentType } from "react";
 import type { PlainKey } from "../i18n/catalog";
+import { PortalSearchScreen } from "./marketing/portal/Search";
+import { PortalWebsiteScreen } from "./marketing/portal/Website";
+import { PortalWeeklyReportScreen } from "./marketing/portal/WeeklyReport";
 import { PortalCatalogScreen, PortalPriceWatchScreen, PortalRequestsScreen } from "./screens";
 
 export interface PackReport {
@@ -43,6 +46,29 @@ export const PACK_REPORTS: readonly PackReport[] = [
     titleKey: "materials.requests.title",
     descriptionKey: "materials.requests.description",
     Component: PortalRequestsScreen,
+  },
+  // M50 (docs/plan.md §1.78): the Marketing area for a client with it on, read only. The slugs are
+  // the reports the API lets the portal read (the pack's portal screens).
+  {
+    pack: "marketing",
+    slug: "overview",
+    titleKey: "marketing.website.title",
+    descriptionKey: "marketing.website.description",
+    Component: PortalWebsiteScreen,
+  },
+  {
+    pack: "marketing",
+    slug: "search",
+    titleKey: "marketing.search.title",
+    descriptionKey: "marketing.search.description",
+    Component: PortalSearchScreen,
+  },
+  {
+    pack: "marketing",
+    slug: "weekly-report",
+    titleKey: "marketing.weekly.title",
+    descriptionKey: "marketing.weekly.description",
+    Component: PortalWeeklyReportScreen,
   },
 ];
 

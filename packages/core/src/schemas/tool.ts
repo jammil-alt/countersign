@@ -58,6 +58,14 @@ export const ToolSpec = z
         values: z.record(z.string().min(1).max(64), EntityId),
       })
       .optional(),
+    // §1.73: a verb a person always signs (publishing a page, posting for the client). No
+    // connection matrix, grant, step setting or agent mode makes it run on its own, and a step
+    // using it can't be set to run without approval (workflow validation, `approval_always`).
+    approval: z.literal("always").optional(),
+  })
+  .refine((t) => t.approval === undefined || t.sideEffect === "external", {
+    message: "only external tools can always need a person's signature",
+    path: ["approval"],
   })
   .refine((t) => t.entity === undefined || t.entityInput === undefined, {
     message: "a tool names its entity or the input field that says it, not both",
@@ -83,4 +91,9 @@ export type ToolSpec = z.infer<typeof ToolSpec>;
 /** External tools are the builder's "actions": they change a client's tool. */
 export function isExternalTool(tool: Pick<ToolSpec, "sideEffect">): boolean {
   return tool.sideEffect === "external";
+}
+
+/** §1.73: whether every call of the tool waits for a person's signature, whatever else says. */
+export function isAlwaysSigned(tool: Pick<ToolSpec, "sideEffect" | "approval">): boolean {
+  return tool.sideEffect === "external" && tool.approval === "always";
 }

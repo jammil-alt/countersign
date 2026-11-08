@@ -129,5 +129,5 @@ test("nothing may depend on apps/site", () => {
     },
   });
   assert.equal(r.ok, false);
-  assert.match(r.out, /a static site, not a library/);
+  assert.match(r.out, /the public site, not a library/);
 });

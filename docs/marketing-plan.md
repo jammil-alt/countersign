@@ -1,9 +1,11 @@
 # Marketing and search: plan
 
 Status: plan of 2026-11-08. The owner approved building it as a pack with Mezonas served as its
-own client, worked from the back office (2026-11-08). M43 (measurement) is under way:
-`docs/plan.md` §1.72 and M43. The rest of ARCHITECTURE v0.16 (§9 below) follows with each
-milestone.
+own client, worked from the back office (2026-11-08). M43 (measurement) is built:
+`docs/plan.md` §1.72 and M43. M44–M50 are built as a wave of parallel builders on one shared
+foundation (migration 0038, the pack's areas, the always-signed verbs, report query parameters,
+the back office's Marketing shell): §11 below is the contract they share, `docs/plan.md` §1.73.
+The rest of ARCHITECTURE v0.16 (§9 below) follows with each milestone.
 
 Source: the owner's Plenary Labs marketing portal (`jammil-alt/plenary-labs`,
 `docs/specs/marketing-portal/PLAN.md` and `phase-0.md`, migrations 0085–0091, `apps/api/src/{site,search,content,marketing}`,
@@ -109,29 +111,32 @@ Plenary's §2 carries over unchanged, with these differences:
 
 - **Tables** (§4.3, §4.4, §4.5), all `tenant_id` + forced RLS + `cs_runtime` grants, comment
   `pack:marketing`.
-- **Tools.** Reads (`none`): `site.figures` (a period's totals, pages, sources, with small samples
-  marked), `site.page` (one page in depth), `search.figures` (queries, pages, "close to page one",
-  "losing ground", with the date the data runs to), `content.get`, `forum.threads`. Internal:
-  `content.draft` (a new draft version), `content.check` (the publish checks and the claims lint,
-  pure), `report.record`. External, behind approval: `site.publish` and `site.meta` on the
-  `website` connection; `linkedin.post` later.
+- **Tools** (ids as built, §11: the pack's start with `marketing.`, a connector's with its id).
+  Reads (`none`): `marketing.site.figures` (a period's totals, pages, sources, with small samples
+  marked), `marketing.site.page` (one page in depth), `marketing.search.figures` (queries, pages,
+  "close to page one", "losing ground", with the date the data runs to), `marketing.content.get`,
+  `marketing.forum.threads.unseen`. Internal: `marketing.content.draft` (a new draft version),
+  `marketing.content.check` (the publish checks and the claims lint, pure),
+  `marketing.report.record`, `marketing.forum.thread.mark`, `marketing.forum.reply.draft`. External, behind approval and always signed:
+  `website.publish` and `website.meta` on the `website` connection; `linkedin.post` later.
 - **Skills**: weekly site report, titles and descriptions, article draft (research then write),
   forum reply draft; each with its settings and test cases (§9.10).
 - **Templates**: the agent set (§4.6). `// DECISION` to confirm: Materials ships no templates, but
   here the agent set is the point, so the pack ships them as template v1 rows.
-- **Events**: `site.contact`, `search.imported`, `content.published`.
+- **Events** (a pack's are named after it): `marketing.site.goal`, `marketing.search.imported`,
+  `marketing.content.published`.
 - **Screens**: §4.7.
 
 ### 4.2 Connections
 
 | Connector | Auth | Tools and sync | Notes |
 |---|---|---|---|
-| `website` (built in) | None to measure; to publish, the target (§4.5) | Measures through the collector; `site.publish`, `site.meta` (always signed) | One per site. Its settings: the domain, the site key, the paths it may publish under |
+| `website` (built in) | None to measure; to publish, the target (§4.5) | Measures through the collector; `website.publish`, `website.meta` (always signed) | One per site. Its settings: the domain, the site key, the paths it may publish under |
 | `gsc` | Service account key in the client's vault (default), later Google OAuth (`webmasters.readonly`) | Nightly sync: one `raw_record` per site, day and dimension set; the pack normalises into its tables | OAuth waits for Google's verification: an app in testing gets refresh tokens that end after 7 days. Add the scope to the verification already pending. (UNCHECKED whether Google counts it as sensitive) |
 | `bing_webmaster` | API key in the vault | Nightly sync, as `gsc` | One key per Bing user |
 | `hackernews` | None | Read: search and thread | Public; no key |
 | `linkedin` (M49) | OAuth, Community Management API | `linkedin.post` (always signed) | Needs LinkedIn's approval of the app |
-| `wordpress`, `webflow` (M50, for clients) | OAuth or application password | `site.publish`, `site.meta` | Only if a client asks |
+| `wordpress`, `webflow` (M50, for clients) | OAuth or application password | `wordpress.publish`, `webflow.publish` and their `meta` (always signed) | Only if a client asks |
 
 The client signs in to its own tools (invariant 8); for Mezonas the owner does. Secrets stay in
 the vault (invariant 13).
@@ -174,14 +179,15 @@ error in our words). The raw records stay as the connector framework keeps them 
 
 ### 4.5 Content and publishing
 
-- **Tables** (migration 0039): `content_page` (site, path, kind `guide`, fixed once published),
+- **Tables** (migration 0038, with search's): `content_page` (site, path, kind `guide`, fixed once published),
   `content_version` (immutable, like `skill_version`: title, description, Markdown body, target
   queries, who or which `agent_version_id`, why), `content_redirect`, and the client's
-  `claims_list` (versioned; seeded for Mezonas from `docs/marketing/claims.md`).
-- **Checks** (`content.check`, pure, shared by the editor and `site.publish`): title ≤ 60 and
+  `claims_version` (the client's claims list, versioned; seeded for Mezonas from
+  `docs/marketing/claims.md`), and `content_publish` (each publish and unpublish, who signed it).
+- **Checks** (`marketing.content.check`, pure, shared by the editor and `website.publish`): title ≤ 60 and
   description ≤ 155 characters, one `h1`, internal links resolve, the claims lint, no "!" and no
   "AI-powered". A `refuse` blocks publishing.
-- **Publishing mezonas.com**: `site.publish` writes the rendered page to R2
+- **Publishing mezonas.com**: `website.publish` writes the rendered page to R2
   (`mezonas-site-content`, production only), plus the sitemap; the site Worker serves `/guides/*`
   and `/sitemap.xml` from it (`run_worker_first` for those paths) and keeps the rest static. It
   pings IndexNow. If the API or database is down, the site still serves the last copy.
@@ -196,7 +202,7 @@ Templates in the pack, forked into the Mezonas client; each in rising order of r
 | Agent | Trigger | Reads | Writes | Guardrails in code |
 |---|---|---|---|---|
 | Weekly site report | Schedule, Monday morning | `site.figures`, `search.figures` | A report record; three suggested actions with Done / Not now | Every number in the report must be in the figures it was given; "what we can't know" section |
-| Titles and descriptions | Schedule, weekly | Search figures for pages with impressions and low CTR | Proposes `site.meta` (now and proposed) | Length limits; claims lint; at most N a day; always signed |
+| Titles and descriptions | Schedule, weekly | Search figures for pages with impressions and low CTR | Proposes `website.meta` (now and proposed) | Length limits; claims lint; at most N a day; always signed |
 | Article drafts | Manual (with a topic) or weekly | Search queries, `web.search`, `web.fetch` | A `content_version` draft; never publishes | May cite only what its research found; claims lint; the person publishes |
 | Forum watch | Schedule, every few hours; manual with a pasted thread | `hackernews` | A reply draft for a named person to post by hand | Opens with "I work at Mezonas"; no link to our site; no "!"; each thread once; never posts |
 | Social posts (M49) | Manual | Published content, reports | Proposes `linkedin.post` | Company page only; always signed |
@@ -219,7 +225,8 @@ Portal (M50): Overview, Search and the weekly report, read only; Content approva
 
 ## 5. Milestones
 
-After M42 (P-9, purchasing end to end by email). Migrations, the collector's host and the
+After M42 (P-9, purchasing end to end by email; main took M41–M42, so the area is M43–M50).
+Migrations, the collector's host and the
 site Worker's first code each get their own PR (CLAUDE.md). Each milestone ends green.
 
 | Milestone | What | Migration | Needs |
@@ -227,8 +234,8 @@ site Worker's first code each get their own PR (CLAUDE.md). Each milestone ends 
 | **Phase 0** (owner, no code) | §8 | — | — |
 | **M43** Measurement | Client zero; the pack skeleton and manifest; `website` connector; collector on its own host; the script, `data-track` names and `/no-measure` on mezonas.com; bot heuristics; nightly rollups and the retention sweep; privacy policy update | 0037 | D1, D2, privacy wording reviewed |
 | **M44** Read screens | Overview, Pages, Sources; then Journeys, Audience, Visits; demo traffic on staging and the Sandbox; ops MCP read tools | — | A design pass or the brief (F12) |
-| **M45** Search | `gsc` and `bing_webmaster` connectors against fakes, then live; 16 months of history; the Search screen | 0038 | Search Console and Bing set up (§8) |
-| **M46** Content | Content tables, editor and checks, the claims list, `site.publish` and the always-signed verb, the site Worker serving `/guides/*` and the sitemap from R2, IndexNow, preview links | 0039 | Claims list reviewed |
+| **M45** Search | `gsc` and `bing_webmaster` connectors against fakes, then live; 16 months of history; the Search screen | 0038 (all of M45–M48's tables, §1.73) | Search Console and Bing set up (§8) |
+| **M46** Content | Content tables, editor and checks, the claims list, `website.publish` and the always-signed verb, the site Worker serving `/guides/*` and the sitemap from R2, IndexNow, preview links | in 0038 | Claims list reviewed |
 | **M47** Agents 1 | The weekly report and titles templates; the figures check; the monthly cap if missing | — | M44, M45 |
 | **M48** Agents 2 | `web.search` / `web.fetch` platform tools; article drafts; `hackernews` connector and the forum watch | — | M46 |
 | **M49** Social posts | `linkedin` connector and the social posts template | — | LinkedIn's app approval |
@@ -300,7 +307,7 @@ milestone is built.
 - `docs/ARCHITECTURE.md` v0.16: §1 scope (the Marketing area in, the F9 exception), §12.0's area
   table (Marketing, built), §12.5 the Marketing pack, §6 the four connectors, §5 the tables, §14
   the routes and the collector, §17 the new secrets and vars.
-- `docs/plan.md`: §1.72 for these decisions, §4 M43–M50, §8.3 migrations 0037–0039.
+- `docs/plan.md`: §1.72 and §1.73–§1.78 for these decisions, §4 M43–M50, §8.3 migrations 0037–0038.
 - `docs/plan.md` §1.29 and `apps/site/README.md`: the site measures, and serves guides.
 - `CLAUDE.md` status and layout (`packs/marketing`, the new connectors).
 
@@ -313,3 +320,155 @@ milestone is built.
 - **Small numbers.** mezonas.com's traffic will be small for a while: small-sample marks and
   partial days matter more here than in Plenary.
 - **Scope.** Each milestone stands alone; M43–M46 are useful without any agent.
+
+## 11. Wave contract (M44–M50)
+
+M44–M50 are built in parallel by several builders on one foundation (`docs/plan.md` §1.73,
+branch `claude/marketing-foundation`). This section is what they share. A builder edits the files
+it owns, plus the shared lines named here, and records its decisions in its own subsection of
+`docs/plan.md` (§1.74 M44, §1.75 M45, §1.76 M46, §1.77 M47–M49, §1.78 M50). Nobody but the
+foundation edits `packs/marketing/src/schema.ts`, `manifest.ts`, `index.ts`, `pack.ts` or a
+migration: a schema change goes to the lead as a blocker.
+
+### 11.1 What the foundation built
+
+- **Migration 0038**: every later table of the area (§4.4–§4.6): `search_source`,
+  `search_query_daily`, `search_page_daily`, `content_page`, `content_version`, `content_publish`,
+  `content_redirect`, `claims_version`, `marketing_report`, `marketing_report_action`,
+  `forum_thread`, `forum_reply`. Each has `tenant_id`, forced RLS, `pack:marketing` and composite
+  keys to the same client's site, agent version, run, connection and external action. Insert only:
+  `content_version`, `content_publish`, `claims_version`. Only some columns change (triggers):
+  `content_page` (status, live version), `marketing_report` (read at, read by),
+  `marketing_report_action` (decision, by, at), `forum_reply` (status, poster, decision, posted
+  at, reason). The runtime deletes only a day of search figures (an import replaces it).
+  `packs/marketing/src/schema.ts` holds the enums (`SEARCH_PROVIDERS`, `CONTENT_STATUSES`,
+  `FORUM_REPLY_STATUSES`, …); `src/testing.test-helper.ts` makes a client with an agent version,
+  a run, a website connection, an external action and a site for database tests.
+- **Areas** (`packs/marketing/src/pack.ts`): each of `measure/`, `search/`, `content/`,
+  `agents/`, `forum/` exports one `AREA: AreaModule` from its `index.ts`: `TOOLS`, `SKILLS`,
+  `TEMPLATES`, `EVENTS`, `SCREENS` (portal), `REPORTS`, `ACTIONS` and an optional `NIGHTLY` (run
+  after measurement's nightly pass, 03:41 UTC). `manifest.ts` adds them up and refuses a name two
+  areas use. Helpers: `defineTool` (id `marketing.<area>.<what>`, `none` or `internal` only),
+  `defineReport` (with its `query` schema), `defineAction`, `PackRefusal` (a 422),
+  `siteRangeQuery(extra)` / `SiteRangeQuery` (`site`, `from`, `to`). A pack tool gets
+  `PackToolContext` (client, agent version, run, mode, the skill's settings, `db`, `llm`) and opens
+  its own `withTenant(db, tenantId, …)`.
+- **Report query parameters** (platform): the pack report routes (portal and back office, JSON,
+  CSV and items) pass `?name=value` strings to the report's `query` schema; a failure is a 400
+  `invalid_query`; `client` never reaches the pack.
+- **Verbs a person always signs** (platform): a tool with `approval: 'always'` (on `ToolSpec`, or
+  `defineWriteTool({ approval: 'always' })` in a connector) never runs without a person: no matrix,
+  grant, step or mode loosens it; the card says why (`always`); validation refuses a step set to
+  `not_required` (`approval_always`); a reach-out plan never carries one.
+- **Back office shell**: the sidebar's Marketing entry (`/ops/marketing`) opens our own client
+  (`internal`) with the pack on, offers a choice when there are several, and says how to set one
+  up when there are none. A client's pages are `/ops/clients/:clientId/marketing/<page>`, one route
+  line each in `apps/web/src/ops/routes.tsx`, each a stub file in
+  `apps/web/src/packs/marketing/ops/` inside `MarketingLayout` (the area's sub-navigation).
+  `ops/api.ts`: `useMarketingReport(clientId, report, query)`, `useMarketingItem`,
+  `marketingCsvHref`, `runMarketingAction`. `ops/paths.ts`: `MARKETING_PATHS`.
+
+### 11.2 Who owns what
+
+| Builder | Milestone | Owns | Shared lines it may touch |
+|---|---|---|---|
+| Screens | M44 | `packs/marketing/src/measure/**` (new report modules beside `rollup.ts`), `src/reports.ts`, `src/sites.ts`, `src/demo.ts`; `apps/web/src/packs/marketing/ops/{Overview,Pages,PageDetail,Sources,Journeys,Audience,Visits,Visit,Sites}.tsx` and files they import named after them; the ops MCP's marketing read tools | `apps/api/src/mcp/ops-tools.ts` (its block); `apps/web/src/packs/marketing/ops/layout.tsx` (shared parts only, e.g. a site and range picker) |
+| Search | M45 | `packages/connectors/src/{gsc,bing_webmaster}/` (with fakes and `NOTES.md`); `packs/marketing/src/search/**`; `apps/web/src/packs/marketing/ops/Search.tsx` | `apps/api/src/platform.ts` (one line per connector); `packages/core/src/compliance/processors.ts` (Google, Microsoft rows) |
+| Content | M46 | `packs/marketing/src/content/**` (checks, claims lint, Markdown, the editor's reports and actions); `docs/marketing/claims.md` (draft); `apps/web/src/packs/marketing/ops/{Content,ContentPage,Claims}.tsx` | — |
+| Site | M46 | `packages/connectors/src/website/` (`website.publish`, `website.meta`, always signed; writes R2 per §11.4; IndexNow); `apps/site/**` (guides and the sitemap served from R2, behind §11.5's flags) | `apps/api/src/platform.ts`; `apps/api/wrangler.jsonc` and `apps/site/wrangler.jsonc` (bindings commented out until the owner sets them) |
+| Agent platform | M47–M48 | `web.search` and `web.fetch` (`packages/agents/src/tools/web.ts`, `packages/llm` server tools if needed); the monthly cap per client agent if missing (§1, table) | `packages/core/src/compliance/processors.ts` (the research vendor) |
+| Agent set | M47–M49 | `packs/marketing/src/agents/**` (skills, templates, `marketing.site.figures`, `marketing.site.page`, `marketing.report.record` and the figures check), `src/forum/**`; `packages/connectors/src/{hackernews,linkedin}/`; `apps/web/src/packs/marketing/ops/{Reports,Report,Forum}.tsx` | `apps/api/src/platform.ts` |
+| Clients | M50 | the portal's reports (`apps/web/src/packs/marketing/portal/`, registered in `apps/web/src/packs/registry.ts`), the snippet on a site's page, HIPAA refusal, processor wording drafts | `packs/marketing/src/measure/index.ts` `SCREENS` (with the screens builder's agreement) |
+
+As built (integrated on `claude/marketing-wave`): the content builder wrote the `website`
+connector and the platform's person-signed write (plan §1.76); the agent platform builder wrote
+`hackernews`, `linkedin` and `src/forum/**`'s tools and actions (plan §1.77). The agent set builds
+the skills, templates and screens on those.
+
+### 11.3 Names
+
+**Tools.** Pack (`marketing.`): `site.figures`, `site.page` (none; agent set), `search.figures`
+(none; search), `content.get` (none), `content.check` (none, pure), `content.draft` (internal;
+content), `report.record` (internal; agent set), `forum.threads.unseen` (none), `forum.thread.mark`
+and `forum.reply.draft` (internal; agent platform, plan §1.77). Connectors: `website.publish`, `website.meta` (external, always signed;
+content builder, plan §1.76); `hackernews.search`, `hackernews.thread` (none; agent platform);
+`linkedin.post` (external, always signed; agent platform, M49). Platform: `web.search`, `web.fetch` (none; agent platform).
+Search Console and Bing have no tools: their nightly sync fills the search tables. M50: Search
+Console by Google sign-in is its own connector, `gsc_oauth`, beside `gsc` (plan §1.78).
+
+**Skills** (`marketing.`): `weekly-report`, `titles`, `article-draft`, `forum-reply`,
+`social-post`. **Templates** (slugs): `site-report`, `titles`, `article-drafts`, `forum-watch`,
+`social-posts`; every step that can write starts with approval on (the manifest test checks).
+**Events**: `marketing.site.goal`, `marketing.search.imported`, `marketing.content.published`.
+
+**Reports** (`GET /api/ops/clients/:id/reports/marketing/<name>`, `…/csv`, `…/items/:itemId`;
+`site` is a site's id and defaults to the client's first site; `from` and `to` are `yyyy-mm-dd`
+and default to the report's period, the last 28 finished days):
+
+| Report | Query | Owner |
+|---|---|---|
+| `overview` | `site`, `from`, `to` | Screens |
+| `pages` | `site`, `from`, `to` | Screens |
+| `page` | `site`, `from`, `to`, `path` (required) | Screens |
+| `sources` | `site`, `from`, `to`, `group` | Screens |
+| `journeys` | `site`, `from`, `to` | Screens |
+| `audience` | `site`, `from`, `to`, `country`, `region` | Screens |
+| `visits` | `site`, `day` (default yesterday) | Screens |
+| `visit` | `site`, `day`, `visit` (32 hex; not an item: a visit has no uuid) | Screens |
+| `sites` | — | Screens |
+| `search` | `site`, `provider` (`google`, `bing`), `from`, `to` | Search |
+| `search-sources` | `site` | Search |
+| `content` | `site`, `status`; item: a `content_page` id | Content |
+| `claims` | — | Content |
+| `reports` | `site`; item: a `marketing_report` id | Agent set |
+| `forum` | `status`, `source` | Agent set |
+| `weekly-report` | `site`; item: a `marketing_report` id. The portal's read-only projection of `reports` (plan §1.78) | Clients |
+
+The portal reads only `overview`, `search` and `weekly-report` (the pack's portal screens,
+`portalReports`; plan §1.78).
+
+**Actions** (`POST /api/ops/clients/:id/packs/marketing/actions/<name>`, a person's, never an
+agent's): `add-site`, `update-site` (M43); `set-search-source`, `import-search` (search);
+`create-page`, `save-version`, `publish`, `unpublish`, `add-redirect`, `save-claims` (content;
+`publish` and `unpublish` go through `website.publish` as an external action the person signs);
+`mark-report-read`, `decide-report-action`, `add-forum-thread`, `decide-forum-reply`,
+`mark-forum-posted` (agent set).
+
+**Back-office routes** (`/ops/clients/:clientId/marketing/…`): `overview`, `pages`,
+`pages/detail?path=`, `sources`, `journeys`, `audience`, `visits`, `visits/:visit`, `search`,
+`content`, `content/:pageId`, `claims`, `reports`, `reports/:id`, `forum`, `sites`; and
+`/ops/marketing`, the entry. Test ids: `marketing-<screen>-<element>-<action>`.
+
+### 11.4 Published guides in R2
+
+One bucket, bound as `SITE_CONTENT` (to `apps/api`, which writes, and `apps/site`, which reads).
+A guide's page is `content_page.path` = `/guides/<slug>`, `<slug>` matching
+`^[a-z0-9]+(-[a-z0-9]+)*$`. Keys, per measured site's domain (no `www.`):
+
+- `site/<domain>/guides/<slug>.json`: `{ "title", "description", "html", "publishedAt" }`, the
+  rendered fragment the site's layout wraps (`html` is the page's body, checked and escaped by
+  the content checks; the site adds nothing from it to its head but the title and description).
+- `site/<domain>/sitemap.json`: `{ "updatedAt", "urls": [{ "path", "lastmod" }] }`, the guides
+  live now; the site merges it with its own pages into `/sitemap.xml`.
+- `site/<domain>/redirects.json`: `[{ "from", "to" }]`, from `content_redirect`.
+
+Unpublishing deletes the guide's key and rewrites the sitemap. If the API or the database is
+down, the site serves the last copy.
+
+### 11.5 Nothing public changes on merge
+
+Anything a visitor or a third party would see is off until the owner sets the flag; merging
+changes nothing for visitors. Each is read at request time, and absent means off:
+
+| Flag (where) | Turns on |
+|---|---|
+| `SITE_CONTENT` binding (`apps/api`) | `website.publish` and `website.meta` writing to R2; without it they refuse with "publishing isn't set up" |
+| `SITE_GUIDES=on` var plus the `SITE_CONTENT` binding (`apps/site`) | The site serving `/guides/*`, `/sitemap.xml` and redirects from R2; else it stays static |
+| `INDEXNOW_KEY` secret (`apps/api`) | Pinging IndexNow after a publish |
+| `SITE_MEASURE=on` (the site's build) | The inline measurement script and `/no-measure` (after the lawyer, §8.4) |
+| `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` (`apps/api`) | Signing in to LinkedIn, so `linkedin.post` can run once signed |
+| `MARKETING_RESEARCH=on` (`apps/api`) | `web.search` and `web.fetch` calling the vendor; off, they answer "research is off" |
+
+Search Console and Bing only read; they call the provider only once a key is in the client's
+vault, and use their fakes in tests. Staging's `website` connection writes to staging's bucket,
+which nothing public reads.

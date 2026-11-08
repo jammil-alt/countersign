@@ -6,10 +6,11 @@
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
 import type { PackManifest } from "@countersign/core";
-import type { Db } from "@countersign/db";
+import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
   MARKETING_ACTIONS,
+  MARKETING_HANDLERS,
   MARKETING_INBOUND,
   MARKETING_NIGHTLY,
   MARKETING_REPORTS,
@@ -21,18 +22,66 @@ import {
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
   materialsManifest,
-  type PackActionHandler,
-  type PackReportHandler,
   type PackReviewHandler,
   type PackTool,
   packToolContext,
 } from "@countersign/pack-materials";
+import type { z } from "zod";
+import type { SignedWrite } from "./signed-writes";
+
+/**
+ * A pack's report, as the generic report routes call it (routes/packs.ts). §1.73: with its
+ * query parameters, checked by the pack's own `query` schema; a report without one gets `{}`.
+ */
+export interface PackReportHandler {
+  title: string;
+  query?: z.ZodType;
+  json(
+    tx: Tx,
+    tenantId: string,
+    today: string,
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+  csv(tx: Tx, tenantId: string, today: string, query: Record<string, unknown>): Promise<string>;
+  /** P-9: one row in full (e.g. one purchase request); null when it isn't this client's. */
+  item?(
+    tx: Tx,
+    tenantId: string,
+    id: string,
+    today: string,
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null>;
+}
+
+/** A back-office action on one client's pack data (a person's, never an agent's). */
+export interface PackActionHandler {
+  input: z.ZodType;
+  run(
+    db: Db,
+    ctx: {
+      tenantId: string;
+      userId: string;
+      input: unknown;
+      /**
+       * M46 (docs/plan.md §1.76): a change outside this person signs as they take the action
+       * (publishing a guide), run once through its connector as an external action they
+       * approved (signed-writes.ts). A pack that writes nothing outside never calls it.
+       */
+      signedWrite?: SignedWrite;
+    },
+  ): Promise<Record<string, unknown>>;
+}
 
 export interface RegisteredPack {
   manifest: PackManifest;
   handlers: Readonly<Record<string, PackTool>>;
   /** Its client reports by name (`/api/reports/:pack/:report`). */
   reports?: Readonly<Record<string, PackReportHandler>>;
+  /**
+   * M50 (docs/plan.md §1.78): the reports the portal may read (JSON, CSV and items); the others
+   * are the back office's. Absent: every report (Materials').
+   */
+  portalReports?: readonly string[];
   /** Its inbox review cards by the `review` key of an item's payload (e.g. `materials.match`). */
   reviews?: Readonly<Record<string, PackReviewHandler>>;
   /** People's actions on a client's pack data from the back office (e.g. a catalog merge). */
@@ -44,6 +93,11 @@ export interface RegisteredPack {
   inbound?: PackInbound;
   /** M43: its nightly pass over every client with it on, at this UTC hour and minute. */
   nightly?: PackNightly;
+  /**
+   * M46: the reports whose items are pages a preview link may show (routes/pack-preview.ts):
+   * each item a checked fragment `{ title, description, html, path, domain }`.
+   */
+  previews?: readonly string[];
 }
 
 /** What the inbound route hands a pack: the body (capped at `maxBytes`) and the request's facts. */
@@ -69,6 +123,19 @@ export interface PackNightly {
   run(db: Db, now: Date, onError?: (tenantId: string, error: unknown) => void): Promise<unknown>;
 }
 
+/**
+ * M50: the reports a pack's portal screens name (`/reports/<pack>/<report>`), for `portalReports`.
+ */
+// DECISION: the pack's own portal screens decide what its portal reads, so a pack lists a report
+// once (its screen) and a new back-office report never reaches the portal by default.
+export function screenReports(manifest: PackManifest): string[] {
+  const prefix = `/reports/${manifest.id}/`;
+  return manifest.screens
+    .filter((s) => s.route.startsWith(prefix))
+    .map((s) => s.route.slice(prefix.length).split("/")[0] ?? "")
+    .filter((name) => name.length > 0);
+}
+
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
 export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
   {
@@ -78,14 +145,21 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     reviews: MATERIALS_REVIEWS,
     actions: MATERIALS_ACTIONS,
   },
-  // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first.
+  // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first. §1.73: its tools
+  // come from its areas, adapted like Materials' (the pack's tool context is a part of theirs).
   {
     manifest: marketingManifest,
-    handlers: {},
+    handlers: MARKETING_HANDLERS,
     reports: MARKETING_REPORTS,
     actions: MARKETING_ACTIONS,
     inbound: MARKETING_INBOUND,
     nightly: MARKETING_NIGHTLY,
+    // M46: a guide's version before it is public (docs/plan.md §1.76).
+    previews: ["content-preview"],
+    // M50 (docs/plan.md §1.78): the client's portal reads the reports its screens name (website,
+    // search, weekly report); the rest (visits, content, claims, the forum watch) stay in the
+    // back office.
+    portalReports: screenReports(marketingManifest),
   },
 ];
 

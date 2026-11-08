@@ -133,6 +133,10 @@ describe.skipIf(!h)("back office connections", () => {
           expect.objectContaining({ id: TESTKIT_UPDATE_TOOL, verb: "update" }),
         ]),
       }),
+      // The Marketing pack's connectors, registered on every platform (api.test-helper.ts).
+      expect.objectContaining({ id: "hackernews", auth: "none" }),
+      expect.objectContaining({ id: "website" }),
+      expect.objectContaining({ id: "linkedin" }),
     ]);
     expect(body.usedBy).toEqual({ [H.A.connectionId]: [] });
     expect(JSON.stringify(body)).not.toContain("credentialsEncrypted");

@@ -255,6 +255,59 @@ describe.skipIf(!harness)("runtime", () => {
     }
   });
 
+  // §1.73: publishing and posting are signed by a person, whatever the matrix, step and mode say.
+  it("a verb a person always signs waits even when everything else would let it run", async () => {
+    const kit = defineConnector({
+      id: "testkit",
+      name: "Testkit",
+      description: "The testkit's update, always signed.",
+      icon: "flask",
+      auth: "none",
+      entities: ["Record"],
+      tools: [
+        defineWriteTool({
+          id: TESTKIT_UPDATE_TOOL,
+          description: "Change a record's amount.",
+          verb: "update",
+          approval: "always",
+          input: z.object({ id: z.string(), amount: z.string() }),
+          output: z.object({ record: TestkitRecord }),
+          beforeSchema: TestkitRecord,
+          before: async (input) => ({
+            id: input.id,
+            name: "Oak board",
+            amount: "1.00",
+            syncToken: "0",
+          }),
+          run: async (input, ctx) => ({
+            record: h.backend.update(ctx.connection.id, ctx.idempotencyKey, input),
+          }),
+        }),
+      ],
+    });
+    const deps: RuntimeDeps = {
+      ...h.deps(),
+      tools: new ToolRegistry({
+        platform: PLATFORM_TOOLS,
+        connectors: new ConnectorRegistry([kit]),
+      }),
+    };
+    await h.setPermissions(h.A, { update: "auto" });
+    try {
+      const writes = h.backend.writes.length;
+      const s = await step(h.A, { mode: "act", approval: "not_required" });
+      const out = await callTool(deps, s, update("8.88"));
+      expect(out.status).toBe("awaiting_approval");
+      expect(h.backend.writes.length).toBe(writes);
+      const [item] = await h.client(h.A, (tx) =>
+        tx.select().from(inboxItem).where(eq(inboxItem.runId, s.runId)),
+      );
+      expect(item?.payload).toMatchObject({ whyApproval: { reasons: ["always"] } });
+    } finally {
+      await h.setPermissions(h.A, {});
+    }
+  });
+
   it("a client tightening the matrix overrides a step set to skip approval, at once", async () => {
     await h.setPermissions(h.A, { update: "auto" });
     const s = await step(h.A, { mode: "act", approval: "not_required" });
@@ -781,6 +834,74 @@ describe.skipIf(!harness)("runtime", () => {
       stepId: LOOKUP_STEP,
     });
     expect(result.status === "escalated" && result.reason).toBe("max_cost");
+  });
+
+  // §1.77: the monthly cap per client agent.
+  it("escalates when the client agent's month is spent, counting this month's runs only", async () => {
+    const pinned = makeBundle({ maxMonthlyCostUsd: "0.0100" });
+    const a = await h.ops(async (tx) => {
+      const { agent: tpl, version } = await createTemplate(tx, { slug: "monthly", bundle: pinned });
+      await publish(tx, { agentId: tpl.id, versionId: version.id, ctx: h.ctx });
+      const f = await fork(tx, {
+        tenantId: h.A.tenantId,
+        slug: "monthly",
+        templateVersionId: version.id,
+      });
+      await updateOperational(tx, {
+        agentId: f.agent.id,
+        patch: { bindings: { testkit: h.A.connectionId } },
+      });
+      await publish(tx, { agentId: f.agent.id, versionId: f.version.id, ctx: h.ctx });
+      await tx.update(agent).set({ runStatus: "active" }).where(eq(agent.id, f.agent.id));
+      return f;
+    });
+    const start = (cost: string, createdAt?: Date) =>
+      h.client(h.A, async (tx) => {
+        const r = await createRun(tx, {
+          tenantId: h.A.tenantId,
+          agentId: a.agent.id,
+          workflowSlug: "check-record",
+          mode: "live",
+        });
+        await tx
+          .update(run)
+          .set({ costUsd: cost, ...(createdAt ? { createdAt } : {}) })
+          .where(eq(run.id, r.id));
+        return r;
+      });
+    const lookup = (runId: string, model: FakeModel) =>
+      runAgent(h.deps(model), {
+        tenantId: h.A.tenantId,
+        agentVersionId: a.version.id,
+        skill: "test.lookup",
+        input: { name: "Oak" },
+        runId,
+        stepId: LOOKUP_STEP,
+      });
+    // Last month's spend doesn't count: the step runs and finishes.
+    const now = new Date();
+    await start("5.0000", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)));
+    const fresh = await start("0");
+    const ok = new FakeModel([{ toolUse: { name: "finish", input: { answer: "Oak is there" } } }]);
+    expect((await lookup(fresh.id, ok)).status).toBe("succeeded");
+    // This month's runs have spent the cap: the step stops before any model call.
+    await start("0.0100");
+    const over = await start("0");
+    const model = new FakeModel([
+      { toolUse: { name: "finish", input: { answer: "Oak is there" } } },
+    ]);
+    const result = await lookup(over.id, model);
+    expect(result.status === "escalated" && result.reason).toBe("max_monthly_cost");
+    expect(model.requests).toHaveLength(0);
+    if (result.status !== "escalated") throw new Error("not escalated");
+    const [item] = await h.client(h.A, (tx) =>
+      tx.select().from(inboxItem).where(eq(inboxItem.id, result.inboxItemId)),
+    );
+    expect(item?.title).toContain("monthly budget reached");
+    expect(item?.payload).toMatchObject({
+      reason: "max_monthly_cost",
+      maxMonthlyCostUsd: "0.0100",
+    });
   });
 
   it("skills that produce alerts must cite sources", async () => {

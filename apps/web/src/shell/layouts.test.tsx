@@ -126,6 +126,7 @@ describe("back office layout", () => {
       "Connectors",
       "Packs",
       "Usage and billing",
+      "Marketing",
       // Under More.
       "Feedback",
       "Audit log",

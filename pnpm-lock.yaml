@@ -459,12 +459,18 @@ importers:
 
   packs/marketing:
     dependencies:
+      '@countersign/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@countersign/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@countersign/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@countersign/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@4.0.0)
