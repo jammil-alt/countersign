@@ -339,7 +339,8 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
         }),
       };
     } catch (error) {
-      if (error instanceof Error && error.name === "MatchError") {
+      // A pack's refusal (Materials' MatchError; `PackRefusal` for any pack's own) is a 422.
+      if (error instanceof Error && (error.name === "MatchError" || error.name === "PackRefusal")) {
         throw new HttpError(422, "refused", error.message);
       }
       throw error;

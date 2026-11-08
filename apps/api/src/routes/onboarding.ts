@@ -32,6 +32,7 @@ import {
 import { and, count, desc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import { INTERNAL_SETTING, isInternal } from "../internal-client";
 import { mailerFromEnv } from "../notify/mailer";
 
 type TenantRow = typeof tenant.$inferSelect;
@@ -411,7 +412,13 @@ async function opsSettings(
   const approver = (v: unknown): ExternalApprover =>
     v === "operator" ? "operator" : "client_admin";
   return {
-    client: { id: t.id, name: t.name, timezone: t.timezone, sandbox: t.settings.sandbox === true },
+    client: {
+      id: t.id,
+      name: t.name,
+      timezone: t.timezone,
+      sandbox: t.settings.sandbox === true,
+      internal: isInternal(t.settings),
+    },
     approvals: {
       externalActions: approvalsOf(t.settings),
       changes: changes
@@ -454,8 +461,22 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
     const from = approvalsOf(t.settings);
     const approvalsChange = body.approvals !== undefined && body.approvals !== from;
     if (approvalsChange && body.approvals) set.settings = withApprovals(t.settings, body.approvals);
+    // M43: whether the client is one of our own; logged like the approvals.
+    const wasInternal = isInternal(t.settings);
+    const internalChange = body.internal !== undefined && body.internal !== wasInternal;
+    if (internalChange) {
+      set.settings = { ...(set.settings ?? t.settings), [INTERNAL_SETTING]: body.internal };
+    }
     if (Object.keys(set).length === 0) throw new HttpError(409, "no_op", "nothing changed");
     await tx.update(tenant).set(set).where(eq(tenant.id, t.id));
+    if (internalChange) {
+      await tx.insert(tenantChange).values({
+        tenantId: t.id,
+        actorId: session.user.id,
+        change: { setting: INTERNAL_SETTING, from: wasInternal, to: body.internal },
+        reason: body.reason ?? "",
+      });
+    }
     if (approvalsChange) {
       // DECISION: who approves a client's external actions is logged like the feedback switch
       // (tenant_change), with the reason when one is given (stored empty otherwise).

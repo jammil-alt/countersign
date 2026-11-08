@@ -32,6 +32,7 @@ import {
 import { type EmitPosted, leadThread, postMessage } from "@countersign/threads";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { HttpError } from "../http";
+import { isInternal } from "../internal-client";
 import { candidatesFor, enqueue, type NotificationRow } from "../notify/outbox";
 import { clientPeople, type TenantRow } from "../notify/people";
 import type { Platform } from "../platform";
@@ -152,7 +153,8 @@ export async function weeklyTick(
   now: Date,
   origin: string,
 ): Promise<boolean> {
-  if (t.retiredAt || t.settings.sandbox === true) return false;
+  // M43: one of our own clients (Mezonas) gets no Weekly Table, like the Sandbox.
+  if (t.retiredAt || t.settings.sandbox === true || isInternal(t.settings)) return false;
   const draft = draftDueWeek(now, t.timezone);
   if (draft && clientHad(t, draft) && !(await weeklyRow(tx, t.id, draft))) {
     await makeDraft(tx, t, platform, draft, now);

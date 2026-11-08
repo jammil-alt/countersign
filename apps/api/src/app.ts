@@ -3,6 +3,7 @@
 
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { routes } from "@countersign/core";
+import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
@@ -31,6 +32,7 @@ import { originOf } from "./notify/outbox";
 import { notifyDepsFromEnv, notifyTick } from "./notify/tick";
 import { healthTick } from "./observability/health";
 import { reportHandled } from "./observability/report";
+import type { RegisteredPack } from "./packs";
 // v0.12 W3-B
 import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
@@ -85,6 +87,7 @@ import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsSkillRoutes } from "./routes/ops-skills";
+import { packInboundRoutes } from "./routes/pack-inbound";
 // P-1: packs (docs/plan.md §1.63).
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
@@ -165,6 +168,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   gsheetsRoutes(app);
   webhookSetupRoutes(app);
   hookRoutes(app);
+  // M43: what a pack takes from outside with no session (a measured website's beacon).
+  packInboundRoutes(app);
   documentRoutes(app);
   feedbackRouteHandlers(app);
   onboardingRouteHandlers(app);
@@ -339,9 +344,36 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         reportHandled("retention sweep failed", error, { job: "retention" }),
       );
     }
+    // M43: each pack's nightly pass (the Marketing pack's build of yesterday's visits and its
+    // retention sweep), at the pack's own UTC hour and minute. One client's failure is reported
+    // and the pass goes on with the next.
+    await packNightly(db, platform.packs, scheduledTime).catch((error: unknown) =>
+      reportHandled("pack nightly tick failed", error, { job: "pack_nightly" }),
+    );
   } finally {
     await close();
   }
+}
+
+/** Runs every registered pack's nightly pass whose hour and minute this tick is. */
+export async function packNightly(
+  db: Db,
+  packs: readonly RegisteredPack[],
+  at: Date,
+): Promise<number> {
+  let ran = 0;
+  for (const pack of packs) {
+    const n = pack.nightly;
+    if (!n || at.getUTCHours() !== n.hour || at.getUTCMinutes() !== n.minute) continue;
+    ran += 1;
+    const tags = { job: "pack_nightly", pack: pack.manifest.id };
+    await n
+      .run(db, at, (tenantId, error) =>
+        reportHandled("pack nightly failed for a client", error, { ...tags, tenant: tenantId }),
+      )
+      .catch((error: unknown) => reportHandled("pack nightly failed", error, tags));
+  }
+  return ran;
 }
 
 export const app = createApp();
