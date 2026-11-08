@@ -2046,10 +2046,23 @@ guides and the flags that keep public things off. Hot-spot edits are lines marke
 
 ### 1.74 M44: read screens
 
-Decisions for M44 (the screens builder) go here.
+The back office's read screens of a client's website, their reports, the Sandbox's sample traffic,
+the internal-client switch and the ops MCP's read of them (branch `claude/marketing-screens`).
 
 | Topic | Decision |
 |---|---|
+| Reports | `overview`, `pages`, `page`, `sources`, `journeys`, `audience`, `visits`, `visit`, `sites` (`packs/marketing/src/measure/`, registered in `measure/index.ts`), from the site tables only: daily totals per page, click and source for the figures; the visits' page lists for where readers came from and went next, journeys, audience and the visit list; the raw events only for one visit's steps and a referrer's own pages, which are kept 90 days (and say so). Each reports one site: the query's, else the client's first. |
+| The period | `period` 7, 28 or 90 finished days to yesterday (UTC), 28 by default; `from` and `to` override it (400 days at most). Every report says its range, the days before it, `includesToday` (today is never built until the night after) and `dataThrough` (the last day the nightly build finished), so a screen marks today and the days not counted yet rather than show them as quiet. // DECISION |
+| Medians | From the engaged-time bands the daily tables keep, so a median is a band ("30 s to 1 min"), never invented to the second. Audience and the visit list, which read visits, give a visit's median to the second. // DECISION |
+| Small samples | Under 20 visits (or a page's views) behind a figure: shown, with `smallSample` and a "Small sample" tag. "Best path" is the highest goal rate among paths of 20 visits or more, else the one with most goals. // DECISION |
+| A site that isn't the client's | A `site` the client doesn't have reads as no site: empty figures, `site: null`, the same answer as a client with no site yet; it says nothing about other clients. // DECISION |
+| Visits, never times | The visit list and a visit give a day, never a time of day; a day's visits are listed in the order of their hash, which is random. The audience's day-by-hour grid counts visits by the hour they started, in the client's own time zone (`tenant.timezone`, UTC if Postgres doesn't know it). // DECISION |
+| Filters in the address | A screen's site, period and own filters are query parameters, so a figure on one screen links to the visits behind it, and the sub-navigation keeps the site and period. Shared parts (picker, range line, words for bands and rates, the privacy line, phone-width tables) are in `apps/web/src/packs/marketing/ops/layout.tsx`. |
+| The snippet | One function (`ops/SitesSnippet.ts`, `siteSnippet`) writes the inline script a site owner pastes before `</body>`: it posts to `<app origin>/api/in/marketing/<client id>/<site id>` as text (`sendBeacon` with a string, or a no-cors `fetch`), so a browser sends it across origins without a preflight; it honours Global Privacy Control, Do Not Track and `localStorage["mezonas-measure"] = "off"`; it counts clicks on `data-track` elements and `data-track-form` elements coming into sight. Ported from Plenary Labs' `track.js`. // DECISION: the app's own origin, until the collector's host (`collect.mezonas.com`) has its own PR. |
+| Sample traffic | `packs/marketing/src/demo.ts`: deterministic for its days and seed (ported from Plenary Labs' `sample.ts`, reshaped for a small business's site: a few dozen visits a day, a Hacker News spike, a newsletter). The `sample-traffic` action fills the Sandbox's first site's last 28 finished days (adding a sample site, or the sample's goals, when missing), replacing those days' events and filtered requests, then runs the nightly build on each; any other client is refused (`not_sandbox`). A person's action from Sites, never an agent's. // DECISION |
+| One of ours | The client settings' General section has the switch (`PATCH /api/ops/clients/:id/settings {internal, reason}`), saved and logged as the approvals are. |
+| The ops MCP | One read tool, `marketing_report` (client, report, query), over the back office's pack report route, so roles, client scope and the query schema are the screens'. |
+| Not in M44 | The collector's own host; the portal's screens (M50); search figures on these screens (M45). |
 
 ### 1.75 M45: search
 

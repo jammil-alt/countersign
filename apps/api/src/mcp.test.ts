@@ -445,6 +445,7 @@ describe.skipIf(!h)("MCP server", () => {
         "connections_list",
         "records_search",
         "ops_health",
+        "marketing_report",
       ]);
       for (const t of tools) {
         expect(t.inputSchema.type).toBe("object");
@@ -559,6 +560,7 @@ describe.skipIf(!h)("MCP server", () => {
         ["connections_list", { client: H.C.tenantId }],
         ["records_search", { client: H.C.tenantId }],
         ["ops_health", { client: H.C.tenantId }],
+        ["marketing_report", { client: H.C.tenantId, report: "overview" }],
         ["feedback_list", { client: H.C.tenantId }],
         ["feedback_get", { id: ids.feedbackC }],
         ["feedback_resolve", { id: ids.feedbackC }],
@@ -603,6 +605,33 @@ describe.skipIf(!h)("MCP server", () => {
         expect(f.client.name).toMatch(/^Client [AB]$/);
       }
       expect((await tool(opToken, "ops_health", { hours: 0 })).isError).toBe(true);
+    });
+
+    it("marketing_report: a client's Marketing report, its query checked", async () => {
+      const off = await tool(opToken, "marketing_report", {
+        client: H.B.tenantId,
+        report: "sites",
+      });
+      expect(off.text).toMatch(/^not_found: /);
+      await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/packs/marketing/enable`);
+      const sites = await tool(opToken, "marketing_report", {
+        client: H.B.tenantId,
+        report: "sites",
+      });
+      expect(sites.isError, sites.text).toBeFalsy();
+      expect(sites.data().sites).toEqual([]);
+      const overview = await tool(opToken, "marketing_report", {
+        client: H.B.tenantId,
+        report: "overview",
+        query: { period: "7" },
+      });
+      expect(overview.data().range.days).toBe(7);
+      const bad = await tool(opToken, "marketing_report", {
+        client: H.B.tenantId,
+        report: "overview",
+        query: { period: "14" },
+      });
+      expect(bad.text).toMatch(/^invalid_query: /);
     });
 
     it("runs_list and run_get: filters, steps and the agent", async () => {
