@@ -14,6 +14,9 @@ import {
   OpsClientCatalogScreen,
   OpsClientPacksScreen,
   OpsClientPriceWatchScreen,
+  // P-9
+  OpsClientRequestScreen,
+  OpsClientRequestsScreen,
   OpsPacksScreen,
 } from "../packs/screens";
 import { OpsRecordScreen } from "../records/RecordScreens";
@@ -116,6 +119,15 @@ export const opsRoutes = (
     <Route
       path="clients/:clientId/reports/materials/catalog"
       element={<OpsClientCatalogScreen />}
+    />
+    {/* P-9: a client's purchase requests and one request's page */}
+    <Route
+      path="clients/:clientId/reports/materials/requests"
+      element={<OpsClientRequestsScreen />}
+    />
+    <Route
+      path="clients/:clientId/reports/materials/requests/:id"
+      element={<OpsClientRequestScreen />}
     />
     {/* ARCHITECTURE §15 screens not built yet */}
     <Route path="settings" element={<Placeholder title="Settings" />} />

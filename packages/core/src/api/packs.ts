@@ -64,12 +64,19 @@ export const EnablePackResponse = z.object({
 /** A pack report: the pack's own shape (see the pack's screens in apps/web). */
 export const PackReport = z.object({ report: z.record(z.string(), z.unknown()) });
 
-export const PackReviewDecision = z.strictObject({
-  docLineId: Id,
-  action: z.enum(["match", "new_item", "skip"]),
-  /** The catalog item, for `match`. */
-  catalogItemId: Id.optional(),
-});
+export const PackReviewDecision = z.union([
+  z.strictObject({
+    docLineId: Id,
+    action: z.enum(["match", "new_item", "skip"]),
+    /** The catalog item, for `match`. */
+    catalogItemId: Id.optional(),
+  }),
+  // P-9: any other card's decision, which the pack's own handler checks (docs/plan.md §1.71).
+  z.strictObject({
+    action: z.string().regex(/^[a-z][a-z_]{0,39}$/),
+    input: z.record(z.string(), z.unknown()),
+  }),
+]);
 export type PackReviewDecision = z.infer<typeof PackReviewDecision>;
 
 export const PackReview = z.object({
@@ -146,6 +153,25 @@ export const packRoutes = {
     roles: CLIENT,
     summary: "The packs on for this client, with their report screens",
     response: z.object({ packs: z.array(ClientPack) }),
+  }),
+  // P-9: one row of a pack report in full (e.g. a purchase request), docs/plan.md §1.71.
+  portalPackReportItem: defineRoute({
+    method: "GET",
+    path: "/api/reports/:pack/:report/items/:itemId",
+    auth: "session",
+    roles: CLIENT,
+    summary: "One row of a pack report in full (e.g. materials/requests: one request)",
+    params: ReportParams.extend({ itemId: Id }),
+    response: PackReport,
+  }),
+  opsClientPackReportItem: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/reports/:pack/:report/items/:itemId",
+    auth: "session",
+    roles: OPS,
+    summary: "One row of a client's pack report in full, as the client sees it",
+    params: z.object({ id: Id, pack: Slug, report: ReportName, itemId: Id }),
+    response: PackReport,
   }),
   portalPackReport: defineRoute({
     method: "GET",

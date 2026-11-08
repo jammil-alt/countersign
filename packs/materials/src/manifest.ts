@@ -229,6 +229,12 @@ export const materialsManifest: PackManifest = PackManifest.parse({
       title: "Catalog",
       roles: ["client_admin", "client_user"],
     },
+    // P-9: purchase requests, their quotes and orders (docs/plan.md §1.71).
+    {
+      route: "/reports/materials/requests",
+      title: "Purchase requests",
+      roles: ["client_admin", "client_user"],
+    },
   ],
 });
 

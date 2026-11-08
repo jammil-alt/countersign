@@ -4,7 +4,7 @@
 // enabled (the activity report names them) and mounts it at its path.
 import type { ComponentType } from "react";
 import type { PlainKey } from "../i18n/catalog";
-import { PortalCatalogScreen, PortalPriceWatchScreen } from "./screens";
+import { PortalCatalogScreen, PortalPriceWatchScreen, PortalRequestsScreen } from "./screens";
 
 export interface PackReport {
   /** The pack's id, as `tenant_pack.pack` names it, e.g. "materials". */
@@ -35,6 +35,14 @@ export const PACK_REPORTS: readonly PackReport[] = [
     titleKey: "materials.catalog.title",
     descriptionKey: "materials.catalog.description",
     Component: PortalCatalogScreen,
+  },
+  // P-9: purchase requests, then one request's page at /reports/materials/requests/:id.
+  {
+    pack: "materials",
+    slug: "requests",
+    titleKey: "materials.requests.title",
+    descriptionKey: "materials.requests.description",
+    Component: PortalRequestsScreen,
   },
 ];
 

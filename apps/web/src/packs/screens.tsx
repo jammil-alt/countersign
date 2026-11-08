@@ -20,11 +20,18 @@ import {
   SectionLabel,
 } from "../ui/primitives";
 import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
+// P-9
+import { RequestsView, RequestView } from "./materials/Requests";
 
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
 export const PortalPriceWatchScreen = () => <PriceWatchView />;
 export const PortalCatalogScreen = () => <CatalogView />;
+// P-9: the list, or one request's page when the route names it.
+export function PortalRequestsScreen() {
+  const { id } = useParams();
+  return id ? <RequestView /> : <RequestsView />;
+}
 
 // ── Back office ──────────────────────────────────────────────────────────────────────────────────
 
@@ -53,6 +60,86 @@ export function OpsClientCatalogScreen() {
     <ClientFrame clientId={clientId}>
       <CatalogView clientId={clientId} />
     </ClientFrame>
+  );
+}
+
+// P-9: a client's purchase requests and one request's page (docs/plan.md §1.71).
+export function OpsClientRequestsScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <RequestsView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+export function OpsClientRequestScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <RequestView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+/** P-9: the back office's "Import bill prices": every synced QuickBooks bill in a range. */
+function ImportBillPrices({ clientId }: { clientId: string }) {
+  const client = useApiClient();
+  const year = new Date().getUTCFullYear();
+  const [from, setFrom] = useState(`${year - 1}-01-01`);
+  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<Record<string, unknown> | null>(null);
+  const [problem, setProblem] = useState<unknown>(null);
+  return (
+    <div className="mt-4 flex flex-col gap-2" data-testid={`ops-import-bill-prices-${clientId}`}>
+      <SectionLabel>Prices from QuickBooks bills</SectionLabel>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="date"
+          className="ds-input"
+          aria-label="From"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+        />
+        <input
+          type="date"
+          className="ds-input"
+          aria-label="To"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
+        <Button
+          size="sm"
+          data-testid="ops-import-bill-prices"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setProblem(null);
+            try {
+              const res = await client.call(apiRoutes.opsClientPackAction, {
+                params: { id: clientId, pack: "materials", action: "import-bill-prices" },
+                body: { from, to },
+              });
+              setDone(res.result);
+            } catch (e) {
+              setProblem(e);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Import bill prices
+        </Button>
+      </div>
+      {done ? (
+        <p className="text-sm text-ink" data-testid="ops-import-bill-prices-done">
+          {`Recorded ${String(done.recorded)} prices from ${String(done.bills)} bills; ${String(done.needsReview)} lines to review.`}
+          {done.more ? " There are more bills: run it again." : ""}
+        </p>
+      ) : null}
+      {problem ? <ErrorNotice error={problem} /> : null}
+    </div>
   );
 }
 
@@ -209,6 +296,8 @@ export function ClientPacks({ clientId }: { clientId: string }) {
                 <PackReportLinks screens={p.screens} base={`/ops/clients/${clientId}`} />
               </div>
             ) : null}
+            {/* P-9 */}
+            {p.enabled && p.id === "materials" ? <ImportBillPrices clientId={clientId} /> : null}
           </Card>
         ))}
       </div>

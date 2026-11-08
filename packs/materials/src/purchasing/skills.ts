@@ -15,6 +15,7 @@ import {
   frequentItemsTool,
   poDocument,
   poQboLinesTool,
+  quoteChosen,
   quoteCompare,
   quoteCreate,
   quoteDocument,
@@ -278,5 +279,13 @@ export const PURCHASING_SKILLS: readonly SkillDefinition[] = [
         clientSpecific: true,
       },
     ],
+  }),
+  // P-9: what the person picked on the vendor choice card.
+  toolSkill(quoteChosen, {
+    id: "materials.chosen-vendor",
+    name: "The vendor you picked",
+    description:
+      "Reads the vendor (or the split) a person picked on the vendor choice card, for the purchase order steps.",
+    summary: "The vendor you picked: {{kind}}",
   }),
 ];

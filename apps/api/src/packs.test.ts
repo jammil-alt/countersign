@@ -97,7 +97,12 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(materials).toMatchObject({ id: "materials", name: "Materials" });
     expect(materials.templates).toEqual([]);
     expect(materials.clients.map((c: J) => c.enabled)).toEqual([false, false]);
-    expect(materials.screens.map((s: J) => s.title)).toEqual(["Price watch", "Catalog"]);
+    expect(materials.screens.map((s: J) => s.title)).toEqual([
+      "Price watch",
+      "Catalog",
+      // P-9
+      "Purchase requests",
+    ]);
   });
 
   it("validates an agent built from the pack's skills against the platform's registries", () => {

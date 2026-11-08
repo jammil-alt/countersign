@@ -490,7 +490,16 @@ export async function compareQuotes(
   ctx: PurchasingContext,
   input: { requestId: string; asOf: string; splitMinSavingPct?: number | undefined },
 ): Promise<Comparison> {
-  return withTenant(db, ctx.tenantId, async (tx: Tx) => {
+  return withTenant(db, ctx.tenantId, (tx: Tx) => compareQuotesTx(tx, ctx, input));
+}
+
+/** P-9: the same, in a transaction already scoped to the client (a screen's or a card's). */
+export async function compareQuotesTx(
+  tx: Tx,
+  ctx: Pick<PurchasingContext, "tenantId">,
+  input: { requestId: string; asOf: string; splitMinSavingPct?: number | undefined },
+): Promise<Comparison> {
+  {
     const r = await requestRow(tx, ctx.tenantId, input.requestId);
     const lines = await requestLines(tx, ctx.tenantId, r.id);
     // P-9 (0036): quotes are asked for lines that say how many; a line added without one since
@@ -560,5 +569,5 @@ export async function compareQuotes(
         available: o.available,
       })),
     });
-  });
+  }
 }
