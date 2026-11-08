@@ -2821,8 +2821,6 @@ once, and the client and the back office see the request ordered.
 
 ---
 
----
-
 ## 5. Things to verify, not assume
 
 - Intuit API details (M9) and Google's Gmail and verification rules (M10), see those milestones.
