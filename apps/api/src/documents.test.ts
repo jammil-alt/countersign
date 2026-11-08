@@ -35,17 +35,23 @@ describe.skipIf(!h)("documents API", () => {
   async function upload(email: string, files: { name: string; type: string; bytes: Uint8Array }[]) {
     const form = new FormData();
     for (const f of files) form.append("files", new File([f.bytes], f.name, { type: f.type }));
+    // The reading the upload defers goes to this waitUntil. Keep it and wait for it here, as
+    // harness.call does: a no-op waitUntil let it run untracked, so `settle()` had nothing to
+    // wait for and the checks raced it on a slow runner (main, 2026-11-08: "extracting").
+    const deferred: Promise<unknown>[] = [];
     const res = await harness.app.request(
       "/api/uploads",
       { method: "POST", headers: { [DEV_USER_HEADER]: email }, body: form },
       harness.env,
       {
-        waitUntil: () => {},
+        waitUntil: (p: Promise<unknown>) => void deferred.push(p),
         passThroughOnException: () => {},
         props: {},
       } as unknown as ExecutionContext,
     );
-    return { status: res.status, json: (await res.json()) as J };
+    const json = (await res.json()) as J;
+    while (deferred.length > 0) await Promise.all(deferred.splice(0));
+    return { status: res.status, json };
   }
 
   const ids: Record<string, string> = {};
@@ -62,9 +68,9 @@ describe.skipIf(!h)("documents API", () => {
       ["document", true],
     ]);
     for (const [i, g] of GOLDEN.entries()) ids[g.stem] = res.json.results[i].document.id;
-    // The request deferred the reading, and the harness's waitUntil has already started it: wait
-    // for that first. Starting a second reading alongside it raced: the second saw the documents
-    // as already being read and returned, and the checks below ran while the first was still going.
+    // upload() waited for the reading it deferred; settle() waits for anything else handed over.
+    // A second reading alongside the first raced: it saw the documents as already being read and
+    // returned, and the checks below ran while the first was still going.
     await harness.settle();
     // Then run it as waitUntil would; documents already read are left as they are.
     const { extractInBackground } = await import("./routes/documents");
