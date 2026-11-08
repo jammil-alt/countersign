@@ -20,6 +20,7 @@ import {
   type Services,
 } from "../http";
 import type { PackReportHandler, RegisteredPack } from "../packs";
+import { signedWriteFor } from "../signed-writes";
 import { portalInboxFilter } from "./portal";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -362,6 +363,8 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
           tenantId: params.id,
           userId: session.user.id,
           input,
+          // M46: a change outside the person signs with this action (publishing a guide).
+          signedWrite: signedWriteFor(services, { tenantId: params.id, userId: session.user.id }),
         }),
       };
     } catch (error) {

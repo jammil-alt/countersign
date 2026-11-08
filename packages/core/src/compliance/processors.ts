@@ -5,6 +5,9 @@
 // webhook endpoints, the sites of its browser logins, its Google Chat: v0.14 W4-E) are the
 // client's vendors, not ours: they are not processors here. Plaid, which carries the bank feed on
 // Mezonas' own account, is.
+// M46: the website connector (`website`) sends nothing to a new vendor: it writes guides to our own
+// bucket at Cloudflare (infrastructure), and tells IndexNow only the public address of a page the
+// client published (docs/plan.md §1.76).
 // v0.14 W4-D: Google Drive and Google Sheets (`gdrive`, `gsheets`) are not: the client's own Google
 // account, which only the client signs in to; we send its data nowhere else.
 

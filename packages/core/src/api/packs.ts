@@ -159,6 +159,28 @@ export const packRoutes = {
     body: z.record(z.string(), z.unknown()),
     response: z.object({ result: z.record(z.string(), z.unknown()) }),
   }),
+  // M46 (docs/plan.md §1.76): a short-lived link to a page a pack renders for a person to read
+  // before it is public (a guide's draft): signed, noindex, and only for a report item the pack
+  // declares a preview.
+  opsClientPackPreview: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/packs/:pack/previews",
+    auth: "session",
+    roles: OPS,
+    summary: "A preview link for one of a pack's pages, before it is public (a guide's draft)",
+    params: z.object({ id: Id, pack: Slug }),
+    body: z.object({ report: ReportName, itemId: Id }),
+    response: z.object({ url: z.string(), expiresAt: z.string() }),
+  }),
+  packPreview: defineRoute({
+    method: "GET",
+    path: "/api/preview/:token",
+    auth: "public",
+    roles: [],
+    summary: "A preview link's page (HTML, noindex); 404 once it has expired",
+    params: z.object({ token: z.string() }),
+    response: z.string(),
+  }),
   // M43 (docs/plan.md §1.72): what a pack takes from outside, with no session (a measured site's
   // beacon, for the Marketing pack). The platform checks the client has the pack on and caps the
   // body; the pack decides. Always 204 with no body, so a sender learns nothing about which

@@ -96,6 +96,9 @@ export interface Secrets {
   STORAGE_BUCKET?: string;
   STORAGE_ACCESS_KEY?: string;
   STORAGE_SECRET_KEY?: string;
+  // M46 (docs/plan.md §1.76): IndexNow's key for the sites guides are published on. Unset: no
+  // search engine is pinged (docs/marketing-plan.md §11.5). The site must serve `/<key>.txt`.
+  INDEXNOW_KEY?: string;
 }
 
 /** Vars are read as plain strings: deployments set values the generated literals don't know. */
@@ -154,6 +157,10 @@ export interface OptionalBindings {
   BROWSER?: BrowserWorker;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;
+  // M46 (docs/plan.md §1.76): the bucket published guides go to, which the site Worker reads
+  // (docs/marketing-plan.md §11.4). Not in wrangler.jsonc until the owner sets it; unset, the
+  // `website` connector refuses every write ("publishing isn't set up"), so nothing public changes.
+  SITE_CONTENT?: R2Bucket;
 }
 
 /** Cloudflare's Rate Limiting binding, as much of it as is used. */

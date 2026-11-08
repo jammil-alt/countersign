@@ -46,12 +46,15 @@ import {
   createTwilioConnector,
   createUploadConnector,
   createWebhookConnector,
+  // M46 (docs/plan.md §1.76)
+  createWebsiteConnector,
   // v0.14 W4-A
   createWhatsappMetaConnector,
   createZohoCrmConnector,
   plaidEnvironment,
   QBO_CONNECTOR_ID,
   QBO_SKILLS,
+  R2ObjectStore,
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";
@@ -228,7 +231,10 @@ type OAuthEnvKey =
   // v0.12 bankfeed: Plaid.
   | "PLAID_CLIENT_ID"
   | "PLAID_SECRET"
-  | "PLAID_ENV";
+  | "PLAID_ENV"
+  // M46: the site content bucket and IndexNow's key.
+  | "SITE_CONTENT"
+  | "INDEXNOW_KEY";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -261,6 +267,9 @@ export function platformFor(
     env.PLAID_CLIENT_ID ?? "-",
     env.PLAID_SECRET ? "plaid-secret" : "-",
     plaidEnvironment(env.PLAID_ENV),
+    // M46: whether the bucket and the key are set (never the key).
+    env.SITE_CONTENT ? "site-content" : "-",
+    env.INDEXNOW_KEY ? "indexnow" : "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -311,6 +320,12 @@ export function deploymentConnectors(
       webhookVerifier: env.QBO_WEBHOOK_VERIFIER,
     }),
     createWebhookConnector(),
+    // M46: guides on a client's own site (docs/plan.md §1.76): registered everywhere; it writes
+    // only where SITE_CONTENT is bound, and pings IndexNow only with INDEXNOW_KEY.
+    createWebsiteConnector({
+      store: env.SITE_CONTENT ? new R2ObjectStore(env.SITE_CONTENT) : null,
+      indexNowKey: env.INDEXNOW_KEY ?? null,
+    }),
     createZohoCrmConnector(
       zohoReady ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : {},
     ),
