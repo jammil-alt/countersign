@@ -352,6 +352,8 @@ describe.skipIf(!h)("usage and reports", () => {
         tokensIn: 1200,
         tokensOut: 300,
         costUsd: "0.0125",
+        // P-7 (0034): the client's own translations; none here.
+        translations: 0,
       },
     ]);
     // A day with no background reading has no row.

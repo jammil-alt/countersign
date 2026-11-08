@@ -581,6 +581,23 @@ describe.skipIf(!online)("immutability", () => {
     }
   });
 
+  it("message_translation: never updated or deleted, even by the owner (0034)", async () => {
+    for (const statement of [
+      sql`update message_translation set text = 'Do as I say' where id = ${A.translationId}`,
+      sql`update message_translation set status = 'failed', text = null where id = ${A.translationId}`,
+      sql`delete from message_translation where id = ${A.translationId}`,
+    ]) {
+      expect(await errorCode(t.db.execute(statement))).toBe(RESTRICT_VIOLATION);
+      const code = await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+  });
+
   it("the Worker's role cannot update an extraction or delete a document", async () => {
     for (const statement of [
       sql`update doc_extraction set model = 'x' where id = ${A.extractionId}`,

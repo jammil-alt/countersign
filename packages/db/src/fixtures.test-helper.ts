@@ -44,6 +44,7 @@ import {
   membership,
   memoryNote,
   message,
+  messageTranslation,
   modelCall,
   notification,
   organization,
@@ -135,6 +136,7 @@ export interface ClientFixture {
   builderSessionId: string;
   builderTurnId: string;
   conversationId: string;
+  translationId: string;
 }
 
 /** A shared automation's definition, as core's `Automation` (W2-B) will check it. */
@@ -693,6 +695,28 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     agentVersionId: av.id,
   });
 
+  // P-7 (0034): the raw record's text, translated by the run's step.
+  const [mt] = await db
+    .insert(messageTranslation)
+    .values({
+      tenantId,
+      rawRecordId: rr?.id ?? "",
+      direction: "in",
+      sourceLanguage: "es",
+      targetLanguage: "en",
+      detectedBy: "rule",
+      status: "translated",
+      text: "Hello",
+      originalChars: 4,
+      model: "claude-haiku-5-5",
+      costUsd: "0.0002",
+      agentVersionId: av.id,
+      runId: r.id,
+      stepRunId: sr.id,
+    })
+    .returning();
+  if (!mt) throw new Error("no translation");
+
   await db.insert(auditEvent).values({
     tenantId,
     actorKind: "user",
@@ -728,6 +752,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     builderSessionId: bs.id,
     builderTurnId: bt.id,
     conversationId: cv.id,
+    translationId: mt.id,
   };
 }
 
