@@ -41,6 +41,7 @@ import {
   OTHER_OPERATOR,
   user,
 } from "./api.test-helper";
+import { quietNever, quietNow } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -199,7 +200,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
   beforeAll(async () => {
     // Quiet hours off the clock for most tests: 03:00–03:01 UTC (the client is on UTC).
     const q = await H.call(OPERATOR, "PUT", ops(), {
-      quietHours: { start: "03:00", end: "03:01" },
+      quietHours: quietNever(),
     });
     expect(q.status, JSON.stringify(q.json)).toBe(200);
   });
@@ -512,7 +513,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       expect(twilio.sends()).toHaveLength(sendsBefore);
 
       // Quiet hours all day: approved, then refused at the send.
-      await H.call(OPERATOR, "PUT", ops(), { quietHours: { start: "00:00", end: "23:59" } });
+      await H.call(OPERATOR, "PUT", ops(), { quietHours: quietNow() });
       const quiet = await startedBy(PAT, "Are you open now?");
       if (!quiet) throw new Error("no run");
       const result = await executeRun(deps(), quiet, cloudflareStepRunner(approver("a")));
@@ -524,7 +525,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       expect(action?.status).toBe("failed");
       expect(JSON.stringify(action?.error)).toContain("quiet hours");
       expect(twilio.sends()).toHaveLength(sendsBefore);
-      await H.call(OPERATOR, "PUT", ops(), { quietHours: { start: "03:00", end: "03:01" } });
+      await H.call(OPERATOR, "PUT", ops(), { quietHours: quietNever() });
     });
 
     it("never starts the reply workflow for STOP, and keeps every message inside its client", async () => {
