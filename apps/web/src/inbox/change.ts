@@ -27,6 +27,9 @@ export interface ItemView {
   description: string | null;
   /** What the line is booked to (an item or account name), or null. */
   ref: string | null;
+  // P-2 (docs/plan.md §1.64)
+  /** Its job and class by name (DisplayColumns `tags`), when the display names any. */
+  tags?: string[];
   qty: string | null;
   unitPrice: string | null;
   amount: string | null;
@@ -212,10 +215,19 @@ function itemView(
   }
   // DECISION (QA round 1): a client never reads a bare id; the back office keeps "#20".
   if (ref === null && bare !== null && showIds) ref = `#${bare}`;
+  // P-2: every tag present, by name (an unnamed id only in the back office, as for refs).
+  const tags: string[] = [];
+  for (const r of cols.tags ?? []) {
+    const got = refText(raw[r.key], r.names === undefined ? undefined : names[r.names]);
+    if (got === null) continue;
+    if ("name" in got) tags.push(got.name);
+    else if (showIds) tags.push(`#${got.id}`);
+  }
   const size = at(cols.size);
   return {
     description: str(at(cols.description)),
     ref,
+    ...(tags.length > 0 ? { tags } : {}),
     qty: str(at(cols.qty)),
     unitPrice: str(at(cols.unitPrice)),
     amount: str(at(cols.amount)),

@@ -43,6 +43,8 @@ import { QBO_SIGNATURE_HEADER, verifyQboWebhook } from "./webhook";
 export * from "./api";
 export * from "./ar";
 export * from "./bill-create";
+export * from "./ingredients";
+export * from "./purchase-order";
 export * from "./records";
 export * from "./skills";
 export * from "./sync";
@@ -95,7 +97,7 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
     id: QBO_CONNECTOR_ID,
     name: "QuickBooks Online",
     description:
-      "Bills, purchases, vendors, items, attachments, and invoices, customers and payments in your QuickBooks Online. You sign in to QuickBooks yourself.",
+      "Bills, purchases, purchase orders, vendors, items, accounts, classes, attachments, and invoices, customers and payments in your QuickBooks Online. You sign in to QuickBooks yourself.",
     icon: "book",
     auth: "oauth2",
     entities: [...QBO_SYNCED_ENTITIES],
@@ -104,7 +106,8 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
       { id: "bill", label: "Bills", verbs: ["read", "create", "update"] },
       { id: "purchase", label: "Purchases", verbs: ["read", "update"] },
       { id: "item", label: "Items", verbs: ["read", "update"] },
-      { id: "vendor", label: "Vendors", verbs: ["read"] },
+      // P-2: vendors gain create (`qbo.vendor.create`).
+      { id: "vendor", label: "Vendors", verbs: ["read", "create"] },
       {
         id: "invoice",
         label: "Invoices",
@@ -121,6 +124,10 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
       { id: "customer", label: "Customers", verbs: ["read"] },
       { id: "payment", label: "Payments", verbs: ["read"] },
       { id: "attachment", label: "Attachments", verbs: ["read", "create"] },
+      // P-2: QuickBooks ingredients (docs/plan.md §1.64).
+      { id: "account", label: "Accounts", verbs: ["read"] },
+      { id: "class", label: "Classes", verbs: ["read"] },
+      { id: "purchase_order", label: "Purchase orders", verbs: ["read", "create"] },
     ],
     isConfigured: () => configured,
 

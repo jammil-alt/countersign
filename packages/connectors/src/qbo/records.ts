@@ -37,8 +37,42 @@ export const QboTxnLine = z.object({
   item: Named.nullable(),
   qty: DecimalString.nullable(),
   unitPrice: DecimalString.nullable(),
+  // P-2: the line's class, its customer (job) and how that customer is billed (docs/plan.md §1.64).
+  class: Named.nullable(),
+  customer: Named.nullable(),
+  billable: z.string().nullable(),
 });
 export type QboTxnLine = z.infer<typeof QboTxnLine>;
+
+/** The expense lines of a Bill, Purchase or PurchaseOrder, with their class and customer. */
+function txnLines(lines: QboTransactionRaw["Line"]): QboTxnLine[] {
+  // mapQboLines keeps the two expense detail types, in order; their coding is read beside it.
+  const details = (lines ?? []).flatMap((l) =>
+    l.DetailType === "AccountBasedExpenseLineDetail"
+      ? [l.AccountBasedExpenseLineDetail]
+      : l.DetailType === "ItemBasedExpenseLineDetail"
+        ? [l.ItemBasedExpenseLineDetail]
+        : [],
+  );
+  const ref = (r: { value: string; name?: string | undefined } | undefined) =>
+    r ? { id: r.value, name: r.name ?? null } : null;
+  return mapQboLines(lines).map((l, i) => {
+    const d = details[i];
+    return {
+      id: l.externalLineId,
+      detailType: l.detailType,
+      description: l.description,
+      amount: l.amount,
+      account: l.accountId ? { id: l.accountId, name: l.accountRef } : null,
+      item: l.itemId ? { id: l.itemId, name: l.itemRef } : null,
+      qty: l.qty,
+      unitPrice: l.unitPrice,
+      class: ref(d?.ClassRef),
+      customer: ref(d?.CustomerRef),
+      billable: d?.BillableStatus ?? null,
+    };
+  });
+}
 
 /** A Bill or Purchase. */
 export const QboTxn = z.object({
@@ -78,16 +112,7 @@ export function toTxn(entity: QboTxnEntity, raw: unknown): QboTxn {
     memo: t.PrivateNote ?? null,
     paymentType: entity === "Purchase" ? (t.PaymentType ?? null) : null,
     tax: qboOptionalAmount(t.TxnTaxDetail?.TotalTax),
-    lines: mapQboLines(t.Line).map((l) => ({
-      id: l.externalLineId,
-      detailType: l.detailType,
-      description: l.description,
-      amount: l.amount,
-      account: l.accountId ? { id: l.accountId, name: l.accountRef } : null,
-      item: l.itemId ? { id: l.itemId, name: l.itemRef } : null,
-      qty: l.qty,
-      unitPrice: l.unitPrice,
-    })),
+    lines: txnLines(t.Line),
   };
 }
 
@@ -325,4 +350,114 @@ export function qboJson(body: unknown): string {
     value instanceof WireDecimal ? `${MARK}${value.text}` : value,
   );
   return text.replace(/"\\u0000qbodec:(-?\d+(?:\.\d+)?)"/g, "$1");
+}
+
+// ── P-2: QuickBooks ingredients (docs/plan.md §1.64) ────────────────────────────────────────────
+
+const RawId = z.union([z.string(), z.number()]).transform(String);
+const RawRef = z.looseObject({ value: RawId, name: z.string().optional() });
+
+const QboAccountRaw = z.looseObject({
+  Id: RawId,
+  SyncToken: RawId.optional(),
+  Name: z.string(),
+  FullyQualifiedName: z.string().optional(),
+  AccountType: z.string().optional(),
+  AccountSubType: z.string().optional(),
+  Active: z.boolean().optional(),
+  CurrencyRef: RawRef.optional(),
+});
+
+/** An account from the chart of accounts: where a line's cost is booked. */
+export const QboAccount = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** With its parents: "Job Materials:Freight In". */
+  fullyQualifiedName: z.string(),
+  accountType: z.string().nullable(),
+  accountSubType: z.string().nullable(),
+  active: z.boolean(),
+  currency: z.string().nullable(),
+});
+export type QboAccount = z.infer<typeof QboAccount>;
+
+export function toAccount(raw: unknown): QboAccount {
+  const a = QboAccountRaw.parse(raw);
+  return {
+    id: a.Id,
+    name: a.Name,
+    fullyQualifiedName: a.FullyQualifiedName ?? a.Name,
+    accountType: a.AccountType ?? null,
+    accountSubType: a.AccountSubType ?? null,
+    active: a.Active !== false,
+    currency: a.CurrencyRef?.value.toUpperCase() ?? null,
+  };
+}
+
+const QboClassRaw = z.looseObject({
+  Id: RawId,
+  Name: z.string(),
+  FullyQualifiedName: z.string().optional(),
+  Active: z.boolean().optional(),
+});
+
+/** A class: how a company tracks costs by job, location or department, when it uses classes. */
+export const QboClass = z.object({
+  id: z.string(),
+  name: z.string(),
+  fullyQualifiedName: z.string(),
+  active: z.boolean(),
+});
+export type QboClass = z.infer<typeof QboClass>;
+
+export function toClass(raw: unknown): QboClass {
+  const c = QboClassRaw.parse(raw);
+  return {
+    id: c.Id,
+    name: c.Name,
+    fullyQualifiedName: c.FullyQualifiedName ?? c.Name,
+    active: c.Active !== false,
+  };
+}
+
+export const QboPoStatus = z.enum(["Open", "Closed"]);
+
+const QboPurchaseOrderRaw = QboTransactionRaw.extend({
+  POStatus: z.string().optional(),
+  Memo: z.string().optional(),
+});
+
+/** A PurchaseOrder: what the company ordered from a vendor, open until it is received or closed. */
+export const QboPurchaseOrder = z.object({
+  id: z.string(),
+  syncToken: z.string(),
+  docNumber: z.string().nullable(),
+  txnDate: z.string().nullable(),
+  /** The date the order is expected (QuickBooks' `DueDate`). */
+  dueDate: z.string().nullable(),
+  vendor: Named.nullable(),
+  status: z.string().nullable(),
+  total: DecimalString,
+  currency: z.string(),
+  /** The order's private memo: client text, data only (invariant 9). */
+  memo: z.string().nullable(),
+  lines: z.array(QboTxnLine),
+});
+export type QboPurchaseOrder = z.infer<typeof QboPurchaseOrder>;
+
+export function toPurchaseOrder(raw: unknown): QboPurchaseOrder {
+  const p = QboPurchaseOrderRaw.parse(raw);
+  return {
+    id: p.Id,
+    syncToken: p.SyncToken ?? "0",
+    docNumber: p.DocNumber ?? null,
+    txnDate: p.TxnDate ?? null,
+    dueDate: p.DueDate ?? null,
+    vendor: p.VendorRef ? { id: p.VendorRef.value, name: p.VendorRef.name ?? null } : null,
+    status: p.POStatus ?? null,
+    total: qboAmount(p.TotalAmt),
+    currency: (p.CurrencyRef?.value ?? "USD").toUpperCase(),
+    memo: p.PrivateNote ?? null,
+    lines: txnLines(p.Line),
+  };
 }

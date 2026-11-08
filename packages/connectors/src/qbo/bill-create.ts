@@ -13,6 +13,7 @@ import { QboId, type QboTxn, toTxn, toVendor } from "./records";
 import {
   type ClientFor,
   IsoDate,
+  lineRefsProblem,
   NewLine,
   QBO_TOOLS,
   QboTotalWouldChangeError,
@@ -60,14 +61,18 @@ function linesProblem(input: BillCreateInput): QboApiError | null {
       `the lines add up to ${total}, not the ${input.expectedTotal} expected`,
     );
   }
-  if (!dec(input.expectedTotal).isPositive()) {
+  // P-2: decimal.js counts zero as positive; a total of zero is refused too.
+  if (!dec(input.expectedTotal).greaterThan(0)) {
     return new QboApiError(422, "EMPTY_BILL", "a bill's total must be more than zero", false);
   }
   return null;
 }
 
 /** The vendor as QuickBooks has it, or a refusal: unknown or inactive isn't the company's. */
-async function companyVendor(client: QboClient, id: string): Promise<{ id: string; name: string }> {
+export async function companyVendor(
+  client: QboClient,
+  id: string,
+): Promise<{ id: string; name: string }> {
   const raw = await client.read("Vendor", id);
   const v = raw ? toVendor(raw) : null;
   if (!v?.active) {
@@ -147,6 +152,9 @@ export function billCreateTool(clientFor: ClientFor): ToolDefinition {
       if (problem) throw problem;
       const client = await clientFor(ctx);
       const vendor = await companyVendor(client, input.vendorId);
+      // P-2: the lines' classes and customers are the company's, and active.
+      const refs = await lineRefsProblem(client, input.lines);
+      if (refs) throw refs;
       const live = await liveBills(client, input);
       const names = async () => ({ vendor, names: await refNames(client, [], input.lines, ctx) });
       // DECISION: the before state is read twice: when the change is proposed (a plain call
@@ -163,6 +171,8 @@ export function billCreateTool(clientFor: ClientFor): ToolDefinition {
       if (problem) throw problem;
       const client = await clientFor(ctx);
       await companyVendor(client, input.vendorId);
+      const refs = await lineRefsProblem(client, input.lines);
+      if (refs) throw refs;
       const out = (b: QboTxn, alreadyDone: boolean) => ({
         id: b.id,
         syncToken: b.syncToken,
