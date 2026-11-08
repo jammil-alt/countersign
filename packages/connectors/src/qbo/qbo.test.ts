@@ -24,6 +24,7 @@ import {
   createQboConnector,
   LEDGER_WRITE_TOOLS,
   parseQboWebhook,
+  QBO_REGISTER_TOOL,
   QBO_TOOLS,
   QboStaleObjectError,
   QboTotalWouldChangeError,
@@ -114,7 +115,7 @@ describe("qbo connector: manifest and sign-in", () => {
     }
   });
 
-  it("declares twelve reads and nineteen approval-gated writes, no delete", () => {
+  it("declares thirteen reads and nineteen approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -154,6 +155,8 @@ describe("qbo connector: manifest and sign-in", () => {
       [LEDGER_WRITE_TOOLS.classUpdate, "external", "update"],
       [LEDGER_WRITE_TOOLS.locationCreate, "external", "create"],
       [LEDGER_WRITE_TOOLS.locationUpdate, "external", "update"],
+      // R-1: an account's register, for reconciliation.
+      [QBO_REGISTER_TOOL, "none", "read"],
     ]);
     for (const id of Object.values(LEDGER_WRITE_TOOLS)) {
       expect(connector.manifest.tools.find((t) => t.id === id)?.approval, id).toBe("always");

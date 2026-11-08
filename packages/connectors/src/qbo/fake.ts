@@ -649,6 +649,146 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     return null;
   }
 
+  // R-1 (docs/plan.md §1.80): QuickBooks' GeneralLedger for one account between two dates, built
+  // from the fake's purchases, deposits and transfers on it: a Beginning Balance row, a row per
+  // posting signed as the account's own balance, and the running balance.
+  function generalLedger(query: Record<string, string>): HttpResponseLike {
+    const id = query.account ?? "";
+    const account = table("Account").get(id);
+    if (!account) throw invalidRef();
+    const liability = [
+      "Credit Card",
+      "Accounts Payable",
+      "Other Current Liability",
+      "Long Term Liability",
+    ].includes(String(account.AccountType ?? ""));
+    // Money into the account raises an asset's balance and lowers what a liability owes.
+    const into = (amount: string) => (liability ? dec(amount).negated() : dec(amount));
+    const postings: {
+      date: string;
+      type: string;
+      id: string;
+      doc: string;
+      name: string;
+      memo: string;
+      effect: ReturnType<typeof dec>;
+    }[] = [];
+    const ref = (v: unknown) => String((v as { value?: unknown } | undefined)?.value ?? "");
+    for (const p of table("Purchase").values()) {
+      if (ref(p.AccountRef) !== id) continue;
+      const amount = String(p.TotalAmt ?? 0);
+      postings.push({
+        date: String(p.TxnDate ?? ""),
+        type: p.Credit === true ? "Credit Card Credit" : "Expense",
+        id: p.Id,
+        doc: String(p.DocNumber ?? ""),
+        name: String((p.EntityRef as { name?: string } | undefined)?.name ?? ""),
+        memo: String(p.PrivateNote ?? ""),
+        effect: p.Credit === true ? into(amount) : into(amount).negated(),
+      });
+    }
+    for (const d of table("Deposit").values()) {
+      if (ref(d.DepositToAccountRef) !== id) continue;
+      postings.push({
+        date: String(d.TxnDate ?? ""),
+        type: "Deposit",
+        id: d.Id,
+        doc: "",
+        name: "",
+        memo: String(d.PrivateNote ?? ""),
+        effect: into(String(d.TotalAmt ?? 0)),
+      });
+    }
+    for (const t of table("Transfer").values()) {
+      const amount = String(t.Amount ?? 0);
+      const memo = String(t.PrivateNote ?? "");
+      if (ref(t.FromAccountRef) === id) {
+        postings.push({
+          date: String(t.TxnDate ?? ""),
+          type: "Transfer",
+          id: t.Id,
+          doc: "",
+          name: "",
+          memo,
+          effect: into(amount).negated(),
+        });
+      }
+      if (ref(t.ToAccountRef) === id) {
+        postings.push({
+          date: String(t.TxnDate ?? ""),
+          type: "Transfer",
+          id: t.Id,
+          doc: "",
+          name: "",
+          memo,
+          effect: into(amount),
+        });
+      }
+    }
+    postings.sort((a, b) =>
+      a.date === b.date ? a.id.localeCompare(b.id) : a.date.localeCompare(b.date),
+    );
+    const start = query.start_date ?? "0000-01-01";
+    const end = query.end_date ?? "9999-12-31";
+    let balance = dec(String(account.OpeningBalance ?? 0));
+    for (const p of postings) if (p.date < start) balance = balance.plus(p.effect);
+    const cell = (value: string, id?: string) => (id ? { value, id } : { value });
+    const keys = [
+      "tx_date",
+      "txn_type",
+      "doc_num",
+      "name",
+      "memo",
+      "subt_nat_amount",
+      "rbal_nat_amount",
+    ];
+    const rowsOut: unknown[] = [
+      {
+        type: "Data",
+        ColData: [
+          cell("Beginning Balance"),
+          cell(""),
+          cell(""),
+          cell(""),
+          cell(""),
+          cell(""),
+          cell(balance.toFixed(2)),
+        ],
+      },
+    ];
+    for (const p of postings) {
+      if (p.date < start || p.date > end) continue;
+      balance = balance.plus(p.effect);
+      rowsOut.push({
+        type: "Data",
+        ColData: [
+          cell(p.date),
+          cell(p.type, p.id),
+          cell(p.doc),
+          cell(p.name),
+          cell(p.memo),
+          cell(p.effect.toFixed(2)),
+          cell(balance.toFixed(2)),
+        ],
+      });
+    }
+    return response(200, {
+      Header: { ReportName: "GeneralLedger", StartPeriod: start, EndPeriod: end },
+      Columns: {
+        Column: keys.map((k) => ({ ColTitle: k, MetaData: [{ Name: "ColKey", Value: k }] })),
+      },
+      Rows: {
+        Row: [
+          {
+            type: "Section",
+            Header: { ColData: [cell(String(account.Name))] },
+            Rows: { Row: rowsOut },
+          },
+        ],
+      },
+    });
+  }
+
   // v0.12 W1-F: QuickBooks' AgedReceivableDetail, built from the company's invoices in the shape
   // of fixtures/qbo/report-aged-receivable-detail.json (sections by how far past due).
   function agedReceivableDetail(query: Record<string, string>): HttpResponseLike {
@@ -893,6 +1033,8 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       else if (method === "GET" && first === "cdc") res = cdc(query);
       else if (method === "GET" && first === "reports" && second === "AgedReceivableDetail") {
         res = agedReceivableDetail(query);
+      } else if (method === "GET" && first === "reports" && second === "GeneralLedger") {
+        res = generalLedger(query);
       } else if (method === "GET" && first === "download" && second) {
         res = files.has(second)
           ? response(200, `${FILES}/${second}?X-Amz-Signature=fake`, {

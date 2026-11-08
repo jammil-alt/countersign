@@ -48,6 +48,7 @@ export * from "./ingredients";
 export * from "./ledger-writes";
 export * from "./purchase-order";
 export * from "./records";
+export * from "./register";
 export * from "./skills";
 export * from "./sync";
 export * from "./tools";

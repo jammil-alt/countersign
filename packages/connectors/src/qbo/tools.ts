@@ -39,6 +39,7 @@ import {
   toVendor,
   wire,
 } from "./records";
+import { registerTool } from "./register";
 import {
   type ClientFor,
   IsoDate,
@@ -691,5 +692,7 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     transferCreateTool(clientFor),
     // The ledger's set-up (owner, 2026-11-08): accounts, classes and locations, always signed.
     ...ledgerWriteTools(clientFor),
+    // R-1 (docs/plan.md §1.80): an account's register, for reconciliation.
+    registerTool(clientFor),
   ];
 }

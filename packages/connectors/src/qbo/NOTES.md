@@ -204,3 +204,16 @@ fake; check against the sandbox company:
 6. Duplicate names answer 6240; a repeated `requestid` answers the first result again.
 7. Departments are named "Location" in some companies' settings; the API entity stays Department.
 
+## The register, for reconciliation (R-1, 2026-11-08, docs/plan.md §1.80)
+
+`qbo.account.register` reads `GET /reports/GeneralLedger?account=<id>&start_date&end_date&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount,rbal_nat_amount`.
+Built against the fake; check against the sandbox company:
+
+1. The answer's shape: `Columns.Column[].MetaData` with `ColKey`, sections with a "Beginning
+   Balance" row, data rows with `txn_type` carrying the transaction's `id`.
+2. That `subt_nat_amount` is signed as the account's own balance (a bank deposit positive, a card
+   charge positive as it raises what is owed), and `rbal_nat_amount` is the running balance.
+3. That `account=` takes the account id (not its name), and sub-accounts' postings: included or not.
+4. Accrual versus cash basis (`accounting_method`): we send none; a bank account is the same either way.
+5. Report limits (rows per report) for a busy account in one month.
+
