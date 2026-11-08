@@ -1,22 +1,35 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  // The public site (docs/plan.md §1.29): static assets only, no Worker code. Built into dist/ by
-  // build.mjs. One site for every environment, deployed from main by deploy.yml (job `site`).
+  // The public site (docs/plan.md §1.29): static assets, built into dist/ by build.mjs, and a
+  // little Worker code (src/worker.ts) for the guides and the sitemap (docs/plan.md §1.72, the
+  // "Site:" rows). One site for every environment, deployed from main by deploy.yml (job `site`).
   "name": "mezonas-site",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-09-01",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     // /terms serves terms.html; /terms/ and /terms.html redirect to /terms.
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    // The Worker's code runs only for these paths; every other request is a static file, served
+    // as before the site had code. With guides off (below), the code hands these to the assets
+    // too, so the answer is the same.
+    "run_worker_first": ["/guides", "/guides/*", "/sitemap.xml"]
   },
+  // Guides are off until the owner sets both (apps/site/README.md, "Guides"): the bucket the
+  // platform's website.publish writes, and the switch. Absent, nothing changes for visitors.
+  //
+  // "r2_buckets": [{ "binding": "SITE_CONTENT", "bucket_name": "mezonas-site-content" }],
+  // "vars": { "SITE_GUIDES": "on" },
+  //
   // Nothing public but the custom domains below: no workers.dev or preview URLs.
   "workers_dev": false,
   "preview_urls": false,
   // `wrangler deploy` creates both records and certificates on the mezonas.com zone. It cannot
   // attach while another DNS record holds the name (docs/operations.md, "The public site").
   // DECISION: www serves the same pages, each with a canonical link to the apex, instead of a
-  // redirect: a host redirect needs Worker code or a zone rule, and this Worker has no code. A
+  // redirect: a host redirect in the Worker would make it run first for every request, and a
   // Redirect Rule from www to the apex can be added in the dashboard at any time (operations.md).
   "routes": [
     { "pattern": "mezonas.com", "custom_domain": true },
