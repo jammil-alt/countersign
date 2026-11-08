@@ -27,6 +27,7 @@ import {
   event,
   externalAction,
   inboxItem,
+  ledgerAccount,
   rawRecord,
   transaction,
   transactionLine,
@@ -380,8 +381,26 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     const [conn] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
     expect(conn?.syncCursor).toMatchObject({ v: 1, phase: "cdc" });
     expect(conn?.lastSyncAt).not.toBeNull();
+    // B-2 (docs/plan.md §1.79): the chart of accounts, each with its type and classification.
+    const accounts = await H.t.db
+      .select()
+      .from(ledgerAccount)
+      .where(eq(ledgerAccount.tenantId, H.A.tenantId))
+      .orderBy(asc(ledgerAccount.externalId));
+    expect(
+      accounts.map((a) => [a.externalId, a.name, a.accountType, a.classification, a.active]),
+    ).toEqual([
+      ["33", "Accounts Payable (A/P)", "Accounts Payable", "liability", true],
+      ["80", "Job Materials", "Cost of Goods Sold", "expense", true],
+      ["81", "Freight In", "Cost of Goods Sold", "expense", true],
+      ["84", "Shop Supplies", "Expense", "expense", true],
+      ["85", "Old Freight", "Expense", "expense", false],
+      ["90", "Sales Tax Payable", "Other Current Liability", "liability", true],
+    ]);
+    expect(accounts.every((a) => a.connectionId === connectionId && a.rawRecordId)).toBe(true);
     // Client B sees none of it.
     await withTenant(H.db, H.B.tenantId, async (tx) => {
+      expect(await tx.select().from(ledgerAccount)).toEqual([]);
       expect(await tx.select().from(transaction)).toEqual([]);
       expect(await tx.select().from(rawRecord).where(eq(rawRecord.connector, "qbo"))).toEqual([]);
     });
@@ -486,6 +505,35 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       source: "qbo",
       total: { amount: "704.0000", currency: "USD" },
     });
+  });
+
+  it("B-2: CDC brings an account's change in place, and a deleted account stays, inactive", async () => {
+    qbo.put("Account", {
+      Id: "84",
+      SyncToken: "2",
+      Name: "Shop Supplies",
+      FullyQualifiedName: "Shop Supplies",
+      AccountType: "Expense",
+      AccountSubType: "SuppliesMaterials",
+      Classification: "Expense",
+      Description: "Glue, sandpaper, blades",
+      Active: true,
+      MetaData: { LastUpdatedTime: "2026-11-05T18:30:00Z" },
+    });
+    qbo.remove("Account", "81");
+    await sync();
+    const accounts = await H.t.db
+      .select()
+      .from(ledgerAccount)
+      .where(eq(ledgerAccount.tenantId, H.A.tenantId));
+    const byId = new Map(accounts.map((a) => [a.externalId, a]));
+    expect(accounts).toHaveLength(6);
+    expect(byId.get("84")).toMatchObject({
+      description: "Glue, sandpaper, blades",
+      accountSubType: "SuppliesMaterials",
+      active: true,
+    });
+    expect(byId.get("81")?.active).toBe(false);
   });
 
   it("starts a sync from a signed webhook, and refuses a bad signature", async () => {

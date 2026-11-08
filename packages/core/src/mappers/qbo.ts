@@ -25,6 +25,8 @@ export type QboArEntity = (typeof QBO_AR_ENTITIES)[number];
 // theirs), attachments last (so the transactions they hang on already exist when their files are
 // linked). Customer, Invoice and Payment are the v0.12 accounts receivable entities.
 export const QBO_SYNCED_ENTITIES = [
+  // B-2 (docs/plan.md §1.79): the chart of accounts, first, as a name list read whole.
+  "Account",
   "Vendor",
   "Item",
   "Customer",
@@ -280,6 +282,9 @@ export function mapQboTransaction(entityType: string, raw: unknown): Transaction
         docNumber: t.DocNumber ?? null,
         dueDate: t.DueDate ?? null,
         tax: t.TxnTaxDetail?.TotalTax === undefined ? null : qboAmount(t.TxnTaxDetail.TotalTax),
+        // B-3 (docs/plan.md §1.79): the bank or card account a purchase was paid from, by id, so
+        // a bank transaction can be matched to it.
+        accountId: entityType === "Purchase" ? (t.AccountRef?.value ?? null) : null,
       },
     },
   };
@@ -311,6 +316,89 @@ export function mapQboVendor(raw: unknown): VendorInput {
     aliases: [...new Set(aliases)],
     active: v.Active !== false,
     email: v.PrimaryEmailAddr?.Address ?? null,
+  };
+}
+
+// ── The chart of accounts (B-2, docs/plan.md §1.79) ─────────────────────────────────────────────
+
+export const QboAccountRaw = z.looseObject({
+  Id: z.union([z.string(), z.number()]).transform(String),
+  SyncToken: z.union([z.string(), z.number()]).transform(String).optional(),
+  Name: z.string().min(1),
+  FullyQualifiedName: z.string().optional(),
+  AcctNum: z.string().optional(),
+  Classification: z.string().optional(),
+  AccountType: z.string().optional(),
+  AccountSubType: z.string().optional(),
+  ParentRef: Ref.optional(),
+  Description: z.string().optional(),
+  Active: z.boolean().optional(),
+  CurrencyRef: Ref.optional(),
+});
+export type QboAccountRaw = z.infer<typeof QboAccountRaw>;
+
+/** QuickBooks' account types by classification, when an answer leaves the classification out. */
+const CLASSIFICATION_OF_TYPE: Readonly<Record<string, LedgerClassificationInput>> = {
+  Bank: "asset",
+  "Other Current Asset": "asset",
+  "Fixed Asset": "asset",
+  "Other Asset": "asset",
+  "Accounts Receivable": "asset",
+  Equity: "equity",
+  Expense: "expense",
+  "Other Expense": "expense",
+  "Cost of Goods Sold": "expense",
+  "Accounts Payable": "liability",
+  "Credit Card": "liability",
+  "Long Term Liability": "liability",
+  "Other Current Liability": "liability",
+  Income: "revenue",
+  "Other Income": "revenue",
+};
+
+export type LedgerClassificationInput = "asset" | "liability" | "equity" | "revenue" | "expense";
+
+export interface LedgerAccountInput {
+  externalId: string;
+  name: string;
+  fullName: string;
+  number: string | null;
+  classification: LedgerClassificationInput | null;
+  accountType: string;
+  accountSubType: string | null;
+  parentExternalId: string | null;
+  description: string | null;
+  currency: string;
+  active: boolean;
+}
+
+/** A QuickBooks account as the chart of accounts keeps it. */
+export function mapQboAccount(raw: unknown): LedgerAccountInput {
+  const a = parse(QboAccountRaw, raw, "Account");
+  const name = a.Name.trim();
+  const type = a.AccountType?.trim() || "Other";
+  const stated = a.Classification?.trim().toLowerCase();
+  const classification =
+    stated === "asset" ||
+    stated === "liability" ||
+    stated === "equity" ||
+    stated === "revenue" ||
+    stated === "expense"
+      ? stated
+      : (CLASSIFICATION_OF_TYPE[type] ?? null);
+  const currency = (a.CurrencyRef?.value ?? "USD").toUpperCase();
+  return {
+    externalId: a.Id,
+    name,
+    fullName: a.FullyQualifiedName?.trim() || name,
+    number: a.AcctNum?.trim() || null,
+    classification,
+    accountType: type,
+    accountSubType: a.AccountSubType?.trim() || null,
+    parentExternalId: a.ParentRef?.value ?? null,
+    description: a.Description?.trim() || null,
+    currency: CurrencyCode.safeParse(currency).success ? currency : "USD",
+    active: a.Active !== false,
   };
 }
 

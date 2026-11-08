@@ -159,3 +159,18 @@ To verify (docs, then the sandbox company):
 8. Sandbox walk: list accounts and classes, add a vendor, create a purchase order for it with a
    class and a billable customer on a line, see it open in QuickBooks, then receive it into a bill
    by hand and check the order closes (we don't link bills to orders yet).
+
+## The chart of accounts (B-2, 2026-11-08, docs/plan.md §1.79)
+
+Built against the fake; check against the sandbox company:
+
+1. `Account` is accepted in CDC's `entities` and comes back with `Active: false` (or as a deleted
+   row) when an account is made inactive in QuickBooks; `select * from Account` returns active
+   accounts only.
+2. `Classification` is on every Account (we fall back to the account type's classification).
+3. A connection already on CDC reads every account once (the cursor's `accounts` flag), then CDC.
+4. The payment account of a Purchase (`AccountRef`) is kept as `ext.qbo.accountId` for matching
+   bank transactions.
+5. QuickBooks' own bank feed ("For review" in Banking) isn't in the Accounting API, as far as we
+   know: confirm, since it decides whether a client keeps QuickBooks' feed for an account.
+

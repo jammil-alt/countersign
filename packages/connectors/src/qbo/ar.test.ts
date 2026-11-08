@@ -443,7 +443,42 @@ describe("qbo sync: customers, invoices and payments", () => {
       cursor = page.next;
       if (cursor.phase === "cdc") break;
     }
-    expect([...new Set(seen)]).toEqual(["Customer", "Invoice", "Payment"]);
-    expect(cursor).toEqual({ ...old, ar: true });
+    // B-2: the chart of accounts is read once too, after the AR entities.
+    expect([...new Set(seen)]).toEqual(["Customer", "Invoice", "Payment", "Account"]);
+    expect(cursor).toEqual({ ...old, ar: true, accounts: true });
+  });
+
+  it("B-2: reads the chart of accounts once for a connection already on CDC with its AR read", async () => {
+    const s = await setup();
+    const client = await s.connector.client(s.ctx());
+    const old = {
+      v: 1 as const,
+      phase: "cdc" as const,
+      changedSince: "2026-11-05T17:00:00.000Z",
+      ar: true,
+    };
+    const page = await qboSyncPage(client, old, { now: NOW });
+    expect(page.initial).toBe(true);
+    expect(new Set(page.records.map((r) => r.entityType))).toEqual(new Set(["Account"]));
+    expect(page.next).toEqual({ ...old, accounts: true });
+  });
+
+  it("B-2: an AR backfill stored before accounts were synced reads the accounts after it", async () => {
+    const s = await setup();
+    const client = await s.connector.client(s.ctx());
+    const inProgress = {
+      v: 1 as const,
+      phase: "initial" as const,
+      entity: "Payment" as const,
+      start: 1,
+      sinceDate: "2026-08-07",
+      changedSince: "2026-11-05T17:00:00.000Z",
+      entities: ["Customer" as const, "Invoice" as const, "Payment" as const],
+    };
+    const end = await qboSyncPage(client, inProgress, { now: NOW });
+    expect(end.next).toMatchObject({ phase: "cdc", ar: true, accounts: false });
+    const next = await qboSyncPage(client, end.next, { now: NOW });
+    expect(new Set(next.records.map((r) => r.entityType))).toEqual(new Set(["Account"]));
+    expect(next.next).toMatchObject({ phase: "cdc", ar: true, accounts: true });
   });
 });
