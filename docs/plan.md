@@ -1883,6 +1883,44 @@ Open for the owner (the defaults chosen):
 - No translation when we step in with an edit.
 - The new strings in five languages need a fluent speaker's review, like §1.18's.
 
+### 1.71 Purchasing end to end by email (P-9, M42; migration 0036; ARCHITECTURE §12.2, §10.8, §10.12)
+
+The owner, 2026-11-08: test a purchasing agent (a "buyer") on staging with email only. The pieces
+were built in P-1 to P-6 but didn't connect (the audit of main at d087f7a). This stream joins them:
+a person emails a request to the agent's address; the buyer reads it, opens a purchase request and
+matches its lines; a person fixes unsure lines on a card; it finds who sold the items and who to
+email there; it emails each vendor a request for quote (RFQ), with an optional PDF; a reply as text
+or a PDF becomes a recorded quote and a silent vendor expires; it compares the quotes and a person
+picks on a card; it makes the PO PDF, emails it, and creates the QuickBooks purchase order with
+mapped vendor and line ids, every write behind approval; and the request is ordered. No agent ships:
+the owner builds the buyer in the Agent lab (M42's done-when has the steps). Five stacked PRs:
+migration 0036 (`claude/p9-purchasing-migration`), the plumbing with this section
+(`claude/p9-purchasing-plumbing`), QuickBooks (`claude/p9-purchasing-qbo`), the screens and cards
+(`claude/p9-purchasing-ui`) and the proof (`claude/p9-purchasing-e2e`). Hot-spot edits are blocks
+headed `// P-9: …`.
+
+| Topic | Decision |
+|---|---|
+| The message's words | A built-in tool skill `comms.read-message` (handler `inbound.get`) gives a step the message that started the run: who (contact or user id), channel, subject, words, documents and its raw record. The workflow passes the words to `materials.read-request` as its task input (data, invariant 9) and the ids to `materials.open-request`. `read-request`'s `text` is optional: without it the skill calls `inbound.get` itself (in its tools), and the words arrive in that tool's result. // DECISION: a tool skill, not a model's call, so who asked and the raw record reach the request in code. |
+| "Not stated" | `materials.request.create` and `materials.quote.record` take null (and an empty string) for any optional field, so a reading skill's output passes straight in. A message's channel `command` or `sloan` is the portal. // DECISION |
+| Lines without a quantity | `purchase_request_line.qty` may be null (0036): "some birch" is kept as asked. No vendor is asked, nothing compared and no PO made while a line has none ("line 2 has no quantity yet"). `materials.request.update-lines` changes a line's quantity, unit, words (matched again unless a person chose its item) or note, only while the request is open. // DECISION: once vendors are asked, a change is a new request. |
+| Who to email | `materials.vendor-contacts`: vendor → its organization in the directory (`organization.vendor_id`) → its people with an email, consent to email and not opted out, purchasing and sales roles first. The first is the RFQ's `contactId` for reach out's `to`. Nobody: the vendor is listed with the reason and left out of `vendorIds`; an agent never guesses an address. `materials.quote.create` gives each RFQ the same `contactId`. // DECISION |
+| The RFQ's words | `quote.create` answers each RFQ's `subject` and `rfqText`, built in code: the vendor's own words for each item (the description on its latest priced invoice line, else its alias), its SKU, quantity and unit, needed-by, delivery or pickup, the reply-by date. Reach out sends it as a fixed message (`message.template.en`), so no model writes to a vendor and a retried step sends the same words. At most 1500 characters; with `withDocument`, lines that don't fit are left to the attached PDF with a line saying how many. // DECISION: English only for now (the vendor's language is open). |
+| RFQ PDF | `materials.quote.document` renders the RFQ with the PO's layout titled "Request for quote" (lines, quantities, blank price and lead-time columns, no total), dated the day the RFQ was made, stored as a `generated` document (one per hash), for reach out's `attachments`. // DECISION |
+| Sent, from the reach-out | `materials.quote.mark-sent` takes the reach-out step's whole output (`reachOut`): an attempt made → `sent`, `sent_via` from the channel, `reach_out_id` set (0036, a composite foreign key: a quote is tied to the message it answers), `sent_at` the first attempt's time; replied → the reply's words, raw record and first document come back for reading; no reply by the reach-out's timeout → `expired` with the reason, and the request moves on (`quoted` once a quote is in and nothing sent is still waiting); nothing sent (refused, declined, a test run) → the RFQ stays a draft with the reason. `materials.quote.expire` expires what is still waiting (past due, or all). // DECISION |
+| Reach out per vendor | Reach out runs inside a `for_each` over `quote.create`'s quotes (concurrently, up to the loop's `concurrency`), one reach-out per vendor (its node id carries the index), each waiting on its own reply. // DECISION: no change to reach out; replies are still matched by the tagged address and only from the contact's own address. |
+| PDF quotes | `docs.read` answers a document's reading, reading it first when there is none (the run wakes on the reply before the background reading may have started). `as: quote` (the default) reads it the same way with no totals review and no duplicate check. A reply's attachment (`meta.reachOutReply`) is always read as a quote, by the background too, so a vendor's quote never lands in invoice review. `read-quote` calls `docs.read`. // DECISION: the step reads it rather than wait; a background reading at the same moment may read it twice (a cost, never another answer for the step). |
+| News | `materials.request.created` {requestId, channel, lines, unmatched, withoutQuantity}, emitted with the request (a test run's emits nothing). // DECISION |
+| The Builder | Told the deployment's packs (it was told none). // DECISION |
+| Not built | Late replies (after a reach-out ended) and replies from a colleague's address are still dropped (§1.65); a vendor that answers that way is entered by a person. RFQs in the vendor's language. The portal channel for conversations (§1.66). |
+
+Open for the owner:
+
+- The RFQ email's wording and language (English, plain, built in code today).
+- Whether a vendor with nobody who agreed to email should be asked anyway once the client says so (today it is listed and skipped).
+- How long to wait for quotes by default (the reach-out's `timeout`, set per step; we suggest 2 days).
+- The QuickBooks account a PO line books to when the item has none (a skill setting per client agent today, §1.71 QuickBooks rows).
+
 ---
 
 ## 2. Package layering
@@ -2658,6 +2696,30 @@ approver writes Spanish to an English-speaking vendor, sees both texts on the ca
 exactly the English text is sent once; and a client that never set a working language behaves
 exactly as before.
 
+### M42: Purchasing end to end by email (P-9, §1.71)
+
+Five stacked PRs, each a draft: migration 0036 (`claude/p9-purchasing-migration`); the plumbing and
+this section (`claude/p9-purchasing-plumbing`); QuickBooks (`claude/p9-purchasing-qbo`); the
+screens and cards (`claude/p9-purchasing-ui`); the proof (`claude/p9-purchasing-e2e`).
+
+Work: `comms.read-message`; null as "not stated" on `request.create` and `quote.record`; lines
+without a quantity and `request.update-lines`; `vendor-contacts`; the RFQ's words and PDF; mark-sent
+from a reach-out's outcome, `quote.expire`; `docs.read` and quote readings; `materials.request.created`;
+the Builder's packs; then QuickBooks vendor ids, PO lines and the bill-price import; the line review
+and vendor choice cards and the Requests screens; and the API test of the whole email flow.
+
+Tests (no live model, no live provider: FakeModel and the fakes): each new tool's validation and
+client isolation; the RFQ's words in the vendor's own words and under reach out's limit; an RFQ sent,
+replied, expired and never sent; a quote PDF read with no invoice review; and the end-to-end email
+flow with every write approved once, sources on outputs, no other client's data, and portal answers
+with no prompt, model or cost.
+
+**Done when**, on staging, a buyer built in the Agent lab takes an email to its address to a
+QuickBooks purchase order: the request is opened and its lines matched, an unsure line answered on
+the card, two vendors emailed an RFQ, one reply recorded from a PDF, a silent vendor expired, the
+vendor picked on the card, the PO PDF emailed and the QuickBooks PO created, each write approved
+once, and the client and the back office see the request ordered.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -2826,6 +2888,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
 | 0032 | P-1 (M34, §1.63) | `catalog_item`, `item_alias`, `item_match`, `price_observation`, `alert` (ARCHITECTURE §12.2, §5.2) |
 | 0034 | P-7 (M40, §1.69) | `message_translation`; `contact.translation`; `usage_platform_daily.translations` (ARCHITECTURE §5.7) |
+| 0036 | P-9 (M42, §1.71) | `purchase_request_line.qty` nullable; `quote_request.reach_out_id` (composite foreign key to `reach_out`) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is

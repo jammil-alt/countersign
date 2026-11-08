@@ -140,6 +140,32 @@ export const MATERIALS_EVENTS: EventTypeSpec[] = [
       changePct: "9.60",
     },
   },
+  // P-9: a purchase request was opened (docs/plan.md §1.71), e.g. for a workflow that asks vendors.
+  {
+    type: "materials.request.created",
+    description:
+      "A purchase request was opened: its channel, how many lines, how many the rules couldn't match, and how many have no quantity yet.",
+    subjectType: "purchase_request",
+    payload: {
+      type: "object",
+      properties: {
+        requestId: uuid,
+        channel: { type: "string", enum: ["email", "sms", "whatsapp", "portal", "agent"] },
+        lines: { type: "integer", minimum: 0 },
+        unmatched: { type: "integer", minimum: 0 },
+        withoutQuantity: { type: "integer", minimum: 0 },
+      },
+      required: ["requestId", "channel", "lines", "unmatched", "withoutQuantity"],
+      additionalProperties: false,
+    },
+    sample: {
+      requestId: "0192f7a0-0000-7000-8000-0000000000a7",
+      channel: "email",
+      lines: 2,
+      unmatched: 1,
+      withoutQuantity: 0,
+    },
+  },
 ];
 
 /** The platform's types plus the pack's, for validating what the pack emits. */

@@ -14,8 +14,10 @@ import {
   vendor,
   withTenant,
 } from "@countersign/db";
+import { emit } from "@countersign/senses";
 import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { type CatalogItemRow, liveItem } from "../catalog/store";
+import { materialsEventRegistry } from "../events";
 import {
   type Fulfillment,
   purchaseRequest,
@@ -232,7 +234,8 @@ export function requestSources(view: RequestView): string[] {
 
 export interface NewLine {
   description: string;
-  qty: string;
+  /** P-9: null when nobody said how many. */
+  qty: string | null;
   unit?: string | null | undefined;
   notes?: string | null | undefined;
 }
@@ -338,7 +341,25 @@ export async function createRequest(
       .returning({ id: purchaseRequest.id });
     if (!row) throw new Error("purchase_request insert returned nothing");
     await insertLines(tx, ctx.tenantId, row.id, 1, input.lines);
-    return loadRequest(tx, ctx.tenantId, row.id);
+    const view = await loadRequest(tx, ctx.tenantId, row.id);
+    // P-9: news for the area's workflows (docs/plan.md §1.71); a test run's emits nothing.
+    await emit(
+      tx,
+      {
+        tenantId: ctx.tenantId,
+        type: "materials.request.created",
+        subjectId: view.id,
+        payload: {
+          requestId: view.id,
+          channel: view.channel,
+          lines: view.lines.length,
+          unmatched: view.lines.filter((l) => !l.catalogItemId).length,
+          withoutQuantity: view.lines.filter((l) => l.qty === null).length,
+        },
+      },
+      { registry: materialsEventRegistry(), testRun: ctx.testRun },
+    );
+    return view;
   });
 }
 
@@ -605,5 +626,86 @@ export async function matchRequestLines(
       unsure: request.lines.filter((l) => !l.catalogItemId).length,
       chosen,
     };
+  });
+}
+
+// ── P-9: a line's quantity or words, fixed by a person (docs/plan.md §1.71) ─────────────────────
+
+export interface LineChange {
+  lineId: string;
+  description?: string | undefined;
+  qty?: string | undefined;
+  unit?: string | null | undefined;
+  notes?: string | null | undefined;
+}
+
+/**
+ * Changes lines of a request still open (before any vendor is asked): a quantity nobody stated, a
+ * unit, the words of what is wanted (matched to the catalog again, unless a person chose its item),
+ * a note. Answers the changed fields per line.
+ */
+// DECISION: lines change only while the request is open; once vendors are asked, a change is a new
+// request, so every quote compared is for the lines as asked.
+export async function updateLines(
+  db: Db,
+  ctx: PurchasingContext,
+  input: { requestId: string; lines: readonly LineChange[] },
+): Promise<{ request: RequestView; changed: { lineId: string; fields: string[] }[] }> {
+  return withTenant(db, ctx.tenantId, async (tx) => {
+    const r = await requestRow(tx, ctx.tenantId, input.requestId);
+    if (r.status !== "open") {
+      throw new PurchasingError("status", `lines of a ${r.status} request can't change`);
+    }
+    const lines = await requestLines(tx, ctx.tenantId, r.id);
+    const changed: { lineId: string; fields: string[] }[] = [];
+    for (const change of input.lines) {
+      const line = lines.find((l) => l.row.id === change.lineId);
+      if (!line)
+        throw new PurchasingError("not_found", `line ${change.lineId} is not on this request`);
+      const set: Partial<typeof purchaseRequestLine.$inferInsert> = {};
+      const fields: string[] = [];
+      if (change.qty !== undefined && change.qty !== line.row.qty) {
+        set.qty = change.qty;
+        fields.push("qty");
+      }
+      if (change.unit !== undefined && change.unit !== line.row.unit) {
+        set.unit = change.unit;
+        fields.push("unit");
+      }
+      if (change.notes !== undefined && change.notes !== line.row.notes) {
+        set.notes = change.notes;
+        fields.push("notes");
+      }
+      if (change.description !== undefined && change.description !== line.row.description) {
+        set.description = change.description;
+        fields.push("description");
+        if (line.row.matchMethod !== "chosen") {
+          const m = await matchText(tx, ctx.tenantId, { description: change.description });
+          const matched = m.decision === "matched" && m.item;
+          set.catalogItemId = matched ? (m.item?.id ?? null) : null;
+          set.matchMethod = matched ? m.method : null;
+          set.matchConfidence = matched ? m.confidence.toFixed(3) : null;
+          set.candidates = matched ? [] : m.candidates;
+        }
+      }
+      if (fields.length === 0) continue;
+      await tx
+        .update(purchaseRequestLine)
+        .set(set)
+        .where(
+          and(
+            eq(purchaseRequestLine.tenantId, ctx.tenantId),
+            eq(purchaseRequestLine.id, line.row.id),
+          ),
+        );
+      changed.push({ lineId: line.row.id, fields });
+    }
+    if (changed.length > 0) {
+      await tx
+        .update(purchaseRequest)
+        .set({ updatedAt: new Date() })
+        .where(and(eq(purchaseRequest.tenantId, ctx.tenantId), eq(purchaseRequest.id, r.id)));
+    }
+    return { request: await loadRequest(tx, ctx.tenantId, r.id), changed };
   });
 }

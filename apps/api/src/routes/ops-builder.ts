@@ -160,7 +160,8 @@ async function builderContext(
     connectors: platform.connectors
       .list()
       .map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
-    packs: [],
+    // P-9: the packs this deployment registers (docs/plan.md §1.71); a client's own are in `client`.
+    packs: platform.packs.map((p) => ({ id: p.manifest.id, name: p.manifest.name })),
     events: platform.events.list(),
     templates,
     client,

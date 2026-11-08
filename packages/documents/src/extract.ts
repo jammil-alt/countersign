@@ -122,6 +122,11 @@ export interface ExtractInput {
   onCall?: (record: LlmCallRecord) => void | Promise<void>;
   /** Records the ids of the events it emits, for the caller to dispatch after commit (§8). */
   collect?: EmittedEvents;
+  /**
+   * P-9: what the document is read as. `quote`: a vendor's priced answer, not a bill to pay, so
+   * totals that don't add up raise no review and it is never checked as a duplicate invoice.
+   */
+  reading?: "invoice" | "quote";
 }
 
 export interface ExtractResult {
@@ -297,7 +302,14 @@ export async function extractDocument(
   // A card number printed on a document is never stored (PCI DSS 3.3, docs/plan.md §1.35).
   const x = redactCardNumbersDeep(answer.value);
   const check = validateTotals(x);
-  const status = check.ok ? "extracted" : "needs_review";
+  // P-9: a quote, or a file a person sent back in answer to a reach-out (`meta.reachOutReply`),
+  // is read the same way but is nobody's invoice: no totals review, no duplicate check; the step
+  // that asked reads its problems (docs/plan.md §1.71).
+  // DECISION: a reply's attachment is read as a quote, whatever reads it (the background or a step).
+  const quoteLike =
+    input.reading === "quote" ||
+    (doc.meta as { reachOutReply?: unknown } | null)?.reachOutReply === true;
+  const status = check.ok || quoteLike ? "extracted" : "needs_review";
   const model = answer.record.model;
 
   return withTenant(deps.db, input.tenantId, async (tx) => {
@@ -352,12 +364,11 @@ export async function extractDocument(
       .where(and(eq(document.id, doc.id), eq(document.tenantId, input.tenantId)));
     // The same invoice again (another copy of a document already here): marked, and it starts
     // nothing, no review and no run (a test run's reading marks nothing).
-    const duplicateOf = input.testRun
-      ? null
-      : await findDuplicate(tx, input.tenantId, doc, x.header);
+    const duplicateOf =
+      input.testRun || quoteLike ? null : await findDuplicate(tx, input.tenantId, doc, x.header);
     if (duplicateOf) await markDuplicate(tx, input.tenantId, doc, duplicateOf);
     let inboxItemId: string | null = null;
-    if (!check.ok && !duplicateOf) {
+    if (!check.ok && !duplicateOf && !quoteLike) {
       const [item] = await tx
         .insert(inboxItem)
         .values({
