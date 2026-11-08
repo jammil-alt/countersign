@@ -36,6 +36,7 @@ import type { Hono } from "hono";
 import { runConversations } from "../converse/views";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
 import { resolveInboxItem } from "../inbox";
+import { isInternal } from "../internal-client";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { dispatchEvents } from "../runs/dispatch";
@@ -254,6 +255,8 @@ async function clientSummaries(
     needsUs: escalations.filter((e) => e.client.id === t.id).length,
     waitingRuns: waiting.find((w) => w.tenantId === t.id)?.n ?? 0,
     sandbox: isSandbox(t.settings as Record<string, unknown>),
+    // §1.73: one of our own (Mezonas), for the back office's Marketing entry.
+    internal: isInternal(t.settings as Record<string, unknown>),
   }));
 }
 
