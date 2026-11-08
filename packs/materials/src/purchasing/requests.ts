@@ -72,7 +72,8 @@ export interface RequestLineView {
   id: string;
   lineNo: number;
   description: string;
-  qty: string;
+  /** P-9 (0036): null while nobody has said how many. */
+  qty: string | null;
   unit: string | null;
   notes: string | null;
   catalogItemId: string | null;

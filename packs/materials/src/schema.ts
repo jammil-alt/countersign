@@ -16,6 +16,7 @@ import {
   docLine,
   document,
   rawRecord,
+  reachOut,
   run,
   tenant,
   transaction,
@@ -396,7 +397,8 @@ export const purchaseRequestLine = pgTable(
     /** Null until matched: deterministic matching, or a person's choice among the candidates. */
     catalogItemId: uuid("catalog_item_id"),
     description: text("description").notNull(),
-    qty: decimal("qty").notNull(),
+    // P-9 (0036): null while nobody has said how many; a person sets it on the line review card.
+    qty: decimal("qty"),
     /** The unit as asked ("sheets", "bf", "boxes"), not converted. */
     unit: text("unit"),
     notes: text("notes"),
@@ -456,9 +458,19 @@ export const quoteRequest = pgTable(
     agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // P-9 (0036): the reach-out that carried this RFQ to the vendor, once one did (its message,
+    // its reply and how it ended), so a quote is tied to the message it answers.
+    reachOutId: uuid("reach_out_id"),
   },
   (t) => [
     unique("quote_request_id_tenant_key").on(t.id, t.tenantId),
+    // P-9 (0036)
+    foreignKey({
+      name: "quote_request_reach_out_fk",
+      columns: [t.reachOutId, t.tenantId],
+      foreignColumns: [reachOut.id, reachOut.tenantId],
+    }),
+    index("quote_request_reach_out_idx").on(t.tenantId, t.reachOutId),
     // DECISION: one RFQ per vendor for a request; asking the same vendor again finds it.
     unique("quote_request_vendor_key").on(t.purchaseRequestId, t.vendorId),
     foreignKey({

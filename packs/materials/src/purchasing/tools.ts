@@ -85,7 +85,8 @@ const LineOut = z.object({
   id: z.string(),
   lineNo: z.number(),
   description: z.string(),
-  qty: z.string(),
+  // P-9 (0036): null while nobody has said how many.
+  qty: z.string().nullable(),
   unit: z.string().nullable(),
   notes: z.string().nullable(),
   catalogItemId: z.string().nullable(),
@@ -548,7 +549,7 @@ export const quoteGet = defineTool({
         id: z.string(),
         lineNo: z.number(),
         description: z.string(),
-        qty: z.string(),
+        qty: z.string().nullable(),
         unit: z.string().nullable(),
         catalogItemId: z.string().nullable(),
         catalogItemName: z.string().nullable(),

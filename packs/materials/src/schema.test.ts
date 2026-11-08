@@ -1,7 +1,8 @@
 // Migrations 0032 and 0033 as the pack sees them: its tables match this pack's Drizzle schema, are
 // marked as the pack's, force row-level security, give the runtime no DELETE, keep one alias per
 // key, and one client never sees or writes another's catalog, requests or quotes (CLAUDE.md
-// invariant 1). P-5 (0033): purchase requests, quotes, prices from QuickBooks bill lines.
+// invariant 1). P-5 (0033): purchase requests, quotes, prices from QuickBooks bill lines. P-9
+// (0036): a request line with no quantity yet, and a quote's reach-out.
 
 import { document, type Tx, withTenant, withTenants } from "@countersign/db";
 import {
@@ -476,5 +477,34 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
       );
     expect(await insert("generated")).toBeUndefined();
     expect(await insert("made-up")).toBe("23514");
+  });
+  // P-9 (0036): a line may wait for its quantity; a quote names its reach-out, on the same client.
+  it("lets a request line wait for its quantity, and ties a quote to a reach-out of its own client", async () => {
+    const line = (lineNo: number, qty: string | null) =>
+      errorCode(
+        t.db.insert(purchaseRequestLine).values({
+          tenantId: A.tenantId,
+          purchaseRequestId: rowsA.requestId,
+          lineNo,
+          description: "some birch",
+          qty,
+        }),
+      );
+    expect(await line(20, null)).toBeUndefined();
+    expect(await line(21, "0")).toBe("23514");
+    expect(
+      await errorCode(
+        t.db
+          .update(quoteRequest)
+          .set({ reachOutId: "0190a1b2-0000-7000-8000-000000000001" })
+          .where(sql`${quoteRequest.id} = ${rowsA.quoteId}`),
+      ),
+    ).toBe("23503");
+    const fk = await t.db.execute<{ cols: string }>(sql`
+      select array_to_string(array(
+        select a.attname from unnest(c.conkey) k join pg_attribute a
+          on a.attrelid = c.conrelid and a.attnum = k order by a.attname), ',') as cols
+      from pg_constraint c where c.conname = 'quote_request_reach_out_fk'`);
+    expect([...fk].map((r) => r.cols)).toEqual(["reach_out_id,tenant_id"]);
   });
 });
