@@ -130,13 +130,12 @@ export interface StoredPlan {
   checks: { channel: ReachChannel; block: string | null }[];
   /** v0.13: the step's model override for composed messages (absent: the agent's). */
   model?: ModelChoice;
-  // P-3
-  /** The documents sent with each attempt, checked as this client's when the plan was made. */
-  attachments?: AttachmentSummary[];
-
   // P-4: conversations (docs/plan.md §1.66)
   /** WhatsApp: an approved template, sent when the person hasn't written in 24 hours. */
   whatsappTemplate?: { id: string; variables: Record<string, string> };
+  // P-3
+  /** The documents sent with each attempt, checked as this client's when the plan was made. */
+  attachments?: AttachmentSummary[];
 }
 
 export interface Attempt {
@@ -1259,12 +1258,10 @@ export async function attemptFrom(
         ? { to: address, subject: plan.emailSubject, text, replyTag: plan.replyTag, ...files }
         : channel === "voice"
           ? { to: address, purpose: row.purpose, tools: [] }
-          : { to: address, text, ...files };
-
           : // P-4: a conversation's opening may carry a template for outside the 24-hour window.
             channel === "whatsapp" && plan.whatsappTemplate
-            ? { to: address, text, template: plan.whatsappTemplate }
-            : { to: address, text };
+            ? { to: address, text, template: plan.whatsappTemplate, ...files }
+            : { to: address, text, ...files };
     const r = await runPlannedAction(deps.runtime, step, {
       toolId,
       connectionId: conn.id,

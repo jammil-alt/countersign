@@ -17,6 +17,7 @@ import {
 } from "@countersign/connectors";
 import {
   bytesMatchType,
+  isConverseSubject,
   REPLY_DOCUMENTS_MAX,
   type ReachChannel,
   type ReachReply,
@@ -24,8 +25,6 @@ import {
   redactCardNumbers,
   uuidv7,
 } from "@countersign/core";
-
-import { isConverseSubject, type ReachChannel, type ReachReply } from "@countersign/core";
 import {
   connection,
   contact,
@@ -172,10 +171,6 @@ export async function matchRepliesIn(
         }
         continue;
       }
-      if (p.keyword) continue;
-      const row = open[0] as ReachOutRow;
-      const rawRecordId = typeof p.rawRecordId === "string" ? p.rawRecordId : null;
-
       const channel = (p.channel === "whatsapp" ? "whatsapp" : "sms") as ReachChannel;
       // P-4: an open conversation message on the reply's channel takes it first (§1.66); else
       // the most recently updated open reach-out, as before.
@@ -188,6 +183,7 @@ export async function matchRepliesIn(
       // to the question asked; STOP still stops everything, above.
       if (p.keyword && !talking) continue;
       const row = (talking ?? open[0]) as ReachOutRow;
+      const rawRecordId = typeof p.rawRecordId === "string" ? p.rawRecordId : null;
       const reply: ReachReply = {
         channel,
         text: await rawText(tx, tenantId, p.rawRecordId),
