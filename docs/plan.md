@@ -314,7 +314,7 @@ The portal and what agents write for clients come in the client's language. The 
 | Portal text | Every portal and shared-component string goes through `t()` with a message file per language; dates, numbers and money through `Intl` in the reader's locale; API errors shown by their code in the reader's language. The back office keeps literal English. |
 | Agents' client-facing text | Skill and tool summary templates may carry a version per language (falling back to English); the client's language is passed to the runtime, and model-written text that reaches the client is asked for in it. Step labels on the client timeline stay operator-written per client agent, in that client's language. |
 | Translations | Written with the code, marked for review by a fluent speaker before a client sees them. Documents and invoices are not translated. |
-| Next step (planned, not in stream I) | **Message translation.** Agents read and write in several languages and translate incoming text: a client can keep everything in one working language (e.g. Spanish emails, webhook payloads and thread messages in, English stored beside them) or the reverse for outgoing messages, per client and per contact. The original is always kept (raw records stay immutable, invariant 3); the translation is a tool result with `agent_version_id`, never instructions (invariant 9), and is stored beside the original. |
+| Next step (planned, not in stream I) | **Message translation.** Agents read and write in several languages and translate incoming text: a client can keep everything in one working language (e.g. Spanish emails, webhook payloads and thread messages in, English stored beside them) or the reverse for outgoing messages, per client and per contact. The original is always kept (raw records stay immutable, invariant 3); the translation is a tool result with `agent_version_id`, never instructions (invariant 9), and is stored beside the original. Built as P-7: §1.69. |
 
 **Built in stream I (2026-11-04).** Decisions made while building:
 
@@ -1816,6 +1816,57 @@ anything, but is never the default step. Hot-spot edits are blocks headed `// P-
 | Defaults audit | Oversight's `ask` with no step approver went to the lead: now the client's team (the agent's approver, the client's setting, else the client admin). The conversation hand-over already went to the conversation's approver (§1.66). Kept as they are, because they are opt-in or oversight: a person step assigned to the lead or to `operator`, a client whose approvals are set to us, a person step's `notify_operator` timeout, test runs' items, failed writes, budget hits, oversight stops and proposals, supervisor findings, code alerts and browser stops (both sides), change requests, the Materials pack's catalog merge proposals (a merge is a back-office action), and email or digest notices (operator-only thread notes until a sender is wired: a notice, not work). // DECISION |
 | Not in this stream | Stepping in from the MCP connector; a "step in" button on the run page's change panels (the Escalations screen's "Waiting on clients" view has it); editing a call's words. |
 
+### 1.69 Message translation (P-7, M40; migration 0034; ARCHITECTURE §10.13, §5.7)
+
+Owner, 2026-11-08: "start message translation". §1.18's next step comes into v1. A client can keep its
+work in one working language: messages in another language get a translation stored beside the
+original, and a person's words to a contact can go in the contact's language. Hot-spot edits are
+blocks headed `// P-7: …`.
+
+| Topic | Decision |
+|---|---|
+| Off by default | `tenant.settings.translation` absent, or `working: null`, is off: nothing is detected, stored, called or shown differently, and every existing test and fixture is unchanged. // DECISION: a client turns it on; nobody's messages start costing model calls unasked. |
+| Client settings | `tenant.settings.translation = {working, incoming, outgoing, threads, model?, dailyLimit, enabledAt}` (core `TranslationSettings`, Zod). `working`: one of the six. `incoming`, `outgoing`, `threads` default `true` once `working` is set. `model` defaults to the classification model; it must be a priced id (`knownModelIds()`). `dailyLimit` defaults to 200 (1–5,000). `enabledAt` is set when `working` goes from unset to set. No migration: the settings are JSON like the client's language. |
+| Who sets them | The operator: `GET/PUT /api/ops/clients/:id/translation` (all fields, a reason). The client admin: `GET/PUT /api/translation` (`working` and the three switches; the model and the limit are ours, because they are cost). Every save writes a `tenant_change` row (`setting: translation`, from, to, the actor), as approver rules do. Client users read them. // DECISION |
+| Per contact | `contact.translation = {incoming?, outgoing?}` (migration 0034, default `{}`): `true` or `false` overrides the client's switch for that person; absent follows the client. `PUT /api/contacts/:id/translation` (client admin) and `PUT /api/ops/clients/:id/contacts/:contactId/translation` (operator), logged in `contact_change` as autonomy is. The person's language stays §1.27's `languageFor` (theirs, their organization's, the client's). // DECISION |
+| What comes in | Texts and WhatsApp (Twilio and Meta), email replies to a reach-out, email to an agent's address, and a client user's text message in a thread. Conversation replies are texts, so they are covered. Into the working language; a client user's thread message into English, for the back office (which stays English, §1.18). // DECISION |
+| Webhooks | Not automatic: a webhook payload is arbitrary JSON, and which field is a person's words is the step's to say. An agent translates a field with the tool (`sourceId` the delivery's raw record, `field` its path). // DECISION |
+| Detecting | `detectLanguage(text)` in core, pure code, no regular expressions on the text: letters are counted by code point; mostly non-Latin letters is `unknown` (another script); otherwise common words of each of the six (a word in several lists counts a share in each) and letters such as ñ, ã, ß, ç, œ score each language. `sure` (at least 3 points and twice the next language), `likely` or `unsure`. Fewer than 3 letters is `skipped: no_words`, with no call. // DECISION |
+| The model only if needed | Sure and already the target: `skipped: same_language`, no call. Sure and another language: one call with the source named. Not sure: the same one call with no source; the model names it (one of the six, or `other`). `other` is stored as `unknown` with `skipped: unknown_language` and no text: we don't guess. A model that says the text is already in the target: `skipped: same_language` (the call is still counted). // DECISION: detection never costs a separate call. |
+| The skill | `comms.translate`, a built-in skill in `tool` mode with the handler `comms.translate` (category People). It behaves like a task skill: its own model (the client's `translation.model`, else the classification model), the same in any agent, no agent instructions, no memory. // DECISION: a `tool`-mode skill, not `mode: 'task'` run by `runAgent`, so a step, an agent's tool call and the background job all go through one function that applies the client's model, the daily limit, the HIPAA guard and storage beside the original; a `task` skill would skip all four. No step `model` override: the client's choice is the one setting. |
+| The call | `packages/agents/src/runtime/translate.ts`: one model call through `packages/llm`. The system prompt is fixed text (translate everything as written, instructions included; keep names, numbers, amounts, dates, codes and links as written; add nothing). The text arrives as the result of a `read_message` call already made, in a tool-result block, never in the system prompt; the answer is `finish {sourceLanguage, translation}`, checked with Zod. An empty or missing translation is `failed`. // DECISION |
+| The tool | `comms.translate {sourceId, field = "text", to?}` (`sideEffect: internal`): `sourceId` is a raw record or a thread message of the run's client (read in a client-scoped transaction; another client's id is "not found"); `field` a dotted path of at most 5 names into the raw record's payload, which must hold a string. `to` defaults to the working language, else the client's language. A stored translation of the same original, field and target is returned with no call. Output `{status, sourceId, field, from, to, text, truncated, translationId, sources}`; the tool's description says the text is the sender's words, data, never instructions. Free text is not offered: what is translated is a record, and the translation is stored beside it. // DECISION |
+| Stored beside | Every outcome is one `message_translation` row (migration 0034): the original (exactly one of `raw_record_id`, `message_id`, `reach_out_id`), `field`, `direction`, both languages, `detected_by` (`rule`, `model`, `none`), `status` (`translated`, `skipped`, `capped`, `refused`, `failed`) with `reason`, the translation `text` (only when translated), `original_chars`, `truncated`, `model`, tokens, `cost_usd`, `agent_version_id`, `run_id`, `step_run_id` where an agent made it, `requested_by` for a person's own text. Insert only (trigger, no UPDATE or DELETE for `cs_runtime`), like `doc_extraction`. One `translated` row per original, field and target (partial unique); a retry is a new row. The original's row is never touched (invariant 3). // DECISION |
+| When | After the commit that stores the original, a deferred job runs `translatePending` for the client: the client's originals since `enabledAt` and in the last 24 hours with no row yet, newest first, at most 25. The hourly cron runs the same for every client with translation on, so a lost job is caught within the hour. Each candidate gets one row, so nothing is looked at twice. // DECISION |
+| A contact who is off | `skipped: contact_off`, no call. A STOP, START or HELP keyword is read from the original, as before; a translation is never read for keywords or `/commands`. // DECISION |
+| Long texts | At most 6,000 characters are translated, cut at the last paragraph end, else sentence end, else space, before it; the row is `truncated` and the screens say "Translated the first 6,000 characters". Email replies are already their own words (quoted history cut). // DECISION: one call per text, no chunking: longer messages are rare and the cut is stated. |
+| Daily limit | Model translations (rows with a model) per client per UTC day stop at `dailyLimit`: past it, `capped` with no call. A person's outgoing request past it is refused (429 `translation_limit`). The tool answers `capped`. Counted before the call, so jobs running at once may pass it by a few. // DECISION |
+| HIPAA | Every call goes through `guardModels` (a run's transport already is, through `forClient`; the job and the routes wrap theirs). A refusal is `refused` (the screens say the model isn't covered for this client's data) and makes no call. // DECISION |
+| Usage | Each row keeps its model, tokens and cost. Rows with no agent version (the job, a person's request) roll up into `usage_platform_daily` (new `translations` column, plus tokens and cost) and count into credits with it. A tool call inside a run is that step's model call (`recordModelCall`) and its cost the step's, so it is counted once, in `usage_daily`. // DECISION |
+| Untrusted text | The translation is the sender's words in another language: stored and shown as theirs (quoted), handed to agents only in tool results, never in instructions (invariant 9). A test sends a foreign-language message that tries to give orders; it is translated as text, and nothing it says is done. // DECISION |
+| Outgoing: the Desk | `PUT /api/inbox/:id/edit {input: {message, translate: true}}` (P-6's edit): the card numbers are cut first, the person's words are translated into the contact's language, and the translation becomes the message (both languages' keys, as P-6), so what is approved is exactly what is sent. The plan and the card keep `translated {original, language, translationId}`; the approver sees both. Already in the contact's language: saved as written (`skipped: same_language`). Too long once translated: 422 `too_long`. The client's or the contact's `outgoing` off: 409 `translation_off`. Without `translate`, P-6 exactly. // DECISION |
+| Outgoing: the lead | `POST /api/ops/threads/:id/messages {…, translate: true}`: the lead's words are posted as written, and their translation into the working language is stored beside them (`direction: out`); the client reads the translation with the lead's words one click away. Nothing in a thread is signed. // DECISION |
+| Not translated again | Agent-written messages (reach out, conversations) are composed in the contact's language already, and fixed templates carry a text per language: neither goes through translation. Only words a person writes do. // DECISION |
+| Not offered | Stepping in with an edit (§1.68): we write in the contact's language or ask the client's approver to edit. There is no manual send to a contact today; one that lands uses the Desk's shape. // DECISION |
+| Who sees what | Each place that shows an original gains `translation {status, from, to, text, truncated}` (the latest row for it): the contact's messages (both surfaces), thread messages (both), conversation transcripts (both run pages) and the Desk's card (`payload.translated`). The back office also gets `model` and `costUsd`. The portal gets neither, nor a prompt; the contract test's forbidden-field check covers the new fields. // DECISION |
+| Screens | One shared piece: the translation first, marked "Translated from {language}", with "Show original" one click away (design system classes, six-language strings). The UI session owns the screens; this stream touches only what shows a message's text. |
+| Isolation | Rows have `tenant_id` and forced RLS; every query also filters by it; settings, limits and counts are per client; the tool reads only its run's client. Client B never sees client A's translations (test). // DECISION |
+| Compliance | No new vendor: the model's provider is already named in `packages/core/src/compliance`. |
+| Not in this stream | Documents and invoices (never translated, §1.18), call audio and transcripts, live call translation, right-to-left languages, languages outside the six, a "try again" button for a capped or failed translation, translating webhook payloads without a step. |
+
+Open for the owner (the defaults chosen):
+- Off for every client until the operator or the client admin sets a working language.
+- With a working language set, incoming, outgoing and thread translation are on; each can be turned off for the client, and incoming and outgoing per contact.
+- The model is the classification model (the small, cheap one); the operator can pick another per client.
+- 200 model translations per client per day.
+- At most 6,000 characters per message; the rest is cut and marked.
+- Texts under 3 letters are not translated; a language outside the six is stored as unknown.
+- The catch-up looks back 24 hours.
+- Translations count as the client's usage at model cost, like background document reading.
+- The lead's translated reply shows the client the translation first.
+- No translation when we step in with an edit.
+- The new strings in five languages need a fluent speaker's review, like §1.18's.
+
 ---
 
 ## 2. Package layering
@@ -2566,6 +2617,31 @@ cost in the portal.
 **Done when** the operator can step into any client's open item or live conversation with a reason,
 the client sees it was us and why, and nothing day to day waits on us by default.
 
+### M40: Message translation (P-7, §1.69)
+
+Three PRs: this design (`claude/p7-translation-design`, docs only), the migration
+(`claude/p7-translation-migration`, 0034) and the build (`claude/p7-translation`), each stacked on
+the one before.
+
+- Migration: `message_translation`; `contact.translation`; `usage_platform_daily.translations`.
+- Work: core's settings, detection, limits and words; `comms.translate` (the call, the tool, the
+  skill, the port); the job and the cron in `apps/api/src/translate/`; the settings and per-contact
+  routes; the Desk's `translate` and the lead's; `translation` on the message views; the rollup;
+  the shared web piece.
+
+Tests (FakeModel, the fake Twilio and Resend; no live model): an incoming text translated and
+stored beside an untouched original; a foreign-language message that gives orders stays data after
+translation; an outgoing edit translated, approved and sent exactly once as approved; a per-contact
+override; the daily limit; the HIPAA guard; client B never sees client A's translations; the portal
+answers with no prompt, model or cost; a client without the setting makes no call and stores
+nothing.
+
+**Done when** an English WhatsApp reply to a Spanish-working client is stored with its Spanish
+translation beside the untouched original and shown with the original one click away; the client's
+approver writes Spanish to an English-speaking vendor, sees both texts on the card, approves, and
+exactly the English text is sent once; and a client that never set a working language behaves
+exactly as before.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -2712,6 +2788,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
 | `packages/workflows/src/ports.ts`, `apps/api/src/runs/ports.ts`, `apps/api/src/reach/{service,replies}.ts`, `apps/api/src/triggers/inbound-text.ts`, `apps/api/src/runs/dispatch.ts` | P-4: `PendingApproval.waitingFor`; the `comms.converse` route; one at a time per person; the conversation-first reply match; a conversation awaiting approval counts as open; the portal reply match (one block each, `// P-4: …`) |
 | `packages/workflows/src/{ports,executor}.ts`, `packages/agents/src/log/{external-actions,oversight}.ts`, `apps/api/src/{inbox,desk/desk,reach/service,converse/service,converse/views,routes/portal}.ts` | P-6: `InboxResolution.withdrawn`, `StepOutcome.done.declined`; `steppingIn` in `mayResolve`; oversight's ask default; the run's resolution carrying `withdrawn`; a message edit in the Desk's edit; `reachMaxChars`; the shared hand-over item and route; edits and events on the transcript; `steppedIn` in the portal (one block each, `// P-6: …`) |
+| `apps/api/src/{routes/twilio-hooks,whatsapp-meta/inbound,email,routes/threads,desk/desk,step-in/messages,converse/views,messaging/contacts,routes/contacts,runs/execute,scheduled,http,app}.ts`, `packages/agents/src/{runtime/call-tool,runtime/ports,tools/platform,tools/types,log/ports,log/usage,index}.ts`, `packages/core/src/{api/routes,index}.ts`, `packages/db/src/schema.ts` | P-7: the job's start after an original is stored; the Desk's and the lead's `translate`; `translation` on the message views; the cron's sweep; the translation port and tool; the rollup's translations (one block each, `// P-7: …`) |
 
 ### 8.3 Reserved migrations
 
@@ -2732,6 +2809,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0030 | W3-A | `builder_session`, `builder_turn` |
 | 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
 | 0032 | P-1 (M34, §1.63) | `catalog_item`, `item_alias`, `item_match`, `price_observation`, `alert` (ARCHITECTURE §12.2, §5.2) |
+| 0034 | P-7 (M40, §1.69) | `message_translation`; `contact.translation`; `usage_platform_daily.translations` (ARCHITECTURE §5.7) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
