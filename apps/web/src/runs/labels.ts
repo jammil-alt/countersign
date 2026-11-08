@@ -177,6 +177,8 @@ const CONNECTOR_NAMES: Record<string, string> = {
   gsheets: "Google Sheets",
   drive: "Google Drive",
   gchat: "Google Chat",
+  gsc: "Search Console",
+  bing_webmaster: "Bing Webmaster Tools",
   slack: "Slack",
   zoho_crm: "Zoho CRM",
   podio: "Podio",

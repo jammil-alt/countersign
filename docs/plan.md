@@ -2066,10 +2066,24 @@ the internal-client switch and the ops MCP's read of them (branch `claude/market
 
 ### 1.75 M45: search
 
-Decisions for M45 (the search builder) go here.
+Search Console and Bing for a client's site (docs/marketing-plan.md §4.4), built against fakes;
+what is unchecked about each provider is in its folder's `NOTES.md`. Hot-spot edits are lines
+marked `M45`.
 
 | Topic | Decision |
 |---|---|
+| Connectors | `gsc` (Google Search Console) and `bing_webmaster` (Bing Webmaster Tools) in `packages/connectors`, both `api_key` with a credential form and no agent tools: their nightly sync fills the search tables, and agents read those through `marketing.search.figures`. `gsc` takes the property (`sc-domain:example.com` or a URL prefix, shown back) and a service account's JSON key (write-only); `bing_webmaster` the site URL and an API key. The client admin enters them in the portal, as for any API-key connector; for Mezonas, the owner as Mezonas's client admin. Both registered everywhere with no deployment config, so "not available yet" never applies: nothing is read until a key is in the client's vault. // DECISION |
+| Google sign-in | A service-account assertion (RS256, `webmasters.readonly`) for a one-hour token, signed with `../gchat/jwt`; the assertion goes to Google's token URL only, never to a `token_uri` named in the pasted key. Final data only (`dataState: final`), a month per request, at most four pages of 25,000 rows per month and dimension set (past that the day says `truncated`). Google OAuth for clients waits for Google's verification of the scope (M50). // DECISION |
+| Bing | `GetQueryStats` and `GetPageStats`, the history Bing keeps in one answer; the last two days are left out (Bing has no "final" flag; UNCHECKED how late it settles). Bing's queries come without their pages, so their rows keep the path `/*` (the schema keeps a path on every query row); `pathOf` never gives `/*` and page lists leave it out. // DECISION |
+| Raw records | One `raw_record` per connection, day and dimension set (`search.page_day`, `search.query_page_day`, `search.query_day`), as the provider gave the rows (URL, query, counts, position) cut to what is kept; its version is a hash of what it says, so a re-read with the same figures stores nothing, and a revised day stores a new version (raw records are never changed). Every day of a month up to the last day with final figures is stored, empty if Google names nothing, so a day emptied since is emptied here too. // DECISION |
+| The sync | The platform's cron (`apps/api/src/search-sync.ts`), not the pack's nightly hook: it needs the vault's key, which only apps/api holds, and it stores raw records like every connector's sync. 03:11 UTC nightly for every connected search connection, and hourly at :11 for one never synced, so the first import comes within the hour of the key. 16 months (486 days) the first time, then from three days before the data's end to yesterday. Its state sits on the connection (`sync_cursor.search`: data runs to, last run, last good run, last error). A provider's failure is kept as a reason in our words (`SearchImportError`), never a body or the key; an unexpected one is reported to Sentry and kept as "the import failed unexpectedly". A failed run keeps the day the data runs to. // DECISION |
+| Normalising | The pack's search area (`packs/marketing/src/search/normalise.ts`), as `AREA.NIGHTLY` at 03:41: per client with the pack on, per search source, the newest version of each day read since a day before its last import (a late commit is never missed; a day twice is the same rows), the provider's URLs as the site's own paths (`www.` and either protocol; another site's dropped; trailing slash and query string dropped), rows on one path merged with positions weighted by impressions, each day replaced whole. The source's day the data runs to and last error come from its connection's sync state. // DECISION |
+| Search sources | `search_source` says which site a connection's figures belong to (one per client, site and provider), set by a person: `set-search-source` (`siteId`, `provider`, `connectionId` or null). The connection must be the client's and of the provider's connector; pointing a source elsewhere removes that provider's figures for the site and builds them from the new connection; stopping keeps them. The connection keeps the key and the property; the site's domain decides which URLs are its own. // DECISION |
+| Import now | `import-search` rebuilds a client's (or one site's or provider's) figures from every stored raw record, now; it never calls Google or Bing, which only the sync does with the key. // DECISION |
+| Figures | `searchFigures` (the `search` report and the `marketing.search.figures` tool, side effect none): the period ends on the day the chosen providers' data runs to (the earliest of the two for both) and is compared with as many days before; a period asked past the data is cut back and says so (`cappedToData`). Totals and pages from the page table (which counts the searches Google keeps private), queries from the query table; positions weighted by impressions; close to page one is positions 8 to 20; losing ground is a page whose position fell at least one place, with the query on it that fell most. Fewer than 20 impressions is a small sample. The tool returns shorter lists (25 queries and pages) and each source's id, to cite. Queries are data in a tool result (invariant 9); the CSV never lets one read as a formula. // DECISION |
+| Reports | `search` (`site`, `provider`, `from`, `to`; JSON and the period's queries as CSV) and `search-sources` (`site`: the sites, their sources and the client's search connections with the property shown back from the vault's read model). Back office only until M50. |
+| Compliance | Search Console and Bing are the client's own accounts with Google and Microsoft, about the client's own site; we read them with the client's key and send them nothing, so neither is a processor of ours (`packages/core/src/compliance/processors.ts`, as Google Drive). |
+| Not in M45 | The `marketing.search.imported` event (nothing waits on it yet; the agent set may add it with M47); Google OAuth (M50); live checks against mezonas.com's property (owner's phase 0). |
 
 ### 1.76 M46: content and publishing
 
@@ -2965,6 +2979,9 @@ Tests: an import twice is the same; a provider's error is kept in our words; a d
 hasn't finished is not imported; client isolation.
 
 **Done when** mezonas.com's Search Console figures are in the back office, with the day they run to.
+
+Built against fakes (2026-11-08, `claude/marketing-search`); live once the owner has set up Search
+Console and Bing (docs/marketing-plan.md §8, tasks 1 to 3) and entered their keys for the Mezonas client.
 
 ### M46: Content and publishing (§1.76)
 

@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@countersign/connectors": "workspace:*",
     "@countersign/core": "workspace:*",
     "@countersign/db": "workspace:*",
     "@countersign/llm": "workspace:*",

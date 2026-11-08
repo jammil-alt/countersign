@@ -83,6 +83,9 @@ describe("processors", () => {
       "gsheets",
       // v0.14 W4-C: the client's own workspace, not a processor of ours.
       "slack",
+      // M45: the client's own search accounts, read only.
+      "gsc",
+      "bing_webmaster",
     ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }

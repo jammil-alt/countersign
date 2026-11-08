@@ -327,6 +327,14 @@ export {
   fakePlaidAccounts,
   fakePlaidTransaction,
 } from "./bankfeed/fake";
+// M45: Search Console and Bing Webmaster Tools (docs/plan.md §1.75).
+export {
+  bingDate,
+  FAKE_BING,
+  type FakeBing,
+  type FakeBingRow,
+  fakeBing,
+} from "./bing_webmaster/fake";
 export {
   FAKE_ELEVENLABS,
   type FakeElevenLabs,
@@ -355,6 +363,7 @@ export {
   fakeGoogle,
   readSentEmail,
 } from "./gmail/fake";
+export { FAKE_GSC, type FakeGscRow, type FakeSearchConsole, fakeSearchConsole } from "./gsc/fake";
 // v0.14 W4-D: Google Sheets.
 export {
   FAKE_GOOGLE_SHEETS,
