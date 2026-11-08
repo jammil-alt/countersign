@@ -665,6 +665,7 @@ export const es: Messages = {
   "document.source.email": "Reenviado",
   "document.source.connector": "De una herramienta conectada",
   "document.source.request": "Solicitado",
+  "document.source.message": "De un mensaje", // fluent review
   "document.title": "{vendor} · factura {number}",
   "document.received": "{source} {time}",
   "document.receivedFrom": "{source} {time} desde {from}",
