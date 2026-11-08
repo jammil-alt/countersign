@@ -24,6 +24,7 @@ import { vendorContacts } from "./contacts";
 import { frequentItems, vendorsForItems } from "./history";
 import { matchText } from "./match-text";
 import { purchaseOrderDocument, rfqDocument } from "./po";
+import { poQboLines, vendorQbo } from "./qbo";
 import {
   createQuotes,
   expireQuotes,
@@ -136,6 +137,15 @@ const RequestOut = z.object({
   orderConnector: z.string().nullable(),
   orderExternalId: z.string().nullable(),
   orderedAt: z.string().nullable(),
+  // P-9: every order placed for it (one per vendor of a split).
+  orders: z.array(
+    z.object({
+      connector: z.string(),
+      externalId: z.string(),
+      quoteRequestId: z.string().nullable(),
+      at: z.string(),
+    }),
+  ),
   createdAt: z.string(),
   updatedAt: z.string(),
   lines: z.array(LineOut),
@@ -261,7 +271,10 @@ export const requestUpdate = defineTool({
     fulfillment: z.enum(FULFILLMENTS).nullable().optional(),
     deliverTo: Text(500).nullable().optional(),
     notes: Text(2000).nullable().optional(),
-    order: z.object({ connector: Text(40), externalId: Text(200) }).optional(),
+    // P-9: with the quote it orders from, a split records one order per vendor.
+    order: z
+      .object({ connector: Text(40), externalId: Text(200), quoteRequestId: z.uuid().optional() })
+      .optional(),
   }),
   output: RequestResult.extend({ changed: z.array(z.string()) }),
   async run(input, ctx) {
@@ -852,6 +865,8 @@ export const poDocument = defineTool({
     quoteRequestId: z.uuid(),
     reference: Text(40).optional(),
     notes: Text(2000).optional(),
+    // P-9: a split order's share of the lines (compare's `suggestion.split[].requestLineIds`).
+    requestLineIds: z.array(z.uuid()).min(1).max(50).optional(),
   }),
   output: z.object({
     documentId: z.string(),
@@ -1037,6 +1052,94 @@ export const quoteDocument = defineTool({
   run: (input, ctx) => rfqDocument(ctx.db, ctx.content, purchasing(ctx), input),
 });
 
+// ── P-9: QuickBooks (docs/plan.md §1.71) ────────────────────────────────────────────────────────
+
+const QboVendorSeenIn = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string(),
+  companyName: z.string().nullish(),
+  active: z.boolean().optional(),
+});
+
+export const vendorQboTool = defineTool({
+  id: "materials.vendor.qbo",
+  description:
+    "Ties one of the client's vendors to its QuickBooks vendor: the id kept from sync or before; else the one active vendor of the same name among `qboVendors` (qbo.vendor.query's `vendors`); else `qboVendorId` (qbo.vendor.create's new id). Without one, answers `create`, the input for qbo.vendor.create (which waits for approval). Writes nothing to QuickBooks.",
+  sideEffect: "internal",
+  verb: "update",
+  summary: "{{vendorName}} in QuickBooks: {{qboVendorId}}",
+  input: z.object({
+    vendorId: z.uuid(),
+    qboVendors: z.array(QboVendorSeenIn).max(1000).optional(),
+    qboVendorId: z
+      .string()
+      .regex(/^[0-9]{1,20}$/)
+      .optional(),
+  }),
+  output: z.object({
+    vendorId: z.string(),
+    vendorName: z.string(),
+    qboVendorId: z.string().nullable(),
+    how: z.enum(["stored", "found", "given"]).nullable(),
+    searchName: z.string(),
+    create: z.object({ displayName: z.string(), email: z.string().optional() }).nullable(),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const r = await vendorQbo(ctx.db, purchasing(ctx), input);
+    return { ...r, sources: [r.vendorId] };
+  },
+});
+
+export const poQboLinesTool = defineTool({
+  id: "materials.po.qbo-lines",
+  description:
+    "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's QuickBooks id (materials.vendor.qbo first), one line per quoted line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. Writes nothing.",
+  sideEffect: "none",
+  summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s QuickBooks order",
+  input: z.object({
+    requestId: z.uuid(),
+    quoteRequestId: z.uuid(),
+    /** The expense account's QuickBooks id; else the skill's `qbo_account_id`. */
+    accountId: z
+      .string()
+      .regex(/^[0-9]{1,20}$/)
+      .optional(),
+    reference: Text(21).optional(),
+    requestLineIds: z.array(z.uuid()).min(1).max(50).optional(),
+    txnDate: Day.optional(),
+  }),
+  output: z.object({
+    order: z.object({
+      vendorId: z.string(),
+      docNumber: z.string(),
+      txnDate: z.string(),
+      dueDate: z.string().optional(),
+      currency: z.string(),
+      expectedTotal: z.string(),
+      memo: z.string(),
+      lines: z.array(
+        z.object({ accountId: z.string(), description: z.string(), amount: z.string() }),
+      ),
+    }),
+    vendorName: z.string(),
+    reference: z.string(),
+    sources: z.array(z.string()),
+  }),
+  run: (input, ctx) => {
+    const setting = ctx.settings.qbo_account_id;
+    return poQboLines(ctx.db, purchasing(ctx), {
+      ...input,
+      accountId:
+        input.accountId ??
+        (typeof setting === "string" && /^[0-9]{1,20}$/.test(setting.trim())
+          ? setting.trim()
+          : null),
+      txnDate: input.txnDate ?? today(),
+    });
+  },
+});
+
 export const PURCHASING_TOOLS: readonly PackTool[] = [
   requestCreate,
   requestGet,
@@ -1059,6 +1162,8 @@ export const PURCHASING_TOOLS: readonly PackTool[] = [
   vendorContactsTool,
   quoteExpire,
   quoteDocument,
+  vendorQboTool,
+  poQboLinesTool,
 ];
 
 /** The task skills' structured outputs, shared with the manifest. */

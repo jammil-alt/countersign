@@ -192,7 +192,12 @@ export async function backfillFromBills(
         const m = await matchText(tx, ctx.tenantId, {
           description: line.description,
           vendorId,
-          create: ctx.testRun ? null : { agentVersionId: ctx.agentVersionId },
+          // P-9: a person's import (the back office's action) makes items as that person.
+          create: ctx.testRun
+            ? null
+            : ctx.userId
+              ? { userId: ctx.userId }
+              : { agentVersionId: ctx.agentVersionId },
         });
         if (m.decision === "unsure" || !m.item) {
           out.needsReview++;
@@ -241,7 +246,7 @@ export async function backfillFromBills(
             transactionId: t.id,
             rawRecordId: raw.id,
             rawLineId: lineId,
-            agentVersionId: ctx.agentVersionId,
+            agentVersionId: ctx.userId ? null : ctx.agentVersionId,
             ext: {
               source: "qbo_bill",
               qboBillId: bill.Id,

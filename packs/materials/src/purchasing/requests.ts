@@ -34,6 +34,8 @@ export interface PurchasingContext {
   /** The run writing, recorded on the rows; null outside a run. */
   runId: string | null;
   testRun: boolean;
+  /** P-9: a person acting from the back office (the bill-price import), not an agent. */
+  userId?: string | undefined;
 }
 
 export class PurchasingError extends Error {
@@ -110,10 +112,35 @@ export interface RequestView {
   orderConnector: string | null;
   orderExternalId: string | null;
   orderedAt: string | null;
+  /** P-9: every order placed for it: one, or one per vendor of a split. */
+  orders: OrderRef[];
   createdAt: string;
   updatedAt: string;
   lines: RequestLineView[];
   quotes: QuoteSummary[];
+}
+
+export interface OrderRef {
+  connector: string;
+  externalId: string;
+  quoteRequestId: string | null;
+  at: string;
+}
+
+/** A request's orders: `ext.orders` (P-9), else the one order its columns hold. */
+export function ordersOf(r: RequestRow): OrderRef[] {
+  const kept = (r.ext as { orders?: unknown } | null)?.orders;
+  if (Array.isArray(kept) && kept.length > 0) return kept as OrderRef[];
+  return r.orderConnector && r.orderExternalId
+    ? [
+        {
+          connector: r.orderConnector,
+          externalId: r.orderExternalId,
+          quoteRequestId: null,
+          at: (r.orderedAt ?? r.updatedAt).toISOString(),
+        },
+      ]
+    : [];
 }
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
@@ -213,6 +240,7 @@ export async function loadRequest(tx: Tx, tenantId: string, id: string): Promise
     orderConnector: r.orderConnector,
     orderExternalId: r.orderExternalId,
     orderedAt: iso(r.orderedAt),
+    orders: ordersOf(r),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     lines: lines.map((l) => lineView(l.row, l.item)),
@@ -452,7 +480,9 @@ export interface UpdateRequestInput {
   fulfillment?: Fulfillment | null | undefined;
   deliverTo?: string | null | undefined;
   notes?: string | null | undefined;
-  order?: { connector: string; externalId: string } | undefined;
+  order?:
+    | { connector: string; externalId: string; quoteRequestId?: string | undefined }
+    | undefined;
 }
 
 /**
@@ -474,15 +504,39 @@ export async function updateRequest(
     }
     // DECISION: a request is ordered once; a different order reference is refused (a second
     // order is a new request). The same one again changes nothing.
-    if (
-      input.order &&
-      r.orderExternalId !== null &&
-      (r.orderExternalId !== input.order.externalId || r.orderConnector !== input.order.connector)
-    ) {
-      throw new PurchasingError(
-        "status",
-        `the request is already ordered as ${r.orderConnector} ${r.orderExternalId}`,
-      );
+    // P-9: except a split: each vendor's order names its quote, and a quote is ordered once.
+    const orders = ordersOf(r);
+    const same = (o: OrderRef) =>
+      o.connector === input.order?.connector && o.externalId === input.order?.externalId;
+    let addOrder = false;
+    if (input.order && !orders.some(same)) {
+      const q = input.order.quoteRequestId;
+      const split =
+        q !== undefined &&
+        orders.length > 0 &&
+        orders.every((o) => o.quoteRequestId !== null && o.quoteRequestId !== q);
+      if (orders.length > 0 && !split) {
+        throw new PurchasingError(
+          "status",
+          `the request is already ordered as ${r.orderConnector} ${r.orderExternalId}`,
+        );
+      }
+      if (q !== undefined) {
+        const [quote] = await tx
+          .select({ id: quoteRequest.id })
+          .from(quoteRequest)
+          .where(
+            and(
+              eq(quoteRequest.tenantId, ctx.tenantId),
+              eq(quoteRequest.id, q),
+              eq(quoteRequest.purchaseRequestId, r.id),
+            ),
+          )
+          .limit(1);
+        if (!quote)
+          throw new PurchasingError("not_found", `quote request ${q} is not this request's`);
+      }
+      addOrder = true;
     }
     const set: Partial<typeof purchaseRequest.$inferInsert> = {};
     const changed: string[] = [];
@@ -507,6 +561,21 @@ export async function updateRequest(
     if (input.order && r.orderExternalId === null) {
       set.orderConnector = input.order.connector;
       set.orderExternalId = input.order.externalId;
+    }
+    if (input.order && addOrder) {
+      const at = new Date().toISOString();
+      set.ext = {
+        ...(r.ext as Record<string, unknown>),
+        orders: [
+          ...orders,
+          {
+            connector: input.order.connector,
+            externalId: input.order.externalId,
+            quoteRequestId: input.order.quoteRequestId ?? null,
+            at,
+          },
+        ],
+      };
       changed.push("order");
     }
     if (changed.length > 0) {
