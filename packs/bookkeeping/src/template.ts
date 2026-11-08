@@ -2,15 +2,17 @@
 // switched on and forked into a client like any template. Daily: read the bank feed, settle what
 // code can (matches, transfers, rules), have the model propose the rest, ask a person about what it
 // isn't sure of, then write each approved booking to QuickBooks after its own approval. Weekly: ask
-// the client what its undescribed accounts are for.
+// the client what its undescribed accounts are for. Monthly (R-1): reconcile each linked account
+// against QuickBooks; by hand: a deposit against its payout statement.
 //
 // Every write starts with approval on and the agent in `suggest_only` (invariant 8); only the
 // operator loosens it. It carries no client's data: a fork starts from the template's settings.
 
-import { BANKING_TOOLS } from "@countersign/connectors";
+import { BANKFEED_TOOLS, BANKING_TOOLS, QBO_REGISTER_TOOL } from "@countersign/connectors";
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { ACCOUNT_QUESTIONS, BOOKINGS_REVIEW } from "./api";
+import { RECONCILIATION_REVIEW } from "./reconcile/api";
 
 export const BOOKKEEPER_SLUG = "bookkeeper";
 
@@ -56,6 +58,55 @@ function write(entity: "purchase" | "deposit" | "transfer", tool: string, fields
   };
 }
 
+// R-1 (docs/plan.md §1.80): what is left after a reconciliation, suggested by the model, then the
+// card for a person. Only when it isn't balanced.
+function askAboutLeftovers(prefix: string, rec: string) {
+  return {
+    id: `${prefix}-left`,
+    name: "Anything left?",
+    kind: "fork" as const,
+    paths: [
+      {
+        id: `${prefix}-left-path`,
+        name: "Some",
+        when: {
+          match: "all" as const,
+          rules: [
+            { field: `{{steps.${rec}.output.outcome}}`, op: "!=" as const, value: "balanced" },
+          ],
+        },
+        steps: [
+          {
+            id: `${prefix}-explain`,
+            name: "Suggest matches for what is left",
+            kind: "skill" as const,
+            skill: "bookkeeping.explain-leftovers",
+            input: { reconciliationId: `{{steps.${rec}.output.reconciliationId}}` },
+            client: { visible: false },
+          },
+          {
+            id: `${prefix}-ask`,
+            name: "Ask a person to check and sign off",
+            kind: "person" as const,
+            mode: "ask" as const,
+            assignee: "client_admin",
+            title: `{{steps.${rec}.output.summary}}`,
+            payload: {
+              review: RECONCILIATION_REVIEW,
+              reconciliationId: `{{steps.${rec}.output.reconciliationId}}`,
+            },
+            timeout: "7 days",
+            remindEvery: "2 days",
+            onTimeout: "continue" as const,
+            client: { visible: true, label: "Asked you to check a reconciliation" },
+          },
+        ],
+      },
+    ],
+    otherwise: { id: `${prefix}-left-none`, steps: [] },
+  };
+}
+
 const bundle = (b: AgentBundleInput): AgentBundle => AgentBundle.parse(b);
 
 export const BOOKKEEPER_TEMPLATE = {
@@ -83,11 +134,19 @@ export const BOOKKEEPER_TEMPLATE = {
         "bookkeeping.ready",
         "bookkeeping.qbo-input",
         "bookkeeping.posted",
+        // R-1: reconciliation.
+        "bookkeeping.reconcile-pairs",
+        "bookkeeping.reconcile-two",
+        "bookkeeping.explain-leftovers",
+        "bookkeeping.read-statement",
       ].map((skill) => ({ skill, settings: {} })),
       extraTools: [
         BANKING_TOOLS.purchaseCreate,
         BANKING_TOOLS.depositCreate,
         BANKING_TOOLS.transferCreate,
+        // R-1: reads, for reconciling.
+        BANKFEED_TOOLS.accounts,
+        QBO_REGISTER_TOOL,
       ],
       canCommand: [],
       permissions: { mode: "suggest_only" },
@@ -255,6 +314,140 @@ export const BOOKKEEPER_TEMPLATE = {
                 },
               ],
             },
+          ],
+        },
+      },
+      // R-1: each linked account against QuickBooks for last month, on the 3rd.
+      {
+        slug: "reconcile-monthly",
+        name: "Every month: reconcile the bank and card accounts",
+        enabled: true,
+        workflow: {
+          schemaVersion: 3,
+          // 07:19 on the 3rd in the client's time zone, once the month's last transactions posted.
+          trigger: { id: "trg-month", on: { type: "schedule", cron: "19 7 3 * *" } },
+          moreTriggers: [{ id: "trg-month-now", on: manual() }],
+          steps: [
+            {
+              id: "balances",
+              name: "Read the bank feed's balances",
+              kind: "action",
+              tool: BANKFEED_TOOLS.accounts,
+              input: {},
+              client: { visible: false },
+            },
+            {
+              id: "pairs",
+              name: "Accounts to reconcile",
+              kind: "skill",
+              skill: "bookkeeping.reconcile-pairs",
+              input: { accounts: "{{steps.balances.output.accounts}}" },
+              client: { visible: false },
+            },
+            {
+              id: "each-account",
+              name: "Reconcile each account",
+              kind: "for_each",
+              over: "{{steps.pairs.output.pairs}}",
+              concurrency: 1,
+              steps: [
+                {
+                  id: "register",
+                  name: "Read the account in QuickBooks",
+                  kind: "action",
+                  tool: QBO_REGISTER_TOOL,
+                  input: {
+                    accountId: "{{item.ledgerExternalId}}",
+                    startDate: "{{steps.pairs.output.periodStart}}",
+                    endDate: "{{steps.pairs.output.asOf}}",
+                  },
+                  client: { visible: false },
+                },
+                {
+                  id: "rec",
+                  name: "Compare the bank with QuickBooks",
+                  kind: "skill",
+                  skill: "bookkeeping.reconcile-two",
+                  input: {
+                    a: {
+                      source: "bank_feed",
+                      accountLinkId: "{{item.accountLinkId}}",
+                      current: "{{item.current}}",
+                      label: "{{item.name}}",
+                    },
+                    b: {
+                      source: "given",
+                      label: "QuickBooks",
+                      opening: "{{steps.register.output.opening}}",
+                      closing: "{{steps.register.output.closing}}",
+                      items: "{{steps.register.output.items}}",
+                    },
+                    periodStart: "{{steps.pairs.output.periodStart}}",
+                    asOf: "{{steps.pairs.output.asOf}}",
+                    pairKey: "{{item.pairKey}}",
+                  },
+                  client: { visible: true, label: "Reconciled a bank account with QuickBooks" },
+                },
+                askAboutLeftovers("month", "rec"),
+              ],
+            },
+          ],
+        },
+      },
+      // R-1: one deposit against its payout statement, run by hand.
+      {
+        slug: "payout-check",
+        name: "Check a deposit against its payout statement",
+        enabled: true,
+        workflow: {
+          schemaVersion: 3,
+          trigger: {
+            id: "trg-payout",
+            on: {
+              type: "manual",
+              input: {
+                type: "object",
+                properties: {
+                  bankTxnId: { type: "string", format: "uuid" },
+                  documentId: { type: "string", format: "uuid" },
+                },
+                required: ["bankTxnId", "documentId"],
+                additionalProperties: false,
+              },
+              client: { canRun: true },
+            },
+          },
+          steps: [
+            {
+              id: "statement",
+              name: "Read the payout statement",
+              kind: "skill",
+              skill: "bookkeeping.read-statement",
+              input: { documentId: "{{trigger.documentId}}" },
+              client: { visible: true, label: "Read the payout statement" },
+            },
+            {
+              id: "payout",
+              name: "Compare the deposit with the statement",
+              kind: "skill",
+              skill: "bookkeeping.reconcile-two",
+              input: {
+                a: {
+                  source: "records",
+                  label: "Bank deposit",
+                  bankTxnIds: ["{{trigger.bankTxnId}}"],
+                },
+                b: {
+                  source: "given",
+                  label: "{{steps.statement.output.label}}",
+                  opening: "{{steps.statement.output.opening}}",
+                  closing: "{{steps.statement.output.closing}}",
+                  items: "{{steps.statement.output.items}}",
+                },
+              },
+              client: { visible: true, label: "Compared a deposit with its payout statement" },
+            },
+            askAboutLeftovers("payout", "payout"),
           ],
         },
       },

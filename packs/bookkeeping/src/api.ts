@@ -27,6 +27,7 @@ import {
   type PackReviewHandler,
   ReviewError,
 } from "./pack";
+import { RECONCILE_REPORTS, RECONCILE_REVIEWS } from "./reconcile/api";
 import { bankAccountLink, bankTxn, booking, bookingLine, bookingRule, LINK_MODES } from "./schema";
 
 const Id = z.string().uuid();
@@ -213,6 +214,8 @@ export const BOOKKEEPING_REVIEWS: Readonly<Record<string, PackReviewHandler>> = 
       });
     },
   },
+  // R-1: the reconciliation card.
+  ...RECONCILE_REVIEWS,
 };
 
 // ── The back office's actions ────────────────────────────────────────────────────────────────────
@@ -548,6 +551,8 @@ export const BOOKKEEPING_REPORTS: Readonly<Record<string, PackReportHandler>> = 
       return `${[head.join(","), ...lines].join("\n")}\n`;
     },
   },
+  // R-1: reconciliations.
+  ...RECONCILE_REPORTS,
 };
 
 // ── The nightly import ───────────────────────────────────────────────────────────────────────────

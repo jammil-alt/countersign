@@ -6,6 +6,8 @@ import { BOOK_CONFIDENCE_AUTO } from "./bookings";
 import { PACK_ID } from "./ids";
 import type { PackTool } from "./pack";
 import { POSTING_TOOLS, postedTool, qboInputTool, readyTool } from "./posting";
+import { RECONCILE_SKILLS } from "./reconcile/skills";
+import { RECONCILE_TOOLS } from "./reconcile/tools";
 import { BOOKKEEPER_TEMPLATE } from "./template";
 import {
   accountsTool,
@@ -21,7 +23,7 @@ import {
 
 export { PACK_ID };
 
-const ALL_TOOLS: readonly PackTool[] = [...BOOKKEEPING_TOOLS, ...POSTING_TOOLS];
+const ALL_TOOLS: readonly PackTool[] = [...BOOKKEEPING_TOOLS, ...POSTING_TOOLS, ...RECONCILE_TOOLS];
 
 const schema = (tool: PackTool, key: "input" | "output") =>
   tool.spec[key] as Record<string, unknown>;
@@ -149,6 +151,8 @@ export const BOOKKEEPING_SKILLS: readonly SkillDefinition[] = [
       "Records the QuickBooks id a booking was written as, or why the write didn't happen.",
     summary: "Recorded the booking as {{status}}",
   }),
+  // R-1: reconciliation.
+  ...RECONCILE_SKILLS,
 ];
 
 export const bookkeepingManifest: PackManifest = PackManifest.parse({
@@ -166,6 +170,11 @@ export const bookkeepingManifest: PackManifest = PackManifest.parse({
     {
       route: "/reports/bookkeeping/transactions",
       title: "Bank transactions",
+      roles: ["client_admin", "client_user"],
+    },
+    {
+      route: "/reports/bookkeeping/reconciliations",
+      title: "Reconciliations",
       roles: ["client_admin", "client_user"],
     },
   ],

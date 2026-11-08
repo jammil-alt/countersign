@@ -2,7 +2,7 @@
 // and is the pack's own read or record (never a write outside); every skill uses tools that exist;
 // the Bookkeeper keeps approval on for every write and names only the QuickBooks writes it needs.
 
-import { BANKING_TOOLS } from "@countersign/connectors";
+import { BANKFEED_TOOLS, BANKING_TOOLS, QBO_REGISTER_TOOL } from "@countersign/connectors";
 import {
   type AgentBundle,
   PackManifest,
@@ -32,7 +32,8 @@ describe("the Bookkeeping manifest", () => {
   });
 
   it("gives every skill tools that exist, and requires the pack", () => {
-    const tools = new Set(bookkeepingManifest.tools.map((t) => t.id));
+    // The statement reader reads the document with the platform's own docs tools.
+    const tools = new Set([...bookkeepingManifest.tools.map((t) => t.id), "docs.read", "docs.get"]);
     for (const skill of BOOKKEEPING_SKILLS) {
       expect(SkillDefinition.safeParse(skill).success, skill.id).toBe(true);
       for (const t of [...(skill.handler ? [skill.handler] : []), ...skill.tools]) {
@@ -47,7 +48,11 @@ describe("the Bookkeeping manifest", () => {
     expect(template?.slug).toBe("bookkeeper");
     const bundle = template?.bundle as AgentBundle;
     expect(bundle.definition.permissions.mode).toBe("suggest_only");
-    expect(bundle.definition.extraTools.sort()).toEqual(Object.values(BANKING_TOOLS).sort());
+    // The QuickBooks writes, and two reads for reconciling (R-1).
+    const reads = [BANKFEED_TOOLS.accounts, QBO_REGISTER_TOOL];
+    expect(bundle.definition.extraTools.sort()).toEqual(
+      [...Object.values(BANKING_TOOLS), ...reads].sort(),
+    );
     const skills = new Set(bundle.definition.skills.map((s) => s.skill));
     const actions: string[] = [];
     for (const wf of bundle.workflows) {
@@ -59,13 +64,14 @@ describe("the Bookkeeping manifest", () => {
         }
       });
     }
-    expect(actions.sort()).toEqual(Object.values(BANKING_TOOLS).sort());
+    expect(actions.sort()).toEqual([...Object.values(BANKING_TOOLS), ...reads].sort());
   });
 
   it("serves its cards, actions and reports by name", () => {
     expect(Object.keys(BOOKKEEPING_REVIEWS).sort()).toEqual([
       "bookkeeping.account-questions",
       "bookkeeping.bookings",
+      "bookkeeping.reconciliation",
     ]);
     expect(Object.keys(BOOKKEEPING_ACTIONS).sort()).toEqual([
       "add-account-note",
@@ -74,6 +80,11 @@ describe("the Bookkeeping manifest", () => {
       "link-account",
       "turn-off-rule",
     ]);
-    expect(Object.keys(BOOKKEEPING_REPORTS).sort()).toEqual(["accounts", "rules", "transactions"]);
+    expect(Object.keys(BOOKKEEPING_REPORTS).sort()).toEqual([
+      "accounts",
+      "reconciliations",
+      "rules",
+      "transactions",
+    ]);
   });
 });

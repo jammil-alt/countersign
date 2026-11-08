@@ -20,6 +20,17 @@ export { BOOKKEEPING_HANDLERS, BOOKKEEPING_SKILLS, bookkeepingManifest } from ".
 export * from "./pack";
 export { payeeKey } from "./payee";
 export { bookingReference, POSTING_TOOLS, qboInput } from "./posting";
+export { RECONCILE_REPORTS, RECONCILE_REVIEWS, RECONCILIATION_REVIEW } from "./reconcile/api";
+export * from "./reconcile/engine";
+export { RECONCILE_SKILLS } from "./reconcile/skills";
+export {
+  decideReconciliation,
+  monthPeriod,
+  type ReconcileOutput,
+  reconciliationView,
+  runReconciliation,
+} from "./reconcile/store";
+export { bankPairKey, RECONCILE_TOOLS } from "./reconcile/tools";
 export * from "./schema";
 export { BOOKKEEPER_SLUG, BOOKKEEPER_TEMPLATE } from "./template";
 export { BOOKKEEPING_TOOLS, thresholdFrom } from "./tools";
