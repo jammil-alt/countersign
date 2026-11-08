@@ -1,5 +1,5 @@
-// Migration 0037 and measuring a site end to end on a throwaway database: the tables match the
-// pack's schema and force RLS; a beacon from the site's own pages is stored, anything else is
+// Migration 0037 and measuring a site end to end on a throwaway database (the tables themselves
+// are checked in ../schema.test.ts): a beacon from the site's own pages is stored, anything else is
 // dropped or counted; the nightly build makes visits and totals, as the Worker's role; retention
 // deletes what it should; and one client never sees or writes another's figures (invariant 1).
 
@@ -10,18 +10,15 @@ import {
   databaseAvailable,
   type TestDatabase,
 } from "@countersign/db/testing";
-import { is, sql } from "drizzle-orm";
-import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { overview } from "../reports";
-import * as schema from "../schema";
-import { MARKETING_TABLES, site, siteDailyTotal, siteEvent, siteSalt, siteVisit } from "../schema";
+import { site, siteDailyTotal, siteEvent, siteSalt, siteVisit } from "../schema";
 import { addSite, updateSite } from "../sites";
 import { type CollectRequest, collect } from "./collect";
 import { buildDay, nightly, sweep } from "./rollup";
 
 const online = await databaseAvailable();
-const tables = (Object.values(schema) as unknown[]).filter((v): v is PgTable => is(v, PgTable));
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
@@ -83,32 +80,6 @@ describe.skipIf(!online)("measuring a site (migration 0037)", () => {
   });
   afterAll(async () => {
     await t?.drop();
-  });
-
-  it("match the pack's Drizzle schema, are the pack's, and force RLS", async () => {
-    const cols = await t.db.$client<
-      { table_name: string; column_name: string; is_nullable: string }[]
-    >`
-      select table_name, column_name, is_nullable from information_schema.columns
-      where table_schema = 'public' and table_name in ${t.db.$client([...MARKETING_TABLES])}`;
-    const actual = new Map(cols.map((c) => [`${c.table_name}.${c.column_name}`, c.is_nullable]));
-    const expected = new Set<string>();
-    for (const table of tables) {
-      const config = getTableConfig(table);
-      for (const column of config.columns) {
-        const key = `${config.name}.${column.name}`;
-        expected.add(key);
-        expect(actual.get(key), key).toBe(column.notNull ? "NO" : "YES");
-      }
-    }
-    expect([...actual.keys()].filter((k) => !expected.has(k))).toEqual([]);
-    expect(tables.map((x) => getTableConfig(x).name).sort()).toEqual([...MARKETING_TABLES].sort());
-    const rows = await t.db.$client<{ relname: string; forced: boolean; owner: string }[]>`
-      select c.relname, c.relforcerowsecurity as forced, obj_description(c.oid, 'pg_class') as owner
-      from pg_class c where c.relname in ${t.db.$client([...MARKETING_TABLES])}`;
-    expect(rows).toHaveLength(MARKETING_TABLES.length);
-    for (const r of rows)
-      expect([r.relname, r.forced, r.owner]).toEqual([r.relname, true, "pack:marketing"]);
   });
 
   it("keeps a site's domain without www, once per client", async () => {
