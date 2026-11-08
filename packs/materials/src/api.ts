@@ -7,6 +7,7 @@ import type { Db, Tx } from "@countersign/db";
 import { z } from "zod";
 import { decideLine } from "./catalog/match";
 import { mergeItems } from "./catalog/merge";
+import { backfillFromBills } from "./purchasing/backfill";
 import { requestsCsv, requestsReport } from "./purchasing/report";
 import { catalogCsv, catalogReport, priceWatch, priceWatchCsv, reviewLines } from "./reports";
 
@@ -44,6 +45,56 @@ export interface PackActionHandler {
   ): Promise<Record<string, unknown>>;
 }
 
+// P-9: at most this many pages of 500 bills in one import (20,000 bills); more: run it again.
+export const IMPORT_PAGES_MAX = 40;
+
+/**
+ * Every synced QuickBooks bill dated in the range into catalog items and prices, page after page
+ * (`next`), at most IMPORT_PAGES_MAX pages. Safe to run again: a bill line is priced once. A
+ * person's action, so the items and prices are theirs.
+ */
+export async function importBillPrices(
+  db: Db,
+  who: { tenantId: string; userId: string },
+  input: { from: string; to: string },
+  pageSize = 500,
+): Promise<Record<string, unknown>> {
+  const totals = {
+    bills: 0,
+    recorded: 0,
+    alreadyRecorded: 0,
+    matched: 0,
+    newItems: 0,
+    needsReview: 0,
+    skipped: 0,
+    accountLines: 0,
+  };
+  let after: string | undefined;
+  let pages = 0;
+  let more = false;
+  do {
+    const r = await backfillFromBills(
+      db,
+      // No agent version: the import is the person's (backfill attributes it to userId).
+      {
+        tenantId: who.tenantId,
+        agentVersionId: "",
+        userId: who.userId,
+        runId: null,
+        testRun: false,
+      },
+      { from: input.from, to: input.to, limit: pageSize, ...(after ? { after } : {}) },
+    );
+    for (const k of Object.keys(totals) as (keyof typeof totals)[]) totals[k] += r[k];
+    pages++;
+    after = r.next ?? undefined;
+    more = r.next !== null;
+  } while (more && pages < IMPORT_PAGES_MAX);
+  return { ...totals, from: input.from, to: input.to, pages, more };
+}
+
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, yyyy-mm-dd");
+
 export const MATERIALS_ACTIONS: Readonly<Record<string, PackActionHandler>> = {
   // The back office's catalog merge (ARCHITECTURE §12.2 "plus catalog merge"): mergeItems
   // refuses different categories or units (invariant 7) and moves aliases and price history.
@@ -55,6 +106,14 @@ export const MATERIALS_ACTIONS: Readonly<Record<string, PackActionHandler>> = {
         ...(await mergeItems(db, { tenantId: ctx.tenantId, userId: ctx.userId, ...input })),
       };
     },
+  },
+  // P-9: "Import bill prices" in the back office (docs/plan.md §1.71).
+  "import-bill-prices": {
+    input: z
+      .strictObject({ from: Day, to: Day })
+      .refine((v) => v.from <= v.to, { message: "`from` is after `to`" }),
+    run: (db, ctx) =>
+      importBillPrices(db, { tenantId: ctx.tenantId, userId: ctx.userId }, ctx.input as never),
   },
 };
 

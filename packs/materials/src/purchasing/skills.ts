@@ -14,6 +14,7 @@ import {
   catalogMatchText,
   frequentItemsTool,
   poDocument,
+  poQboLinesTool,
   quoteCompare,
   quoteCreate,
   quoteDocument,
@@ -28,6 +29,7 @@ import {
   requestUpdate,
   requestUpdateLines,
   vendorContactsTool,
+  vendorQboTool,
   vendorsForItemsTool,
 } from "./tools";
 
@@ -252,5 +254,29 @@ export const PURCHASING_SKILLS: readonly SkillDefinition[] = [
     description:
       "Marks the requests for quotes still unanswered as expired (past their due time, or all of them), so the request moves on with the quotes that came in.",
     summary: "Expired {{expired.length}} requests for quotes",
+  }),
+  // P-9: QuickBooks (docs/plan.md §1.71).
+  toolSkill(vendorQboTool, {
+    id: "materials.qbo-vendor",
+    name: "Find the vendor in QuickBooks",
+    description:
+      "Ties a vendor to its QuickBooks vendor: the id we keep, else the one QuickBooks vendor of the same name, else the details to add it (a later step adds it, after approval).",
+    summary: "{{vendorName}} in QuickBooks: {{qboVendorId}}",
+  }),
+  toolSkill(poQboLinesTool, {
+    id: "materials.qbo-order-lines",
+    name: "Lay out the QuickBooks purchase order",
+    description:
+      "Turns the chosen quote into a QuickBooks purchase order's lines on the client's expense account for purchases, amounts in cents, ready for Create a purchase order (which waits for approval).",
+    summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s QuickBooks order",
+    settings: [
+      {
+        key: "qbo_account_id",
+        label: "QuickBooks expense account for purchase orders (its id)",
+        type: "string",
+        default: "",
+        clientSpecific: true,
+      },
+    ],
   }),
 ];

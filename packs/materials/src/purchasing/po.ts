@@ -216,7 +216,7 @@ export async function renderPurchaseOrder(po: PoContent): Promise<Uint8Array> {
 }
 
 /** The order's lines from the quote: what the vendor can supply, priced, as quoted. */
-async function poContent(
+export async function poContent(
   tx: Tx,
   ctx: PurchasingContext,
   input: {
@@ -224,6 +224,8 @@ async function poContent(
     quoteRequestId: string;
     reference?: string | undefined;
     notes?: string | undefined;
+    /** P-9: only these lines (a split order: this vendor's share). */
+    requestLineIds?: readonly string[] | undefined;
   },
 ): Promise<{ content: PoContent; vendorId: string; quoteLineIds: string[] }> {
   const r = await requestRow(tx, ctx.tenantId, input.requestId);
@@ -253,6 +255,8 @@ async function poContent(
   const ids: string[] = [];
   let total = dec("0");
   for (const { row } of asked) {
+    // P-9: a split order holds only its vendor's share of the lines.
+    if (input.requestLineIds && !input.requestLineIds.includes(row.id)) continue;
     const ql = quoted.find((x) => x.purchaseRequestLineId === row.id);
     if (!ql?.available || ql.unitPrice === null) continue;
     const qty = ql.qty ?? row.qty;
@@ -281,7 +285,10 @@ async function poContent(
   }
   // DECISION: the reference is the one given (e.g. the client's PO number), else PO- and the
   // request id's first eight characters; the order is dated the day the quote came in.
-  const reference = input.reference ?? `PO-${r.id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+  // P-9: each order of a split adds four characters of its quote's id.
+  const split = input.requestLineIds ? `-${q.id.replace(/-/g, "").slice(-4).toUpperCase()}` : "";
+  const reference =
+    input.reference ?? `PO-${r.id.replace(/-/g, "").slice(0, 8).toUpperCase()}${split}`;
   return {
     vendorId: q.vendorId,
     quoteLineIds: ids,
@@ -328,6 +335,7 @@ export async function purchaseOrderDocument(
     quoteRequestId: string;
     reference?: string | undefined;
     notes?: string | undefined;
+    requestLineIds?: readonly string[] | undefined;
   },
 ): Promise<PoDocument> {
   if (!content) throw new PurchasingError("invalid", "document storage isn't available here");
