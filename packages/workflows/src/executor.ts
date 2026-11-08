@@ -421,7 +421,12 @@ class Executor {
         update = {
           status: "waiting",
           // Not done yet: "Itemize the bill", never the done label "Itemized the bill".
-          summary: `${stepStateLabel(step, false)}: ${this.words.waitingForApproval}`,
+          summary: `${stepStateLabel(step, false)}: ${
+            // P-4: a conversation handed to a person waits for their answer (§1.66).
+            done.pending.waitingFor === "answer"
+              ? this.words.waitingForAnswer
+              : this.words.waitingForApproval
+          }`,
         };
         break;
       case "waiting":

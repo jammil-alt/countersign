@@ -32,6 +32,8 @@ import {
   explainWrite,
   fixedInputProblem,
   hoursBlock,
+  // P-4
+  isConverseSubject,
   isPlainObject,
   isSendableType,
   type JsonObject,
@@ -128,6 +130,9 @@ export interface StoredPlan {
   checks: { channel: ReachChannel; block: string | null }[];
   /** v0.13: the step's model override for composed messages (absent: the agent's). */
   model?: ModelChoice;
+  // P-4: conversations (docs/plan.md §1.66)
+  /** WhatsApp: an approved template, sent when the person hasn't written in 24 hours. */
+  whatsappTemplate?: { id: string; variables: Record<string, string> };
   // P-3
   /** The documents sent with each attempt, checked as this client's when the plan was made. */
   attachments?: AttachmentSummary[];
@@ -461,9 +466,28 @@ async function contactLoad(
         eq(reachOut.contactId, contactId),
         gte(reachOut.createdAt, day),
         sql`coalesce(${reachOut.outcome}, '') <> 'not_allowed'`,
+        // P-4: a conversation counts once toward the daily cap: its first message.
+        sql`(${reachOut.subject} not like 'converse:%' or ${reachOut.nodeId} like '%:m1')`,
       ),
     );
-  return { openForSubject: Boolean(open), sentToday: count?.n ?? 0 };
+  // P-4: one at a time per person (§1.66): someone in an open conversation isn't reached.
+  const [talking] = await tx
+    .select({ id: reachOut.id })
+    .from(reachOut)
+    .where(
+      and(
+        eq(reachOut.tenantId, tenantId),
+        eq(reachOut.contactId, contactId),
+        ne(reachOut.status, "ended"),
+        sql`${reachOut.subject} like 'converse:%'`,
+      ),
+    )
+    .limit(1);
+  return {
+    openForSubject: Boolean(open),
+    sentToday: count?.n ?? 0,
+    inConversation: Boolean(talking),
+  };
 }
 
 function hexId(id: string): string {
@@ -699,7 +723,26 @@ export function reachPort(deps: ReachDeps): ReachPort {
         // DECISION: a role's contacts are tried in the order they were bound; the first one with a
         // channel that passes is reached (one contact per reach-out).
         for (const who of loaded.candidates) {
-          const counts = await contactLoad(tx, info.tenantId, who.id, subject, t);
+          const { inConversation, ...counts } = await contactLoad(
+            tx,
+            info.tenantId,
+            who.id,
+            subject,
+            t,
+          );
+          // P-4: a person in an open conversation is not reached until it ends (§1.66).
+          if (inConversation) {
+            firstRefusal ??= {
+              who,
+              plan: {
+                ok: false,
+                outcome: "not_allowed",
+                reason: "they are in a conversation with an agent",
+                checks: [],
+              },
+            };
+            continue;
+          }
           const plan = planReachOut({
             contact: reachContactOf(who),
             conditions,
@@ -1081,9 +1124,12 @@ export async function attemptFrom(
           direction: "out",
           channel: attempt.channel,
           text:
-            attempt.status === "sent"
-              ? `Reached out by ${CHANNEL_WORDS[attempt.channel]} (attempt ${attempt.index + 1} of ${plan.channels.length}): ${row.purpose}`
-              : `Couldn't reach by ${CHANNEL_WORDS[attempt.channel]}: ${attempt.error ?? "failed"}`,
+            // P-4: a conversation's line is the message itself (§1.66).
+            attempt.status === "sent" && isConverseSubject(row.subject)
+              ? `${"template" in plan.message ? pickMessage(plan.message.template, plan.language) : row.purpose}`
+              : attempt.status === "sent"
+                ? `Reached out by ${CHANNEL_WORDS[attempt.channel]} (attempt ${attempt.index + 1} of ${plan.channels.length}): ${row.purpose}`
+                : `Couldn't reach by ${CHANNEL_WORDS[attempt.channel]}: ${attempt.error ?? "failed"}`,
           status: attempt.status,
         });
       });
@@ -1212,7 +1258,10 @@ export async function attemptFrom(
         ? { to: address, subject: plan.emailSubject, text, replyTag: plan.replyTag, ...files }
         : channel === "voice"
           ? { to: address, purpose: row.purpose, tools: [] }
-          : { to: address, text, ...files };
+          : // P-4: a conversation's opening may carry a template for outside the 24-hour window.
+            channel === "whatsapp" && plan.whatsappTemplate
+            ? { to: address, text, template: plan.whatsappTemplate, ...files }
+            : { to: address, text, ...files };
     const r = await runPlannedAction(deps.runtime, step, {
       toolId,
       connectionId: conn.id,

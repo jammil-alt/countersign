@@ -5,6 +5,8 @@
 import {
   // v0.12 W2-D
   ACCOUNT_SKILLS,
+  // P-4
+  CONVERSE_SKILLS,
   DIRECTORY_SKILLS,
   DOCS_SKILLS,
   KNOWLEDGE_SKILLS,
@@ -133,6 +135,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...KNOWLEDGE_SKILLS,
       ...DIRECTORY_SKILLS,
       ...REACH_SKILLS,
+      // P-4: conversations (comms.converse)
+      ...CONVERSE_SKILLS,
       ...SUPERVISOR_SKILLS,
       // v0.12 W2-D: Sloan's conversation (account.chat)
       ...ACCOUNT_SKILLS,

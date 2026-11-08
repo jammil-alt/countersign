@@ -6,6 +6,8 @@
 // after this change for each action) and Details (model calls with request and answer, the run
 // oversight's decisions, and the raw trigger, inputs, outputs and tool calls). Beside it: about
 // this run and the same error elsewhere. Retry, cancel and replay. Polls every 2 s while it goes.
+// P-4
+
 import { errorGroupKey, runErrorCode, runStartedBy, shortRunId, Workflow } from "@countersign/core";
 import { type ReactNode, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -37,6 +39,7 @@ import {
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
+import { Transcript } from "../../ui/transcript";
 import { usePageClient } from "../pickedClient";
 import { checklistRows, type RunStepRow } from "../run/checklist";
 import { ModelCalls, RunControls } from "../run/RunControls";
@@ -462,6 +465,28 @@ function Timeline({
               Oversight: {oversightLine(d).toLowerCase()}.
             </p>
           ))}
+          {/* P-4: a conversation's transcript, each turn's model and cost (§1.66). */}
+          {s?.conversation ? (
+            <Transcript
+              testId={`ops-run-conversation-${r.key}`}
+              lines={s.conversation.messages.map((m, k) => ({
+                key: `${m.turn}-${m.direction}-${k}`,
+                direction: m.direction,
+                who:
+                  m.direction === "in"
+                    ? (s.conversation?.who?.name ?? "Them")
+                    : `Agent · message ${m.turn}`,
+                text: m.text,
+                when: m.at ? shortTime(m.at) : (CONVERSE_STATUS[m.status] ?? m.status),
+                meta:
+                  m.direction === "out"
+                    ? [m.model, m.costUsd && !isZero(m.costUsd) ? usd(m.costUsd) : null]
+                        .filter(Boolean)
+                        .join(" · ") || null
+                    : null,
+              }))}
+            />
+          ) : null}
           {failed && s ? (
             <ToolCallsBlock calls={data.toolCalls.filter((c) => c.stepRunId === s.id)} />
           ) : null}
@@ -484,6 +509,15 @@ function Timeline({
     </Card>
   );
 }
+
+// P-4: a conversation message that hasn't gone yet, in plain words.
+const CONVERSE_STATUS: Record<string, string> = {
+  waiting_for_approval: "waiting for approval",
+  held_for_quiet_hours: "held for quiet hours",
+  not_approved: "not approved",
+  not_sent: "not sent",
+  sending: "sending",
+};
 
 function compact(value: unknown): string {
   if (value === null || value === undefined) return "—";

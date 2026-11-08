@@ -2097,20 +2097,20 @@ executor's `waiting` and `approval` outcomes, which already let one step wait an
 ConverseInput = {
   to: { role } | { contactId: Template } | { userId: Template },  // a directory contact, or a client user
   channel: 'whatsapp' | 'sms' | 'email' | 'portal',                 // contacts: the first three; users: portal
-  goal: { instructions: string /*fixed*/, result: JsonSchema /*fixed, an object*/, confirm: boolean = true },
-  opening: { brief: string /*fixed*/, whatsappTemplate?: { id, variables } },
+  goal: string /*fixed*/, result: JsonSchema /*fixed, an object*/, confirm: boolean = true,
+  opening: string /*fixed: what the first message says*/, whatsappTemplate?: { id, variables },
   about: string[] /*record ids: sources*/, data?: Template /*record data, given to the model as data*/,
   limits: { maxMessages = 6 /*1–12*/, waitPerReply = '1 day' /*≤ 7 days*/,
             deadline = '3 days' /*≤ 14 days*/, maxCostUsd = '0.50' /*≤ 5*/ },
 }
 ConverseOutput = { outcome: 'completed' | 'handed_over' | 'opted_out' | 'declined' | 'not_allowed' | 'not_sent',
-  result /*typed by goal.result*/, confirmed, who, channel, messages, replies,
+  result /*typed by result*/, confirmed, who, channel, messages, replies,
   transcript: [{ direction: 'out'|'in', text, at, sourceId }], sources, reason, costUsd }
 ```
 
-`goal.instructions`, `goal.result` and `opening.brief` are fixed inputs (the step's own text, never a
-template: they become instructions). Validation types `{{steps.<id>.output.result}}` from
-`goal.result`, so later steps and forks use the answer like any typed output.
+`goal`, `result` and `opening` are fixed inputs (the step's own text, never a template: they become
+instructions). Validation types `{{steps.<id>.output.result}}` from `result`, so later steps and forks
+use the answer like any typed output.
 
 **Turns.** Each turn is one model call on the agent (agent-mode work: its instructions, memory notes
 and the client's language; the step's `model` overrides the agent's). The model sees a platform
@@ -2120,8 +2120,8 @@ tool-result block, never as instructions (invariant 9). It answers through one f
 | Answer | Effect |
 |---|---|
 | `ask {message}` | The message is sent; the step waits for the reply. |
-| `confirm {message, result}` | The proposed result (validated against `goal.result`) and a message asking the person to confirm it. |
-| `done {result, confirmed, closing?}` | Ends the conversation as `completed`. With `goal.confirm`, accepted only after a `confirm` was answered and `confirmed` is true; `closing` is a last thank-you, sent under the same rules. |
+| `confirm {message, result}` | The proposed result (validated against `result`) and a message asking the person to confirm it. |
+| `done {result, confirmed, closing?}` | Ends the conversation as `completed`. With `confirm`, accepted only after a `confirm` was answered and `confirmed` is true; `closing` is a last thank-you, sent under the same rules. |
 | `give_up {reason}` | The agent can't get there: hand-over (below). |
 
 There is no field for a recipient, channel, approval or limit, so nothing the person writes can change
@@ -2147,7 +2147,7 @@ messages are posted in the agent's thread (`agent` subject, "Message Pia"), addr
   unsigned only under the usual three conditions, and never when the person's autonomy on the
   channel is `approval`.
 - **Each later message** goes under that signature, except when the person's autonomy on the channel
-  is `approval` or the agent is in trial or sign-off: then each message is its own card, "Message 3
+  is `approval` or the agent isn't live yet (bench, trial, sign-off): then each message is its own card, "Message 3
   of up to 6 to Dana on WhatsApp", with the text, the conversation so far (their words quoted and
   marked as theirs), the goal and why it waits ("Dana's WhatsApp messages need approval"). Approving
   sends exactly that text; declining ends the conversation `declined` (the step's `onReject`). Only
@@ -2166,9 +2166,10 @@ message in the agent's thread while the step waits on them is the reply.
 approver turned the conversation or a message down); `not_allowed` (it couldn't start: no consent, no
 channel, busy, outside the window). Every **limit** (messages, no reply in time, the deadline, cost) and
 `give_up` **hands over**, never fails silently: an inbox item of the kind a person step makes
-(`request`, subject `conversation_handover`) to the step's approver, else the client's lead, with the
+(`request`, subject `conversation_handover`) to whoever approves the conversation, the client's team
+by default (the operator only when the client's approvals are set to us), with the
 goal, what is known and the transcript; the step waits on it like a person step. The person answers
-with the result (checked against `goal.result`) and the run goes on with `handed_over`; or drops it,
+with the result (checked against `result`) and the run goes on with `handed_over`; or drops it,
 which is the step's `onReject`.
 
 **Durable.** The opening turn runs in the step's own durable step, turn *n* in the wait's

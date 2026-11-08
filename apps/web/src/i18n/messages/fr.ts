@@ -407,6 +407,9 @@ export const fr: Messages = {
   "run.status.succeeded": "Terminé",
   "run.status.failed": "Échec",
   "run.status.cancelled": "Annulé",
+  // P-4: a conversation on the run timeline
+  "run.conversation.sent": "Envoyé",
+  "run.conversation.reply": "Réponse",
   "step.status.pending": "Pas commencé",
   "step.status.running": "En cours",
   "step.status.waiting": "En attente",

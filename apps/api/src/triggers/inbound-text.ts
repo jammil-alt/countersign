@@ -14,7 +14,7 @@ import {
 } from "@countersign/core";
 import { agent, agentVersion, reachOut, type Tx } from "@countersign/db";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, or, sql } from "drizzle-orm";
 import type { ContactRow } from "../messaging/contacts";
 import { tenantLocale } from "../routes/language";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
@@ -88,7 +88,14 @@ export async function routeInboundText(
           eq(reachOut.tenantId, tenantId),
           eq(reachOut.agentId, r.id),
           eq(reachOut.contactId, input.contact.id),
-          eq(reachOut.status, "open"),
+          // P-4: a conversation's message waiting for its signature counts as open too (§1.66).
+          or(
+            eq(reachOut.status, "open"),
+            and(
+              eq(reachOut.status, "awaiting_approval"),
+              sql`${reachOut.subject} like 'converse:%'`,
+            ),
+          ),
         ),
       )
       .limit(1);

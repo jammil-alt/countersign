@@ -5,6 +5,8 @@
 // before and after for those still waiting for approval; who approved; and the run's audit trail
 // (who opened it or its items, who approved). No costs, no instructions, no internal steps: the API
 // sends none, and this screen renders only the fields the contracts name. Polls while it goes.
+// P-4
+
 import { pickLocalized, type RunAuditEntry, shortRunId } from "@countersign/core";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -35,6 +37,7 @@ import {
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
+import { Transcript } from "../../ui/transcript";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, workedMs } from "../status";
 import { msDuration, TookCell } from "./runsParts";
@@ -128,6 +131,19 @@ function RunPage({ data }: { data: RunData }) {
               <li key={line}>{line}</li>
             ))}
           </ul>
+        ) : null}
+        {/* P-4: the client's side of a conversation: what was said and when (§1.66). */}
+        {s.conversation ? (
+          <Transcript
+            testId="portal-run-step-conversation"
+            lines={s.conversation.messages.map((m, k) => ({
+              key: `${k}`,
+              direction: m.direction,
+              who: m.direction === "out" ? t("run.conversation.sent") : t("run.conversation.reply"),
+              text: m.text,
+              when: m.at ? time(m.at) : null,
+            }))}
+          />
         ) : null}
         <SourceLinks
           ids={s.sources}

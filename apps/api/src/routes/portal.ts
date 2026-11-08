@@ -48,6 +48,8 @@ import { and, desc, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-o
 import type { Hono } from "hono";
 import { changeDisplay, clientTitles, itemDisplay, plainTitle } from "../change-display";
 import { syncedRefNames } from "../change-names";
+// P-4
+import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
 // v0.13 W2-I
@@ -414,6 +416,8 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
     : null;
   // v0.13 W2-I: run oversight in the platform's words only, never the agent's note (§10.11).
   const oversight = await timelineOversight(tx, tenantId, runId, platform, workflow);
+  // P-4: the client's side of each conversation step, never a prompt, model or cost (§1.66).
+  const conversations = await runConversations(tx, tenantId, runId);
   const timeline = steps.flatMap((s) => {
     const step = stepOfNode(lookup, s.nodeId);
     // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
@@ -431,6 +435,10 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
         finishedAt: iso(s.finishedAt),
         // v0.13 W2-I
         ...(oversight.has(s.id) ? { oversight: oversight.get(s.id) } : {}),
+        // P-4
+        ...(conversations.has(s.id)
+          ? { conversation: portalConversation(conversations.get(s.id)) }
+          : {}),
       },
     ];
   });
