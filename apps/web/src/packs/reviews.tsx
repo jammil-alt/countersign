@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import type { ResolveInput } from "../inbox/InboxCard";
 import { AccountQuestions } from "./bookkeeping/AccountQuestions";
 import { BookingsReview } from "./bookkeeping/BookingsReview";
-import { ACCOUNT_QUESTIONS, BOOKINGS_REVIEW } from "./bookkeeping/types";
+import { ReconciliationReview } from "./bookkeeping/ReconciliationReview";
+import { ACCOUNT_QUESTIONS, BOOKINGS_REVIEW, RECONCILIATION_REVIEW } from "./bookkeeping/types";
 import { MatchReview } from "./materials/MatchReview";
 // P-9: the Purchasing area's cards (docs/plan.md §1.71)
 import { RequestLinesReview } from "./materials/RequestLinesReview";
@@ -26,6 +27,8 @@ const CARDS: Record<string, (props: ReviewCardProps) => ReactNode> = {
   // B-6 (docs/plan.md §1.79): the Bookkeeping area's cards.
   [BOOKINGS_REVIEW]: (p) => <BookingsReview {...p} />,
   [ACCOUNT_QUESTIONS]: (p) => <AccountQuestions {...p} />,
+  // R-1 (docs/plan.md §1.80): the reconciliation card.
+  [RECONCILIATION_REVIEW]: (p) => <ReconciliationReview {...p} />,
 };
 
 /** The pack card for an item's payload, or null for a plain item. */

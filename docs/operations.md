@@ -825,7 +825,7 @@ The Bookkeeping pack (`docs/plan.md` §1.79) books a client's bank and card tran
 QuickBooks: each one matched with what is already there, booked by the client's rules or proposed
 from its chart of accounts, a person deciding what isn't sure, and every write signed.
 
-1. **Migration 0039 must be applied.** Plaid's keys must be set (`PLAID_CLIENT_ID`, `PLAID_SECRET`,
+1. **Migrations 0039 and 0040 must be applied.** Plaid's keys must be set (`PLAID_CLIENT_ID`, `PLAID_SECRET`,
    above) and QuickBooks' (`QBO_*`).
 2. **The client connects QuickBooks and its banks** from the portal's Connections page. Each bank is
    its own connection ("Connect another bank"); the first QuickBooks sync brings the chart of
@@ -840,10 +840,14 @@ from its chart of accounts, a person deciding what isn't sure, and every write s
 5. **Add the rules you already know** (Rules on the same page): a payee, money in or out, an
    account. More are learned from the client's approvals.
 6. **Fork the Bookkeeper** into the client (Agents → New agent → from a template), bind its
-   QuickBooks connection, publish and take it through trial as usual. It runs every morning in the
-   client's time zone, and every Monday asks the client what its undescribed accounts are for.
-7. **What the client sees**: Reports → Bank transactions (read only); the booking review card and
-   the account questions in its Desk; each QuickBooks write as an approval. The chart, its notes and
+   QuickBooks connection and its bank feed, publish and take it through trial as usual. It runs every
+   morning in the client's time zone, every Monday asks the client what its undescribed accounts
+   are for, and on the 3rd of each month reconciles each linked account against QuickBooks for last
+   month (asking a person to sign off any month that isn't balanced). "Check a deposit against its
+   payout statement" is run by hand with the deposit and the statement's document.
+7. **What the client sees**: Reports → Bank transactions and Reconciliations (read only); the
+   booking review card, the account questions and the reconciliation card in its Desk; each
+   QuickBooks write as an approval. The chart, its notes and
    the rules are the back office's.
 
 ### Mezonas, our own client (the Marketing area, `docs/plan.md` §1.72)

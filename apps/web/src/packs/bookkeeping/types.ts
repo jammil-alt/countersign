@@ -172,3 +172,109 @@ export interface AccountQuestionsData {
 
 /** Statuses a person may still decide on the card. */
 export const DECIDABLE: readonly BankTxnStatus[] = ["new", "proposed", "needs_review", "skipped"];
+
+// ── R-1 (docs/plan.md §1.80): reconciliation ────────────────────────────────────────────────────
+
+export const RECONCILIATION_REVIEW = "bookkeeping.reconciliation";
+
+export type ReconOutcome = "balanced" | "explained" | "unexplained";
+export type ReconStatus = "open" | "signed_off" | "superseded";
+export type ReconLabel = "timing" | "missing" | "amount_differs" | "duplicate";
+export type ReconMethod = "exact" | "amount_date" | "group" | "model" | "person";
+
+export const OUTCOME_LABEL: Record<ReconOutcome, PlainKey> = {
+  balanced: "bookkeeping.recon.outcome.balanced",
+  explained: "bookkeeping.recon.outcome.explained",
+  unexplained: "bookkeeping.recon.outcome.unexplained",
+};
+// Brand book: done is positive; leftovers explained wait on a person's sign-off (gold, with a
+// word); what isn't explained is a risk.
+export const OUTCOME_TONE: Record<ReconOutcome, Tone> = {
+  balanced: "positive",
+  explained: "warning",
+  unexplained: "risk",
+};
+export const RECON_STATUS_LABEL: Record<ReconStatus, PlainKey> = {
+  open: "bookkeeping.recon.status.open",
+  signed_off: "bookkeeping.recon.status.signed_off",
+  superseded: "bookkeeping.recon.status.superseded",
+};
+export const LABEL_WORDS: Record<ReconLabel, PlainKey> = {
+  timing: "bookkeeping.recon.label.timing",
+  missing: "bookkeeping.recon.label.missing",
+  amount_differs: "bookkeeping.recon.label.amount_differs",
+  duplicate: "bookkeeping.recon.label.duplicate",
+};
+export const METHOD_WORDS: Record<ReconMethod, PlainKey> = {
+  exact: "bookkeeping.recon.method.exact",
+  amount_date: "bookkeeping.recon.method.amount_date",
+  group: "bookkeeping.recon.method.group",
+  model: "bookkeeping.recon.method.model",
+  person: "bookkeeping.recon.method.person",
+};
+
+export interface ReconItem {
+  id: string;
+  side: "a" | "b";
+  ref: string;
+  date: string | null;
+  /** How much it moves its side's balance (signed). */
+  effect: string;
+  /** The source's words: data, shown as written. */
+  description: string | null;
+  reference: string | null;
+  carried: boolean;
+  addedByPerson: boolean;
+  state: "matched" | "unmatched";
+  label: ReconLabel | null;
+}
+
+export interface ReconMatch {
+  id: string;
+  method: ReconMethod;
+  status: "accepted" | "proposed" | "rejected";
+  aItemIds: string[];
+  bItemIds: string[];
+  confidence: string | null;
+  reason: string | null;
+}
+
+export interface ReconciliationView {
+  id: string;
+  aLabel: string;
+  bLabel: string;
+  periodStart: string | null;
+  asOf: string;
+  currency: string;
+  aOpening: string | null;
+  aClosing: string;
+  bOpening: string | null;
+  bClosing: string;
+  difference: string;
+  residual: string;
+  outcome: ReconOutcome;
+  status: ReconStatus;
+  signedOffAt: string | null;
+  note: string | null;
+  summary: string;
+  items: ReconItem[];
+  matches: ReconMatch[];
+}
+
+export interface ReconciliationsReport {
+  reconciliations: {
+    id: string;
+    asOf: string;
+    periodStart: string | null;
+    aLabel: string;
+    bLabel: string;
+    aClosing: string;
+    bClosing: string;
+    difference: string;
+    residual: string;
+    currency: string;
+    outcome: ReconOutcome;
+    status: ReconStatus;
+    signedOffAt: string | null;
+  }[];
+}

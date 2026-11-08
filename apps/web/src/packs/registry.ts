@@ -11,6 +11,7 @@ import {
   PortalBankTransactionsScreen,
   PortalCatalogScreen,
   PortalPriceWatchScreen,
+  PortalReconciliationsScreen,
   PortalRequestsScreen,
 } from "./screens";
 
@@ -82,6 +83,14 @@ export const PACK_REPORTS: readonly PackReport[] = [
     titleKey: "bookkeeping.transactions.title",
     descriptionKey: "bookkeeping.transactions.description",
     Component: PortalBankTransactionsScreen,
+  },
+  // R-1 (docs/plan.md §1.80): reconciliations, read only (a person decides on the card).
+  {
+    pack: "bookkeeping",
+    slug: "reconciliations",
+    titleKey: "bookkeeping.recons.title",
+    descriptionKey: "bookkeeping.recons.description",
+    Component: PortalReconciliationsScreen,
   },
 ];
 

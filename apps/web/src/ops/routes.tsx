@@ -34,6 +34,7 @@ import {
   OpsClientCatalogScreen,
   OpsClientPacksScreen,
   OpsClientPriceWatchScreen,
+  OpsClientReconciliationsScreen,
   // P-9
   OpsClientRequestScreen,
   OpsClientRequestsScreen,
@@ -156,6 +157,11 @@ export const opsRoutes = (
     <Route
       path="clients/:clientId/reports/bookkeeping/transactions"
       element={<OpsClientBankTransactionsScreen />}
+    />
+    {/* R-1 (docs/plan.md §1.80): a client's reconciliations */}
+    <Route
+      path="clients/:clientId/reports/bookkeeping/reconciliations"
+      element={<OpsClientReconciliationsScreen />}
     />
     {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own
         client with the pack on; each of a client's marketing pages is one line. */}

@@ -42,6 +42,12 @@ client connects a real bank, and fix the connector, the fake and this file toget
   billed and grants nothing.
 - `/institutions/get_by_id` needs `country_codes`; we use it only for the connection's label.
 - `/accounts/get` balances are cached by Plaid (not real time); `balances.limit` is for credit.
+- Reconciliation (R-1, `docs/plan.md` §1.80) takes `balances.current` from `/accounts/get` as
+  today's balance and takes off what posted after the month's end. Check in the sandbox: that
+  `current` excludes pending transactions for depository and credit accounts; how stale the cached
+  balance can be against the transactions we hold (a stale balance shows as an unexplained
+  residual, never a wrong match); and, if it is too stale, whether `/accounts/balance/get` (real
+  time, billed per call) is worth it once a month.
 - `/item/remove` ends billing for the item and invalidates the access token. Confirm the error
   code for a removed item's token (we treat `ITEM_NOT_FOUND` and `INVALID_ACCESS_TOKEN` as gone).
 

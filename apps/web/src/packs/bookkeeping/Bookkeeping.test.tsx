@@ -1,7 +1,8 @@
 // B-6 (docs/plan.md §1.79): the Bookkeeping area's screens and cards. The portal's Bank transactions
 // (statuses in words, money signed by direction), the booking review card (book an unsure
 // transaction to another account with a word on why, then Done) and the account questions card
-// (answer what an account is for, then Done).
+// (answer what an account is for, then Done). R-1 (§1.80): the reconciliation card (accept our
+// suggestion, add what one side is missing, sign off once explained) and the Reconciliations list.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -10,6 +11,7 @@ import { AppProviders } from "../../App";
 import { InboxCard } from "../../inbox/InboxCard";
 import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
 import { BankTransactionsView } from "./BankTransactions";
+import { ReconciliationsView } from "./Reconciliations";
 
 const INBOX = "00000000-0000-4000-8000-0000000b3001";
 const TXN = "00000000-0000-4000-8000-0000000b1001";
@@ -273,5 +275,203 @@ describe("the account questions card", () => {
     expect(await within(card).findByText("Answered")).toBeInTheDocument();
     await userEvent.click(within(card).getByTestId("account-questions-finish"));
     expect(resolved).toEqual([{ decision: "approve" }]);
+  });
+});
+
+// R-1 (docs/plan.md §1.80).
+const REC = "00000000-0000-4000-8000-0000000c0001";
+const A1 = "00000000-0000-4000-8000-0000000c0a01";
+const B1 = "00000000-0000-4000-8000-0000000c0b01";
+const B2 = "00000000-0000-4000-8000-0000000c0b02";
+const M1 = "00000000-0000-4000-8000-0000000c0d01";
+
+function recView(step: "proposed" | "accepted" | "added" | "signed") {
+  const accepted = step !== "proposed";
+  const added = step === "added" || step === "signed";
+  const items = [
+    {
+      id: A1,
+      side: "a",
+      ref: "txn-1",
+      date: "2026-10-01",
+      effect: "300.0000",
+      description: "WIRE 77",
+      reference: null,
+      carried: false,
+      addedByPerson: false,
+      state: accepted ? "matched" : "unmatched",
+      label: accepted ? null : "missing",
+    },
+    {
+      id: B1,
+      side: "b",
+      ref: "qbo:Deposit:9",
+      date: "2026-10-22",
+      effect: "300.0000",
+      description: "Smith job",
+      reference: null,
+      carried: false,
+      addedByPerson: false,
+      state: accepted ? "matched" : "unmatched",
+      label: accepted ? null : "missing",
+    },
+    {
+      id: B2,
+      side: "b",
+      ref: "qbo:Purchase:3",
+      date: "2026-10-30",
+      effect: "-12.0000",
+      description: "Bank fee",
+      reference: null,
+      carried: false,
+      addedByPerson: false,
+      state: "unmatched",
+      label: "missing",
+    },
+    ...(added
+      ? [
+          {
+            id: "00000000-0000-4000-8000-0000000c0a02",
+            side: "a",
+            ref: "person:1",
+            date: null,
+            effect: "-2.0000",
+            description: "Wire fee",
+            reference: null,
+            carried: false,
+            addedByPerson: true,
+            state: "unmatched",
+            label: "missing",
+          },
+        ]
+      : []),
+  ];
+  return {
+    review: "bookkeeping.reconciliation",
+    status: "open",
+    canDecide: true,
+    data: {
+      reconciliation: {
+        id: REC,
+        aLabel: "Checking …0001",
+        bLabel: "QuickBooks",
+        periodStart: "2026-10-01",
+        asOf: "2026-10-31",
+        currency: "USD",
+        aOpening: null,
+        aClosing: "1000.0000",
+        bOpening: null,
+        bClosing: "1010.0000",
+        difference: "-10.0000",
+        residual: added ? "0.0000" : "2.0000",
+        outcome: added ? "explained" : "unexplained",
+        status: step === "signed" ? "signed_off" : "open",
+        signedOffAt: null,
+        note: null,
+        summary: "",
+        items,
+        matches: [
+          {
+            id: M1,
+            method: "model",
+            status: accepted ? "accepted" : "proposed",
+            aItemIds: [A1],
+            bItemIds: [B1],
+            confidence: "0.800",
+            reason: "The same wire, three weeks apart",
+          },
+        ],
+      },
+    },
+  };
+}
+
+describe("the reconciliation card", () => {
+  it("leads with the numbers, accepts our suggestion, adds what is missing, then signs off", async () => {
+    const bodies: { action: string }[] = [];
+    const resolved: unknown[] = [];
+    const steps = ["accepted", "added", "signed"] as const;
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.reconciliation", { reconciliationId: REC })}
+        onResolve={async (b) => void resolved.push(b)}
+      />,
+      {
+        [`GET /api/inbox/${INBOX}/pack-review`]: () => recView("proposed"),
+        [`POST /api/inbox/${INBOX}/pack-review`]: ({ init }) => {
+          bodies.push(JSON.parse(String(init.body)));
+          return recView(steps[bodies.length - 1] ?? "signed");
+        },
+      },
+    );
+    const card = await screen.findByTestId("reconciliation-review");
+    const numbers = within(card).getByTestId("reconciliation-numbers");
+    expect(numbers).toHaveTextContent("Checking …0001");
+    expect(numbers).toHaveTextContent("$1,000.00");
+    expect(numbers).toHaveTextContent("$1,010.00");
+    expect(numbers).toHaveTextContent("-$10.00");
+    expect(within(card).getByTestId("reconciliation-outcome")).toHaveTextContent("Not explained");
+    expect(within(card).getByTestId("reconciliation-residual")).toHaveTextContent(
+      "$2.00 isn't explained",
+    );
+    // Signing off waits until nothing is unexplained.
+    expect(within(card).getByTestId("reconciliation-sign-off")).toBeDisabled();
+    expect(within(card).getByTestId("reconciliation-proposal")).toHaveTextContent(
+      "The same wire, three weeks apart",
+    );
+    await userEvent.click(within(card).getByTestId("reconciliation-accept"));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({ action: "accept", input: { matchId: M1 } });
+    expect(await within(card).findByText("Matched (1)")).toBeInTheDocument();
+
+    const add = within(card).getByTestId("reconciliation-add");
+    await userEvent.type(within(add).getByLabelText("Amount"), "-2.00");
+    await userEvent.type(within(add).getByLabelText("What it is"), "Wire fee");
+    await userEvent.click(within(add).getByTestId("reconciliation-add-button"));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toEqual({
+      action: "add_item",
+      input: { side: "a", date: null, effect: "-2.00", description: "Wire fee" },
+    });
+    await waitFor(() =>
+      expect(within(card).getByTestId("reconciliation-sign-off")).not.toBeDisabled(),
+    );
+    expect(within(card).getByTestId("reconciliation-outcome")).toHaveTextContent("Explained");
+    await userEvent.click(within(card).getByTestId("reconciliation-sign-off"));
+    await waitFor(() => expect(resolved).toEqual([{ decision: "approve" }]));
+    expect(bodies[2]).toEqual({ action: "sign_off", input: { note: null } });
+  });
+});
+
+describe("the Reconciliations screen", () => {
+  it("lists each reconciliation with its numbers, result and sign-off", async () => {
+    renderAt(<ReconciliationsView />, {
+      "GET /api/reports/bookkeeping/reconciliations": () => ({
+        report: {
+          reconciliations: [
+            {
+              id: REC,
+              asOf: "2026-10-31",
+              periodStart: "2026-10-01",
+              aLabel: "Checking …0001",
+              bLabel: "QuickBooks",
+              aClosing: "10380.0000",
+              bClosing: "10630.0000",
+              difference: "-250.0000",
+              residual: "0.0000",
+              currency: "USD",
+              outcome: "explained",
+              status: "open",
+              signedOffAt: null,
+            },
+          ],
+        },
+      }),
+    });
+    const rows = await screen.findAllByTestId("bookkeeping-reconciliation-row");
+    expect(rows[0]).toHaveTextContent("Checking …0001 $10,380.00");
+    expect(rows[0]).toHaveTextContent("-$250.00");
+    expect(rows[0]).toHaveTextContent("Explained");
+    expect(screen.getByText("1 waiting on you")).toBeInTheDocument();
   });
 });

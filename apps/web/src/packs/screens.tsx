@@ -20,6 +20,7 @@ import {
   SectionLabel,
 } from "../ui/primitives";
 import { BankTransactionsView } from "./bookkeeping/BankTransactions";
+import { ReconciliationsView } from "./bookkeeping/Reconciliations";
 import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
 // P-9
 import { RequestsView, RequestView } from "./materials/Requests";
@@ -36,6 +37,8 @@ export function PortalRequestsScreen() {
 
 // B-6 (docs/plan.md §1.79): the Bookkeeping area's Bank transactions.
 export const PortalBankTransactionsScreen = () => <BankTransactionsView />;
+// R-1 (docs/plan.md §1.80): Reconciliations.
+export const PortalReconciliationsScreen = () => <ReconciliationsView />;
 
 // ── Back office ──────────────────────────────────────────────────────────────────────────────────
 
@@ -92,6 +95,16 @@ export function OpsClientBankTransactionsScreen() {
   return (
     <ClientFrame clientId={clientId}>
       <BankTransactionsView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+// R-1: a client's reconciliations.
+export function OpsClientReconciliationsScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <ReconciliationsView clientId={clientId} />
     </ClientFrame>
   );
 }

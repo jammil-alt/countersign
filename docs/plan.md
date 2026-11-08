@@ -2228,7 +2228,7 @@ foreign keys, like every area (invariant 1).
 | QuickBooks' own bank feed | Per account, by `mode`: if the client keeps QuickBooks' bank feed for an account, set it to `suggest` (we propose and match; the client adds it in QuickBooks, and the match step then finds it), or `book` and turn QuickBooks' feed off for that account. The operator decides with the client; the link page says so. // DECISION: QuickBooks' API doesn't expose its "For review" list (to verify, `qbo/NOTES.md`). |
 | Several banks | B-5. The platform keeps one connection per connector today; the tables already key everything by connection. |
 | The template | B-4: **Bookkeeper**, the pack's template (installed when the pack is switched on): a daily schedule and the bank feed's events start a run: import, match, rules, categorize, the review card for the unsure, the account questions when needed, then for each approved booking the QuickBooks write and `posted`. Mode `suggest_only` until the operator moves it on; approval on for every write. |
-| Not built | Reconciling accounts (QuickBooks' API has no reconciliation); receipts matched to bank transactions (the Bill clerk's documents could later); sales tax; several currencies in one booking. |
+| Not built | Reconciliation came after, in §1.80 (QuickBooks' API has no reconciliation, so the sign-off lives with us); receipts matched to bank transactions (the Bill clerk's documents could later); sales tax; several currencies in one booking. |
 
 Built (2026-11-08, branch `claude/eager-newton-2pwbvb`): M51–M56 against the fakes (QuickBooks,
 Plaid, a FakeModel). Decisions made while building:
@@ -2284,6 +2284,18 @@ as the balance is what is owed). Sources fill a side:
 | Fixes | Proposals only: a missing bank fee goes through the Bookkeeper's bookings, behind approval. The skill writes nothing outside. // DECISION |
 | QuickBooks' register | `qbo.account.register`: an account's opening balance, closing balance and postings between two dates, from QuickBooks' GeneralLedger report (to check against the sandbox, `qbo/NOTES.md`). // DECISION |
 | The Bookkeeper | A monthly workflow (the 3rd, in the client's time zone): each linked account against its QuickBooks account for last month, the model's proposals for leftovers, the card for a person. A manual workflow checks one deposit against a payout statement document. // DECISION |
+
+Built (2026-11-08, branch `claude/eager-newton-2pwbvb`): M57 against the fakes (QuickBooks, Plaid,
+a FakeModel). Decisions made while building:
+
+| Topic | Decision |
+|---|---|
+| What is carried | The pair's last **settled** reconciliation before the day: signed off, or balanced (nothing left, so nobody is asked). An open one with leftovers is never carried unchecked. // DECISION |
+| Who is asked | Only a reconciliation that isn't balanced goes to the model's suggestions and the card; a balanced month asks nobody and stays open with nothing to sign. // DECISION |
+| The bank's balance as of the day | Plaid's `current` balance is today's: what posted after the day is taken off. Pending transactions aren't in it and aren't items (to check in Plaid's sandbox, `bankfeed/NOTES.md`). The feed side's opening is its closing less the period's items, so an item the feed misses shows in the residual. // DECISION |
+| Reads in a workflow | The bank's balances and QuickBooks' register are the platform's read skills of those connector tools (`bankfeed.account.query`, `qbo.account.register`): action steps are only for writes. The monthly run lists only the accounts the bound bank feed answered for. // DECISION |
+| The tools | `bookkeeping.reconcile.pairs` (each linked account against its QuickBooks account, the period and today's balance), `bookkeeping.reconcile` (both sides built, matched, kept; a test run keeps nothing), `bookkeeping.reconcile.open` (what is left, the words as data) and `bookkeeping.reconcile.propose` (the model's suggestion, checked in code to add up, never accepted by itself). Skills: `bookkeeping.reconcile-pairs`, `bookkeeping.reconcile-two` (settings `window_days`, `tolerance`, `max_group`, `timing_days`), `bookkeeping.explain-leftovers` (agent) and `bookkeeping.read-statement` (task, the small model). // DECISION |
+| The card | `bookkeeping.reconciliation`: accept or reject a suggestion, match chosen items (they must add up within the tolerance), undo a match, relabel, add what one side is missing (a person's item, labelled missing), and sign off with a note once the residual is 0. Each decision works the residual out again. Its screens: the card, and Reports → Reconciliations (portal and back office). // DECISION |
 
 ---
 
@@ -3300,6 +3312,12 @@ deposit as a group; client isolation and the portal's forbidden fields.
 
 **Done when** a linked account's month is reconciled against QuickBooks with every difference
 labelled and cited, and a person signs it off.
+
+Built (2026-11-08): the engine and its tests, `qbo.account.register` against the fake, the pack's
+tools, skills, card and report with database tests, the Bookkeeper's monthly and payout workflows,
+the card and the Reconciliations screen in six languages, and `apps/api/src/reconcile.test.ts`
+(October explained by a deposit in transit and signed off, November carrying it in where it
+clears). Open: QuickBooks' register and Plaid's balances checked in their sandboxes (`NOTES.md`).
 
 ---
 
