@@ -30,6 +30,8 @@ import { type AppEnv, ensureClient, mount, notFound, type Services } from "../ht
 import type { ResolveOutcome } from "../inbox";
 import { dispatchEvents } from "../runs/dispatch";
 import { forClient, runDepsFromEnv, runtimeFor } from "../runs/execute";
+// P-7: message translation
+import { translateForContact, translationDepsFor } from "../translate/service";
 import { operatorApprovers } from "./ops-clients";
 import { portalInboxFilter } from "./portal";
 
@@ -123,13 +125,21 @@ export function deskRoutes(app: Hono<AppEnv>): void {
         tenantId,
       ),
     );
-    const { row, edited, at } = await editItem(ctx.tx, runtime, services.platform, {
+    // P-7: a person's words translated for the message's contact (docs/plan.md §1.69).
+    const tdeps = translationDepsFor(services);
+    const { row, edited, at, translation } = await editItem(ctx.tx, runtime, services.platform, {
       tenantId,
       itemId: ctx.params.id,
       by: by(ctx),
       edited: ctx.body.input as Parameters<typeof editItem>[3]["edited"],
+      translate: (text, reachOutId, userId) =>
+        translateForContact(ctx.tx, tdeps, { tenantId, reachOutId, text, by: userId }),
     });
-    return { item: deskState(row), edited: { input: edited, at: at.toISOString() } };
+    return {
+      item: deskState(row),
+      edited: { input: edited, at: at.toISOString() },
+      ...(translation ? { translation } : {}),
+    };
   });
 
   mount(app, routes.portalBatchResolve, async (ctx) => {

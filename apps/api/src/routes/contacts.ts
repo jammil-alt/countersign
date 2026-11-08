@@ -50,7 +50,7 @@ export function contactRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsContactMessages, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
     await getContact(ctx.tx, ctx.params.id, ctx.params.contactId);
-    return { items: await contactMessages(ctx.tx, ctx.params.id, ctx.params.contactId) };
+    return { items: await contactMessages(ctx.tx, ctx.params.id, ctx.params.contactId, "ops") };
   });
 
   // ── Portal (client admin) ──

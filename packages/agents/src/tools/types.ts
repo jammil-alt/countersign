@@ -23,6 +23,8 @@ import type { AccountPort } from "./account";
 // v0.12 W2-E
 import type { InboundPort } from "./inbound";
 import type { ThreadsPort } from "./threads";
+// P-7
+import type { TranslationPort } from "./translate";
 
 export type RunMode = "live" | "test";
 
@@ -69,6 +71,9 @@ export interface ToolInvocation {
   // v0.12 W2-E
   /** The message that started the run (`inbound.get`); absent where none is given. */
   inbound?: InboundPort | undefined;
+  // P-7: message translation (docs/plan.md §1.69)
+  /** Translations of the client's messages (`comms.translate`); absent where none is given. */
+  translation?: TranslationPort | undefined;
   /**
    * Asks another agent of the same client (`agents.ask`): set by the runtime for a skill's tool
    * calls, absent inside an ask (no asks within asks) and in action steps.

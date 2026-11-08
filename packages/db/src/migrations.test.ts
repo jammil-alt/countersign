@@ -234,9 +234,13 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "purchase_request_line",
       "quote_request",
       "quote_line",
+      // P-7 (0034): a translation is kept beside its original, never removed.
+      "message_translation",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    // P-7 (0034): insert only, like a document's reading.
+    expect(await can("message_translation", "UPDATE")).toBe(false);
     // A session's draft changes in place; a turn only gains `undone_at` (trigger, 0030).
     expect(await can("builder_session", "UPDATE")).toBe(true);
     expect(await can("builder_turn", "UPDATE")).toBe(true);

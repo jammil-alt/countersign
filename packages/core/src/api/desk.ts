@@ -107,6 +107,16 @@ export const deskRoutes = {
     response: z.object({
       item: DeskItemState,
       edited: z.object({ input: z.record(z.string(), z.unknown()), at: z.string() }),
+      // P-7: with `input.translate`, what became of the person's words (docs/plan.md §1.69).
+      translation: z
+        .object({
+          status: z.enum(["translated", "skipped"]),
+          reason: z.string().nullable(),
+          from: z.string(),
+          to: z.string(),
+          original: z.string(),
+        })
+        .optional(),
     }),
   }),
   portalBatchResolve: defineRoute({

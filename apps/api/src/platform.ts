@@ -16,6 +16,8 @@ import {
   SkillCatalog,
   SUPERVISOR_SKILLS,
   ToolRegistry,
+  // P-7
+  TRANSLATE_SKILLS,
 } from "@countersign/agents";
 import {
   type Connector,
@@ -137,6 +139,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...REACH_SKILLS,
       // P-4: conversations (comms.converse)
       ...CONVERSE_SKILLS,
+      // P-7: message translation (comms.translate)
+      ...TRANSLATE_SKILLS,
       ...SUPERVISOR_SKILLS,
       // v0.12 W2-D: Sloan's conversation (account.chat)
       ...ACCOUNT_SKILLS,

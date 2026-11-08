@@ -26,6 +26,14 @@
 > change the setting, and every change is logged. Changed: §5.5 (0031), §6.12 (new), §14, §15, §18
 > (M33), §20; `docs/plan.md` §1.55, M33, §8.
 
+> **Message translation (P-7, 2026-11-08, owner):** **A client can keep its work in one working
+> language.** Texts, WhatsApp messages, email replies and its team's thread messages that arrive in
+> another language get a translation stored beside the untouched original; text a person of the
+> client writes to a contact can be translated into that contact's language before it is signed, and
+> the signer sees both. It is off until the client turns it on, runs on a cheap model, counts as the
+> client's usage under a daily limit, and follows HIPAA mode. Changed: §1, §5.7 (new), §10.13 (new), §18
+> (M40), §20; `docs/plan.md` §1.69, M40, §8.
+
 > **Conversations (P-4, 2026-11-07, owner):** **An agent can hold a bounded back-and-forth with a
 > person** to settle one thing: clarify a purchase request with whoever sent it, work out with the
 > owner where to buy an item, clear up a vendor's quote. A conversation is a step, `comms.converse`
@@ -333,7 +341,7 @@ In:
   documents whose ids the step hands on (`docs/plan.md` §1.65)
 - **Languages** (v0.9): the portal and agents' client-facing text in English, Spanish, French,
   Portuguese (Brazil), Italian and German, per client with a per-user choice; the back office stays in
-  English. Next: agents translating incoming and outgoing messages (`docs/plan.md` §1.18)
+  English. Messages are translated as below (§10.13)
 - **Access** (v0.10): a **vault** per client (every connection, API key and browser login, encrypted
   with the client's own key, secrets write-only); **grants** that narrow what each agent may do with
   each connection bound to it; a separate **code service** for second factors; **browser connections**
@@ -426,6 +434,12 @@ only what a test or an existing screen needs.
 - **Conversations** (P-4, §10.12): the `comms.converse` step talks with one person on one channel
   until a typed goal is met and confirmed, within limits; each message is sent like a reach-out's,
   and a limit hands the conversation to a person
+- **Message translation** (P-7, owner 2026-11-08, §10.13): a client may set a working language. Texts,
+  WhatsApp messages, email replies and its team's thread messages in another language then get a
+  translation stored beside the original, which never changes; a person's message to a contact can
+  be translated into the contact's language before it is signed, and what is signed is what is sent.
+  Off by default, a cheap model, a daily limit per client, the client's usage, HIPAA mode respected.
+  Documents, invoices and calls are never translated
 
 Out (designed for, not built):
 - Client self-serve building;
@@ -437,7 +451,7 @@ Out (designed for, not built):
 - Signing by replying to a text or email: a notification links to the Desk, and signing needs a
   signed-in session (owner, 2026-11-06)
 - Model-written messages from any agent but Sloan, except inside a conversation step (§10.12, bounded
-  by its goal, limits, approvals and the person's autonomy); translating messages (next, plan §1.18);
+  by its goal, limits, approvals and the person's autonomy);
   live push (the app polls)
 - Slack and bank or card feeds until the owner decides (§6.11); Gmail push notifications (v1 polls);
   sending email without a person's approval; code steps in workflows; A/B versions; custom collections
@@ -857,6 +871,28 @@ oversight_decision(id, tenant_id, run_id, step_run_id, node_id, seq int /*1.. pe
 A tenant table with forced RLS; `cs_runtime` may insert and select, never update or delete (like
 `audit_event`). Read by the back office's run view and the agent lab; no portal route returns it.
 `step_run` keeps one row per step: a retried step increments `attempts`.
+
+### 5.7 P-7 additions
+
+```sql
+-- 0034 message translation (§10.13)
+message_translation(id, tenant_id, raw_record_id null, message_id null, reach_out_id null
+                      /*exactly one: the original*/, field text /*'text', or a payload path*/,
+                    direction /*in|out*/, source_language /*one of the six, or unknown*/,
+                    target_language, detected_by /*rule|model|none*/,
+                    status /*translated|skipped|capped|refused|failed*/, reason text null,
+                    text text null /*the translation; only when translated*/, original_chars int,
+                    truncated bool, model text null, tokens_in int, tokens_out int,
+                    cost_usd numeric(14,4), agent_version_id null, run_id null, step_run_id null,
+                    requested_by null /*app_user, for a person's own text*/, created_at)
+contact.translation jsonb default '{}'   -- {incoming?, outgoing?}: the person's switch
+usage_platform_daily.translations int default 0
+```
+
+A tenant table with forced RLS, composite tenant keys to its original, the agent version, run and
+step; `cs_runtime` may insert and select, never update or delete (a trigger, like `doc_extraction`).
+One `translated` row per original, field and target language. The portal reads the text and the
+languages, never the model or the cost.
 
 ---
 
@@ -2214,6 +2250,41 @@ call) and shown as what would have been sent (`not_sent`).
 (the result's fields), the first message, the WhatsApp template, the limits and the model. Validation
 is core's, one function for the builder and the server (invariant 4).
 
+### 10.13 Message translation (P-7, owner 2026-11-08)
+
+A client may keep its work in one **working language** (`docs/plan.md` §1.69). It is off until the
+operator or the client admin sets one, so a client without it works exactly as before.
+
+**Incoming.** A text, a WhatsApp message (Twilio or Meta), an email reply to a reach-out or to an
+agent's address, and a client user's thread message are stored as today. After that commit, a job
+reads the new ones, detects each one's language in code (common words and letters of the six
+languages; a model only when the code isn't sure, in the same call), and translates those in another
+language into the working language (thread messages: into English, for the back office). The hourly
+cron runs the same job, so one that was lost is caught. A person can turn it off per contact.
+
+**Outgoing.** When a person writes the words for a contact (the Desk's message edit, §11.1), they may
+ask for them in the contact's language. The translation becomes the message to sign; the card shows
+both texts; what is signed is exactly what is sent. The lead's replies in the client's thread can be
+translated into the working language the same way, stored beside the lead's words. Agents already
+write to contacts in their language, and fixed templates carry a text per language, so neither is
+translated again.
+
+**Where it lives.** Detection, settings and limits are pure code in `packages/core/src/translate/`.
+The translation call is `comms.translate`: one model call on the client's chosen model (default the
+classification model), the text handed over as a tool result, the answer checked with Zod. Agents
+reach it as a tool and a skill step (`packages/agents`); the background job, the routes and the views
+are in `apps/api/src/translate/`. Each outcome is a `message_translation` row (§5, migration 0034),
+insert only, beside its original (a raw record, a thread message or a reach-out's message) with the
+model, tokens, cost and, where an agent made it, the agent version, run and step.
+
+**Rules.** The original is never changed (invariant 3). The translation is data: it reaches agents
+only as a tool result and is never parsed for commands or keywords (invariant 9). A day's model
+translations stop at the client's limit; HIPAA mode allows only covered providers; long texts are cut
+at 6,000 characters and marked. Translations made outside a run are the client's usage
+(`usage_platform_daily`), those in a run are the step's. The portal shows the translation with the
+original one click away, never a model or a cost (invariant 11). Documents, invoices, call audio and
+live calls are never translated; a language outside the six is stored as unknown, not guessed.
+
 ---
 
 ## 11. Inbox and threads
@@ -3018,6 +3089,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M33 | (v0.14) WhatsApp passive capture | A WhatsApp photo from a contact whose conversation has attachments on becomes one document, extracted, linked to its message; with it off, only the attachment's existence is kept; a retried webhook makes nothing twice; the client admin toggles it and the change is logged |
 | M34 | (v0.15) The Purchasing area: the Materials pack ported | On staging, the Materials pack is enabled for the Sandbox; three invoices from different vendors for the same sheet good are matched to one catalog item (the second and third by alias or rules, not the model); the Price watch report shows that item's price per vendor and date; a key attribute that differs is never matched; golden matching tests ≥ 95% precision on "same" |
 | M37 | (P-4) Conversations | A three-turn WhatsApp clarification ends with a confirmed, typed result; a limit hands over to a person with the transcript; a replay sends nothing twice; a contact on "needs approval" makes each message wait |
+| M40 | (P-7) Message translation | An English WhatsApp reply to a Spanish-working client is stored with its Spanish translation beside the untouched original; an approver's Spanish words to an English-speaking vendor are translated, signed with both texts in view and sent once exactly as signed; a client without the setting works as before |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
@@ -3105,6 +3177,9 @@ Decided:
   through its tools; the platform's tables stay fixed and the client's tools stay the system of
   record; the Purchasing area (the Materials pack, ported from M8) is in v1; the Sales area, area
   grants and client extras are designed for, not built (§12.0).
+- P-7 (owner, 2026-11-08): message translation is in v1: a working language per client, with a
+  per-contact switch; translations are stored beside untouched originals, are data, and count as the
+  client's usage under a daily limit (§10.13).
 
 Open:
 - v0.15, for the owner: embeddings for matching (when, and which provider: OpenAI or Voyage, named in

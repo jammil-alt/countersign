@@ -20,6 +20,7 @@ import {
   changeFacts,
   DESK_WORDS,
   type DeskItemState,
+  EditedMessage,
   findStep,
   isPlainObject,
   type JsonObject,
@@ -52,6 +53,8 @@ import { type InboxRow, type ResolveOutcome, resolveInboxItem, withCanSign } fro
 import type { Platform } from "../platform";
 // P-6
 import { editMessage, isMessageItem } from "../step-in/messages";
+// P-7
+import type { OutgoingTranslation } from "../translate/service";
 
 /** How much of the undo window must be left for an undo to start: it commits well before the end. */
 // DECISION: an undo needs two seconds of window left, measured on the database's clock, so it has
@@ -271,8 +274,20 @@ export async function editItem(
   tx: Tx,
   runtime: RuntimeDeps,
   platform: Platform,
-  input: { tenantId: string; itemId: string; by: Approver; edited: JsonObject },
-): Promise<{ row: InboxRow; edited: JsonObject; at: Date }> {
+  input: {
+    tenantId: string;
+    itemId: string;
+    by: Approver;
+    edited: JsonObject;
+    // P-7: translates a person's words for the message's contact (docs/plan.md §1.69).
+    translate?: (text: string, reachOutId: string, by: string) => Promise<OutgoingTranslation>;
+  },
+): Promise<{
+  row: InboxRow;
+  edited: JsonObject;
+  at: Date;
+  translation?: OutgoingTranslation["outcome"];
+}> {
   const by = await signer(tx, input.tenantId, input.by);
   const item = await lockItem(tx, input.tenantId, input.itemId);
   // P-6: a message waiting for approval (a conversation's or a reach-out's): its approver may
@@ -281,18 +296,51 @@ export async function editItem(
     if (!mayResolve(item, by)) {
       throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
     }
-    const message = input.edited.message;
-    if (typeof message !== "string" || Object.keys(input.edited).length !== 1) {
+    const { message, translate, ...rest } = input.edited;
+    if (
+      typeof message !== "string" ||
+      Object.keys(rest).length !== 0 ||
+      (translate !== undefined && typeof translate !== "boolean")
+    ) {
       throw new HttpError(422, "invalid_edit", "send the message's new text as input.message");
+    }
+    // P-7: with `translate`, the person's words go in the contact's language: the translation is
+    // the message signed and sent, and the card keeps both (docs/plan.md §1.69).
+    let out: OutgoingTranslation | null = null;
+    if (translate === true) {
+      if (item.status !== "open") {
+        throw new HttpError(
+          409,
+          "already_resolved",
+          "this message was already approved or declined",
+        );
+      }
+      if (!EditedMessage.safeParse(message).success) {
+        throw new HttpError(
+          422,
+          "invalid_message",
+          "write the message to send (1 to 1600 characters)",
+        );
+      }
+      if (!input.translate)
+        throw new HttpError(409, "translation_off", "translation isn't available here");
+      const reachOutId = (item.payload as { reachOutId: string }).reachOutId;
+      out = await input.translate(message, reachOutId, by.userId);
     }
     const done = await editMessage(tx, {
       tenantId: input.tenantId,
       item,
-      text: message,
+      text: out ? out.text : message,
       by: { userId: by.userId, byUs: false },
       now: new Date(),
+      ...(out?.translated ? { translated: out.translated } : {}),
     });
-    return { row: done.item, edited: { message: done.text }, at: done.at };
+    return {
+      row: done.item,
+      edited: { message: done.text },
+      at: done.at,
+      ...(out ? { translation: out.outcome } : {}),
+    };
   }
   if (item.kind !== "external_action") {
     throw new HttpError(409, "not_a_change", "only a drafted change can be edited");

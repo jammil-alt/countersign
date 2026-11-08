@@ -18,6 +18,8 @@ import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
 import { SUPERVISOR_TOOLS } from "./supervisor";
 import { THREADS_TOOLS } from "./threads";
+// P-7: message translation
+import { translateTool } from "./translate";
 import { defineInternalTool, type InternalTool } from "./types";
 
 export { MEMORY_TEST_SCOPE_PREFIX, memoryScope } from "./memory-scope";
@@ -104,4 +106,6 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...ACCOUNT_TOOLS,
   // v0.12 W2-E
   ...INBOUND_TOOLS,
+  // P-7: message translation (docs/plan.md §1.69)
+  translateTool,
 ];

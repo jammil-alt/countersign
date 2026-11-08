@@ -103,6 +103,8 @@ import { tableRouteHandlers } from "./routes/table";
 import { testbenchRoutes } from "./routes/testbench";
 // v0.12 W1-C
 import { threadRouteHandlers } from "./routes/threads";
+// P-7: message translation
+import { translationRoutes } from "./routes/translation";
 // v0.12 W2-E
 import { triggerRouteHandlers } from "./routes/triggers";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
@@ -116,6 +118,11 @@ import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 import { credentialsFor, forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
 import { securityHeaders } from "./security-headers";
+import {
+  TRANSLATION_SWEEP_MINUTE,
+  translationDepsFor,
+  translationSweep,
+} from "./translate/service";
 import { vaultTick } from "./vault/upkeep";
 import { zohoCronTick } from "./zoho/sync";
 
@@ -215,6 +222,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   whatsappMetaRoutes(app);
   // P-6: the client runs it, we step in (docs/plan.md §1.68)
   stepInRouteHandlers(app);
+  // P-7: message translation's settings (docs/plan.md §1.69)
+  translationRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -302,6 +311,12 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await bankfeedCron(env, { db, instances, platform }, scheduledTime).catch((error: unknown) =>
       reportHandled("bank feed sync tick failed", error, { job: "bankfeed_sync" }),
     );
+    // P-7: hourly, every client with a working language: originals a lost job left untranslated.
+    if (scheduledTime.getUTCMinutes() === TRANSLATION_SWEEP_MINUTE) {
+      await translationSweep(translationDepsFor({ db, env, deps })).catch((error: unknown) =>
+        reportHandled("translation sweep failed", error, { job: "translate" }),
+      );
+    }
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
       await billingTick({ db, stripe: stripeFor(deps, env), origin: originOf(env) }, scheduledTime);

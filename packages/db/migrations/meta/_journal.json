@@ -239,6 +239,13 @@
       "when": 1794094982034,
       "tag": "0033_purchasing",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794109001081,
+      "tag": "0034_message_translation",
+      "breakpoints": true
     }
   ]
 }

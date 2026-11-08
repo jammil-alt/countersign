@@ -62,6 +62,8 @@ describe("tool registry", () => {
       // P-4
       "comms.converse",
       "comms.reach_out",
+      // P-7
+      "comms.translate",
       "demo.thing.find",
       "directory.get",
       "directory.search",

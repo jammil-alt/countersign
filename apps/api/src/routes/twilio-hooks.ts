@@ -61,6 +61,8 @@ import {
 import { replyMediaJob } from "../reach/reply-media";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
+// P-7: message translation
+import { translateLater, translationDepsFor } from "../translate/service";
 // v0.12 W2-E: inbound dispatch to agents' message triggers
 import { routeInboundText } from "../triggers/inbound-text";
 import { type InboundReply, replyDepsFromEnv, sendReplies } from "../triggers/replies";
@@ -144,6 +146,8 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       let capture: CaptureParams | null = null;
       // P-3: a reach-out reply's files, fetched after the commit as their own job.
       let replyMedia: CaptureParams | null = null;
+      // P-7: a new message to translate once this transaction commits (docs/plan.md §1.69).
+      let translate = false;
       await withTenant(services.db, tenantId, async (tx) => {
         const { row, config } = await verified(tx, c, tenantId, form, "messages");
         // A card number in a text is never stored (PCI DSS 3.3, docs/plan.md §1.35).
@@ -258,6 +262,8 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
           .returning({ id: rawRecord.id });
         // Delivered before (Twilio retries, or a replay): acknowledged, nothing more.
         if (!stored) return;
+        // P-7: translated after the commit, beside the record, when the client has it on.
+        translate = archive;
         if (kept && kept.wanted.length > 0) {
           capture = {
             tenantId,
@@ -399,6 +405,11 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
             }),
           ).start(params),
         );
+      }
+      // P-7: the client's new messages, translated beside their originals (docs/plan.md §1.69).
+      if (translate) {
+        const deps = translationDepsFor(services);
+        c.get("req").deferred.push(() => translateLater(deps, tenantId));
       }
       // v0.12 W2-E: the fixed replies go after the commit.
       if (replies.length > 0) {
