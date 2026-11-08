@@ -226,6 +226,8 @@ export function defineWriteTool<
   entity?: string;
   /** v0.12 W2-A: the input field that names its record type (ToolSpec `entityInput`). */
   entityInput?: { field: string; values: Record<string, string> };
+  /** §1.73: a verb a person always signs (publish, post): ToolSpec `approval: 'always'`. */
+  approval?: "always";
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -248,6 +250,7 @@ export function defineWriteTool<
       ...(def.recipient === undefined ? {} : { recipient: def.recipient }),
       ...(def.entity === undefined ? {} : { entity: def.entity }),
       ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),
+      ...(def.approval === undefined ? {} : { approval: def.approval }),
     },
     handler: {
       kind: "write",

@@ -10,6 +10,7 @@ import {
   decideToolCall,
   fixedInputProblem,
   grantAllowsTool,
+  isAlwaysSigned,
   type JsonObject,
   type ModelChoice,
   type ReachLanguage,
@@ -93,6 +94,10 @@ async function plannedDispatch(
   const shared = deps.tools.get(call.toolId);
   if (shared?.kind !== "connector" || shared.spec.sideEffect !== "external") {
     return { status: "refused", reason: `${call.toolId} is not a send` };
+  }
+  // §1.73: a verb a person always signs is never part of a plan signed as a whole.
+  if (isAlwaysSigned(shared.spec)) {
+    return { status: "refused", reason: `${call.toolId} needs a person to sign each one` };
   }
   const fixed = shared.spec.fixedInputs;
   if (fixed?.length) {

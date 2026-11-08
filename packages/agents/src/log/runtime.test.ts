@@ -255,6 +255,59 @@ describe.skipIf(!harness)("runtime", () => {
     }
   });
 
+  // §1.73: publishing and posting are signed by a person, whatever the matrix, step and mode say.
+  it("a verb a person always signs waits even when everything else would let it run", async () => {
+    const kit = defineConnector({
+      id: "testkit",
+      name: "Testkit",
+      description: "The testkit's update, always signed.",
+      icon: "flask",
+      auth: "none",
+      entities: ["Record"],
+      tools: [
+        defineWriteTool({
+          id: TESTKIT_UPDATE_TOOL,
+          description: "Change a record's amount.",
+          verb: "update",
+          approval: "always",
+          input: z.object({ id: z.string(), amount: z.string() }),
+          output: z.object({ record: TestkitRecord }),
+          beforeSchema: TestkitRecord,
+          before: async (input) => ({
+            id: input.id,
+            name: "Oak board",
+            amount: "1.00",
+            syncToken: "0",
+          }),
+          run: async (input, ctx) => ({
+            record: h.backend.update(ctx.connection.id, ctx.idempotencyKey, input),
+          }),
+        }),
+      ],
+    });
+    const deps: RuntimeDeps = {
+      ...h.deps(),
+      tools: new ToolRegistry({
+        platform: PLATFORM_TOOLS,
+        connectors: new ConnectorRegistry([kit]),
+      }),
+    };
+    await h.setPermissions(h.A, { update: "auto" });
+    try {
+      const writes = h.backend.writes.length;
+      const s = await step(h.A, { mode: "act", approval: "not_required" });
+      const out = await callTool(deps, s, update("8.88"));
+      expect(out.status).toBe("awaiting_approval");
+      expect(h.backend.writes.length).toBe(writes);
+      const [item] = await h.client(h.A, (tx) =>
+        tx.select().from(inboxItem).where(eq(inboxItem.runId, s.runId)),
+      );
+      expect(item?.payload).toMatchObject({ whyApproval: { reasons: ["always"] } });
+    } finally {
+      await h.setPermissions(h.A, {});
+    }
+  });
+
   it("a client tightening the matrix overrides a step set to skip approval, at once", async () => {
     await h.setPermissions(h.A, { update: "auto" });
     const s = await step(h.A, { mode: "act", approval: "not_required" });

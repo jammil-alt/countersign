@@ -83,6 +83,19 @@ describe("explainWrite", () => {
     expect(decideToolCall(input)).toBe(before);
   });
 
+  // §1.73
+  it("says when the change is one a person always signs", () => {
+    const why = explainWrite({
+      verb: "create",
+      matrix: { create: "auto" },
+      stepApproval: "not_required",
+      agentMode: "act",
+      alwaysSigned: true,
+    });
+    expect(why.reasons).toEqual(["always"]);
+    expect(readWhyApproval(JSON.parse(JSON.stringify(why)))).toEqual(why);
+  });
+
   it("reads back what it stored, and nothing else", () => {
     const why = explainWrite({ verb: "create", matrix: undefined, agentMode: "act" });
     expect(readWhyApproval(JSON.parse(JSON.stringify(why)))).toEqual(why);
