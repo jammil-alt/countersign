@@ -418,7 +418,7 @@ Builds §1.19's contacts and consent, and Twilio numbers, SMS and WhatsApp. Call
 | Shared namespaces | `ConnectorManifest.sharedNamespaces` lets a connector's tools and events use `sms.`, `whatsapp.`, `messages.` and `message.` besides `twilio.`. So the ids `sms.send`, `whatsapp.send`, `messages.search`, `message.get`, `message.received` and `message.status` are provider-neutral (`connectors/src/messaging/spec.ts`), and Meta's connector will supply the same ids. The tool registry still refuses an id registered twice. When Meta arrives, the registry resolves a shared id by the agent's binding. |
 | Whose Twilio | Mezonas' main account (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, deployment secrets) only makes subaccounts. Each client's subaccount SID and auth token are the encrypted credentials of its `twilio` connection (auth `api_key`, made by the operator, `connected_by` the operator). Config holds the subaccount SID, numbers, A2P and the webhook URLs. A disconnected client keeps its subaccount: reconnecting reads the token back with the main account. |
 | Numbers (operator only) | `/api/ops/clients/:id/messaging/*`: search US local numbers that take texts, buy one in the client's subaccount with its `SmsUrl` set to our webhook, release it, and mark it as the WhatsApp sender once registered in Twilio's console. Never an agent tool. Every change goes to `connection_change`. |
-| A2P 10DLC | Shown and tracked, not automated. The operator records the brand (BN…) and Messaging Service (MG…); "Check status" reads both. It is approved when the brand is `APPROVED` and the campaign `VERIFIED`. |
+| A2P 10DLC | Shown and tracked, not automated. The operator records the brand (BN…) and Messaging Service (MG…); "Check status" reads both. It is approved when the brand is `APPROVED` and the campaign `VERIFIED`. **P-8:** registered by Twilio's API from the client's details, with the fees passed on (§1.70); recording SIDs by hand stays for a client registered in Twilio's console. |
 | WhatsApp | Free text inside 24 hours of the contact's last message (from our inbound records). Outside that only a template (`template.id` = Twilio Content SID, with variables) may go out; Twilio enforces that the template is approved. |
 | Once per key | A send is an external action (approval by default, invariant 8). A re-run after a crash (the action left `executing`) first looks for a message already recorded under the action's key and returns it, in `before` and in the send, **before** the consent, opt-out and quiet-hours checks: an opt-out since then can't record a message Twilio sent as failed. The checks still stop every message not yet sent, and every new send. |
 | At most once | Twilio's message create takes no idempotency key (NOTES.md). So the send records its attempt (raw record `MessageAttempt`, by the action's key: who, from which number, what, when) before calling Twilio, and a re-run that finds an attempt but no message never sends again. It lists Twilio's messages from our number to the contact (`GET Messages.json?To=&From=`) and keeps the outbound ones created since the attempt (two minutes' leeway for clocks) that no other action recorded. Exactly one: adopted as this send (recorded, threaded and counted once). None or several: the action fails with "… may have been sent; check before trying again" and the operator gets a `review` inbox item with the candidates. The connector throws `UnconfirmedWriteError`; `executeAction` fails the action and opens the item in one transaction, so a retry neither sends nor opens a second item. |
@@ -1816,6 +1816,57 @@ anything, but is never the default step. Hot-spot edits are blocks headed `// P-
 | Defaults audit | Oversight's `ask` with no step approver went to the lead: now the client's team (the agent's approver, the client's setting, else the client admin). The conversation hand-over already went to the conversation's approver (§1.66). Kept as they are, because they are opt-in or oversight: a person step assigned to the lead or to `operator`, a client whose approvals are set to us, a person step's `notify_operator` timeout, test runs' items, failed writes, budget hits, oversight stops and proposals, supervisor findings, code alerts and browser stops (both sides), change requests, the Materials pack's catalog merge proposals (a merge is a back-office action), and email or digest notices (operator-only thread notes until a sender is wired: a notice, not work). // DECISION |
 | Not in this stream | Stepping in from the MCP connector; a "step in" button on the run page's change panels (the Escalations screen's "Waiting on clients" view has it); editing a call's words. |
 
+### 1.70 US texting registration (P-8, M41; no migration; ARCHITECTURE §1 "Texts and calls")
+
+Owner, 2026-11-08: US texts need A2P 10DLC registration, and Mezonas does it by Twilio's API once it
+has the client's details. Fees are passed to the client as credits, never absorbed. The client
+admin enters the business details in the portal; the operator reviews them, sees the fees and
+submits from the back office. Use cases are never marketing: the company's own texts to its team,
+its vendors and its customers (customer care). Twilio's facts, each with its source page, are in
+`packages/connectors/src/twilio/NOTES.md` ("A2P 10DLC by API (P-8)", checked 2026-11-08 against
+twilio.com's live docs). Hot-spot edits are blocks headed `// P-8: …`.
+
+| Topic | Decision |
+|---|---|
+| The flow (Twilio's ISV guide, architecture #1: a subaccount and a Messaging Service per client) | In the client's subaccount, with its credentials: (1) the **secondary customer profile** (Trust Hub `CustomerProfiles`, policy `RNdfbf3fae0e1107f8aded0e7cead80bf5`): the business's end user (`customer_profile_business_information`), the authorized representative (`authorized_representative_1`), the address (an `Address` and a `customer_profile_address` supporting document), an assignment to Mezonas' primary profile, an evaluation, then `pending-review`; (2) the **A2P trust product** (`TrustProducts`, policy `RNb0d4771c2c98518d916a3d4cd70a8f8b`) with its `us_a2p_messaging_profile_information` end user and the profile assigned, evaluated, then `pending-review`; (3) the **BrandRegistration**; (4) a new **Messaging Service** for the client; (5) once the brand is `APPROVED`, the **Usa2p campaign** on that service; (6) once the campaign is `VERIFIED`, the client's US numbers **added to the service**. Steps 1–4 run in the operator's submit; 5 and 6 on the cron. // DECISION |
+| Use case | `MIXED` for a Standard brand, `LOW_VOLUME` for a Low-Volume Standard brand. Twilio's "Gather business information" page lists `MIXED` as "a campaign that covers multiple use cases such as Customer Care and Delivery Notifications" and `LOW_VOLUME` as the same for low-volume brands at a lower monthly fee; our traffic is internal (codes and work updates to the team), vendor (orders, deliveries, invoices) and customer care, which no single use case covers. The use case is set in code from the brand type, never from input, and checked against the brand's `Compliance/Usa2p/Usecases` list before the campaign is made. One campaign per client (Twilio allows five per brand). // DECISION |
+| Marketing refused | The form's uses are `team`, `vendors` and `customer_care` only; a body naming `marketing` (as a use or the use case) is refused with 422 `marketing_refused`, and so is an operator's edit of the campaign's description or samples that reads as promotion (whole words: promo, promotion, promotional, discount, coupon, marketing, advertising, advertisement). Description and samples say "no marketing or promotional messages". // DECISION |
+| Brand type | The client's answer: "fewer than 6,000 texts a day" (the default) is **Low-Volume Standard** (`BrandType=STANDARD`, `SkipAutomaticSecVet=true`, use case `LOW_VOLUME`); more is **Standard** (`MIXED`). Sole proprietors without an EIN, public companies (stock ticker and Authentication+ email) and the mock flag are not offered. Company type: `private`, `non-profit` or `government`. // DECISION |
+| What the client admin enters | Portal `/texting` (client admin only; others read nothing): legal name exactly as on the EIN letter, business type, industry, company type, website, regions (default USA and Canada), address (US), the authorized representative (first and last name, title, position, phone in E.164, email), volume, uses, how people agree to texts (40–2,048 characters, in the client's own words; we never invent the opt-in), the privacy policy and terms links, and whether texts carry links or phone numbers. Validated with Zod in core (`A2pBusinessDetails`), the same schema the API and the screen use. The form is open until the operator submits, and again when Twilio asks for changes. // DECISION |
+| The EIN | Write-only and encrypted with the client's own key: it is a field of the client's `twilio` connection credentials (the vault, §1.26), next to the subaccount's SID and token, which the connector's own parse leaves out. Setting it decrypts the stored credentials in the request and writes them back with the EIN, the one merge §1.26's form rule doesn't cover, because those other fields are ours, not the form's. Read models say only `einSet` and a masked hint (`••-•••••89`); no route returns it, and `ein`, `taxId` and `businessRegistrationNumber` join the contract's forbidden secret fields. It reaches Twilio only in the end user's attributes, is redacted from Twilio's error text before anything is stored or shown, and never reaches a model, a log, a step output or a screen. Disconnecting drops it with the credentials. // DECISION |
+| Where state lives | No migration. The registration's state is `connection.config.a2p.registration` on the client's `twilio` connection (details without the EIN, the hint, stage, every SID, statuses, Twilio's reasons, submissions with who and why, fee keys recorded); the existing `a2p` fields (brand, Messaging Service, statuses, `status`) keep their meaning, so today's checks and screens work unchanged. Every change is a `connection_change` row naming fields, never values. // DECISION |
+| Stages | `draft` → `submitted` (profile, trust product and brand with Twilio) → `campaign` (brand approved, campaign with TCR) → `ready` (campaign verified, numbers in the service: "Texting is ready"); `needs_changes` when Twilio rejects anything (with its reasons); `suspended` (brand or campaign suspended: Twilio support). `a2p.status` is `approved` only at `ready`, so US texts stay refused until then, as today. // DECISION |
+| Who submits | Only the operator (`POST /api/ops/clients/:id/messaging/a2p/submit`, OPS roles, a client they serve), with a required reason and `confirmFees: true`, after reading the fees. A client admin's call is 403. The operator may edit the campaign's description, samples and opt-in text before submitting; the client's details stay the client's. Each submit is recorded (`submissions [{at, by, reason}]`) and audited by `mount`. // DECISION |
+| Fees (Twilio's A2P 10DLC page, read 2026-11-08) | Shown before each submit, with what this submit will charge: Standard brand $44 one-time, Low-Volume Standard brand $4 one-time, campaign vetting $15 one-time per campaign, then the campaign's monthly fee (Twilio says $1.50–$10 by use case; we use $10 for `MIXED` and $1.50 for `LOW_VOLUME`, from TCR's published rates as resellers quote them: Twilio's help article could not be read, NOTES.md). The amounts are a table in core (`A2P_FEES`), with its source and date. // DECISION |
+| Fees as the client's usage | Each fee is a raw record `ProviderFee` on the twilio connection (our own fact, like `MessageAttempt`), keyed once: `a2p:brand:<BN>`, `a2p:vetting:<MG>:<attempt>`, `a2p:monthly:<MG>:<YYYY-MM>`, `on conflict do nothing`. The platform rollup (`rollupPlatformDaily`) adds the day's `ProviderFee` amounts to `usage_platform_daily.cost_usd`, the client's own usage, which billing already turns into credits (`cost_usd` at 1.0000 per 1: one credit per cent). So no fee is billed twice, none is missed, and no new rule or column is needed; the entity type is platform-wide (`PROVIDER_FEE_ENTITY` in core), so any connector's pass-through fee works the same way. The monthly fee is recorded at the first poll of each UTC month while the campaign is `VERIFIED`. // DECISION |
+| Status polling | Hourly on the cron (minute :23, `A2P_CRON_MINUTE`), for each client whose registration is `submitted` or `campaign`, one `withTenant` per client; the back office's "Check status" runs the same pass at once. Twilio asks for at most one brand or campaign request a second; a pass makes at most one of each per client. // DECISION |
+| Telling people | Plain words, as `review` inbox items (subject `a2p_registration`, the connection) for the operator and the client admin, once per stage: "Texting is ready" (ready), "Twilio needs changes to your texting registration" with Twilio's reasons and what to fix (needs changes), "Texting is on hold" (suspended). An older open item for the registration is closed when a new one is raised. // DECISION |
+| Rejections | Twilio's reasons are kept as `{source, code, fields, description}`: a profile or trust product evaluation's failed fields, a `twilio-rejected` bundle's errors, a brand's `errors[]` and a campaign's `errors[]` (with Twilio's error code and link). Each is shown with what to fix, in plain words: the fields to change and where (the client's details, or the campaign's text). // DECISION |
+| Re-submits | After an edit, the operator submits again. Profile, trust product or brand rejected: the end users and address are updated in place and both bundles go back to `pending-review`, then the brand is updated (`POST BrandRegistrations/{BN}`, free up to three times; a fourth is refused with Twilio's 21724 and the operator is told to ask Twilio support). Campaign rejected: Twilio's edit-in-place is a private beta for API users, so the campaign is deleted and made again, which charges a new $15 vetting fee, shown before the submit and recorded under the next attempt. // DECISION |
+| Sending once approved | Texts from a number in the client's Messaging Service go with `MessagingServiceSid` **and** `From` (Twilio: both together keep the sender we chose and still use the service). Release-code texts too. A number bought later is added to the service when the campaign is verified. WhatsApp is unchanged. A client registered by hand in Twilio's console (the old recorded SIDs) keeps sending `From` alone. // DECISION |
+| Deployment settings | `TWILIO_PRIMARY_PROFILE_SID` (Mezonas' approved ISV primary profile, BU…) and `TWILIO_A2P_EMAIL` (Mezonas' own address for Trust Hub's status emails; Twilio says not the customer's). Not secrets. Without them the submit answers 503 `not_configured`. // DECISION |
+| Portal answers | The portal's view has the stage, the details (the client's own), `einSet`, the hint, whether it can be edited and Twilio's reasons in plain words: no SID, no fee, no cost. The contract's portal check covers it. // DECISION |
+| Not in this stream | Toll-free verification, sole proprietors, public companies, Twilio's mock brand from code (a manual checklist is in NOTES.md), Event Streams (we poll), the $10 brand appeal, Twilio's campaign edit-in-place beta, numbers outside the US. |
+
+Open for the owner:
+
+- **`TWILIO_PRIMARY_PROFILE_SID`**: the BU SID of the approved "Mezonas" primary customer profile (ISV
+  Reseller, Twelve Thirty-Four Consulting LLC), and **`TWILIO_A2P_EMAIL`**, the Mezonas address Trust Hub
+  writes to about each client's profile.
+- **The monthly fee per use case.** We record $10 (`MIXED`) and $1.50 (`LOW_VOLUME`) a month from TCR's
+  rates as resellers quote them; Twilio's help article (1260803965530) is the source to confirm, and
+  whether Twilio bills the first three months at once.
+- **Campaign edit-in-place.** Asking Twilio support to enable the private beta saves the $15 vetting fee
+  on each campaign resubmit (today we delete and recreate).
+- **Clients without a privacy policy or terms page.** TCR rejects a campaign without both, on the
+  business's own site. Whether Mezonas offers a hosted page for clients is a product choice.
+- **Showing the client the fees.** The portal says Twilio's fees are billed as credits but shows no
+  amounts (no cost in the portal); whether to show the credits before the operator submits.
+- **Edits after approval.** The form is locked once texting is ready; changing an approved brand means a
+  brand update and possibly re-vetting.
+- **Mock brand check.** Run NOTES.md's mock brand checklist against a real subaccount before the first
+  client.
+
 ---
 
 ## 2. Package layering
@@ -2568,6 +2619,34 @@ the client sees it was us and why, and nothing day to day waits on us by default
 
 ---
 
+### M41: US texting registration (P-8, §1.70)
+
+Two PRs: this design (`claude/p8-a2p-design`) and the build (`claude/p8-a2p`, stacked). No migration.
+
+Work: `A2pBusinessDetails`, the stored registration, the fee table, the campaign's words and the
+marketing check in core; the portal's `/texting` form for the client admin (six languages, the
+design system's classes) with the EIN written to the vault and shown only as a masked hint; the back
+office's review on the client's messaging page with the fees and a required reason; the Trust Hub,
+brand, Messaging Service, use case and campaign calls in the `twilio` connector, and the fake Twilio
+extended to match; the cron's status pass and the "Check status" button; plain-words items for the
+operator and the client admin; fees recorded once each as the client's usage; sends through the
+Messaging Service once the campaign is verified.
+
+Tests (the fake Twilio; never the live Twilio or the live model): the whole flow from the form to a
+verified campaign with the numbers in the service; a brand rejection with its reason, an edit and a
+resubmit; a campaign rejection, an edit and a resubmit (a second vetting fee, recorded once); each fee
+recorded once however often the cron runs, and counted into credits; texts going with
+`MessagingServiceSid` and `From` after approval and refused for US numbers before it; the EIN in no
+response, log line, step output or inbox item (searched for, as the release-code tests do); a client
+admin's submit refused (403); marketing refused; another client's registration unreachable; the
+portal's answers with no SID, fee or cost.
+
+**Done when** a client admin can give the business's details once, the operator can submit them
+with the fees in view, and the client's US texts start going out through its own registered campaign
+without anyone opening Twilio's console, with Twilio's fees on the client's usage.
+
+---
+
 ## 5. Things to verify, not assume
 
 - Intuit API details (M9) and Google's Gmail and verification rules (M10), see those milestones.
@@ -2712,6 +2791,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
 | `packages/workflows/src/ports.ts`, `apps/api/src/runs/ports.ts`, `apps/api/src/reach/{service,replies}.ts`, `apps/api/src/triggers/inbound-text.ts`, `apps/api/src/runs/dispatch.ts` | P-4: `PendingApproval.waitingFor`; the `comms.converse` route; one at a time per person; the conversation-first reply match; a conversation awaiting approval counts as open; the portal reply match (one block each, `// P-4: …`) |
 | `packages/workflows/src/{ports,executor}.ts`, `packages/agents/src/log/{external-actions,oversight}.ts`, `apps/api/src/{inbox,desk/desk,reach/service,converse/service,converse/views,routes/portal}.ts` | P-6: `InboxResolution.withdrawn`, `StepOutcome.done.declined`; `steppingIn` in `mayResolve`; oversight's ask default; the run's resolution carrying `withdrawn`; a message edit in the Desk's edit; `reachMaxChars`; the shared hand-over item and route; edits and events on the transcript; `steppedIn` in the portal (one block each, `// P-6: …`) |
+| `packages/core/src/api/{messaging,contract,routes}.ts`, `packages/connectors/src/twilio/{index,fake}.ts`, `packages/agents/src/log/usage.ts`, `apps/api/src/{app,env}.ts`, `apps/api/src/routes/messaging-setup.ts`, `apps/web/src/ops/screens/Messaging.tsx`, the portal's routes and nav | P-8: the registration on `A2pRegistration` and the setup view; `ein` among the secret fields; the A2P routes line; `MessagingServiceSid` on sends and release texts; the fake's Trust Hub, brand, service and campaign resources; `ProviderFee` in the platform rollup; the A2P cron call and its two settings; the submit, the poll and a bought number joining the service; the review panel; `/texting` (one block each, `// P-8: …`) |
 
 ### 8.3 Reserved migrations
 
