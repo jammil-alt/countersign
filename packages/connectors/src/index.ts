@@ -10,6 +10,8 @@
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
+// P-3: attachments both ways (docs/plan.md §1.65)
+export * from "./attachments";
 // v0.14 W4-C
 export * from "./attempts";
 // v0.12 bankfeed: bank and card feeds through Plaid (docs/plan.md §1.52).

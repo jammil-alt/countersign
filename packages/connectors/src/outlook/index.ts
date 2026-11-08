@@ -8,7 +8,16 @@
 // send is never sent again. Unchecked facts about Microsoft: ./NOTES.md.
 
 import type { JsonObject } from "@countersign/core";
+// P-3: attachments both ways
+import { AttachmentSummary } from "@countersign/core";
 import { z } from "zod";
+import {
+  type AttachmentLimits,
+  describeOutbound,
+  type LoadedAttachment,
+  loadOutbound,
+  summaries,
+} from "../attachments";
 import {
   type ConnectionContext,
   type Connector,
@@ -32,7 +41,7 @@ import {
   type EmailServices,
   taggedReplyTo,
 } from "../resend/index";
-import { fromBase64Url, fromUtf8, sha256Bytes, toHex, utf8 } from "../runtime";
+import { fromBase64Url, fromUtf8, sha256Bytes, toBase64, toHex, utf8 } from "../runtime";
 
 export const OUTLOOK_CONNECTOR_ID = "outlook";
 export const OUTLOOK_SEND_TOOL = "outlook.send";
@@ -174,7 +183,19 @@ export const OutlookSendBefore = z.object({
   replyTo: z.string().nullable(),
   subject: z.string(),
   text: z.string(),
+  // P-3
+  /** The attachments by name and size. */
+  attachments: z.array(AttachmentSummary).optional(),
 });
+
+// P-3: Graph's `sendMail` takes the whole request, attachments inline in base64, up to 4 MB; a
+// bigger file needs an upload session on a draft, which needs a read-write scope we don't ask
+// for (NOTES.md). 3 MB of files is 4 MB in base64, so the request stays near Graph's limit.
+export const OUTLOOK_ATTACHMENT_LIMITS: AttachmentLimits = {
+  provider: "Outlook",
+  maxCount: 5,
+  maxTotalBytes: 3 * 1000 * 1000,
+};
 
 export interface OutlookOptions {
   /** The Entra app registration ("Mezonas"): application (client) id and a client secret. */
@@ -229,6 +250,8 @@ export function graphMessage(m: {
   subject: string;
   text: string;
   ref: string;
+  // P-3
+  attachments?: readonly Pick<LoadedAttachment, "filename" | "mimeType" | "bytes">[];
 }): JsonObject {
   return {
     message: {
@@ -237,6 +260,17 @@ export function graphMessage(m: {
       toRecipients: [{ emailAddress: { address: m.to } }],
       ...(m.replyTo ? { replyTo: [{ emailAddress: { address: m.replyTo } }] } : {}),
       internetMessageHeaders: [{ name: OUTLOOK_REF_HEADER, value: m.ref }],
+      // P-3: Graph's file attachment: name, type and the bytes in base64.
+      ...(m.attachments?.length
+        ? {
+            attachments: m.attachments.map((a) => ({
+              "@odata.type": "#microsoft.graph.fileAttachment",
+              name: oneLine(a.filename),
+              contentType: a.mimeType,
+              contentBytes: toBase64(a.bytes),
+            })),
+          }
+        : {}),
     },
     saveToSentItems: true,
   };
@@ -430,6 +464,11 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
           if (!check.ok || !check.contact) {
             throw new EmailBlockedError(check.message ?? "this contact can't be emailed");
           }
+          const attachments = await describeOutbound(
+            ctx,
+            input.attachments,
+            OUTLOOK_ATTACHMENT_LIMITS,
+          );
           return {
             contact: check.contact,
             to: input.to,
@@ -437,6 +476,7 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
             replyTo: await replyToFor(services, input.replyTag),
             subject: input.subject,
             text: input.text,
+            ...(attachments.length ? { attachments } : {}),
           };
         },
         async run(input, ctx) {
@@ -471,12 +511,15 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
           const from = await senderOf(ctx);
           const replyTo = await replyToFor(services, input.replyTag);
           const ref = await outlookRef(ctx.idempotencyKey);
+          // P-3: read from storage for this one send; refused before anything is started.
+          const files = await loadOutbound(ctx, input.attachments, OUTLOOK_ATTACHMENT_LIMITS);
           const body = graphMessage({
             to: input.to,
             replyTo,
             subject: input.subject,
             text: input.text,
             ref,
+            ...(files.length ? { attachments: files } : {}),
           });
           await services.startAttempt?.({
             idempotencyKey: ctx.idempotencyKey,
@@ -496,6 +539,7 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
             replyTo,
             contactName: check.contact.name,
             messageId: "",
+            ...(files.length ? { attachments: summaries(files) } : {}),
           };
           await services.recordOutbound({
             connectionId: ctx.connection.id,

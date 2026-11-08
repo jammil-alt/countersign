@@ -300,7 +300,7 @@ ARCHITECTURE §13–§15: usage and cost for the back office, the portal's activ
 |---|---|
 | Approver rules | Per client. The operator sets them; the client admin can only make them stricter (a stricter approver, never a looser one). A rule matches on any of: connector or tool, verb (`create`, `update`, …), an amount over a threshold, the client agent; it names the approver: the client admin, a named client user, a client role, or the operator on the client's behalf. Rules are ordered: the first match wins; with no match, the client admin approves. They decide *who* approves; whether a step needs approval at all stays per step and per matrix (invariant 8). A run snapshots the approver it used. |
 | Billing | Stripe. Each client is a Stripe customer. A monthly **base fee per active client agent** (not per user), which includes an allowance of **credits**; usage beyond the allowance is billed per credit (Stripe metered prices with the allowance as the free tier), counted from `usage_daily`. Keys are network secrets, never in the repo. **One credit is one cent of what the work cost us** (owner, 2026-11-04): model cost plus provider costs (SMS and WhatsApp messages, call minutes), converted from `usage_daily` with unit costs kept as operator settings, so every new tool is billable without a new rule; the markup is in the overage price. The allowance and the prices are open (§7). |
-| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. |
+| Millwork and Pia | Built separately. M8 is out of this plan's MVP path; its branches from the overnight wave are kept but not merged. **Superseded (v0.15, 2026-11-07):** the Materials pack is ported onto main as the Purchasing area (§1.63, M34). |
 
 
 ### 1.18 Languages (owner, 2026-11-04; stream I)
@@ -1623,7 +1623,7 @@ number 1.60 leaves 1.55–1.59 to the other Wave 4 streams; the lead renumbers i
 | Inbound endpoint | `POST /api/hooks/gchat`, public. The bearer token is verified before the body is read: a JWT with `alg` RS256 and a `kid` among the x509 certificates Google publishes for `chat@system.gserviceaccount.com` (the official samples' URL; kept for Cache-Control's max-age, 1 h without it, 24 h at most; an unknown `kid` refetches at most once a minute), `iss` exactly that address, `aud` exactly `GOOGLE_CHAT_PROJECT_NUMBER` (the Chat API's audience set to Project Number), not expired (60 s skew). Anything else 401 with one fixed message. Body at most 64 KB. The answer is synchronous: `{"text": …}` (one fixed line in the space) or `{}`. Workspace add-on events are not supported. // DECISION |
 | Binding codes | `MZ-XXXX-XXXX-XXXX`: 12 symbols of Crockford base32 from the CSPRNG (60 bits), forgiving case, dashes, O/0 and I/L/1. Made by the client admin only (`POST /api/connections/:id/gchat/code`), shown once; kept as SHA-256 over `gchat-bind:v1:<client>:<connection>:<code>` inside the connection's encrypted credentials (never in `config`, so the operator's view and `connection_change` never hold it), 15 minutes, one pending per connection (a new code replaces it), at most 5 made per connection per hour (counted from `connection_change` rows of kind `gchat_code`, 429 after). Compared in constant time, before the expiry is looked at. // DECISION |
 | Binding a space | A `MESSAGE` (or an `ADDED_TO_SPACE` carrying the mention) from a person whose text after the mention holds a code: each client's Google Chat connection is looked at in its own `withTenant` (as QuickBooks' webhook finds a company; no table outside RLS learns which client uses which space); the code matches only the client and connection it was hashed for. Then, in that client's transaction under the connection's row lock, the code is checked again, spent, and the space added to `config.spaces` (`name`, `displayName`, `kind`, `boundAt`, `boundBy` = the person's Chat display name; at most 50), with a `connection_change` `gchat_space_bound` whose actor is the admin who made the code. A space bound to another client is refused ("already connected to another Mezonas account") and the code is kept; a space already this client's spends the code. DMs are refused (spaces and group chats only). Never by email domain. // DECISION |
-| Race | Two clients' valid codes posted in one space at the same instant could both bind it: there is no lock across clients without a table (and a migration, 0032). Both clients see the space in their portal, and either can disconnect it. Accepted as a follow-up if it is ever seen. // DECISION |
+| Race | Two clients' valid codes posted in one space at the same instant could both bind it: there is no lock across clients without a table (and a migration, the next free one: 0033). Both clients see the space in their portal, and either can disconnect it. Accepted as a follow-up if it is ever seen. // DECISION |
 | Wrong codes | Counted per space in the isolate (`BindAttemptLimiter`: 10 in 15 minutes, 1,000 spaces tracked), then "wait 15 minutes". No storage: a code is 60 bits and lives 15 minutes, so the limit is about load, not odds. Unknown, expired and used codes get the same answer. // DECISION |
 | Other messages | Not stored, not logged, not read beyond looking for a code. The app answers every mention with a fixed line (spaces deliver messages to an app only when it is mentioned): `ADDED_TO_SPACE` without a code gets the welcome line, any other message "I only post updates from Mezonas here. I can't read or answer messages." A bot's message is ignored. The lines are fixed English (events carry no reliable language for the space). // DECISION |
 | Unbinding | `REMOVED_FROM_SPACE` removes the space from whichever client has it (`gchat_space_unbound`, `by: google_chat`). The client admin disconnects a space in the portal (`DELETE /api/connections/:id/gchat/spaces/:spaceId`); the app stays a member until someone removes it. Disconnecting Google Chat drops every space (and, with the credentials, any pending code), so another client may bind them later. // DECISION |
@@ -1662,6 +1662,69 @@ data only, within the brand rules (`apps/web/src/ui/README.md`).
 | Home's figures | Runs done this week, changes to your tools (automatic and approved), waiting on you, documents read (as Reports counts them: the activity report for this week and last). Optional contract fields, so an older answer still parses. A figure with nothing this week or last is left out; runs always show. // DECISION |
 | Agent colour | Owner (design pass 2): solid blocks as on the v1 screens, from existing tokens (slate, copper, positive, signal-ink, `data-seq-4`) with `surface` initials; picked by id and spread within a client so its first five agents differ. State keeps tinted pills and accent bars, so a solid block reads as identity. // DECISION |
 | Go-live view | `goLive.writes` reads the live version, else the latest (a draft that writes no longer reads "goes straight to live"); `liveVersion` says whether there is one. Stage moves still read the live version alone. // DECISION |
+
+### 1.63 The Purchasing area: the Materials pack ported (P-1, M34; migration 0032; ARCHITECTURE v0.15 §12.0, §12.2–§12.4)
+
+The Materials pack was built on 2026-11-04 in streams M8a and M8b (§1.12, §1.13 on those branches)
+and kept off main (§3 "Millwork and Pia"). v0.15 brings it in as the first **business area**.
+
+| Topic | Decision |
+|---|---|
+| Source | `claude/m8b-pia` (12 commits, both halves) is the source. It is 375 commits behind main, so it is re-applied file by file onto today's platform, not merged. The branches stay as they are for reference. The branch's §1.12 and §1.13 decisions carry over unless this section says otherwise. |
+| Three PRs | (1) The docs (`claude/p1-business-areas-docs`): ARCHITECTURE v0.15, this section, M34, CLAUDE.md. (2) Migration 0032 alone (`claude/p1-materials-migration`). (3) The pack, its registration and screens (`claude/p1-materials`). Merge commits, in that order. |
+| Migration 0032 | One migration for what the branch did in 0006 and 0007: `catalog_item`, `item_alias`, `item_match`, `price_observation` and the shared `alert` (§5.2). Forced RLS, grants as §1.12 decided (no DELETE anywhere; `item_match` insert-only), journal and snapshot, fixtures in the RLS, purge and migration test loops. `tenant_pack` is already on main. The `embedding vector(1024)` column stays, nullable (pgvector is enabled since 0000). Additive only: the previous Worker never reads these tables. |
+| Platform changes since the branch | Fit, don't redesign: skill modes (`tool`, `task`, `agent`; Materials' model-backed skills become `task` where they need no agent memory, recorded fixtures re-recorded where the request changes), per-entity permissions (Materials' internal tools declare their entity), automations, the test bench (the golden matching set also runs as skill cases), oversight, go-live stages, the run controls. |
+| Registration | `apps/api` registers the pack (tools, skills, events, routes); the platform never imports it (invariant 2); `pnpm lint:deps` holds. Enabling for a client inserts `tenant_pack` and installs nothing: the pack ships no agent templates (owner, 2026-11-07), and Pia's template stays on the M8 branch. Agents on the area are built in the Agent lab from its skills. The API tests build their own purchasing agent (`apps/api/src/purchasing.test-helper.ts`). // DECISION |
+| Screens | Price watch, Catalog and the match review card, fitted to the cleaned-up portal (Reports) and back office. The UI session owns the portal's screens and nav: P-1 tells it before changing them. |
+| Categories and embeddings | Millwork categories as built (sheet goods, hardwood, mouldings, hardware, finishes, other). Embeddings off: the column stays empty and candidates come from key attributes and `pg_trgm`. Both are open for the owner (ARCHITECTURE §20). |
+| With the invoice agent | Iris (invoice intake) may add `materials.match-lines` and `materials.record-prices` after a bill is created, so every intake feeds the master list. |
+
+### 1.64 QuickBooks ingredients (P-2, M35; no migration)
+
+Building blocks for agents the owner builds later in the agent lab. Tools only: no agent, template
+or workflow uses them yet. Built against the fake QuickBooks; what is unchecked is in
+`packages/connectors/src/qbo/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Reads | `qbo.account.query {types?, active = true, nameContains?, start, limit}` (entity `account`): id, name, full name, type, subtype, active, currency. `qbo.class.query {ids?, active = true, nameContains?, …}` (entity `class`). `qbo.purchaseorder.query {ids?, docNumber?, vendorId?, status? Open/Closed, from?, to?, …}` (entity `purchase_order`), with lines. Live queries like the other reads, so they also become built-in read skills (§1.9). `active` filters literally: false lists inactive records. // DECISION |
+| Class and customer on lines | `NewLine` gains `classId`, `customerId` and `billable` (only with a customer). They go out as `ClassRef`, `CustomerRef` and `BillableStatus` on both expense line details, for create bill, both `update_lines` tools and create purchase order. What a line names wins over what it inherits; a line with a customer always says `Billable` or `NotBillable` (not billable unless asked). An unknown or inactive class or customer is refused when proposed and again before writing. `qbo.bill.query`, `qbo.purchase.query` and the update tools' before state show each line's `class`, `customer` and `billable`. // DECISION |
+| Names on the card | The before state's `names` gains `classes` and `customers`, only when the new lines name any, so older before states read as they did. `ToolDisplay`'s line columns gain `tags`: refs shown by name under what a line is booked to (its job, its class); a client never reads a bare id, the back office reads `#id`. // DECISION |
+| `qbo.vendor.create` | Verb `create`, entity `vendor` (vendors' verbs become read and create). Input: display name, company name, email, phone, billing address, terms id. Refused when proposed and again before writing if a vendor (active or not) has the same name, compared with case and spacing set aside; every vendor is read (1,000 a page, at most 20 pages), not filtered by name. QuickBooks' own "duplicate name" (a customer or employee with the name) is the same refusal. Unknown or inactive terms are refused. The before state is `{existing: null, billingAddress, terms}`. Right before writing, a vendor with the name, company and email asked for is this action's own lost write: reported done with its id. Output: the new vendor's id for a later step. // DECISION |
+| `qbo.purchaseorder.create` | Verb `create`, entity `purchase_order`, `amount` = `expectedTotal`. The rules of `qbo.bill.create`: lines add up to the total (decimal.js), the total is more than zero, the vendor is the company's, `requestid` from the action's key. Number optional; with one, an order from the same vendor with the same number (letters and digits) is refused when proposed and before writing, read live from the vendor's orders (orders aren't synced). Without one, QuickBooks' `requestid` alone keeps a retry from writing twice. We send the one active A/P account in the order's currency when there is exactly one. The memo is `PrivateNote`; ship-to is `ShipAddr`; the expected date is `DueDate`. The card says we don't send the order to the vendor. Output: id, number, total, status. // DECISION |
+| Zero totals | decimal.js counts zero as positive, so create bill let a zero total through. Both creates now refuse a total that isn't more than zero. // DECISION |
+| Summaries | A stored amount like `1125.0000` read `1125.` in summaries; it now reads `1125.00` (core template). // DECISION |
+| Permissions | Manifest entities gain `account` (read), `class` (read) and `purchase_order` (read, create); `vendor` gains create. The matrix, grants, the catalog and publish-time `entity_off` know them from the manifest. Both writes wait for approval unless the connection's create is `auto`, the step is `not_required` and the agent acts (invariant 8). |
+| Fake | Serves Class, Term and PurchaseOrder from new fixtures, creates vendors (unique names across vendors and customers) and purchase orders (open, total from the lines), and refuses lines whose class or customer the company doesn't have. |
+| Not built | Linking a bill to the purchase order it receives, closing an order, sending it to the vendor, and reading the company's class-tracking setting (NOTES.md). |
+| Files | `packages/connectors/src/qbo/{ingredients,purchase-order}.ts` (new), P-2 blocks in `tool-kit.ts`, `records.ts`, `display.ts`, `fake.ts`, `index.ts`, `tools.ts`, `bill-create.ts`; `packages/core/src/schemas/tool-display.ts` (`tags`), `packages/core/src/template/template.ts` (one line); `apps/web/src/inbox/{change.ts,ChangePanel.tsx}` (tags), `apps/web/src/runs/labels.ts`; fixtures; tests. |
+
+### 1.65 Attachments both ways (P-3, M36; no migration)
+
+Ingredients for agents the owner builds in the Agent lab, such as a purchasing agent that emails a
+vendor a purchase order PDF and reads the quote PDF that comes back. Platform and connector pieces
+only: no agent, template or workflow. Built on `claude/p3-attachments` against the fakes. Facts we
+couldn't check are in each connector's `NOTES.md` (resend, gmail, outlook, twilio, whatsapp_meta).
+Hot-spot edits are blocks marked `// P-3`.
+
+| Topic | Decision |
+|---|---|
+| What can go | `attachments: [{documentId}]` on `email.send`, `gmail.send`, `outlook.send`, `sms.send` and `whatsapp.send` (both providers): stored documents of the call's own client, PDFs and images only, at most five, each once (core's `OutboundAttachments`). The name and type come from the document record, never the input. // DECISION |
+| Read for one send | The tool reads each file through `ctx.services.documents` (apps/api's `dbDocumentServices`, inside `withTenant` for the connection's client), so another client's id reads as unknown and is refused (`not_found`, the same answer as an unknown id). The bytes are read for that send only, and checked against the record's type (magic bytes): a mismatch is refused. Nothing is started or sent before the checks pass. // DECISION |
+| Size per provider | The files' total, as stored: Resend 29 MB (40 MB after base64), Gmail 18 MB (25 MB a message after base64), Outlook 3 MB (Graph's 4 MB request; larger files need an upload session on a draft and `Mail.ReadWrite`, which we don't ask for), MMS 5 MB, WhatsApp one file (Twilio 16 MB; Meta images 5 MB, documents 100 MB, a caption 1024 characters). A refusal names the limit in plain words (`AttachmentRefusedError`). // DECISION |
+| Gmail's MIME | `multipart/mixed` built in `gmail/mime.ts`: the text first, then each file `Content-Disposition: attachment`, everything base64 in 76-character lines, so the message stays 7-bit ASCII. The boundary starts `=_` (never in base64) and comes from the Message-ID. A plain ASCII name is quoted; any other as RFC 2231 `filename*=UTF-8''…` beside an RFC 2047 `name`. Quotes, backslashes and line breaks never reach a header; the type must be `type/subtype`. With files, the message goes as media to Gmail's upload URI (`message/rfc822`, up to 35 MB); without, as JSON `raw` as before. // DECISION |
+| Outlook's shape | Graph's `fileAttachment` in `message.attachments` of `sendMail`: `@odata.type`, `name`, `contentType`, `contentBytes` (base64). // DECISION |
+| Texts and WhatsApp | Twilio fetches each file from a 5-minute signed link (`MediaUrl`, repeated; the Worker's `/api/files/:token` or R2's presigned link, `SIGNED_URL_TTL_SECONDS`). Meta gets one file by `link` (a PDF as `document` with its file name, JPEG and PNG as `image`), the text as its caption: not Meta's media upload, since the connector's HTTP interface carries text bodies only (upload is the fallback if links prove unreliable). A WhatsApp template (outside the 24-hour window) carries no file, so that send is refused. Links are made in the tool for the one send and never stored. // DECISION |
+| Approval and records | The before state lists the files by name, type and size (`attachments` on each send's before schema), so the approval card shows them and `external_action.before` keeps them; the input keeps the ids and the output the same list. The thread line adds "Attached: PO-1042.pdf (12 KB)". Card-number redaction, consent, quiet hours, once-only sends and approval are unchanged. // DECISION |
+| Reach out | `ReachOutInput.attachments`: document ids from the step's own input (a fixed id, or an earlier step's output through a template), never written by a model. Checked when the plan is made (this client's, PDF or image; else `not_allowed` with the reason, nothing planned or sent), kept on the plan with names and sizes, shown on the plan's approval card, and sent with each attempt. // DECISION |
+| A channel that can't carry them | Left out of the plan with the reason "can't carry the attachments" (core's `cannot_carry_attachments` block): a call carries none, WhatsApp one, email and MMS five. Never sent without the files, and never with a line naming files the person didn't get. None left: `not_allowed`, nothing sent. A WhatsApp message composed for a file is at most 1000 characters (Meta's caption). // DECISION |
+| Email replies | `receiveReachOutReply` keeps the reply as a raw record (`ReachOutReply` on the client's upload connection, one per reach-out: headers, the reply's own words, each attachment's outcome) and its PDFs and images as `document(source='email')` with that raw record as their origin (`meta.rawRecordId`, `reachOutId`), in the reply's transaction. Then `document.received` is dispatched and the new documents read in the background, like forwarded mail. Checks as forwarded mail: types, inline images left out, magic bytes, 32 MB per document, at most 10 per reply. The reply's text is redacted for card numbers. A second delivery finds the reach-out ended and keeps nothing. // DECISION |
+| Text and WhatsApp replies | The webhook (Twilio's and Meta's) starts capture's job for a message whose sender has an open reach-out (reason `reply`): its PDFs and images only, at the conversation's size limit (20 MB by default), fetched as capture fetches (Twilio's origin and redirect list, Meta's two-step download), filed once per media (`MessageMedia`), `source: 'message'`, the message's raw record as origin, read in the background. A text (MMS) has no conversation; its files are `mms-<sid>-<index>.<ext>`. // DECISION |
+| Whatever the capture setting | A reply's PDFs and images are fetched even where the conversation keeps no attachments: the operator's reach-out asked this person for an answer. Nothing else of the setting changes, and other messages from them stay as the setting says. // DECISION |
+| The reply waits for its files | A text or WhatsApp reply ends the reach-out as `replied` at once (escalation and the timeout stop), with `reply.pending` while a file has no outcome. The step waits on the same event; the reply's job, the step and the minute cron each settle it once every file has an outcome; after 15 minutes (`REPLY_MEDIA_WAIT_MS`) it is settled with what was filed and the rest counted as `not_fetched`. The cron doesn't re-wake a pending reply's run. // DECISION |
+| The step's output | `ReachReply.documents`: the reply's documents' ids, for later steps (an empty list on replies stored before). `ReachReply.refused`: each attachment not kept, by type and reason (`type_not_allowed`, `too_large`, `type_mismatch`, `inline_image`, `too_many`, `not_fetched`): counted, never dropped silently. Text and files stay data (invariant 9): a document is read with `docs.*`. // DECISION |
+| Compliance | No new vendor: Resend, Google, Microsoft, Twilio and Meta already carry the messages these files go with. |
+| Not built | Files larger than Outlook's 3 MB (upload sessions). Meta's media upload. Media templates on WhatsApp. Attachments on a call. A reply's other types (audio, office files) as documents. Screens: the approval card shows `attachments` as it shows any before state; the owner's redesign gives them their own row. |
 
 ### 1.66 Conversations (P-4, M37; no migration; ARCHITECTURE §10.12)
 
@@ -2301,6 +2364,79 @@ if it has one.
 document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
 retried webhook makes nothing twice; the client admin toggles it and the change is logged.
 
+### M34: The Purchasing area (P-1, §1.63)
+
+Three PRs in order: the docs (`claude/p1-business-areas-docs`); migration 0032 alone
+(`claude/p1-materials-migration`); then the pack (`claude/p1-materials`).
+
+Work: the pack's schema, catalog (normalise, category parsers, key attributes), matching (alias,
+candidates, the model's choice, the hard-rule veto), pricing (observations, standard units, the six
+alert rules), its tools, skills and events registered by `apps/api`; enabling for a client (no templates); the
+packs routes; Price watch, Catalog, the match review card and the
+back office's catalog merge, fitted to today's screens; `docs/operations.md` "Switching on the
+Purchasing area".
+
+Tests: the golden matching set (`fixtures/matching`, ≥ 95% precision on "same" at the auto
+threshold); a key attribute that differs is never matched; prices are never compared across units
+without a conversion; aliases learned from a person's decision; one client's catalog never seen by
+another (RLS and the routes); no portal answer carries a bundle, prompt or cost; the migration
+loops; the branch's done-when test (every invoice line settled by the rules, all six priced).
+
+**Done when**, on staging, the pack is enabled for the Sandbox; three invoices from different vendors
+for the same sheet good are matched to one catalog item (the second and third by alias or rules, not
+the model); Price watch shows that item's price per vendor and date; and the golden set passes.
+
+### M35: QuickBooks ingredients (P-2, §1.64)
+
+One PR (`claude/p2-qbo-ingredients`), no migration.
+
+Work: `qbo.account.query`, `qbo.class.query`, `qbo.purchaseorder.query`; class, customer and
+billable on `NewLine` for every tool that takes it, with names in the before state and `tags` on
+the card; `qbo.vendor.create` and `qbo.purchaseorder.create` behind approval; the manifest's
+entities; the fake's classes, terms, purchase orders and creates; tool labels; `NOTES.md`.
+
+Tests (against the fake QuickBooks): each read's filters and paging; class and customer sent,
+named and read back, refused when unknown or inactive, billable only with a customer, inherited
+unless a line names its own; vendor and purchase order inputs validated, duplicates refused when
+proposed and again before writing, a retry writing nothing twice, totals checked, before states;
+the gate per entity (a write waits unless the matrix, the step and the mode allow it; an entity
+off refuses it and leaves the others); through the API, a vendor and an order for it each written
+once after approval, an order on its own with create on `auto`, and refused when purchase orders
+are off.
+
+**Done when** an agent can list the chart of accounts and the classes, add a vendor and order from
+it in one run with each write approved and written once, code a bill line to a class and a
+billable job, and a duplicate vendor or order number is refused before anyone is asked.
+
+### M36: Attachments both ways (P-3, §1.65)
+
+One PR (`claude/p3-attachments`), no migration: documents, raw records and the reach-out's reply
+already hold everything.
+
+Work: core's outbound attachment schema, per-channel limits and `cannot_carry_attachments`;
+`ReachOutInput.attachments` and `ReachReply.documents`/`refused`/`pending`; the connectors'
+attachment checks (`describeOutbound`, `loadOutbound`, `linkOutbound`) and `DocumentServices`'
+`describe` and `signedUrl`; Gmail's multipart MIME and upload send; Graph's `fileAttachment`;
+Resend's base64 `attachments`; Twilio's repeated `MediaUrl`; Meta's media by link; the plan's
+attachments, approval card and attempts; the email reply's raw record and documents; the reply job
+on Twilio's and Meta's webhooks (capture's fetch, reason `reply`); settling a pending reply in the
+job, the step and the cron; `NOTES.md` for each connector.
+
+Tests (against the fakes): another client's document refused at the tool and at the plan; type,
+count, size and magic-byte refusals; the MIME parts read back by a real parser and a header that
+can't be broken by a file name; Graph's shape and Outlook's 3 MB limit; Resend's body; Meta's
+message and its limits; MMS and WhatsApp `MediaUrl` signed links that serve the file and expire
+after five minutes; the plan leaving out a call and, for two files, WhatsApp; an email reply's PDF
+filed, read and linked to the reply's raw record, its zip refused and counted, a second delivery
+keeping nothing; a text reply's photo and a WhatsApp reply's PDF filed (the chat keeping no
+attachments), a retried webhook making nothing twice; a pending reply settled by the cron after the
+wait; the step output carrying the ids; the portal's answers with no link, bundle or cost.
+
+**Done when** a reach-out emails a purchase order PDF from the step's input after one approval
+that names it, the vendor's reply PDF becomes a document of that client, read in the background
+and linked to the reply, and the next step gets its id; the same works by text and WhatsApp; a
+document of another client is never sent.
+
 ---
 
 ### M37: Conversations (P-4, §1.66)
@@ -2489,6 +2625,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0029 | W2-I | `oversight_decision` (ARCHITECTURE §5.6, v0.13) |
 | 0030 | W3-A | `builder_session`, `builder_turn` |
 | 0031 | v0.14 capture (M33) | `conversation`, `conversation_change`; `document_source_check` + `message` (ARCHITECTURE §5.5, plan §1.55) |
+| 0032 | P-1 (M34, §1.63) | `catalog_item`, `item_alias`, `item_match`, `price_observation`, `alert` (ARCHITECTURE §12.2, §5.2) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -2499,7 +2636,7 @@ from 0030 to 0031.
 
 // DECISION (v0.14, 2026-11-06): 0031 is WhatsApp capture's, replacing the W3-B spare. W3-B built
 Drive and Outlook with no migration, and the bank-feed connector being built in parallel needs none.
-A later connector that needs a table takes 0032.
+A later connector that needs a table takes the next free number (0032 went to P-1, 2026-11-07).
 
 The exports (data export and accountant export, running outside the waves) needed no migration.
 
@@ -2532,9 +2669,10 @@ The exports (data export and accountant export, running outside the waves) neede
 | W3-B | New connectors: Drive, Outlook, then Ramp, HubSpot (M29) | none | `packages/connectors/src/{gdrive,outlook,ramp,hubspot}/`, one line each in `apps/api/src/platform.ts` | W2-A (entities) |
 | **v0.14** | | | | |
 | v0.14 capture | WhatsApp passive capture (M33, §1.55): design, migration, build as three PRs | 0031 | `packages/connectors/src/twilio/` inbound media pieces, `apps/api/src/conversations/`, `apps/api/src/routes/conversations.ts`, `core/src/api/conversations.ts`, `core/src/schemas/conversation.ts`; blocks marked `// v0.14 capture` in the hot spots | W2-E (inbound routing), W1-H (background reading) |
+| P-1 | The Purchasing area: the Materials pack ported (M34, §1.63): docs, migration, pack as three PRs | 0032 | `packs/materials/*`, `fixtures/matching/*`, the pack's registration in `apps/api/src/platform.ts` and `apps/api/src/routes/packs.ts`, `core/src/api/packs.ts`, `apps/web/src/packs/materials/*` (portal reports agreed with the UI session) | Wave 4 merged |
 | **Wave 4** (owner, 2026-11-06; after Wave 3) | | | | |
 | W4-A | WhatsApp through Meta (`whatsapp_meta`, §1.19) | none expected | `packages/connectors/src/whatsapp_meta/`, its webhook route, one line in `apps/api/src/platform.ts` | M33 (WhatsApp passive capture: `conversation`, media download) |
-| W4-B | Follow-ups from Waves 1–3 | none expected (0032 spare) | each item's own files, small marked blocks elsewhere | — |
+| W4-B | Follow-ups from Waves 1–3 | none expected (the next free number; 0032 went to P-1) | each item's own files, small marked blocks elsewhere | — |
 | W4-C | Slack (ARCHITECTURE §6.11, row 6; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/slack/`, one line in `apps/api/src/platform.ts` | W2-A (entities) |
 | W4-D | Google Sheets (ARCHITECTURE §6.11, row 7) | none expected | `packages/connectors/src/gsheets/`, one line in `apps/api/src/platform.ts` | W3-B's Drive (shared Google client) |
 | W4-E | Google Chat (ARCHITECTURE §6.11, row 8; the owner asked, 2026-11-06) | none expected | `packages/connectors/src/gchat/`, its interaction route, one line in `apps/api/src/platform.ts` | W4-C's pattern (Slack) |
@@ -2673,7 +2811,7 @@ build); the build against the fake Twilio, extended with media. Stay out of the 
 and `platform.ts`. Done when M33's check holds.
 
 **Wave 4 (owner, 2026-11-06).** Plan §8 had no Wave 4; the owner added it. Migrations: 0031 belongs to
-WhatsApp passive capture (M33, §1.55); 0032 is Wave 4's spare. The bank and card feed (W3-B's row 5,
+WhatsApp passive capture (M33, §1.55); 0032 was Wave 4's spare and went to P-1 (2026-11-07: drizzle-kit numbers by journal position, which the journal test checks), so the gchat lock follow-up takes 0033. The bank and card feed (W3-B's row 5,
 vendor Plaid, owner 2026-11-06) is being built alongside and is not a Wave 4 stream.
 
 **W4-A: WhatsApp through Meta (§1.19).** The `whatsapp_meta` connector: the client connects its own

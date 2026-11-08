@@ -209,7 +209,8 @@ export function renderSummary(
 
 /** A stored amount ("9742.3500") reads with two places when the rest are zeros ("9742.35"). */
 function summaryValue(v: unknown): string {
-  if (typeof v === "string" && /^-?\d+\.\d{2}0+$/.test(v)) return v.replace(/0+$/, "");
+  // P-2: the two places stay when they are zeros too ("1125.0000" reads "1125.00", not "1125.").
+  if (typeof v === "string" && /^-?\d+\.\d{2}0+$/.test(v)) return v.replace(/(\.\d{2})0+$/, "$1");
   return stringify(v);
 }
 

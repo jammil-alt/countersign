@@ -16,6 +16,14 @@ import {
   trimTrailingSlashes,
 } from "@countersign/core";
 import { z } from "zod";
+// P-3: attachments both ways
+import {
+  type AttachmentLimits,
+  attachmentLine,
+  describeOutbound,
+  linkOutbound,
+  summaries,
+} from "../attachments";
 import {
   type Connector,
   defineConnector,
@@ -710,6 +718,21 @@ async function reconcile(
   };
 }
 
+// P-3: what one Twilio message carries (NOTES.md, to verify): an MMS up to 5 MB in all (we send
+// at most five files); a WhatsApp message one file of up to 16 MB, the text as its caption.
+export const TWILIO_MMS_LIMITS: AttachmentLimits = {
+  provider: "Texts (MMS)",
+  maxCount: 5,
+  maxTotalBytes: 5 * 1024 * 1024,
+};
+export const TWILIO_WHATSAPP_LIMITS: AttachmentLimits = {
+  provider: "WhatsApp",
+  maxCount: 1,
+  maxTotalBytes: 16 * 1024 * 1024,
+};
+const limitsFor = (channel: MessagingChannel) =>
+  channel === "whatsapp" ? TWILIO_WHATSAPP_LIMITS : TWILIO_MMS_LIMITS;
+
 async function send(
   fetch: FetchLike,
   ctx: WriteContext,
@@ -718,6 +741,8 @@ async function send(
     to: string;
     text?: string | undefined;
     template?: { id: string; variables: Record<string, string> } | undefined;
+    // P-3
+    attachments?: { documentId: string }[] | undefined;
   },
 ): Promise<z.input<typeof SendOutput>> {
   const services = messaging(ctx);
@@ -761,7 +786,19 @@ async function send(
   } else {
     form.Body = input.text ?? "";
   }
-  const text = useTemplate ? `template ${input.template?.id ?? ""}` : (input.text ?? "");
+  // P-3: each file as a MediaUrl Twilio fetches within the link's five minutes; with a template
+  // (outside WhatsApp's window) no file can go, so the send is refused rather than sent without.
+  if (useTemplate && input.attachments?.length) {
+    throw new SendBlockedError(
+      "outside_window",
+      "outside the 24-hour window only an approved template can go, and it can't carry the attachments",
+    );
+  }
+  const media = await linkOutbound(ctx, input.attachments, limitsFor(input.channel));
+  const attached = attachmentLine(media);
+  const text = useTemplate
+    ? `template ${input.template?.id ?? ""}`
+    : [input.text ?? "", attached].filter(Boolean).join("\n\n");
   const templateId = useTemplate ? (input.template?.id ?? null) : null;
   // DECISION: at most once. Twilio's message create takes no idempotency key (NOTES.md), so the
   // attempt is recorded, with its time, before Twilio is called. A re-run that finds an attempt
@@ -784,6 +821,7 @@ async function send(
   const created = MessageCreated.parse(
     await twilioRequest(fetch, auth, "POST", `${accountUrl(auth.accountSid)}/Messages.json`, {
       form,
+      ...(media.length ? { repeated: { name: "MediaUrl", values: media.map((m) => m.url) } } : {}),
     }),
   );
   const status = created.status ?? "queued";
@@ -810,6 +848,7 @@ async function send(
     contactName: contact.name,
     template: useTemplate,
     usage: { messages: 1 },
+    ...(media.length ? { attachments: summaries(media) } : {}),
   };
 }
 
@@ -828,6 +867,7 @@ const before = async (
   ctx: ToolContext,
   channel: MessagingChannel,
   to: string,
+  attachments?: { documentId: string }[],
 ): Promise<z.input<typeof SendBefore>> => {
   // Executing (executeWrite passes the action's key; drawing the approval card has none): a
   // message already sent or started under the key is described as it was, without the checks, as
@@ -845,7 +885,14 @@ const before = async (
     }
   }
   const { contact } = await checkSend(ctx, channel, to, { forSending: false });
-  return { contact: { id: contact.id, name: contact.name }, channel, to };
+  // P-3: the files by name and size, checked as the send will check them.
+  const files = await describeOutbound(ctx, attachments, limitsFor(channel));
+  return {
+    contact: { id: contact.id, name: contact.name },
+    channel,
+    to,
+    ...(files.length ? { attachments: files } : {}),
+  };
 };
 
 /** The Twilio connector. `fetch` is injected (tests answer from a fake Twilio). */
@@ -942,9 +989,14 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
         input: SmsSendInput,
         output: SendOutput,
         beforeSchema: SendBefore,
-        before: (input, ctx) => before(ctx, "sms", input.to),
+        before: (input, ctx) => before(ctx, "sms", input.to, input.attachments),
         run: (input, ctx) =>
-          send(doFetch(), ctx, { channel: "sms", to: input.to, text: input.text }),
+          send(doFetch(), ctx, {
+            channel: "sms",
+            to: input.to,
+            text: input.text,
+            attachments: input.attachments,
+          }),
       }),
       defineWriteTool({
         id: WHATSAPP_SEND_TOOL,
@@ -957,13 +1009,14 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
         input: WhatsAppSendInput,
         output: SendOutput,
         beforeSchema: SendBefore,
-        before: (input, ctx) => before(ctx, "whatsapp", input.to),
+        before: (input, ctx) => before(ctx, "whatsapp", input.to, input.attachments),
         run: (input, ctx) =>
           send(doFetch(), ctx, {
             channel: "whatsapp",
             to: input.to,
             text: input.text,
             template: input.template,
+            attachments: input.attachments,
           }),
       }),
       // Calls (docs/plan.md §1.23): placed and answered on the client's number, voice agent by

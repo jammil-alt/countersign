@@ -287,6 +287,8 @@ export function runtimeFor(
       ),
       db,
       deps.documents?.content,
+      // P-3: 5-minute links for the files Twilio and Meta fetch (docs/plan.md §1.65).
+      deps.documents?.signer ?? null,
     ),
   };
 }
@@ -296,12 +298,13 @@ function withDocuments(
   base: NonNullable<RuntimeDeps["services"]>,
   db: Db,
   content: ContentStore | undefined,
+  signer: UrlSigner | null = null,
 ): NonNullable<RuntimeDeps["services"]> {
   // v0.12 W1-F: what QuickBooks sync stored (duplicate bills, receivable ids), for the qbo tools.
   if (!content) return (conn) => ({ ...base(conn), records: dbSyncedRecords(db, conn) });
   return (conn) => ({
     ...base(conn),
-    documents: dbDocumentServices(db, conn, content),
+    documents: dbDocumentServices(db, conn, content, signer),
     records: dbSyncedRecords(db, conn),
   });
 }

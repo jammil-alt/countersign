@@ -6,7 +6,10 @@
 // uses either as an agent's email channel. Unchecked facts about Google: ./NOTES.md.
 
 import type { JsonObject } from "@countersign/core";
+// P-3: attachments both ways
+import { AttachmentSummary } from "@countersign/core";
 import { z } from "zod";
+import { type AttachmentLimits, describeOutbound, loadOutbound, summaries } from "../attachments";
 import {
   type ConnectionContext,
   type Connector,
@@ -40,6 +43,16 @@ export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 export const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
+// P-3: a message with attachments goes as media (`message/rfc822`) to the upload URI, which takes
+// up to 35 MB; the JSON `raw` body is for plain text (NOTES.md: both to verify).
+export const GMAIL_UPLOAD_SEND_URL =
+  "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media";
+/** Gmail's 25 MB per message, after base64 (4/3): 18 MB of files leaves room for the rest. */
+export const GMAIL_ATTACHMENT_LIMITS: AttachmentLimits = {
+  provider: "Gmail",
+  maxCount: 5,
+  maxTotalBytes: 18 * 1024 * 1024,
+};
 
 /** The one Gmail scope we ask for: send only (a sensitive scope, no CASA). */
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
@@ -139,6 +152,9 @@ export const GmailSendBefore = z.object({
   replyTo: z.string().nullable(),
   subject: z.string(),
   text: z.string(),
+  // P-3
+  /** The attachments by name and size. */
+  attachments: z.array(AttachmentSummary).optional(),
 });
 
 export interface GmailOptions {
@@ -272,21 +288,35 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
   async function send(
     ctx: ConnectionContext,
     raw: string,
+    // P-3: with attachments, the message itself (ASCII: every part is base64) to the upload URI.
+    media?: string,
   ): Promise<{ id: string; threadId: string | null }> {
     const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
     const res = await tokens.withAccessToken(
       (token) =>
-        doFetch()(`${GMAIL_API}/users/me/messages/send`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-            accept: "application/json",
-          },
-          body: JSON.stringify({ raw }),
-          redirect: "manual",
-          signal: timeoutSignal(30_000),
-        }),
+        media === undefined
+          ? doFetch()(`${GMAIL_API}/users/me/messages/send`, {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${token}`,
+                "content-type": "application/json",
+                accept: "application/json",
+              },
+              body: JSON.stringify({ raw }),
+              redirect: "manual",
+              signal: timeoutSignal(30_000),
+            })
+          : doFetch()(GMAIL_UPLOAD_SEND_URL, {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${token}`,
+                "content-type": "message/rfc822",
+                accept: "application/json",
+              },
+              body: media,
+              redirect: "manual",
+              signal: timeoutSignal(60_000),
+            }),
       (r) => r.status === 401,
     );
     const text = await res.text();
@@ -444,6 +474,11 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
           if (!check.ok || !check.contact) {
             throw new EmailBlockedError(check.message ?? "this contact can't be emailed");
           }
+          const attachments = await describeOutbound(
+            ctx,
+            input.attachments,
+            GMAIL_ATTACHMENT_LIMITS,
+          );
           return {
             contact: check.contact,
             to: input.to,
@@ -451,6 +486,7 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
             replyTo: await replyToFor(services, input.replyTag),
             subject: input.subject,
             text: input.text,
+            ...(attachments.length ? { attachments } : {}),
           };
         },
         async run(input, ctx) {
@@ -482,17 +518,19 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
           const from = await senderOf(ctx);
           const replyTo = await replyToFor(services, input.replyTag);
           const messageId = messageIdFor(ctx.idempotencyKey, from);
-          const raw = gmailRaw(
-            buildPlainMessage({
-              from: { address: from },
-              to: input.to,
-              replyTo,
-              subject: input.subject,
-              text: input.text,
-              messageId,
-              date: ctx.now(),
-            }),
-          );
+          // P-3: read from storage for this one send; refused before anything is started.
+          const files = await loadOutbound(ctx, input.attachments, GMAIL_ATTACHMENT_LIMITS);
+          const mime = buildPlainMessage({
+            from: { address: from },
+            to: input.to,
+            replyTo,
+            subject: input.subject,
+            text: input.text,
+            messageId,
+            date: ctx.now(),
+            ...(files.length ? { attachments: files } : {}),
+          });
+          const raw = files.length ? "" : gmailRaw(mime);
           await services.startAttempt?.({
             idempotencyKey: ctx.idempotencyKey,
             connectionId: ctx.connection.id,
@@ -503,7 +541,7 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
             subject: input.subject,
             startedAt: ctx.now(),
           });
-          const res = await send(ctx, raw);
+          const res = await send(ctx, raw, files.length ? mime : undefined);
           const output: GmailSendOutput = {
             id: res.id,
             threadId: res.threadId,
@@ -512,6 +550,7 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
             replyTo,
             contactName: check.contact.name,
             messageId,
+            ...(files.length ? { attachments: summaries(files) } : {}),
           };
           await services.recordOutbound({
             connectionId: ctx.connection.id,
