@@ -3,7 +3,10 @@
 import type { ReactNode } from "react";
 import type { ResolveInput } from "../inbox/InboxCard";
 import { MatchReview } from "./materials/MatchReview";
-import { MATCH_REVIEW } from "./materials/types";
+// P-9: the Purchasing area's cards (docs/plan.md §1.71)
+import { RequestLinesReview } from "./materials/RequestLinesReview";
+import { MATCH_REVIEW, REQUEST_LINES_REVIEW, VENDOR_CHOICE_REVIEW } from "./materials/types";
+import { VendorChoiceReview } from "./materials/VendorChoiceReview";
 
 interface ReviewCardProps {
   itemId: string;
@@ -14,6 +17,9 @@ interface ReviewCardProps {
 
 const CARDS: Record<string, (props: ReviewCardProps) => ReactNode> = {
   [MATCH_REVIEW]: (p) => <MatchReview {...p} />,
+  // P-9
+  [REQUEST_LINES_REVIEW]: (p) => <RequestLinesReview {...p} />,
+  [VENDOR_CHOICE_REVIEW]: (p) => <VendorChoiceReview {...p} />,
 };
 
 /** The pack card for an item's payload, or null for a plain item. */

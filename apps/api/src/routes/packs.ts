@@ -129,6 +129,22 @@ async function reportResponse(
   return { report: await handler.json(tx, tenantId, today()) };
 }
 
+// P-9: one row of a report in full; a report without items answers 404.
+async function reportItem(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+  packId: string,
+  name: string,
+  itemId: string,
+) {
+  const handler = await reportHandler(tx, services, tenantId, packId, name);
+  if (!handler.item) throw notFound("report item");
+  const found = await handler.item(tx, tenantId, itemId, today());
+  if (!found) throw notFound("report item");
+  return { report: found };
+}
+
 // P-1: the CSV through mountFile, as the exports send theirs (main's file routes).
 async function reportCsv(
   tx: Tx,
@@ -292,6 +308,13 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     return reportResponse(ctx.tx, ctx.services, ctx.params.id, ctx.params.pack, ctx.params.report);
   });
 
+  // P-9
+  mount(app, routes.opsClientPackReportItem, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    const { tx, services, params } = ctx;
+    return reportItem(tx, services, params.id, params.pack, params.report, params.itemId);
+  });
+
   mountFile(app, routes.opsClientPackReportCsv, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
     return reportCsv(ctx.tx, ctx.services, ctx.params.id, ctx.params.pack, ctx.params.report);
@@ -349,6 +372,11 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalPacks, async ({ tx, tenantIds, services }) => ({
     packs: (await clientPacks(tx, services, tenantIds[0] as string)).filter((p) => p.enabled),
   }));
+
+  // P-9
+  mount(app, routes.portalPackReportItem, async ({ tx, tenantIds, params, services }) =>
+    reportItem(tx, services, tenantIds[0] as string, params.pack, params.report, params.itemId),
+  );
 
   mount(app, routes.portalPackReport, async ({ tx, tenantIds, params, services }) =>
     reportResponse(tx, services, tenantIds[0] as string, params.pack, params.report),

@@ -45,6 +45,7 @@ import {
   updateLines,
   updateRequest,
 } from "./requests";
+import { chosenQuote } from "./reviews";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -1140,6 +1141,40 @@ export const poQboLinesTool = defineTool({
   },
 });
 
+// ── P-9: the person's choice of vendor (docs/plan.md §1.71) ─────────────────────────────────────
+
+export const quoteChosen = defineTool({
+  id: "materials.quote.chosen",
+  description:
+    "The vendor a person picked for a purchase request on the vendor choice card: one quote (quoteRequestId), or a split (each vendor's quote and its lines). Refused when nobody has picked yet. Reads only.",
+  sideEffect: "none",
+  summary: "The vendor you picked: {{kind}}",
+  input: z.object({ requestId: z.uuid() }),
+  output: z.object({
+    kind: z.enum(["single", "split"]),
+    quoteRequestId: z.string().nullable(),
+    split: z.array(z.object({ quoteRequestId: z.string(), requestLineIds: z.array(z.string()) })),
+    at: z.string(),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const c = await withTenant(ctx.db, ctx.tenantId, (tx) =>
+      chosenQuote(tx, ctx.tenantId, input.requestId),
+    );
+    return {
+      kind: c.kind,
+      quoteRequestId: c.quoteRequestId,
+      split: c.split,
+      at: c.at,
+      sources: [
+        input.requestId,
+        ...(c.quoteRequestId ? [c.quoteRequestId] : []),
+        ...c.split.map((x) => x.quoteRequestId),
+      ],
+    };
+  },
+});
+
 export const PURCHASING_TOOLS: readonly PackTool[] = [
   requestCreate,
   requestGet,
@@ -1164,6 +1199,7 @@ export const PURCHASING_TOOLS: readonly PackTool[] = [
   quoteDocument,
   vendorQboTool,
   poQboLinesTool,
+  quoteChosen,
 ];
 
 /** The task skills' structured outputs, shared with the manifest. */

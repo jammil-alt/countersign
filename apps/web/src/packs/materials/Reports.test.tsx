@@ -480,10 +480,16 @@ describe("pack pages", () => {
     expect(reports.map((r) => [EN.t(r.titleKey), packReportPath(r)])).toEqual([
       ["Price watch", "/reports/materials/prices"],
       ["Catalog", "/reports/materials/catalog"],
+      // P-9
+      ["Purchase requests", "/reports/materials/requests"],
     ]);
     // Titles and descriptions are message keys, so the portal reads them in the client's language.
     const de = createI18n("de");
-    expect(reports.map((r) => de.t(r.titleKey))).toEqual(["Preisbeobachtung", "Katalog"]);
+    expect(reports.map((r) => de.t(r.titleKey))).toEqual([
+      "Preisbeobachtung",
+      "Katalog",
+      "Bestellanfragen",
+    ]);
     expect(de.t("materials.catalog.description")).toMatch(/Lieferant/);
     expect(packReportsFor([])).toEqual([]);
   });

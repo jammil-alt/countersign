@@ -9,12 +9,29 @@ import { decideLine } from "./catalog/match";
 import { mergeItems } from "./catalog/merge";
 import { backfillFromBills } from "./purchasing/backfill";
 import { requestsCsv, requestsReport } from "./purchasing/report";
+// P-9
+import {
+  decideRequestLine,
+  decideVendorChoice,
+  REQUEST_LINES_REVIEW,
+  requestLinesView,
+  requestPage,
+  VENDOR_CHOICE_REVIEW,
+  vendorChoiceView,
+} from "./purchasing/reviews";
 import { catalogCsv, catalogReport, priceWatch, priceWatchCsv, reviewLines } from "./reports";
 
 export interface PackReportHandler {
   title: string;
   json(tx: Tx, tenantId: string, today: string): Promise<Record<string, unknown>>;
   csv(tx: Tx, tenantId: string, today: string): Promise<string>;
+  /** P-9: one row in full (e.g. one purchase request); null when it isn't this client's. */
+  item?(
+    tx: Tx,
+    tenantId: string,
+    id: string,
+    today: string,
+  ): Promise<Record<string, unknown> | null>;
 }
 
 export const MATERIALS_REPORTS: Readonly<Record<string, PackReportHandler>> = {
@@ -33,6 +50,11 @@ export const MATERIALS_REPORTS: Readonly<Record<string, PackReportHandler>> = {
     title: "Purchase requests",
     json: async (tx, tenantId) => ({ ...(await requestsReport(tx, tenantId)) }),
     csv: async (tx, tenantId) => requestsCsv(await requestsReport(tx, tenantId)),
+    // P-9: one request's page (docs/plan.md §1.71).
+    item: async (tx, tenantId, id, today) => {
+      const page = await requestPage(tx, tenantId, id, today);
+      return page ? { request: page } : null;
+    },
   },
 };
 
@@ -123,6 +145,12 @@ export interface ReviewDecision {
   catalogItemId?: string | undefined;
 }
 
+/** P-9: another card's decision, checked by its own handler. */
+export interface CardDecision {
+  action: string;
+  input: Record<string, unknown>;
+}
+
 export interface PackReviewHandler {
   load(
     tx: Tx,
@@ -135,7 +163,7 @@ export interface PackReviewHandler {
       tenantId: string;
       userId: string;
       payload: Record<string, unknown>;
-      decision: ReviewDecision;
+      decision: ReviewDecision | CardDecision;
       testRun: boolean;
     },
   ): Promise<void>;
@@ -167,22 +195,48 @@ export const MATERIALS_REVIEWS: Readonly<Record<string, PackReviewHandler>> = {
       };
     },
     async decide(db, input) {
+      if (!("docLineId" in input.decision)) throw new ReviewError("decide a line of the review");
+      const decision = input.decision;
       const p = MatchReviewPayload.parse(input.payload);
-      if (!p.docLineIds.includes(input.decision.docLineId)) {
+      if (!p.docLineIds.includes(decision.docLineId)) {
         throw new ReviewError("that line isn't part of this review");
       }
-      if (input.decision.action === "skip") return;
-      if (input.decision.action === "match" && !input.decision.catalogItemId) {
+      if (decision.action === "skip") return;
+      if (decision.action === "match" && !decision.catalogItemId) {
         throw new ReviewError("say which catalog item the line is");
       }
       await decideLine(db, {
         tenantId: input.tenantId,
-        docLineId: input.decision.docLineId,
+        docLineId: decision.docLineId,
         userId: input.userId,
-        decision: input.decision.action === "match" ? "matched" : "new_item",
-        catalogItemId: input.decision.catalogItemId,
+        decision: decision.action === "match" ? "matched" : "new_item",
+        catalogItemId: decision.catalogItemId,
         testRun: input.testRun,
       });
     },
   },
+  // P-9: the request's unsure lines, and the choice of vendor (docs/plan.md §1.71).
+  [REQUEST_LINES_REVIEW]: {
+    load: (tx, tenantId, payload) => requestLinesView(tx, tenantId, payload),
+    decide: (db, input) => reviewError(() => decideRequestLine(db, input)),
+  },
+  [VENDOR_CHOICE_REVIEW]: {
+    load: (tx, tenantId, payload) => vendorChoiceView(tx, tenantId, payload),
+    decide: (db, input) => reviewError(() => decideVendorChoice(db, input)),
+  },
 };
+
+/** The pack's refusals and bad input as the card's 422. */
+async function reviewError(run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ReviewError(error.issues.map((i) => i.message).join("; "));
+    }
+    if (error instanceof Error && error.name === "PurchasingError") {
+      throw new ReviewError(error.message);
+    }
+    throw error;
+  }
+}

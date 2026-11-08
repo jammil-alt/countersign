@@ -273,6 +273,8 @@ export function PortalReportsScreen() {
     <Routes>
       <Route index element={<ActivityReportScreen />} />
       <Route path=":pack/:report" element={<PackReportScreen />} />
+      {/* P-9: one row of a pack report (a purchase request's page) */}
+      <Route path=":pack/:report/:id" element={<PackReportScreen />} />
     </Routes>
   );
 }
