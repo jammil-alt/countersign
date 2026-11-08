@@ -115,9 +115,9 @@ Plenary's §2 carries over unchanged, with these differences:
   Reads (`none`): `marketing.site.figures` (a period's totals, pages, sources, with small samples
   marked), `marketing.site.page` (one page in depth), `marketing.search.figures` (queries, pages,
   "close to page one", "losing ground", with the date the data runs to), `marketing.content.get`,
-  `marketing.forum.threads`. Internal: `marketing.content.draft` (a new draft version),
+  `marketing.forum.threads.unseen`. Internal: `marketing.content.draft` (a new draft version),
   `marketing.content.check` (the publish checks and the claims lint, pure),
-  `marketing.report.record`, `marketing.forum.draft`. External, behind approval and always signed:
+  `marketing.report.record`, `marketing.forum.thread.mark`, `marketing.forum.reply.draft`. External, behind approval and always signed:
   `website.publish` and `website.meta` on the `website` connection; `linkedin.post` later.
 - **Skills**: weekly site report, titles and descriptions, article draft (research then write),
   forum reply draft; each with its settings and test cases (§9.10).
@@ -380,14 +380,19 @@ migration: a schema change goes to the lead as a blocker.
 | Agent set | M47–M49 | `packs/marketing/src/agents/**` (skills, templates, `marketing.site.figures`, `marketing.site.page`, `marketing.report.record` and the figures check), `src/forum/**`; `packages/connectors/src/{hackernews,linkedin}/`; `apps/web/src/packs/marketing/ops/{Reports,Report,Forum}.tsx` | `apps/api/src/platform.ts` |
 | Clients | M50 | the portal's reports (`apps/web/src/packs/marketing/portal/`, registered in `apps/web/src/packs/registry.ts`), the snippet on a site's page, HIPAA refusal, processor wording drafts | `packs/marketing/src/measure/index.ts` `SCREENS` (with the screens builder's agreement) |
 
+As built (integrated on `claude/marketing-wave`): the content builder wrote the `website`
+connector and the platform's person-signed write (plan §1.76); the agent platform builder wrote
+`hackernews`, `linkedin` and `src/forum/**`'s tools and actions (plan §1.77). The agent set builds
+the skills, templates and screens on those.
+
 ### 11.3 Names
 
 **Tools.** Pack (`marketing.`): `site.figures`, `site.page` (none; agent set), `search.figures`
 (none; search), `content.get` (none), `content.check` (none, pure), `content.draft` (internal;
-content), `report.record` (internal; agent set), `forum.threads` (none), `forum.draft`
-(internal; agent set). Connectors: `website.publish`, `website.meta` (external, always signed;
-site); `hackernews.search`, `hackernews.thread` (none; agent set); `linkedin.post` (external,
-always signed; agent set, M49). Platform: `web.search`, `web.fetch` (none; agent platform).
+content), `report.record` (internal; agent set), `forum.threads.unseen` (none), `forum.thread.mark`
+and `forum.reply.draft` (internal; agent platform, plan §1.77). Connectors: `website.publish`, `website.meta` (external, always signed;
+content builder, plan §1.76); `hackernews.search`, `hackernews.thread` (none; agent platform);
+`linkedin.post` (external, always signed; agent platform, M49). Platform: `web.search`, `web.fetch` (none; agent platform).
 Search Console and Bing have no tools: their nightly sync fills the search tables.
 
 **Skills** (`marketing.`): `weekly-report`, `titles`, `article-draft`, `forum-reply`,
